@@ -35,6 +35,10 @@ pub use frame::{
 mod work;
 pub use work::{count, Operation, WorkCounts, WorkFrame, WorkRecorder};
 
+pub mod logging;
+pub use tracing;
+pub use tracing::{debug, error, info, trace, warn};
+
 /// Events kept in the global list. Past this the oldest are dropped, so a
 /// runaway trace keeps the newest window.
 pub const MAX_EVENTS: usize = 1 << 22;

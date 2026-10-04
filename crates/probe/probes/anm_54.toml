@@ -1,0 +1,259 @@
+name = "anm_54"
+load_order = [
+    "Skyrim.esm",
+    "Update.esm",
+    "Dawnguard.esm",
+    "HearthFires.esm",
+    "Dragonborn.esm",
+    "ccBGSSSE001-Fish.esm",
+    "ccBGSSSE025-AdvDSGS.esm",
+    "SoeProbe.esp",
+]
+timescale = 20.0
+tick_seconds = 0.01
+timeout_seconds = 15.0
+
+[forms.anchor_update]
+plugin = "Update.esm"
+object = 0x002ece
+kind = "form"
+
+[forms.anchor_dawnguard]
+plugin = "Dawnguard.esm"
+object = 0x00298c
+kind = "form"
+
+[forms.anchor_hearthfires]
+plugin = "HearthFires.esm"
+object = 0x008bd4
+kind = "form"
+
+[forms.anchor_dragonborn]
+plugin = "Dragonborn.esm"
+object = 0x01e2bb
+kind = "form"
+
+[forms.anchor_fish]
+plugin = "ccBGSSSE001-Fish.esm"
+object = 0x000f21
+kind = "form"
+
+[forms.anchor_saints]
+plugin = "ccBGSSSE025-AdvDSGS.esm"
+object = 0x21bd64
+kind = "form"
+
+[tolerances]
+real_seconds = 0.25
+game_seconds = 5.0
+timescale = 0.0
+[forms.player]
+plugin = "Skyrim.esm"
+object = 0x14
+kind = "player"
+
+[animation_graph]
+actor = "player"
+path = "meshes/actors/character/behaviors/1hm_behavior.hkx"
+
+[[steps]]
+id = "startup"
+op = "wait_real"
+seconds = 5.0
+
+[[steps]]
+id = "third_person"
+op = "third_person"
+
+[[steps]]
+id = "draw_weapon"
+op = "draw_weapon"
+actor = "player"
+
+[[steps]]
+id = "ready"
+op = "wait_real"
+seconds = 1.0
+
+[[steps]]
+id = "ready_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "local_wildcard_tie"
+op = "animation_batch"
+actor = "player"
+events = ["streamingQuery_attackStart"]
+
+[[steps]]
+id = "local_settle"
+op = "wait_real"
+seconds = 0.05
+
+[[steps]]
+id = "local_wildcard_result"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "local_reset"
+op = "animation_batch"
+actor = "player"
+events = ["attackStop"]
+
+[[steps]]
+id = "local_reset_settle"
+op = "wait_real"
+seconds = 0.3
+
+[[steps]]
+id = "local_reset_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "equal_priority_interrupt"
+op = "animation_batch"
+actor = "player"
+events = ["blockStart", "recoilStart"]
+
+[[steps]]
+id = "interrupt_settle"
+op = "wait_real"
+seconds = 0.05
+
+[[steps]]
+id = "equal_priority_result"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "interrupt_reset"
+op = "animation_batch"
+actor = "player"
+events = ["recoilStop"]
+
+[[steps]]
+id = "interrupt_reset_settle"
+op = "wait_real"
+seconds = 0.3
+
+[[steps]]
+id = "interrupt_reset_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "delayed_last_attack_enter_block"
+op = "animation_batch"
+actor = "player"
+events = ["blockStart"]
+
+[[steps]]
+id = "delayed_last_attack_block_settle"
+op = "wait_real"
+seconds = 0.2
+
+[[steps]]
+id = "delayed_last_attack"
+op = "animation_batch"
+actor = "player"
+ints = { iBlockState = 1 }
+events = ["InitiateWinEnd", "blockStop", "attackStart"]
+
+[[steps]]
+id = "delayed_last_attack_pending_settle"
+op = "wait_real"
+seconds = 0.01
+
+[[steps]]
+id = "delayed_last_attack_pending"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "delayed_last_attack_open"
+op = "animation_batch"
+actor = "player"
+events = ["InitiateWinBegin"]
+
+[[steps]]
+id = "delayed_last_attack_release_settle"
+op = "wait_real"
+seconds = 0.05
+
+[[steps]]
+id = "delayed_last_attack_result"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "delayed_last_attack_reset"
+op = "animation_batch"
+actor = "player"
+events = ["attackStop"]
+
+[[steps]]
+id = "delayed_last_attack_reset_settle"
+op = "wait_real"
+seconds = 0.3
+
+[[steps]]
+id = "delayed_last_attack_reset_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "delayed_last_stop_enter_block"
+op = "animation_batch"
+actor = "player"
+events = ["blockStart"]
+
+[[steps]]
+id = "delayed_last_stop_block_settle"
+op = "wait_real"
+seconds = 0.2
+
+[[steps]]
+id = "delayed_last_stop"
+op = "animation_batch"
+actor = "player"
+ints = { iBlockState = 1 }
+events = ["InitiateWinEnd", "attackStart", "blockStop"]
+
+[[steps]]
+id = "delayed_last_stop_pending_settle"
+op = "wait_real"
+seconds = 0.01
+
+[[steps]]
+id = "delayed_last_stop_pending"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "delayed_last_stop_open"
+op = "animation_batch"
+actor = "player"
+events = ["InitiateWinBegin"]
+
+[[steps]]
+id = "delayed_last_stop_release_settle"
+op = "wait_real"
+seconds = 0.05
+
+[[steps]]
+id = "delayed_last_stop_result"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"

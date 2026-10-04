@@ -13,6 +13,8 @@ thiserror = "2"
 soe-esm = { path = "../esm" }
 soe-game = { path = "../game" }
 soe-papyrus = { path = "../papyrus" }
+soe-hkx = { path = "../hkx" }
+soe-bsa = { path = "../bsa" }
 
 [dev-dependencies]
 tempfile = "3"

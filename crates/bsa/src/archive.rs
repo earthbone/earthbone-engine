@@ -198,6 +198,7 @@ impl std::fmt::Debug for Archive {
 impl Archive {
     pub fn open(path: &Path) -> Result<Self> {
         let _span = soe_trace::Span::new("bsa.archive_open", "bsa");
+        soe_trace::debug!(target: "bsa", system = "bsa", archive = %path.display(), "opening archive");
         let file = std::fs::File::open(path)?;
         let len = file.metadata()?.len();
         if len < 8 {

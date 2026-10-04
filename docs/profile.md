@@ -46,6 +46,9 @@ data-root order: the game's Data, each enabled mod directory, then `overwrite/`.
 later root shadows an earlier one file by file (`Loadout::find`). `settings.ini`
 carries `LocalSettings` (the profile holds its own three INIs) and `LocalSaves`
 (`profile/saves`). MO2 publishes no format, this follows what `profile.cpp` writes.
+`Loadout::ini_dir` retains the directory of the resolved user INIs, or `None`
+when the profile has none. The Godot data source passes that directory and the
+resolved settings to Game so Papyrus file logging follows the profile.
 
 ## Packaging
 

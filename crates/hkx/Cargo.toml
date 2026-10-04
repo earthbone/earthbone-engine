@@ -7,6 +7,8 @@ description = "Reader for Skyrim SE Havok 2010.2 hkx packfiles: skeletons, splin
 
 [dev-dependencies]
 soe-bsa = { path = "../bsa" }
+soe-probe = { path = "../probe" }
+serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [lints]
 workspace = true

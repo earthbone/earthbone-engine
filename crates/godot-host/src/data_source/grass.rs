@@ -259,7 +259,7 @@ impl DataSource {
         let results = match self.build_all(work, &model_counts) {
             Ok(results) => results,
             Err(e) => {
-                eprintln!("stream_exterior: grass build: {e}");
+                soe_trace::warn!(target: "host::grass", system = "host::grass", "stream_exterior: grass build: {e}");
                 return GrassBuild::default();
             }
         };
@@ -289,7 +289,7 @@ impl DataSource {
                     }
                 }
                 Err(e) => {
-                    eprintln!("stream_exterior: grass {grass_id}: {e}");
+                    soe_trace::warn!(target: "host::grass", system = "host::grass", "stream_exterior: grass {grass_id}: {e}");
                     build.failed += 1;
                 }
             }

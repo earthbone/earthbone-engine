@@ -623,7 +623,7 @@ impl PlayerNode {
                 true
             }
             Err(error) => {
-                godot_error!("PlayerNode actor appearance: {error}");
+                soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode actor appearance: {error}");
                 false
             }
         }
@@ -766,7 +766,7 @@ impl PlayerNode {
                 true
             }
             Err(e) => {
-                godot_error!("PlayerNode::load_data: {e}");
+                soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::load_data: {e}");
                 self.data_source = None;
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
@@ -824,17 +824,17 @@ impl PlayerNode {
     pub fn enter_cell(&mut self, editor_id: GString, x: f32, y: f32, z: f32) -> i32 {
         self.clear_swing_doors();
         let Some(source) = self.data_source.as_ref() else {
-            godot_error!("PlayerNode::enter_cell: load_data was not called");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: load_data was not called");
             return -1;
         };
         let Some(cell_id) = source.resolve_cell(&editor_id.to_string()) else {
-            godot_error!("PlayerNode::enter_cell: no cell named {editor_id}");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: no cell named {editor_id}");
             return -1;
         };
         let collision = match source.collide_cell_id(cell_id) {
             Ok(c) => c,
             Err(e) => {
-                godot_error!("PlayerNode::enter_cell: {e}");
+                soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: {e}");
                 return -1;
             }
         };
@@ -1261,7 +1261,7 @@ impl PlayerNode {
             "TakeScreenshot",
             &[soe_papyrus::Value::string(&path.to_string())],
         ) {
-            godot_error!("PlayerNode: Debug.TakeScreenshot failed: {error}");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: Debug.TakeScreenshot failed: {error}");
             return false;
         }
         game.run_until_idle(64);
@@ -1313,13 +1313,13 @@ impl PlayerNode {
             })
         };
         if let Err(error) = game.world_mut().select_weather_image_space(selection) {
-            godot_error!("PlayerNode: {error}");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: {error}");
             return false;
         }
         let result = self.image_space.sync(&game.world());
         self.refresh_image_space();
         if let Err(error) = result {
-            godot_error!("PlayerNode: {error}");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: {error}");
             return false;
         }
         true
@@ -1730,7 +1730,7 @@ impl PlayerNode {
                 bindings.apply_control_map(&ControlMap::parse(&text));
             }
             Err(e) => {
-                godot_warn!("PlayerNode: no control map read ({e}), using the defaults");
+                soe_trace::warn!(target: "host::player", system = "host::player", "PlayerNode: no control map read ({e}), using the defaults");
             }
         }
         self.bindings = bindings;
@@ -1774,7 +1774,7 @@ impl PlayerNode {
             for chord in &binding.0 {
                 let Some(last) = chord.0.last() else { continue };
                 let Some(code) = godot_key_for(*last) else {
-                    godot_warn!(
+                    soe_trace::warn!(target: "host::player", system = "host::player",
                         "PlayerNode: {} binds {last:#x}, which has no Godot key",
                         action.event_name()
                     );
