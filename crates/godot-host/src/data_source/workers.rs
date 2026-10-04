@@ -39,12 +39,17 @@ impl WorkerPools {
         let pool = self.pool(threads)?;
         let chunk_size = items.len().div_ceil(threads);
         let recorder = soe_trace::WorkRecorder::current();
+        let load = soe_trace::LoadRecorder::current();
         catch_unwind(AssertUnwindSafe(|| {
             pool.install(|| {
                 items
                     .par_chunks(chunk_size)
                     .map(|chunk| {
                         let _frame = recorder.as_ref().map(soe_trace::WorkRecorder::enter);
+                        let _load = load.as_ref().map(soe_trace::LoadRecorder::enter);
+                        let _system = load
+                            .as_ref()
+                            .map(|_| soe_trace::SystemScope::new(soe_trace::System::Streaming));
                         let _worker = soe_trace::Span::with_payload(
                             "host.worker",
                             "host",

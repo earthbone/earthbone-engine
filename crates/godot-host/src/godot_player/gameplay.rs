@@ -911,6 +911,16 @@ impl PlayerNode {
                 return false;
             };
 
+            if let Some(game) = &self.game {
+                let mut world = game.world_mut();
+                for (id, loaded) in &location.cells {
+                    loaded.stats.profile.add_duration(
+                        soe_trace::LoadStage::Navmesh,
+                        world.take_navigation_load_time(*id),
+                    );
+                }
+            }
+
             let texture_preparation = location
                 .cells
                 .iter()

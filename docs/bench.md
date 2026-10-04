@@ -14,3 +14,10 @@ fixed limits without elapsed-time assertions and verify the fixture's actor
 movement and script completion. The scenarios follow local
 `godotwind/docs/systems/benchmarking.md` guidance on fixed workload and
 separate setup.
+
+Allocation samples read `soe-trace::MemorySnapshot` from the host counting
+allocator, enabled by the benchmark's `profile-memory` dependency feature.
+They report successful allocation and reallocation request counts, and the
+sum of requested sizes, between sample boundaries. This uses the same Rust
+allocation accounting as the host, with one process allocator. Reallocation
+bytes describe the new request's size. Godot's own heap is outside the sample.

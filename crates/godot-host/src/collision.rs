@@ -222,7 +222,12 @@ impl DataSource {
     fn colliders_of(&self, model: &str, refr: &Refr) -> Result<RefColliders, DataSourceError> {
         let _span = soe_trace::Span::new("host.collider", "host");
         let bytes = self.vfs().read(&format!("meshes/{model}"))?;
-        let file = crate::data_source::placed_model(&bytes)?;
+        let path = soe_bsa::normalize(&format!("meshes/{model}"));
+        let file = {
+            let _parse = soe_trace::LoadMeasure::new(soe_trace::LoadStage::NifParse, &path);
+            crate::data_source::placed_model(&bytes)?
+        };
+        let _asset = soe_trace::LoadMeasure::new(soe_trace::LoadStage::CollisionBuild, &path);
         let collected =
             soe_physics::collect(&file).map_err(|e| DataSourceError::Collision(e.to_string()))?;
         let placement = placement_iso(refr);

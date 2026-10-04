@@ -432,6 +432,7 @@ impl DataSource {
 
         for cell in &block.cells {
             let mut loaded = self.stream_cell_id(cell.id)?;
+            let _capture = loaded.stats.profile.enter();
             let mut has_land = false;
             if let Some((land_id, land)) = land_ref.get(&(cell.x, cell.y)) {
                 if let Some(h) = heights.get(&(cell.x, cell.y)) {
@@ -465,6 +466,7 @@ impl DataSource {
                     loaded.surfaces.extend(grass.surfaces);
                 }
             }
+            loaded.refresh_texture_inventory();
             on_cell(*cell, loaded, has_land);
         }
         Ok(())

@@ -902,6 +902,7 @@ pub struct World {
     /// Actor pairs visible during the latest successful host perception step.
     pub(crate) line_of_sight: BTreeSet<(GlobalFormId, GlobalFormId)>,
     pub(crate) frame_rate: performance::FrameRateState,
+    navigation_load_times: BTreeMap<GlobalFormId, u64>,
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
     pub host_requests: Vec<HostRequest>,
@@ -1254,6 +1255,7 @@ impl World {
             menu_mode: false,
             line_of_sight: BTreeSet::new(),
             frame_rate: performance::FrameRateState::default(),
+            navigation_load_times: BTreeMap::new(),
             pending: Vec::new(),
             host_requests: Vec::new(),
             spell_art_requests: Vec::new(),

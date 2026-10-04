@@ -2,6 +2,13 @@
 
 ## Per-system frame timing, PRF-12
 
+PRF-20 records NAVM preparation during `World::load_cell` after reference
+prefetch and before attachment. `take_navigation_load_time` consumes the latest
+duration for that resolved cell. The host adds it to the cell's streaming
+report when attaching the location. Rendering-only loads perform no NAVM
+preparation and report zero. These durations are transient diagnostics and
+are not saved.
+
 `Game::tick` and `tick_menu_mode` record an always-on exclusive system frame
 through `soe-trace`. `Game::frame_history` exposes the last tick's breakdown
 and rolling p50, p99 and worst over 240 ticks, with zero samples for idle

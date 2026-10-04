@@ -118,8 +118,18 @@ impl Vfs {
     pub fn read(&self, path: &str) -> Result<Vec<u8>> {
         let _span = soe_trace::Span::new("bsa.vfs_read", "bsa");
         match self.resolve(path) {
-            Some(Source::Loose(p)) => Ok(std::fs::read(p)?),
+            Some(Source::Loose(p)) => {
+                let _measure = soe_trace::LoadMeasure::archive(
+                    &normalize(path),
+                    &format!("loose:{}", p.display()),
+                );
+                Ok(std::fs::read(p)?)
+            }
             Some(Source::Archived { archive, record }) => {
+                let _measure = soe_trace::LoadMeasure::archive(
+                    &normalize(path),
+                    &self.archives[*archive].path().to_string_lossy(),
+                );
                 self.archives[*archive].read_record(*record)
             }
             None => Err(Error::NotFound {
@@ -167,6 +177,38 @@ mod tests {
 
     fn archive(name: &str, files: &[(&str, &str, &[u8])]) -> Archive {
         Archive::from_bytes(Path::new(name), sse_bsa(files)).unwrap()
+    }
+
+    #[test]
+    fn prf_20_io_names_the_winning_archive_and_loose_source() {
+        let mut vfs = Vfs::new();
+        vfs.add_archive(archive("Base.bsa", &[("meshes", "chair.nif", b"base")]));
+        vfs.add_archive(archive("Patch.bsa", &[("meshes", "chair.nif", b"patch")]));
+        let recorder = soe_trace::LoadRecorder::default();
+        {
+            let _capture = recorder.enter();
+            assert_eq!(vfs.read("Meshes\\Chair.NIF").unwrap(), b"patch");
+        }
+        let report = recorder.report();
+        assert_eq!(report.archive_ns.len(), 1);
+        assert!(report.archive_ns["Patch.bsa"] > 0);
+        assert_eq!(report.slowest_asset().unwrap().0, "meshes/chair.nif");
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("meshes")).unwrap();
+        std::fs::write(root.path().join("meshes/chair.nif"), b"loose").unwrap();
+        vfs.add_loose_root(root.path()).unwrap();
+        let loose = soe_trace::LoadRecorder::default();
+        {
+            let _capture = loose.enter();
+            assert_eq!(vfs.read("meshes/chair.nif").unwrap(), b"loose");
+            assert!(vfs.read("missing").is_err());
+        }
+        assert!(loose
+            .report()
+            .archive_ns
+            .keys()
+            .all(|name| name.starts_with("loose:")));
+        assert_eq!(loose.report().archive_ns.len(), 1);
     }
 
     #[test]

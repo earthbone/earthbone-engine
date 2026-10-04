@@ -2,14 +2,9 @@
 
 //! Scoped allocation request counts for synthetic benchmark samples.
 
-use std::alloc::System;
+use soe_trace::MemorySnapshot;
 
-use stats_alloc::{Region, Stats, StatsAlloc, INSTRUMENTED_SYSTEM};
-
-#[global_allocator]
-static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
-
-pub struct Sample(Region<'static, System>);
+pub struct Sample(MemorySnapshot);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Peak {
@@ -18,16 +13,24 @@ pub struct Peak {
 }
 
 pub fn begin_sample() -> Sample {
-    Sample(Region::new(GLOBAL))
+    Sample(MemorySnapshot::now())
 }
 
 pub fn end_sample(sample: &Sample) -> Peak {
-    let stats: Stats = sample.0.change();
+    let end = MemorySnapshot::now();
     Peak {
-        calls: stats.allocations + stats.reallocations,
-        bytes: stats
-            .bytes_allocated
-            .saturating_add(stats.bytes_reallocated.max(0) as usize),
+        calls: end
+            .allocation_calls
+            .iter()
+            .zip(sample.0.allocation_calls)
+            .map(|(end, start)| end.saturating_sub(start) as usize)
+            .sum(),
+        bytes: end
+            .allocated_bytes
+            .iter()
+            .zip(sample.0.allocated_bytes)
+            .map(|(end, start)| end.saturating_sub(start) as usize)
+            .sum(),
     }
 }
 

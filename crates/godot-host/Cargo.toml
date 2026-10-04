@@ -7,8 +7,8 @@ description = "Godot 4 host for the open Skyrim engine: cell streaming, mesh and
 
 # Cargo will not let a crate inherit `[lints] workspace = true` and then
 # override one entry, so this restates the workspace clippy table by hand and
-# sets its own `unsafe_code`, the only crate allowed the one `unsafe impl
-# ExtensionLibrary` gdext requires. Keep this table in sync with
+# sets its own `unsafe_code` for gdext's ExtensionLibrary and the profiling
+# allocator. Keep this table in sync with
 # `[workspace.lints.clippy]` in the root Cargo.toml when that changes.
 [lints.rust]
 unsafe_code = "allow"
@@ -55,6 +55,8 @@ default = ["godot"]
 # logic with no engine dependency, which is what the tests and the benchmark
 # exercise.
 godot = ["dep:godot"]
+# Counts Rust allocations by system in optimized profiling builds.
+profile-memory = []
 # Adds the SCR-24 synthetic renderer driver used by the live Godot regression.
 scr-24-test = ["godot"]
 # Uses ffmpeg as the host's xWMA decoder instead of the default in-process

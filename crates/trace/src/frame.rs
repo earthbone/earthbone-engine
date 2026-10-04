@@ -126,6 +126,13 @@ enum ScopeState {
 }
 
 impl SystemScope {
+    /// Allocation owner on this thread, including allocations outside a frame.
+    pub fn current_system() -> System {
+        CLOCK
+            .try_with(|clock| clock.system.get().unwrap_or(System::Other))
+            .unwrap_or(System::Other)
+    }
+
     /// Begin an exclusive scope on the calling thread.
     #[must_use]
     pub fn new(system: System) -> Self {
@@ -185,6 +192,7 @@ pub fn with_timing_suspended<T>(work: impl FnOnce() -> T) -> T {
 /// Game measures its tick while the host measures the whole presentation frame.
 pub struct FrameSnapshot {
     totals: [u64; SYSTEM_COUNT],
+    memory: crate::MemorySnapshot,
     start: Instant,
     _thread: PhantomData<Rc<()>>,
 }
@@ -206,6 +214,7 @@ impl FrameSnapshot {
         });
         Self {
             totals,
+            memory: crate::MemorySnapshot::now(),
             start,
             _thread: PhantomData,
         }
@@ -220,6 +229,11 @@ impl FrameSnapshot {
             system_ns: std::array::from_fn(|index| {
                 end.totals[index].saturating_sub(self.totals[index])
             }),
+            live_bytes: end.memory.live_bytes,
+            allocation_calls: std::array::from_fn(|index| {
+                end.memory.allocation_calls[index]
+                    .saturating_sub(self.memory.allocation_calls[index])
+            }),
         }
     }
 }
@@ -230,6 +244,8 @@ impl FrameSnapshot {
 pub struct FrameSample {
     pub frame_ns: u64,
     pub system_ns: [u64; SYSTEM_COUNT],
+    pub live_bytes: [u64; SYSTEM_COUNT],
+    pub allocation_calls: [u64; SYSTEM_COUNT],
 }
 
 impl FrameSample {
@@ -405,6 +421,7 @@ mod tests {
             history.record(FrameSample {
                 frame_ns: value * SYSTEM_COUNT as u64,
                 system_ns: [value; SYSTEM_COUNT],
+                ..FrameSample::default()
             });
         }
         for system in System::ALL {
