@@ -304,6 +304,8 @@ pub struct DataSource {
     threads: usize,
     workers: WorkerPools,
     textures: TextureCache,
+    profile_settings: soe_profile::Settings,
+    profile_ini_dir: Option<PathBuf>,
     language: String,
 }
 
@@ -405,6 +407,8 @@ impl DataSource {
             threads: 1,
             workers: self.workers.clone(),
             textures: TextureCache::default(),
+            profile_settings: self.profile_settings.clone(),
+            profile_ini_dir: self.profile_ini_dir.clone(),
             language: self.language.clone(),
         }
     }
@@ -513,6 +517,8 @@ impl DataSource {
             threads,
             workers,
             textures: TextureCache::default(),
+            profile_settings: loadout.settings.clone(),
+            profile_ini_dir: loadout.ini_dir.clone(),
             language: loadout
                 .settings
                 .get("General", "sLanguage")
@@ -614,6 +620,15 @@ impl DataSource {
     /// Share records and the cached cell index with the authoritative game runtime.
     pub fn shared_order(&self) -> std::sync::Arc<LoadOrder> {
         self.order.clone()
+    }
+
+    /// Resolved profile settings and INI directory for runtime diagnostics.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn profile_papyrus_logs(&self) -> (&soe_profile::Settings, Option<&Path>) {
+        (&self.profile_settings, self.profile_ini_dir.as_deref())
     }
 
     /// The winning `CELL` record whose editor id matches, preferring an
@@ -779,7 +794,7 @@ impl DataSource {
                     }
                 }
                 Err(e) => {
-                    eprintln!("stream_cell: {model}: {e}");
+                    soe_trace::warn!(target: "host::data_source", system = "host::data_source", "stream_cell: {model}: {e}");
                     stats.meshes_failed += 1;
                 }
             }

@@ -11,7 +11,7 @@ use soe_physics::{BodyId, PhysicsWorld};
 use crate::streaming::{CellCoord, CellStreamer, StreamBudget, StreamConfig, StreamCost};
 use crate::units::SkyrimPos;
 
-use super::{godot_error, godot_print, PlayerNode};
+use super::PlayerNode;
 
 pub(super) struct ExteriorRuntime {
     pub world: GlobalFormId,
@@ -47,7 +47,7 @@ impl PlayerNode {
             .cell_index()
             .exterior_cell(exterior.world, coord.x, coord.y)
         else {
-            godot_error!("PlayerNode: no exterior cell at {},{}", coord.x, coord.y);
+            soe_trace::error!(target: "host::exterior", system = "host::exterior", "PlayerNode: no exterior cell at {},{}", coord.x, coord.y);
             return false;
         };
         // Commit the planner only after every requested cell has prepared successfully.
@@ -64,7 +64,7 @@ impl PlayerNode {
         let prepared = match source.prepare_grid_cells(exterior.world, &candidates) {
             Ok(cells) => cells,
             Err(error) => {
-                godot_error!("PlayerNode: exterior preparation failed: {error}");
+                soe_trace::error!(target: "host::exterior", system = "host::exterior", "PlayerNode: exterior preparation failed: {error}");
                 return false;
             }
         };
@@ -134,13 +134,13 @@ impl PlayerNode {
             }
         }
         if let Err(error) = game.update_streaming_cells(cell, &entered, &departed) {
-            godot_error!("PlayerNode: exterior state failed: {error}");
+            soe_trace::error!(target: "host::exterior", system = "host::exterior", "PlayerNode: exterior state failed: {error}");
             return false;
         }
         game.record_exterior_cell_loads(entered.len());
         exterior.planner = planner;
         self.loaded_cell = Some(cell);
-        godot_print!(
+        soe_trace::info!(target: "host::exterior", system = "host::exterior",
             "EXTERIOR focus={cell} entered={} departed={} resident={}",
             entered.len(),
             departed.len(),

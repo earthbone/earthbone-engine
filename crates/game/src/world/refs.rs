@@ -669,7 +669,7 @@ impl World {
             }) {
                 Ok(inventory) => st.inventory = inventory,
                 Err(error) => {
-                    eprintln!("initial inventory for {id}: {error}");
+                    soe_trace::error!(target: "game", system = "game", form_id = %id, error = %error, "initial inventory failed");
                     st.inventory = crate::inventory::Inventory::default();
                     st.enabled = false;
                     present = false;
@@ -718,7 +718,7 @@ impl World {
                     {
                         Ok(inventory) => inventory,
                         Err(error) => {
-                            eprintln!("initial player inventory: {error}");
+                            soe_trace::error!(target: "game", system = "game", form_id = %id, error = %error, "initial player inventory failed");
                             crate::inventory::Inventory::default()
                         }
                     };

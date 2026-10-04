@@ -688,3 +688,11 @@ absent. Both views are exercised by `godot-host`'s cell streaming path, not
 by a unit test added here, since this row's instructions withhold new tests
 for a later breaker and judge pass. See `docs/godot-host.md`, "Grass
 placement", for the placement algorithm and its open gaps.
+
+## Shared logging, TOOL-06
+
+`LoadOrder::add` emits an info event with system, plugin name and record count
+through the tracing facade reexported by `soe-trace`. The caller installs the
+subscriber. [trace.md](trace.md) describes filter directives, structured
+context, rate limiting and output. Plugin records and override rules are
+unchanged by logging.

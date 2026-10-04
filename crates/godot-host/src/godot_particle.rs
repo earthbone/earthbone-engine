@@ -60,31 +60,31 @@ impl ParticleEmitterNode {
         let bytes = match std::fs::read(Path::new(&path)) {
             Ok(bytes) => bytes,
             Err(error) => {
-                godot_error!("ParticleEmitterNode: {path}: {error}");
+                soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: {path}: {error}");
                 return false;
             }
         };
         let file = match soe_nif::parse(&bytes) {
             Ok(file) => file,
             Err(error) => {
-                godot_error!("ParticleEmitterNode: {path}: {error}");
+                soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: {path}: {error}");
                 return false;
             }
         };
         let emitters = match file.particle_emitters() {
             Ok(emitters) => emitters,
             Err(error) => {
-                godot_error!("ParticleEmitterNode: {path}: {error}");
+                soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: {path}: {error}");
                 return false;
             }
         };
         let name = emitter_name.to_string();
         let Some(emitter) = emitters.into_iter().find(|e| e.name == name) else {
-            godot_error!("ParticleEmitterNode: {path}: no emitter named {name}");
+            soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: {path}: no emitter named {name}");
             return false;
         };
         let Some(scenario) = self.base().get_world_3d().map(|world| world.get_scenario()) else {
-            godot_error!("ParticleEmitterNode: add the node to a 3D world first");
+            soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: add the node to a 3D world first");
             return false;
         };
         self.clear();

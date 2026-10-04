@@ -67,6 +67,8 @@ pub mod godot_forms;
 #[cfg(feature = "godot")]
 pub mod godot_layer;
 #[cfg(feature = "godot")]
+pub mod godot_logging;
+#[cfg(feature = "godot")]
 pub mod godot_particle;
 #[cfg(feature = "godot")]
 pub mod godot_physics;
@@ -88,5 +90,17 @@ mod entry {
     struct SoeHost;
 
     #[gdextension]
-    unsafe impl ExtensionLibrary for SoeHost {}
+    unsafe impl ExtensionLibrary for SoeHost {
+        fn on_stage_init(level: InitStage) {
+            if level == InitStage::Scene {
+                crate::godot_logging::install();
+            }
+        }
+
+        fn on_stage_deinit(level: InitStage) {
+            if level == InitStage::Scene {
+                crate::godot_logging::flush(true);
+            }
+        }
+    }
 }

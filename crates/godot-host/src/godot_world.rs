@@ -18,7 +18,7 @@ pub(crate) fn scenario(node: &Node3D, owner: &str) -> Option<Rid> {
         tree.get_root()?.upcast::<Viewport>().find_world_3d()
     });
     if world.is_none() {
-        godot_error!("{owner}: no World3D to draw into");
+        soe_trace::error!(target: "host::world", system = "host::world", "{owner}: no World3D to draw into");
     }
     world.map(|w| w.get_scenario())
 }
