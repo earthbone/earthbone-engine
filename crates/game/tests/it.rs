@@ -36,6 +36,13 @@ mod ply_06_ai_crafting;
 #[path = "ply_06_adversarial.rs"]
 mod ply_06_adversarial;
 
+#[path = "ply_03_breaker_adversarial.rs"]
+mod ply_03_breaker_adversarial;
+#[path = "ply_05_breaker_adversarial.rs"]
+mod ply_05_breaker_adversarial;
+#[path = "ply_06_breaker_adversarial.rs"]
+mod ply_06_breaker_adversarial;
+
 #[path = "cell_attach_binding.rs"]
 mod cell_attach_binding;
 
@@ -1006,8 +1013,6 @@ mod ply_03_adversarial;
 mod ply_03_main_quest_replay;
 #[path = "ply_05_adversarial.rs"]
 mod ply_05_adversarial;
-#[path = "ply_01_player_input.rs"]
-mod ply_01_player_input;
 #[path = "prf_09_adversarial.rs"]
 mod prf_09_adversarial;
 #[path = "prf_09_profiling.rs"]
