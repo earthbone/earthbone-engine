@@ -350,6 +350,11 @@ impl Game {
 
     /// Load scripts through the host's existing archive and loose-file overlay.
     pub fn load_scripts_from_vfs(&mut self, vfs: &soe_bsa::Vfs) -> ScriptLoadReport {
+        let _load = soe_trace::LoadScope::operation(
+            "scripts",
+            "scripts/",
+            std::time::Duration::from_millis(33),
+        );
         let mut report = ScriptLoadReport::default();
         let mut pex: Vec<String> = vfs
             .list("scripts")
@@ -361,10 +366,17 @@ impl Game {
         report.scripts_found = pex.len();
         for path in pex {
             match vfs.read(&path) {
-                Ok(bytes) => match self.load_script(&bytes) {
-                    Ok(()) => report.scripts_loaded += 1,
-                    Err(e) => report.scripts_failed.push((path, e.to_string())),
-                },
+                Ok(bytes) => {
+                    let _parse = soe_trace::LoadScope::new(
+                        "script_parse",
+                        soe_trace::LoadCause::Parse,
+                        path.clone(),
+                    );
+                    match self.load_script(&bytes) {
+                        Ok(()) => report.scripts_loaded += 1,
+                        Err(e) => report.scripts_failed.push((path, e.to_string())),
+                    }
+                }
                 Err(e) => report.scripts_failed.push((path, e.to_string())),
             }
         }
@@ -636,6 +648,16 @@ impl Game {
             })
         };
         if let Some((file, mut vmad)) = carrier {
+            let base = self.world.borrow().reference_base_view(id);
+            let _object = soe_trace::LoadScope::object(format!(
+                "base:{} reference:{id}",
+                base.map_or_else(|| "unknown".to_owned(), |base| base.to_string())
+            ));
+            let _bind = soe_trace::LoadScope::new(
+                "attached_scripts",
+                soe_trace::LoadCause::CpuBuild,
+                id.to_string(),
+            );
             // CONTEXT: Restored instances retain their saved property values.
             if let Some(object) = self.world.borrow().object_id(Handle::Form(id)) {
                 let attached = self.vm.scripts_on(object);

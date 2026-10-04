@@ -1980,6 +1980,11 @@ fn invalidate_actor_paths(world: &mut World) {
 
 fn ensure_nav_graph(world: &mut World) {
     if world.ai.nav.is_none() {
+        let _load = soe_trace::LoadScope::new(
+            "navmesh_build",
+            soe_trace::LoadCause::CpuBuild,
+            "winning NAVM records",
+        );
         let _span = soe_trace::Span::new("ai.nav_graph", "game");
         let order = world.order();
         let mut b = Builder::new();

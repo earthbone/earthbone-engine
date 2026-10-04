@@ -69,3 +69,35 @@ follow the repository's PRF-14 contract and local
 `godotwind/docs/systems/benchmarking.md` guidance to fix workloads and keep
 setup and diagnostics outside measured intervals. Work counts are transient
 and are not part of world or VM saves. No dependency was added.
+
+## Load causes, PRF-29
+
+`LoadScope` records loading independently of `Trace::enable`. Its bounded
+65,536-event history retains phase, cause, asset, owning object, parent, root,
+thread, elapsed time and exclusive time. The summary reports evicted events.
+Nested scopes subtract their elapsed time from their parent on the same thread.
+`LoadToken` carries parent and object identity to workers, whose durations do
+not subtract from the submitting thread. `queue_wait` measures batch submission
+to chunk entry. It includes scheduling delay before a chunk starts.
+
+The cause vocabulary is `io_wait`, `parse`, `decode`, `cpu_build`, `gpu_upload`,
+`shader_compile`, `pipeline_compile` and `worker_queue`. Aggregate operations
+carry explicit budgets. On completion, root operations and over-budget nested
+operations print their duration, budget and largest exclusive cause phase,
+including its asset and owning object. Unclassified work reports `unattributed`.
+Worker phase durations overlap the caller's wall interval and are not frame
+shares or critical-path measurements.
+
+`LoadTrace::summary_text` lists all retained phases and budget reports. Both
+`Trace::summary_text` and `Trace::export_chrome_json` include the load history.
+Archive index I/O uses `accumulated` to retain summed read and seek times
+without a separate event for every call. These sums subtract from the
+active parse scope and export as Chrome counters at completion, rather than
+pretending disjoint calls form one continuous interval.
+
+The design uses the repository's existing `Instant` timing and the PRF-08
+measurement boundaries in `docs/performance.md`. Local
+`godot-docs/tutorials/performance/pipeline_compilations.rst` and
+`godotwind/src/core/diagnostics/pipeline_compile_monitor.gd` provide the
+compilation counter contract. The recorder does not infer compiler duration
+or asset ownership from those counters. It adds no dependency or saved state.

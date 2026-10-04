@@ -1457,3 +1457,13 @@ DOOR change it finds. The reported 60-save corpus contains zero examples of
 all three types, so that run provides zero payload observations. A separate
 `SKYRIM_DATA`-gated test confirms that `Skyrim.esm` contains the three vanilla
 record types. It does not stand in for saved change payloads.
+
+## Load timing phases, PRF-29
+
+`Save::open` records an aggregate vanilla-save load with the source path,
+then file I/O separately. `split` records header parsing and compressed-body
+decode as nested causes. `parse_body` records body parsing. Failed calls retain
+the elapsed phase through scope drop. The instrumentation follows the existing
+reader boundaries and `docs/performance.md`, and does not change ESS decoding
+or restoration support. In-memory `Save::parse` has cause phases without a
+file-read phase. All measurements remain transient in `soe-trace`.

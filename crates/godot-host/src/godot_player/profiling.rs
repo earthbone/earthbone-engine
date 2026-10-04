@@ -74,6 +74,13 @@ impl PlayerNode {
     /// All session totals and worst times with rolling p50 and p99 per system.
     #[func]
     fn system_summary(&self) -> GString {
-        GString::from(self.host_history.summary_text().as_str())
+        GString::from(
+            format!(
+                "{}{}",
+                self.host_history.summary_text(),
+                soe_trace::LoadTrace::summary_text()
+            )
+            .as_str(),
+        )
     }
 }

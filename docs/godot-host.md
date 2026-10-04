@@ -4473,3 +4473,41 @@ startup occur before the 60 simulated seconds of measurement. The script
 frees its host nodes and quits with its check result. It skips when
 `SKYRIM_DATA` is unset.
 The result also prints the worst frame's index and inclusive phase timings.
+
+## Load timing phases, PRF-29
+
+DataSource startup records an 18-second diagnostic budget. Cell geometry,
+collision, upload, localization, scripts and save operations use 33-millisecond
+diagnostic budgets. These thresholds report breaches rather than enforcing
+loading deadlines. The report names the largest exclusive retained cause
+phase and its asset. Worker queue phases measure submission to chunk entry.
+Worker results retain load ownership alongside the existing work recorder.
+
+Static loading carries the resolved base form and model path as owning object.
+It separates VFS reads, placed-model parse, CPU surface construction and
+texture parse/preparation. Collision loading separates model parse from shape
+construction. Actor assets record skeleton and behavior parsing, CPU mesh
+construction and actor/base ownership for record-selected rigs. Server mesh,
+MultiMesh and cached texture creation record upload submission time, including
+waits inside those host calls, rather than GPU execution time.
+
+`CellStreamerNode.load_timing_dump` returns the retained phase table and budget
+reports. `write_load_trace` writes ordinary spans and load phases as a Chrome
+trace. PlayerNode's session summary also includes load phases. The walkthrough
+adds one `load_diagnostics.gd` control node, independent of reference count.
+It observes the five pipeline-source counters after drawn frames and writes
+`user://soe-loads.txt` and `user://soe-loads.json` on exit. The text dump combines
+Rust load phases with compilation observations and current counters.
+
+Each compilation observation reports counter deltas, a drawn-frame interval
+and whether that interval exceeds 33 milliseconds. Compiler duration and
+responsible asset report unavailable. The local Godot pipeline guide and
+`godotwind/src/core/diagnostics/pipeline_compile_monitor.gd` define these source
+counters. The public stock Godot API supplies counts rather than compiler
+durations or identities. These observations do not establish that compilation
+caused a hitch. Specialization remains separate from draw-time compilation.
+
+`prf_29_loads` Rust tests exercise plugin cold/cache paths, archive and loose
+reads, engine-save failures, and installed startup, Whiterun geometry, collision
+and navigation causes. `godot/prf_29_loads_test.gd` checks windowed startup,
+Whiterun uploads, pipeline observations and both dump formats, then quits.

@@ -697,3 +697,14 @@ record. Direct `LoadOrder::record` calls charge once. Calls are counted in the
 active `soe_trace::WorkFrame`, independent of timing tracing. The
 `prf_14_record_lookup_counts_winners_missing_forms_and_direct_reads_once`
 test checks these boundaries.
+
+## Load timing phases, PRF-29
+
+`read_plugin` measures file I/O separately from plugin parsing, with the source
+path on each phase. `read_plugin_cached` measures cache reads and cache decode
+separately. A rejected cache records the attempted decode and then the source
+read and parse. `LoadOrder::add` records form-table CPU construction under the
+plugin name. These always-on `soe-trace` load phases are independent of the
+optional span switch and do not change parsing, cache identity or form state.
+The boundaries follow this crate's existing parser and parsed-cache API and
+`docs/performance.md`'s parsed plugin cache measurements.

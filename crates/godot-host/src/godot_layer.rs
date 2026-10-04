@@ -1642,6 +1642,26 @@ impl CellStreamerNode {
         self.chargen_cache.resident_bytes() as i64
     }
 
+    /// Completed load phases and budget diagnostics, also included in Trace exports.
+    #[func]
+    pub fn load_timing_dump(&self) -> GString {
+        GString::from(soe_trace::LoadTrace::summary_text().as_str())
+    }
+
+    /// Write retained load phases and ordinary trace events in Chrome trace format.
+    // CONTEXT: Godot callables marshal string arguments into owned GString values.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn write_load_trace(&self, path: GString) -> bool {
+        match soe_trace::Trace::export_chrome_json(Path::new(&path.to_string())) {
+            Ok(()) => true,
+            Err(error) => {
+                godot_error!("load trace export: {error}");
+                false
+            }
+        }
+    }
+
     /// Opens `path` as a Skyrim SE `Data` folder: the five base masters and
     /// their archives, plus `path` itself as a loose overlay. Returns
     /// whether it opened, the reason goes to Godot's error log. Call this
@@ -2670,6 +2690,11 @@ impl CellStreamerNode {
         totals: &mut StreamTotals,
     ) {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let _load = soe_trace::LoadScope::operation(
+            "cell_upload",
+            cell.to_string(),
+            std::time::Duration::from_millis(33),
+        );
         let _span = soe_trace::Span::new("host.add_cell", "host");
         totals.add_cell(loaded);
         if self.cell_occluders {
@@ -2745,6 +2770,11 @@ impl CellStreamerNode {
             "host",
             arrays.positions.len() as u64,
         );
+        let _upload = soe_trace::LoadScope::new(
+            "mesh_upload",
+            soe_trace::LoadCause::GpuUpload,
+            cell.to_string(),
+        );
         let mut mesh = array_mesh_from(arrays);
         // CONTEXT: Mesh materials expose pipelines during loading. Instance overrides defer them.
         mesh.surface_set_material(0, material);
@@ -2771,6 +2801,11 @@ impl CellStreamerNode {
     /// buffer, one `Transform3D` per placement, set on the `MultiMesh`
     /// itself rather than baked into a copy of the vertex data.
     fn add_multimesh(&mut self, cell: GlobalFormId, group: &InstanceGroup, scenario: Rid) {
+        let _upload = soe_trace::LoadScope::new(
+            "multimesh_upload",
+            soe_trace::LoadCause::GpuUpload,
+            cell.to_string(),
+        );
         let _span = soe_trace::Span::with_payload(
             "host.upload_multimesh",
             "host",
@@ -3171,6 +3206,11 @@ fn cached_texture(
     if let Some(existing) = key.as_ref().and_then(|key| cache.get(key)) {
         return Some(existing.clone());
     }
+    let _upload = soe_trace::LoadScope::new(
+        "texture_upload",
+        soe_trace::LoadCause::GpuUpload,
+        path.unwrap_or("generated texture"),
+    );
     let texture = image_texture_from(data)?;
     if let Some(key) = key {
         cache.insert(key, texture.clone());

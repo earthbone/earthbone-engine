@@ -173,6 +173,49 @@ enum ArchiveStorage {
     },
 }
 
+struct IndexReader<'a> {
+    file: &'a std::fs::File,
+    path: &'a Path,
+    read_time: std::time::Duration,
+    seek_time: std::time::Duration,
+}
+
+impl Read for IndexReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let started = std::time::Instant::now();
+        let result = self.file.read(buffer);
+        self.read_time += started.elapsed();
+        result
+    }
+}
+
+impl Seek for IndexReader<'_> {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        let started = std::time::Instant::now();
+        let result = self.file.seek(position);
+        self.seek_time += started.elapsed();
+        result
+    }
+}
+
+impl Drop for IndexReader<'_> {
+    fn drop(&mut self) {
+        let asset = self.path.display().to_string();
+        soe_trace::LoadTrace::accumulated(
+            "archive_index_read",
+            soe_trace::LoadCause::IoWait,
+            &asset,
+            self.read_time,
+        );
+        soe_trace::LoadTrace::accumulated(
+            "archive_index_seek",
+            soe_trace::LoadCause::IoWait,
+            &asset,
+            self.seek_time,
+        );
+    }
+}
+
 /// An archive index with a case-insensitive path lookup and on-demand payloads.
 pub struct Archive {
     path: PathBuf,
@@ -198,13 +241,32 @@ impl std::fmt::Debug for Archive {
 impl Archive {
     pub fn open(path: &Path) -> Result<Self> {
         let _span = soe_trace::Span::new("bsa.archive_open", "bsa");
-        let file = std::fs::File::open(path)?;
+        let file = {
+            let _io = soe_trace::LoadScope::new(
+                "archive_open",
+                soe_trace::LoadCause::IoWait,
+                path.display().to_string(),
+            );
+            std::fs::File::open(path)?
+        };
         let len = file.metadata()?.len();
         if len < 8 {
             return Err(Error::format("Archive too small", path));
         }
-        let mut reader = std::io::BufReader::new(&file);
-        let index = index_from(&mut reader, len, path, false)?;
+        let index = {
+            let _index = soe_trace::LoadScope::new(
+                "archive_index",
+                soe_trace::LoadCause::Parse,
+                path.display().to_string(),
+            );
+            let mut reader = std::io::BufReader::new(IndexReader {
+                file: &file,
+                path,
+                read_time: std::time::Duration::ZERO,
+                seek_time: std::time::Duration::ZERO,
+            });
+            index_from(&mut reader, len, path, false)?
+        };
         Ok(Self::with_storage(
             path,
             index,
@@ -285,10 +347,15 @@ impl Archive {
         let record = self.index.records.get(i).ok_or_else(|| Error::NotFound {
             name: i.to_string(),
         })?;
+        let _payload = soe_trace::LoadScope::new(
+            "archive_payload",
+            soe_trace::LoadCause::Decode,
+            format!("{}:{}", self.path.display(), record.path),
+        );
         match &self.storage {
             ArchiveStorage::Memory(data) => read_record(data, self.index.format, record),
             ArchiveStorage::Disk { file, len } => {
-                read_disk_record(file, *len, self.index.format, record)
+                read_disk_record(file, *len, self.index.format, record, &self.path)
             }
         }
     }
@@ -300,7 +367,13 @@ fn read_disk_range(
     name: &str,
     offset: u64,
     size: u64,
+    archive: &Path,
 ) -> Result<Vec<u8>> {
+    let _io = soe_trace::LoadScope::new(
+        "archive_read",
+        soe_trace::LoadCause::IoWait,
+        format!("{}:{name}", archive.display()),
+    );
     if offset
         .checked_add(size)
         .as_ref()
@@ -341,9 +414,10 @@ fn read_disk_record(
     len: u64,
     format: ArchiveFormat,
     record: &FileRecord,
+    archive: &Path,
 ) -> Result<Vec<u8>> {
     if let Some(dds) = &record.dds_info {
-        return rebuild_dds_from_disk(file, len, &record.path, dds);
+        return rebuild_dds_from_disk(file, len, &record.path, dds, archive);
     }
     let size = if record.name_embedded || record.compressed {
         record.raw_size
@@ -352,7 +426,14 @@ fn read_disk_record(
     } else {
         record.raw_size
     };
-    let bytes = read_disk_range(file, len, &record.path, record.offset, u64::from(size))?;
+    let bytes = read_disk_range(
+        file,
+        len,
+        &record.path,
+        record.offset,
+        u64::from(size),
+        archive,
+    )?;
     let mut memory_record = record.clone();
     memory_record.offset = 0;
     if memory_record.compressed
@@ -368,7 +449,7 @@ fn read_disk_record(
                 offset: record.offset,
                 size: 4,
             })?;
-        let prefix_bytes = read_disk_range(file, len, &record.path, prefix_offset, 4)?;
+        let prefix_bytes = read_disk_range(file, len, &record.path, prefix_offset, 4, archive)?;
         let prefix_bytes: [u8; 4] = prefix_bytes.try_into().map_err(|_| Error::Truncated {
             name: record.path.clone(),
             offset: prefix_offset,
@@ -397,6 +478,11 @@ fn slice<'a>(data: &'a [u8], name: &str, offset: u64, size: u64) -> Result<&'a [
 
 /// The bytes of one record out of a whole archive held in memory.
 pub fn read_record(data: &[u8], format: ArchiveFormat, record: &FileRecord) -> Result<Vec<u8>> {
+    let _decode = soe_trace::LoadScope::new(
+        "archive_decode",
+        soe_trace::LoadCause::Decode,
+        record.path.clone(),
+    );
     if let Some(dds) = &record.dds_info {
         return rebuild_dds(data, &record.path, dds);
     }
@@ -564,13 +650,20 @@ fn rebuild_dds_from_disk(
     len: u64,
     name: &str,
     dds: &DdsInfo,
+    archive: &Path,
 ) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     write_dds_header(&mut out, dds)?;
     for chunk in &dds.chunks {
         if chunk.packed_size > 0 {
-            let compressed =
-                read_disk_range(file, len, name, chunk.offset, u64::from(chunk.packed_size))?;
+            let compressed = read_disk_range(
+                file,
+                len,
+                name,
+                chunk.offset,
+                u64::from(chunk.packed_size),
+                archive,
+            )?;
             out.extend(decompress_zlib(&compressed, chunk.unpacked_size, name)?);
         } else {
             out.extend(read_disk_range(
@@ -579,6 +672,7 @@ fn rebuild_dds_from_disk(
                 name,
                 chunk.offset,
                 u64::from(chunk.unpacked_size),
+                archive,
             )?);
         }
     }

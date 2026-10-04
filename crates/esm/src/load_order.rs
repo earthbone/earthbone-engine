@@ -95,6 +95,11 @@ impl LoadOrder {
     /// Add a file at the end of the order. Its masters must already be
     /// loaded, matched by name without regard to case.
     pub fn add(&mut self, name: &str, mut plugin: Plugin) -> Result<usize> {
+        let _load = soe_trace::LoadScope::new(
+            "form_table",
+            soe_trace::LoadCause::CpuBuild,
+            name.to_string(),
+        );
         let _span =
             soe_trace::Span::with_payload("esm.load_order_add", "esm", plugin.records.len() as u64);
         let fingerprint = plugin.fingerprint();
