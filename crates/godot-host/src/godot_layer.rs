@@ -1634,6 +1634,31 @@ impl CellStreamerNode {
         }
     }
 
+    /// Build an authored model's surfaces through the production material cache.
+    /// Used by asset inspection and rendered regressions, without scene nodes.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn model_meshes(&mut self, model: GString) -> Array<Gd<ArrayMesh>> {
+        let mut meshes = Array::new();
+        let Some(source) = &self.data_source else {
+            return meshes;
+        };
+        let surfaces = match source.item_preview_surfaces(&model.to_string()) {
+            Ok(surfaces) => surfaces,
+            Err(error) => {
+                godot_error!("model_meshes: {error}");
+                return meshes;
+            }
+        };
+        for (arrays, textures) in surfaces {
+            let mut mesh = array_mesh_from(&arrays);
+            let material = material_for(&mut self.materials, &arrays.material, &textures);
+            mesh.surface_set_material(0, &material);
+            meshes.push(&mesh);
+        }
+        meshes
+    }
+
     /// Start CPU-only data loading. Poll from the main thread before streaming.
     /// A second request is rejected until the first result has been collected.
     #[allow(clippy::needless_pass_by_value)]
@@ -2959,12 +2984,89 @@ fn material_for(
     }
     let material: Gd<Material> = if let Some(water) = &desc.water {
         water_material(water).upcast()
+    } else if let Some(effect) = &desc.effect {
+        nif_effect_material(desc, effect, textures, &mut cache.textures).upcast()
     } else if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
         decal_material(desc, textures, &mut cache.textures, &mut cache.cubemaps).upcast()
     } else {
         material_with_textures(desc, textures, &mut cache.textures).upcast()
     };
     cache.materials.insert(key, material.clone());
+    material
+}
+
+fn nif_effect_material(
+    desc: &MaterialDesc,
+    effect: &crate::mesh::EffectMaterial,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+) -> Gd<ShaderMaterial> {
+    let mut shader = Shader::new_gd();
+    shader.set_code(&crate::nif_effect::shader(desc, effect));
+    let mut material = ShaderMaterial::new_gd();
+    material.set_shader(&shader);
+    let p = &effect.params;
+    if let Some(data) = &textures.diffuse {
+        if let Some(texture) = cached_texture(cache, desc.diffuse.as_deref(), data) {
+            material.set_shader_parameter("source_texture", &texture.to_variant());
+        }
+    }
+    if let Some(data) = &textures.greyscale {
+        if let Some(texture) = cached_texture(cache, Some(&p.greyscale_texture), data) {
+            material.set_shader_parameter("palette_texture", &texture.to_variant());
+        }
+    }
+    material.set_shader_parameter(
+        "base_color",
+        &Vector4::new(
+            p.base_color[0],
+            p.base_color[1],
+            p.base_color[2],
+            p.base_color[3],
+        )
+        .to_variant(),
+    );
+    material.set_shader_parameter("base_scale", &p.base_color_scale.to_variant());
+    material.set_shader_parameter(
+        "falloff",
+        &Vector4::new(
+            p.falloff_start_angle,
+            p.falloff_stop_angle,
+            p.falloff_start_opacity,
+            p.falloff_stop_opacity,
+        )
+        .to_variant(),
+    );
+    material.set_shader_parameter(
+        "soft_depth",
+        &(p.soft_falloff_depth * crate::units::METRES_PER_UNIT).to_variant(),
+    );
+    let influence = if desc.shader_flags_2 & soe_nif::blocks::flags2::EFFECT_LIGHTING != 0 {
+        p.lighting_influence
+    } else {
+        0.0
+    };
+    material.set_shader_parameter("lighting_influence", &influence.to_variant());
+    material.set_shader_parameter(
+        "alpha_threshold",
+        &effect.alpha_test.map_or(0.0, |a| a.threshold).to_variant(),
+    );
+    material.set_shader_parameter(
+        "uv_offset",
+        &Vector2::new(effect.uv_offset[0], effect.uv_offset[1]).to_variant(),
+    );
+    material.set_shader_parameter(
+        "uv_scale",
+        &Vector2::new(effect.uv_scale[0], effect.uv_scale[1]).to_variant(),
+    );
+    material.set_shader_parameter(
+        "wrap_uv",
+        &Vector2i::new(
+            i32::from(p.clamp_mode & 2 != 0),
+            i32::from(p.clamp_mode & 1 != 0),
+        )
+        .to_variant(),
+    );
     material
 }
 
@@ -3148,6 +3250,11 @@ pub fn standard_material_from(
     textures: &SurfaceTextures,
 ) -> Gd<StandardMaterial3D> {
     material_with_textures(material, textures, &mut std::collections::HashMap::new())
+}
+
+/// Build the authored material kind, including NIF effect shaders.
+pub fn material_from(material: &MaterialDesc, textures: &SurfaceTextures) -> Gd<Material> {
+    material_for(&mut MaterialMap::new(), material, textures)
 }
 
 fn material_with_textures(
@@ -3344,6 +3451,14 @@ fn mesh_surface_arrays(surface: &SurfaceArrays) -> VarArray {
             .map(|n| Vector3::new(n[0], n[1], n[2]))
             .collect();
         arrays.set(ArrayType::NORMAL.ord() as usize, &normals.to_variant());
+    }
+    if !surface.colors.is_empty() {
+        let colors: PackedColorArray = surface
+            .colors
+            .iter()
+            .map(|c| Color::from_rgba(c[0], c[1], c[2], c[3]))
+            .collect();
+        arrays.set(ArrayType::COLOR.ord() as usize, &colors.to_variant());
     }
     if !surface.tangents.is_empty() {
         let tangents: PackedFloat32Array = surface.tangents.iter().copied().collect();

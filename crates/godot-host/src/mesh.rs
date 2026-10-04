@@ -36,6 +36,63 @@ pub struct MaterialDesc {
     /// its WATR record. Every ordinary NIF-sourced surface leaves this
     /// `None`.
     pub water: Option<WaterMaterial>,
+    /// BSEffectShaderProperty fields and its NiAlphaProperty contract.
+    pub effect: Option<EffectMaterial>,
+}
+
+/// Authored NIF effect shading, independent of the Godot renderer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectMaterial {
+    pub params: soe_nif::mesh::EffectParams,
+    pub blend: Option<soe_nif::mesh::Blend>,
+    pub alpha_test: Option<soe_nif::mesh::AlphaTest>,
+    pub uv_offset: [f32; 2],
+    pub uv_scale: [f32; 2],
+}
+
+/// Bitwise material identity, including effect flags and palette paths.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EffectKey {
+    palette: String,
+    values: Vec<u32>,
+    flags: [u32; 2],
+    blend: Option<(u8, u8)>,
+    alpha_test: Option<(u8, u32)>,
+    clamp_mode: u8,
+}
+
+impl EffectMaterial {
+    pub(crate) fn key(&self, flags: [u32; 2]) -> EffectKey {
+        let p = &self.params;
+        let values = p
+            .base_color
+            .into_iter()
+            .chain([
+                p.base_color_scale,
+                p.falloff_start_angle,
+                p.falloff_stop_angle,
+                p.falloff_start_opacity,
+                p.falloff_stop_opacity,
+                p.soft_falloff_depth,
+                p.lighting_influence,
+                self.uv_offset[0],
+                self.uv_offset[1],
+                self.uv_scale[0],
+                self.uv_scale[1],
+            ])
+            .map(f32::to_bits)
+            .collect();
+        EffectKey {
+            palette: soe_bsa::normalize(&p.greyscale_texture),
+            values,
+            flags,
+            blend: self.blend.map(|b| (b.src as u8, b.dst as u8)),
+            alpha_test: self
+                .alpha_test
+                .map(|a| (a.func as u8, a.threshold.to_bits())),
+            clamp_mode: p.clamp_mode,
+        }
+    }
 }
 
 impl Default for MaterialDesc {
@@ -54,6 +111,7 @@ impl Default for MaterialDesc {
             alpha: AlphaMode::default(),
             double_sided: false,
             water: None,
+            effect: None,
         }
     }
 }
@@ -146,6 +204,7 @@ pub struct MaterialKey {
     /// Opacity, then the shallow, deep and reflection colors as float
     /// bits, so two water types never share one material.
     water: Option<(u8, [u32; 9])>,
+    effect: Option<EffectKey>,
 }
 
 impl From<&MaterialDesc> for MaterialKey {
@@ -163,6 +222,10 @@ impl From<&MaterialDesc> for MaterialKey {
             double_sided: material.double_sided,
             decal_depth: material.decal_depth(),
             water: material.water.as_ref().map(WaterMaterial::key),
+            effect: material
+                .effect
+                .as_ref()
+                .map(|e| e.key([material.shader_flags_1, material.shader_flags_2])),
         }
     }
 }
@@ -175,6 +238,9 @@ pub trait MeshSource {
     /// xyz plus handedness sign in w, as NIF bitangent sign.
     fn tangents(&self) -> Option<&[[f32; 4]]>;
     fn uvs(&self) -> Option<&[[f32; 2]]>;
+    fn colors(&self) -> Option<&[[f32; 4]]> {
+        None
+    }
     fn indices(&self) -> &[u32];
     fn bone_indices(&self) -> Option<&[[u16; 4]]>;
     fn bone_weights(&self) -> Option<&[[f32; 4]]>;
@@ -188,6 +254,7 @@ pub struct MeshData {
     pub normals: Option<Vec<[f32; 3]>>,
     pub tangents: Option<Vec<[f32; 4]>>,
     pub uvs: Option<Vec<[f32; 2]>>,
+    pub colors: Option<Vec<[f32; 4]>>,
     pub indices: Vec<u32>,
     pub bone_indices: Option<Vec<[u16; 4]>>,
     pub bone_weights: Option<Vec<[f32; 4]>>,
@@ -206,6 +273,9 @@ impl MeshSource for MeshData {
     }
     fn uvs(&self) -> Option<&[[f32; 2]]> {
         self.uvs.as_deref()
+    }
+    fn colors(&self) -> Option<&[[f32; 4]]> {
+        self.colors.as_deref()
     }
     fn indices(&self) -> &[u32] {
         &self.indices
@@ -278,6 +348,7 @@ pub struct SurfaceArrays {
     pub normals: Vec<[f32; 3]>,
     pub tangents: Vec<f32>,
     pub uvs: Vec<[f32; 2]>,
+    pub colors: Vec<[f32; 4]>,
     pub indices: Vec<i32>,
     pub bones: Vec<i32>,
     pub weights: Vec<f32>,
@@ -296,6 +367,7 @@ impl SurfaceArrays {
             + self.normals.len() * std::mem::size_of::<[f32; 3]>()
             + self.tangents.len() * std::mem::size_of::<f32>()
             + self.uvs.len() * std::mem::size_of::<[f32; 2]>()
+            + self.colors.len() * std::mem::size_of::<[f32; 4]>()
             + self.indices.len() * std::mem::size_of::<i32>()
             + self.bones.len() * std::mem::size_of::<i32>()
             + self.weights.len() * std::mem::size_of::<f32>()
@@ -335,6 +407,9 @@ fn validate(src: &dyn MeshSource) -> Result<(), MeshError> {
                 vertices: n,
             });
         }
+    }
+    if let Some(v) = src.colors() {
+        check_len("colors", v.len(), n)?;
     }
     if let Some(v) = src.normals() {
         check_len("normals", v.len(), n)?;
@@ -460,6 +535,7 @@ pub fn build_surface(src: &dyn MeshSource, opts: MeshOptions) -> Result<SurfaceA
         normals,
         tangents,
         uvs,
+        colors: src.colors().map(<[_]>::to_vec).unwrap_or_default(),
         indices,
         bones,
         weights,
