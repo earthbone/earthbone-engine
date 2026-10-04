@@ -141,6 +141,7 @@ impl NifFile {
 /// Parse a whole file from memory.
 pub fn parse(bytes: &[u8]) -> Result<NifFile> {
     let _span = soe_trace::Span::with_payload("nif.parse", "nif", bytes.len() as u64);
+    soe_trace::trace!(target: "nif", system = "nif", bytes = bytes.len(), "parsing mesh");
     let mut s = stream::Stream::new(bytes);
     let header = header::read_header(&mut s)?;
     let blocks = blocks::read_blocks(&mut s, &header)?;

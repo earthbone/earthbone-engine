@@ -44,7 +44,7 @@ impl PlayerNode {
         bank.stop_ambience();
         if let Some(track) = track {
             if !bank.play_ambience(track.path.as_str().into()) {
-                godot_error!("cell ambience {}: {}", track.path, bank.last_error());
+                soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "cell ambience {}: {}", track.path, bank.last_error());
             }
         }
     }
@@ -118,7 +118,7 @@ impl PlayerNode {
             Ok(impacts) => impacts,
             Err(error) => {
                 self.footstep_errors += 1;
-                godot_error!("footstep records: {error}");
+                soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep records: {error}");
                 return;
             }
         };
@@ -151,7 +151,7 @@ impl PlayerNode {
                 Ok(plan) => plan,
                 Err(error) => {
                     self.footstep_errors += 1;
-                    godot_error!("footstep sound: {error}");
+                    soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep sound: {error}");
                     continue;
                 }
             };
@@ -168,7 +168,7 @@ impl PlayerNode {
                     game.world_mut().create_detection_event(player, player, 20);
                 } else {
                     self.footstep_errors += 1;
-                    godot_error!("footstep playback failed");
+                    soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep playback failed");
                 }
             }
         }

@@ -113,8 +113,8 @@ fn aud_02_installed_vanilla_xwma_matches_ffmpeg_without_feature() {
     );
     assert_eq!(native.sample_rate, xwma.format.sample_rate);
     assert_eq!(native.channels, xwma.format.channels);
-    assert!(!native.samples.is_empty());
-    assert!(!reference.is_empty());
+    assert_ne!(native.samples, [] as [f32; 0]);
+    assert_ne!(reference, [] as [f32; 0]);
     let reference_duration = reference.len() as f64
         / f64::from(xwma.format.sample_rate)
         / f64::from(xwma.format.channels);

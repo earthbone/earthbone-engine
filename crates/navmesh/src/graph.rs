@@ -880,6 +880,8 @@ impl NavGraph {
         endpoints: Option<([f32; 3], [f32; 3])>,
         costs: PathCosts,
     ) -> Option<PathSearch> {
+        let _span = soe_trace::Span::new("navmesh.find_path", "navmesh");
+        soe_trace::trace!(target: "navmesh", system = "navmesh", from = ?from, to = ?to, "finding path");
         if !costs.is_valid() {
             return None;
         }

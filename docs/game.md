@@ -789,6 +789,16 @@ when it is absent. `TraceUser(name, text, severity)` appends the formatted text
 to an open named log and the Papyrus log, and returns whether that log was
 open. User logs are runtime diagnostics and are not included in SOEW saves.
 
+TOOL-07 adds profile-controlled file output. A host passes the resolved
+`soe_profile::Settings` and the profile's My Games directory to
+`Game::configure_papyrus_logs`. `[Papyrus] bEnableLogging` enables
+`Logs/Script/Papyrus.0.log` and `Logs/Script/User/<name>.0.log` output.
+`bEnableTrace` controls non-error trace lines, while `bLoadDebugInformation`
+controls source-line detail in VM errors. Existing numbered log files move up
+one slot when logging starts. Lines use the vanilla-style
+`[MM/DD/YYYY - H:MM:SSAM]` timestamp prefix. VM log entries
+continue through `soe-trace`, including when file tracing is disabled.
+
 `Debug.CenterOnCell(name)` resolves a CELL editor id and queues a host request
 to move the player to that cell's origin. `CenterOnCellAndWait(name)` queues
 the same request and suspends its Papyrus thread until the host installs the
@@ -8487,3 +8497,12 @@ live marker state during each bounded scan.
 Ordinary `World::load_cell` prepares the world NAVM graph and query caches
 after prefetching references and before attaching the cell. The first AI tick
 therefore reads the prepared graph without relying on a host measurement hook.
+
+## Shared logging, TOOL-06
+
+Runtime ticks emit trace events and AI reference-index construction emits debug
+events through `soe-trace`. AI events include the resolved cell FormID.
+`Console::run` accepts `log` to read the active filter and `log <directives>`
+to reload it. Invalid directives leave the current filter in place. A missing
+host subscriber returns a console error. The command uses the shared
+[logging controls](trace.md) and changes no saved game state.

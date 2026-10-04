@@ -697,3 +697,11 @@ record. Direct `LoadOrder::record` calls charge once. Calls are counted in the
 active `soe_trace::WorkFrame`, independent of timing tracing. The
 `prf_14_record_lookup_counts_winners_missing_forms_and_direct_reads_once`
 test checks these boundaries.
+
+## Shared logging, TOOL-06
+
+`LoadOrder::add` emits an info event with system, plugin name and record count
+through the tracing facade reexported by `soe-trace`. The caller installs the
+subscriber. [trace.md](trace.md) describes filter directives, structured
+context, rate limiting and output. Plugin records and override rules are
+unchanged by logging.

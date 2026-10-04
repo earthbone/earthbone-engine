@@ -3,10 +3,7 @@
 //! The player adapter writes controller poses into Game before dispatching input.
 //! Scripted moves and door landings then flow back into collision and rendering.
 
-use super::{
-    godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
-    PlayerNode, Vec3,
-};
+use super::{CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld, PlayerNode, Vec3};
 use crate::units::placement_to_godot;
 use godot::prelude::*;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
@@ -70,7 +67,7 @@ impl PlayerNode {
             return false;
         };
         if let Err(error) = game.load_script(&bytes) {
-            godot_error!("PlayerNode: failed to load UI-18 host check script: {error}");
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: failed to load UI-18 host check script: {error}");
             return false;
         }
         let args = if name == "StartTitleSequence" {
@@ -81,12 +78,12 @@ impl PlayerNode {
         let thread = match game.vm.call_global(script_name, "Run", &args) {
             Ok(thread) => thread,
             Err(error) => {
-                godot_error!("PlayerNode: Game.{name} host check failed: {error}");
+                soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: Game.{name} host check failed: {error}");
                 return false;
             }
         };
         if !game.run_until_idle(64) || game.vm.thread_result(thread) != Some(Value::None) {
-            godot_error!("PlayerNode: Game.{name} host check did not complete");
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: Game.{name} host check did not complete");
             return false;
         }
         self.apply_host_requests();
@@ -162,7 +159,7 @@ impl PlayerNode {
             self.loaded_cell,
             self.game_streamer.as_ref(),
         ) else {
-            godot_error!(
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay",
                 "PlayerNode: share streamer data and enter a cell before starting gameplay"
             );
             return false;
@@ -174,9 +171,17 @@ impl PlayerNode {
                 return false;
             }
         };
+        if let Some(directory) = source.profile_papyrus_logs().1 {
+            if let Err(error) =
+                game.configure_papyrus_logs(source.profile_papyrus_logs().0, directory)
+            {
+                soe_trace::warn!(target: "host::gameplay", system = "host::gameplay",
+                    error = %error, "PlayerNode: could not configure Papyrus file logs");
+            }
+        }
         let scripts = game.load_scripts_from_vfs(source.vfs());
         if !scripts.scripts_failed.is_empty() {
-            godot_error!(
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay",
                 "PlayerNode: failed to load {} scripts",
                 scripts.scripts_failed.len()
             );
@@ -185,7 +190,7 @@ impl PlayerNode {
         let player = game.player();
         let feet = self.feet();
         let report = game.start();
-        godot_print!(
+        soe_trace::info!(target: "host::gameplay", system = "host::gameplay",
             "GAMEPLAY scripts={} attached={} missing={} quests={}",
             scripts.scripts_loaded,
             report.scripts_attached,
@@ -202,7 +207,7 @@ impl PlayerNode {
         game.change_cell(Some(cell));
         game.run_until_idle(64);
         if let Err(error) = self.image_space.sync(&game.world()) {
-            godot_error!("PlayerNode: {error}");
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
         }
         self.effect_shaders.sync(&game.world());
         self.start_footstep_audio();
@@ -274,7 +279,7 @@ impl PlayerNode {
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
             if let Err(error) = self.image_space.sync(&game.world()) {
-                godot_error!("PlayerNode: {error}");
+                soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
             }
             game.deliver_animation_reports();
             let shakes = std::mem::take(&mut game.world_mut().camera_shakes);
@@ -364,7 +369,7 @@ impl PlayerNode {
                 match crate::detect_life::presentations(&mut world) {
                     Ok(detections) => detections,
                     Err(error) => {
-                        godot_error!("PlayerNode: Detect Life presentation failed: {error}");
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: Detect Life presentation failed: {error}");
                         Vec::new()
                     }
                 }
@@ -418,7 +423,7 @@ impl PlayerNode {
                 }
             }
             self.auto_step = false;
-            godot_error!("PlayerNode: gameplay stopped because destination resources failed");
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: gameplay stopped because destination resources failed");
         }
     }
 
@@ -453,22 +458,22 @@ impl PlayerNode {
         let mut succeeded = true;
         for path in requests {
             let Some(viewport) = self.base().get_viewport() else {
-                godot_error!("PlayerNode: screenshot has no viewport for {path}");
+                soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: screenshot has no viewport for {path}");
                 succeeded = false;
                 continue;
             };
             let Some(texture) = viewport.get_texture() else {
-                godot_error!("PlayerNode: screenshot viewport has no texture for {path}");
+                soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: screenshot viewport has no texture for {path}");
                 succeeded = false;
                 continue;
             };
             let Some(image) = texture.get_image() else {
-                godot_error!("PlayerNode: screenshot viewport has no image for {path}");
+                soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: screenshot viewport has no image for {path}");
                 succeeded = false;
                 continue;
             };
             if image.save_png(&path) != godot::global::Error::OK {
-                godot_error!("PlayerNode: failed to save screenshot to {path}");
+                soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: failed to save screenshot to {path}");
                 succeeded = false;
             }
         }
@@ -526,7 +531,7 @@ impl PlayerNode {
                         seconds_before_fade,
                         fade_duration,
                     ) {
-                        godot_error!("PlayerNode: rejected invalid Game.FadeOutGame timing");
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: rejected invalid Game.FadeOutGame timing");
                     }
                     self.refresh_door_fade();
                 }
@@ -874,7 +879,7 @@ impl PlayerNode {
                 .and_then(|r| r.cell.map(|cell| (cell, r.position, r.rotation)))
         };
         let Some((cell, position, rotation)) = destination else {
-            godot_error!("PlayerNode: game player has no destination cell");
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: game player has no destination cell");
             return false;
         };
         let feet = Vec3::new(position[0], position[1], position[2]);
@@ -898,14 +903,15 @@ impl PlayerNode {
             let worldspace = source.exterior_world(cell);
             let prepared = self.interior_prefetch.take(cell);
             self.interior_prefetch.invalidate();
-            let location =
-                match prepared.map_or_else(|| source.load_location(cell, position, 1), Ok) {
-                    Ok(location) => location,
-                    Err(error) => {
-                        godot_error!("PlayerNode: {error}");
-                        return false;
-                    }
-                };
+            let location = match prepared
+                .map_or_else(|| source.load_location(cell, position, 1), Ok)
+            {
+                Ok(location) => location,
+                Err(error) => {
+                    soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+                    return false;
+                }
+            };
             let Some(mut query_collision) = self.prepare_query_collision(&location.collision)
             else {
                 return false;
@@ -942,14 +948,17 @@ impl PlayerNode {
                     .collect();
                 if !departing.is_empty() {
                     if let Err(error) = runtime.detach_streaming_cells(&departing) {
-                        godot_error!("PlayerNode: {error}");
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
                         return false;
                     }
                 }
             }
             if let Some(worldspace) = worldspace {
                 let mut planner = crate::streaming::CellStreamer::new(super::exterior::config())
-                    .map_err(|error| godot_error!("PlayerNode: {error}"));
+                    .map_err(|error| {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+                        godot_error!("PlayerNode: {error}");
+                    });
                 let Ok(ref mut planner) = planner else {
                     return false;
                 };
@@ -968,7 +977,7 @@ impl PlayerNode {
                     return false;
                 };
                 if let Err(error) = game.attach_streaming_cells(&entered) {
-                    godot_error!("PlayerNode: {error}");
+                    soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
                     return false;
                 }
                 self.exterior = Some(super::exterior::ExteriorRuntime {
@@ -988,7 +997,7 @@ impl PlayerNode {
             self.record_door_texture_preparation(texture_preparation);
             self.footstep_cadence.reset();
             self.motion = CameraMotion::new(feet, self.capsule_height());
-            godot_print!(
+            soe_trace::info!(target: "host::gameplay", system = "host::gameplay",
                 "GAMEPLAY cell={cell} position={position:?} bodies={} texture_prepare_ms={:.3} fade={}",
                 collision.stats.bodies,
                 texture_preparation.as_secs_f64() * 1000.0,

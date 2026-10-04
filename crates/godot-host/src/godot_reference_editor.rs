@@ -5,6 +5,9 @@
 //! The editor gizmo edits a proxy Node3D, while this bridge applies its
 //! transform to the active plugin's REFR record through `soe-editor`.
 
+// Same `init` derive expansion as in godot_forms.rs.
+#![allow(clippy::redundant_field_names)]
+
 use std::path::PathBuf;
 
 use godot::classes::RefCounted;
@@ -14,12 +17,24 @@ use soe_esm::records::Transform;
 use soe_esm::GlobalFormId;
 
 #[derive(GodotClass)]
-#[class(init, base = RefCounted)]
+#[class(base = RefCounted)]
 pub struct SoeReferenceTransformEditor {
     base: Base<RefCounted>,
     document: Option<EditorDocument>,
     active_path: Option<PathBuf>,
     last_error: GString,
+}
+
+#[godot_api]
+impl IRefCounted for SoeReferenceTransformEditor {
+    fn init(base: Base<RefCounted>) -> Self {
+        Self {
+            base,
+            document: None,
+            active_path: None,
+            last_error: GString::new(),
+        }
+    }
 }
 
 #[godot_api]
@@ -143,7 +158,7 @@ impl SoeReferenceTransformEditor {
         match document.save(path) {
             Ok(_) => true,
             Err(error) => {
-                godot_error!("SoeReferenceTransformEditor: {error}");
+                soe_trace::error!(target: "host::reference_editor", system = "host::reference_editor", "SoeReferenceTransformEditor: {error}");
                 false
             }
         }
