@@ -361,3 +361,10 @@ the timeline through `ParticleEmitterNode` for a named model path.
 - Additional controllers and particle modifiers, `BSLODTriShape` levels,
   `BSDynamicTriShape` dynamic positions, and multiple UV sets beyond the first
   in the host renderer. The block layer keeps all UV sets in the neutral mesh.
+
+## Shared logging, TOOL-06
+
+`parse` emits a trace event with the input byte count and system through
+`soe-trace`. Release builds remove the event and its arguments. The caller
+installs a subscriber. Filter directives, rate limiting and output follow
+[trace.md](trace.md).

@@ -224,7 +224,7 @@ impl PlayerNode {
             .world_mut()
             .evaluate_detection(&observations, elapsed as f32)
         {
-            godot_error!("PlayerNode detection: {error}");
+            soe_trace::error!(target: "host::detection", system = "host::detection", "PlayerNode detection: {error}");
             -1
         } else {
             observation_count

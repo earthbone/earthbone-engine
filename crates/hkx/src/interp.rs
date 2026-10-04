@@ -592,6 +592,8 @@ enum Target {
     EventRangeInput,
     /// Which state the machine enters on activation.
     StartStateId,
+    /// Output: the current state ID, including while a transition plays.
+    MachineCurrentStateId,
     /// A transition effect's blend duration in seconds.
     Duration,
     TwistAngle,
@@ -642,13 +644,13 @@ impl Target {
     /// Output bindings write node state into the variable after the update.
     /// The rest read the variable into node state before it. The file does
     /// not say which a binding is (`hasOutputBinding` is
-    /// `SERIALIZE_IGNORED`), so the member decides: these two are node state
-    /// with no setter behind them.
+    /// `SERIALIZE_IGNORED`), so the member decides which fields publish node state.
     fn is_output(self) -> bool {
         matches!(
             self,
             Target::IsActive { .. }
                 | Target::MachineIsActive
+                | Target::MachineCurrentStateId
                 | Target::DecomposeComponent(_)
                 | Target::DampingValue
                 | Target::DampingVector
@@ -1519,6 +1521,9 @@ impl<'a> Interpreter<'a> {
                 }
                 ("isActive", None, NodeKind::StateMachine(_)) => Some(Target::MachineIsActive),
                 ("startStateId", None, NodeKind::StateMachine(_)) => Some(Target::StartStateId),
+                ("currentStateId", None, NodeKind::StateMachine(_)) => {
+                    Some(Target::MachineCurrentStateId)
+                }
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
                 ("twistAngle", None, NodeKind::TwistModifier(_)) => Some(Target::TwistAngle),
                 ("timeStep", None, NodeKind::GetTimeStepModifier { .. }) => Some(Target::TimeStep),
@@ -2130,6 +2135,15 @@ impl<'a> Interpreter<'a> {
                 self.variables
                     .set_word(b.variable, i32::from(runtime.active));
             }
+            Target::MachineCurrentStateId => {
+                if let Some(state) = self
+                    .nodes
+                    .get(b.node.0)
+                    .and_then(|runtime| runtime.current_state)
+                {
+                    self.variables.set_word(b.variable, state);
+                }
+            }
             Target::DecomposeComponent(component) => {
                 let Some(runtime) = self.nodes.get(b.node.0) else {
                     return;
@@ -2308,6 +2322,7 @@ impl<'a> Interpreter<'a> {
                 // Written by apply_output_bindings, skipped above.
                 Target::IsActive { .. }
                 | Target::MachineIsActive
+                | Target::MachineCurrentStateId
                 | Target::DecomposeComponent(_)
                 | Target::TimeStep
                 | Target::SpeedSamplerState

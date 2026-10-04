@@ -67,6 +67,15 @@ controller pose and load-door cell replacement, and verifies a visible
 dialogue response. It captures the viewport as `window.png` in that fixture
 directory and quits with a failing status if any assertion fails.
 
+## Papyrus log profile routing, TOOL-07
+
+`DataSource` retains the resolved profile INI settings and INI directory.
+`PlayerNode` configures Game's Papyrus file sink from them before scripts start.
+When `[Papyrus] bEnableLogging=1`, the sink writes `Papyrus.0.log` and named
+user logs under `Logs/Script` in that profile directory. Disabled logging does
+not create files. The profile settings control trace lines and debug source
+detail, and existing numbered logs move up one slot on startup.
+
 ## Item names and model cards, UI-25
 
 Gameplay startup and restored-generation attachment use
@@ -4473,3 +4482,37 @@ startup occur before the 60 simulated seconds of measurement. The script
 frees its host nodes and quits with its check result. It skips when
 `SKYRIM_DATA` is unset.
 The result also prints the worst frame's index and inclusive phase timings.
+
+## Shared logging and controls, TOOL-06
+
+The extension installs the shared tracing subscriber at Scene initialization,
+using `SOE_LOG` and `user://logs/engine.log`. Host diagnostics use the facade
+with subsystem targets such as `host::melee` and `host::data_source`.
+`SoeLogBridge` flushes completed one-second message buckets each frame and
+queues worker events for delivery on the main thread. Errors use Godot's
+`push_error` path and warnings use `push_warning`, reaching the debugger.
+Other levels use Godot output. Every enabled level reaches size-rotated files.
+Exit-tree and extension shutdown flush the current bucket.
+
+`godot/diagnostics.gd` is an autoload with F3 verbosity controls and a backtick
+logging console. Both reload the same filter. F3 shows five seconds of recent
+messages. `log` reads the directives and `log <directives>` changes them.
+Invalid filters retain the previous setting. The panel releases the captured
+mouse while open and restores its prior mode on closure. It adds one control
+node for the host, with no node per placed reference.
+
+`SoeLogBridge::log_window` and `dump_log_window` expose inclusive logging-clock
+windows, including the current pending bucket, for hitch captures. PRF-18's
+automatic recorder is absent in this checkout. The host regression checks the
+window export directly rather than claiming automatic hitch capture.
+The `tool_06_godot_routing_and_editor_debugger` test runs a windowed scene and
+an editor scene with `SOE_GODOT_BIN`, asserting error/warning routing, output,
+file context, repeated counts, release-level elision, console reload and F3
+controls. Both scenes quit when their checks end.
+The tests build the release extension and import the project before running
+the scenes so fresh checkouts register the extension's classes.
+
+The routing source is the local Godot documentation's GlobalScope
+`push_error`, `push_warning` and `print_rich` contracts. Lifecycle callbacks
+follow local gdext `godot-core/src/init/mod.rs`. Details of the subscriber,
+retention bounds and dependencies are in [trace.md](trace.md).

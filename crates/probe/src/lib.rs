@@ -3,13 +3,14 @@
 //! Vanilla Papyrus log transport, following tes4skyrim's request/result pairing.
 //! PEX and plugin output reuse the engine writers and the local Caprica/xEdit schemas.
 
+mod animation;
 mod compare;
 mod runner;
 mod sequence;
 
 pub use compare::{compare, parse_log, run, run_installed, Comparison, Difference, Observation};
 pub use runner::{build, plugin, script};
-pub use sequence::{Form, FormKind, Menu, Probe, Step, Tolerances};
+pub use sequence::{AnimationGraph, Form, FormKind, Menu, Probe, Step, Tolerances};
 
 /// The bundled quest-stage and real-wait sequence.
 pub const EXAMPLE: &str = include_str!("../probes/quest_wait.toml");

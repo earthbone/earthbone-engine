@@ -13,6 +13,10 @@ config_version=5
 config/name="Skyrim open engine host"
 config/features=PackedStringArray("4.4")
 
+[autoload]
+
+SoeDiagnostics="*res://diagnostics.gd"
+
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/soe_cell_editor/plugin.cfg", "res://addons/soe_forms/plugin.cfg", "res://addons/soe_reference_gizmo/plugin.cfg")

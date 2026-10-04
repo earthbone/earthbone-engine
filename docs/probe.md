@@ -123,11 +123,15 @@ mistyped form aliases, unknown properties and unsupported commands are errors.
 tables specify `plugin`, `object` and `kind`. `object` is the local object ID,
 without a load-order prefix, written as a decimal or hexadecimal TOML integer.
 The kinds are `quest`, `actor`, `object_reference`, `spell`, `magic_effect`,
-`global_variable`, `perk` and `form`. The runner resolves them with
+`global_variable`, `perk`, `player` and `form`. The runner resolves them with
 `Game.GetFormFromFile`, casts to the declared Papyrus type and stops on a
 missing form. Engine execution checks the record types before starting.
 The optional `player` alias must have kind `actor` and resolves through
 `Game.GetPlayer`, since the player actor is not fetched as a normal file form.
+The `player` kind requires Skyrim.esm object `000014`, has Papyrus type Actor
+and resolves through `Game.GetPlayer` in both runtimes. It is a runtime
+reference, so engine preflight uses World.player without requiring a placed
+ACHR record. Other kinds resolve through Game.GetFormFromFile.
 
 | Operation | Additional step fields | Result |
 | --- | --- | --- |
@@ -138,6 +142,11 @@ The optional `player` alias must have kind `actor` and resolves through
 | `wait_menu` | `seconds` | `issued` after Utility.WaitMenuMode |
 | `wait_game` | `seconds` | `issued` after Utility.WaitGameTime, seconds converted to hours |
 | `animation` | `actor`, `event` | `issued` after Debug.SendAnimationEvent |
+| `animation_events` | `actor`, `events` | `issued` after 1 to 16 ordered Debug.SendAnimationEvent calls |
+| `animation_int` | `actor`, `variable`, optional `set` integer | `value` from GetAnimationVariableInt, after SetAnimationVariableInt when supplied |
+| `animation_float` | `actor`, `variable`, optional finite `set` float | `value` from GetAnimationVariableFloat, after SetAnimationVariableFloat when supplied |
+| `equip_item` | `actor`, `item` | `issued` after silent AddItem of one copy and EquipItem |
+| `third_person` | None | `issued` after Game.ForceThirdPerson |
 | `wait_animation` | `actor`, `event` | Boolean `value` from ObjectReference.WaitForAnimationEvent |
 | `cast` | `spell`, `source`, `target` | `issued` after Spell.Cast |
 | `actor_value` | `actor`, `value` | Numeric `value` from Actor.GetActorValue |
@@ -155,6 +164,15 @@ actor-value queries to measure application. `wait_animation` needs a loaded
 animation graph and an external event. The headless comparator has no host
 animator and reports its timeout if the event never arrives. Timeout bounds
 engine execution, not the vanilla latent native.
+
+Optional `startup_wait_seconds` defaults to zero. A positive value calls
+Utility.Wait after form resolution, before sampling the sequence's starting
+clocks or executing its steps. It must be finite, nonnegative and less than
+`timeout_seconds`. Event batches preserve native-call order in one step, but
+do not force the calls into a single vanilla animation update.
+An event batch can also provide `set_int`, a map of up to eight graph-variable
+names to signed integer values. The runner writes those variables in sorted
+name order before sending any events, without an intervening observation.
 
 `add_perk`, `remove_perk` and `has_perk` accept declared `perk` forms and
 invoke the matching vanilla Actor natives. `prg_17.toml` uses the player and
@@ -211,6 +229,39 @@ The example has no menus, animation or combat. It starts with the generated
 quest at stage zero and TimeScale 20. Other live state is not imported from an
 ESS file by this tool.
 
+`compare <probe.toml> <Papyrus.0.log> <expected.json>` reads explicit engine
+observations instead of running the Game comparator. This path does not need
+`SKYRIM_DATA`. It uses the same boundary, context and tolerance validation and
+retains the engine version from the expectation file. An expectation file is
+an engine result, not evidence of a Skyrim capture.
+The comparator checks each trace's declared load order, form aliases, local
+object IDs and null SKSE version against the authored sequence, even when the
+two input traces agree. Regular or light runtime prefixes remain measured
+values compared between the engine and capture.
+
+`crates/probe/probes/anm_56.toml` equips the player with a vanilla iron sword,
+forces third person, draws the sword, sets `weaponSpeedMult` to zero for
+attack-window observations and
+reads `i1HMState` around labelled trigger entry and exit, initiate entry,
+same-event bounds, pending-request reset and a changed `iBlockState` guard.
+The sequence declares the five official masters, Fish and AdvDSGS in their
+profile order. Its forms come only from those seven ESMs and its own runner.
+The profile's official light plugins do not affect these regular FormIDs and
+are not probed. The closed initiate-window case reads back after 1, 5, 30 and 60 seconds.
+Build this sequence with the usual optional sequence argument. Start a
+disposable game with `coc qasmoke` from the main-menu console,
+leave the left hand empty and keep menus closed without combat or input for
+about 75 seconds, until `finished_state` is logged. The runner waits three
+gameplay seconds before starting its recorded clock, and restores attack speed
+to one at the end. Compare once with `rtk cargo run -p soe-probe -- compare
+crates/probe/probes/anm_56.toml /path/to/Papyrus.0.log
+crates/probe/probes/anm_56.expected.json`. The expectation file comes from the
+HKX test's isolated vanilla `1HM_Behavior` replay, with no clip library or
+master-graph equipment simulation. It uses `Interpreter::current_state` for
+the state readback. The capture compares Papyrus's graph variable instead.
+Finite fixed-time boundaries and graph-unload reset are not exercised by this
+sequence. No original capture has been compared, so ANM-56 remains partial.
+
 ## Sources and validation
 
 Read before implementation:
@@ -231,6 +282,13 @@ Read before implementation:
 - Local CK `Debug_Script.wikitext`, `Utility_Script.wikitext` and the shipped
   vanilla Quest, Utility, Game and Spell PSC declarations for native
   signatures, highest-stage queries and wait units.
+- ANM-56 also reads CK `EquipItem_-_Actor.wikitext`, the integer and float
+  `GetAnimationVariable` pages and `SetAnimationVariableInt` page, plus local
+  `skse64/scripts/vanilla/ObjectReference.psc` for the float setter and AddItem
+  signatures. These are vanilla declarations, without an SKSE dependency.
+- CK `Game_Script.wikitext` and `skse64/scripts/vanilla/Game.psc` declare
+  Game.GetPlayer and ForceThirdPerson. The existing `World.player` path supplies
+  the engine's reserved runtime player reference.
 - Existing `crates/game/tests/quest_flow.rs`, game quest/VMAD builders and
   `crates/papyrus/src/asm.rs`. These already provide the Rust writers needed
   here. No replacement binary-format writer or upstream code copy was added.
@@ -259,6 +317,68 @@ official records and checks CLI matching and differing comparisons.
 capture. Its profile and FormIDs follow the synthetic plugin fixture and its
 small scheduling delays fit the tolerances declared before the tests run.
 No live Skyrim probe has been captured by these tests.
+
+## Transition tie capture, ANM-54
+
+`crates/probe/probes/anm_54.toml` observes the player's vanilla third-person
+`1HM_Behavior` through `i1HMState`. It labels the local/wildcard
+`streamingQuery_attackStart` tie, equal-priority `blockStart` interrupted by
+`recoilStart`, and both orders of delayed `blockStop` and `attackStart`.
+Each delayed batch writes `iBlockState = 1`, closes `InitiateWinEnd`, issues
+both requests, samples the pending state and opens `InitiateWinBegin`.
+Build and install with the commands above, selecting this sequence. From the
+main-menu console use `coc qasmoke` for a disposable default male player,
+without equipping items. Keep gameplay unpaused and leave the controls alone.
+The runner waits five seconds, selects third person and draws the player's
+hands. Allow roughly 10 to 15 seconds and wait for `delayed_last_stop_result`
+before closing Skyrim to flush the log. The sequence names only the five
+masters, Fish, AdvDSGS and its generated quest. The official light plugins in
+`quest_wait.toml` have no aliases or mutations in this sequence. The checked
+`anm_54.expected.json` contains engine predictions, not a vanilla capture.
+
+```text
+rtk cargo run -p soe-probe -- build ./probe-out crates/probe/probes/anm_54.toml
+rtk cargo run -p soe-probe -- compare crates/probe/probes/anm_54.toml /path/to/Papyrus.0.log crates/probe/probes/anm_54.expected.json
+rtk cargo run -p soe-probe -- replay crates/probe/probes/anm_54.toml
+```
+
+An optional final `expected.json` argument makes `compare` read reviewed
+observations instead of executing the sequence. That mode needs no
+`SKYRIM_DATA`. `replay` writes the engine observations as JSON and requires
+installed data. Missing, extra and reordered boundaries still fail, as do
+state differences. The comparator checks the authored load order, alias names
+and local object IDs even when the two supplied traces agree with each other.
+`animation_batch` accepts 1 to 16 ordered event tokens
+and an optional `ints` table of at most eight integer variable setters. It
+runs setters before events without trace calls or waits between them.
+`animation_int` reads `GetAnimationVariableInt`, `set_animation_int` writes
+`SetAnimationVariableInt`, `third_person` calls `Game.ForceThirdPerson` and
+`draw_weapon` calls `Actor.DrawWeapon`. A form of kind `player` must name
+Skyrim.esm object `0x14` and resolves through `Game.GetPlayer`.
+
+The optional `[animation_graph]` table selects an actor alias and an archive
+HKX path for the comparison host. It loads the graph, referenced behaviors,
+readable clips and the actor skeleton through the existing BSA/HKX readers.
+An absent clip fails if activated. Relative shared-clip paths resolve parent
+components within the archive. The host forwards ordered script events,
+reads changed script variables and publishes graph variables to the same
+world reference maps read by Papyrus. Graph reports are delivered to listeners
+without reinjection as script requests. This replay selects the unmodified
+`1hm_behavior.hkx` graph as its root. It does not reproduce the surrounding
+master graph, character control inputs or physical contacts from Skyrim.
+The capture comparison includes ready, pending and reset samples to expose
+state or timing disagreement. It does not infer success from event issuance.
+
+Sources are the local CK `GetAnimationVariableInt`, `SetAnimationVariableInt`,
+`DrawWeapon` and `Game_Script` pages, the serde-hkx state-machine/transition
+class descriptions and the Havok state-machine declaration already linked in
+[hkx.md](hkx.md). No executable disassembly or Havok implementation was used.
+The probe adds the existing `soe-hkx` and `soe-bsa` workspace dependencies,
+with no new external runtime dependency. `hkx/tests/anm_54.rs` covers provisional
+ties, state-ID output and an installed replay of the checked predictions.
+Its `SOE_PROBE_CAPTURE` case reads `Papyrus.0.log` from the named directory and
+compares it against the installed HKX replay. It skips without capture data.
+ANM-54 remains partial until the user's original-runtime capture is compared.
 
 `probes/prg_21.toml` labels the six LVSP flag combinations at levels 1, 10 and
 20, three nested-list cases and zero or full chance-none controls. It records

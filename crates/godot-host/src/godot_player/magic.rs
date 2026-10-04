@@ -300,7 +300,7 @@ impl PlayerNode {
         for (hand, input) in [(Hand::Left, left), (Hand::Right, right)] {
             if input.pressed || (input.held && !input.was_held) {
                 if let Err(error) = game.begin_hand_cast(player, hand, None) {
-                    godot_error!("PlayerNode: hand cast rejected: {error}");
+                    soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: hand cast rejected: {error}");
                 }
             }
             if !input.held && (input.was_held || input.pressed) {
@@ -448,7 +448,7 @@ impl PlayerNode {
         match result {
             Ok(effects) => !effects.is_empty(),
             Err(error) => {
-                godot_error!("PlayerNode: self cast rejected: {error}");
+                soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: self cast rejected: {error}");
                 false
             }
         }
@@ -496,7 +496,7 @@ impl PlayerNode {
         let hit = match crate::godot_combat::first_contact(space, &owners, player, origin, end) {
             Ok(hit) => hit,
             Err(error) => {
-                godot_error!("PlayerNode: touch target query failed: {error}");
+                soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: touch target query failed: {error}");
                 return false;
             }
         };
@@ -524,7 +524,7 @@ impl PlayerNode {
         match result {
             Ok(_) => true,
             Err(error) => {
-                godot_error!("PlayerNode: touch cast rejected: {error}");
+                soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: touch cast rejected: {error}");
                 false
             }
         }
@@ -628,7 +628,7 @@ impl PlayerNode {
         match result {
             Ok(_) => true,
             Err(error) => {
-                godot_error!("PlayerNode: {error}");
+                soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: {error}");
                 false
             }
         }
@@ -669,7 +669,7 @@ impl PlayerNode {
                 match result {
                     Ok(_) => true,
                     Err(error) => {
-                        godot_error!("PlayerNode: {error}");
+                        soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: {error}");
                         false
                     }
                 }

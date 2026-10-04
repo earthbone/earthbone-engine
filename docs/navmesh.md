@@ -441,3 +441,10 @@ query-result caches. Geometry, links, flags, blocking, door bindings and obstacl
 changes advance it. Compare this value only on the same graph, as with the
 revision retained by `PathSearch`. The game uses it to retry cached failures
 when navigation changes.
+
+## Shared logging, TOOL-06
+
+Path search emits a trace event with source and destination node identities
+and system through `soe-trace`. Release builds remove the event and its
+argument evaluation. Subscribers, filters, counts and output follow
+[trace.md](trace.md). The navmesh crate does not install a subscriber.

@@ -51,6 +51,7 @@ pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;
+mod papyrus_logs;
 pub mod perks;
 pub mod play;
 pub mod player_input;
@@ -186,6 +187,8 @@ pub struct Game {
     wasm_mods: WasmMods,
     frame_history: soe_trace::FrameHistory,
     last_work_counts: soe_trace::WorkCounts,
+    papyrus_logs: Option<papyrus_logs::FileLogs>,
+    papyrus_log_cursor: usize,
 }
 
 /// Maximum VM instructions executed in one scheduler slice.
@@ -193,6 +196,17 @@ pub const PAPYRUS_INSTRUCTIONS_PER_SLICE: usize = 100_000;
 
 /// Maximum exterior cells the player streamer starts loading per update.
 pub const EXTERIOR_CELL_LOADS_PER_UPDATE: usize = 2;
+
+/// File logging options read from `[Papyrus]` in the active profile INI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PapyrusLogSettings {
+    /// Whether to create Papyrus and user log files.
+    pub enabled: bool,
+    /// Whether ordinary `Debug.Trace` lines reach the files.
+    pub trace_enabled: bool,
+    /// Whether source line numbers appear in stack output.
+    pub debug_information: bool,
+}
 
 impl Game {
     /// Evaluate one objective target's QSTA conditions against the current world and VM.
@@ -270,7 +284,67 @@ impl Game {
             wasm_mods: WasmMods::new(),
             frame_history: soe_trace::FrameHistory::default(),
             last_work_counts: soe_trace::WorkCounts::default(),
+            papyrus_logs: None,
+            papyrus_log_cursor: 0,
         }
+    }
+
+    /// Configure Papyrus file logs under the profile's My Games directory.
+    /// Existing numbered files are moved up when logging starts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the log directory cannot be created or rotated.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn set_papyrus_log_directory(
+        &mut self,
+        directory: impl AsRef<Path>,
+        settings: PapyrusLogSettings,
+    ) -> std::io::Result<()> {
+        if settings.enabled {
+            self.papyrus_logs = Some(papyrus_logs::FileLogs::open(
+                directory.as_ref(),
+                settings.trace_enabled,
+                settings.debug_information,
+            )?);
+        } else {
+            self.papyrus_logs = None;
+        }
+        self.papyrus_log_cursor = self.vm.log.entries.len();
+        Ok(())
+    }
+
+    /// Configure Papyrus file output from the resolved profile INI settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the log directory cannot be created or rotated.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn configure_papyrus_logs(
+        &mut self,
+        settings: &soe_profile::Settings,
+        my_games_directory: impl AsRef<Path>,
+    ) -> std::io::Result<()> {
+        self.set_papyrus_log_directory(
+            my_games_directory,
+            PapyrusLogSettings {
+                enabled: settings
+                    .get_bool("Papyrus", "bEnableLogging")
+                    .unwrap_or(false),
+                trace_enabled: settings
+                    .get_bool("Papyrus", "bEnableTrace")
+                    .unwrap_or(false),
+                debug_information: settings
+                    .get_bool("Papyrus", "bLoadDebugInformation")
+                    .unwrap_or(false),
+            },
+        )
     }
 
     /// Register natives from another provider, an extender in the PAPER
@@ -1350,6 +1424,7 @@ impl Game {
         let frame = soe_trace::FrameSnapshot::when_recording();
         let tick_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         let work_frame = soe_trace::WorkFrame::begin();
+        soe_trace::trace!(target: "game", system = "game", real_seconds, menu_mode, "ticking runtime");
         {
             let mut world = self.world.borrow_mut();
             world.menu_mode = menu_mode;
@@ -1683,6 +1758,7 @@ impl Game {
             self.pump();
             self.budget_usage.vm_instruction_limit.set(self.budget);
             let instructions = self.vm.run(self.budget);
+            self.flush_papyrus_logs();
             self.world.borrow_mut().papyrus_instructions_last_slice = instructions;
             self.budget_usage.vm_instructions.set(instructions);
             self.world.borrow_mut().collect_effect_objects(&mut self.vm);
@@ -1702,6 +1778,26 @@ impl Game {
             .iter()
             .map(|e| e.message.clone())
             .collect()
+    }
+
+    fn flush_papyrus_logs(&mut self) {
+        if let Some(logs) = self.papyrus_logs.as_mut() {
+            for entry in &self.vm.log.entries[self.papyrus_log_cursor..] {
+                if let Err(error) = logs.write_vm(&entry.message) {
+                    soe_trace::error!(target: "papyrus", system = "papyrus", error = %error, "failed to write Papyrus log");
+                }
+            }
+        }
+        self.papyrus_log_cursor = self.vm.log.entries.len();
+
+        let pending = std::mem::take(&mut self.world.borrow_mut().pending_user_log_writes);
+        if let Some(logs) = self.papyrus_logs.as_mut() {
+            for (name, line) in pending {
+                if let Err(error) = logs.write_user(&name, &line) {
+                    soe_trace::error!(target: "papyrus", system = "papyrus", error = %error, user_log = %name, "failed to write Papyrus user log");
+                }
+            }
+        }
     }
 }
 
