@@ -273,10 +273,25 @@ impl Vm {
             .calls
             .entry(format!("{}.{}", key.0, key.1))
             .or_insert(0) += 1;
+        let call_stack = self.threads[t]
+            .frames
+            .iter()
+            .map(|frame| {
+                let script = frame
+                    .script
+                    .as_ref()
+                    .map_or_else(String::new, |script| script.name.clone());
+                match frame.function.line_of(frame.pc.saturating_sub(1)) {
+                    Some(line) => format!("{script}.{} line {line}", frame.function.name),
+                    None => format!("{script}.{}", frame.function.name),
+                }
+            })
+            .collect();
         let mut call = NativeCall {
             self_object,
             args,
             time: self.time,
+            call_stack,
             log: &mut self.log,
             latent_counter: &mut self.latent_counter,
             objects: &mut self.objects,

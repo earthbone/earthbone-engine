@@ -264,21 +264,21 @@ impl SkinnedActorNode {
         behavior: &str,
     ) -> bool {
         if self.assets.is_some() {
-            godot_error!("SkinnedActorNode: already loaded, make another node");
+            soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: already loaded, make another node");
             return false;
         }
         let mut vfs = Vfs::new();
         for name in ARCHIVES {
             let path = Path::new(data_dir).join(name);
             if let Err(e) = vfs.add_archive_path(&path) {
-                godot_error!("SkinnedActorNode: {}: {e}", path.display());
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {}: {e}", path.display());
                 return false;
             }
         }
         let mut assets = match ActorAssets::load_with_behavior(&vfs, mesh_path, behavior) {
             Ok(a) => a,
             Err(e) => {
-                godot_error!("SkinnedActorNode: {e}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
                 return false;
             }
         };
@@ -454,7 +454,7 @@ impl SkinnedActorNode {
             .collect();
         self.elapsed += f64::from(delta);
         if let Err(e) = to_model_space_into(&assets.skeleton, vm.pose(), &mut self.model) {
-            godot_error!("SkinnedActorNode: {e}");
+            soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
             return;
         }
         self.push_pose();
@@ -496,7 +496,7 @@ impl SkinnedActorNode {
             if let Err(e) =
                 skinning_transforms_into(&surface.map, &surface.skin, &self.model, &mut self.skins)
             {
-                godot_error!("SkinnedActorNode: {e}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
                 return;
             }
             for (i, skin) in self.skins.iter().enumerate() {
@@ -732,7 +732,7 @@ impl SkinnedActorNode {
                         &assets.skeleton.reference_pose,
                         &mut self.model,
                     ) {
-                        godot_error!("SkinnedActorNode ragdoll pose: {error}");
+                        soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode ragdoll pose: {error}");
                         return;
                     }
                 }
@@ -742,7 +742,10 @@ impl SkinnedActorNode {
                 let placement = self.actor_placement();
                 match LiveRagdoll::create(world.get_space(), placement, source, map, &self.model) {
                     Ok(ragdoll) => self.ragdoll = Some(ragdoll),
-                    Err(error) => godot_error!("SkinnedActorNode ragdoll: {error}"),
+                    Err(error) => {
+                        soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode ragdoll: {error}");
+                        godot_error!("SkinnedActorNode ragdoll: {error}");
+                    }
                 }
             }
             (ActorRenderMode::Animated, true) => {
@@ -858,20 +861,23 @@ impl SkinnedActorNode {
             Ok(Some(rig)) => rig,
             Ok(None) => return,
             Err(error) => {
-                godot_error!("SkinnedActorNode race rig: {error}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode race rig: {error}");
                 return;
             }
         };
         if assets.actor_race != Some(selected.race) || assets.actor_female != Some(selected.female)
         {
-            let mut next =
-                match ActorAssets::load_for_actor(&mut world.borrow_mut(), actor, source.vfs()) {
-                    Ok(assets) => assets,
-                    Err(error) => {
-                        godot_error!("SkinnedActorNode race rig: {error}");
-                        return;
-                    }
-                };
+            let mut next = match ActorAssets::load_for_actor(
+                &mut world.borrow_mut(),
+                actor,
+                source.vfs(),
+            ) {
+                Ok(assets) => assets,
+                Err(error) => {
+                    soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode race rig: {error}");
+                    return;
+                }
+            };
             let surfaces = std::mem::take(&mut next.surfaces);
             let next: &'static ActorAssets = Box::leak(Box::new(next));
             self.assets = Some(next);
@@ -886,7 +892,7 @@ impl SkinnedActorNode {
                 binding.cache = crate::actor::AppearanceCache::default();
             }
             if let Err(error) = self.replace_surfaces(surfaces) {
-                godot_error!("SkinnedActorNode race rig: {error}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode race rig: {error}");
             }
             return;
         }
@@ -902,12 +908,12 @@ impl SkinnedActorNode {
             Ok(Some(update)) => update,
             Ok(None) => return,
             Err(error) => {
-                godot_error!("SkinnedActorNode appearance: {error}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode appearance: {error}");
                 return;
             }
         };
         if let Err(error) = self.replace_surfaces(update.surfaces) {
-            godot_error!("SkinnedActorNode appearance: {error}");
+            soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode appearance: {error}");
         }
     }
 

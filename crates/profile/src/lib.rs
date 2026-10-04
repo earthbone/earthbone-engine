@@ -58,6 +58,8 @@ pub struct Loadout {
     pub data_roots: Vec<PathBuf>,
     pub load_order: LoadOrder,
     pub settings: Settings,
+    /// Directory containing the user INIs, also used for profile log output.
+    pub ini_dir: Option<PathBuf>,
     /// The INI lists first, then each active plugin's own archives in load
     /// order, the engine's opening order.
     pub archives: Vec<ArchiveRef>,
@@ -410,6 +412,7 @@ impl LoadoutInput {
             data_roots: self.data_roots.clone(),
             load_order,
             settings,
+            ini_dir: self.ini_dir.clone(),
             archives,
         })
     }

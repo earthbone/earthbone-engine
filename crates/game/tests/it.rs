@@ -1471,6 +1471,12 @@ mod scr_65_adversarial;
 mod scr_66_adversarial;
 #[path = "scr_67_adversarial.rs"]
 mod scr_67_adversarial;
+#[path = "tool_07_adversarial.rs"]
+mod tool_07_adversarial;
+#[path = "tool_07_breaker_adversarial.rs"]
+mod tool_07_breaker_adversarial;
+#[path = "tool_07_papyrus_file_logs.rs"]
+mod tool_07_papyrus_file_logs;
 
 #[path = "scr_67_breaker2_adversarial.rs"]
 mod scr_67_breaker2_adversarial;
@@ -1682,6 +1688,8 @@ mod ui_15_adversarial;
 mod ui_15_gift_menu;
 #[path = "ui_17_adversarial.rs"]
 mod ui_17_adversarial;
+#[path = "ui_25_initial_inventory.rs"]
+mod ui_25_initial_inventory;
 #[path = "vanilla_save.rs"]
 mod vanilla_save;
 #[path = "visual_effects.rs"]

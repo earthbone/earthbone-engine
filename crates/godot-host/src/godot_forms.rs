@@ -6,6 +6,11 @@
 //! winning FormIDs. A Godot Resource is created only when the dock selects an
 //! ID, following Godot's EditorPlugin and EditorInspectorPlugin APIs.
 
+// gdext's `init` derive writes `base: base` in the impl it generates, which
+// clippy 1.99 reports at the struct field. An attribute on the struct does not
+// reach that impl.
+#![allow(clippy::redundant_field_names)]
+
 use std::path::PathBuf;
 
 use godot::classes::RefCounted;
