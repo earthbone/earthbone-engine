@@ -268,7 +268,12 @@ fn scr_07_trace_stack_object_argument_carries_form_id() {
         "TraceStackProbe",
         Value::Object(object),
     );
-    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages.len(), 3, "{messages:?}");
+    assert_eq!(
+        &messages[1..],
+        ["Stack trace:", "  TraceStackProbe.Run"],
+        "{messages:?}"
+    );
     assert!(
         messages[0].contains("00000800"),
         "TraceStack message should carry the runtime form id 00000800, got {:?}",
@@ -292,7 +297,12 @@ fn scr_07_trace_stack_alias_receiver_falls_back_without_form_id() {
         "TraceStackProbe",
         Value::Object(alias),
     );
-    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages.len(), 3, "{messages:?}");
+    assert_eq!(
+        &messages[1..],
+        ["Stack trace:", "  TraceStackProbe.Run"],
+        "{messages:?}"
+    );
     assert!(
         !messages[0].contains(':'),
         "an alias has no form id, TraceStack message should not carry one, got {:?}",
@@ -311,5 +321,9 @@ fn scr_07_trace_stack_none_argument_is_unaffected() {
         "TraceStackProbe",
         Value::None,
     );
-    assert_eq!(messages, vec![String::new()], "{messages:?}");
+    assert_eq!(
+        messages,
+        ["", "Stack trace:", "  TraceStackProbe.Run"],
+        "{messages:?}"
+    );
 }
