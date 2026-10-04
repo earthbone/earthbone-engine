@@ -1,12 +1,63 @@
 # soe-trace: timing spans and deterministic work
 
+## Hitch history, PRF-18
+
+The main thread keeps a 65,536-event ring of named spans, exclusive system
+spans, frame spans and all ten work counters, retaining the last five seconds.
+Recording runs with optional tracing off. System events reuse PRF-12's clock reads.
+Frame completion samples the active work recorder, including joined workers'
+counts. Worker timings remain on their calling thread's ring. Static `Span`
+names and payloads are retained. Dynamic spans use their category as a name
+when optional tracing is off, without calling the name-building closure.
+With optional tracing on, their full names are retained too. System and
+operation names use fixed slots. After initial allocation, normal recording
+with optional tracing off neither allocates nor locks.
+
+`FrameHistory::record` detects frames strictly above 33.4 ms, twice the
+16.7 ms budget. `Trace::set_hitch_threshold` accepts a positive duration.
+A hitch pins the preceding five seconds until one second of subsequent
+wall time has passed. Further hitches do not extend that tail. The next
+completed frame hands the capture to a background writer. At least ten
+seconds pass between a dump and the next eligible trigger. A process-wide
+limiter also separates dumps from concurrent recording threads. A full ring
+overwrites its oldest event and reports the count in the trace and summary.
+
+The writer emits Chrome complete spans and counter events to a JSON file
+and a matching one-line text summary. Times are microseconds relative to the
+window's beginning, and spans are clipped to the window. The summary lists
+three span names ordered by longest individual duration. System spans are
+exclusive while ordinary named spans include nested work. Filenames contain
+process, thread and trigger identity. Write failures are reported.
+`Trace::wait_for_hitch_exports` joins submitted writes and returns failures.
+Thread shutdown also joins them. A run that stops before the one-second tail
+finishes has no completed capture to export.
+
+The Linux headless default is
+`$XDG_DATA_HOME/godot/app_userdata/Skyrim open engine host/hitches`, using
+`$HOME/.local/share` when XDG_DATA_HOME is absent. `SOE_HITCH_DIR` overrides
+this path. The host uses `Trace::set_hitch_directory` with Godot's resolved
+`user://hitches`, including custom project user directories.
+
+Sources read were local godotwind's
+`src/core/world/performance_profiler.gd`, spdlog's
+`details/backtracer-inl.h` in SKSE64Plugins, and Godot's ProjectSettings
+class documentation. Their dynamic GDScript arrays and mutex-protected log
+messages do not fit the fixed main-thread system slots. The Rust ring reuses
+the repository's clock and Chrome exporter design without adding a dependency
+or saved state. The `prf_18_` tests cover retention, capacity, threshold,
+tail, cooldown, export and I/O failure, plus a forced synthetic hitch with
+optional tracing off. The optimized overhead checks use a limit below 1.01.
+
+## System timings and work counts
+
 `Span` records optional Chrome trace events in the existing global event list.
 `SystemScope` also provides always-on exclusive elapsed timings for fourteen fixed
 slots: Papyrus VM, AI planning, AI movement, combat, magic, quests and story
 manager, dialogue, physics sync, cell streaming, audio, save, input handling,
 host render submission and other work.
 
-The counters are thread-local and use no event strings, allocations or mutexes.
+The counters are thread-local and use no event strings or mutexes. The hitch
+ring allocates once when first initialized on a recording thread.
 Entering another system charges the elapsed interval to the previous system.
 Leaving restores the previous system, so a native operation inside a VM run
 is charged once. Re-entering the same system requires no clock read.
@@ -20,7 +71,8 @@ totals and worst values. Queries compute nearest-rank p50, p99 and worst
 over the ring, including zero samples for idle systems. The last frame exposes
 milliseconds and a percentage of its own wall time. An empty frame returns
 zero percentages. The summary includes every system's session total, mean
-and worst alongside its rolling p50 and p99. Recording does not sort or allocate.
+and worst alongside its rolling p50 and p99. Ordinary recording does not sort
+or allocate. A completed hitch tail allocates a capture for the writer.
 `with_timing_suspended` provides a thread-local baseline for overhead
 calibration and restores recording after the closure, including on unwind.
 

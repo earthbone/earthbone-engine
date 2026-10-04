@@ -44,6 +44,51 @@ release extension build and import, run the live monitor and overlay check:
 rtk proxy "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_12_monitors_test.gd
 ```
 
+## Hitch recorder, PRF-18
+
+The default hitch threshold is twice the 16.7 ms frame budget, 33.4 ms.
+`soe-trace` retains five seconds of named and exclusive system spans, frame spans
+and frame work counters with optional tracing off. A hitch captures one
+second afterward and writes Chrome trace JSON with a one-line slowest-span
+summary. Dumps are separated by at least ten seconds. The walkthrough and
+headless Godot use `user://hitches`. Headless Rust uses the same Linux
+application-data path, or `SOE_HITCH_DIR`. See [trace.md](trace.md) for
+capacity, output and shutdown behavior.
+
+The release calibration limit is fixed at an on/off ratio below 1.01:
+
+```text
+rtk cargo test -p soe-trace --release --test prf_18_hitches prf_18_recorder_stays_inside_one_percent -- --ignored --nocapture
+rtk cargo test -p soe-game --release --test it prf_12_accumulator_under_one_percent -- --ignored --nocapture
+```
+
+`prf_18_slow_synthetic_tick_dumps_prior_frames_with_optional_tracing_off`
+forces a slow tick and verifies earlier frames and the one-second tail.
+The `prf_18_` unit tests check the bounded ring, exact threshold, pinned
+history, cooldown, counter export, one-line summary and I/O errors. After
+the release extension build and import, the host acceptance script runs
+without installed game records:
+
+```text
+rtk proxy "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_18_hitches_test.gd
+```
+
+### PRF-18 validation, 2026-10-05
+
+The uncommitted candidate based on `a69bee42` passed 23 ordinary
+`soe-trace` tests. On the Ryzen 9 7900X with 24 logical CPUs and 61 GiB RAM,
+the release synthetic on/off ratio was 1.008173. The 1,000-actor PRF-12
+calibration ratio was 0.989503 and its suspended replay produced identical
+actor positions. Both paired medians were below the declared 1.01 limit.
+
+Godot 4.4.1 passed the headless and windowed host checks. The windowed run
+used Forward+ with llvmpipe, LLVM 22.1.8, at 640 by 360. An 80 ms scripted
+pause produced a 96.822 ms headless frame and a 96.672 ms windowed frame.
+Both dumps retained the five-second preceding window and one-second tail,
+contained counter events, matched the slowest-span summary and reported zero
+overwritten events. Both processes exited zero. These are recorder
+correctness checks.
+
 ## Machine
 
 - AMD Ryzen 9 7900X, 12 cores, 24 threads, up to 5.7 GHz
@@ -354,8 +399,10 @@ under its mutex. At 2,751 events per cell the difference is inside the
 noise between runs. A first design buffered per thread and flushed on
 thread exit, which measured 1.10x and lost the tail of a scoped worker's
 events when the join returned before the thread-local destructor ran, so
-the global list stayed. With the switch off a span is one relaxed atomic
-load.
+the global list stayed. At this checkpoint a disabled span cost one relaxed
+atomic load. PRF-18 adds the always-on bounded ring, so the switch now controls
+only the optional event list. Named spans retain their timing and payloads
+with that switch off, using category names for dynamic spans.
 
 ## Run of 2026-09-18, branch `batching`
 

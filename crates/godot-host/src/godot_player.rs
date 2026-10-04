@@ -295,6 +295,9 @@ impl INode3D for PlayerNode {
     }
 
     fn ready(&mut self) {
+        let directory =
+            godot::classes::ProjectSettings::singleton().globalize_path("user://hitches");
+        soe_trace::Trace::set_hitch_directory(std::path::Path::new(&directory.to_string()));
         self.register_system_monitors();
         if let Some(mut window) = self.base().get_window() {
             window.connect("focus_exited", &self.base().callable("input_focus_lost"));
@@ -456,6 +459,9 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        if let Err(error) = soe_trace::Trace::wait_for_hitch_exports() {
+            godot_error!("hitch export: {error}");
+        }
         self.remove_system_monitors();
         let mut server = RenderingServer::singleton();
         for (_, rid) in std::mem::take(&mut self.debug_ref_markers) {
