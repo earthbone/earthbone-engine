@@ -1416,6 +1416,16 @@ mod mag_14_tests {
 
 #[godot_api]
 impl CellStreamerNode {
+    /// Return the winning cell's authored XCLL and inherited LTMP lighting.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn cell_lighting(&self, editor_id: GString) -> VarDictionary {
+        self.data_source
+            .as_ref()
+            .and_then(|source| source.cell_lighting(&editor_id.to_string()))
+            .unwrap_or_default()
+    }
+
     #[cfg(feature = "scr-24-test")]
     #[func]
     pub fn scr_24_effect_shader_sync(&mut self, action: i32, duration: f32, delta: f32) -> i64 {
