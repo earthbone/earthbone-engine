@@ -19,6 +19,7 @@ pub mod animation_dispatch;
 pub mod audio;
 pub mod batch;
 pub mod camera;
+mod cell_lighting;
 pub mod collision;
 pub mod combat;
 pub mod crafting_menu;

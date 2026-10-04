@@ -642,6 +642,13 @@ impl DataSource {
         self.cell_index().cell_by_editor_id(editor_id)
     }
 
+    /// Render lighting for a cell, with CELL XCLL values inherited from LTMP.
+    #[must_use]
+    pub(crate) fn cell_lighting(&self, editor_id: &str) -> Option<godot::prelude::VarDictionary> {
+        let id = self.resolve_cell(editor_id)?;
+        crate::cell_lighting::dictionary(&self.order, id)
+    }
+
     /// The first interior cell, by form id, whose reference count exceeds
     /// `min_refs`. Used when a named cell such as `WhiterunBanneredMare` is
     /// missing from an install, so the real-data test still has a populated

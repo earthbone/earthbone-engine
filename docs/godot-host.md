@@ -4620,3 +4620,33 @@ with llvmpipe at 640 by 360. Each standard/decal fixture capture contained
 with zero missing named albedo bindings and zero checker fallbacks in the
 installed blocks. The script exited with status 0. Captures stay under
 `target/rnd-20-fixture`.
+
+## Cell lighting, RND-21
+
+`CellStreamerNode.cell_lighting(editor_id)` returns render values for interior
+cells from the winning CELL record. When XCLL is present, its inheritance flags
+select ambient and directional colors, fog, directional rotation and fade,
+clip distance, fog power and maximum, and light fade distances from the
+referenced LGTM. A cell without XCLL uses its LGTM values directly. Exterior
+cells return an empty dictionary so callers do not add an interior light to
+them. LGTM DATA and DALC follow the local UESP CELL and LGTM layouts and xEdit
+XCLL definition in the engine reference corpus.
+
+The walkthrough and benchmark configure Godot's ambient color, fog, the cell's
+directional color, and its six directional ambient colors from this dictionary.
+Those six colors use non-shadowing directional lights pointed along the cell's
+positive and negative axes. The authored directional light uses the cell's
+rotation and fade values. Neither script adds the former fixed environment
+color or a weather sun. Exterior cells return no cell-lighting dictionary.
+Until RND-18 supplies weather lighting, the benchmark gives those cells only
+its dark background environment. The Bannered Mare capture
+check uses installed data and requires average linear pixel brightness from
+0.02 to 0.65, with fewer than one percent of pixels clipped in all three
+channels. Those bounds are recorded before the capture run.
+
+`cell_lighting::tests::rnd_21_cell_light_applies_lgtm_inheritance_and_keeps_uninherited_fields`
+checks each inherited group and retained CELL values. The companion exterior
+test verifies that an exterior CELL does not receive interior lighting.
+`godot/rnd_21_capture_test.gd` streams and renders the Bannered Mare through
+the host with installed data and checks the captured image. Godot 4.4.1 with llvmpipe at 640 by
+360 measured average linear luminance 0.0782 and zero fully clipped pixels.

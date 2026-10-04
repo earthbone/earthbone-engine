@@ -602,3 +602,13 @@ The separate headless Godot gameplay acceptance measured 367.029 ms of cold
 outbound preparation and activated the overlay. Warm return and input
 crossings each measured 0 ms and left it inactive. The process exited zero
 after 46.0 seconds, with a peak RSS of 15,273,864 KiB.
+
+## Cell lighting, RND-21
+
+The 2026-10-04 RND-21 change removes the benchmark's fixed directional sun and
+ambient color. Interior runs now use the cell's own XCLL or LGTM ambient and
+directional lighting, fog and light fade values, matching the walkthrough.
+Exterior cells use the dark background until RND-18 supplies weather lighting.
+Benchmark results before and after this lighting change are not directly
+comparable as image-quality measurements. The timing procedure and frame-time
+limits are unchanged.

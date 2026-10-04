@@ -160,6 +160,7 @@ func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch:
 	Engine.max_fps = 0
 	scene_holder = scene_root
 	streamer_node = streamer
+	_apply_cell_lighting(scene_holder, streamer.call("cell_lighting", cell))
 	_setup_camera()
 	var warmed: Dictionary = await Warmup.prepare()
 	if not warmed.error.is_empty():
@@ -192,19 +193,56 @@ func _setup_camera() -> void:
 	camera.position = target + Vector3(0.0, radius * 0.6, radius * 1.4)
 	camera.look_at(target, Vector3.UP)
 	camera.make_current()
-	var light := DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-50.0, 30.0, 0.0)
-	scene_holder.add_child(light)
-	var env := WorldEnvironment.new()
+	print("godot_scene_extent %.1f m" % (radius * 2.0))
+
+
+func _apply_cell_lighting(parent: Node3D, values: Dictionary) -> void:
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.55, 0.65, 0.8)
+	environment.background_color = Color(0.05, 0.05, 0.07)
+	if values.is_empty():
+		var world := WorldEnvironment.new()
+		world.environment = environment
+		parent.add_child(world)
+		return
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.6, 0.6, 0.65)
-	environment.ambient_light_energy = 0.8
-	env.environment = environment
-	scene_holder.add_child(env)
-	print("godot_scene_extent %.1f m" % (radius * 2.0))
+	environment.ambient_light_color = values["ambient"]
+	environment.ambient_light_energy = 1.0
+	environment.fog_enabled = values["fog_far"] > values["fog_near"]
+	environment.fog_light_color = values["fog_near_color"]
+	environment.fog_depth_begin = maxf(values["fog_near"], 0.0)
+	var fog_end: float = values["fog_far"]
+	if values["fog_clip_distance"] > 0.0:
+		fog_end = minf(fog_end, values["fog_clip_distance"])
+	environment.fog_depth_end = maxf(fog_end, environment.fog_depth_begin + 0.01)
+	environment.fog_density = clampf(values["fog_power"] * values["fog_max"], 0.0, 1.0)
+	var world := WorldEnvironment.new()
+	world.environment = environment
+	parent.add_child(world)
+	var light := DirectionalLight3D.new()
+	light.name = "CellDirectionalAmbient"
+	light.light_color = values["directional"]
+	light.light_energy = clampf(values["directional_fade"], 0.0, 1.0)
+	light.rotation = Vector3(deg_to_rad(values["rotation_xy"]), 0.0, deg_to_rad(values["rotation_z"]))
+	light.distance_fade_enabled = values["light_fade_end"] > values["light_fade_begin"]
+	light.distance_fade_begin = values["light_fade_begin"]
+	light.distance_fade_length = maxf(values["light_fade_end"] - values["light_fade_begin"], 0.0)
+	light.shadow_enabled = false
+	parent.add_child(light)
+	var rotations := [
+		Vector3(0.0, -PI / 2.0, 0.0), Vector3(0.0, PI / 2.0, 0.0),
+		Vector3(PI / 2.0, 0.0, 0.0), Vector3(-PI / 2.0, 0.0, 0.0),
+		Vector3(0.0, PI, 0.0), Vector3.ZERO,
+	]
+	var ambient_directions: Array = values["ambient_directions"]
+	for index in ambient_directions.size():
+		var ambient := DirectionalLight3D.new()
+		ambient.name = "CellAmbientDirection%d" % index
+		ambient.light_color = ambient_directions[index]
+		ambient.light_energy = 1.0 / 6.0
+		ambient.shadow_enabled = false
+		ambient.rotation = rotations[index]
+		parent.add_child(ambient)
 
 
 func _capture() -> void:
