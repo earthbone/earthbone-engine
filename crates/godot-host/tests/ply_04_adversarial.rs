@@ -57,12 +57,18 @@ fn ply_04_windowed_route_captures_each_checkpoint_and_reports_worst_frames() {
     assert!(log.contains("\"route_result\": \"pass\""), "{log}");
     assert_eq!(log.matches("\"worst_frame_ms\"").count(), 2, "{log}");
     for (name, frames) in [("first", "2"), ("second", "3")] {
-        let capture = std::fs::read(output_dir.path().join(format!("{name}.png")))
-            .expect("checkpoint PNG");
-        assert!(capture.starts_with(b"\x89PNG\r\n\x1a\n"), "invalid PNG for {name}");
+        let capture =
+            std::fs::read(output_dir.path().join(format!("{name}.png"))).expect("checkpoint PNG");
+        assert!(
+            capture.starts_with(b"\x89PNG\r\n\x1a\n"),
+            "invalid PNG for {name}"
+        );
         assert_eq!(&capture[16..24], &[0, 0, 2, 128, 0, 0, 1, 104]);
         assert!(log.contains(&format!("\"frames\": {frames}")), "{log}");
-        assert!(log.contains(&format!("\"checkpoint\": \"{name}\"")), "{log}");
+        assert!(
+            log.contains(&format!("\"checkpoint\": \"{name}\"")),
+            "{log}"
+        );
     }
 }
 

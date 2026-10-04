@@ -9,10 +9,7 @@ fn ply_03_checkpoint_replay_route_performs_gameplay() {
     assert!(
         route.steps.iter().any(|(_, step)| matches!(
             step,
-            Step::Navigate { .. }
-                | Step::Activate(_)
-                | Step::Talk { .. }
-                | Step::WaitStage { .. }
+            Step::Navigate { .. } | Step::Activate(_) | Step::Talk { .. } | Step::WaitStage { .. }
         )),
         "checkpoint replay needs a gameplay step to advance the source save toward its successor"
     );
