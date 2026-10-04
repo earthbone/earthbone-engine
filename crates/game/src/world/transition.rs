@@ -387,6 +387,7 @@ impl World {
             }
         }
         self.streamed_cells.insert(cell);
+        let _ = self.light_references_in_cell(cell);
         built
     }
 

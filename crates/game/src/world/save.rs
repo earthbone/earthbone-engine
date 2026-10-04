@@ -1501,6 +1501,7 @@ impl World {
         self.objects = objects;
         self.handles = handles;
         self.refs = refs;
+        *self.light_references.get_mut() = super::light_references::LightReferences::default();
         self.actors = actors;
         self.quests = quests;
         self.globals = globals;

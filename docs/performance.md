@@ -602,3 +602,57 @@ The separate headless Godot gameplay acceptance measured 367.029 ms of cold
 outbound preparation and activated the overlay. Warm return and input
 crossings each measured 0 ms and left it inactive. The process exited zero
 after 46.0 seconds, with a peak RSS of 15,273,864 KiB.
+
+## Detection neighborhoods, PRF-31
+
+The threshold fixed before the run is 2 ms for the whole of
+`PlayerNode::advance_detection`, including body synchronization, sight rays,
+light lookup and `World::evaluate_detection`. The installed-data check uses
+Godot 4.4.1 with the release extension and the five-master load order. The
+comparison opens Bannered Mare and uses its unlocked door into WhiterunWorld,
+then samples the same exterior update with 32 resident actors. The original
+path produced 266 observations and took 3,203 microseconds. The original
+process exited zero. Timing excludes startup and door resource replacement.
+
+The implementation keeps light-reference identity in a derived World index,
+bins current light influence for CPU queries, and builds observer/target pairs
+only within the GMST detection range. Sound source neighborhoods remain
+separate from actor neighborhoods. Light is shared per target in a frame,
+actor senses and combat awareness are shared within an evaluation batch.
+Existing awareness beyond range advances loss and recovery timers without
+creating distant observer/target pairs. These indexes add no saved state or
+reference scene nodes.
+
+The first spatial-path windowed comparison retained 32 actors and produced
+248 observations in 1,410 microseconds, compared with 266 observations in
+3,203 microseconds before the change. A later windowed sample of the final
+body-list reuse path measured 37,981 microseconds with the same actor and
+observation counts. These single samples show substantial timing variation,
+they do not establish the 2 ms acceptance budget.
+
+The corrected headless Godot 4.4.1 exterior sample took 717 microseconds with
+26 actors and 218 observations. It settles deferred unload and changes grid
+focus before sampling, so it does not share the earlier 32-actor cohort.
+Its walking check ran two 30-second wall-time phases, excluding gate resource
+replacement. It completed 3,623 detection
+updates and visited WhiterunWorld and Tamriel cells with resident NPCs. Maximum
+horizontal displacement was 468.237 units inside Whiterun and 1,503.824 units
+in Tamriel. Whiterun sampled 9 actors and 8 observations near the gate.
+Tamriel sampled 446 actors and 530 nearby observations, with reported samples
+of 3,591, 3,862 and 3,743 microseconds. The maximum was 6,657 microseconds and
+1,813 updates exceeded 2,000 microseconds. The process exited one. PRF-31's
+whole-update budget is not met. Sparse pair selection and light lookup are
+implemented, but the complete update remains over budget in this exterior.
+
+The walking harness holds NPC placements fixed and omits AI planning and VM
+ticks. It steps the host capsule, updates shared player placement, streams
+exterior residency and calls the whole gameplay detection updater. A zero-time
+gameplay frame after each load-door transition settles its deferred unload
+before walking. The earlier windowed attempt omitted that settlement and
+rejected streaming deltas, so its walking samples are not detection timings.
+
+Validation passed four new game unit tests, 23 existing game detection
+integration tests, 13 host detection tests with installed data, including
+indexed/full-scan light equality in Bannered Mare, Whiterun and Tamriel, and
+four existing host adversarial tests. Formatting and both changed packages'
+all-target Clippy checks passed. The workspace gate was left to the reviewer.
