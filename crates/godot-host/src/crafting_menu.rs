@@ -44,10 +44,7 @@ pub fn entries(game: &mut Game, actor: GlobalFormId, bench: GlobalFormId) -> Vec
             }?;
             Some(Entry {
                 recipe,
-                name: game
-                    .world()
-                    .name_of(recipe)
-                    .unwrap_or_else(|| format!("{recipe}")),
+                name: crate::item_card::display_name(&game.world(), outcome.0),
                 output: outcome.0,
                 count: outcome.1,
                 available: outcome.2,

@@ -31,6 +31,61 @@ controller pose and load-door cell replacement, and verifies a visible
 dialogue response. It captures the viewport as `window.png` in that fixture
 directory and quits with a failing status if any assertion fails.
 
+## Item names and model cards, UI-25
+
+Gameplay startup and restored-generation attachment use
+`DataSource::localized_game`. It loads the profile's selected-language tables
+through the existing VFS before menu names are read. Malformed tables fail
+startup with the table path. The table parser and winning-plugin namespace
+resolution remain in ESM and Game. This fixes the host path that previously
+loaded scripts without loading localized text. Initial inventory LVLI entries
+now become concrete items in Game, so their nameless list records no longer
+reach menu rows.
+
+Inventory, container, gift and crafting menus share an item card beside a
+scrolling list. Keyboard focus and mouse hover select the card independently
+of the row's action. Crafting rows use the output item's FULL name rather than
+the usually nameless COBJ recipe. Missing or unresolved mod names display
+`Unnamed item` instead of a FormID or string-table marker.
+
+The card reads authored weight and base gold value, plus weapon/ammunition
+damage or armor rating. Weapon and armor physical fields follow their template
+chains while the child supplies its display name. Armor uses MOD2/MOD4 ground
+models according to the player's selected sex, with MOD2 as the female
+fallback. Clothing reports zero armor. Invalid numeric fields and template
+cycles return ESM errors. These are record statistics, without skill, perk,
+tempering or enchantment price adjustments.
+
+The selected NIF is built through the existing VFS, mesh and material pipeline.
+Its centered bounds fit a camera in an isolated transparent SubViewport with
+two directional lights. The model turns at 0.4 radians per second while the
+menu is open. Refresh and close free the viewport and its meshes. Empty
+categories show the unselected card. Missing models leave the item's text
+visible with a model status. Only the selected preview allocates MeshInstance3D
+nodes, one per surface. Bulk placed references keep their server-resource path.
+
+Sources read were local UESP Mod File Format/TES4 localization flags and item
+pages, xEdit `Core/wbLocalization.pas` and item definitions, SkyUI
+`src/ItemMenus/ItemCard.as`, and godotwind
+`src/tools/asset_viewer/components/preview_3d.gd`. The separate UESP String Table
+page is absent from the local dump. The existing xEdit-based ESM reader handles
+the table layout. The Godot control implementation reuses the host's renderer
+because the reference previews do not consume this engine's neutral surfaces.
+
+The `ui_25_` Rust tests cover card fields, armor and weapon templates,
+selected-sex ground models, localized overrides, startup language selection,
+malformed tables and installed container, player and merchant inventories.
+`godot/ui_25_item_card_test.gd` checks a windowed vanilla sword and armor
+preview, rendered pixels, rotation, focus/hover selection, a container transfer,
+category refresh and viewport cleanup. It writes screenshots under `target`.
+
+The installed-data survey resolved 80 inventory rows and loaded 45 ground
+models. The windowed check passed on Godot 4.4.1 with llvmpipe at 640 by 360.
+The selected iron sword used four preview mesh nodes. Its first synchronous
+model build took 1,199.392 ms during concurrent Cargo checks, including NIF,
+texture and mesh preparation. This measures menu selection latency on that
+software-rendered run.
+
 ## Live detection observations, CMB-32
 
 PlayerNode samples each ordered pair of resident, living actors in the same
@@ -1809,19 +1864,24 @@ quarter second of leading silence. The capture buffer is cleared between
 responses using Godot's `AudioEffectCapture` API, documented in local
 `engine-refs/godot-docs/classes/class_audioeffectcapture.rst`.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
-windowed Godot process at 640 by 360. The Rust test runs when `SOE_GODOT_BIN`
+headless Godot process. The Rust test runs when `SOE_GODOT_BIN`
 names a Godot 4.4 or newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
 The script rejects an extension missing the voice methods before playback.
-The automated launch quits after 3,600 frames, so a script error cannot leave
-the gate waiting indefinitely. A missing completion marker fails the test.
+The script exits on each checked failure and success path. Both the generated
+WAV speaker check and the installed xWMA check run headless. The Rust
+test gives each Godot child 110 seconds, kills and reaps it at the deadline,
+and includes captured standard output and error in a failure message. A
+missing completion marker fails the test. The script watchdog exits after 90
+seconds, and the headless launch also quits after 3,600 frames as a secondary
+bound.
 The script explicitly loads `soe.gdextension` when needed, so a fresh checkout
 does not require an editor import or a cached extension list. This uses
 `GDExtensionManager.load_extension` from the local
 `engine-refs/godot-docs/classes/class_gdextensionmanager.rst` reference.
 
-`dlg_11_installed_xwma_voice_plays_in_windowed_godot_mixer`, gated on
+`dlg_11_installed_xwma_voice_plays_in_headless_godot_mixer`, gated on
 `SKYRIM_DATA`, reads the surveyed `maleelfhaughty/voicepowers_shout01b` xWMA
 FUZ from the installed English voice archive, then runs the same mixer check
 with that voice. If that path is unavailable, the test samples up to 60 sorted
