@@ -36,6 +36,7 @@ impl Vm {
             let ins = &function.code[pc];
             self.threads[t].frames.last_mut().unwrap().pc += 1;
             n += 1;
+            soe_trace::count(soe_trace::Operation::PapyrusInstructions, 1);
             let started = Instant::now();
             self.exec(t, ins.op, &ins.args);
             if let Some(script) = profile_script {

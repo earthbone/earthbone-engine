@@ -582,3 +582,14 @@ with the same function name cannot intercept the call. Resolution uses the
 instance's current state, then its empty state. Calls use the existing frame
 builder and scheduler. The game dialogue tests attach two colliding fragment
 names and verify that only the named script changes the owning quest.
+
+## Deterministic executed work, PRF-14
+
+Within a `soe_trace::WorkFrame`, the interpreter counts each executed opcode
+and each invoked registry native or scheduler builtin. Failed registry probes
+are excluded because no implementation runs. Utility waits and script-state
+builtins each charge one native call. Implicit returns at the end of a function
+consume scheduler budget but do not charge an executed opcode. Sleeping and
+latent threads charge no instructions until resumed. `tests/prf_14_work.rs`
+checks budget yielding, native dispatch, waits, implicit returns and a fresh
+measurement window. Counters do not enter VM saves.

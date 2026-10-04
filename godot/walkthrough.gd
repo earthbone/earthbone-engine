@@ -3,8 +3,10 @@ extends SceneTree
 ## Gameplay integration prototype. Requires SKYRIM_DATA and the release extension.
 ## WASD move, mouse looks, Space jumps, Ctrl sneaks, F changes camera, Esc exits.
 const Warmup := preload("res://render_warmup.gd")
+const SystemOverlay := preload("res://system_overlay.gd")
 
 var player: Node3D
+var system_overlay: CanvasLayer
 var frames := 0
 var loaded := false
 var loading_label: Label
@@ -65,6 +67,9 @@ func _start() -> void:
 	player = ClassDB.instantiate("PlayerNode")
 	player.set("capture_mouse", OS.get_environment("SOE_CAPTURE_PATH").is_empty())
 	scene.add_child(player)
+	system_overlay = SystemOverlay.new()
+	system_overlay.player = player
+	get_root().add_child(system_overlay)
 	phase_msec = Time.get_ticks_msec()
 	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) <= 0:
 		printerr("Could not enter the Bannered Mare")
@@ -90,7 +95,7 @@ func _start() -> void:
 	print("STARTUP ready ms=", Time.get_ticks_msec() - startup_msec)
 	loading_label.queue_free()
 	loading_label = null
-	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, Esc exit")
+	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, F3 system timings, Esc exit")
 	loaded = true
 
 func _process(_delta: float) -> bool:

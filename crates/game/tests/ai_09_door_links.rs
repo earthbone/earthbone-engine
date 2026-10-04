@@ -89,6 +89,49 @@ fn game() -> Game {
     Game::new(order)
 }
 
+#[test]
+fn prf_11_unchanged_doors_preserve_routes_and_live_changes_invalidate_them() {
+    let game = game();
+    let mut world = game.world_mut();
+    world.actor(id(ACTOR)).unwrap().dead = true;
+    ai::nav_graph(&mut world);
+    let revision = world.ai.nav_graph().unwrap().query_revision();
+    world.actor(id(ACTOR)).unwrap().ai.path = vec![[4.0, 4.0, 0.0]];
+    let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+    for _ in 0..60 {
+        ai::tick(&mut world, 0.0, &mut alloc);
+        assert_eq!(world.ai.nav_graph().unwrap().query_revision(), revision);
+        assert_eq!(
+            world.actor_ref(id(ACTOR)).unwrap().ai.path,
+            vec![[4.0, 4.0, 0.0]]
+        );
+    }
+    world.reference(id(DOOR)).unwrap().opened = true;
+    ai::tick(&mut world, 0.0, &mut alloc);
+    assert_eq!(
+        world.actor_ref(id(ACTOR)).unwrap().ai.path.as_slice(),
+        &[] as &[[f32; 3]]
+    );
+    assert!(world.ai.nav_graph().unwrap().query_revision() > revision);
+    world.reference(id(DOOR)).unwrap().opened = false;
+    ai::tick(&mut world, 0.0, &mut alloc);
+    let revision = world.ai.nav_graph().unwrap().query_revision();
+    world.actor(id(ACTOR)).unwrap().ai.path = vec![[4.0, 4.0, 0.0]];
+    world.reference(id(DOOR)).unwrap().position = [20.0, 20.0, 0.0];
+    ai::tick(&mut world, 0.0, &mut alloc);
+    assert_eq!(
+        world.actor_ref(id(ACTOR)).unwrap().ai.path.as_slice(),
+        &[] as &[[f32; 3]]
+    );
+    assert!(world.ai.nav_graph().unwrap().query_revision() > revision);
+    assert!(world
+        .ai
+        .nav_graph()
+        .unwrap()
+        .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
+        .is_some());
+}
+
 trait WithCell {
     fn with_cell(self, cell: u32) -> Self;
 }
@@ -125,7 +168,10 @@ fn ai_09_closed_door_blocks_its_triangle_and_opening_invalidates_cached_path() {
         actor.ai.path.is_empty(),
         "door state change must invalidate route"
     );
-    assert!(actor.ai.path_cells.is_empty());
+    assert_eq!(
+        actor.ai.path_cells.as_slice(),
+        &[] as &[Option<soe_esm::GlobalFormId>]
+    );
     let graph = ai::nav_graph(&mut world);
     assert!(graph
         .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])

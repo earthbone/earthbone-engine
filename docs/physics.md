@@ -662,3 +662,12 @@ The host physics server owns the Jolt ragdoll bodies and applies CMB-38 actor
 impulses. `SimpleWorld` remains limited to static geometry and its capsule
 controller. `controller_geometry_survey` and `character_metadata_survey`
 exercise the source data used to build generated controller shapes.
+
+## Deterministic query counters, PRF-14
+
+`SimpleWorld::raycast` charges one ray query, including misses and degenerate
+rays. Each capsule contact resolution and overlap query charges one shape
+query. This counts the headless controller's endpoint queries, including
+its step and floor probes, rather than claiming they are continuous sweeps.
+Counts enter the active `soe_trace::WorkFrame` and add no saved physics state.
+`tests/prf_14_work.rs` checks missed rays and capsule work in an empty world.

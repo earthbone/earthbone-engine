@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Median-split mesh bounds, following Detour's bounding volume tree in
+//! Median-split mesh and triangle bounds, following Detour's bounding volume tree in
 //! DetourNavMeshBuilder.cpp and DetourNavMeshQuery.cpp. Float bounds retain
 //! this graph's centroid and XY-height query semantics without tile quantization.
 
@@ -31,6 +31,33 @@ pub(super) struct SpatialIndex {
 }
 
 impl SpatialIndex {
+    pub(super) fn triangles(mesh: &Mesh) -> Self {
+        let mut items = Vec::with_capacity(mesh.triangles.len());
+        for (index, triangle) in mesh.triangles.iter().enumerate() {
+            let points = triangle.vertices.map(|v| mesh.vertices[v as usize]);
+            let mut min = [f32::INFINITY; 3];
+            let mut max = [f32::NEG_INFINITY; 3];
+            let centroid = mesh.centroid(index as u32);
+            for axis in 0..3 {
+                for point in points {
+                    min[axis] = min[axis].min(point[axis]);
+                    max[axis] = max[axis].max(point[axis]);
+                }
+                // CONTEXT: height_at accepts barycentric weights down to -0.0001.
+                let margin = (max[axis] - min[axis]) * 0.0002
+                    + max[axis].abs().max(min[axis].abs()) * f32::EPSILON * 4.0;
+                min[axis] = (min[axis] - margin).min(centroid[axis]);
+                max[axis] = (max[axis] + margin).max(centroid[axis]);
+            }
+            items.push((index, min, max));
+        }
+        let mut index = Self::default();
+        if !items.is_empty() {
+            index.split(&mut items);
+        }
+        index
+    }
+
     pub(super) fn build(meshes: &[Mesh]) -> Self {
         let mut items: Vec<_> = meshes
             .iter()
@@ -46,6 +73,11 @@ impl SpatialIndex {
                         max[axis] = max[axis].max(centroid[axis]);
                     }
                 }
+                // CONTEXT: barycentric tolerance can extrapolate surface height.
+                let margin = (max[2] - min[2]) * 0.0002
+                    + max[2].abs().max(min[2].abs()) * f32::EPSILON * 4.0;
+                min[2] -= margin;
+                max[2] += margin;
                 (index, min, max)
             })
             .collect();
@@ -95,7 +127,15 @@ impl SpatialIndex {
         self.nodes[at].end = self.nodes.len();
     }
 
+    #[cfg(test)]
     pub(super) fn visit_xy(&self, point: [f32; 3], mut visit: impl FnMut(usize)) {
+        self.any_xy(point, |index| {
+            visit(index);
+            false
+        });
+    }
+
+    pub(super) fn any_xy(&self, point: [f32; 3], mut matches: impl FnMut(usize) -> bool) -> bool {
         let mut at = 0;
         while let Some(node) = self.nodes.get(at) {
             if point[0] < node.min[0]
@@ -105,18 +145,78 @@ impl SpatialIndex {
             {
                 at = node.end;
             } else {
-                if let Some(mesh) = node.mesh {
-                    visit(mesh);
+                if node.mesh.is_some_and(&mut matches) {
+                    return true;
                 }
                 at += 1;
             }
+        }
+        false
+    }
+
+    pub(super) fn visit_xy_nearest_height(
+        &self,
+        point: [f32; 3],
+        radius: &mut f32,
+        mut visit: impl FnMut(usize, &mut f32),
+    ) {
+        if !self.nodes.is_empty() {
+            self.nearest_height(0, point, radius, &mut visit);
+        }
+    }
+
+    fn nearest_height(
+        &self,
+        at: usize,
+        point: [f32; 3],
+        radius: &mut f32,
+        visit: &mut impl FnMut(usize, &mut f32),
+    ) {
+        let node = &self.nodes[at];
+        let z_distance = |node: &Node| {
+            (node.min[2] - point[2])
+                .max(0.0)
+                .max(point[2] - node.max[2])
+        };
+        if point[0] < node.min[0]
+            || point[0] > node.max[0]
+            || point[1] < node.min[1]
+            || point[1] > node.max[1]
+            || z_distance(node) > *radius
+        {
+            return;
+        }
+        if let Some(index) = node.mesh {
+            visit(index, radius);
+        } else {
+            let left = at + 1;
+            let right = self.nodes[left].end;
+            let (first, second) = if z_distance(&self.nodes[left]) <= z_distance(&self.nodes[right])
+            {
+                (left, right)
+            } else {
+                (right, left)
+            };
+            self.nearest_height(first, point, radius, visit);
+            self.nearest_height(second, point, radius, visit);
         }
     }
 
     pub(super) fn visit_nearest(&self, point: [f32; 3], mut visit: impl FnMut(usize, &mut f32)) {
         if !self.nodes.is_empty() {
             let mut radius = f32::INFINITY;
-            self.nearest(0, point, &mut radius, &mut visit);
+            self.visit_nearest_with_radius(point, &mut radius, &mut visit);
+        }
+    }
+
+    pub(super) fn visit_nearest_with_radius(
+        &self,
+        point: [f32; 3],
+        radius: &mut f32,
+        mut visit: impl FnMut(usize, &mut f32),
+    ) {
+        if !self.nodes.is_empty() {
+            self.nearest(0, point, radius, &mut visit);
         }
     }
 
