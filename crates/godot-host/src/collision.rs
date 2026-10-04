@@ -145,6 +145,9 @@ impl DataSource {
         let mut out: Vec<PlacedCollider> = Vec::new();
 
         for id in self.cell_index().references(cell_id).iter().copied() {
+            if !soe_game::World::authored_reference_enabled(self.order(), id) {
+                continue;
+            }
             let Some(rref) = self.order().winner_ref(id) else {
                 continue;
             };
@@ -190,6 +193,36 @@ impl DataSource {
             }
         }
         Ok((out, stats))
+    }
+
+    /// Prepare collision when a resident reference is first enabled.
+    ///
+    /// # Errors
+    /// Propagates missing records and model decoding failures.
+    pub fn placed_reference_colliders(
+        &self,
+        id: GlobalFormId,
+    ) -> Result<Vec<PlacedCollider>, DataSourceError> {
+        let winner = self
+            .order()
+            .winner_ref(id)
+            .ok_or_else(|| DataSourceError::CellNotFound(id.to_string()))?;
+        let refr = Refr::from_record(self.order().record(winner))?;
+        let model = self
+            .order()
+            .winner(self.order().resolve(winner.file, refr.base))
+            .and_then(model_for)
+            .ok_or_else(|| DataSourceError::CellNotFound(id.to_string()))?;
+        let collected = self.colliders_of(&model, &refr)?;
+        Ok(collected
+            .colliders
+            .into_iter()
+            .map(|collider| PlacedCollider {
+                reference: id,
+                collider,
+                original: collected.placement,
+            })
+            .collect())
     }
 
     /// The controller capsule for an actor base, local to its skeleton's

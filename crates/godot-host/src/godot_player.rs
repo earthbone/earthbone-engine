@@ -52,6 +52,7 @@ mod magic;
 mod melee;
 mod menu;
 mod race;
+mod reference_collision;
 mod saves;
 mod scripted;
 mod training;
@@ -108,6 +109,7 @@ pub struct PlayerNode {
     world: Option<SimpleWorld>,
     query_collision: crate::godot_physics::CellBodies,
     collision_references: HashMap<BodyId, GlobalFormId>,
+    collision_visibility: std::collections::BTreeMap<GlobalFormId, bool>,
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
@@ -209,6 +211,7 @@ impl INode3D for PlayerNode {
             world: None,
             query_collision: crate::godot_physics::CellBodies::default(),
             collision_references: HashMap::new(),
+            collision_visibility: std::collections::BTreeMap::new(),
             character: None,
             data_source: None,
             game: None,
@@ -840,6 +843,7 @@ impl PlayerNode {
         self.melee_bodies.clear();
         self.exterior = None;
         self.collision_references = collision.references;
+        self.collision_visibility.clear();
         self.last_activate_hit = false;
         self.last_activate_reference = None;
         self.grabbed_host = None;
@@ -1127,6 +1131,28 @@ impl PlayerNode {
         result
     }
 
+    /// Count this reference's movement and Godot query collision bodies.
+    #[func]
+    pub fn reference_collision_bodies(&self, file: i32, object: i64) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return result;
+        };
+        let reference = GlobalFormId { file, object };
+        result.set(
+            "movement",
+            self.collision_references
+                .values()
+                .filter(|id| **id == reference)
+                .count() as i64,
+        );
+        result.set(
+            "query",
+            self.query_collision.active_reference_bodies(reference) as i64,
+        );
+        result
+    }
+
     /// Set a reference's enabled state through the shared World.
     #[func]
     pub fn set_reference_enabled(&mut self, file: i32, object: i64, enabled: bool) -> bool {
@@ -1144,7 +1170,7 @@ impl PlayerNode {
         if reference.deleted {
             return false;
         }
-        reference.enabled = enabled;
+        world.set_reference_enabled(GlobalFormId { file, object }, enabled);
         true
     }
 

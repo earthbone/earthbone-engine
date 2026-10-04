@@ -59,6 +59,7 @@ fn bannered_mare_furniture_is_drawn_and_beds_have_collision() {
         loaded.stats.statics_with_model
             + loaded.stats.furniture_with_model
             + loaded.stats.containers_with_model
+            + loaded.stats.activators_with_model
             + loaded.stats.doors_with_model,
         "rendering and collision select different model-bearing references"
     );

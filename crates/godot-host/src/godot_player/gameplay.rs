@@ -215,7 +215,9 @@ impl PlayerNode {
         self.clear_player_input();
         self.refresh_image_space();
         self.main_menu.leave();
-        self.sync_game_pose()
+        let installed = self.sync_game_pose();
+        self.sync_reference_collision();
+        installed
     }
 
     pub(super) fn advance_game(&mut self, delta: f64, sprinting: bool) {
@@ -267,6 +269,7 @@ impl PlayerNode {
             let mut world = game.world_mut();
             streamer.bind_mut().sync_reference_changes(&mut world);
         }
+        self.sync_reference_collision();
         if !self.advance_exterior() {
             self.auto_step = false;
             return;
@@ -701,10 +704,7 @@ impl PlayerNode {
             };
             // A player pick must not interact with an invisible/deleted reference.
             // The shared game path handles locks and inventory keys.
-            let eligible = game
-                .world_mut()
-                .reference(target)
-                .is_some_and(|r| r.enabled && !r.deleted);
+            let eligible = game.world().reference_enabled(target);
             if !eligible {
                 return false;
             }
@@ -922,7 +922,15 @@ impl PlayerNode {
                 query_collision.free();
                 return false;
             };
-            if !streamer.is_instance_valid() || !streamer.bind_mut().replace_location(&location) {
+            let Some(game) = &self.game else {
+                query_collision.free();
+                return false;
+            };
+            if !streamer.is_instance_valid()
+                || !streamer
+                    .bind_mut()
+                    .replace_location(&location, &game.world())
+            {
                 query_collision.free();
                 return false;
             }
@@ -988,6 +996,7 @@ impl PlayerNode {
             self.world = Some(world);
             self.character = Some(id);
             self.collision_references = collision.references;
+            self.collision_visibility.clear();
             self.loaded_cell = Some(cell);
             self.sync_cell_ambience(cell);
             self.record_door_texture_preparation(texture_preparation);

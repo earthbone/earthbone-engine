@@ -431,9 +431,7 @@ impl World {
     /// resident. Disabled references have no loaded 3D.
     #[must_use]
     pub fn is_reference_3d_loaded(&self, id: GlobalFormId) -> bool {
-        self.refs
-            .get(&id)
-            .is_some_and(|reference| reference.enabled && self.loaded_3d_references.contains(&id))
+        self.reference_enabled(id) && self.loaded_3d_references.contains(&id)
     }
 
     /// Drop what `cell` owns and nothing else. Returns the count dropped and

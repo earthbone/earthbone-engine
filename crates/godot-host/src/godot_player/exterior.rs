@@ -111,7 +111,9 @@ impl PlayerNode {
             .filter(|id| exterior.cells.contains_key(id))
             .collect();
         if !streamer.is_instance_valid()
-            || !streamer.bind_mut().apply_cell_delta(&prepared, &departed)
+            || !streamer
+                .bind_mut()
+                .apply_cell_delta(&prepared, &departed, &game.world())
         {
             return false;
         }

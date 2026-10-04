@@ -192,6 +192,34 @@ pub struct CellBodies {
 }
 
 impl CellBodies {
+    /// Adopt additional placed bodies, retaining their reference sync metadata.
+    pub(crate) fn append(&mut self, mut other: Self) {
+        self.stats.bodies += other.stats.bodies;
+        self.stats.shapes += other.stats.shapes;
+        self.stats.triangles += other.stats.triangles;
+        self.stats.skipped += other.stats.skipped;
+        self.entries.append(&mut other.entries);
+        self.movable.append(&mut other.movable);
+    }
+
+    /// Release the static query bodies belonging to one reference.
+    pub(crate) fn remove_reference(&mut self, reference: GlobalFormId) {
+        let mut server = PhysicsServer3D::singleton();
+        self.entries.retain(|entry| {
+            if entry.reference != Some(reference) {
+                return true;
+            }
+            server.free_rid(entry.body);
+            self.applied_collision_state.remove(&entry.body);
+            for &shape in &entry.shapes {
+                server.free_rid(shape);
+            }
+            self.stats.bodies = self.stats.bodies.saturating_sub(1);
+            self.stats.shapes = self.stats.shapes.saturating_sub(entry.shapes.len());
+            false
+        });
+    }
+
     /// Enable or disable host collision for every body owned by this cell.
     /// Bodies created after this call inherit the current setting through
     /// `sync_collision_state` on the next host sync.
@@ -384,6 +412,28 @@ impl CellBodies {
                 .map(|entry| entry.body)
                 .filter(Rid::is_valid),
         )
+    }
+
+    /// Number of this reference's bodies currently attached to a physics space.
+    pub(crate) fn active_reference_bodies(&self, reference: GlobalFormId) -> usize {
+        let server = PhysicsServer3D::singleton();
+        self.entries
+            .iter()
+            .filter(|entry| {
+                entry.reference == Some(reference)
+                    && entry.body.is_valid()
+                    && server.body_get_space(entry.body).is_valid()
+            })
+            .count()
+            + self
+                .movable
+                .iter()
+                .filter(|entry| {
+                    entry.reference == reference
+                        && entry.body.is_valid()
+                        && server.body_get_space(entry.body).is_valid()
+                })
+                .count()
     }
 
     /// Number of live movable bodies in this cell.

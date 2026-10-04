@@ -154,6 +154,7 @@ pub struct CellStats {
     pub statics_with_model: usize,
     pub furniture_with_model: usize,
     pub containers_with_model: usize,
+    pub activators_with_model: usize,
     pub doors_with_model: usize,
     /// 1 when the cell has water and its plane was built, 0 otherwise. A
     /// count rather than a bool since every other field here counts, and a
@@ -716,6 +717,10 @@ impl DataSource {
                 let _reference = soe_trace::Span::new("host.reference", "host");
                 stats.references += 1;
 
+                if !soe_game::World::authored_reference_enabled(&self.order, id) {
+                    continue;
+                }
+
                 let base_id = self.order.resolve(rref.file, refr.base);
                 let Some(base_rec) = self.order.winner(base_id) else {
                     continue;
@@ -729,6 +734,8 @@ impl DataSource {
                     stats.furniture_with_model += 1;
                 } else if base_rec.tag == soe_esm::Tag::new(b"DOOR") {
                     stats.doors_with_model += 1;
+                } else if base_rec.tag == soe_esm::Tag::new(b"ACTI") {
+                    stats.activators_with_model += 1;
                 } else {
                     stats.containers_with_model += 1;
                 }
@@ -811,6 +818,24 @@ impl DataSource {
             surfaces.push(water);
         }
         Ok(LoadedCell { stats, surfaces })
+    }
+
+    /// Builds one newly enabled reference without reloading its resident cell.
+    ///
+    /// # Errors
+    /// Propagates missing records and model decoding failures.
+    pub fn stream_reference(&self, reference: GlobalFormId) -> Result<LoadedCell, DataSourceError> {
+        let winner = self
+            .order
+            .winner_ref(reference)
+            .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
+        let refr = Refr::from_record(self.order.record(winner))?;
+        let model = self
+            .order
+            .winner(self.order.resolve(winner.file, refr.base))
+            .and_then(model_for)
+            .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
+        self.stream_destruction_model(reference, &model)
     }
 
     /// Builds the selected destruction-stage model for one placed reference
@@ -1335,3 +1360,6 @@ mod marker_shape_tests;
 
 #[cfg(test)]
 mod animated_static_mesh_tests;
+
+#[cfg(test)]
+mod rnd_17_tests;

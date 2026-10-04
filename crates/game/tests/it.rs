@@ -1694,3 +1694,6 @@ mod ui_25_initial_inventory;
 mod vanilla_save;
 #[path = "visual_effects.rs"]
 mod visual_effects;
+
+#[path = "rnd_17_enable_parent.rs"]
+mod rnd_17_enable_parent;
