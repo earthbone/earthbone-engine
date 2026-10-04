@@ -175,6 +175,14 @@ impl World {
                 }
             }
             st.inventory = self.reference_inventory(Some(id), base);
+            if st
+                .inventory
+                .iter()
+                .any(|(item, _)| self.tag_of(*item) == Some(T(b"LVLI")))
+            {
+                let level = self.encounter_level(id).ok()?;
+                st.inventory = self.resolve_inventory_lists(st.inventory, level).ok()?;
+            }
             if st.is_actor && present {
                 st.inventory = self
                     .default_outfit_inventory(id, base, &st.inventory)
@@ -680,6 +688,23 @@ impl World {
             }
         }
         st.inventory = self.reference_inventory(Some(id), base);
+        if st
+            .inventory
+            .iter()
+            .any(|(item, _)| self.tag_of(*item) == Some(T(b"LVLI")))
+        {
+            match self.encounter_level_in_cell(cell).and_then(|level| {
+                self.resolve_inventory_lists(std::mem::take(&mut st.inventory), level)
+            }) {
+                Ok(inventory) => st.inventory = inventory,
+                Err(error) => {
+                    eprintln!("initial inventory for {id}: {error}");
+                    st.inventory = crate::inventory::Inventory::default();
+                    st.enabled = false;
+                    present = false;
+                }
+            }
+        }
         if st.is_actor && present {
             match self.default_outfit_inventory(id, base, &st.inventory) {
                 Ok(inventory) => st.inventory = inventory,
@@ -712,6 +737,21 @@ impl World {
             state.display_name = Some("Player".into());
             if let Some(base) = base {
                 state.inventory = self.base_inventory(base);
+                if state
+                    .inventory
+                    .iter()
+                    .any(|(item, _)| self.tag_of(*item) == Some(T(b"LVLI")))
+                {
+                    state.inventory = match self
+                        .resolve_inventory_lists(state.inventory, self.player_level.max(1))
+                    {
+                        Ok(inventory) => inventory,
+                        Err(error) => {
+                            eprintln!("initial player inventory: {error}");
+                            crate::inventory::Inventory::default()
+                        }
+                    };
+                }
             }
             self.refs.insert(id, state);
         }
