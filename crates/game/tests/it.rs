@@ -994,6 +994,10 @@ mod ply_02_adversarial;
 mod ply_02_breaker_adversarial;
 #[path = "ply_02_routes.rs"]
 mod ply_02_routes;
+#[path = "ply_03_main_quest_replay.rs"]
+mod ply_03_main_quest_replay;
+#[path = "ply_03_adversarial.rs"]
+mod ply_03_adversarial;
 #[path = "prf_09_adversarial.rs"]
 mod prf_09_adversarial;
 #[path = "prf_09_profiling.rs"]

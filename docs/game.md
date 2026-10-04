@@ -375,6 +375,15 @@ quest's script variables. Both modes reject failed world passes. Neither mode
 changes the external save. `load_world_checkpoint` exposes this startup choice
 to callers without a command-line process.
 
+PLY-03's gated corpus survey loads the first three numbered main quest saves in
+the supplied sequence. It runs the source checkpoint through the route runner,
+then compares its restored quest stages, quest flags and player inventory with
+the next checkpoint. Differences are printed with the quest or item identity
+and field name. The current survey route only checks VM errors. It does not
+advance quest progress between checkpoints, so its differences measure the
+state that remains after the available route execution rather than a completed
+main quest replay. It requires `SKYRIM_DATA` and `SOE_TEST_SAVES`.
+
 Local CK `PathToReference_-_Actor.wikitext` supplies path failure and interruption
 semantics, and `Activate_-_ObjectReference.wikitext` supplies default activation
 and blocked OnActivate behavior. `GetItemCount_-_ObjectReference.wikitext` describes
