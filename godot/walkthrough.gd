@@ -6,6 +6,7 @@ const Warmup := preload("res://render_warmup.gd")
 const SystemOverlay := preload("res://system_overlay.gd")
 
 var player: Node3D
+var streamer: Node3D
 var system_overlay: CanvasLayer
 var frames := 0
 var loaded := false
@@ -27,7 +28,7 @@ func _start() -> void:
 		return
 	var scene := Node3D.new()
 	get_root().add_child(scene)
-	var streamer: Node3D = ClassDB.instantiate("CellStreamerNode")
+	streamer = ClassDB.instantiate("CellStreamerNode")
 	scene.add_child(streamer)
 	loading_label = Label.new()
 	loading_label.z_index = 1
@@ -65,7 +66,7 @@ func _start() -> void:
 	sun.rotation_degrees = Vector3(-55, -35, 0)
 	scene.add_child(sun)
 	player = ClassDB.instantiate("PlayerNode")
-	player.set("capture_mouse", OS.get_environment("SOE_CAPTURE_PATH").is_empty())
+	_configure_player()
 	scene.add_child(player)
 	system_overlay = SystemOverlay.new()
 	system_overlay.player = player
@@ -77,14 +78,15 @@ func _start() -> void:
 		return
 	print("STARTUP player ms=", Time.get_ticks_msec() - phase_msec)
 	loading_phase = "Preparing rendering"
-	var loading_cover := Warmup.cover(get_root())
-	var rendering: Dictionary = await Warmup.prepare()
-	if not rendering.error.is_empty():
-		printerr("Could not prepare rendering: ", rendering.error)
-		quit(1)
-		return
-	loading_cover.queue_free()
-	print("STARTUP rendering ", JSON.stringify(rendering))
+	if DisplayServer.get_name() != "headless":
+		var loading_cover := Warmup.cover(get_root())
+		var rendering: Dictionary = await Warmup.prepare()
+		if not rendering.error.is_empty():
+			printerr("Could not prepare rendering: ", rendering.error)
+			quit(1)
+			return
+		loading_cover.queue_free()
+		print("STARTUP rendering ", JSON.stringify(rendering))
 	loading_phase = "Starting game scripts"
 	await process_frame
 	await process_frame
@@ -97,6 +99,9 @@ func _start() -> void:
 	loading_label = null
 	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, F3 system timings, Esc exit")
 	loaded = true
+
+func _configure_player() -> void:
+	player.set("capture_mouse", OS.get_environment("SOE_CAPTURE_PATH").is_empty())
 
 func _process(_delta: float) -> bool:
 	if is_instance_valid(loading_label):

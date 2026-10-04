@@ -39,7 +39,7 @@ def integer(value):
 
 def parser():
     cli = argparse.ArgumentParser(description=__doc__)
-    cli.add_argument("mode", choices=("check", "sweep", "soak"))
+    cli.add_argument("mode", choices=("check", "sweep", "soak", "final-sweep"))
     cli.add_argument("--backend", choices=("cpu", "godot"), default="cpu")
     cli.add_argument("--scenario", default="mixed")
     cli.add_argument("--binary", type=Path, default=ROOT / "target/release/soe-bench")
@@ -329,6 +329,12 @@ def write_report(path, report):
 def main(argv=None):
     cli = parser()
     args = cli.parse_args(argv)
+    if args.mode == "final-sweep":
+        command = [str(ROOT / "tools/perf-budget.sh"), "--sweep", "--out", str(args.out),
+                   "--binary", str(args.binary)]
+        godot = os.environ.get("SOE_GODOT_BIN", args.godot) if args.godot == "godot" else args.godot
+        command.extend(["--godot", godot])
+        return subprocess.run(command, cwd=ROOT, check=False).returncode
     if args.scenario not in (CPU if args.backend == "cpu" else GPU):
         cli.error("scenario does not belong to the selected backend")
     if (args.mode == "sweep" and args.start > args.max_load) or max(args.start, args.max_load, args.samples, args.warmup) > 100000 or args.refine < 0 or args.max_backlog < 0 or args.duration > 86400:

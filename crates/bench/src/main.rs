@@ -64,6 +64,15 @@ struct Options {
 
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "frame-budget") {
+        return match stress::run_frame_budget(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.first().is_some_and(|arg| arg == "stress") {
         return match stress::run(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,

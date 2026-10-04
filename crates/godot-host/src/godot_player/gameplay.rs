@@ -272,7 +272,6 @@ impl PlayerNode {
         }
         self.process_debug_host_requests();
         if let Some(game) = &mut self.game {
-            self.menu.tick(game, delta);
             if let Err(error) = self.image_space.sync(&game.world()) {
                 godot_error!("PlayerNode: {error}");
             }

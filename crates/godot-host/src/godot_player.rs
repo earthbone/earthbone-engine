@@ -104,6 +104,7 @@ pub struct PlayerNode {
     exterior_byte_budget: i64,
     host_frame: soe_trace::FrameSnapshot,
     host_history: soe_trace::FrameHistory,
+    budget_frame: Option<soe_trace::FrameSnapshot>,
     monitor_names: Vec<StringName>,
     rig: CameraRig,
     motion: CameraMotion,
@@ -209,6 +210,7 @@ impl INode3D for PlayerNode {
             exterior_byte_budget: 0,
             host_frame: soe_trace::FrameSnapshot::now(),
             host_history: soe_trace::FrameHistory::default(),
+            budget_frame: None,
             monitor_names: Vec::new(),
             rig: CameraRig::default(),
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
@@ -1512,6 +1514,19 @@ impl PlayerNode {
             row.set("far_file", i64::from(far.file));
             row.set("far_object", i64::from(far.object));
             row.set("locked", world.reference(id).is_none_or(|r| r.locked));
+            if let Some((return_door, landing)) = world.reference(far).and_then(|r| r.teleport) {
+                if return_door == id {
+                    row.set(
+                        "return_position",
+                        Vector3::new(
+                            landing.position[0],
+                            landing.position[1],
+                            landing.position[2],
+                        ),
+                    );
+                    row.set("return_yaw", landing.rotation[2]);
+                }
+            }
             result.push(&row);
         }
         result
