@@ -1157,7 +1157,29 @@ impl PlayerNode {
             for (phase, duration) in &world.ai.planning_phases {
                 result.set(format!("{phase}_us"), duration.as_secs_f64() * 1_000_000.0);
             }
-            result.set("instantiated_actors", world.loaded_actors().len() as i64);
+            let actors = world.loaded_actors();
+            result.set("instantiated_actors", actors.len() as i64);
+            let selected = actors
+                .into_iter()
+                .filter(|id| {
+                    world.actor_ref(*id).is_some_and(|actor| {
+                        actor.ai.package.is_some()
+                            && !matches!(
+                                actor.ai.procedure,
+                                soe_game::ai::Procedure::None
+                                    | soe_game::ai::Procedure::Unsupported(_)
+                            )
+                    })
+                })
+                .count();
+            result.set("selected_packages", selected as i64);
+            result.set(
+                "navmesh_triangles",
+                world
+                    .ai
+                    .nav_graph()
+                    .map_or(0, |graph| graph.triangle_count()) as i64,
+            );
         }
         result
     }
@@ -1168,6 +1190,43 @@ impl PlayerNode {
         self.game
             .as_ref()
             .map_or(0, |game| game.world().ai.evaluations as i64)
+    }
+
+    /// Read navigation at supported NPC package positions for the TST-18 frame gate.
+    /// Queries read the shared World and do not alter actor or planner state.
+    #[func]
+    pub fn probe_npc_navigation(&self) -> VarDictionary {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
+        let mut result = vdict! { "queries" => 0_i64, "located" => 0_i64 };
+        let Some(game) = &self.game else {
+            return result;
+        };
+        let world = game.world();
+        let Some(graph) = world.ai.nav_graph() else {
+            return result;
+        };
+        let mut queries = 0_i64;
+        let mut located = 0_i64;
+        for actor in world.loaded_actors() {
+            if world.is_player(actor)
+                || world.actor_ref(actor).is_none_or(|state| {
+                    state.ai.package.is_none()
+                        || matches!(
+                            state.ai.procedure,
+                            soe_game::ai::Procedure::None | soe_game::ai::Procedure::Unsupported(_)
+                        )
+                })
+            {
+                continue;
+            }
+            if let Some(reference) = world.reference_ref(actor) {
+                queries += 1;
+                located += i64::from(graph.locate(reference.position).is_some());
+            }
+        }
+        result.set("queries", queries);
+        result.set("located", located);
+        result
     }
 
     /// Apply actor-value damage to the player through the active shared game.

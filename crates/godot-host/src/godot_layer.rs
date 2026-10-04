@@ -1885,13 +1885,15 @@ impl CellStreamerNode {
             return -1;
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
+        self.last_stats.set("origin_x", block.origin.0);
+        self.last_stats.set("origin_y", block.origin.1);
         totals.instances as i32
     }
 
     /// Totals from the last `stream_cell` or `stream_exterior` call: cells,
     /// references, statics, meshes_parsed, meshes_failed, triangles,
     /// surfaces, instances, largest_batch, materials (new in that call),
-    /// land_cells, world, cell_list.
+    /// land_cells, world, cell_list. Exterior calls also include origin_x and origin_y.
     #[func]
     pub fn last_stats(&self) -> VarDictionary {
         self.last_stats.clone()

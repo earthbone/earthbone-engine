@@ -1,5 +1,29 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## TST-18 walkthrough gameplay timing
+
+`walkthrough.gd` exposes startup cell, position and exterior radius to derived
+scripts. Exterior stream statistics include the resolved grid origin, which
+the timing script uses for its spawn. Its default remains the Bannered Mare
+spawn. Headless startup skips render pipeline preparation and still loads the
+same data, collision and
+gameplay runtime. `tst_18_walkthrough.gd` inherits that startup for both the
+Bannered Mare and a Whiterun exterior block, then settles gameplay for 20 wall
+seconds and measures host frame intervals
+with fixed player advances for at least 60 wall seconds. It checks that the
+logical cell remains the requested cell. It enforces the budgets and active
+package checks
+in [performance.md](performance.md), and quits after the measurement.
+`PlayerNode.ai_planning_details` includes selected supported package and NAVM
+triangle counts alongside phase timings and instantiated actors. These are
+read-only observations of the shared world. `probe_npc_navigation` queries the
+existing graph at the shared positions of NPCs with supported packages and
+returns query and success counts. The timing script calls it once per
+simulated second within a measured frame to keep lookup cost visible despite
+retained planner results, matching AI's package evaluation interval.
+No saved state or per-reference node path is added. The monotonic clock follows
+local Godot Time documentation.
+
 ## Per-system frame monitors, PRF-12
 
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`
