@@ -132,7 +132,9 @@ impl ChangeForm {
     /// or a Havok count exceeding the payload. The reported remainder is not
     /// validated, decoded or implicitly considered restored.
     pub fn reference_header(&self, form_version: u8) -> Result<Option<ReferenceHeader>> {
-        if !matches!(self.type_index(), 0 | 1 | 2 | 3 | 4 | 42 | 47) {
+        // CONTEXT: xEdit omits PARW from InitialDataTypeDecider. Returning no
+        // header keeps its opaque payload out of reference restoration.
+        if !matches!(self.type_index(), 0 | 1 | 2 | 3 | 4 | 42) {
             return Ok(None);
         }
         if self.form.kind() == RefKind::Invalid {
@@ -143,11 +145,7 @@ impl ChangeForm {
         let payload = self.payload()?;
         let mut r = Cursor::new(&payload, "reference header");
         let flags = self.change_flags;
-        let initial = if self.type_index() == 47 {
-            // xEdit has no InitialDataTypeDecider entry for PARW. Its entire
-            // payload remains opaque, regardless of the change flags.
-            Initial::Unchanged
-        } else if self.form.kind() == RefKind::Created {
+        let initial = if self.form.kind() == RefKind::Created {
             Initial::Created {
                 placement: placement(&mut r)?,
                 flags: r.u8()?,
@@ -164,7 +162,7 @@ impl ChangeForm {
         } else {
             Initial::Unchanged
         };
-        let carries_havok = self.type_index() != 47;
+        let carries_havok = true;
         let havok = if carries_havok && flags & flags::HAVOK != 0 {
             let count = r.vsval()?;
             Some(Havok {

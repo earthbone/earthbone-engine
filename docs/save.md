@@ -42,8 +42,9 @@ save corpus. PCON's initial placement prefix is xEdit-defined. FORM, BASE and
 SCALE flags do not select fields in PCON or PARW headers, so those bytes remain
 in the opaque tail and do not participate in the reference-field presence
 check. The xEdit initial-data dispatch omits PARW type 47, so its complete
-payload stays opaque to placement and HAVOK parsing. SAV-70 checks both layouts
-with those flags set and re-encodes their opaque bytes unchanged. Both envelope
+payload stays opaque to placement and HAVOK parsing and returns no reference
+header. SAV-70 checks PCON header re-encoding and PARW envelope preservation
+with those flags set. Both envelope
 flags and exact stored payload bytes reach
 the game's record-backed projectile query and SAV-24 world section. PCON's
 remaining subtype bytes stay opaque. See [saved projectile layouts](save-projectile-layouts.md)

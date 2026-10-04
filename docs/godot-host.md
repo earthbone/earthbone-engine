@@ -4425,6 +4425,8 @@ The `tool_06_godot_routing_and_editor_debugger` test runs a windowed scene and
 an editor scene with `SOE_GODOT_BIN`, asserting error/warning routing, output,
 file context, repeated counts, release-level elision, console reload and F3
 controls. Both scenes quit when their checks end.
+The tests build the release extension and import the project before running
+the scenes so fresh checkouts register the extension's classes.
 
 The routing source is the local Godot documentation's GlobalScope
 `push_error`, `push_warning` and `print_rich` contracts. Lifecycle callbacks

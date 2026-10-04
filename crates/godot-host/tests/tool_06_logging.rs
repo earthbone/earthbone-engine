@@ -27,6 +27,19 @@ fn tool_06_godot_routing_and_editor_debugger() {
         String::from_utf8_lossy(&build.stderr)
     );
     let project = workspace.join("godot");
+    // CONTEXT: A fresh checkout needs an import to register its GDExtension.
+    let import = Command::new(&binary)
+        .args(["--headless", "--path"])
+        .arg(&project)
+        .arg("--import")
+        .output()
+        .expect("Godot project import starts");
+    assert!(
+        import.status.success(),
+        "Godot project import failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&import.stdout),
+        String::from_utf8_lossy(&import.stderr)
+    );
     for editor in [false, true] {
         let mut command = Command::new(&binary);
         command

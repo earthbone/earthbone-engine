@@ -173,22 +173,10 @@ fn sav_70_pcon_and_parw_unmodeled_reference_flags_round_trip() {
         vec![0x11, 0x22, 0x33, 0x44],
     );
     parw.type_field = 47;
-    let parw_header = parw.reference_header(78).unwrap().unwrap();
-    assert!(!parw_header.carries_reference_data);
-    assert!(!parw_header.carries_havok);
-    assert_eq!(parw_header.initial, Initial::Unchanged);
-    assert_eq!(parw_header.bytes_consumed, 0);
-    assert_eq!(parw_header.data_bytes().unwrap(), []);
-    assert_eq!(&parw.data[parw_header.bytes_consumed..], parw.data);
-    assert_eq!(parw_header.remaining_bytes, parw.data.len());
-    assert_eq!(
-        [
-            parw_header.data_bytes().unwrap(),
-            parw.data[parw_header.bytes_consumed..].to_vec()
-        ]
-        .concat(),
-        parw.data
-    );
+    assert!(parw.reference_header(78).unwrap().is_none());
+    let envelope = parw.parw_change().unwrap();
+    assert_eq!(envelope.change_flags, parw.change_flags);
+    assert_eq!(envelope.data, parw.data);
 }
 
 #[test]
