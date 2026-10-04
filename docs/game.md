@@ -8311,3 +8311,25 @@ use the existing reference flags. `ShowAllHidden`, unsupported cast checks
 and non-default equip parameters return explicit unsupported-state errors.
 Supported equipment requests use `World::equip_item`, and dispel requests use
 the shared active-effect removal path.
+
+## Reference enable parents, RND-17
+
+`World::reference_enabled` reads the winning REFR or ACHR XESP chain and
+combines its opposite-state bits with the terminal parent's runtime enable
+state. A reference without a parent uses its existing runtime enabled field,
+or its Initially Disabled record flag before construction. A parent overrides
+the child's initial flag. Deleted references, missing links, truncated XESP
+fields and cyclic chains return false, including opposite-state chains.
+Queries do not instantiate references or choose actor templates.
+`ref_placement`, Papyrus `IsEnabled` and `IsDisabled`, and `Is3DLoaded` use
+this effective state. Runtime `Enable` and `Disable` change the existing
+reference field, so parent changes reach descendants without copied state.
+The existing reference save body stores that field.
+
+The sources are local `uesp-modfileformat/REFR.wikitext` and
+`TES5Edit/Core/wbDefinitionsTES5.pas`, `wbXESP`, for the link and flag layout.
+The corpus has no separate CK Enable Parent page. Its
+`ck-wiki/Enable_-_ObjectReference.wikitext` and
+`Disable_-_ObjectReference.wikitext` describe children popping with their
+parent. This query interprets those records in the shared World rather than
+introducing a second reference database.

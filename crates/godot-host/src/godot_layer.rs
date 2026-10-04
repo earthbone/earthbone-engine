@@ -168,6 +168,7 @@ pub struct CellStreamerNode {
     /// reference per tick rather than a mesh rebuild. Collision has no such
     /// cache, see `CellBodies::sync_placements` for why.
     ref_cache: std::collections::HashMap<GlobalFormId, (bool, Iso, Option<String>)>,
+    deferred_references: std::collections::BTreeMap<GlobalFormId, GlobalFormId>,
     /// Replacement meshes for references with an active DEST model stage.
     destruction_models: std::collections::HashMap<GlobalFormId, DestructionOverlay>,
     /// Distant-terrain LOD blocks standing in for full resolution terrain
@@ -431,6 +432,7 @@ struct StreamTotals {
     statics: usize,
     furniture: usize,
     containers: usize,
+    activators: usize,
     meshes_parsed: usize,
     meshes_failed: usize,
     triangles: usize,
@@ -452,6 +454,7 @@ impl StreamTotals {
         self.statics += loaded.stats.statics_with_model;
         self.furniture += loaded.stats.furniture_with_model;
         self.containers += loaded.stats.containers_with_model;
+        self.activators += loaded.stats.activators_with_model;
         self.meshes_parsed += loaded.stats.meshes_parsed;
         self.meshes_failed += loaded.stats.meshes_failed;
         self.triangles += loaded.stats.triangles;
@@ -466,6 +469,7 @@ impl StreamTotals {
         d.set("statics", self.statics as i64);
         d.set("furniture", self.furniture as i64);
         d.set("containers", self.containers as i64);
+        d.set("activators", self.activators as i64);
         d.set("meshes_parsed", self.meshes_parsed as i64);
         d.set("meshes_failed", self.meshes_failed as i64);
         d.set("triangles", self.triangles as i64);
@@ -517,6 +521,7 @@ impl INode3D for CellStreamerNode {
             tethers: crate::godot_tether::TetherConstraints::default(),
             pending_tethers: std::collections::BTreeSet::new(),
             ref_cache: std::collections::HashMap::new(),
+            deferred_references: std::collections::BTreeMap::new(),
             destruction_models: std::collections::HashMap::new(),
             terrain_lod: None,
             object_lod: None,
@@ -1049,6 +1054,7 @@ impl CellStreamerNode {
         &mut self,
         entered: &[crate::data_source::PreparedCell],
         departed: &[GlobalFormId],
+        world: &soe_game::World,
     ) -> bool {
         let Some(scenario) = self.scenario() else {
             return false;
@@ -1057,7 +1063,7 @@ impl CellStreamerNode {
         let mut totals = StreamTotals::default();
         for cell in entered {
             totals.cell_list.push(cell.id.to_string());
-            self.add_cell(cell.id, &cell.loaded, scenario, &mut totals);
+            self.install_cell(cell.id, &cell.loaded, scenario, &mut totals, Some(world));
         }
         let mut server = RenderingServer::singleton();
         self.effect_shaders.retain(|_, effect| {
@@ -1077,6 +1083,8 @@ impl CellStreamerNode {
             }
         });
         self.free_departed_occluders(departed);
+        self.deferred_references
+            .retain(|_, cell| !departed.contains(cell));
         self.bounds = self
             .instances
             .iter()
@@ -1090,6 +1098,7 @@ impl CellStreamerNode {
     pub(crate) fn replace_location(
         &mut self,
         location: &crate::data_source::LoadedLocation,
+        world: &soe_game::World,
     ) -> bool {
         let Some(scenario) = self.scenario() else {
             return false;
@@ -1099,7 +1108,7 @@ impl CellStreamerNode {
         let mut totals = StreamTotals::default();
         for (id, cell) in &location.cells {
             totals.cell_list.push(id.to_string());
-            self.add_cell(*id, cell, scenario, &mut totals);
+            self.install_cell(*id, cell, scenario, &mut totals, Some(world));
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - before);
         true
@@ -1119,6 +1128,7 @@ impl CellStreamerNode {
     /// upload, never from an already patched copy, matching
     /// `StaticEntry::source` on the collision side.
     pub(crate) fn sync_reference_changes(&mut self, world: &mut soe_game::World) {
+        self.sync_deferred_references(world);
         let stale_tethers: Vec<_> = self
             .tether_endpoints()
             .into_iter()
@@ -1794,7 +1804,7 @@ impl CellStreamerNode {
         let materials_before = self.materials.len();
         let mut totals = StreamTotals::default();
         totals.cell_list.push(label.to_owned());
-        self.add_cell(cell_id, loaded, scenario, &mut totals);
+        self.install_cell(cell_id, loaded, scenario, &mut totals, None);
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         totals.instances as i32
     }
@@ -1842,7 +1852,7 @@ impl CellStreamerNode {
             totals.cell_list.push(format!("({},{})", cell.x, cell.y));
             self.exterior_cells
                 .insert(CellCoord::new(cell.x, cell.y), cell.id);
-            self.add_cell(cell.id, &loaded_cell, scenario, &mut totals);
+            self.install_cell(cell.id, &loaded_cell, scenario, &mut totals, None);
         });
         if let Err(e) = result {
             godot_error!("CellStreamerNode::stream_exterior: {e}");
@@ -2022,6 +2032,7 @@ impl CellStreamerNode {
         let Some(owner) = self.exterior_cells.remove(&coord) else {
             return 0;
         };
+        self.deferred_references.retain(|_, cell| *cell != owner);
         if self.collision_cell == Some(owner) {
             self.defer_tethers_for_collision_reset();
             self.collision.free();
@@ -2172,6 +2183,35 @@ impl CellStreamerNode {
             return false;
         };
         CellStreamerNode::release_telekinesis_reference(self, reference)
+    }
+
+    /// Count uploaded geometry members owned by a reference, including hidden members.
+    #[func]
+    pub fn rendered_reference_count(&self, file: i32, object: i64) -> i32 {
+        let Some(reference) = script_reference(file, object) else {
+            return 0;
+        };
+        self.instances
+            .iter()
+            .map(|instance| match &instance.table {
+                BatchTable::Triangles(members) => members
+                    .iter()
+                    .filter(|member| member.reference == reference)
+                    .count(),
+                BatchTable::Instances(members) => members
+                    .iter()
+                    .filter(|member| **member == reference)
+                    .count(),
+            })
+            .sum::<usize>() as i32
+    }
+
+    /// Count this reference's collision bodies attached to the host space.
+    #[func]
+    pub fn reference_collision_bodies(&self, file: i32, object: i64) -> i32 {
+        script_reference(file, object).map_or(0, |reference| {
+            self.collision.active_reference_bodies(reference) as i32
+        })
     }
 
     /// Last placement applied to a drawn reference, in Skyrim units.
@@ -2589,6 +2629,7 @@ impl CellStreamerNode {
         self.free_runtime_lights();
         self.exterior_cells.clear();
         self.ref_cache.clear();
+        self.deferred_references.clear();
         self.clear_terrain_lod();
         self.clear_object_lod();
         self.bounds = None;
@@ -2616,6 +2657,100 @@ impl CellStreamerNode {
     /// them inside it, and the benchmark streams from there.
     fn scenario(&self) -> Option<Rid> {
         crate::godot_world::scenario(&self.base(), "CellStreamerNode")
+    }
+
+    fn install_cell(
+        &mut self,
+        cell: GlobalFormId,
+        loaded: &LoadedCell,
+        scenario: Rid,
+        totals: &mut StreamTotals,
+        world: Option<&soe_game::World>,
+    ) {
+        let enabled = |id| world.is_none_or(|world| world.reference_enabled(id));
+        let visible = LoadedCell {
+            stats: loaded.stats.clone(),
+            surfaces: loaded
+                .surfaces
+                .iter()
+                .filter(|surface| {
+                    // CONTEXT: LAND and cell water are not enableable references.
+                    self.data_source.as_ref().is_none_or(|source| {
+                        source
+                            .order()
+                            .winner(surface.reference)
+                            .is_none_or(|record| {
+                                record.tag != soe_esm::tag::REFR || enabled(surface.reference)
+                            })
+                    })
+                })
+                .cloned()
+                .collect(),
+        };
+        if let Some(source) = &self.data_source {
+            let drawn: std::collections::HashSet<_> = visible
+                .surfaces
+                .iter()
+                .map(|surface| surface.reference)
+                .collect();
+            for &id in source.cell_index().references(cell) {
+                if drawn.contains(&id) {
+                    continue;
+                }
+                let Some(owner) = source.order().winner_ref(id) else {
+                    continue;
+                };
+                let record = source.order().record(owner);
+                if record.tag != soe_esm::tag::REFR {
+                    continue;
+                }
+                let Ok(reference) = soe_esm::records::refr::Refr::from_record(record) else {
+                    continue;
+                };
+                if source
+                    .order()
+                    .winner(source.order().resolve(owner.file, reference.base))
+                    .and_then(crate::data_source::model_for)
+                    .is_some()
+                {
+                    self.deferred_references.insert(id, cell);
+                }
+            }
+        }
+        self.add_cell(cell, &visible, scenario, totals);
+    }
+
+    fn sync_deferred_references(&mut self, world: &soe_game::World) {
+        let (Some(source), Some(scenario)) = (self.data_source.clone(), self.scenario()) else {
+            return;
+        };
+        let ready: Vec<_> = self
+            .deferred_references
+            .iter()
+            .filter(|(id, _)| world.reference_enabled(**id))
+            .map(|(id, cell)| (*id, *cell))
+            .collect();
+        for (id, cell) in ready {
+            self.deferred_references.remove(&id);
+            match source.stream_reference(id) {
+                Ok(loaded) => self.add_cell(cell, &loaded, scenario, &mut StreamTotals::default()),
+                Err(error) => {
+                    godot_error!("CellStreamerNode: enabled reference {id}: {error}");
+                }
+            }
+            if let Some(space) = self.collision_space.filter(|_| {
+                self.collision_cell == Some(cell) && self.collision.body_for_reference(id).is_none()
+            }) {
+                match source.placed_reference_colliders(id) {
+                    Ok(placed) => self
+                        .collision
+                        .append(crate::godot_physics::add_placed_statics(space, &placed)),
+                    Err(error) => {
+                        godot_error!("CellStreamerNode: enabled collision {id}: {error}");
+                    }
+                }
+            }
+        }
     }
 
     /// Draws one loaded cell's geometry as instances, batched or not.

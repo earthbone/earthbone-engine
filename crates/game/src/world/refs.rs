@@ -3,6 +3,7 @@
 //! References: the run-time state of a placed object built from its `REFR`
 //! or `ACHR` record on first use, dynamic placement, the player, inventory,
 //! movement, distance and activation.
+//! Enable-parent semantics follow UESP `REFR` XESP and xEdit's `wbXESP`.
 
 use soe_esm::plugin::flags;
 use soe_esm::records::refr::Refr;
@@ -25,7 +26,81 @@ pub struct RefPlacement {
     pub visible: bool,
 }
 
+fn effective_enabled<'a>(
+    mut id: GlobalFormId,
+    record: impl Fn(GlobalFormId) -> Option<&'a soe_esm::Record>,
+    resolve: impl Fn(GlobalFormId, u32) -> Option<GlobalFormId>,
+    state: impl Fn(GlobalFormId) -> Option<(bool, bool)>,
+) -> bool {
+    let mut visited = std::collections::HashSet::new();
+    let mut opposite = false;
+    loop {
+        if !visited.insert(id) {
+            return false;
+        }
+        let live = state(id);
+        let authored = record(id);
+        if live.is_some_and(|(_, deleted)| deleted)
+            || authored.is_some_and(soe_esm::Record::is_deleted)
+        {
+            return false;
+        }
+        if let Some(parent) = authored.and_then(|record| record.find(T(b"XESP"))) {
+            let Some(raw) = le_u32(parent).filter(|raw| *raw != 0) else {
+                return false;
+            };
+            let Some(parent_flags) = parent.get(4..8).and_then(le_u32) else {
+                return false;
+            };
+            let Some(parent) = resolve(id, raw) else {
+                return false;
+            };
+            opposite ^= parent_flags & 1 != 0;
+            id = parent;
+            continue;
+        }
+        let enabled = live.map(|(enabled, _)| enabled).or_else(|| {
+            authored
+                .filter(|record| matches!(record.tag.as_bytes(), b"REFR" | b"ACHR"))
+                .map(|record| record.flags & flags::INITIALLY_DISABLED == 0)
+        });
+        return enabled.is_some_and(|enabled| enabled ^ opposite);
+    }
+}
+
 impl World {
+    /// Effective enable state, following winning XESP links and live parent state.
+    /// Missing parents and cyclic chains are hidden. A child's initial flag is
+    /// superseded by its parent, while deletion always hides the reference.
+    #[must_use]
+    pub fn reference_enabled(&self, id: GlobalFormId) -> bool {
+        effective_enabled(
+            id,
+            |id| self.record(id),
+            |id, raw| self.resolve_from(id, raw),
+            |id| {
+                self.refs
+                    .get(&id)
+                    .map(|state| (state.enabled, state.deleted))
+            },
+        )
+    }
+
+    /// Effective authored enable state for hosts preparing cells before gameplay.
+    #[must_use]
+    pub fn authored_reference_enabled(order: &soe_esm::LoadOrder, id: GlobalFormId) -> bool {
+        effective_enabled(
+            id,
+            |id| order.winner(id),
+            |id, raw| {
+                order
+                    .winner_ref(id)
+                    .map(|owner| order.resolve(owner.file, raw))
+            },
+            |_| None,
+        )
+    }
+
     /// Set whether host actor presentation should apply foot inverse kinematics.
     pub fn set_debug_foot_ik(&mut self, enabled: bool) {
         self.debug_foot_ik = enabled;
@@ -543,23 +618,27 @@ impl World {
             .map(|reference| reference.open_state(is_door))
     }
 
-    /// The current runtime placement and visibility of a loaded reference,
-    /// for a host to compare against what it last drew or collided. `None`
-    /// only when the reference has never been instantiated, so its
-    /// record-authored placement is still current and there is nothing to
-    /// sync. A deleted reference still yields `Some`, with `visible: false`
+    /// The current runtime or authored placement and effective visibility,
+    /// for a host to compare against what it last drew or collided.
+    /// A deleted reference still yields `Some`, with `visible: false`
     /// at its last known placement, the same hide signal `Disable()` alone
     /// produces: `Delete()` sets both `deleted` and `enabled`
     /// (`crate::natives::object_reference`), and the host has no other way
     /// to learn it must stop drawing and colliding with it.
     #[must_use]
     pub fn ref_placement(&self, id: GlobalFormId) -> Option<RefPlacement> {
-        let state = self.reference_ref(id)?;
+        let authored;
+        let state = if let Some(state) = self.reference_ref(id) {
+            state
+        } else {
+            authored = self.load_ref_record(id)?;
+            &authored
+        };
         Some(RefPlacement {
             position: state.position,
             rotation: state.rotation,
             scale: state.scale,
-            visible: state.enabled && !state.deleted,
+            visible: self.reference_enabled(id),
         })
     }
 

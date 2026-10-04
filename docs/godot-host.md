@@ -4389,3 +4389,42 @@ leaves the active game untouched. The destination cell and all six pose
 components must be present and finite before the host sync starts. The Godot
 acceptance check saves a live player's generation and attaches it to a fresh
 player using the same installed cell data.
+
+## Streamed reference enable state, RND-17
+
+Cell mesh and collision preparation omit references whose authored effective
+enable state is off, using the game's winning-record XESP chain query.
+When installing prepared gameplay cells, the streamer also filters surfaces
+against runtime World state. Undrawn model references retain their cell
+ownership as deferred identities. The next gameplay sync builds a deferred
+reference only when World reports it enabled. It uses the normal VFS, NIF,
+material and collision paths and adds RenderingServer and PhysicsServer3D
+resources. Unloading its cell removes the deferred identity.
+
+Built geometry reads effective visibility through `ref_placement` on every
+sync. Disabling collapses batched triangles or sets a MultiMesh member's scale
+to zero, and removes the reference's host collision from its physics space.
+Enabling restores those resources without reloading the cell. Player movement
+and query collision also follow effective enable state. Static movement bodies
+are removed on disable and rebuilt on enable, and enabled query bodies use
+the same placed colliders. The host's applied-state cache does not own enable
+state. No per-reference scene nodes are added.
+
+`rendered_reference_pose` and `render_alignment_error` inspect the uploaded
+geometry. `reference_collision_bodies` reports bodies actually attached to a
+Godot physics space on the streamer, and movement and query counts on the
+player. These diagnostics support the RND-17 acceptance script.
+
+The record rules come from local `uesp-modfileformat/REFR.wikitext` and
+xEdit's `wbXESP` in `TES5Edit/Core/wbDefinitionsTES5.pas`. The CK Enable and
+Disable ObjectReference pages describe parent children popping together.
+The host uses the game's query because it already owns runtime reference
+state and resolves winning links.
+
+The shared model selector includes non-marker ACTI bases. This lets the
+Whiterun `StockadeBarricade01Activator` use its MODL mesh and authored
+collision when its enable parent turns on. ACTI marker bases stay omitted.
+Local `uesp-modfileformat/ACTI.wikitext` and xEdit's `wbRecord(ACTI)` supply
+the generic model field and bit 23 marker rule.
+
+Streaming statistics count activator models separately from containers.

@@ -721,10 +721,10 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         });
     }
     method!(vm, w, "ObjectReference", "IsEnabled", |world, call, me| b(
-        world.reference(me).is_some_and(|r| r.enabled)
+        world.reference_enabled(me)
     ));
     method!(vm, w, "ObjectReference", "IsDisabled", |world, call, me| b(
-        world.reference(me).is_some_and(|r| !r.enabled)
+        world.is_reference(me) && !world.reference_enabled(me)
     ));
     method!(vm, w, "ObjectReference", "Is3DLoaded", |world, call, me| b(
         world.is_reference_3d_loaded(me)

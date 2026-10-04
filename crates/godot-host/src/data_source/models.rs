@@ -12,6 +12,8 @@
 //! The cell loader removes only shapes below those nodes, retaining ordinary
 //! sibling geometry and leaving collision selection unchanged.
 
+//! UESP ACTI and xEdit's wbRecord(ACTI) use the same MODL and marker flag.
+
 use soe_esm::records::stat::Static;
 use soe_esm::{tag, Record, Tag};
 
@@ -23,7 +25,7 @@ pub(crate) fn is_editor_marker_name(name: &str) -> bool {
 pub(crate) fn model_for(record: &Record) -> Option<String> {
     let model = if record.tag == tag::STAT {
         Static::from_record(record).ok()?.model?
-    } else if ([Tag::new(b"FURN"), Tag::new(b"DOOR")].contains(&record.tag)
+    } else if ([Tag::new(b"ACTI"), Tag::new(b"FURN"), Tag::new(b"DOOR")].contains(&record.tag)
         && record.flags & (1 << 23) == 0)
         || record.tag == Tag::new(b"CONT")
     {
@@ -89,5 +91,17 @@ mod tests {
             .zsub(b"MODL", "Wall.nif")
             .sub(b"OBND", [0u8; 3]);
         assert_eq!(model_for(&malformed), None);
+    }
+}
+
+#[cfg(test)]
+mod rnd_17_tests {
+    use super::*;
+
+    #[test]
+    fn rnd_17_activator_models_render_but_editor_markers_do_not() {
+        let record = Record::new(Tag::new(b"ACTI"), 1).zsub(b"MODL", "Barricade.nif");
+        assert_eq!(model_for(&record).as_deref(), Some("Barricade.nif"));
+        assert_eq!(model_for(&record.with_flags(1 << 23)), None);
     }
 }
