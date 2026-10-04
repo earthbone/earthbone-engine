@@ -132,11 +132,11 @@ fn isolated(test: &str) -> bool {
     true
 }
 
-fn id(object: u32) -> GlobalFormId {
+pub(super) fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
-fn fixture() -> Game {
+pub(super) fn fixture() -> Game {
     let (actors, _) = crate::prf_12_frame::actors(2).unwrap();
     let mut plugin = actors.world().order().files()[0].plugin.clone();
     let record = quest::build_record(0x900, "ProfileQuest", 0);
