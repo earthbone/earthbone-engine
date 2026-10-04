@@ -64,6 +64,8 @@ mod destruction_tests;
 #[cfg(test)]
 mod marker_survey_tests;
 #[cfg(test)]
+mod rnd_20_tests;
+#[cfg(test)]
 mod ui_25_tests;
 
 #[cfg(feature = "godot")]
@@ -73,6 +75,7 @@ pub use location::LoadedLocation;
 pub(crate) use location::PreparedCell;
 pub use lod::LoadedLodBlock;
 pub(crate) use models::{is_editor_marker_name, model_for};
+pub(crate) use textures::checker_albedo;
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
 use water::water_material_from;
@@ -220,9 +223,9 @@ pub struct LoadedSurface {
     pub mesh_identity: Option<Arc<str>>,
 }
 
-/// A surface's 2D textures and environment cubemap, ready to upload. `None` means
-/// the material named no texture in that slot, or the read or decode
-/// failed, counted in `CellStats` either way. `Arc` because a texture shared
+/// A surface's 2D textures and environment cubemap, ready to upload. A failed
+/// named diffuse uses the checker. Other slots remain `None` when absent or
+/// unreadable, with failed reads counted in `CellStats`. `Arc` because a texture shared
 /// by many statics is read once on whichever worker thread reaches it first
 /// and cloned out of `TextureCache` cheaply for every surface that uses it.
 #[derive(Debug, Clone, Default)]
@@ -710,6 +713,9 @@ impl DataSource {
                 if rec.tag != tag::REFR {
                     continue;
                 }
+                if models::is_editor_reference(rec) {
+                    continue;
+                }
                 let Ok(refr) = Refr::from_record(rec) else {
                     continue;
                 };
@@ -720,7 +726,7 @@ impl DataSource {
                 let Some(base_rec) = self.order.winner(base_id) else {
                     continue;
                 };
-                let Some(model) = model_for(base_rec) else {
+                let Some(model) = models::render_model_for(base_rec) else {
                     continue;
                 };
                 if base_rec.tag == tag::STAT {
@@ -765,6 +771,22 @@ impl DataSource {
                     let placement = placement_iso(refr);
                     let identity_base = instance_transform.is_some().then(|| model.to_lowercase());
                     for (shape_index, (arrays, textures)) in built.into_iter().enumerate() {
+                        if textures
+                            .diffuse
+                            .as_ref()
+                            .is_none_or(|texture| Arc::ptr_eq(texture, &checker_albedo()))
+                        {
+                            if let Some(owner) = self.order.winner_ref(*reference) {
+                                let base = self.order.resolve(owner.file, refr.base);
+                                if let Some(record) = self.order.winner(base) {
+                                    soe_trace::warn!(target: "host::materials", system = "host::materials",
+                                        reference = %reference, base = %base,
+                                        editor_id = ?record.editor_id(), record_type = %record.tag,
+                                        model, shape_index, texture_set = ?arrays.material,
+                                        "surface has no source albedo");
+                                }
+                            }
+                        }
                         stats.triangles += arrays.triangle_count();
                         texture_sets.insert((
                             arrays.material.diffuse.as_deref().map(soe_bsa::normalize),
@@ -954,12 +976,15 @@ impl DataSource {
         let bytes = self.vfs.read(&path)?;
         let file = placed_model(&bytes)?;
         let marker_blocks = editor_marker_shape_blocks(&file);
+        let nonvisual_blocks = nonvisual_shape_indices(&file.blocks);
         let mut meshes = file.meshes()?;
         let marker_shapes_filtered = meshes
             .iter()
             .filter(|mesh| marker_blocks.contains(&mesh.block))
             .count();
-        meshes.retain(|mesh| !marker_blocks.contains(&mesh.block));
+        meshes.retain(|mesh| {
+            !marker_blocks.contains(&mesh.block) && !nonvisual_blocks.contains(&mesh.block)
+        });
         let marker_only = marker_shapes_filtered > 0 && meshes.is_empty();
         let refr_transform = placement_transform(refr);
         let mut out = Vec::with_capacity(meshes.len());
@@ -1079,6 +1104,25 @@ fn editor_marker_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usi
         }
     }
     marked
+}
+
+/// OpenMW's NiAVObject::Flag_Hidden excludes bounds and trigger meshes.
+/// Shaderless Skyrim shapes are emitter/helper geometry.
+fn nonvisual_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usize> {
+    use soe_nif::blocks::Block;
+    let mut hidden = HashSet::new();
+    for (index, block) in blocks.iter().enumerate() {
+        let (av, shaderless) = match block {
+            Block::Node(node) => (&node.av, false),
+            Block::TriShape(shape) => (&shape.av, shape.shader.get().is_none()),
+            Block::BsTriShape(shape) => (&shape.av, shape.shader.get().is_none()),
+            _ => continue,
+        };
+        if av.flags & 1 != 0 || shaderless {
+            mark_descendant_shapes(blocks, index, &mut hidden);
+        }
+    }
+    hidden
 }
 
 fn mark_descendant_shapes(

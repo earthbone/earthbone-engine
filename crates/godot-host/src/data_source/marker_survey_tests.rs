@@ -51,7 +51,7 @@ fn installed_winning_model_signatures_keep_editor_markers_out_of_draws() {
         {
             *model_bearing_signatures.entry(record.tag).or_insert(0usize) += 1;
         }
-        let Some(model) = model_for(record) else {
+        let Some(model) = models::render_model_for(record) else {
             continue;
         };
         *selected_signatures.entry(record.tag).or_insert(0usize) += 1;
@@ -91,6 +91,7 @@ fn installed_winning_model_signatures_keep_editor_markers_out_of_draws() {
         };
         let meshes = file.meshes().expect("parsed NIF meshes");
         let marker_blocks = editor_marker_shape_blocks(&file);
+        let nonvisual_blocks = nonvisual_shape_indices(&file.blocks);
         let marker_shapes = meshes
             .iter()
             .filter(|mesh| marker_blocks.contains(&mesh.block))
@@ -99,7 +100,9 @@ fn installed_winning_model_signatures_keep_editor_markers_out_of_draws() {
         filtered += marker_shapes;
         let expected: Vec<_> = meshes
             .iter()
-            .filter(|mesh| !marker_blocks.contains(&mesh.block))
+            .filter(|mesh| {
+                !marker_blocks.contains(&mesh.block) && !nonvisual_blocks.contains(&mesh.block)
+            })
             .collect();
         let actual = source
             .load_static_surfaces(model, &neutral_reference(), false)

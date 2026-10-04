@@ -1018,9 +1018,11 @@ focus node to the tree before the streamer node, or gate the first `process` tic
 
 ### Editor marker survey (2026-09-20)
 
-`DataSource` keeps the form-level bit 23 filter for FURN and DOOR. For models
-selected through STAT, CONT, FURN and DOOR, it also removes only TriShape and
-BSTriShape blocks reached through an `EditorMarker` node. xEdit's
+`DataSource` excludes bit 23 editor markers from visual model selection.
+For models selected through STAT, CONT, FURN and DOOR, it also removes
+TriShape and BSTriShape blocks reached through an `EditorMarker` node.
+RND-20 extends this to hidden and shaderless helper geometry, described
+below. xEdit's
 `Core/wbDataFormatNif.pas`, `TwbNifBlock.GetIsEditorMarker`, is the source: it
 defines an editor marker per named NiObjectNET block. Collision still reads the
 full model, so the visual filter does not remove physical geometry.
@@ -4430,3 +4432,119 @@ The routing source is the local Godot documentation's GlobalScope
 `push_error`, `push_warning` and `print_rich` contracts. Lifecycle callbacks
 follow local gdext `godot-core/src/init/mod.rs`. Details of the subscriber,
 retention bounds and dependencies are in [trace.md](trace.md).
+
+## Whiterun white geometry, RND-20
+
+The pre-fix installed-data survey streams the nine grid cells around
+`WhiterunOrigin` in `WhiterunWorld` and the nine around `WhiterunExterior04`
+in `Tamriel`. Both origins are grid (4, -2). It also inspects persistent
+references placed within those blocks. Every surface lacking resolved albedo
+was logged with its reference, resolved base, EditorID, record type, model
+and complete material texture set. No named DDS path failed in this sample.
+The following is the complete base-form list from that survey. Counts are
+surfaces, so the forge appears six times for one reference. All listed
+texture sets have empty diffuse, normal, glow, environment and mask slots.
+
+| Base | EditorID | Type | Model relative to meshes/ | Surfaces |
+|---|---|---|---|---:|
+| `0:000010` | `MapMarker` | STAT | `Marker_Map.NIF` | 2 |
+| `0:00003B` | `XMarker` | STAT | `MarkerX.nif` | 73 |
+| `0:000032` | `COCMarkerHeading` | STAT | `MarkerCOCHeading.nif` | 3 |
+| `0:000034` | `XMarkerHeading` | STAT | `MarkerXHeading.nif` | 117 |
+| `0:0BF9E1` | `CraftingBlackSmithForgeWR` | FURN | `Furniture/BlacksmithForgeMarkerWR.nif` | 6 |
+| `0:09C6CE` | `CraftingSmelterMarker1` | FURN | `Furniture/SmelterMarker.nif` | 1 |
+| `0:06E9C2` | `CraftingBlacksmithSharpeningWheel` | FURN | `Furniture/Clutter/BlacksmithSharpeningWheelAnimating.nif` | 1 |
+| `0:03DE33` | `WRHallOftheDead01` | STAT | `Architecture/Whiterun/WRBuildings/WRHallOftheDead01.nif` | 1 |
+
+The STAT markers carry bit 23. The crafting models contain hidden
+bounds/trigger shapes and shaderless emitter helper shapes. They have no
+render material and are excluded from drawing. The Hall of the Dead `glow`
+shape, block 11 using BSEffectShaderProperty block 12, has an authored empty
+source texture and greyscale texture. Its blended vertex-color glow is the
+one intended textureless reference in this survey, `0:03DE34`. Water is
+also intentionally colored from WATR instead of an albedo map.
+
+The surveyed reference identities, grouped by base, are:
+
+MapMarker (`0:000010`): `0:0162CE`, `0:072879`.
+
+XMarker (`0:00003B`): `0:01F24F`, `0:02884B`, `0:029AAF`, `0:02C905`, `0:02C915`,
+`0:0370B4`, `0:0370D6`, `0:0376E0`, `0:04E4B4`, `0:05411D`, `0:05411F`, `0:054120`,
+`0:054128`, `0:054129`, `0:05412A`, `0:0559D8`, `0:0559D9`, `0:05EA41`, `0:05EA42`,
+`0:05EA43`, `0:05EA48`, `0:05EA4A`, `0:05EA55`, `0:06BBFD`, `0:06BBFF`, `0:070F35`,
+`0:072FDF`, `0:073FFB`, `0:073FFE`, `0:074311`, `0:074DED`, `0:074F31`, `0:074F32`,
+`0:074F33`, `0:074F36`, `0:077058`, `0:077059`, `0:078092`, `0:08AF2E`, `0:08CF87`,
+`0:0914DE`, `0:091915`, `0:096575`, `0:0A804F`, `0:0BBCF2`, `0:0BBCF3`, `0:0D198C`,
+`0:0DDDB3`, `0:0FC87D`, `0:0FC8AB`, `0:0FC8F1`, `0:0FC90B`, `0:0FC90C`, `0:0FC91B`,
+`0:0FE2CF`, `0:0FF21C`, `0:10372F`, `0:10483D`, `0:105571`, `0:105572`, `0:105573`,
+`0:105574`, `0:10810E`, `0:10810F`, `0:108117`, `0:1095FC`, `0:109600`, `0:10DE9E`,
+`0:10EBAE`, `0:10F64C`, `1:002F2E`, `2:00E688`, `3:018B8A`.
+
+COCMarkerHeading (`0:000032`): `0:0215D4`, `0:02FFA4`, `0:0D520D`.
+
+XMarkerHeading (`0:000034`): `0:024049`, `0:02D01C`, `0:02D82B`, `0:02D82D`, `0:02D842`,
+`0:02FFAD`, `0:039E76`, `0:039F36`, `0:039F38`, `0:04222E`, `0:04222F`, `0:04401C`,
+`0:04D0C4`, `0:04E4A6`, `0:055FAF`, `0:055FB0`, `0:055FB1`, `0:0567DB`, `0:0567DD`,
+`0:0567DE`, `0:0567DF`, `0:0567E0`, `0:0567E5`, `0:0567EA`, `0:0567F7`, `0:057FA6`,
+`0:057FA7`, `0:057FA8`, `0:057FA9`, `0:05C9EC`, `0:05C9ED`, `0:05C9EE`, `0:05C9EF`,
+`0:05C9F0`, `0:062D88`, `0:062D89`, `0:06762C`, `0:07287B`, `0:074F3A`, `0:074F3B`,
+`0:076EBE`, `0:076EE4`, `0:0847A4`, `0:0847A6`, `0:088962`, `0:088963`, `0:088964`,
+`0:08AD66`, `0:08AD67`, `0:08AD68`, `0:08AD69`, `0:08AD6E`, `0:08AD6F`, `0:08AD70`,
+`0:08AD71`, `0:0914E1`, `0:0914F2`, `0:0914F3`, `0:092A65`, `0:092A66`, `0:092B24`,
+`0:092B25`, `0:098465`, `0:09E0B5`, `0:09E0B6`, `0:09E0E0`, `0:0A202A`, `0:0A202B`,
+`0:0A202C`, `0:0A8050`, `0:0B96D7`, `0:0C07EF`, `0:0CD1A1`, `0:0CD25A`, `0:0D1986`,
+`0:0D5321`, `0:0D5322`, `0:0D5327`, `0:0D750B`, `0:0D8F0A`, `0:0DDDA6`, `0:0DF1BB`,
+`0:0E732C`, `0:0F1469`, `0:0FB8BD`, `0:0FB8BE`, `0:0FB8C0`, `0:0FF146`, `0:0FF147`,
+`0:0FF148`, `0:0FF149`, `0:0FF14A`, `0:0FF14B`, `0:0FF14C`, `0:0FF14D`, `0:0FF14E`,
+`0:0FF14F`, `0:104752`, `0:104755`, `0:104756`, `0:104757`, `0:104758`, `0:104759`,
+`0:10475A`, `0:10475B`, `0:10475C`, `0:1052F4`, `0:1052F6`, `0:105947`, `0:106CB1`,
+`0:108D8D`, `0:109826`, `0:109E3C`, `0:10DEBA`, `0:10DEBD`, `0:10DEC0`, `3:004287`.
+
+CraftingBlackSmithForgeWR (`0:0BF9E1`): `0:0C430A`.
+
+CraftingSmelterMarker1 (`0:09C6CE`): `0:10E391`.
+
+CraftingBlacksmithSharpeningWheel (`0:06E9C2`): `0:016D07`.
+
+WRHallOftheDead01 (`0:03DE33`): `0:03DE34`.
+
+Model selection rejects the editor-marker bit for every supported base
+record. REFR occlusion-plane, room and portal fields (`XOCP`, `XORD`, `XRMR`, `XPOD`,
+`XPTL`) and XPRM portal boxes exclude a reference from visual streaming. Named NIF EditorMarker
+subtrees, hidden subtrees and shaderless Skyrim geometry
+are removed before surface building. Collision continues to read the model
+through its existing selection path. No per-reference scene nodes are added.
+
+Named albedo paths that fail VFS lookup or DDS decoding resolve to a shared
+8 by 8 opaque magenta/black checker. Each failed canonical path logs once
+per DataSource, including after prepared textures are cleared. Authored
+empty texture slots stay empty. Both StandardMaterial3D and the
+shader-material path bind the checker, including if an albedo upload fails.
+`CellStreamerNode.material_albedo_stats` inspects their uploaded bindings.
+The cell loader logs any retained surface without source albedo with its
+reference, base form, EditorID, record type, model and texture set.
+
+Sources are local `uesp-modfileformat/STAT.wikitext` and `REFR.wikitext`,
+TES5Edit `Core/wbDefinitionsTES5.pas` and `Core/wbDataFormatNif.pas`, OpenMW
+`components/nif/node.hpp` and `components/nifosg/nifloader.cpp`, and
+`nifxml/nif.xml`'s NiPSysMeshEmitter definition. The existing NIF reader,
+VFS and texture cache are reused. No new parser or dependency is added.
+
+The `rnd_20_` Rust checks exercise form and reference filtering, hidden
+hierarchies, helper shapes, missing/malformed textures, path aliases,
+concurrent loads and warning deduplication across cache clears. The
+SKYRIM_DATA scene survey checks both gate blocks and nearby persistent
+geometry against the one documented glow exception. The windowed
+`godot/rnd_20_albedo_check.gd` checks production albedo bindings, standard
+and decal checker pixels, and installed gate rendering, then quits.
+
+The installed scene check passed with 5,554 surfaces across 18 grid cells
+and 126 nearby persistent surfaces. The Hall of the Dead glow was the only
+retained textureless reference. The windowed check passed on Godot 4.4.1
+with llvmpipe at 640 by 360. Each standard/decal fixture capture contained
+7,406 magenta samples and 1,224 black samples, above the predeclared
+500-sample minimum for each color. The uploaded material cache contained
+108 albedo bindings after WhiterunOrigin and 149 after WhiterunExterior04,
+with zero missing named albedo bindings and zero checker fallbacks in the
+installed blocks. The script exited with status 0. Captures stay under
+`target/rnd-20-fixture`.
