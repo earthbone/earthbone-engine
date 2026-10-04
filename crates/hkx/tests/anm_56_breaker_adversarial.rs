@@ -51,7 +51,13 @@ fn anm_56_admitted_request_starts_when_time_initiate_window_opens() {
     vm.update(1.0);
     assert_eq!(
         vm.current_state(graph.root.unwrap()),
+        Some(0),
+        "generation reaches the boundary after this frame's transition poll"
+    );
+    vm.update(0.0);
+    assert_eq!(
+        vm.current_state(graph.root.unwrap()),
         Some(1),
-        "a pending transition should start at the inclusive initiate enter time"
+        "the next poll should start the pending transition at the inclusive initiate enter time"
     );
 }

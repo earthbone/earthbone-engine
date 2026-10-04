@@ -59,7 +59,13 @@ fn anm_56_delayed_request_starts_at_the_initiate_enter_boundary() {
     vm.update(0.5);
     assert_eq!(
         vm.current_state(graph.root.unwrap()),
+        Some(0),
+        "generation reaches the boundary after this frame's transition poll"
+    );
+    vm.update(0.0);
+    assert_eq!(
+        vm.current_state(graph.root.unwrap()),
         Some(1),
-        "the admitted request should start when the half-open initiate window opens"
+        "the next poll should start the admitted request at the half-open initiate boundary"
     );
 }
