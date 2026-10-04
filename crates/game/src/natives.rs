@@ -3201,15 +3201,24 @@ fn debug(vm: &mut Vm, w: &Shared) {
                 _ => text_world(world, &call.arg(0)),
             };
             call.log.push(call.time, msg);
+            if name == "TraceStack" {
+                call.log.push(call.time, "Stack trace:");
+                for frame in &call.call_stack {
+                    call.log.push(call.time, format!("  {frame}"));
+                }
+            }
             none()
         });
     }
     global!(vm, w, "Debug", "TraceUser", |world, call| {
         let log_name = text(&call.arg(0));
         let message = text_world(world, &call.arg(1));
+        call.log.push(call.time, message.clone());
         if let Some(lines) = world.user_logs.get_mut(&log_name) {
             lines.push(message.clone());
-            call.log.push(call.time, message);
+            world
+                .pending_user_log_writes
+                .push((log_name.clone(), message.clone()));
         } else {
             call.log.push(
                 call.time,

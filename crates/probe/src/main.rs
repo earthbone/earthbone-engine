@@ -25,21 +25,31 @@ fn execute() -> Result<u8, Error> {
             output(&parse_log(&std::fs::read_to_string(&args[1])?)?)?;
             Ok(0)
         }
-        Some("compare") if args.len() == 3 => {
+        Some("replay") if args.len() == 2 => {
+            let probe = Probe::parse(&std::fs::read_to_string(&args[1])?)?;
+            let data = std::env::var_os("SKYRIM_DATA").ok_or_else(|| Error::Invalid("replay requires SKYRIM_DATA".into()))?;
+            output(&run_installed(&probe, Path::new(&data))?)?;
+            Ok(0)
+        }
+        Some("compare") if args.len() == 3 || args.len() == 4 => {
             let probe = Probe::parse(&std::fs::read_to_string(&args[1])?)?;
             let source = std::fs::read_to_string(&args[2])?;
             let observations: Vec<Observation> = match serde_json::from_str(&source) {
                 Ok(observations) => observations,
                 Err(_) => parse_log(&source)?,
             };
-            let data = std::env::var_os("SKYRIM_DATA").ok_or_else(|| Error::Invalid("compare requires SKYRIM_DATA".into()))?;
-            let engine = run_installed(&probe, Path::new(&data))?;
+            let engine = if let Some(path) = args.get(3) {
+                serde_json::from_str(&std::fs::read_to_string(path)?)?
+            } else {
+                let data = std::env::var_os("SKYRIM_DATA").ok_or_else(|| Error::Invalid("compare requires SKYRIM_DATA".into()))?;
+                run_installed(&probe, Path::new(&data))?
+            };
             let report = compare(&probe, &engine, &observations)?;
             let status = if report.matched { 0 } else { 2 };
             output(&report)?;
             Ok(status)
         }
-        _ => Err(Error::Invalid("usage: soe-probe build <out_dir> [probe.toml] | parse <Papyrus.0.log> | compare <probe.toml> <observations.json or Papyrus.0.log>".into())),
+        _ => Err(Error::Invalid("usage: soe-probe build <out_dir> [probe.toml] | parse <Papyrus.0.log> | replay <probe.toml> | compare <probe.toml> <observations.json or Papyrus.0.log> [expected.json]".into())),
     }
 }
 

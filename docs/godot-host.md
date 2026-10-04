@@ -1,5 +1,31 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+The HTML menu embedding research and proposed PrismaUI compatibility contract
+are in [ui-frameworks.md](ui-frameworks.md#html-menus-and-prismaui-compatibility-ui-22).
+They describe options only. No HTML renderer or PrismaUI API adapter is
+implemented in the host.
+
+## SWF menu execution research, UI-23
+
+`docs/ui-frameworks.md` records the source-level Scaleform and `GameDelegate`
+inventory, Ruffle's signature change, compatibility gaps, estimates, and
+proposed runtime rows. `ui_23_scaleform_research.rs` checks the documented tag
+and API inventory, compares per-class vanilla calls with the supplied SkyUI
+ActionScript source when it is available, and checks the proposed estimates
+and work split. This host still presents its native Godot menus. UI-19 converts
+SWF art and retains ActionScript decompilation for reference, but does not
+execute the scripts.
+
+The art converter uses Ruffle `swf` 0.3's `Reader` for typed tags. Its
+`read_tag_list` requires an End tag, while the local
+`SkyUI-Community/source/swf/skyui/icons_item_psychosteve.xml` records complete
+sprites with `hasEndTag=false`. The converter walks sprite envelopes through
+Ruffle's length reader and accepts their declared byte boundary. Static
+one-frame sprites in the same icon movie also omit ShowFrame. Their final
+display list and labels form that frame. Other frame-count mismatches, subtag
+truncation errors and nesting beyond 64 levels remain errors. Synthetic
+fixtures cover both omissions, nested sprites and partial tags.
+
 ## Scripted player input, PLY-01
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
@@ -30,6 +56,15 @@ windowed, compares complete event logs including Papyrus traces, checks the
 controller pose and load-door cell replacement, and verifies a visible
 dialogue response. It captures the viewport as `window.png` in that fixture
 directory and quits with a failing status if any assertion fails.
+
+## Papyrus log profile routing, TOOL-07
+
+`DataSource` retains the resolved profile INI settings and INI directory.
+`PlayerNode` configures Game's Papyrus file sink from them before scripts start.
+When `[Papyrus] bEnableLogging=1`, the sink writes `Papyrus.0.log` and named
+user logs under `Logs/Script` in that profile directory. Disabled logging does
+not create files. The profile settings control trace lines and debug source
+detail, and existing numbered logs move up one slot on startup.
 
 ## Item names and model cards, UI-25
 
@@ -3238,6 +3273,11 @@ Closing frees presenter controls, clears held gameplay actions and restores
 prior focus and mouse mode. Mouse restoration waits for window focus when
 closing while unfocused. Repeated opens and closes do not add shell nodes.
 
+UI-21 documents the public API and license boundary for SKSE Menu Framework
+and dMenu style ImGui pages, and compares host rendering options. Those
+frameworks are not implemented by the native menu framework described here.
+See [ui-frameworks.md](ui-frameworks.md) for the research and proposed rows.
+
 ### MCM text and toggle rows, UI-11
 
 `mcm_menu::ConfigPage` stores text/value and toggle rows in authored order.
@@ -4409,3 +4449,37 @@ leaves the active game untouched. The destination cell and all six pose
 components must be present and finite before the host sync starts. The Godot
 acceptance check saves a live player's generation and attaches it to a fresh
 player using the same installed cell data.
+
+## Shared logging and controls, TOOL-06
+
+The extension installs the shared tracing subscriber at Scene initialization,
+using `SOE_LOG` and `user://logs/engine.log`. Host diagnostics use the facade
+with subsystem targets such as `host::melee` and `host::data_source`.
+`SoeLogBridge` flushes completed one-second message buckets each frame and
+queues worker events for delivery on the main thread. Errors use Godot's
+`push_error` path and warnings use `push_warning`, reaching the debugger.
+Other levels use Godot output. Every enabled level reaches size-rotated files.
+Exit-tree and extension shutdown flush the current bucket.
+
+`godot/diagnostics.gd` is an autoload with F3 verbosity controls and a backtick
+logging console. Both reload the same filter. F3 shows five seconds of recent
+messages. `log` reads the directives and `log <directives>` changes them.
+Invalid filters retain the previous setting. The panel releases the captured
+mouse while open and restores its prior mode on closure. It adds one control
+node for the host, with no node per placed reference.
+
+`SoeLogBridge::log_window` and `dump_log_window` expose inclusive logging-clock
+windows, including the current pending bucket, for hitch captures. PRF-18's
+automatic recorder is absent in this checkout. The host regression checks the
+window export directly rather than claiming automatic hitch capture.
+The `tool_06_godot_routing_and_editor_debugger` test runs a windowed scene and
+an editor scene with `SOE_GODOT_BIN`, asserting error/warning routing, output,
+file context, repeated counts, release-level elision, console reload and F3
+controls. Both scenes quit when their checks end.
+The tests build the release extension and import the project before running
+the scenes so fresh checkouts register the extension's classes.
+
+The routing source is the local Godot documentation's GlobalScope
+`push_error`, `push_warning` and `print_rich` contracts. Lifecycle callbacks
+follow local gdext `godot-core/src/init/mod.rs`. Details of the subscriber,
+retention bounds and dependencies are in [trace.md](trace.md).

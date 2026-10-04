@@ -1891,6 +1891,7 @@ fn idle_marker_animation(world: &mut World, marker: GlobalFormId) -> Option<Stri
 pub fn references_in_cell(world: &mut World, cell: GlobalFormId) -> Vec<GlobalFormId> {
     if world.ai.cell_refs.is_none() {
         let _span = soe_trace::Span::new("ai.cell_index", "game");
+        soe_trace::debug!(target: "game::ai", system = "game::ai", form_id = %cell, "building cell reference index");
         let mut index: HashMap<GlobalFormId, Vec<GlobalFormId>> = HashMap::new();
         let order = world.order();
         for tag in [T(b"REFR"), T(b"ACHR")] {
