@@ -88,8 +88,9 @@ software-rendered run.
 
 ## Live detection observations, CMB-32
 
-PlayerNode samples each ordered pair of resident, living actors in the same
-cell after the player's pose reaches Game. Their FormIDs come from
+PlayerNode samples ordered pairs of resident, living actors in the same cell
+within the winning `fSneakMaxDistance` after the player's pose reaches Game.
+Their FormIDs come from
 `World::contact_actors`. A Godot physics ray from eye to eye reports the first
 body, including an intervening actor or static obstruction. The query uses
 the existing RID-backed actor bodies and allocates no reference nodes.
@@ -101,6 +102,21 @@ placement and enable state, including `PlaceAtMe` references, and bounds the
 resulting record-derived light estimate to 0 to 150. The host sends that
 value, sight, motion and queued detection sounds to
 `World::evaluate_detection` each step.
+PRF-31 builds a uniform actor grid and a separate grid of sound source
+positions each frame. A nearby event can belong to a distant actor and does
+not grant sight to its owner. Each target's light is sampled once per frame.
+`LightSamples` reads `World::light_references_in_cell` for each actor cell and
+bins current light spheres in a 1,024-unit grid. A sphere covering more than
+512 buckets uses a separate list queried at every point in that cell. All
+influencing contributions retain FormID order and the existing radius, color,
+negative-light and fade calculation. Runtime visibility overrides authored
+initial-disable flags, so Enable can turn an initially disabled light on.
+Moved and spawned lights use their current shared placement.
+`PlayerNode::detection_time_usec` measures the whole update, including actor
+body synchronization, sampling and world evaluation. `detection_worldspace`
+reports the active exterior worldspace's editor ID for the walking check.
+Body synchronization and detection reuse one resident actor-placement list.
+No per-reference scene nodes are added.
 A sound event uses its source position and owning actor FormID. Footsteps emit
 a detection sound after successful playback. World keeps the stealth pool and
 observer state across cell resource replacement.
@@ -4389,3 +4405,32 @@ leaves the active game untouched. The destination cell and all six pose
 components must be present and finite before the host sync starts. The Godot
 acceptance check saves a live player's generation and attaches it to a fresh
 player using the same installed cell data.
+
+## Detection neighborhoods, PRF-31
+
+`godot/prf_31_detection_test.gd` measures one installed Whiterun exterior
+update, then walks the player at Whiterun's gate for 30 seconds in
+WhiterunWorld and 30 seconds in Tamriel. It samples every physics frame for two 30-second wall-time phases, checks resident
+NPCs and movement in both worldspaces, and rejects every
+complete detection update over the fixed 2,000-microsecond budget. Each run
+quits after reporting its sample count, maximum and over-budget count.
+The capsule and exterior residency advance through the host physics and
+streaming paths. NPC placements are held fixed and AI planning and VM ticks
+are omitted. The timing still covers the whole gameplay detection updater.
+The CPU light and actor grids use no new dependencies. The local OpenMW
+`components/sceneutil/lightmanager.cpp` intersects light spheres with object
+bounds and limits renderer lights. `clusteredlighting.hpp` declares the
+rendering light grid. Those OSG paths do not fit this host CPU query, which
+retains every influencing light without a renderer light limit.
+CK `GetLightLevel` and `CreateDetectionEvent` supply the light range and the
+separate source/owner contract. The Rust PRF-31 tests compare indexed samples
+with a full reference scan and cover reference mutations, sound ownership,
+sparse actor neighborhoods and native-save cache reconstruction.
+
+The installed headless run completed both 30-second phases with 3,623 updates,
+9 Whiterun actors near the gate and 446 Tamriel actors. Tamriel formed 530
+nearby observations. Maximum detection time was 6,657 microseconds and 1,813
+updates exceeded the 2,000-microsecond budget, so the check exited one.
+The full-update timing requirement remains unmet, see [performance.md](performance.md).
+The check runs a zero-time gameplay frame after load-door transitions to settle
+pending unload before exterior walking.

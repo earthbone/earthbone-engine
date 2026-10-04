@@ -152,17 +152,89 @@ impl World {
             }
         }
 
+        let mut combat_targets: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>> = BTreeMap::new();
+        for (target, pool) in &self.detection.pools {
+            for (observer, awareness) in &pool.observers {
+                if awareness.level == DetectionLevel::Combat {
+                    combat_targets.entry(*observer).or_default().insert(*target);
+                }
+            }
+        }
+        let mut target_senses = BTreeMap::new();
+        let mut observer_senses = BTreeMap::new();
         let mut by_target: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32)>> = BTreeMap::new();
         for o in observations {
             if self.tag_of(o.target) != Some(super::T(b"ACHR")) {
                 continue;
             }
-            let senses = self.senses(o)?;
+            let target = match target_senses.entry(o.target) {
+                std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    *entry.insert(self.target_senses(o.target)?)
+                }
+            };
+            let (observer_sneak, blindness, fighting) = match observer_senses.entry(o.observer) {
+                std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let observer = self.actor(o.observer).ok_or(Error::Actor(o.observer))?;
+                    *entry.insert((
+                        observer.values.get("sneak").current(),
+                        observer.values.get("blindness").current(),
+                        observer.combat_target,
+                    ))
+                }
+            };
+            let busy_elsewhere = combat_targets
+                .get(&o.observer)
+                .is_some_and(|targets| targets.len() > 1 || !targets.contains(&o.target));
+            let senses = Senses {
+                observer_sneak,
+                blindness,
+                observer_alert: self
+                    .awareness(o.observer, o.target)
+                    .is_some_and(|awareness| awareness.level == DetectionLevel::Alert),
+                observer_busy: fighting.is_some_and(|target| target != o.target) || busy_elsewhere,
+                ..target
+            };
             let value = crate::detection::detection_value(&settings, o, &senses)?;
             by_target
                 .entry(o.target)
                 .or_default()
                 .push((o.observer, value));
+        }
+        for (target, pool) in &self.detection.pools {
+            let Some(target_ref) = self
+                .reference_ref(*target)
+                .filter(|reference| reference.enabled && !reference.deleted)
+            else {
+                continue;
+            };
+            let Some(cell) = target_ref.cell.filter(|cell| self.cell_is_resident(*cell)) else {
+                continue;
+            };
+            for observer in pool.observers.keys() {
+                if pairs.contains(&(*observer, *target)) {
+                    continue;
+                }
+                let Some(observer_ref) = self.reference_ref(*observer).filter(|reference| {
+                    reference.cell == Some(cell) && reference.enabled && !reference.deleted
+                }) else {
+                    continue;
+                };
+                let distance = target_ref
+                    .position
+                    .iter()
+                    .zip(observer_ref.position)
+                    .map(|(a, b)| (*a - b).powi(2))
+                    .sum::<f32>()
+                    .sqrt();
+                if distance > settings.max_distance {
+                    by_target
+                        .entry(*target)
+                        .or_default()
+                        .push((*observer, settings.base_value.min(-1.0)));
+                }
+            }
         }
         let line_of_sight = observations
             .iter()
@@ -200,13 +272,9 @@ impl World {
         }
     }
 
-    fn senses(&mut self, o: &Observation) -> Result<Senses, Error> {
-        let observer = self.actor(o.observer).ok_or(Error::Actor(o.observer))?;
-        let observer_sneak = observer.values.get("sneak").current();
-        let blindness = observer.values.get("blindness").current();
-        let fighting = observer.combat_target;
-        let magic_invisible = self.is_invisible(o.target);
-        let target = self.actor(o.target).ok_or(Error::Actor(o.target))?;
+    fn target_senses(&mut self, id: GlobalFormId) -> Result<Senses, Error> {
+        let magic_invisible = self.is_invisible(id);
+        let target = self.actor(id).ok_or(Error::Actor(id))?;
         let target_sneak = target.values.get("sneak").current();
         let muffle = if target.values.contains("movementnoisemult") {
             target.values.get("movementnoisemult").current()
@@ -227,22 +295,15 @@ impl World {
             armor_weight += armor.weight.unwrap_or(0.0);
         }
 
-        let previous = self.awareness(o.observer, o.target).map(|a| a.level);
-        let busy_elsewhere = self.detection.pools.iter().any(|(t, p)| {
-            *t != o.target
-                && p.observers
-                    .get(&o.observer)
-                    .is_some_and(|a| a.level == DetectionLevel::Combat)
-        });
         Ok(Senses {
-            observer_sneak,
+            observer_sneak: 0.0,
             target_sneak,
             armor_weight,
             muffle,
-            blindness,
+            blindness: 0.0,
             invisible,
-            observer_alert: previous == Some(DetectionLevel::Alert),
-            observer_busy: fighting.is_some_and(|t| t != o.target) || busy_elsewhere,
+            observer_alert: false,
+            observer_busy: false,
         })
     }
 
@@ -344,4 +405,107 @@ pub(super) fn detection_actors(state: &DetectionState) -> impl Iterator<Item = G
         .pools
         .iter()
         .flat_map(|(target, pool)| std::iter::once(*target).chain(pool.observers.keys().copied()))
+}
+
+#[cfg(test)]
+mod prf_31_tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
+    }
+
+    fn world() -> World {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(super::super::T(b"CELL"), 1));
+        plugin.push_top(Record::new(super::super::T(b"NPC_"), 2));
+        for object in [3, 4] {
+            let mut reference =
+                Record::new(super::super::T(b"ACHR"), object).sub(b"NAME", 2_u32.to_le_bytes());
+            reference.placement.cell = Some(1);
+            plugin.push_top(reference);
+        }
+        let mut order = LoadOrder::new();
+        order.add("Detection.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        let mut values = [0.0; 26];
+        values[0] = -60.0;
+        values[1] = 100.0;
+        values[2] = 1.0;
+        values[12] = 1.0;
+        values[18] = 100.0;
+        values[20] = 1.0;
+        values[21] = 1.0;
+        values[23] = 1.0;
+        for (name, value) in DetectionSettings::NAMES.iter().zip(values) {
+            world
+                .settings
+                .insert(name.to_ascii_lowercase(), Value::Float(value));
+        }
+        world.load_cell(id(1));
+        world
+    }
+
+    #[test]
+    fn prf_31_pruned_pairs_advance_loss_and_recovery_without_new_observers() {
+        let mut world = world();
+        let observation = Observation {
+            observer: id(3),
+            target: id(4),
+            distance: 0.0,
+            line_of_sight: true,
+            light_level: 100.0,
+            motion: crate::detection::Motion::Still,
+            action_sound: 0.0,
+            action_sound_distance: None,
+            action_sound_line_of_sight: None,
+        };
+        world.evaluate_detection(&[observation], 0.0).unwrap();
+        assert_eq!(
+            world.awareness(id(3), id(4)).unwrap().level,
+            DetectionLevel::Combat
+        );
+        world.reference(id(4)).unwrap().position = [1000.0, 0.0, 0.0];
+        world.evaluate_detection(&[], 1.0).unwrap();
+        assert_eq!(
+            world.awareness(id(3), id(4)).unwrap().level,
+            DetectionLevel::Lost
+        );
+        world.evaluate_detection(&[], 2.0).unwrap();
+        assert_eq!(
+            world.awareness(id(3), id(4)).unwrap().level,
+            DetectionLevel::Normal
+        );
+        assert!(world.awareness(id(4), id(3)).is_none());
+    }
+
+    #[test]
+    fn prf_31_rejected_batch_does_not_age_pruned_pairs() {
+        let mut world = world();
+        let observation = Observation {
+            observer: id(3),
+            target: id(4),
+            distance: 0.0,
+            line_of_sight: true,
+            light_level: 100.0,
+            motion: crate::detection::Motion::Still,
+            action_sound: 0.0,
+            action_sound_distance: None,
+            action_sound_line_of_sight: None,
+        };
+        world.evaluate_detection(&[observation], 0.0).unwrap();
+        world.reference(id(4)).unwrap().position = [1000.0, 0.0, 0.0];
+        let before = world.detection.clone();
+        assert!(world
+            .evaluate_detection(
+                &[Observation {
+                    distance: -1.0,
+                    ..observation
+                }],
+                2.0
+            )
+            .is_err());
+        assert_eq!(world.detection, before);
+    }
 }

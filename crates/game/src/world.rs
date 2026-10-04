@@ -115,6 +115,7 @@ pub use story_manager::StoryError;
 mod record_save;
 mod static_object_restore;
 pub use quest_restore::QuestRestoreReport;
+mod light_references;
 mod reference_extras;
 mod reference_restore;
 mod refs;
@@ -832,6 +833,7 @@ pub struct World {
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
     refs: HashMap<GlobalFormId, RefState>,
+    light_references: std::cell::RefCell<light_references::LightReferences>,
     /// Current occupants, derived from actor movement and XPRM placement.
     trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     trigger_index: Option<BTreeMap<GlobalFormId, Vec<GlobalFormId>>>,
@@ -1214,6 +1216,7 @@ impl World {
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),
+            light_references: std::cell::RefCell::default(),
             trigger_occupants: BTreeMap::new(),
             trigger_index: None,
             actors: HashMap::new(),

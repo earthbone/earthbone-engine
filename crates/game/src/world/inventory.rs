@@ -582,6 +582,7 @@ impl World {
                 let valid = state.base == Some(base) && !state.is_actor;
                 if valid {
                     self.refs.insert(reference, state);
+                    self.track_light_reference(reference);
                 }
                 valid
             };

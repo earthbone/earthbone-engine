@@ -103,6 +103,7 @@ pub struct PlayerNode {
     exterior_byte_budget: i64,
     rig: CameraRig,
     motion: CameraMotion,
+    detection_time_usec: i64,
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
@@ -203,6 +204,7 @@ impl INode3D for PlayerNode {
             exterior_triangle_budget: 0,
             exterior_byte_budget: 0,
             rig: CameraRig::default(),
+            detection_time_usec: 0,
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
             driver: Driver::new(),
@@ -856,6 +858,7 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        self.detection_time_usec = -1;
         if self.player_input.pending() > 0 {
             self.step_player_input();
             return;
@@ -1429,6 +1432,14 @@ impl PlayerNode {
             row.set("object", i64::from(id.object));
             row.set("far_file", i64::from(far.file));
             row.set("far_object", i64::from(far.object));
+            if let Some(name) = world
+                .reference(far)
+                .and_then(|reference| reference.cell)
+                .and_then(|cell| self.data_source.as_ref()?.exterior_world(cell))
+                .and_then(|worldspace| world.record(worldspace)?.editor_id())
+            {
+                row.set("far_worldspace", &GString::from(&name));
+            }
             row.set("locked", world.reference(id).is_none_or(|r| r.locked));
             result.push(&row);
         }
