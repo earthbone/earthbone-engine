@@ -77,13 +77,15 @@ func _start() -> void:
 		return
 	print("STARTUP player ms=", Time.get_ticks_msec() - phase_msec)
 	loading_phase = "Preparing rendering"
-	var loading_cover := Warmup.cover(get_root())
-	var rendering: Dictionary = await Warmup.prepare()
-	if not rendering.error.is_empty():
-		printerr("Could not prepare rendering: ", rendering.error)
-		quit(1)
-		return
-	loading_cover.queue_free()
+	var rendering := {"error": "", "load_render_frames": 0, "load_render_ms": 0.0}
+	if DisplayServer.get_name() != "headless":
+		var loading_cover := Warmup.cover(get_root())
+		rendering = await Warmup.prepare()
+		if not rendering.error.is_empty():
+			printerr("Could not prepare rendering: ", rendering.error)
+			quit(1)
+			return
+		loading_cover.queue_free()
 	print("STARTUP rendering ", JSON.stringify(rendering))
 	loading_phase = "Starting game scripts"
 	await process_frame
