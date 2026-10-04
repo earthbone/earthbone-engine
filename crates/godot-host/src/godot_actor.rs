@@ -325,8 +325,9 @@ impl SkinnedActorNode {
                 &surface.textures,
             );
             mesh.surface_set_material(0, &material);
-            soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-            let instance = server.instance_create2(mesh.get_rid(), scenario);
+            let instance = soe_trace::Profile::render_submission(|| {
+                server.instance_create2(mesh.get_rid(), scenario)
+            });
             server.instance_set_transform(instance, Transform3D::IDENTITY);
             server.instance_set_visible(instance, visible_for_invisibility(self.invisible));
             server.instance_attach_skeleton(instance, skeleton);

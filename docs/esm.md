@@ -1,5 +1,16 @@
 # soe-esm: plugin reader and form table
 
+## Record profiling ownership, PRF-13
+
+`LoadOrder::winner` and `record` add optional entity scopes around record
+retrieval. Each scope counts the lookup and reports its elapsed time under the
+resolved FormID and its defining plugin, following local Mutagen
+`docs/plugins/ModKey, FormKey, FormLink.md`. An override retains the original
+form owner's diagnostic identity. Missing lookups are counted under their
+requested identity, and created IDs use `<created>`. The existing override
+selection and record contents are unchanged. The scopes use `soe-trace` and
+add no dependency or saved data.
+
 Reads Skyrim SE plugin files (`.esm`, `.esp`, `.esl`) into a group tree of records,
 resolves FormIDs across a load order, and answers "which record wins" for any form.
 Typed views cover the initial world records, race phonemes, scoped dialogue,

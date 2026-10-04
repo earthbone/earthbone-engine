@@ -31,7 +31,7 @@ fn placed(kind: [u8; 4], id: u32, base: u32, position: [f32; 3]) -> Record {
         .sub(T(b"DATA"), data)
 }
 
-fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> {
+pub(crate) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> {
     let mut plugin = Plugin::new(FileHeader::default());
     let template = package::build_template(TEMPLATE, "StressTravelTemplate");
     let template = package::close_header(template, None);
@@ -228,7 +228,7 @@ fn prf_12_nested_game_frames_preserve_host_save_accounting() {
 
 #[test]
 #[ignore = "requires an optimized build and an idle machine"]
-fn prf_12_accumulator_under_one_percent_of_thousand_actor_stress_tick() {
+pub(crate) fn prf_12_accumulator_under_one_percent_of_thousand_actor_stress_tick() {
     const MAX_RATIO: f64 = 1.01;
     const PAIRS: usize = 15;
     const TICKS: usize = 8;

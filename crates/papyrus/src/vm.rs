@@ -533,6 +533,7 @@ const SETTER_BUDGET: usize = 4096;
 pub struct Vm {
     coverage: Option<coverage::Tracker>,
     scripts: HashMap<String, Rc<LoadedScript>>,
+    script_plugins: HashMap<String, String>,
     objects: HashMap<ObjectId, GameObject>,
     next_object: u64,
     instances: Vec<Instance>,
@@ -561,6 +562,13 @@ impl Vm {
     /// Set the directory used by Papyrus script and stack profiles.
     pub fn set_profile_directory(&mut self, path: impl Into<std::path::PathBuf>) {
         self.profiling.borrow_mut().output_dir = Some(path.into());
+    }
+
+    /// Set the winning asset provider for diagnostic script attribution.
+    /// This metadata is excluded from VM saves and state hashes.
+    pub fn set_script_plugin(&mut self, script: &str, plugin: &str) {
+        self.script_plugins
+            .insert(script.to_ascii_lowercase(), plugin.to_owned());
     }
 
     // ----- loading -----

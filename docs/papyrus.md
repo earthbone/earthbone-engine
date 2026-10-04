@@ -1,5 +1,20 @@
 # soe-papyrus: PEX loader and virtual machine
 
+## Entity execution profiling, PRF-13
+
+With `soe_trace::Profile` enabled, executed opcodes record their declaring
+script and function, instruction counts, native calls and running time.
+Function calls count on the first executed opcode, or the implicit return
+for an empty function, independently of scheduler slices. Empty functions
+record a call and return time with zero executed opcodes. Utility wait builtins contribute native-call counts. Entering sleeping
+or latent state records a wait, and each scheduler advance charges elapsed
+real seconds to that suspended function separately from its running time.
+
+`Vm::set_script_plugin` supplies diagnostic provider metadata. Game populates
+it from winning VFS script paths. A missing provider is `<unknown>`.
+This metadata is omitted from saves and state hashes. It does not change the
+scheduler budget, wait clock domains, native return values or script lookup.
+
 Crate `crates/papyrus`. Round 1 of `ENGINE-PLAN.md`, written 2026-09-06.
 
 ## What is in it

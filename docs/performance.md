@@ -1,5 +1,35 @@
 # Performance
 
+## Entity capture workflow, PRF-13
+
+The ignored release check `prf_13_disabled_capture_retains_prf_12_frame_budget`
+compares two optimized timing probes through `SOE_PRF_13_BASELINE` and
+`SOE_PRF_13_CURRENT`. Both use `prf_12_frame::actors(1000)`, ten warmup ticks
+and 240 measured ticks. Each prints elapsed nanoseconds and a checksum of the
+actors' final positions. The baseline uses the pre-change crates with system
+timing suspended. The current probe keeps system timing on and entity capture
+off. Fifteen alternating pairs must have equal checksums and a median ratio
+below 1.01. The existing PRF-12 calibration also runs in that test.
+
+Press F4 in the walkthrough to enable entity capture and its rolling rankings.
+Press it again to finish capture and write `user://soe-profile.json` and
+`user://soe-entities.json`. Player exit also writes both reports. F3 continues
+to show system frame timings. Headless Game runs accept `SOE_PROFILE=1` and
+`SOE_PROFILE_DIR=<existing-directory>` to write the same reports on drop.
+Open either JSON file in Perfetto. The scope trace carries entity and plugin
+arguments, while the summary contains session counter events per entity phase
+and plugin. Script identities include functions. The overlay groups functions
+by script and ranks actors, scripts, quests and plugins by self time.
+
+Nested scopes report inclusive time and self time. Plugin totals use self
+time, and operation counts belong to the innermost entity. Latent waits
+report real scheduler intervals separately from running time. Forms charge
+their defining plugin, regardless of the winner. Archived PEX providers map
+to plugin names, loose PEX files retain their source paths as provider labels.
+The trace retains the newest `MAX_EVENTS` scopes, while summary totals cover
+the complete session. Disabled factories do not construct strings or read
+clocks. Attribution adds no saved state and uses no new runtime dependency.
+
 The harness is `crates/bench` (binary `soe-bench`) plus `crates/trace`
 (scoped spans) and `godot/bench.gd` (frame time). Every number below comes
 from one machine and one commit, so a later run on the same machine can be

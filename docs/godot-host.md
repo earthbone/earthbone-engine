@@ -1,5 +1,29 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Entity host capture, PRF-13
+
+The existing system overlay uses F4 to toggle `soe_trace::Profile`, displaying
+the top five actors, scripts, quests and plugins by self time in the preceding
+second. F3 retains its system view. Switching F4 off or leaving the player
+writes `user://soe-profile.json` and `user://soe-entities.json` for Perfetto.
+Headless startup also honors `SOE_PROFILE=1`.
+
+PlayerNode collects key-event latency tokens while profiling. A physics step
+moves control tokens into the presentation queue after application. Opening
+or closing a menu queues its token immediately. RenderingServer's
+`frame_post_draw` signal completes the presentation queue. This measures elapsed time from a key
+callback through the next applied and presented frame. It does not infer
+whether an unbound key changed a visible pixel. Audio playback scopes count
+voice and effect starts at the existing `AudioStreamPlayer3D.play` call.
+RenderingServer instance creation uses a shared submission wrapper to record
+its elapsed time and count in one output entity.
+
+The overlay reuses its panel and label and adds no per-reference nodes. No
+saved fields or dependency were added. The windowed `prf_13_` host check
+covers F4, an applied camera switch, presentation latency, an audio start,
+installed render submissions, summary JSON and an overlay capture. It uses
+the existing input path and the local Godot RenderingServer signal contract.
+
 ## Per-system frame monitors, PRF-12
 
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`

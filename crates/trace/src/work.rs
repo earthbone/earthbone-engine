@@ -108,6 +108,7 @@ thread_local! {
 /// a thread-local check, independent of the timing trace's global switch.
 #[inline]
 pub fn count(operation: Operation, amount: u64) {
+    crate::entity::count(operation, amount);
     ACTIVE.with(|active| {
         if let Some(recorder) = active.borrow().as_ref() {
             recorder.0[operation as usize].fetch_add(amount, Ordering::Relaxed);

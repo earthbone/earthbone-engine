@@ -616,8 +616,9 @@ impl PlayerNode {
                 godot::builtin::Vector3::new(pos.x, pos.y, pos.z),
             );
             let rid = *self.debug_ref_markers.entry(id).or_insert_with(|| {
-                soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-                let rid = server.instance_create2(mesh.get_rid(), scenario);
+                let rid = soe_trace::Profile::render_submission(|| {
+                    server.instance_create2(mesh.get_rid(), scenario)
+                });
                 if let Some(material) = material {
                     server.instance_geometry_set_material_override(rid, material.get_rid());
                 }

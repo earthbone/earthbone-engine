@@ -1,5 +1,33 @@
 # soe-game: the runtime form table and the first natives
 
+## Entity runtime hooks, PRF-13
+
+Optional scopes attribute actor planning, package evaluation, driver movement
+and procedure movement by resolved FormID. Resumed navigation and marker
+jobs carry their requesting actor's planning identity. Quest start, stop, stage changes,
+reference and location alias fills, forced alias changes and quest condition
+evaluations carry quest identities. Reached CTDA predicates carry caller IDs
+and separate dialogue, perk, magic, package and quest categories, including
+failed predicates. Dialogue identifies the topic and INFO. Perk dispatch
+identifies the entry-point code, section and condition tab. Other callers use
+the condition owner record. Ownership follows that owner even when a dialogue
+topic belongs to another plugin. Package conditions use their own evaluator.
+
+Form ownership follows local Mutagen `docs/plugins/ModKey, FormKey, FormLink.md`.
+It uses the plugin that defines the resolved FormID, even when
+another plugin supplies its winning override. Created forms use `<created>`.
+Runtime record overrides carry the same diagnostic identity. Script loading
+maps the winning VFS archive stem to a loaded plugin stem. Loose script files
+retain their winning path as a provider label because VFS has no plugin
+ownership for loose roots. `Vm::set_script_plugin` accepts an explicit provider.
+
+`SOE_PROFILE=1` enables capture on Game construction. Dropping a headless Game
+writes `soe-profile.json` and `soe-entities.json` into `SOE_PROFILE_DIR`, or the
+current directory when unset. Write failures are reported. This process-wide
+capture is independent of world state and adds no saved sections. The
+`prf_13_` integration tests exercise two actors, two scripts, one quest, all
+five predicate categories and installed master record ownership.
+
 ## Per-system frame timing, PRF-12
 
 `Game::tick` and `tick_menu_mode` record an always-on exclusive system frame

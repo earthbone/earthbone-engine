@@ -8,6 +8,7 @@ var player: Node3D
 var panel: PanelContainer
 var label: Label
 var elapsed := 0.0
+var entities := false
 
 
 func _ready() -> void:
@@ -15,6 +16,13 @@ func _ready() -> void:
 	panel = PanelContainer.new()
 	panel.position = Vector2(8, 8)
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var background := StyleBoxFlat.new()
+	background.bg_color = Color(0.02, 0.02, 0.02, 0.97)
+	background.content_margin_left = 6.0
+	background.content_margin_right = 6.0
+	background.content_margin_top = 4.0
+	background.content_margin_bottom = 4.0
+	panel.add_theme_stylebox_override("panel", background)
 	label = Label.new()
 	label.add_theme_font_size_override("font_size", 12)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -23,10 +31,20 @@ func _ready() -> void:
 	panel.hide()
 	refresh()
 	if is_instance_valid(player):
+		entities = player.call("entity_profiling_enabled")
+		panel.visible = entities
 		player.tree_exiting.connect(_write_on_player_exit)
 
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.keycode == KEY_F4 and event.pressed and not event.echo:
+		entities = not entities
+		player.call("set_entity_profiling", entities)
+		panel.visible = true
+		refresh()
+		if not entities:
+			player.call("write_entity_profile", ProjectSettings.globalize_path("user://"))
+		get_viewport().set_input_as_handled()
 	if event is InputEventKey and event.keycode == KEY_F3 and event.pressed and not event.echo:
 		panel.visible = not panel.visible
 		refresh()
@@ -43,6 +61,10 @@ func _process(delta: float) -> void:
 func refresh() -> void:
 	if not is_instance_valid(player):
 		return
+	label.add_theme_font_size_override("font_size", 9 if entities and get_viewport().get_visible_rect().size.y < 400.0 else 12)
+	if entities:
+		label.text = player.call("entity_profile_overlay")
+		return
 	var report: Dictionary = player.call("system_frame_breakdown")
 	var text := "F3: Engine systems, exclusive scope ms and % of wall frame\n"
 	text += "System: last ms / frame % / rolling p50 / p99 / worst ms\n"
@@ -55,6 +77,8 @@ func refresh() -> void:
 func write_summary() -> Error:
 	if not is_instance_valid(player):
 		return ERR_UNAVAILABLE
+	if not player.call("write_entity_profile", ProjectSettings.globalize_path("user://")):
+		return ERR_CANT_CREATE
 	var summary: String = player.call("system_summary")
 	print(summary)
 	var file := FileAccess.open("user://soe-systems.txt", FileAccess.WRITE)
