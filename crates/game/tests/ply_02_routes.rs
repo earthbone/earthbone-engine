@@ -100,7 +100,7 @@ pub(super) fn game_with(disconnected: bool, edit: impl FnOnce(&mut Plugin)) -> G
     game
 }
 
-fn ply_05_soak(seed: u64) -> String {
+pub(super) fn ply_05_soak(seed: u64) -> String {
     let mut game = game(false);
     let mut state = if seed == 0 { 1 } else { seed };
     state ^= state << 13;

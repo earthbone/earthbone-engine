@@ -42,6 +42,12 @@ mod ply_03_breaker_adversarial;
 mod ply_05_breaker_adversarial;
 #[path = "ply_06_breaker_adversarial.rs"]
 mod ply_06_breaker_adversarial;
+#[path = "ply_03_breaker_adversarial_2.rs"]
+mod ply_03_breaker_adversarial_2;
+#[path = "ply_05_breaker_adversarial_2.rs"]
+mod ply_05_breaker_adversarial_2;
+#[path = "ply_06_breaker_adversarial_2.rs"]
+mod ply_06_breaker_adversarial_2;
 
 #[path = "cell_attach_binding.rs"]
 mod cell_attach_binding;
