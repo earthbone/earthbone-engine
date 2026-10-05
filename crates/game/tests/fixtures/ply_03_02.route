@@ -1,0 +1,6 @@
+expect-stage MQ101 180
+activate Skyrim.esm:25fae
+navigate-marker Skyrim.esm:5de24 -380.5 5504.5 388 600 1200
+wait-stage MQ101 250 60
+expect-stage MQ101 250
+expect-no-vm-error
