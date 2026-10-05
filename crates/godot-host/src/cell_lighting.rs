@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Resolve CELL lighting and its inherited LGTM fields for host rendering.
+//! Layouts follow local UESP CELL/LGTM and TES5Edit wbDefinitionsTES5.pas.
+//! Godot Light3D distance fades apply to runtime point lights, in metres.
 
 use godot::prelude::{Array, Color, VarDictionary};
 use soe_esm::{records::cell::Lighting, GlobalFormId, LoadOrder, Record};
@@ -40,44 +42,39 @@ fn rgb(color: [u8; 4]) -> [u8; 3] {
     [color[0], color[1], color[2]]
 }
 
+impl CellLighting {
+    pub(crate) fn distance_fade(&self) -> Option<[f32; 2]> {
+        let begin = self.light_fade_begin.max(0.0);
+        let end = self.light_fade_end;
+        (self.light_fade_begin.is_finite() && end.is_finite() && end > begin).then_some([
+            begin * crate::units::METRES_PER_UNIT,
+            (end - begin) * crate::units::METRES_PER_UNIT,
+        ])
+    }
+}
+
 fn template_lighting(record: &Record) -> Option<Lighting> {
-    let data = record.find(soe_esm::Tag::new(b"DATA"))?;
-    if data.len() < 84 {
+    if record.tag != soe_esm::Tag::new(b"LGTM") {
         return None;
     }
-    let dalc = record.find(soe_esm::Tag::new(b"DALC"));
-    let color = |bytes: &[u8]| [bytes[0], bytes[1], bytes[2], 0];
-    let ambient_colors = dalc
-        .filter(|bytes| bytes.len() >= 24)
-        .map(|bytes| std::array::from_fn(|i| color(&bytes[i * 4..i * 4 + 4])))
-        .unwrap_or([[0; 4]; 6]);
-    let read_u32 = |offset: usize| {
-        u32::from_le_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ])
-    };
-    let mut xcll = Vec::with_capacity(92);
-    xcll.extend_from_slice(&data[..12]);
-    for offset in [12, 16, 20, 24, 28, 32, 36] {
-        xcll.extend_from_slice(&read_u32(offset).to_le_bytes());
+    let data = record.find(soe_esm::Tag::new(b"DATA"))?;
+    if ![24, 92].contains(&data.len()) {
+        return None;
     }
-    for color in ambient_colors {
-        xcll.extend_from_slice(&color);
+    let mut xcll = [0; 92];
+    xcll[..data.len()].copy_from_slice(data);
+    xcll[40..72].fill(0);
+    if let Some(dalc) = record.find(soe_esm::Tag::new(b"DALC")) {
+        if ![24, 32].contains(&dalc.len()) {
+            return None;
+        }
+        xcll[40..40 + dalc.len()].copy_from_slice(dalc);
     }
-    if let Some(bytes) = dalc.filter(|bytes| bytes.len() >= 32) {
-        xcll.extend_from_slice(&bytes[24..32]);
-    } else {
-        xcll.extend_from_slice(&[0; 8]);
-    }
-    xcll.extend_from_slice(&data[68..84]);
-    xcll.extend_from_slice(&[0; 4]);
+    xcll[88..92].fill(0);
     Lighting::decode(&xcll).ok()
 }
 
-fn cell_lighting(order: &LoadOrder, id: GlobalFormId) -> Option<CellLighting> {
+pub(crate) fn cell_lighting(order: &LoadOrder, id: GlobalFormId) -> Option<CellLighting> {
     let reference = order.winner_ref(id)?;
     let cell_record = order.record(reference);
     let cell = soe_esm::records::cell::Cell::from_record(cell_record, false).ok()?;
@@ -215,8 +212,9 @@ mod tests {
     fn template_data(value: &Lighting) -> (Vec<u8>, Vec<u8>) {
         let encoded = value.encode();
         let mut data = encoded[..40].to_vec();
-        data.extend_from_slice(&[0; 28]);
+        data.extend_from_slice(&[0; 32]);
         data.extend_from_slice(&encoded[72..88]);
+        data.extend_from_slice(&[0; 4]);
         let mut dalc = Vec::new();
         for color in value.ambient_colors {
             dalc.extend_from_slice(&color.0);
@@ -316,5 +314,50 @@ mod tests {
         assert_eq!(result.fog_near, 170.0);
         assert_eq!(result.rotation_z, 171);
         assert_eq!(result.light_fade_end, 220.0);
+    }
+    #[test]
+    fn rnd_21_lgtm_tail_uses_xedit_offsets_and_separate_dalc() {
+        let mut data = vec![0; 92];
+        data[40..72].fill(255);
+        data[72..76].copy_from_slice(&[19, 23, 29, 0]);
+        data[76..80].copy_from_slice(&0.75_f32.to_le_bytes());
+        data[80..84].copy_from_slice(&700.0_f32.to_le_bytes());
+        data[84..88].copy_from_slice(&1400.0_f32.to_le_bytes());
+        let mut dalc = vec![0; 32];
+        dalc[..4].copy_from_slice(&[31, 37, 41, 0]);
+        let record = Record::new(Tag::new(b"LGTM"), 2)
+            .sub(Tag::new(b"DATA"), data)
+            .sub(Tag::new(b"DALC"), dalc);
+        let decoded = template_lighting(&record).unwrap();
+        assert_eq!(decoded.fog_far_color.unwrap().0, [19, 23, 29, 0]);
+        assert_eq!(decoded.fog_max, Some(0.75));
+        assert_eq!(decoded.light_fade_begin, Some(700.0));
+        assert_eq!(decoded.light_fade_end, Some(1400.0));
+        assert_eq!(decoded.ambient_colors[0].0, [31, 37, 41, 0]);
+    }
+
+    #[test]
+    fn rnd_21_legacy_template_and_truncated_template_are_distinguished() {
+        let legacy = Record::new(Tag::new(b"LGTM"), 2).sub(Tag::new(b"DATA"), vec![0; 24]);
+        assert!(template_lighting(&legacy).is_some());
+        let truncated = Record::new(Tag::new(b"LGTM"), 2).sub(Tag::new(b"DATA"), vec![0; 84]);
+        assert!(template_lighting(&truncated).is_none());
+        let bad_dalc = Record::new(Tag::new(b"LGTM"), 2)
+            .sub(Tag::new(b"DATA"), vec![0; 92])
+            .sub(Tag::new(b"DALC"), vec![0; 23]);
+        assert!(template_lighting(&bad_dalc).is_none());
+    }
+
+    #[test]
+    fn rnd_21_inherited_light_fade_converts_to_metres_and_disables_invalid_ranges() {
+        let order = order_with_lighting(LIGHT_FADE);
+        let mut light = cell_lighting(&order, GlobalFormId { file: 0, object: 1 }).unwrap();
+        let [begin, length] = light.distance_fade().unwrap();
+        assert!((begin - 3.429).abs() < 0.001);
+        assert!((length - 0.142875).abs() < 0.00001);
+        light.light_fade_end = light.light_fade_begin;
+        assert_eq!(light.distance_fade(), None);
+        light.light_fade_end = f32::NAN;
+        assert_eq!(light.distance_fade(), None);
     }
 }

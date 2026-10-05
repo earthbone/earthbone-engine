@@ -5,14 +5,12 @@
 use super::{Arc, DataSource, PlayerNode};
 
 impl PlayerNode {
-    pub(crate) fn sky_interior_for_host(&self) -> Option<soe_game::world::sky::InteriorLighting> {
+    pub(crate) fn sky_interior_for_host(&self) -> Option<crate::cell_lighting::CellLighting> {
         let cell = self.loaded_cell?;
         if let Some(game) = &self.game {
-            game.world().interior_lighting(cell).ok()
+            crate::cell_lighting::cell_lighting(game.world().order(), cell)
         } else {
-            soe_game::World::from_shared_order(self.data_source.as_ref()?.shared_order())
-                .interior_lighting(cell)
-                .ok()
+            crate::cell_lighting::cell_lighting(&self.data_source.as_ref()?.shared_order(), cell)
         }
     }
     pub(crate) fn sky_source(&self) -> Option<Arc<DataSource>> {
