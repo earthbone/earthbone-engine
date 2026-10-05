@@ -1,5 +1,27 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Transition timing, PRF-26
+
+`PlayerNode` emits `transition_requested(kind, name)` before opening or closing
+the modal menu shell, dialogue activation, a load-door activation, and native
+generation save, quick-save, quick-load and full-load work. The walkthrough's
+system overlay waits for `RenderingServer.frame_post_draw` for each request,
+then records the elapsed wall time under that transition key. On player exit it
+prints and writes `user://soe-transitions.txt` with the sample count, p50 and
+worst time. These measurements include requested synchronous work and end
+after the resulting frame is drawn. Load-door timing does not include a separate
+measurement of the first input callback after resource replacement.
+The completion boundary follows local
+`engine-refs/godot-docs/classes/class_renderingserver.rst`, which defines
+`frame_post_draw` as emitted after all Viewports finish updating.
+
+`godot/prf_26_menu_transitions_test.gd` opens and closes the named modal menu
+shells in a windowed run and builds 500 label rows in each. It times its list
+construction, string filtering and sorting operations by menu and item count.
+The list workload is a synthetic scene check. It does not time each native
+presenter's record-backed list construction. Fast travel has no host transition
+entry point in this checkout, and its timing is not reported.
+
 ## Per-system frame monitors, PRF-12
 
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`

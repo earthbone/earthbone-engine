@@ -497,6 +497,10 @@ impl PlayerNode {
     #[signal]
     fn menu_closed();
 
+    /// Emitted before a visible transition starts so presentation can time its first drawn frame.
+    #[signal]
+    fn transition_requested(kind: GString, name: GString);
+
     /// A Game native changed the HUD cart-mode flag.
     #[signal]
     fn hud_cart_mode_changed(enabled: bool);
