@@ -152,6 +152,7 @@ impl World {
     pub fn start_quest(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
         let _start = soe_trace::Span::new("game.start_quest", "game");
         let state = soe_trace::Span::new("game.quest_start_state", "game");
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
         if self.quest_state(id).is_none_or(|quest| quest.running) {
             return false;
         }
@@ -433,6 +434,7 @@ impl World {
     }
 
     pub fn stop_quest(&mut self, id: GlobalFormId) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
         let stopped = match self.quest_state(id) {
             Some(q) if q.running => {
                 q.running = false;
@@ -452,6 +454,7 @@ impl World {
     /// applies the log entry flags, and queues the stage fragment. Returns
     /// false for a stage the quest does not define.
     pub fn set_stage(&mut self, id: GlobalFormId, stage: u16, alloc: Alloc<'_>) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
         let Some(q) = self.quest_state(id) else {
             return false;
         };

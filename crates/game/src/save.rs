@@ -495,6 +495,7 @@ impl Game {
     /// Whatever [`soe_papyrus::Vm::save_state`] returns for a thread it
     /// cannot describe (a frame with no script).
     pub fn save_state(&self) -> Result<Vec<u8>, VmError> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Save);
         let _span = soe_trace::Span::new("game.save_state", "game");
         let world_bytes = self.world.borrow().save_state();
         let vm_bytes = self.vm.save_state()?;

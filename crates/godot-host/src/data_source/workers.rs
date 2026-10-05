@@ -38,11 +38,13 @@ impl WorkerPools {
         }
         let pool = self.pool(threads)?;
         let chunk_size = items.len().div_ceil(threads);
+        let recorder = soe_trace::WorkRecorder::current();
         catch_unwind(AssertUnwindSafe(|| {
             pool.install(|| {
                 items
                     .par_chunks(chunk_size)
                     .map(|chunk| {
+                        let _frame = recorder.as_ref().map(soe_trace::WorkRecorder::enter);
                         let _worker = soe_trace::Span::with_payload(
                             "host.worker",
                             "host",
@@ -88,6 +90,18 @@ mod tests {
 
     use super::WorkerPools;
     use crate::data_source::DataSourceError;
+
+    #[test]
+    fn prf_14_ordered_workers_charge_the_callers_frame_once() {
+        for workers in [1, 4] {
+            let frame = soe_trace::WorkFrame::begin();
+            ordered_map(&[0; 32], workers, |_| {
+                soe_trace::count(soe_trace::Operation::RecordLookups, 1);
+            })
+            .unwrap();
+            assert_eq!(frame.counts().get(soe_trace::Operation::RecordLookups), 32);
+        }
+    }
 
     fn ordered_map<T: Sync, U: Send>(
         items: &[T],

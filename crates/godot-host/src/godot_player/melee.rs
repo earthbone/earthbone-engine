@@ -269,6 +269,7 @@ impl PlayerNode {
     /// Route the control-map press edge into the shared player's swing latch.
     /// A held frame is ignored after the initial press.
     pub(super) fn begin_melee_swing_from_input(&mut self, pressed: bool) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Combat);
         if !pressed {
             return;
         }
@@ -290,6 +291,7 @@ impl PlayerNode {
     pub(super) fn sync_actor_bodies_and_contacts(
         &mut self,
     ) -> Option<Vec<soe_game::world::ContactActor>> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Physics);
         let world = self.base().get_world_3d()?;
         let space = world.get_space();
         if !space.is_valid() {

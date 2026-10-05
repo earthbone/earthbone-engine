@@ -9,6 +9,41 @@ Capacity sweeps, enforced frame budgets and sustained workload checks are
 documented in [performance-limits.md](performance-limits.md). Historical
 measurements below remain tied to their recorded revisions.
 
+## Per-system frames, PRF-12
+
+`soe-trace` records fixed-slot exclusive system time with optional Chrome
+tracing off. `Game::frame_history` provides headless tick frames and rolling
+240-frame statistics. PlayerNode provides presentation frames through
+`SOE/<system>_ms` custom monitors in Godot's Debugger Monitors tab, alongside
+Godot's built-in process, physics and rendering monitors. F3 in the walkthrough
+shows milliseconds and percentages of the wall frame. On exit it prints and
+writes `user://soe-systems.txt` with per-system session totals, means, worst
+times and rolling p50 and p99. Idle systems report zero.
+
+The tick denominator is tick wall time. The host denominator is wall time
+between completed PlayerNode process callbacks, including rendering waits.
+Main-thread scope durations include waits inside their calls and do not
+measure GPU execution. Details and source paths are in
+[trace.md](trace.md), [game.md](game.md) and [godot-host.md](godot-host.md).
+Percentiles are computed when queried, outside the simulation tick.
+
+Run the declared overhead gate, which alternates recorded and suspended
+eight-tick batches in one warmed 1,000-actor travel/sandbox world, then
+asserts the median paired on/off ratio is below 1.01. A second world replays
+the same tick count with timing suspended to verify identical actor positions:
+
+```text
+rtk cargo test -p soe-game --release --test it prf_12_accumulator_under_one_percent -- --ignored --nocapture
+```
+
+The Rust `prf_12_` checks cover complete slots, exclusive nesting, idle
+frames, percentile eviction and overlapping game/host snapshots. After the
+release extension build and import, run the live monitor and overlay check:
+
+```text
+rtk proxy "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_12_monitors_test.gd
+```
+
 ## Machine
 
 - AMD Ryzen 9 7900X, 12 cores, 24 threads, up to 5.7 GHz
@@ -90,6 +125,25 @@ rather than adding another record or alias model.
 SKYRIM_DATA="<Data>" cargo run --release -p soe-game --example startup_timing -- --trace
 SKYRIM_DATA="<Data>" cargo test --release -p soe-game --lib --test it prf_33_ -- --nocapture
 ```
+
+## PRF-11 navigation baseline, 2026-10-03
+
+Before changing navigation, `prf_11_installed_bannered_mare_and_whiterun_path_timings`
+loaded the five installed masters and queried the first and last triangle
+centroids of the largest mesh in each graph. These are single release queries,
+with a first query followed by a warm query, rather than frame measurements.
+
+| Graph | Meshes | Triangles | Route nodes | First | Warm |
+|---|---:|---:|---:|---:|---:|
+| WhiterunBanneredMare | 1 | 318 | 30 | 38.102 us | 28.423 us |
+| WhiterunWorld | 44 | 4,705 | 55 | 102.924 us | 68.509 us |
+
+Bannered Mare endpoints were `[-250.43564, 477.0016, 70.85016]` and
+`[580.056, -261.84796, 67.956154]`, cost 1914.888. WhiterunWorld endpoints
+were `[20497.994, -7813.914, -3635.1064]` and
+`[21203.918, -4165.7085, -2998.261]`, cost 2723.3533.
+`find_path_between` resolves each endpoint once. Its A* expansion loop does
+not call `locate`. The package driver can issue repeated path requests.
 
 ## TST-16 game integration test binary, 2026-10-01
 
@@ -217,6 +271,33 @@ checked against the [Godot 4.4 pipeline guide](https://docs.godotengine.org/en/4
 and [shader cache setting](https://docs.godotengine.org/en/4.4/classes/class_projectsettings.html#class-projectsettings-property-rendering-shader-compiler-shader-cache-enabled).
 The `soe-perf` skill's old frame-monitor description is superseded by this
 repository's wall-clock measurement contract.
+
+## PRF-15 core operation baselines
+
+`tools/perf.sh` runs the Divan target `crates/bench/benches/prf_15.rs` in
+release mode with 30 samples and a 100 ms minimum per benchmark. Short
+operations run in fixed batches, and the stored values divide each batch
+median by its operation count. It measures form lookup, winning-override
+resolution, navmesh locate and path search, a Papyrus call and native call,
+NIF parsing, BC7 DDS decode and a BSA file read. The fixtures are generated
+in memory. If
+`SKYRIM_DATA` is set, the target also parses an installed NIF and reads the
+corresponding file from a mesh archive under the data directory.
+
+The current medians live in `docs/perf-baselines.json`, in nanoseconds, tagged
+with host, CPU model, architecture and data mode. Run `tools/perf.sh` to
+compare the nine synthetic operation medians on the same machine. When
+`SKYRIM_DATA` is set, its two installed asset medians are stored and compared
+as well. It exits nonzero when an operation is more than 15 percent slower or a
+measurement is missing, or when the baseline belongs to another CPU identity.
+After reviewing a measured change, run `tools/perf.sh refresh` to replace the
+medians for the current CPU. A refresh writes the current host and CPU
+identity into the baseline. Divan 0.1.21 is licensed MIT or Apache-2.0.
+`cargo tree -p soe-bench -i divan` shows its dependency
+tree. `cargo tree -p divan` includes cfg-if, clap, condtype, divan-macros,
+libc and regex-lite. Clap also brings terminal_size and rustix. The benchmark
+API and its median table follow the
+[Divan 0.1.21 documentation](https://docs.rs/divan/0.1.21/divan/).
 
 ## Run of 2026-09-17, branch `perf`
 
@@ -731,3 +812,186 @@ integration tests, 13 host detection tests with installed data, including
 indexed/full-scan light equality in Bannered Mare, Whiterun and Tamriel, and
 four existing host adversarial tests. Formatting and both changed packages'
 all-target Clippy checks passed. The workspace gate was left to the reviewer.
+
+## Deterministic operation budgets, PRF-14
+
+`soe_trace::WorkFrame` captures operation counts without using elapsed time.
+Game ticks retain their last counts through `Game::last_work_counts`.
+`PlayerNode.work_counts` includes its enclosing host advance. Explicit work
+windows cover setup or queued work outside a tick. Nested ticks contribute
+once to their enclosing window. Data-source workers enter the caller's
+recorder before processing a chunk and join before the snapshot.
+
+Every fixed test compares all ten counters, including zero limits. These
+limits are fixed before running the scenarios:
+
+| Scenario | Locate | Triangles | Path nodes | Instructions | Natives | Conditions | Rays | Shapes | Records | Instances |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| AI-25 orbit, 8,192 triangles, each of 60 ticks at 0.1 s | 2,000 | 8,000 | 256 | 0 | 0 | 0 | 0 | 0 | 2,048 | 0 |
+| PRF-07, 1,000 actors, ten warm-up ticks then 120 ticks at 60 Hz | 8,000 | 16,000 | 4,000 | 0 | 0 | 0 | 0 | 0 | 200,000 | 0 |
+| Mixed stress, 16 actors, scripts and paths, each of five ticks | 128 | 256 | 8,192 | 544 | 0 | 0 | 0 | 0 | 10,000 | 0 |
+| Burst of 32 quest stages, fragments and OR conditions | 0 | 0 | 0 | 96 | 32 | 32 | 0 | 0 | 8,192 | 0 |
+| One installed Bannered Mare NAVM point query | 1 | 256 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+The orbit fixture keeps AI-25's authored bounds, height, arc samples and
+movement. Triangle candidates use the graph's bounds tree at triangle level.
+A full scan of its 8,192 triangles for every orbit sample exceeds its
+triangle limit by hundreds of times. The gate checks work rather than CPU
+speed. A* remains synchronous, with no scheduling or path-budget change.
+
+The stress CLI prints `work_peak_<operation> <count> count` after each
+measurement window. These are per-counter maxima across measured ticks,
+excluding setup, warm-up and report work. Scope instrumentation is independent
+of the global timing trace switch. Counter definitions and worker scope
+behavior are in [trace.md](trace.md). The fixed tests are in
+`game/tests/ai_25_orbit.rs`, `game/tests/prf_14_work.rs` and
+`bench/src/stress/mod.rs`. The installed NAVM case uses all five masters.
+The Godot correctness test loads the Bannered Mare, checks actual RID creation
+counts against streamed instances, and verifies a new empty window is zero.
+It does not measure renderer throughput.
+
+### PRF-11 after triangle indexing and sliced A*
+
+The same installed graphs and endpoints measured 40.387 us first and 25.539 us
+warm for Bannered Mare, and 93.216 us first and 60.665 us warm for WhiterunWorld.
+The route node counts and costs remained 30 / 1914.888 and 55 / 2723.3533.
+The warm before/after pairs are 28.423 / 25.539 us and 68.509 / 60.665 us.
+These single-query timings do not establish a general speedup. The frame
+scheduler bounds work independently: 64 nodes per request and 512 across
+requests per frame. Pending requests retain their heap and predecessor state.
+
+An intermediate Godot 4.4.1 headless run, with triangle indexing and sliced A*
+but before the closed-door lookup index, completed 3,600 frames and failed
+all 3,600 against the fixed 8 ms limit. Seven contact NPCs were present.
+It reported 53,030 package evaluations and a worst AI tick of 154.985 ms.
+A three-frame diagnostic then measured 1.235 ms of door refresh within a
+43.023 ms first AI tick, with 64 instantiated actors. This evidence led to
+indexing closed-door blocking by triangle, reusing the existing cell reference
+index and narrowing combat candidates through the existing awareness table.
+
+### PRF-11 full-phase diagnosis, 2026-10-03
+
+The continuation measured the complete AI tick and nested phases on Godot
+4.4.1, release build, five installed masters, headless Bannered Mare,
+3,600 ticks at 60 Hz. The first diagnostic run reported seven contact actors,
+24,208 evaluations, 295 ticks above 8 ms and a 13.199 ms maximum. The finer
+second run reported 1,180 failures and a 13.709 ms maximum. These runs were
+sequential and their wall-clock maxima varied.
+
+At frame 600 of the finer run, total actor processing took 6.571 ms.
+Request setup used 2.116 ms and route-result fallback used 3.496 ms.
+The first tick spent 9.414 ms scanning sandbox markers. Resumed search work
+was below one microsecond in these samples, so the node budget did not cover
+these costs. The previous two-phase report exposed none of them.
+
+Nearest lookup now carries the existing best radius into each mesh's triangle
+tree. The synthetic overlapping-mesh regression failed before the fix after
+testing all 80,002 triangles, and passes after testing two. Boolean containment
+stops at the first match rather than visiting every overlapping interior.
+With these query changes, frame 600 fallback time fell to 22.683 us. That
+intermediate run still failed six early ticks, with a 14.683 ms maximum.
+
+Marker filtering now reads only the live base or the winning NAME, XLCN and
+cell fields, sharing the reference initializer's BOS base selection. It avoids
+full placement decoding and inventory or actor-template initialization for
+irrelevant references. This changes no saved fields and adds no dependencies.
+
+The final marker subphase diagnostic found 5.742 ms in base filtering,
+3.375 ms in cell-reference lookup and 1.267 ms in bed classification during
+the first tick. Reference initialization accounted for 0.508 ms. That run
+failed three ticks and reached 15.404 ms. The candidate scan therefore gained
+its own retained cursor, with 64 reference examinations per request and 256
+across the frame. Pending actors keep their step until candidates are ready.
+The query still returns candidates in FormID order before choosing with RNG.
+
+The first host run with sliced marker queries reported one failure at frame
+1561, reaching 12.319 ms. Its failing frame did not record nested phases.
+The script now prints phase details for failures. A repeat on the same
+extension did not reproduce it. Its cause is unknown. That repeat exited zero
+and measured a 5.885 ms maximum, with all 3,600 frames below 8 ms. The original
+71 percent failure rate is gone in these runs, but this is a measured check
+on this machine, rather than a portable wall-clock guarantee.
+
+```text
+PRF-11 actors=7 frames=3600 seconds=60 evaluations=24900 worst_ai_us=5885.331 failures=0
+```
+
+The final run's first tick spent 1.844 ms in cell-reference lookup and
+1.874 ms in the entire new marker request phase. At frame 1800, request setup
+used 3.097 ms, fallback used 28.409 us, marker request work used 138.662 us
+and resumed marker work used 0.471 us. Package and actor state keep their
+existing saved layout. No actor scene-node path was added.
+
+The installed-data release Rust checks also passed both 60-second Bannered
+Mare runs, with maxima of 1.560 ms and 2.696 ms. All 24 PRF-11 Rust tests passed.
+The final path survey retained both baseline corridors and costs. Bannered
+Mare measured 35.437 us first and 23.705 us warm, versus 38.102 us and
+28.423 us before indexing. WhiterunWorld measured 89.209 us first and
+57.709 us warm, versus 102.924 us and 68.509 us before indexing.
+The 498 library tests across game, navmesh and godot-host passed. Package
+clippy with all targets and warnings denied passed for all three crates.
+
+### PRF-11 repeated-request diagnosis, pass 3
+
+The lead's pass 2 release check reported 637 failing frames and a 24.893 ms
+maximum. Additional actor-driver phases separate actor state, Calm and
+evaluation eligibility from movement and its existing nested query timings.
+The initial pass 3 diagnostic, before changing request reuse or door refresh,
+reported 778 failures and a 39.097 ms maximum over 3,600 frames. It used Godot
+4.4.1 headless with the installed five-master gameplay load order.
+
+At frame 600, movement used 7.088 ms, including 6.254 ms in request setup.
+At frame 2400, setup used 8.461 ms of 9.092 ms in movement. A failed route was
+discarded on completion, so unchanged actors resolved the same endpoints
+again on later ticks. At frame 304, a sandbox request also spent 4.361 ms
+collecting and filtering cell references. Door refresh ranged from 1.257 to
+2.060 ms at the periodic samples. The worst frame, 2289, spent 19.516 ms in
+request setup, 5.260 ms in procedure-tree entry and 6.034 ms in door refresh.
+These are inclusive wall-clock phases, including time spent descheduled.
+
+Completed failures now remain in the transient planner until their inputs or
+the NAVM graph revision change. Unchanged requests perform no new query work.
+Door refresh reads live references each tick and reuses unchanged footprint
+bindings. Neither cache changes saved actor state or adds a scene-node path.
+
+With route reuse and unchanged-door filtering, periodic samples fell to 23.136
+us of setup and 129.645 us of door refresh at frame 600. That run overlapped
+the worktree's Rust test build. It still failed 184 frames and reached 118.969
+ms, with 81.543 ms in package selection on its worst tick. Its first tick
+also spent 7.142 ms collecting cell references, outside the marker scan budget.
+Sandbox request setup now reads only index slice lengths, and each bounded
+scan merges the sorted persistent, temporary and deleted slices. It no longer
+copies, filters and sorts the whole cell before its first slice.
+
+The installed Rust checks passed their three 60-second runs at 967.218,
+698.921 and 749.527 us maximum, but the cold first-tick regression failed at
+699.073 ms. Ordinary cell loading had left the world NAVM graph lazy.
+`World::load_cell` now prepares the graph after reference prefetch and before
+attachment, so this work occurs during loading rather than the first AI tick.
+
+The navmesh test command reported 83 passes with `SKYRIM_DATA` unset. A separate
+installed path survey passed on both graphs. Bannered Mare measured 34.095 us
+first and 24.877 us warm, and WhiterunWorld 91.253 us first and 60.033 us warm.
+Both baseline corridors and costs remain unchanged. The warm before/after
+pairs are 28.423 / 24.877 us and 68.509 / 60.033 us.
+
+After moving preparation into loading, all 173 game library tests passed.
+The installed integration selection passed 83 tests, including the cold
+first-tick check, all PRF-11 timed runs, door invalidation and cell transitions.
+The three Bannered Mare 60-second maxima were 703.269, 699.803 and 724.780 us.
+Package Clippy passed for game, navmesh and godot-host with all targets and
+warnings denied. No saved fields, dependencies or actor scene nodes were added.
+
+The final release extension passed the same Godot 4.4.1 headless check, with
+no compiler running in this worktree during measurement. The process exited
+zero. First-tick cell-reference work was 3.778 us. At frame 600, request setup
+was 11.439 us and door refresh 59.322 us, compared with 6.254 ms and 1.899 ms
+in the initial pass 3 diagnostic. The worst tick was frame 1800 at 1.756 ms,
+including 1.582 ms of actor processing, 264.609 us of request setup and
+153.110 us of door refresh. All 3,600 samples met the unchanged 8 ms limit.
+These are wall-clock observations on this machine, not a portable scheduling
+guarantee. Earlier failed diagnostic runs remain recorded above.
+
+```text
+PRF-11 actors=7 frames=3600 seconds=60 evaluations=24900 worst_ai_us=1756.340 failures=0
+```

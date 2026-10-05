@@ -1556,6 +1556,7 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Magic);
         let mut execution = AllocationExecution { alloc };
         self.cast_spell_with_execution(spell, source, caster, target, &mut execution)
     }
@@ -1976,6 +1977,7 @@ impl World {
         target: GlobalFormId,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Magic);
         let mut execution = AllocationExecution { alloc };
         let prepared = self.prepare_spell(
             spell,
@@ -2017,6 +2019,7 @@ impl World {
         line_of_sight_clear: bool,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Magic);
         let mut execution = AllocationExecution { alloc };
         let prepared = self.prepare_spell(
             spell,

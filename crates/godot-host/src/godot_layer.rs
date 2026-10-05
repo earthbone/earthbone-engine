@@ -150,6 +150,7 @@ pub struct CellStreamerNode {
     /// camera to frame the scene without walking mesh nodes.
     bounds: Option<crate::mesh::Aabb>,
     last_stats: VarDictionary,
+    work_frame: Option<soe_trace::WorkFrame>,
     /// Static bodies this node put into the physics space, freed with the
     /// instances. Empty until `stream_cell_collision` is called, since a
     /// scene that only draws needs no collision.
@@ -339,6 +340,15 @@ fn light_render_data(record: &soe_esm::Record) -> Option<LightRenderData> {
     })
 }
 
+/// Stable Godot dictionary of deterministic work counts.
+pub(crate) fn work_dictionary(counts: &soe_trace::WorkCounts) -> VarDictionary {
+    let mut result = VarDictionary::new();
+    for operation in soe_trace::Operation::ALL {
+        result.set(operation.name(), counts.get(operation) as i64);
+    }
+    result
+}
+
 #[cfg(test)]
 mod mag_35_tests {
     use super::light_render_data;
@@ -510,6 +520,7 @@ impl INode3D for CellStreamerNode {
             materials: MaterialMap::new(),
             bounds: None,
             last_stats: VarDictionary::new(),
+            work_frame: None,
             collision: crate::godot_physics::CellBodies::default(),
             last_collision_stats: VarDictionary::new(),
             collision_space: None,
@@ -551,6 +562,7 @@ impl INode3D for CellStreamerNode {
     }
 
     fn process(&mut self, _delta: f64) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let Some(focus) = self.focus.as_ref() else {
             return;
         };
@@ -616,6 +628,7 @@ impl CellStreamerNode {
                     &surface.textures,
                 );
                 let mesh = array_mesh_from(&surface.arrays);
+                soe_trace::count(soe_trace::Operation::RenderInstances, 1);
                 let rid = server.instance_create2(mesh.get_rid(), scenario);
                 server.instance_set_transform(rid, Transform3D::IDENTITY);
                 server.instance_geometry_set_material_override(rid, material.get_rid());
@@ -746,6 +759,7 @@ impl CellStreamerNode {
                 }
             }
             material.set_blend_mode(effect_blend_mode(request.appearance.blend));
+            soe_trace::count(soe_trace::Operation::RenderInstances, 1);
             let rid = server.instance_create2(mesh.get_rid(), scenario);
             server.instance_set_transform(rid, transform);
             server.instance_geometry_set_material_override(rid, material.get_rid());
@@ -973,6 +987,7 @@ impl CellStreamerNode {
                 multi.set_mesh(&mesh);
                 multi.set_instance_count(particle_count);
                 multi.set_visible_instance_count(particle_count);
+                soe_trace::count(soe_trace::Operation::RenderInstances, 1);
                 let rid = server.instance_create2(multi.get_rid(), scenario);
                 self.shader_particles.insert(
                     geometry.form,
@@ -1119,6 +1134,7 @@ impl CellStreamerNode {
     /// upload, never from an already patched copy, matching
     /// `StaticEntry::source` on the collision side.
     pub(crate) fn sync_reference_changes(&mut self, world: &mut soe_game::World) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let stale_tethers: Vec<_> = self
             .tether_endpoints()
             .into_iter()
@@ -1347,6 +1363,7 @@ impl CellStreamerNode {
                 render.radius,
             );
             server.light_set_negative(light, render.negative);
+            soe_trace::count(soe_trace::Operation::RenderInstances, 1);
             let instance = server.instance_create2(light, scenario);
             server.instance_set_transform(instance, transform);
             self.runtime_lights
@@ -1416,6 +1433,23 @@ mod mag_14_tests {
 
 #[godot_api]
 impl CellStreamerNode {
+    /// Begin a deterministic work window around scripted load or frame work.
+    #[func]
+    pub fn begin_work_frame(&mut self) {
+        self.work_frame.take();
+        self.work_frame = Some(soe_trace::WorkFrame::begin());
+    }
+
+    /// End the work window and return all operation counts, including zeros.
+    #[func]
+    pub fn end_work_frame(&mut self) -> VarDictionary {
+        let counts = self
+            .work_frame
+            .take()
+            .map_or_else(soe_trace::WorkCounts::default, |frame| frame.counts());
+        work_dictionary(&counts)
+    }
+
     #[cfg(feature = "scr-24-test")]
     #[func]
     pub fn scr_24_effect_shader_sync(&mut self, action: i32, duration: f32, delta: f32) -> i64 {
@@ -1697,6 +1731,7 @@ impl CellStreamerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn stream_cell(&mut self, editor_id: GString) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let Some(source) = self.data_source.as_ref() else {
             soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_cell: load_data was not called");
             return -1;
@@ -1815,6 +1850,7 @@ impl CellStreamerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn stream_exterior(&mut self, editor_id: GString, radius: i32) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let Some(source) = self.data_source.as_ref() else {
             soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_exterior: load_data was not called");
             return -1;
@@ -2077,6 +2113,7 @@ impl CellStreamerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn stream_cell_collision(&mut self, editor_id: GString) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Physics);
         let Some(source) = self.data_source.as_ref() else {
             soe_trace::error!(target: "host::layer", system = "host::layer", "stream_cell_collision: load_data was not called");
             return -1;
@@ -2632,6 +2669,7 @@ impl CellStreamerNode {
         scenario: Rid,
         totals: &mut StreamTotals,
     ) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _span = soe_trace::Span::new("host.add_cell", "host");
         totals.add_cell(loaded);
         if self.cell_occluders {
@@ -2711,6 +2749,7 @@ impl CellStreamerNode {
         // CONTEXT: Mesh materials expose pipelines during loading. Instance overrides defer them.
         mesh.surface_set_material(0, material);
         let mut server = RenderingServer::singleton();
+        soe_trace::count(soe_trace::Operation::RenderInstances, 1);
         let rid = server.instance_create2(mesh.get_rid(), scenario);
         server.instance_set_transform(rid, Transform3D::IDENTITY);
         self.bounds = Some(match self.bounds {
@@ -2743,6 +2782,7 @@ impl CellStreamerNode {
             mesh.surface_set_material(0, &material);
         }
         let mut server = RenderingServer::singleton();
+        soe_trace::count(soe_trace::Operation::RenderInstances, 1);
         let rid = server.instance_create2(multi.get_rid(), scenario);
         server.instance_set_transform(rid, Transform3D::IDENTITY);
         let bounds = group_bounds(group);
@@ -2791,6 +2831,7 @@ impl CellStreamerNode {
         ];
         server.call("occluder_set_mesh", &mesh_args);
         let instance_args = [mesh.to_variant(), scenario.to_variant()];
+        soe_trace::count(soe_trace::Operation::RenderInstances, 1);
         let instance: Rid = server.call("instance_create2", &instance_args).to();
         server.instance_set_transform(instance, Transform3D::IDENTITY);
         self.occluders.push(CellOccluder {
@@ -2922,6 +2963,7 @@ impl CellStreamerNode {
         let mut mesh = array_mesh_from(&surface.arrays);
         mesh.surface_set_material(0, &material);
         let mut server = RenderingServer::singleton();
+        soe_trace::count(soe_trace::Operation::RenderInstances, 1);
         let rid = server.instance_create2(mesh.get_rid(), scenario);
         server.instance_set_transform(rid, Transform3D::IDENTITY);
         LodInstance {

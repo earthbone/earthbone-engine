@@ -276,6 +276,7 @@ impl PlayerNode {
     }
 
     fn advance_detection_step(&mut self, elapsed: f64, player_motion: Motion) -> i64 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
         if !elapsed.is_finite() || elapsed < 0.0 {
             return -1;
         }

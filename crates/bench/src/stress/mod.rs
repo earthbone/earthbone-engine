@@ -177,6 +177,7 @@ impl Workload {
             return Err("stress VM logged errors".into());
         }
         let world = self.game.world();
+        let mut selected_actors = 0;
         for (index, &actor) in self.actors.iter().enumerate() {
             let reference = world
                 .reference_ref(actor)
@@ -187,6 +188,10 @@ impl Workload {
             let state = world
                 .actor_ref(actor)
                 .ok_or("stress actor state disappeared")?;
+            if state.ai.procedure == soe_game::ai::Procedure::None {
+                continue;
+            }
+            selected_actors += 1;
             let expected_procedure = if index % 2 == 0 {
                 soe_game::ai::Procedure::Travel
             } else {
@@ -204,6 +209,9 @@ impl Workload {
             if index % 2 == 1 && state.ai.destination.is_none() && !state.ai.arrived {
                 return Err(format!("sandbox actor {actor} has no active destination"));
             }
+        }
+        if !self.actors.is_empty() && selected_actors == 0 {
+            return Err("stress actors did not select any packages".into());
         }
         if self.cells.len() != self.streamer.resident_count() || self.cells.len() > 49 {
             return Err("streaming residency escaped its bounded ring".into());
@@ -257,10 +265,18 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         let mut telemetry_ms = 0.0;
         let mut peak_allocations = 0;
         let mut peak_allocation_bytes = 0;
+        let mut peak_work = soe_trace::WorkCounts::default();
         for _ in 0..config.samples {
+            let work_frame = soe_trace::WorkFrame::begin();
             let allocation_sample = allocations::begin_sample();
             let tick = Instant::now();
             let step_result = workload.step(&config);
+            let counts = work_frame.counts();
+            for operation in soe_trace::Operation::ALL {
+                let at = operation as usize;
+                peak_work.0[at] = peak_work.0[at].max(counts.0[at]);
+            }
+            drop(work_frame);
             let allocation_peak = allocations::end_sample(&allocation_sample);
             peak_allocations = peak_allocations.max(allocation_peak.calls);
             peak_allocation_bytes = peak_allocation_bytes.max(allocation_peak.bytes);
@@ -286,6 +302,13 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
             percentile(&samples, 50, 100), percentile(&samples, 99, 100), percentile(&samples, 999, 1000),
             samples[samples.len()-1], workload.game.vm.live_threads(), workload.actors.len(), workload.cells.len(), workload.work);
         window += 1;
+        for operation in soe_trace::Operation::ALL {
+            println!(
+                "work_peak_{} {} count",
+                operation.name(),
+                peak_work.get(operation)
+            );
+        }
         if config.seconds == 0 || started.elapsed().as_secs() >= config.seconds {
             break;
         }
@@ -312,6 +335,46 @@ mod tests {
         assert_eq!(workload.game.vm.live_threads(), 0);
         assert!(workload.work > 0);
         assert!(workload.cells.len() >= 25);
+    }
+
+    #[test]
+    fn prf_14_thousand_actor_stress_world_has_bounded_work_each_tick() {
+        let config = config("actors", 1_000);
+        let mut workload = Workload::new(&config).unwrap();
+        for _ in 0..config.warmup {
+            workload.step(&config).unwrap();
+        }
+        let limits = soe_trace::WorkCounts([8_000, 16_000, 4_000, 0, 0, 0, 0, 0, 200_000, 0]);
+        for _ in 0..120 {
+            let frame = soe_trace::WorkFrame::begin();
+            workload.step(&config).unwrap();
+            let counts = frame.counts();
+            assert_eq!(counts, workload.game.last_work_counts());
+            assert_eq!(counts.check(&limits), Ok(()), "{counts:?}");
+        }
+        workload.verify().unwrap();
+        assert_eq!(workload.actors.len(), 1_000);
+        assert!(workload.actors.iter().all(|actor| workload
+            .game
+            .world()
+            .actor_ref(*actor)
+            .is_some()));
+    }
+
+    #[test]
+    fn prf_14_mixed_stress_counts_scripts_and_navigation_without_timing() {
+        let config = config("mixed", 16);
+        let mut workload = Workload::new(&config).unwrap();
+        let limits = soe_trace::WorkCounts([128, 256, 8_192, 544, 0, 0, 0, 0, 10_000, 0]);
+        for _ in 0..5 {
+            let frame = soe_trace::WorkFrame::begin();
+            workload.step(&config).unwrap();
+            let counts = frame.counts();
+            assert_eq!(counts.check(&limits), Ok(()), "{counts:?}");
+            assert_eq!(counts.get(soe_trace::Operation::PapyrusInstructions), 544);
+            assert!(counts.get(soe_trace::Operation::PathNodes) >= 2_048);
+        }
+        assert_eq!(workload.verify().unwrap(), 80);
     }
 
     #[test]
