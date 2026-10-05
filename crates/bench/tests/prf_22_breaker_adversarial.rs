@@ -67,7 +67,7 @@ fn profile_fixture(slow: bool) -> Game {
     game
 }
 
-fn run(before: serde_json::Value, after: serde_json::Value) -> std::process::Output {
+fn run(before: &serde_json::Value, after: &serde_json::Value) -> std::process::Output {
     let directory = std::env::temp_dir().join(format!(
         "prf-22-breaker-{}-{}",
         std::process::id(),
@@ -129,13 +129,13 @@ fn prf_22_empty_recording_restores_state_and_does_not_claim_the_driver() {
 #[test]
 fn prf_22_diff_sums_repeated_phases_and_keeps_system_domains_separate() {
     let output = run(
-        serde_json::json!({"traceEvents": [
+        &serde_json::json!({"traceEvents": [
             {"ph":"C","cat":"actor","name":"A.tick","args":{"entity":"A","self_ns":100,"calls":1}},
             {"ph":"C","cat":"actor","name":"A.move","args":{"entity":"A","self_ns":200,"calls":2}},
             {"ph":"C","cat":"system","name":"vm.game","args":{"entity":"vm","phase":"game","self_ns":50,"calls":1}},
             {"ph":"C","cat":"system","name":"vm.host","args":{"entity":"vm","phase":"host","self_ns":80,"calls":1}}
         ]}),
-        serde_json::json!({"traceEvents": [
+        &serde_json::json!({"traceEvents": [
             {"ph":"C","cat":"actor","name":"A.tick","args":{"entity":"A","self_ns":110,"calls":1}},
             {"ph":"C","cat":"actor","name":"A.move","args":{"entity":"A","self_ns":250,"calls":3}},
             {"ph":"C","cat":"system","name":"vm.game","args":{"entity":"vm","phase":"game","self_ns":55,"calls":2}},
@@ -152,11 +152,11 @@ fn prf_22_diff_sums_repeated_phases_and_keeps_system_domains_separate() {
 #[test]
 fn prf_22_diff_preserves_u64_extremes_and_signed_decreases() {
     let output = run(
-        serde_json::json!({"traceEvents": [
+        &serde_json::json!({"traceEvents": [
             {"ph":"C","cat":"actor","name":"Gone.tick","args":{"entity":"Gone","self_ns":18446744073709551615u64,"calls":1}},
             {"ph":"C","cat":"actor","name":"Same.tick","args":{"entity":"Same","self_ns":18446744073709551614u64,"calls":1}}
         ]}),
-        serde_json::json!({"traceEvents": [
+        &serde_json::json!({"traceEvents": [
             {"ph":"C","cat":"actor","name":"Same.tick","args":{"entity":"Same","self_ns":18446744073709551615u64,"calls":1}},
             {"ph":"C","cat":"actor","name":"New.tick","args":{"entity":"New","self_ns":1,"calls":1}}
         ]}),
@@ -185,8 +185,8 @@ fn prf_22_diff_rejects_scope_traces_and_invalid_counter_values() {
         serde_json::json!({"ph":"C","cat":"actor","name":"A.tick","args":{"self_ns":1}}),
     ] {
         let output = run(
-            serde_json::json!({"traceEvents":[event]}),
-            serde_json::json!({"traceEvents":[]}),
+            &serde_json::json!({"traceEvents":[event]}),
+            &serde_json::json!({"traceEvents":[]}),
         );
         assert!(!output.status.success());
     }
@@ -198,22 +198,22 @@ fn prf_22_600_frame_replay_hashes_match_and_slow_script_leads_diff() {
     let directory = std::env::temp_dir().join(format!("prf-22-full-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     Profile::disable();
-    let mut recorded = profile_fixture(false);
-    let mut recorder = Driver::default();
-    recorder.start_recording(&mut recorded, 0x5eed).unwrap();
+    let mut original_game = profile_fixture(false);
+    let mut driver = Driver::default();
+    driver.start_recording(&mut original_game, 0x5eed).unwrap();
     Profile::clear();
     Profile::enable();
     for frame in 0..600 {
-        recorder
+        driver
             .push(Input::Turn {
                 rotation: [0.0, 0.0, frame as f32 / 600.0],
             })
             .unwrap();
-        recorder.step(&mut recorded).unwrap();
+        driver.step(&mut original_game).unwrap();
     }
     Profile::disable();
     let session =
-        Session::from_bytes(&recorder.finish_recording(&recorded).unwrap().to_bytes()).unwrap();
+        Session::from_bytes(&driver.finish_recording(&original_game).unwrap().to_bytes()).unwrap();
     let before = directory.join("before.json");
     Profile::export_summary(&before).unwrap();
 
@@ -228,7 +228,7 @@ fn prf_22_600_frame_replay_hashes_match_and_slow_script_leads_diff() {
             assert!(driver.replay_error().is_none(), "frame {frame}");
         }
         Profile::disable();
-        assert_eq!(replay.state_hash().parts, recorded.state_hash().parts);
+        assert_eq!(replay.state_hash().parts, original_game.state_hash().parts);
     }
 
     let slow_total: u64 = Profile::ranking(&Profile::summary(), "script")
