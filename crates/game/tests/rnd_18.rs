@@ -338,16 +338,41 @@ fn rnd_18_installed_weather_climates_and_whiterun_noon_night() {
             .sky_climate(*id)
             .unwrap_or_else(|e| panic!("{id}: {e}"));
     }
+    let interiors: Vec<_> = world
+        .order()
+        .winners_of(Tag(*b"CELL"))
+        .filter(|(_, r)| {
+            !r.is_deleted()
+                && r.find(Tag(*b"DATA")).is_some_and(|b| b[0] & 1 != 0)
+                && r.find(Tag(*b"LTMP")).is_some_and(|b| b != [0; 4])
+        })
+        .map(|(id, _)| id)
+        .collect();
+    for cell in &interiors {
+        world
+            .interior_lighting(*cell)
+            .unwrap_or_else(|e| panic!("{cell}: {e}"));
+    }
     let hour = world.form("GameHour").unwrap();
     world.set_global(hour, 12.0);
     let noon = world.sky_frame(cell).unwrap().unwrap();
+    let colors = world
+        .record(noon.weather)
+        .unwrap()
+        .find(Tag(*b"NAM0"))
+        .unwrap();
+    assert_eq!(
+        noon.colors[0],
+        std::array::from_fn(|i| f32::from(colors[4 + i]) / 255.0)
+    );
     world.set_global(hour, 0.0);
     let night = world.sky_frame(cell).unwrap().unwrap();
     assert_ne!(noon.colors[0], night.colors[0]);
     println!(
-        "RND-18 surveyed {} weathers, {} climates, Whiterun weather {}",
+        "RND-18 surveyed {} weathers, {} climates, {} template cells, Whiterun weather {}",
         weathers.len(),
         climates.len(),
+        interiors.len(),
         noon.weather
     );
 }
@@ -493,4 +518,110 @@ fn rnd_18_cloud_alpha_trailing_bytes_are_rejected() {
         .unwrap_err()
         .to_string()
         .contains("float size"));
+}
+
+#[test]
+fn rnd_18_interior_partial_templates_use_dalc_and_optional_field_defaults() {
+    for len in [64, 72, 92] {
+        let mut template = vec![0; len];
+        template[..4].copy_from_slice(&[20, 30, 40, 0]);
+        template[8..12].copy_from_slice(&[50, 60, 70, 0]);
+        template[12..16].copy_from_slice(&100.0_f32.to_le_bytes());
+        template[16..20].copy_from_slice(&1000.0_f32.to_le_bytes());
+        template[32..36].copy_from_slice(&800.0_f32.to_le_bytes());
+        template[36..40].copy_from_slice(&2.0_f32.to_le_bytes());
+        let mut dalc = vec![0; 32];
+        for (i, c) in dalc[..24].as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            c[..3].copy_from_slice(&[10 + i as u8, 20, 30]);
+        }
+        if len == 92 {
+            template[72..76].copy_from_slice(&[80, 90, 100, 0]);
+            template[76..80].copy_from_slice(&0.7_f32.to_le_bytes());
+            template[80..84].copy_from_slice(&200.0_f32.to_le_bytes());
+            template[84..88].copy_from_slice(&400.0_f32.to_le_bytes());
+        }
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(
+            Record::new(Tag(*b"LGTM"), 40)
+                .sub(b"DATA", template)
+                .sub(b"DALC", dalc),
+        );
+        plugin.push_top(
+            Record::new(Tag(*b"CELL"), 31)
+                .sub(b"DATA", [1])
+                .sub(b"LTMP", 40_u32.to_le_bytes()),
+        );
+        let mut order = LoadOrder::new();
+        order.add("Lighting.esm", plugin).unwrap();
+        let light = World::new(order).interior_lighting(id(31)).unwrap();
+        assert_eq!(light.ambient, [20.0 / 255.0, 30.0 / 255.0, 40.0 / 255.0]);
+        assert_eq!(
+            light.ambient_directions[5],
+            [15.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0]
+        );
+        assert_eq!(light.fog_clip, 800.0);
+        assert_eq!(light.fog[3], if len == 92 { 0.7 } else { 1.0 });
+        assert_eq!(
+            light.light_fade,
+            if len == 92 {
+                [200.0, 400.0]
+            } else {
+                [0.0, 0.0]
+            }
+        );
+        assert_eq!(
+            light.fog_far_color,
+            if len == 92 {
+                [80.0 / 255.0, 90.0 / 255.0, 100.0 / 255.0]
+            } else {
+                light.fog_color
+            }
+        );
+    }
+}
+
+#[test]
+fn rnd_18_interior_inheritance_keeps_local_fields_and_rejects_malformed_dalc() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    let mut local = vec![0; 92];
+    local[20..24].copy_from_slice(&(-90_i32).to_le_bytes());
+    local[24..28].copy_from_slice(&(-45_i32).to_le_bytes());
+    local[88..92].copy_from_slice(&1_u32.to_le_bytes());
+    plugin.push_top(
+        Record::new(Tag(*b"CELL"), 31)
+            .sub(b"DATA", [1])
+            .sub(b"XCLL", local)
+            .sub(b"LTMP", 40_u32.to_le_bytes()),
+    );
+    let mut light = vec![0; 92];
+    light[..3].copy_from_slice(&[60, 90, 120]);
+    plugin.push_top(
+        Record::new(Tag(*b"LGTM"), 40)
+            .sub(b"DATA", light)
+            .sub(b"DALC", [100; 24]),
+    );
+    let mut order = LoadOrder::new();
+    order.add("Sky.esm", plugin).unwrap();
+    let light = World::new(order).interior_lighting(id(31)).unwrap();
+    assert_eq!(light.ambient_directions, [[100.0 / 255.0; 3]; 6]);
+    assert_eq!(light.rotation, [-90.0, -45.0]);
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(Tag(*b"LGTM"), 40)
+            .sub(b"DATA", [0; 92])
+            .sub(b"DALC", [0; 23]),
+    );
+    plugin.push_top(
+        Record::new(Tag(*b"CELL"), 31)
+            .sub(b"DATA", [1])
+            .sub(b"LTMP", 40_u32.to_le_bytes()),
+    );
+    let mut order = LoadOrder::new();
+    order.add("BadLighting.esm", plugin).unwrap();
+    assert!(World::new(order)
+        .interior_lighting(id(31))
+        .unwrap_err()
+        .to_string()
+        .contains("DALC size"));
 }

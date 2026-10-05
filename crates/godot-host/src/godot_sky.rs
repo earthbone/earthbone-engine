@@ -261,6 +261,16 @@ impl SkyRecords {
 }
 
 fn interior(out: &mut VarDictionary, light: &soe_game::world::sky::InteriorLighting) {
+    let mut directions = Array::<Color>::new();
+    for c in light.ambient_directions {
+        directions.push(Color::from_rgb(c[0], c[1], c[2]));
+    }
+    out.set("ambient_directions", &directions);
+    out.set("fog_clip", light.fog_clip);
+    out.set(
+        "light_fade",
+        Vector2::new(light.light_fade[0], light.light_fade[1]),
+    );
     for (key, color) in [
         ("ambient", light.ambient),
         ("sunlight", light.directional),

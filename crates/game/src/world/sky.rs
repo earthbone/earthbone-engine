@@ -64,12 +64,15 @@ pub struct Climate {
 #[derive(Debug, Clone, PartialEq)]
 pub struct InteriorLighting {
     pub ambient: [f32; 3],
+    pub ambient_directions: [[f32; 3]; 6],
     pub directional: [f32; 3],
     pub fog_color: [f32; 3],
     pub fog_far_color: [f32; 3],
     pub fog: [f32; 4],
     pub rotation: [f32; 2],
     pub fade: f32,
+    pub fog_clip: f32,
+    pub light_fade: [f32; 2],
 }
 
 impl Climate {
@@ -162,57 +165,85 @@ impl World {
     pub fn interior_lighting(&self, cell: GlobalFormId) -> Result<InteriorLighting, VmError> {
         let record = self.sky_record(cell, *b"CELL")?;
         let local = record.find(Tag(*b"XCLL"));
-        if local.is_some_and(|b| ![64, 92].contains(&b.len())) {
-            return Err(invalid("invalid CELL XCLL size"));
-        }
+        let local = local
+            .map(soe_esm::records::cell::Lighting::decode)
+            .transpose()
+            .map_err(|e| invalid(&e.to_string()))?;
         let template = self
             .sky_link(cell, *b"LTMP")?
             .map(|id| self.sky_record(id, *b"LGTM"))
-            .transpose()?
-            .and_then(|r| r.find(Tag(*b"DATA")));
-        if template.is_some_and(|b| ![24, 92].contains(&b.len())) {
-            return Err(invalid("invalid LGTM DATA size"));
-        }
+            .transpose()?;
+        let template = template
+            .map(|r| {
+                let mut light = soe_esm::records::cell::Lighting::decode(field(
+                    r,
+                    *b"DATA",
+                    &[64, 68, 72, 76, 80, 84, 88, 92],
+                )?)
+                .map_err(|e| invalid(&e.to_string()))?;
+                if let Some(colors) = r.find(Tag(*b"DALC")) {
+                    if ![24, 28, 32].contains(&colors.len()) {
+                        return Err(invalid("invalid LGTM DALC size"));
+                    }
+                    light.ambient_colors = std::array::from_fn(|i| {
+                        soe_esm::records::cell::LightingColor([
+                            colors[i * 4],
+                            colors[i * 4 + 1],
+                            colors[i * 4 + 2],
+                            0,
+                        ])
+                    });
+                } else {
+                    light.ambient_colors = [soe_esm::records::cell::LightingColor([0; 4]); 6];
+                }
+                Ok(light)
+            })
+            .transpose()?;
         let flags = local
-            .and_then(|b| b.get(88..92))
-            .map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
-        let bytes = |offset: usize, flag: u32| -> [u8; 4] {
-            let source = if local.is_none() || flags & flag != 0 {
-                template
+            .as_ref()
+            .and_then(|l| l.inheritance_flags)
+            .unwrap_or_default();
+        let own = local
+            .as_ref()
+            .or(template.as_ref())
+            .ok_or_else(|| invalid("missing interior lighting"))?;
+        let source = |flag| {
+            if flags & flag != 0 {
+                template.as_ref().unwrap_or(own)
             } else {
-                local
-            };
-            source
-                .and_then(|b| b.get(offset..offset + 4))
-                .and_then(|b| b.try_into().ok())
-                .unwrap_or_default()
+                own
+            }
         };
-        let color = |offset, flag| {
-            let b = bytes(offset, flag);
-            std::array::from_fn(|i| f32::from(b[i]) / 255.0)
+        let color = |c: soe_esm::records::cell::LightingColor| {
+            std::array::from_fn(|i| f32::from(c.0[i]) / 255.0)
         };
-        let number = |offset, flag| -> Result<f32, VmError> {
-            let v = f32::from_le_bytes(bytes(offset, flag));
+        let number = |v: f32| -> Result<f32, VmError> {
             v.is_finite()
                 .then_some(v)
                 .ok_or_else(|| invalid("nonfinite interior lighting"))
         };
         Ok(InteriorLighting {
-            ambient: color(0, 1),
-            directional: color(4, 2),
-            fog_color: color(8, 4),
-            fog_far_color: color(72, 4),
+            ambient: color(source(1).ambient_color),
+            ambient_directions: source(1).ambient_colors.map(color),
+            directional: color(source(2).directional_color),
+            fog_color: color(source(4).fog_near_color),
+            fog_far_color: color(source(4).fog_far_color.unwrap_or(source(4).fog_near_color)),
             fog: [
-                number(12, 8)?,
-                number(16, 16)?,
-                number(36, 256)?,
-                number(76, 512)?,
+                number(source(8).fog_near)?,
+                number(source(16).fog_far)?,
+                number(source(256).fog_power)?,
+                number(source(512).fog_max.unwrap_or(1.0))?,
             ],
             rotation: [
-                i32::from_le_bytes(bytes(20, 32)) as f32,
-                i32::from_le_bytes(bytes(24, 32)) as f32,
+                source(32).directional_rotation_xy as f32,
+                source(32).directional_rotation_z as f32,
             ],
-            fade: number(28, 64)?,
+            fade: number(source(64).directional_fade)?,
+            fog_clip: number(source(128).fog_clip_distance)?,
+            light_fade: [
+                number(source(1024).light_fade_begin.unwrap_or_default())?,
+                number(source(1024).light_fade_end.unwrap_or_default())?,
+            ],
         })
     }
 

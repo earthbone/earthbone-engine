@@ -8,6 +8,10 @@ func _process(delta: float) -> bool:
 		player.set("auto_step", false)
 	if loaded:
 		sky_frames += 1
+		if root.find_children("*", "WorldEnvironment", true, false).size() != 1:
+			printerr("RND-18 WALKTHROUGH: duplicate environments")
+			quit(1)
+			return false
 		for node in root.find_children("*", "Node3D", true, false):
 			if node.get_script() == RecordSky:
 				var frame: Dictionary = node.last_frame

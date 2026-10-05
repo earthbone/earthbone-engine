@@ -53,7 +53,6 @@ func _start() -> void:
 		quit(1)
 		return
 	print("STARTUP render ms=", Time.get_ticks_msec() - phase_msec)
-	_apply_cell_lighting(scene, streamer.call("cell_lighting", "WhiterunBanneredMare"))
 	player = ClassDB.instantiate("PlayerNode")
 	player.set("capture_mouse", OS.get_environment("SOE_CAPTURE_PATH").is_empty())
 	scene.add_child(player)
@@ -194,50 +193,3 @@ func _process(_delta: float) -> bool:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		quit(0)
 	return false
-
-func _apply_cell_lighting(scene: Node3D, values: Dictionary) -> void:
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.05, 0.05, 0.07)
-	if values.is_empty():
-		printerr("Cell has no authored XCLL or inherited LGTM lighting")
-		quit(1)
-		return
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = values["ambient"]
-	environment.ambient_light_energy = 1.0
-	environment.fog_enabled = values["fog_far"] > values["fog_near"]
-	environment.fog_light_color = values["fog_near_color"]
-	environment.fog_depth_begin = maxf(values["fog_near"], 0.0)
-	var fog_end: float = values["fog_far"]
-	if values["fog_clip_distance"] > 0.0:
-		fog_end = minf(fog_end, values["fog_clip_distance"])
-	environment.fog_depth_end = maxf(fog_end, environment.fog_depth_begin + 0.01)
-	environment.fog_density = clampf(values["fog_power"] * values["fog_max"], 0.0, 1.0)
-	var world := WorldEnvironment.new()
-	world.environment = environment
-	scene.add_child(world)
-	var light := DirectionalLight3D.new()
-	light.name = "CellDirectionalAmbient"
-	light.light_color = values["directional"]
-	light.light_energy = clampf(values["directional_fade"], 0.0, 1.0)
-	light.rotation = Vector3(deg_to_rad(values["rotation_xy"]), 0.0, deg_to_rad(values["rotation_z"]))
-	light.distance_fade_enabled = values["light_fade_end"] > values["light_fade_begin"]
-	light.distance_fade_begin = values["light_fade_begin"]
-	light.distance_fade_length = maxf(values["light_fade_end"] - values["light_fade_begin"], 0.0)
-	light.shadow_enabled = false
-	scene.add_child(light)
-	var rotations := [
-		Vector3(0.0, -PI / 2.0, 0.0), Vector3(0.0, PI / 2.0, 0.0),
-		Vector3(PI / 2.0, 0.0, 0.0), Vector3(-PI / 2.0, 0.0, 0.0),
-		Vector3(0.0, PI, 0.0), Vector3.ZERO,
-	]
-	var ambient_directions: Array = values["ambient_directions"]
-	for index in ambient_directions.size():
-		var ambient := DirectionalLight3D.new()
-		ambient.name = "CellAmbientDirection%d" % index
-		ambient.light_color = ambient_directions[index]
-		ambient.light_energy = 1.0 / 6.0
-		ambient.shadow_enabled = false
-		ambient.rotation = rotations[index]
-		scene.add_child(ambient)
