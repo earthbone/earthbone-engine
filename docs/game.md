@@ -1175,6 +1175,23 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
+Reset selects leveled base inventory again through the shared LVLI resolver.
+Its chance-none draw can produce different contents from first construction.
+Native save/load preserves the selected inventory and RNG without another
+draw. SAV-71 checks reset after loading changed references, winning plugin
+overrides, fixed and leveled inventory, actor state and failed cyclic-list
+selection. The installed check samples 32 fixed and 32 leveled containers.
+The two SAV-68 installed equality checks select fixed CNTO containers.
+
+The SAV-71 historical check found both installed failures already present at
+`3547411b`, before the requested bisect range. All ten SAV-68 checks pass at
+`f9db8db7`. Its child `f16d16ac` (UI-25) fails both installed checks because it
+materializes leveled contents during reference construction and Reset. Their
+former first container can roll empty initially and four items on Reset,
+before any save is written. This follows the local UESP `LVLI.wikitext`
+chance-none contract and CK `Reset_-_ObjectReference` inventory reset contract.
+No saved field, version or section changes.
+
 **ObjectReference.TetherToHorse.** The native moves the supplied horse by the
 CK page's local cart offset (72, 300, 0) Skyrim units, rotates that offset by
 cart yaw, copies the cart rotation and cell, then queues the pair for host
