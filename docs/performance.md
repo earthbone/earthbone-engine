@@ -150,6 +150,16 @@ and a `.txt` summary next to it), `all`. Each measurement prints as
 `name value unit`, timings as the median and the minimum of `--runs`
 (default 3). The Godot frame benchmark:
 
+`soe-bench save <file.ess>` instead parses one existing Special Edition save
+and reports parse timing, file and global-table sizes, Papyrus block size and
+counts, and exact change-form bytes by plugin and record type. The plugin
+rows include created, invalid and unresolved form buckets. Papyrus script
+providers are not stored in ESS, so this report does not guess their plugin
+owners. A native SOEG file argument reports full load timing and file size.
+With no file argument, `save` retains the generated native-world save and load
+measurement. Named SOEW sections and per-script byte attribution are not
+reported yet.
+
 ```text
 SKYRIM_DATA="<Data>" godot --path godot --script bench.gd
 ```

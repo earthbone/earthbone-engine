@@ -49,6 +49,13 @@ The container format is documented and has a mature open implementation,
 so both were read first. SCEN runtime field widths were inferred from the
 external save corpus where those sources leave the payload undefined.
 
+`Save::change_form_sizes_by_plugin` resolves each change-form RefID through
+the save's form-ID array and plugin lists, then groups the exact encoded form
+bytes by plugin and record type. Created, invalid and unresolved IDs receive
+explicit synthetic owners so their bytes remain in the total. Papyrus script
+definitions do not carry their provider plugin in ESS, so this reader does
+not assign script bytes to plugins.
+
 ## Sources, and what each gave
 
 - `../engine-refs/uesp-savefile/` holds 37 wikitext pages fetched from the UESP

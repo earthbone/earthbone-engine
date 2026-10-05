@@ -14,6 +14,7 @@ soe-esm = { path = "../esm" }
 soe-bsa = { path = "../bsa" }
 soe-game = { path = "../game" }
 soe-papyrus = { path = "../papyrus" }
+soe-save = { path = "../save" }
 soe-navmesh = { path = "../navmesh" }
 soe-trace = { path = "../trace" }
 soe-godot-host = { path = "../godot-host", default-features = false }
