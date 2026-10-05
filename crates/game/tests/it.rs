@@ -1711,3 +1711,5 @@ mod prf_13_adversarial;
 mod prf_13_entities;
 #[path = "prf_22_sessions.rs"]
 mod prf_22_sessions;
+#[path = "prf_22_adversarial.rs"]
+mod prf_22_adversarial;
