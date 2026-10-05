@@ -376,6 +376,20 @@ and [shader cache setting](https://docs.godotengine.org/en/4.4/classes/class_pro
 The `soe-perf` skill's old frame-monitor description is superseded by this
 repository's wall-clock measurement contract.
 
+The PLY-04 windowed route smoke run uses installed game data and writes a PNG
+for every named checkpoint plus a JSON frame log with the worst sampled wall
+frame for each step:
+
+```text
+SKYRIM_DATA="<Data>" godot --path godot --resolution 640x360 --script ply_04_route_test.gd
+```
+
+`SOE_PLY_04_ROUTE` selects a route JSON file and `SOE_PLY_04_OUTPUT_DIR`
+selects the output directory. The default route starts in
+`WhiterunBanneredMare`, executes one wait command, and captures that
+checkpoint. A zero process status means all route commands ran and all
+checkpoints and the frame log were saved.
+
 ## PRF-15 core operation baselines
 
 `tools/perf.sh` runs the Divan target `crates/bench/benches/prf_15.rs` in

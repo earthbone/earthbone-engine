@@ -37,6 +37,25 @@ mod shm_18_breaker_2_adversarial;
 #[path = "shm_13_adversarial.rs"]
 mod shm_13_adversarial;
 
+#[path = "ply_06_ai_crafting.rs"]
+mod ply_06_ai_crafting;
+
+#[path = "ply_06_adversarial.rs"]
+mod ply_06_adversarial;
+
+#[path = "ply_03_breaker_adversarial.rs"]
+mod ply_03_breaker_adversarial;
+#[path = "ply_03_breaker_adversarial_2.rs"]
+mod ply_03_breaker_adversarial_2;
+#[path = "ply_05_breaker_adversarial.rs"]
+mod ply_05_breaker_adversarial;
+#[path = "ply_05_breaker_adversarial_2.rs"]
+mod ply_05_breaker_adversarial_2;
+#[path = "ply_06_breaker_adversarial.rs"]
+mod ply_06_breaker_adversarial;
+#[path = "ply_06_breaker_adversarial_2.rs"]
+mod ply_06_breaker_adversarial_2;
+
 #[path = "cell_attach_binding.rs"]
 mod cell_attach_binding;
 
@@ -1005,6 +1024,12 @@ mod ply_02_adversarial;
 mod ply_02_breaker_adversarial;
 #[path = "ply_02_routes.rs"]
 mod ply_02_routes;
+#[path = "ply_03_adversarial.rs"]
+mod ply_03_adversarial;
+#[path = "ply_03_main_quest_replay.rs"]
+mod ply_03_main_quest_replay;
+#[path = "ply_05_adversarial.rs"]
+mod ply_05_adversarial;
 #[path = "prf_09_adversarial.rs"]
 mod prf_09_adversarial;
 #[path = "prf_09_profiling.rs"]

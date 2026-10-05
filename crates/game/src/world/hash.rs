@@ -417,6 +417,12 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
 }
 
 fn actor_state(h: &mut StateHasher, a: &ActorState) {
+    h.len(a.runtime_package_overrides.len());
+    for entry in &a.runtime_package_overrides {
+        form(h, entry.package);
+        h.u8(entry.priority);
+        h.bool(entry.force);
+    }
     h.len(a.values.entries.len());
     for (k, v) in &a.values.entries {
         h.str(k);

@@ -197,7 +197,7 @@ impl Driver {
     /// # Errors
     /// Returns an active-capture, pending-input or snapshot serialization error.
     pub fn start_recording(&mut self, game: &mut Game, seed: u64) -> Result<(), Error> {
-        if self.session.is_some() || !self.queue.is_empty() {
+        if self.session.is_some() || !self.queue.is_empty() || self.active_package.is_some() {
             return Err(Error::Busy);
         }
         game.world_mut().reset_random_seed(seed);
@@ -221,7 +221,7 @@ impl Driver {
     /// # Errors
     /// Rejects a missing recording or unexecuted queued commands.
     pub fn finish_recording(&mut self, game: &Game) -> Result<Session, Error> {
-        if !self.queue.is_empty() {
+        if !self.queue.is_empty() || self.active_package.is_some() {
             return Err(Error::Busy);
         }
         if !matches!(self.session, Some(Capture::Record(_))) {
@@ -249,7 +249,7 @@ impl Driver {
     /// # Errors
     /// Rejects busy drivers, changed definitions, invalid state or initial hashes.
     pub fn start_replay(&mut self, game: &mut Game, session: &Session) -> Result<(), Error> {
-        if self.session.is_some() || !self.queue.is_empty() {
+        if self.session.is_some() || !self.queue.is_empty() || self.active_package.is_some() {
             return Err(Error::Busy);
         }
         if Game::saved_provenance(&session.initial)? != Game::saved_provenance(&game.save_state()?)?
@@ -526,6 +526,21 @@ fn write_command(writer: &mut Writer, command: &Command) {
                     write_form(writer, *bench);
                     write_form(writer, *recipe);
                 }
+                Confirmation::Alchemy { bench, ingredients } => {
+                    writer.u8(3);
+                    write_form(writer, *bench);
+                    for ingredient in ingredients {
+                        write_form(writer, *ingredient);
+                    }
+                }
+            }
+        }
+        Command::RunPackage { package, duration } => {
+            writer.u8(8);
+            write_form(writer, *package);
+            writer.bool(duration.is_some());
+            if let Some(duration) = duration {
+                writer.f64(*duration);
             }
         }
     }
@@ -573,8 +588,20 @@ fn read_command(reader: &mut Reader<'_>) -> Result<Command, Error> {
                 bench: read_form(reader)?,
                 recipe: read_form(reader)?,
             },
+            3 => Confirmation::Alchemy {
+                bench: read_form(reader)?,
+                ingredients: [read_form(reader)?, read_form(reader)?],
+            },
             value => return Err(Error::Format(format!("unknown menu {value}"))),
         }),
+        8 => Command::RunPackage {
+            package: read_form(reader)?,
+            duration: if reader.bool()? {
+                Some(reader.f64()?)
+            } else {
+                None
+            },
+        },
         value => return Err(Error::Format(format!("unknown command {value}"))),
     })
 }
@@ -585,7 +612,7 @@ mod tests {
 
     #[test]
     fn prf_22_transport_rejects_unknown_commands_hands_and_menus() {
-        for bytes in [&[255][..], &[5, 2][..], &[7, 3][..]] {
+        for bytes in [&[255][..], &[5, 2][..], &[7, 255][..]] {
             assert!(matches!(
                 read_command(&mut Reader::new(bytes)),
                 Err(Error::Format(_))

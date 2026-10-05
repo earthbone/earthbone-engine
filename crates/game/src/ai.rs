@@ -415,6 +415,26 @@ pub(crate) fn activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalForm
         .collect()
 }
 
+/// Advance an Activate branch after its one shared gameplay attempt.
+pub(crate) fn finish_activate(world: &mut World, actor: GlobalFormId, accepted: bool) {
+    let Some(mut ai) = world
+        .actor(actor)
+        .map(|state| std::mem::take(&mut state.ai))
+    else {
+        return;
+    };
+    if ai.procedure == Procedure::Activate {
+        if accepted {
+            tree::succeeded(world, &mut ai);
+        } else {
+            ai.procedure = Procedure::Unsupported("Activate rejected".into());
+        }
+    }
+    if let Some(state) = world.actor(actor) {
+        state.ai = ai;
+    }
+}
+
 /// DialogueActivate actors that are inside the configured dialogue range.
 pub(crate) fn dialogue_activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalFormId)> {
     if world.dialogue.session.is_some() {
@@ -572,6 +592,28 @@ pub fn select(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
 
 fn select_inner(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
     world.ai.evaluations += 1;
+    let override_entry = world
+        .actor(actor)?
+        .runtime_package_overrides
+        .iter()
+        .max_by_key(|entry| entry.priority)
+        .copied();
+    if let Some(entry) = override_entry {
+        if let Some(p) = package(world, entry.package) {
+            let quest = p
+                .owner_quest
+                .and_then(|raw| world.resolve_from(entry.package, raw));
+            if entry.force
+                || (schedule_allows_calendar(&p.schedule, &world.clock, world.calendar())
+                    && conditions_hold(world, actor, entry.package, quest, &p.conditions))
+            {
+                return Some(Candidate {
+                    package: entry.package,
+                    alias: None,
+                });
+            }
+        }
+    }
     if let Some(package) = world.actor(actor)?.ai.scene_package {
         return Some(Candidate {
             package,
@@ -1444,12 +1486,19 @@ fn begin_procedure(
             ai.center_cell = place.and_then(|place| place.cell).or(cell);
         }
         Procedure::Sit => {
-            let furniture = place.and_then(|p| p.reference).filter(|reference| {
-                world
-                    .base_of(*reference)
-                    .and_then(|base| world.tag_of(base))
-                    == Some(T(b"FURN"))
-            });
+            let furniture = place
+                .and_then(|p| p.reference)
+                .or_else(|| {
+                    tree::activate_target(world, ai).and_then(|(owner, target)| {
+                        resolve_follow_target(world, actor, ai, (owner, target))
+                    })
+                })
+                .filter(|reference| {
+                    world
+                        .base_of(*reference)
+                        .and_then(|base| world.tag_of(base))
+                        == Some(T(b"FURN"))
+                });
             if let Some(furniture) = furniture
                 .filter(|furniture| world.reserve_furniture_marker(*furniture, actor).is_some())
             {
@@ -2129,7 +2178,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         .iter()
         .filter_map(|actor| {
             let state = world.actor_ref(*actor)?;
-            if world.is_player(*actor)
+            if (world.is_player(*actor) && !world.player_ai_driven)
                 || state.dead
                 || state.unconscious
                 || world.actor_is_paralyzed(*actor)
@@ -2181,7 +2230,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         let _entity =
             soe_trace::EntityScope::new(|| world.profile_entity("actor", actor, "movement"), 1);
         measure_phase(world, "actor_driver", |world| {
-            if world.is_player(actor) {
+            if world.is_player(actor) && !world.player_ai_driven {
                 return;
             }
             let Some((dead, unconscious)) = measure_phase(world, "actor_state", |world| {
@@ -2307,6 +2356,17 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 evaluate_on_frame(world, actor, &mut *alloc, &mut evaluations);
             }
             step(world, actor, dt as f32, &mut *alloc);
+            let completed = world.actor_ref(actor).and_then(|state| {
+                state
+                    .ai
+                    .tree
+                    .as_ref()
+                    .filter(|tree| tree.finished)
+                    .and(state.ai.package)
+            });
+            if let Some(package) = completed {
+                world.remove_package_override(actor, package);
+            }
         });
     }
     world.ai.planning_phases.extend(
@@ -2343,6 +2403,12 @@ fn evaluate_on_frame(
     let started = std::time::Instant::now();
     evaluate(world, actor, alloc);
     world.ai.evaluation_time += started.elapsed();
+}
+
+/// End a route-owned package through the ordinary boundary event path.
+pub(crate) fn stop_player_package(world: &mut World, alloc: Alloc<'_>) {
+    let player = world.player();
+    switch_to(world, player, None, alloc);
 }
 
 /// Move away from a live hostile effect source along the vanilla navmesh.
