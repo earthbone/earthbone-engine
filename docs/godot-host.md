@@ -4788,6 +4788,33 @@ hidden subtrees. The three trailing range bytes follow local `nifxml/nif.xml`
 and `nifly/include/Nodes.hpp`, using the existing NIF header and stream reader.
 Other damage ranges remain hidden, and ordinary hidden helpers stay excluded.
 
+`rnd_17_hidden_barricade_damage_stages_build_only_intact_surfaces` exercises
+that selection through the VFS and surface builder with a synthetic NIF. The
+intact stage builds two triangles, damaged stages contribute no surfaces, and
+an ordinary hidden ancestor still hides the intact geometry.
+`rnd_17_whiterun_barricade_has_no_surface_or_collision_until_parent_enabled`
+surveys all nine disabled-parent ACTI barricades in installed WhiterunWorld.
+Each is absent from authored cell geometry and collision, then builds two
+nonempty surfaces and static collision after marker `0:0376E0` is enabled.
+The survey restores the marker's disabled state between references.
+
+With SKYRIM_DATA and SOE_GODOT_BIN set, the survey also runs
+`godot/rnd_17_enable_parent_test.gd` in a 640 by 360 window. Build the release
+extension and import the Godot project before running it. The script toggles
+the marker four times without reloading the cell, checks uploaded geometry
+alignment, host, movement and query collision, and unchanged streamer child
+count. It writes disabled and toggled captures under `target/rnd_17` and
+requires at least 100 pixels to change by more than 0.05 in one color channel
+when the marker first turns on. The script quits and the Rust test checks its
+exit status and result marker.
+
+The installed survey passed for all nine barricades. The windowed check on
+Godot 4.4.1 with software Vulkan changed 4,949 pixels on enable, measured zero
+uploaded geometry alignment error through all four toggles, and switched
+movement and query collision between one body and none. The streamer child
+count stayed unchanged and the process exited with status 0. The capture
+fixture advances 200 ms before drawing to finish the cell entry fade.
+
 ## Whiterun white geometry, RND-20
 
 The pre-fix installed-data survey streams the nine grid cells around

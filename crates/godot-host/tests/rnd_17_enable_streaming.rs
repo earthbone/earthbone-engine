@@ -92,6 +92,10 @@ fn rnd_17_whiterun_barricade_has_no_surface_or_collision_until_parent_enabled() 
     }
     candidates.sort();
     eprintln!("RND-17 candidates: {candidates:?}");
+    assert!(
+        candidates.len() >= 9,
+        "all nine Whiterun barricades must be surveyed"
+    );
     let &(barricade, cell, marker) = candidates
         .first()
         .expect("Whiterun battle barricade with disabled marker");
@@ -123,30 +127,68 @@ fn rnd_17_whiterun_barricade_has_no_surface_or_collision_until_parent_enabled() 
     std::fs::create_dir_all(&target).unwrap();
     std::fs::write(target.join("rnd_17_whiterun.json"), manifest).unwrap();
     let mut world = World::from_shared_order(order);
-    assert!(!world.reference_enabled(barricade));
-    let loaded = source.stream_cell_id(cell).unwrap();
-    assert!(!loaded
-        .surfaces
-        .iter()
-        .any(|surface| surface.reference == barricade));
-    let collision = source.collide_cell_id(cell).unwrap();
-    assert!(!collision.references.values().any(|id| *id == barricade));
-    world.set_reference_enabled(marker, true);
-    assert!(world.reference_enabled(barricade));
-    assert!(!source
-        .stream_reference(barricade)
-        .unwrap()
-        .surfaces
-        .is_empty());
-    assert!(source
-        .placed_reference_colliders(barricade)
-        .unwrap()
-        .iter()
-        .any(|placed| placed.collider.is_static()));
-    eprintln!("RND-17 barricade={barricade} cell={cell} marker={marker}");
-    eprintln!(
-        "RND-17 cell editor={:?} placement={:?}",
-        source.shared_order().winner(cell).unwrap().editor_id(),
-        world.ref_placement(barricade)
-    );
+    let mut cells = std::collections::BTreeMap::new();
+    for &(_, cell, _) in &candidates {
+        if let std::collections::btree_map::Entry::Vacant(entry) = cells.entry(cell) {
+            entry.insert((
+                source.stream_cell_id(cell).unwrap(),
+                source.collide_cell_id(cell).unwrap(),
+            ));
+        }
+    }
+    for &(barricade, cell, marker) in &candidates {
+        let (loaded, collision) = &cells[&cell];
+        assert!(!world.reference_enabled(barricade));
+        assert!(!loaded
+            .surfaces
+            .iter()
+            .any(|surface| surface.reference == barricade));
+        assert!(!collision.references.values().any(|id| *id == barricade));
+        world.set_reference_enabled(marker, true);
+        assert!(world.reference_enabled(barricade));
+        let enabled = source.stream_reference(barricade).unwrap();
+        assert!(
+            !enabled.surfaces.is_empty(),
+            "barricade {barricade} has no intact geometry"
+        );
+        assert!(
+            enabled.surfaces.iter().all(|surface| {
+                !surface.arrays.positions.is_empty() && !surface.arrays.indices.is_empty()
+            }),
+            "barricade {barricade} has an empty surface"
+        );
+        assert!(source
+            .placed_reference_colliders(barricade)
+            .unwrap()
+            .iter()
+            .any(|placed| placed.collider.is_static()));
+        world.set_reference_enabled(marker, false);
+        assert!(!world.reference_enabled(barricade));
+        eprintln!(
+            "RND-17 barricade={barricade} cell={cell} marker={marker} surfaces={}",
+            enabled.surfaces.len()
+        );
+    }
+    if let Some(godot) = std::env::var_os("SOE_GODOT_BIN") {
+        let project = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../godot");
+        let output = std::process::Command::new(godot)
+            .arg("--path")
+            .arg(project)
+            .args([
+                "--resolution",
+                "640x360",
+                "--script",
+                "rnd_17_enable_parent_test.gd",
+            ])
+            .output()
+            .expect("start windowed RND-17 host check after building and importing the extension");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success()
+                && stdout.contains("RESULT: PASS rnd_17_whiterun_runtime_enable_without_reload"),
+            "RND-17 windowed host check failed\n{stdout}\n{stderr}"
+        );
+        println!("{stdout}");
+    }
 }
