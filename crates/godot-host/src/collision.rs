@@ -230,6 +230,7 @@ impl DataSource {
             .colliders
             .into_iter()
             .map(|mut c| {
+                c.node_name = format!("meshes/{model}::{}", c.node_name);
                 c.transform = placement.then(&c.transform);
                 c
             })
