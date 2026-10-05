@@ -108,7 +108,9 @@ impl ParticleEmitterNode {
         multi.set_instance_count(emitter.capacity as i32);
         multi.set_visible_instance_count(0);
         let mut server = RenderingServer::singleton();
-        let instance = server.instance_create2(multi.get_rid(), scenario);
+        let instance = soe_trace::Profile::render_submission(|| {
+            server.instance_create2(multi.get_rid(), scenario)
+        });
         server.instance_set_transform(instance, self.base().get_global_transform());
         self.timeline = Some(Timeline::new(emitter));
         self.multi = Some(multi);

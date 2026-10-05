@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use std::path::Path;
 
@@ -91,10 +91,10 @@ fn skyui_winning_interface_movies_convert_from_later_archive() {
     let paths: Vec<_> = vfs
         .list("interface")
         .into_iter()
-        .filter(|p| {
-            Path::new(p)
+        .filter(|path| {
+            Path::new(path)
                 .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("swf"))
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("swf"))
         })
         .collect();
     assert!(!paths.is_empty(), "SkyUI archive has no interface SWFs");
@@ -107,7 +107,8 @@ fn skyui_winning_interface_movies_convert_from_later_archive() {
         let Some(soe_bsa::Source::Archived { archive: 1, .. }) = vfs.resolve(path) else {
             continue;
         };
-        let movie = convert(&vfs.read(path).unwrap()).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let bytes = vfs.read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let movie = convert(&bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
         assert!(!movie.timelines.is_empty(), "{path}: missing timeline");
         converted += 1;
     }

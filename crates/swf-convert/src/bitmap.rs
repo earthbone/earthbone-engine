@@ -91,7 +91,7 @@ pub(crate) fn lossless(tag: &DefineBitsLossless<'_>) -> Result<Bitmap, Error> {
                     let offset = row + x * 2;
                     let value = u16::from_le_bytes([bytes[offset], bytes[offset + 1]]);
                     let channel = |shift| {
-                        let v = ((value >> shift) & 31u16) as u8;
+                        let v = ((value >> shift) & 31_u16) as u8;
                         (v << 3) | (v >> 2)
                     };
                     [channel(10), channel(5), channel(0), 255]
@@ -130,18 +130,33 @@ pub(crate) fn jpeg(
     } else {
         input.extend_from_slice(data);
     }
-    // CONTEXT: Older encoders inserted EOI/SOI pairs before or inside JPEG data.
+    let is_jpeg = data.starts_with(&[0xff, 0xd8])
+        || data.starts_with(&[0xff, 0xd9, 0xff, 0xd8])
+        || input.starts_with(&[0xff, 0xd8])
+        || input.starts_with(&[0xff, 0xd9, 0xff, 0xd8]);
+    // CONTEXT: SWF19 and Ruffle render/src/utils.rs describe invalid EOI/SOI pairs.
     while let Some(offset) = input.windows(4).position(|w| w == [0xff, 0xd9, 0xff, 0xd8]) {
         input.drain(offset..offset + 4);
     }
-    let reader = image::ImageReader::new(std::io::Cursor::new(input)).with_guessed_format()?;
+    if is_jpeg && !input.starts_with(&[0xff, 0xd8]) {
+        input.splice(..0, [0xff, 0xd8]);
+    }
+    let reader = image::ImageReader::new(std::io::Cursor::new(&input)).with_guessed_format()?;
     let mut reader = reader;
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(8192);
     limits.max_image_height = Some(8192);
     limits.max_alloc = Some(256 * 1024 * 1024);
     reader.limits(limits);
-    let mut decoded = reader.decode()?.into_rgba8();
+    let mut decoded = reader
+        .decode()
+        .map_err(|error| {
+            Error::Invalid(format!(
+                "bitmap {id}, prefix {:02x?}: {error}",
+                &input[..input.len().min(16)]
+            ))
+        })?
+        .into_rgba8();
     if let Some(alpha) = alpha {
         let bytes = inflate(alpha, decoded.width() as usize * decoded.height() as usize)?;
         for (pixel, alpha) in decoded.pixels_mut().zip(bytes) {

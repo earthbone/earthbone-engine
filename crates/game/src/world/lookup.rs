@@ -9,6 +9,39 @@ use soe_esm::{GlobalFormId, Record, Slot, Tag};
 use super::{class_for_tag, le_u32, text, type_code_for_tag, Handle, World, DYNAMIC_FILE, T};
 
 impl World {
+    /// Diagnostic ownership uses the defining plugin, independently of the
+    /// winning override that supplies the current fields.
+    pub fn profile_entity(
+        &self,
+        kind: &'static str,
+        id: GlobalFormId,
+        phase: &'static str,
+    ) -> soe_trace::Entity {
+        let plugin = self
+            .order
+            .files()
+            .get(usize::from(id.file))
+            .map_or("<created>", |file| file.name.as_str());
+        soe_trace::Entity::new(kind, id.to_string(), plugin, phase)
+    }
+
+    /// Inspect a diagnostic tag without charging the profiler's metadata read.
+    pub(crate) fn profile_record_tag(&self, id: GlobalFormId) -> Option<Tag> {
+        self.record_overrides
+            .get(&id)
+            .map(|value| value.record.tag)
+            .or_else(|| {
+                self.created_base_records
+                    .get(&id)
+                    .map(|value| value.record.tag)
+            })
+            .or_else(|| {
+                self.order.winner_ref(id).map(|reference| {
+                    self.order.files()[reference.file].plugin.records[reference.record].tag
+                })
+            })
+    }
+
     /// Set the reference currently under the host crosshair.
     pub fn set_crosshair_reference(&mut self, reference: Option<GlobalFormId>) {
         self.crosshair_reference = reference;
@@ -57,15 +90,23 @@ impl World {
     }
 
     pub fn record(&self, id: GlobalFormId) -> Option<&Record> {
-        self.record_overrides
+        let runtime = self
+            .record_overrides
             .get(&id)
             .map(|value| &value.record)
             .or_else(|| {
                 self.created_base_records
                     .get(&id)
                     .map(|value| &value.record)
-            })
-            .or_else(|| self.order.winner(id))
+            });
+        if runtime.is_some() {
+            let _entity =
+                soe_trace::EntityScope::new(|| self.profile_entity("record", id, "lookup"), 1);
+            soe_trace::count(soe_trace::Operation::RecordLookups, 1);
+            runtime
+        } else {
+            self.order.winner(id)
+        }
     }
 
     pub fn exists(&self, id: GlobalFormId) -> bool {

@@ -1,5 +1,16 @@
 # soe-esm: plugin reader and form table
 
+## Record profiling ownership, PRF-13
+
+`LoadOrder::winner` and `record` add optional entity scopes around record
+retrieval. Each scope counts the lookup and reports its elapsed time under the
+resolved FormID and its defining plugin, following local Mutagen
+`docs/plugins/ModKey, FormKey, FormLink.md`. An override retains the original
+form owner's diagnostic identity. Missing lookups are counted under their
+requested identity, and created IDs use `<created>`. The existing override
+selection and record contents are unchanged. The scopes use `soe-trace` and
+add no dependency or saved data.
+
 Reads Skyrim SE plugin files (`.esm`, `.esp`, `.esl`) into a group tree of records,
 resolves FormIDs across a load order, and answers "which record wins" for any form.
 Typed views cover the initial world records, race phonemes, scoped dialogue,
@@ -688,6 +699,15 @@ absent. Both views are exercised by `godot-host`'s cell streaming path, not
 by a unit test added here, since this row's instructions withhold new tests
 for a later breaker and judge pass. See `docs/godot-host.md`, "Grass
 placement", for the placement algorithm and its open gaps.
+
+## Record lookup counters, PRF-14
+
+`LoadOrder::winner` charges one record retrieval attempt, including a missing
+form. A successful winner lookup does not charge again for its underlying
+record. Direct `LoadOrder::record` calls charge once. Calls are counted in the
+active `soe_trace::WorkFrame`, independent of timing tracing. The
+`prf_14_record_lookup_counts_winners_missing_forms_and_direct_reads_once`
+test checks these boundaries.
 
 ## Shared logging, TOOL-06
 

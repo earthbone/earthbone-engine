@@ -22,7 +22,9 @@ fn ply_06_missing_package_does_not_take_player_control() {
     };
     let before = game.world().count_package_overrides(player);
 
-    assert!(!game.world_mut().add_package_override(player, missing, 100, 1));
+    assert!(!game
+        .world_mut()
+        .add_package_override(player, missing, 100, 1));
     assert_eq!(game.world().count_package_overrides(player), before);
     assert!(!game.world().player_ai_driven);
 }

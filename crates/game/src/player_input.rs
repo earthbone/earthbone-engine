@@ -13,6 +13,8 @@ use crate::combat::{Hand, MeleeHit};
 use crate::world::PackageOverride;
 use crate::Game;
 
+pub mod session;
+
 /// Simulation seconds advanced after each command, including a rejected command.
 pub const STEP_SECONDS: f64 = 1.0 / 60.0;
 
@@ -86,6 +88,8 @@ pub enum Error {
     Package(GlobalFormId),
     #[error("player input is controlled by AI")]
     AiDriven,
+    #[error("player input replay already owns the command queue")]
+    Replay,
     #[error("player input contains a non-finite transform")]
     Transform,
     #[error("player input reference unavailable: {0:?}")]
@@ -122,11 +126,12 @@ pub struct Driver {
     queue: VecDeque<Command>,
     events: Vec<Event>,
     active_package: Option<PackageStep>,
+    session: Option<session::Capture>,
+    session_error: Option<session::Error>,
 }
 
 #[derive(Debug)]
 struct PackageStep {
-    command: Command,
     package: GlobalFormId,
     until: Option<f64>,
     prior_driven: bool,
@@ -140,6 +145,9 @@ impl Driver {
     /// Rejects non-finite positions or rotations before enqueueing.
     pub fn push(&mut self, command: Command) -> Result<(), Error> {
         validate_duration(&command)?;
+        if matches!(self.session, Some(session::Capture::Replay(_))) {
+            return Err(Error::Replay);
+        }
         let values = match &command {
             Command::MoveTo { offset, .. } => Some(offset),
             Command::Turn { rotation } => Some(rotation),
@@ -166,9 +174,16 @@ impl Driver {
     /// An empty queue does not advance time. Gameplay failures are logged and
     /// consume their step, so a script can inspect and reproduce a rejection.
     pub fn step(&mut self, game: &mut Game) -> Option<Event> {
+        if self.session_error.is_some() {
+            return None;
+        }
         let continuing = self.active_package.is_some();
-        let command = if let Some(active) = &self.active_package {
-            active.command.clone()
+        let command = if continuing {
+            if matches!(self.session, Some(session::Capture::Replay(_))) {
+                self.queue.pop_front()?
+            } else {
+                Command::Wait
+            }
         } else {
             self.queue.pop_front()?
         };
@@ -177,7 +192,6 @@ impl Driver {
             let player = game.player();
             let world = game.world();
             Some(PackageStep {
-                command: command.clone(),
                 package: *package,
                 until: duration.map(|seconds| world.clock.real_seconds + seconds),
                 prior_driven: world.player_ai_driven,
@@ -257,6 +271,7 @@ impl Driver {
                 .collect(),
         };
         self.events.push(event.clone());
+        self.capture_step(game, &event);
         Some(event)
     }
 

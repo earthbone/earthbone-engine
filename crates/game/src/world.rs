@@ -117,6 +117,7 @@ pub use story_manager::StoryError;
 mod record_save;
 mod static_object_restore;
 pub use quest_restore::QuestRestoreReport;
+mod light_references;
 mod reference_extras;
 mod reference_restore;
 mod refs;
@@ -821,6 +822,7 @@ pub struct World {
     pub(crate) actor_kill_events: EventSource<ActorKill>,
     pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
+    quest_alias_candidates: std::sync::OnceLock<Option<Arc<[GlobalFormId]>>>,
     pub(crate) dialogue: crate::dialogue::State,
     pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
     /// Source-level CommonLib event channels backed by this live world.
@@ -836,6 +838,7 @@ pub struct World {
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
     refs: HashMap<GlobalFormId, RefState>,
+    light_references: std::cell::RefCell<light_references::LightReferences>,
     /// Current occupants, derived from actor movement and XPRM placement.
     trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     trigger_index: Option<BTreeMap<GlobalFormId, Vec<GlobalFormId>>>,
@@ -1184,9 +1187,14 @@ impl World {
     /// Construct a world with reproducible, seed-derived random streams.
     pub fn new_with_seed(order: LoadOrder, seed: u64) -> World {
         let mut world = Self::new(order);
-        world.rng = if seed == 0 { 1 } else { seed };
-        world.rng_streams = rng::derive_streams(seed);
+        world.reset_random_seed(seed);
         world
+    }
+
+    /// Reset the existing gameplay random streams for a recorded input session.
+    pub fn reset_random_seed(&mut self, seed: u64) {
+        self.rng = if seed == 0 { 1 } else { seed };
+        self.rng_streams = rng::derive_streams(seed);
     }
 
     /// Use the immutable form table already opened by the host.
@@ -1220,6 +1228,7 @@ impl World {
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),
+            light_references: std::cell::RefCell::default(),
             trigger_occupants: BTreeMap::new(),
             trigger_index: None,
             actors: HashMap::new(),
@@ -1331,6 +1340,7 @@ impl World {
             music_types: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
+            quest_alias_candidates: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
             known_dialogue_topics: BTreeSet::new(),
             commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),

@@ -6,6 +6,7 @@
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 use soe_game::combat::Hand;
+use soe_game::player_input::session::Session;
 use soe_game::player_input::{Command, Confirmation, Driver};
 
 use super::PlayerNode;
@@ -117,6 +118,10 @@ impl PlayerNode {
         let Some(event) = self.player_input.step(game) else {
             return false;
         };
+        if let Some(error) = self.player_input.replay_error() {
+            godot_error!("PlayerNode: {error}");
+            return false;
+        }
         let synced = self.sync_game_pose();
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
             streamer
@@ -178,5 +183,76 @@ impl PlayerNode {
     #[func]
     pub fn clear_player_input(&mut self) {
         self.player_input = Driver::default();
+    }
+
+    /// Begin a fixed-step session with a nonnegative seed. Disable auto_step
+    /// when driving the recording explicitly from a script.
+    #[func]
+    pub fn record_player_session(&mut self, seed: i64) -> bool {
+        let (Some(game), Ok(seed)) = (self.game.as_mut(), u64::try_from(seed)) else {
+            return false;
+        };
+        match self.player_input.start_recording(game, seed) {
+            Ok(()) => true,
+            Err(error) => {
+                godot_error!("PlayerNode: {error}");
+                false
+            }
+        }
+    }
+
+    /// Finish and write a session. Supply an absolute filesystem path.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn write_player_session(&mut self, path: GString) -> bool {
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let result = self
+            .player_input
+            .finish_recording(game)
+            .and_then(|session| session.write(std::path::Path::new(&path.to_string())));
+        match result {
+            Ok(()) => true,
+            Err(error) => {
+                godot_error!("PlayerNode: {error}");
+                false
+            }
+        }
+    }
+
+    /// Restore and queue a recorded session against the current definitions.
+    /// Drive its commands with step_player_input, which reports divergence.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn replay_player_session(&mut self, path: GString) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let result = Session::read(std::path::Path::new(&path.to_string()))
+            .and_then(|session| self.player_input.start_replay(game, &session));
+        match result {
+            Ok(()) => self.sync_game_pose(),
+            Err(error) => {
+                godot_error!("PlayerNode: {error}");
+                false
+            }
+        }
+    }
+
+    /// The latest deterministic replay error, empty on success.
+    #[func]
+    pub fn player_session_error(&self) -> GString {
+        self.player_input
+            .replay_error()
+            .map_or_else(GString::new, |error| GString::from(&error.to_string()))
+    }
+
+    /// Current Game and VM state hash for scripted replay assertions.
+    #[func]
+    pub fn player_session_hash(&self) -> GString {
+        self.game.as_ref().map_or_else(GString::new, |game| {
+            GString::from(&format!("{:016x}", game.state_hash().total))
+        })
     }
 }

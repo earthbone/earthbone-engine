@@ -1,5 +1,57 @@
 # soe-game: the runtime form table and the first natives
 
+## Entity runtime hooks, PRF-13
+
+Optional scopes attribute actor planning, package evaluation, driver movement
+and procedure movement by resolved FormID. Resumed navigation and marker
+jobs carry their requesting actor's planning identity. Quest start, stop, stage changes,
+reference and location alias fills, forced alias changes and quest condition
+evaluations carry quest identities. Reached CTDA predicates carry caller IDs
+and separate dialogue, perk, magic, package and quest categories, including
+failed predicates. Dialogue identifies the topic and INFO. Perk dispatch
+identifies the entry-point code, section and condition tab. Other callers use
+the condition owner record. Ownership follows that owner even when a dialogue
+topic belongs to another plugin. Package conditions use their own evaluator.
+
+Form ownership follows local Mutagen `docs/plugins/ModKey, FormKey, FormLink.md`.
+It uses the plugin that defines the resolved FormID, even when
+another plugin supplies its winning override. Created forms use `<created>`.
+Runtime record overrides carry the same diagnostic identity. Script loading
+maps the winning VFS archive stem to a loaded plugin stem. Loose script files
+retain their winning path as a provider label because VFS has no plugin
+ownership for loose roots. `Vm::set_script_plugin` accepts an explicit provider.
+
+`SOE_PROFILE=1` enables capture on Game construction. Dropping a headless Game
+writes `soe-profile.json` and `soe-entities.json` into `SOE_PROFILE_DIR`, or the
+current directory when unset. Write failures are reported. This process-wide
+capture is independent of world state and adds no saved sections. The
+`prf_13_` integration tests exercise two actors, two scripts, one quest, all
+five predicate categories and installed master record ownership.
+
+## Per-system frame timing, PRF-12
+
+`Game::tick` and `tick_menu_mode` record an always-on exclusive system frame
+through `soe-trace`. `Game::frame_history` exposes the last tick's breakdown
+and rolling p50, p99 and worst over 240 ticks, with zero samples for idle
+systems. The frame denominator is the tick's elapsed wall time, independent
+of the simulated time argument. This history is session data and is not saved.
+
+The tick times magic updates, scene/dialogue work, quest lifecycle and story
+manager dispatch, and Papyrus scheduling. The actor driver times package and path planning,
+movement and combat selection/pursuit. Per-actor movement bookkeeping stays
+in the outer movement scope. Combat timing starts after eligibility checks
+accept the actor, before scanning targets. Direct spell, melee and dialogue
+entry points also carry system scopes, including calls from Papyrus natives.
+Sound request queuing uses the audio slot and save serialization uses the
+save slot. Nested system scopes exclude their
+children's time. Host-only systems remain present with zero tick time.
+Host snapshots can surround ticks and include saves and input between them.
+
+The fixed-slot timing model is documented in [trace.md](trace.md).
+`prf_12_frame` tests check tick accounting, paused idle systems and host/save
+snapshots. Its optimized 1,000-actor calibration uses the public record
+builders and travel/sandbox fixture from `crates/bench/src/stress/fixtures.rs`.
+
 ## Initial inventory list selection, UI-25
 
 Fresh references resolve CNTO and distributed LVLI quantities through the
@@ -153,6 +205,26 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   Kit archetype table describes it as unknown. See
   [combat AI](combat-ai.md) for the formula sources and what remains.
 
+Detection batches cache each observer's Sneak, Blindness and combat target,
+and each target's Sneak, invisibility, movement noise and worn armor weight.
+An observer's combat awareness is indexed once per batch. Alert and busy
+modifiers remain specific to each pair. Previously known pairs absent from a
+batch receive a negative value, the lesser of the base detection value and
+negative one, only when their enabled references occupy the same resident
+cell farther apart than `fSneakMaxDistance`. Their existing loss and recovery
+timers then advance without creating awareness for distant strangers.
+
+`World::light_references_in_cell` caches authored LIGH reference identities
+per cell and tracks instantiated light identities, including runtime spawns.
+It reads current reference cells when returning its sorted list, so moved
+lights leave their authored cell and enter their destination. Disabled and
+deleted identities remain in the list, visibility is read by the sampler.
+Cell prefetch builds membership before detection. Native-save load and vanilla
+reference restoration invalidate this derived index. The cache adds no saved
+fields. REFR/NAME and LIGH identity come from local
+`TES5Edit/Core/wbDefinitionsTES5.pas`, placement and visibility remain in
+`World::RefState`.
+
 CTDA function 513, `IsCombatTarget`, checks whether the condition subject's
 saved combat target is the placed NPC in parameter 1. It uses the same
 `ActorState::combat_target` relationship as `Actor.GetCombatTarget` and
@@ -275,6 +347,37 @@ declarations, the CommonLib source-level API, and its contract fixtures are in
 `crates/commonlib-shim`. Source headers are documented in `docs/shim.md`.
 
 ## Design
+
+### Recorded input sessions, PRF-22
+
+`player_input::Driver::start_recording` resets the existing gameplay RNG
+streams to the supplied seed and captures the initial SOEG world and VM state.
+It retains executed PLY-01 commands and their success or rejection messages.
+Hashes cover the initial state, each 60-frame boundary and a final partial
+interval. `finish_recording` returns a `Session`, whose version-one SOER file
+uses the existing Papyrus Reader/Writer encoding and a payload CRC32.
+Truncated files, trailing bytes, unknown command tags, invalid transforms and
+missing or unordered checkpoint logs return errors.
+
+`start_replay` requires identical plugin and script provenance and validates
+the snapshot before loading it. The session also restores cell residency,
+reference 3D residency, deferred unload, binding bookkeeping, greeting range,
+held casting hands, MCM registration state and VM native-call counters. These transient inputs to
+gameplay are recorded separately because loading a native save clears or
+rebuilds them. Replay consumes the shared fixed-step queue, checks every
+outcome and scheduled hash, and stops at the first divergence. The error
+names its frame and differing hash subsystems. Queue and recording state
+remain diagnostic data, outside native saves and gameplay hashes.
+Definitions and runtime providers must be loaded before replay, as for SOEG.
+
+The session design follows the local Godot
+`godot-docs/tutorials/math/random_number_generation.rst` seed contract.
+The existing PLY-01 executor and SOEG snapshot already implement the required
+gameplay and state transport, so the session does not replace either reader.
+`prf_22_` tests record 600 frames with a running random and latent VM loop,
+replay twice, compare all checkpoints and events, and exercise corrupt files,
+changed definitions, rejected actions and divergence reporting.
+Game ticks also add exclusive system totals to active PRF-13 captures.
 
 ### Scripted player input, PLY-01
 
@@ -2746,6 +2849,18 @@ Create Reference to Object (`ALCO`), are not created by this path, and aliases
 with `ALCO` are excluded from this placed-reference search. Closest search
 remains unsupported because local format sources do not establish the runtime
 distance origin or tie rule.
+
+PRF-33 skips candidate construction when a quest has no searched reference
+aliases. The first search derives a candidate index from the immutable load
+order's sorted winners. The World retains at most 4,096 FormIDs, or an overflow
+marker when the bound is exceeded, and reuses that result on later starts.
+Enabled, dead, destroyed and resident state, conditions and alias reuse are
+evaluated on each start. Runtime-created references remain outside this
+authored search, as before. The index is not saved and adds no save section.
+The implementation reuses `LoadOrder::winners` rather than introducing another
+record database. `prf_33_quest_startup.rs` covers repeated starts, live
+eligibility, winning overrides, search bounds, aliases and startup stages.
+`startup_timing` reports startup phases through optional `soe-trace` spans.
 
 **Specific location aliases, AI-18.** `Quest.Start` resolves a location
 alias's `ALFL` through the quest plugin's load-order namespace and fills it
@@ -8401,6 +8516,158 @@ use the existing reference flags. `ShowAllHidden`, unsupported cast checks
 and non-default equip parameters return explicit unsupported-state errors.
 Supported equipment requests use `World::equip_item`, and dispel requests use
 the shared active-effect removal path.
+
+## Deterministic tick work, PRF-14
+
+`Game::last_work_counts` returns the ten operation counters from the last
+`tick` or `tick_menu_mode`. Each tick starts a scoped work window. An enclosing
+scenario or host window includes that tick once. CTDA counts charge each
+attempted predicate, including errors, and exclude predicates skipped by OR
+short circuit. Runtime record overrides and created base records charge one
+lookup, while winning-record fallback charges through `LoadOrder`. Counters
+are transient diagnostics and have no saved fields. Quest-burst and error
+checks live in `tests/prf_14_work.rs`.
+
+## AI planning slices, PRF-11
+
+The package driver submits navigation requests through a transient per-world
+planner keyed by resolved actor FormID. Each request processes at most 64
+nodes per frame, and all requests share a 512-node frame budget. Pending actors
+retain their current package step and position until the result is ready.
+The scheduler rotates its starting actor when the frame budget is exhausted,
+so later FormIDs continue making progress. Requests are cancelled when their
+goal or start position changes, the package switches, navigation is invalidated,
+or the actor unloads, dies or becomes unconscious. Explicit package reevaluation
+also cancels a pending request. Forced fleeing retains the request while its
+effect remains active.
+
+Package travel, combat pursuit, forced fleeing and Orbit connectivity checks
+use sliced A*. Flee destination selection also budgets its reachability flood
+and candidate queries. Its heap orders candidates by decreasing threat distance,
+then increasing NodeId, preserving the previous destination selection.
+Normal package movement retains its empty-route result for disconnected
+on-mesh endpoints and its straight-line fallback for off-mesh endpoints.
+Combat queries keep their no-route result without that fallback.
+Door states refresh once per driver tick, rather than once per actor request.
+Graph query caches are prepared when the world builds its NAVM graph.
+
+Requests and the last tick's measured `AiWorld::planning_time` are runtime
+caches and are not serialized. Existing actor destinations, paths and package
+state keep their saved layout. The design follows the local
+`recastnavigation/Detour/Source/DetourNavMeshQuery.cpp` sliced-query contract,
+implemented on the engine's authored NAVM graph through `soe-navmesh`.
+
+Cell reference lookup reuses the load order's cell index already prepared by
+cell loading, filters to winning REFR and ACHR identities, and returns them
+in FormID order. It does not build a second world-sized index inside sandbox
+planning. Combat acquisition starts from Combat-awareness entries in the
+existing detection pools and retains its loaded-actor eligibility, nearest
+position and FormID tie rules. Unobserved actors are rejected before actor
+record queries. The last tick's `door_refresh_time` exposes the refresh portion
+of the full AI timing for measurement.
+
+Automatic package evaluation runs at most four actors per frame and at most
+once per actor in that frame. Explicit reevaluation requests take priority,
+then the oldest existing `last_evaluation` timestamp, then FormID. Actors
+waiting for an evaluation slot continue their existing step. Movement retains
+its FormID iteration order. Explicit `EvaluatePackage` calls still evaluate
+immediately. `evaluation_time` measures automatic evaluations within the full
+AI tick. Evaluation scheduling uses existing actor fields and adds no saved
+state.
+
+The transient `planning_phases` table resets on each AI tick and records inclusive
+wall-clock durations for scheduling, resumed navigation, actor processing,
+selection, conditions, switching, combat checks, movement and path requests.
+The host exposes these alongside total planning time. Nested phase durations
+overlap, so they are not a partition of total time.
+
+### Navigation workers, PRF-17
+
+Pending navigation requests resume on Rayon workers borrowing the world's NAVM
+graph and mesh-to-cell table. The dispatcher reserves node budgets before each
+batch and applies results in the previous rotating FormID order. Unused node
+reservations feed the next batch. Both one-worker and multi-worker execution
+retain the 64-node request and 512-node frame budgets. No request can advance
+twice in a frame. Cancellation and graph revision checks precede dispatch.
+
+`AiWorld::set_planning_workers` installs a dedicated pool with a nonzero size.
+Pool creation errors preserve the existing pool and pending work. Without an
+explicit pool, resumed requests use Rayon's shared pool, whose worker count
+can be set through `RAYON_NUM_THREADS` before its first use.
+`AiWorld::planning_workers` exposes completed jobs, busy time per worker,
+caller dispatch/join time and utilisation for the last tick. These measurements
+cover resumed navigation only. Busy time measures elapsed request execution,
+not operating-system CPU accounting. Its `phase_busy` table sums worker search
+durations and can exceed frame wall time. These sums stay separate from the
+calling thread's `planning_phases` timings. PRF-14's active work recorder enters each job,
+so worker path and triangle operations remain in the caller's frame totals.
+The resumed navigation dispatch/join interval is charged once to PRF-12's
+AI planning system, without adding worker busy durations to frame wall time.
+
+The dispatcher uses exclusive request borrows, with no application mutex held
+or acquired by a job. There is no per-lock wait measurement for Rayon's internal
+scheduler. Worker configuration, requests and timing data are transient and do
+not change saves. The pool is joined before world mutation resumes.
+
+Initial request setup and its first slice still run on the calling thread,
+as do package evaluation, marker selection, combat and movement. Papyrus
+execution is unchanged. [threading.md](threading.md) records the reference
+evidence and the unimplemented parts of PRF-17. The dependency uses the already
+locked Rayon, rayon-core, either and Crossbeam utilities.
+
+Marker and bed base filtering reads existing reference state first, or the
+winning placement's NAME, XLCN and cell when absent. It shares BOS base selection
+with reference initialization, without choosing actor templates or initializing
+inventory. Only eligible marker references need initialization.
+The field layouts follow local xEdit `wbDefinitionsTES5.pas` REFR and ACHR
+definitions and the existing `soe-esm` REFR reader.
+Idle-marker reservation checks read already initialized actors. This avoids
+initializing unrelated actors while looking for furniture or idle markers.
+Navigation diagnostics also record request setup, search advancement, route
+result conversion and fallback containment, flee search, procedure tree entry,
+marker selection and Turn Undead checks.
+
+Sandbox marker queries also retain their cursor and candidate FormIDs across
+frames. Each request examines at most 64 references in a tick and the frame
+shares 256 reference examinations. The scheduler rotates pending actors when
+the shared budget is exhausted. Pending actors hold their current step and
+consume no marker-choice RNG until the query completes. Candidate order remains
+FormID order. A changed package or search goal cancels the old query, and unloaded
+actors lose it. Marker requests are transient and restart after save restoration.
+Cell lookup, base filtering, bed classification and reference initialization
+have separate timing entries. `marker_resume` measures retained candidate scans.
+
+Failed navigation requests retain their completed result, including the empty
+route for disconnected on-mesh endpoints. Repeating the same start and goal
+performs no endpoint lookup or search. Changed starts, goals or graph revisions
+discard that result. Existing package switches, explicit reevaluation and
+navigation invalidation also cancel it, and unloading removes the actor's
+request. Successful routes are consumed as before. These are transient query
+results, with no saved fields. The retained-path model in local
+`openmw/apps/openmw/mwmechanics/aipackage.cpp`, `pathTo` and
+`doesPathNeedRecalc`, reuses successful paths but rebuilds empty ones. The
+engine caches empty results too because repeated endpoint lookup was the
+measured cost, and uses its NAVM revision to retry when walkability changes.
+
+Door refresh retains sorted door identities and the last position and open
+state applied to the graph. Every tick reads the live reference, but unchanged
+doors need no footprint query. Changed positions and open states rebind or
+update blocking and invalidate actor routes when graph walkability changes.
+The cache is rebuilt with the graph and is not saved. Door associations still
+follow local xEdit NVNM Door Links and CommonLibSSE-NG `BSNavmesh.h`.
+Actor diagnostics also separate state, Calm and evaluation-eligibility checks
+from combat checks, procedure-tree entry, marker work and path requests.
+
+Sandbox request setup reads only the existing index's slice lengths. Candidate
+scans merge its sorted persistent, temporary and deleted slices through three
+retained offsets. Both tag filtering and marker classification fit the reference
+budget, including the first tick, without copying or sorting a whole cell per
+actor. This retains the same FormID order as `references_in_cell` and reads
+live marker state during each bounded scan.
+
+Ordinary `World::load_cell` prepares the world NAVM graph and query caches
+after prefetching references and before attaching the cell. The first AI tick
+therefore reads the prepared graph without relying on a host measurement hook.
 
 ## Shared logging, TOOL-06
 

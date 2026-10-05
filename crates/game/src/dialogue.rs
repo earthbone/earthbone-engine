@@ -514,6 +514,7 @@ impl Game {
         speaker: GlobalFormId,
         listener: GlobalFormId,
     ) -> Result<(), Error> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
         self.bind();
         let mut world = self.world.borrow_mut();
         if world.dialogue.session.is_some() {
@@ -542,6 +543,7 @@ impl Game {
     /// Close a conversation without dispatching the active INFO end fragment.
     /// An interruption that completes the line calls `finish_dialogue_info` first.
     pub fn close_dialogue(&mut self) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
         let mut world = self.world.borrow_mut();
         let speaker = world
             .dialogue
@@ -855,7 +857,7 @@ impl Game {
             if random_group && flags & RANDOM == 0 && !refusal {
                 break;
             }
-            if Self::info_eligible(&mut world, &self.vm, session, id, &info, quest)? {
+            if Self::info_eligible(&mut world, &self.vm, session, id, &info, quest, topic)? {
                 if refusal {
                     refusals.push((id, info));
                     continue;
@@ -899,6 +901,7 @@ impl Game {
         id: GlobalFormId,
         info: &DialogueInfo,
         quest: GlobalFormId,
+        topic: GlobalFormId,
     ) -> Result<bool, Error> {
         let flags = info.data.as_ref().map_or(0, |data| data.flags());
         if flags & (1 << 7) != 0 {
@@ -929,7 +932,14 @@ impl Game {
             skill_use: None,
             light_level: None,
         };
-        if !conditions::evaluate(world, vm, context, &info.conditions)? {
+        let lookup = |object, name: String| vm.conditional_vars(object, &name);
+        if !conditions::evaluate_for_caller(
+            world,
+            context,
+            &info.conditions,
+            Some(&lookup),
+            conditions::ProfileCaller::DialogueTopic(topic),
+        )? {
             return Ok(false);
         }
         if flags & SPENDS_FAVOR != 0 {
@@ -948,6 +958,7 @@ impl Game {
     ///
     /// Rejects stale choices, malformed response links and missing fragment code.
     pub fn choose_dialogue(&mut self, topic: GlobalFormId) -> Result<Option<Line>, Error> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
         let choices = self.dialogue_choices()?;
         if !choices.available.iter().any(|choice| choice.topic == topic) {
             return Err(Error::State("topic is not currently offered"));

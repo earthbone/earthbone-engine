@@ -230,7 +230,20 @@ impl LoadOrder {
 
     /// The winning record, the last one in load order.
     pub fn winner(&self, id: GlobalFormId) -> Option<&Record> {
-        self.overrides(id).last().map(|r| self.record(*r))
+        let _entity = soe_trace::EntityScope::new(
+            || {
+                let plugin = self
+                    .files
+                    .get(usize::from(id.file))
+                    .map_or("<created>", |file| file.name.as_str());
+                soe_trace::Entity::new("record", id.to_string(), plugin, "lookup")
+            },
+            1,
+        );
+        soe_trace::count(soe_trace::Operation::RecordLookups, 1);
+        self.overrides(id)
+            .last()
+            .map(|r| &self.files[r.file].plugin.records[r.record])
     }
 
     pub fn winner_ref(&self, id: GlobalFormId) -> Option<RecordRef> {
@@ -238,6 +251,18 @@ impl LoadOrder {
     }
 
     pub fn record(&self, r: RecordRef) -> &Record {
+        let _entity = soe_trace::EntityScope::new(
+            || {
+                let id = self.resolve(r.file, self.files[r.file].plugin.records[r.record].form_id);
+                let plugin = self
+                    .files
+                    .get(usize::from(id.file))
+                    .map_or("<created>", |file| file.name.as_str());
+                soe_trace::Entity::new("record", id.to_string(), plugin, "lookup")
+            },
+            1,
+        );
+        soe_trace::count(soe_trace::Operation::RecordLookups, 1);
         &self.files[r.file].plugin.records[r.record]
     }
 

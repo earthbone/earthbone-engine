@@ -185,6 +185,8 @@ pub struct Game {
     /// Hands currently held by direct player or scripted cast input.
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
     wasm_mods: WasmMods,
+    frame_history: soe_trace::FrameHistory,
+    last_work_counts: soe_trace::WorkCounts,
     papyrus_logs: Option<papyrus_logs::FileLogs>,
     papyrus_log_cursor: usize,
 }
@@ -252,11 +254,13 @@ impl Game {
     }
 
     pub fn new(order: LoadOrder) -> Game {
+        soe_trace::Profile::from_environment();
         Self::from_shared_order(std::sync::Arc::new(order))
     }
 
     /// Use the immutable form table already opened by the host.
     pub fn from_shared_order(order: std::sync::Arc<LoadOrder>) -> Game {
+        soe_trace::Profile::from_environment();
         let world = Rc::new(RefCell::new(World::from_shared_order(order)));
         let mut vm = Vm::new();
         let budget_usage = Rc::new(natives::BudgetUsage::default());
@@ -280,6 +284,8 @@ impl Game {
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
             wasm_mods: WasmMods::new(),
+            frame_history: soe_trace::FrameHistory::default(),
+            last_work_counts: soe_trace::WorkCounts::default(),
             papyrus_logs: None,
             papyrus_log_cursor: 0,
         }
@@ -432,7 +438,42 @@ impl Game {
         for path in pex {
             match vfs.read(&path) {
                 Ok(bytes) => match self.load_script(&bytes) {
-                    Ok(()) => report.scripts_loaded += 1,
+                    Ok(()) => {
+                        report.scripts_loaded += 1;
+                        let provider = match vfs.resolve(&path) {
+                            Some(soe_bsa::Source::Archived { archive, .. }) => vfs.archives()
+                                [*archive]
+                                .path()
+                                .file_stem()
+                                .map(|stem| stem.to_string_lossy().into_owned())
+                                .unwrap_or_default(),
+                            Some(soe_bsa::Source::Loose(path)) => {
+                                format!("<loose:{}>", path.display())
+                            }
+                            None => "<unknown>".to_owned(),
+                        };
+                        let plugin = self
+                            .world
+                            .borrow()
+                            .order()
+                            .files()
+                            .iter()
+                            .find(|file| {
+                                let stem = Path::new(&file.name)
+                                    .file_stem()
+                                    .map_or("", |stem| stem.to_str().unwrap_or_default());
+                                provider.eq_ignore_ascii_case(stem)
+                                    || provider
+                                        .to_ascii_lowercase()
+                                        .starts_with(&format!("{} - ", stem.to_ascii_lowercase()))
+                            })
+                            .map_or(provider.clone(), |file| file.name.clone());
+                        if let Some(script) =
+                            Path::new(&path).file_stem().and_then(|stem| stem.to_str())
+                        {
+                            self.vm.set_script_plugin(script, &plugin);
+                        }
+                    }
                     Err(e) => report.scripts_failed.push((path, e.to_string())),
                 },
                 Err(e) => report.scripts_failed.push((path, e.to_string())),
@@ -1417,6 +1458,9 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        let frame = soe_trace::FrameSnapshot::when_recording();
+        let tick_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
+        let work_frame = soe_trace::WorkFrame::begin();
         soe_trace::trace!(target: "game", system = "game", real_seconds, menu_mode, "ticking runtime");
         {
             let mut world = self.world.borrow_mut();
@@ -1434,12 +1478,16 @@ impl Game {
             None
         };
         if !menu_mode {
-            self.resume_quest_lifecycle_tasks();
+            {
+                let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
+                self.resume_quest_lifecycle_tasks();
+            }
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
             let slow_time_scale = w.slow_time_scale();
             let before = w.clock.game_days;
             w.advance_clock_scaled(real_seconds, slow_time_scale);
+            let magic_scope = soe_trace::SystemScope::new(soe_trace::System::Magic);
             w.tick_image_space(real_seconds);
             w.tick_translations(real_seconds, &mut |name, class| {
                 vm.create_object_of(name, class)
@@ -1457,9 +1505,13 @@ impl Game {
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
             }
+            drop(magic_scope);
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
-            w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
+            {
+                let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
+                w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
+            }
             if w.debug_ai_enabled {
                 w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
                     vm.create_object_of(n, c)
@@ -1487,6 +1539,7 @@ impl Game {
             }
         }
         if !menu_mode {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
             for (speaker, listener, topic) in greetings {
                 if self.begin_dialogue(speaker, listener).is_err() {
@@ -1499,6 +1552,7 @@ impl Game {
             }
         }
         if !menu_mode {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
             for (speaker, listener) in starts {
                 if self.begin_dialogue(speaker, listener).is_ok() {
@@ -1506,9 +1560,13 @@ impl Game {
                 }
             }
         }
-        self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
+        {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
+            self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
+        }
         self.run_until_idle(64);
         if !menu_mode {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             if let Err(error) = self.update_dialogue_range() {
                 self.vm.log.push(self.vm.time(), error.to_string());
             }
@@ -1517,6 +1575,26 @@ impl Game {
             }
         }
         self.push_tick_hash();
+        drop(tick_scope);
+        if let Some(frame) = frame {
+            let sample = frame.finish();
+            soe_trace::Profile::systems("game", &sample);
+            self.frame_history.record(sample);
+        }
+        self.last_work_counts = work_frame.counts();
+    }
+
+    /// Last tick's exclusive system durations and rolling 240-frame statistics.
+    /// This session data is independent of optional traces and is never saved.
+    #[must_use]
+    pub fn frame_history(&self) -> &soe_trace::FrameHistory {
+        &self.frame_history
+    }
+
+    /// Deterministic operation counts for the last game tick, excluding host work.
+    #[must_use]
+    pub fn last_work_counts(&self) -> soe_trace::WorkCounts {
+        self.last_work_counts.clone()
     }
 
     fn resume_quest_lifecycle_tasks(&mut self) {
@@ -1535,7 +1613,9 @@ impl Game {
 
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
         self.prepare_cell_events();
+        let quest_scope = soe_trace::SystemScope::new(soe_trace::System::Quests);
         self.dispatch_story_manager_events();
         let story_events = std::mem::take(&mut self.world.borrow_mut().pending_story_events);
         let mut routed = 0;
@@ -1552,6 +1632,7 @@ impl Game {
                     .push(self.vm.time(), format!("Keyword.SendStoryEvent: {error}")),
             }
         }
+        drop(quest_scope);
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
         let n = routed
             + pending
@@ -1730,6 +1811,7 @@ impl Game {
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
     /// queued, or `max_rounds` passes. Returns true when settled.
     pub fn run_until_idle(&mut self, max_rounds: usize) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
         let loaded_cell = self.world.borrow().loaded_cell();
         if let Some(cell) = loaded_cell {
             self.bind_cell(cell);
@@ -1932,4 +2014,22 @@ fn find_oar_clip(directory: &Path, file_name: &std::ffi::OsStr) -> Option<PathBu
         }
     }
     None
+}
+
+impl Drop for Game {
+    fn drop(&mut self) {
+        if std::env::var("SOE_PROFILE").is_ok_and(|value| value == "1") {
+            let directory = std::env::var_os("SOE_PROFILE_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            if let Err(error) =
+                soe_trace::Profile::export_chrome_json(&directory.join("soe-profile.json"))
+                    .and_then(|()| {
+                        soe_trace::Profile::export_summary(&directory.join("soe-entities.json"))
+                    })
+            {
+                soe_trace::error!(target: "game", system = "game", error = %error, "Could not write entity profile");
+            }
+        }
+    }
 }

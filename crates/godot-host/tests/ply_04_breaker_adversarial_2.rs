@@ -12,7 +12,12 @@ fn run_route(route: &str, output_dir: &std::path::Path) -> Output {
     Command::new(godot)
         .args(["--path"])
         .arg(project)
-        .args(["--resolution", "640x360", "--script", "ply_04_route_test.gd"])
+        .args([
+            "--resolution",
+            "640x360",
+            "--script",
+            "ply_04_route_test.gd",
+        ])
         .env(
             "SKYRIM_DATA",
             std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA"),

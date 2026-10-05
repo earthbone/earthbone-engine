@@ -9,10 +9,7 @@ fn ply_03_route_advances_gameplay_before_checkpoint_comparison() {
     assert!(
         route.steps.iter().any(|(_, step)| matches!(
             step,
-            Step::Navigate { .. }
-                | Step::Activate(_)
-                | Step::Talk { .. }
-                | Step::WaitStage { .. }
+            Step::Navigate { .. } | Step::Activate(_) | Step::Talk { .. } | Step::WaitStage { .. }
         )),
         "the checkpoint replay must execute gameplay before comparing save N plus 1"
     );

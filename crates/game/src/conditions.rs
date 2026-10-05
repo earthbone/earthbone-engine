@@ -111,6 +111,24 @@ pub enum Error {
     NoConditionContract(u16),
 }
 
+/// Diagnostic caller detail, separate from the form that resolves CTDA parameters.
+#[derive(Clone, Copy)]
+pub(crate) enum ProfileCaller {
+    DialogueTopic(GlobalFormId),
+    PerkEntry { entry: u8, section: usize, tab: u8 },
+}
+
+/// Attribute each reached predicate to the caller's topic or entry point.
+pub(crate) fn evaluate_for_caller(
+    world: &mut World,
+    context: Context,
+    conditions: &[Condition],
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
+    caller: ProfileCaller,
+) -> Result<bool, Error> {
+    evaluate_with_vm_for_caller(world, lookup, context, conditions, Some(caller))
+}
+
 /// AND groups of OR-linked predicates, evaluated in file order with short circuiting.
 ///
 /// # Errors
@@ -150,10 +168,20 @@ fn evaluate_with_vm(
     context: Context,
     conditions: &[Condition],
 ) -> Result<bool, Error> {
+    evaluate_with_vm_for_caller(world, lookup, context, conditions, None)
+}
+
+fn evaluate_with_vm_for_caller(
+    world: &mut World,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
+    context: Context,
+    conditions: &[Condition],
+    caller: Option<ProfileCaller>,
+) -> Result<bool, Error> {
     let mut any = false;
     for (index, condition) in conditions.iter().enumerate() {
         if !any {
-            any = evaluate_one_with_vm(world, lookup, context, condition)?;
+            any = evaluate_one_with_vm_for_caller(world, lookup, context, condition, caller)?;
         }
         if !condition.or_with_next() || index + 1 == conditions.len() {
             if !any {
@@ -467,6 +495,63 @@ fn evaluate_one_with_vm(
     context: Context,
     c: &Condition,
 ) -> Result<bool, Error> {
+    evaluate_one_with_vm_for_caller(world, lookup, context, c, None)
+}
+
+fn evaluate_one_with_vm_for_caller(
+    world: &mut World,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
+    context: Context,
+    c: &Condition,
+    caller: Option<ProfileCaller>,
+) -> Result<bool, Error> {
+    let _quest = if soe_trace::Profile::enabled()
+        && world.profile_record_tag(context.owner) == Some(Tag(*b"QUST"))
+    {
+        Some(soe_trace::EntityScope::new(
+            || world.profile_entity("quest", context.owner, "condition_evaluations"),
+            1,
+        ))
+    } else {
+        None
+    };
+    let _entity = soe_trace::EntityScope::new(
+        || {
+            let phase = match world.profile_record_tag(context.owner) {
+                Some(Tag([b'I', b'N', b'F', b'O'] | [b'D', b'I', b'A', b'L'])) => "dialogue_topics",
+                Some(Tag([b'P', b'E', b'R', b'K'])) => "perk_entry_points",
+                Some(Tag(
+                    [b'M', b'G', b'E', b'F']
+                    | [b'S', b'P', b'E', b'L']
+                    | [b'E', b'N', b'C', b'H']
+                    | [b'A', b'L', b'C', b'H'],
+                )) => "magic_effects",
+                Some(Tag([b'P', b'A', b'C', b'K'])) => "packages",
+                Some(Tag([b'Q', b'U', b'S', b'T'])) => "quests",
+                _ => "other",
+            };
+            let mut entity = world.profile_entity("condition", context.owner, phase);
+            match caller {
+                Some(ProfileCaller::DialogueTopic(topic)) => {
+                    entity.id = format!("{topic}/info/{}", context.owner);
+                }
+                Some(ProfileCaller::PerkEntry {
+                    entry,
+                    section,
+                    tab,
+                }) => {
+                    entity.id = format!(
+                        "{}/entry/{entry}/section/{section}/tab/{tab}",
+                        context.owner
+                    );
+                }
+                None => {}
+            }
+            entity
+        },
+        1,
+    );
+    soe_trace::count(soe_trace::Operation::Conditions, 1);
     if c.flags & 0x0a != 0 {
         return Err(Error::Flags(c.flags & 0x1f));
     }

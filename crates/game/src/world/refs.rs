@@ -306,24 +306,9 @@ impl World {
         // Base Object Swapper replaces the base of a placed reference, and a
         // reference is built here rather than at start, which is why the swap
         // is held until now. See `crate::moddata`.
-        st.base = st.base.map(|base| {
-            let location = st.location.or(st.cell);
-            if let Some(to) = self.mod_data.reference_swaps.get(&id).copied() {
-                let chance = self.mod_data.reference_swap_chances.get(&id);
-                if chance
-                    .is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location))
-                {
-                    return to;
-                }
-            }
-            let chance = self.mod_data.base_swap_chances.get(&base);
-            if chance.is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location))
-            {
-                self.mod_data.swap(base)
-            } else {
-                base
-            }
-        });
+        st.base = st
+            .base
+            .map(|base| self.swapped_reference_base(id, base, st.location.or(st.cell)));
         let properties = self
             .mod_data
             .properties
@@ -335,6 +320,27 @@ impl World {
         }
         st.item = self.loose_item(st.base, st.owner, Some(rec));
         Some(st)
+    }
+
+    fn swapped_reference_base(
+        &self,
+        id: GlobalFormId,
+        base: GlobalFormId,
+        location: Option<GlobalFormId>,
+    ) -> GlobalFormId {
+        if let Some(to) = self.mod_data.reference_swaps.get(&id).copied() {
+            let chance = self.mod_data.reference_swap_chances.get(&id);
+            if chance.is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location))
+            {
+                return to;
+            }
+        }
+        let chance = self.mod_data.base_swap_chances.get(&base);
+        if chance.is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location)) {
+            self.mod_data.swap(base)
+        } else {
+            base
+        }
     }
 
     fn apply_bos_properties(
@@ -473,6 +479,7 @@ impl World {
         if !self.refs.contains_key(&id) {
             let st = self.load_ref(id)?;
             self.refs.insert(id, st);
+            self.track_light_reference(id);
         }
         self.refs.get_mut(&id)
     }
@@ -617,6 +624,29 @@ impl World {
         true
     }
 
+    /// Read a live or authored base without initializing inventory or actor templates.
+    pub(crate) fn reference_base_view(&self, id: GlobalFormId) -> Option<GlobalFormId> {
+        if let Some(reference) = self.reference_ref(id) {
+            return reference.base;
+        }
+        let rref = self.order.winner_ref(id)?;
+        let record = self.order.record(rref);
+        let location = match record.tag.as_bytes() {
+            b"REFR" | b"ACHR" => record
+                .find(T(b"XLCN"))
+                .and_then(le_u32)
+                .filter(|raw| *raw != 0),
+            b"PMIS" | b"PGRE" | b"PBEA" | b"PCON" | b"PARW" => None,
+            _ => return None,
+        }
+        .or(record.placement.cell)
+        .map(|raw| self.order.resolve(rref.file, raw));
+        let base = self
+            .order
+            .resolve(rref.file, le_u32(record.find(T(b"NAME"))?)?);
+        Some(self.swapped_reference_base(id, base, location))
+    }
+
     pub fn base_of(&mut self, id: GlobalFormId) -> Option<GlobalFormId> {
         self.reference(id).and_then(|r| r.base)
     }
@@ -684,6 +714,7 @@ impl World {
         }
         st.item = self.loose_item(Some(base), None, None);
         self.refs.insert(id, st);
+        self.track_light_reference(id);
         id
     }
 
@@ -879,6 +910,7 @@ impl World {
         }
         let is_actor = fresh.is_actor;
         self.refs.insert(id, fresh);
+        self.track_light_reference(id);
         if is_actor {
             let _ = self.resurrect_actor(id);
         }

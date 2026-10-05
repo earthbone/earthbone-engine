@@ -15,7 +15,8 @@ impl PlayerNode {
             return;
         };
         if self.sound_bank.is_none() {
-            let bank = crate::godot_audio::SoundBank::new_alloc();
+            let mut bank = crate::godot_audio::SoundBank::new_alloc();
+            bank.set_name("SoundBank");
             self.base_mut().add_child(&bank);
             self.sound_bank = Some(bank);
         }
@@ -25,6 +26,7 @@ impl PlayerNode {
         self.footstep_cadence.reset();
         if let Some(cell) = self.loaded_cell {
             self.sync_cell_ambience(cell);
+            self.sync_cell_music(cell);
         }
     }
 
@@ -49,12 +51,35 @@ impl PlayerNode {
         }
     }
 
+    pub(super) fn sync_cell_music(&mut self, cell: soe_esm::GlobalFormId) {
+        let track = self.game.as_mut().and_then(|game| {
+            let (descriptor, subject, draw) = {
+                let mut world = game.world_mut();
+                let record = world.record(cell)?.clone();
+                let cell_record = soe_esm::records::cell::Cell::from_record(&record, false).ok()?;
+                let raw = cell_record.music?;
+                let descriptor = world.resolve_from(cell, raw)?;
+                let subject = world.player();
+                let draw = world.random_float(0.0, 1.0);
+                (descriptor, subject, draw)
+            };
+            soe_game::music::select(game, descriptor, subject, draw).ok()
+        });
+        if let (Some(track), Some(bank)) = (track, self.sound_bank.as_mut()) {
+            if !bank.bind_mut().play_selected_music(&track) {
+                soe_trace::error!(target: "host::audio", system = "host::audio",
+                    "cell music playback failed: {}", bank.bind().last_error());
+            }
+        }
+    }
+
     pub(super) fn advance_footsteps(
         &mut self,
         before: Vec3,
         was_grounded: bool,
         input: &InputState,
     ) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         if self.game.is_none() || self.sound_bank.is_none() {
             return;
         }
