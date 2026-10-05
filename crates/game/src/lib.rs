@@ -2005,7 +2005,7 @@ impl Drop for Game {
                         soe_trace::Profile::export_summary(&directory.join("soe-entities.json"))
                     })
             {
-                eprintln!("Could not write entity profile: {error}");
+                soe_trace::error!(target: "game", system = "game", error = %error, "Could not write entity profile");
             }
         }
     }
