@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::panic)]
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -6,10 +7,14 @@ use std::process::Command;
 
 #[test]
 fn bannered_mare_hull_repairs_are_built_and_reported_once() {
-    let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
-    let data = std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA is required");
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+        panic!("SOE_GODOT_BIN is required");
+    };
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        panic!("SKYRIM_DATA is required");
+    };
     let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot");
-    let output = Command::new(godot)
+    let output = match Command::new(godot)
         .args(["--headless", "--path"])
         .arg(&project)
         .arg("--script")
@@ -17,7 +22,10 @@ fn bannered_mare_hull_repairs_are_built_and_reported_once() {
         .env("SKYRIM_DATA", data)
         .env("GODOT_SILENCE_ROOT_WARNING", "1")
         .output()
-        .expect("Godot process starts");
+    {
+        Ok(output) => output,
+        Err(error) => panic!("Godot process starts: {error}"),
+    };
     let log = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -25,7 +33,9 @@ fn bannered_mare_hull_repairs_are_built_and_reported_once() {
     );
 
     assert!(
-        output.status.success() && log.contains("static bodies built:") && log.contains("RESULT: PASS"),
+        output.status.success()
+            && log.contains("static bodies built:")
+            && log.contains("RESULT: PASS"),
         "the installed collision did not build and support a resting body:\n{log}"
     );
     assert!(
@@ -43,10 +53,10 @@ fn bannered_mare_hull_repairs_are_built_and_reported_once() {
     );
     let mut sources = HashSet::new();
     for line in repairs {
-        let source = line
-            .split_once("mesh node ")
-            .map(|(_, source)| source.trim())
-            .expect("repair log includes a source mesh node");
+        let source = match line.split_once("mesh node ") {
+            Some((_, source)) => source.trim(),
+            None => panic!("repair log includes a source mesh node: {line}"),
+        };
         assert!(
             sources.insert(source.to_owned()),
             "source mesh was reported more than once: {source}"
