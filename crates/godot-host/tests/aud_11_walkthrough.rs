@@ -62,4 +62,17 @@ fn aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_sys
         stdout.contains("walk_seconds=20"),
         "walk duration was not reported\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let report = stdout
+        .lines()
+        .find(|line| line.contains("AUD-11 systems"))
+        .expect("walkthrough emits its system report");
+    let walk_distance = report
+        .split_once("walk_distance=")
+        .and_then(|(_, value)| value.split_whitespace().next())
+        .and_then(|value| value.parse::<f32>().ok())
+        .expect("walk distance is reported as a number");
+    assert!(
+        walk_distance > 10.0,
+        "walk did not move across the cell: {walk_distance} units"
+    );
 }

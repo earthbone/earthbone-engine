@@ -30,7 +30,11 @@ fn aud_11_window_run_reports_each_nonzero_audio_path_and_full_duration() {
         .map(PathBuf::from)
         .unwrap_or_else(|| workspace.join("target"));
     let extension = target.join("release/libsoe_godot_host.so");
-    assert!(extension.exists(), "missing release extension: {}", extension.display());
+    assert!(
+        extension.exists(),
+        "missing release extension: {}",
+        extension.display()
+    );
 
     let output = Command::new(godot)
         .args(["--path"])
@@ -69,6 +73,11 @@ fn aud_11_window_run_reports_each_nonzero_audio_path_and_full_duration() {
         Ok(seconds) if seconds >= 19.9 => {}
         Ok(seconds) => failures.push(format!("walk lasted {seconds} seconds")),
         Err(_) => failures.push("walk duration is invalid".to_owned()),
+    }
+    match report_value(report, "walk_distance").parse::<f32>() {
+        Ok(distance) if distance > 10.0 => {}
+        Ok(distance) => failures.push(format!("walk moved {distance} units")),
+        Err(_) => failures.push("walk distance is invalid".to_owned()),
     }
     if !output.status.success() || !stdout.contains("AUD-11 RESULT: PASS") {
         failures.push(format!("walkthrough exited {}", output.status));

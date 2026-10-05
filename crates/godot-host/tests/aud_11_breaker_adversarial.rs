@@ -30,7 +30,11 @@ fn aud_11_ambience_counter_ignores_missing_assets_and_counts_restarts() {
     let workspace = manifest.join("../..");
     let project = workspace.join("godot");
     let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(extension.exists(), "missing release extension: {}", extension.display());
+    assert!(
+        extension.exists(),
+        "missing release extension: {}",
+        extension.display()
+    );
 
     let script_file = tempfile::Builder::new()
         .prefix("aud_11_breaker_")
@@ -107,7 +111,11 @@ fn aud_11_window_run_has_all_four_audio_paths_and_mixer_signal() {
     let workspace = manifest.join("../..");
     let project = workspace.join("godot");
     let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(extension.exists(), "missing release extension: {}", extension.display());
+    assert!(
+        extension.exists(),
+        "missing release extension: {}",
+        extension.display()
+    );
 
     let output = Command::new(godot)
         .args(["--path"])
@@ -128,12 +136,16 @@ fn aud_11_window_run_has_all_four_audio_paths_and_mixer_signal() {
         .map(|key| (key, report_value(report, key).parse::<u64>()));
     let peak = report_value(report, "master_peak_db").parse::<f32>();
     let seconds = report_value(report, "walk_seconds").parse::<f32>();
+    let distance = report_value(report, "walk_distance").parse::<f32>();
     assert!(
         output.status.success()
             && stdout.contains("AUD-11 RESULT: PASS")
-            && counts.iter().all(|(_, count)| count.as_ref().is_ok_and(|count| *count > 0))
+            && counts
+                .iter()
+                .all(|(_, count)| count.as_ref().is_ok_and(|count| *count > 0))
             && peak.is_ok_and(|peak| peak > -60.0)
-            && seconds.is_ok_and(|seconds| seconds >= 19.9),
+            && seconds.is_ok_and(|seconds| seconds >= 19.9)
+            && distance.is_ok_and(|distance| distance > 10.0),
         "windowed audio check failed\nreport: {report}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }

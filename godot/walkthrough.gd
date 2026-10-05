@@ -71,7 +71,10 @@ func _start() -> void:
 	system_overlay.player = player
 	get_root().add_child(system_overlay)
 	phase_msec = Time.get_ticks_msec()
-	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) <= 0:
+	var spawn := Vector3(0.0, 0.0, 500.0)
+	if OS.get_environment("SOE_AUD_11_TEST") == "1":
+		spawn = Vector3(-125.0, -800.0, 120.0)
+	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", "WhiterunBanneredMare", spawn.x, spawn.y, spawn.z) <= 0:
 		printerr("Could not enter the Bannered Mare")
 		quit(1)
 		return
@@ -101,10 +104,21 @@ func _start() -> void:
 		await _run_aud_11_check()
 
 func _run_aud_11_check() -> void:
+	for _frame in range(120):
+		await process_frame
+	if not player.call("is_on_ground"):
+		printerr("AUD-11 player did not settle on the Bannered Mare floor")
+		quit(1)
+		return
 	var capture := AudioEffectCapture.new()
 	capture.buffer_length = 0.25
 	AudioServer.add_bus_effect(0, capture)
-	Input.action_press("Forward")
+	var walk_start: Vector3 = player.call("position")
+	var forward := InputEventKey.new()
+	forward.keycode = KEY_W
+	forward.pressed = true
+	Input.parse_input_event(forward)
+	Input.flush_buffered_events()
 	var peak := 0.0
 	var started := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - started < 20_000:
@@ -113,8 +127,11 @@ func _run_aud_11_check() -> void:
 		if frames > 0:
 			for sample: Vector2 in capture.get_buffer(frames):
 				peak = maxf(peak, maxf(absf(sample.x), absf(sample.y)))
-	Input.action_release("Forward")
+	forward.pressed = false
+	Input.parse_input_event(forward)
+	Input.flush_buffered_events()
 	var bank := player.get_node_or_null("SoundBank")
+	var walk_distance := walk_start.distance_to(player.call("position"))
 	var footstep_starts := int(player.call("footstep_count"))
 	var ambience_starts := -1
 	var music_starts := -1
@@ -126,9 +143,10 @@ func _run_aud_11_check() -> void:
 	var peak_db := -INF if peak <= 0.0 else 20.0 * log(peak) / log(10.0)
 	print("AUD-11 systems footsteps=", footstep_starts, " ambience=", ambience_starts,
 		" music=", music_starts, " voices=", voice_starts, " master_peak_db=", peak_db,
-		" walk_seconds=", (Time.get_ticks_msec() - started) / 1000.0)
+		" walk_seconds=", (Time.get_ticks_msec() - started) / 1000.0,
+		" walk_distance=", walk_distance)
 	var passed := footstep_starts > 0 and ambience_starts > 0 and music_starts > 0 \
-		and voice_starts > 0 and peak_db > -60.0
+		and voice_starts > 0 and peak_db > -60.0 and walk_distance > 10.0
 	print("AUD-11 RESULT: ", "PASS" if passed else "FAIL")
 	quit(0 if passed else 1)
 
