@@ -3,11 +3,7 @@
 
 //! Adversarial checks for NPC PRKR loading and perk entry tabs.
 
-#[allow(dead_code)]
-#[path = "common/mod.rs"]
-mod common;
-
-use common::installed;
+use crate::common::installed;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     combat::MeleeHit,
