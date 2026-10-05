@@ -59,7 +59,7 @@ fn rnd_22_falloff_palette_vertex_and_soft_flags_are_independent() {
     assert!(code.contains("angle_opacity"));
     assert!(code.contains("texture(palette_texture, vec2(texel.g, tint.r))"));
     assert!(code.contains("COLOR.rgb"));
-    assert!(code.contains("if (true && soft_depth > 0.0)"));
+    assert!(code.contains("if (soft_depth > 0.0)"));
     material.shader_flags_1 |= flags1::VERTEX_ALPHA;
     effect.alpha_test = Some(AlphaTest {
         func: TestFunc::Greater,
@@ -68,6 +68,40 @@ fn rnd_22_falloff_palette_vertex_and_soft_flags_are_independent() {
     let alpha = nif_effect::shader(&material, &effect);
     assert!(alpha.contains("vec4(COLOR.rgb, COLOR.a)"));
     assert!(alpha.contains("opacity > alpha_threshold"));
+}
+
+#[test]
+fn rnd_22_sampler_dependencies_follow_soft_and_blend_flags() {
+    let (mut material, mut effect) = desc();
+    material.shader_flags_1 = flags1::ZBUFFER_TEST;
+    material.shader_flags_2 = flags2::ZBUFFER_WRITE;
+    let opaque = nif_effect::shader(&material, &effect);
+    assert!(!opaque.contains("hint_screen_texture"));
+    assert!(!opaque.contains("hint_depth_texture"));
+    material.shader_flags_1 |= flags1::SOFT_EFFECT;
+    let soft = nif_effect::shader(&material, &effect);
+    assert!(soft.contains("hint_depth_texture"));
+    assert!(!soft.contains("hint_screen_texture"));
+    material.shader_flags_1 &= !flags1::SOFT_EFFECT;
+    effect.blend = Some(Blend {
+        src: BlendFactor::SrcColor,
+        dst: BlendFactor::OneMinusSrcColor,
+    });
+    let fallback = nif_effect::shader(&material, &effect);
+    assert!(fallback.contains("hint_screen_texture"));
+    assert!(!fallback.contains("hint_depth_texture"));
+}
+
+#[test]
+fn rnd_22_depth_disabled_opaque_effects_bypass_the_host_depth_prepass() {
+    let (mut material, effect) = desc();
+    material.shader_flags_2 = flags2::ZBUFFER_WRITE;
+    let writes_depth = nif_effect::shader(&material, &effect);
+    assert!(!writes_depth.contains("ALPHA ="));
+    material.shader_flags_2 = 0;
+    let no_depth = nif_effect::shader(&material, &effect);
+    assert!(no_depth.contains("depth_draw_never"));
+    assert!(no_depth.contains("ALPHA = 1.0;"));
 }
 
 #[test]

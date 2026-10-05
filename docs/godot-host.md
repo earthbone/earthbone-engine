@@ -5040,6 +5040,12 @@ strengths. Other factors evaluate the blend equation against Godot's opaque
 screen copy, which cannot include preceding transparent surfaces. Blended
 effects never write depth. Opaque effects honor the authored depth-write bit,
 and all effects honor depth testing, culling and the alpha-test function.
+Only soft effects declare a depth sampler, and only screen-copy blend pairs
+declare a screen sampler. Opaque effects with depth writes stay in the opaque
+pass. Depth-disabled opaque effects use alpha one in the transparent pass to
+avoid Godot 4.4's opaque depth prepass. Its Forward+ surface classification
+assigns a depth pass to every opaque material, see
+[render_forward_clustered.cpp](https://github.com/godotengine/godot/blob/4.4/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp#L3595-L3604).
 Native blend paths apply the authored lighting influence when effect lighting
 is flagged. Otherwise the output uses emission. The screen-copy fallback
 uses unlit effect color. This uses stock Godot shaders and adds no reference nodes.
@@ -5059,7 +5065,16 @@ resolution. `godot/rnd_22_effect_material_test.gd` captures synthetic blend,
 falloff, palette, vertex-alpha, alpha-test and depth-intersection controls,
 then installed FXMistLow01HalfVis near Whiterun and Windhelm interior window
 glow over two backdrops. It also checks all 121 factor pairs against an opaque
-backdrop. Captures are written under `godot/.godot`, outside tracked content.
+backdrop. Additional controls capture emissive multiples of 0.5 and 2 without
+scaling alpha, falloff at several viewing angles with ascending, descending
+and equal cosine endpoints, and all eight alpha-test comparisons at equality.
+A rear additive probe checks opaque depth writes against depth-disabled and
+blended controls. Soft surfaces are checked both near the camera and away from
+scene intersections. Captures are written under `godot/.godot`, outside
+tracked content. The SKYRIM_DATA-gated
+`rnd_22_installed_mist_and_window_captures_are_translucent_and_bounded` Rust
+test runs the installed captures, checks their brightness and backdrop
+transmission bounds, and requires the Godot process to exit successfully.
 
 ## Detection neighborhoods, PRF-31
 

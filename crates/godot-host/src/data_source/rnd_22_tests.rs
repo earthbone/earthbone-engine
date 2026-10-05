@@ -46,7 +46,7 @@ fn model_with_blend(index: usize, blend: Option<(u16, u16)>) -> Vec<u8> {
     let mut writer = fixture::NifWriter::new(100);
     let f1 = flags1::ZBUFFER_TEST
         | match index {
-            5 => flags1::USE_FALLOFF,
+            5 | 16 | 17 => flags1::USE_FALLOFF,
             6 => flags1::VERTEX_ALPHA,
             7 => flags1::GREYSCALE_TO_PALETTE_COLOR | flags1::GREYSCALE_TO_PALETTE_ALPHA,
             8 => flags1::SOFT_EFFECT,
@@ -55,7 +55,11 @@ fn model_with_blend(index: usize, blend: Option<(u16, u16)>) -> Vec<u8> {
             _ => 0,
         };
     let f2 = flags2::DOUBLE_SIDED
-        | flags2::ZBUFFER_WRITE
+        | if index == 18 {
+            0
+        } else {
+            flags2::ZBUFFER_WRITE
+        }
         | if index == 6 { flags2::VERTEX_COLORS } else { 0 };
     let mut bytes = writer.effect_shader(
         f1,
@@ -65,15 +69,30 @@ fn model_with_blend(index: usize, blend: Option<(u16, u16)>) -> Vec<u8> {
         } else {
             "textures/source.dds"
         },
-        [0.4, 0.4, 0.4, 0.25],
+        [
+            0.4,
+            0.4,
+            0.4,
+            if index >= 19 { 128.0 / 255.0 } else { 0.25 },
+        ],
     );
     // CONTEXT: Replace the writer's final fixed effect fields, not header offsets.
     let palette_len = "textures\\effects\\grey.dds".len();
     let soft_offset = bytes.len() - palette_len - 4 - 4;
-    bytes[soft_offset - 4..soft_offset].copy_from_slice(&1.0_f32.to_le_bytes());
-    if index == 5 {
+    let scale: f32 = match index {
+        14 => 0.5,
+        15 => 2.0,
+        _ => 1.0,
+    };
+    bytes[soft_offset - 4..soft_offset].copy_from_slice(&scale.to_le_bytes());
+    if matches!(index, 5 | 16 | 17) {
         let falloff = soft_offset - 4 - 16 - 16;
-        for (slot, value) in [0.0_f32, 1.0, 0.1, 0.5].into_iter().enumerate() {
+        let values = match index {
+            16 => [1.0, 0.0, 0.1, 0.5],
+            17 => [0.5, 0.5, 0.1, 0.5],
+            _ => [0.0_f32, 1.0, 0.1, 0.5],
+        };
+        for (slot, value) in values.into_iter().enumerate() {
             bytes[falloff + slot * 4..falloff + slot * 4 + 4].copy_from_slice(&value.to_le_bytes());
         }
     }
@@ -85,8 +104,12 @@ fn model_with_blend(index: usize, blend: Option<(u16, u16)>) -> Vec<u8> {
         4 => (4, 1),
         _ => (6, 7),
     });
-    let alpha_flags =
-        1 | (src << 1) | (dst << 5) | if index == 11 { (1 << 9) | (4 << 10) } else { 0 };
+    let test = match index {
+        11 => (1 << 9) | (4 << 10),
+        19..=26 => (1 << 9) | (((index - 19) as u16) << 10),
+        _ => 0,
+    };
+    let alpha_flags = 1 | (src << 1) | (dst << 5) | test;
     let bytes = writer.alpha_property(alpha_flags, 128);
     let alpha = writer.add("NiAlphaProperty", bytes);
     let (mut vertices, triangles) = fixture::quad();
@@ -101,7 +124,7 @@ fn model_with_blend(index: usize, blend: Option<(u16, u16)>) -> Vec<u8> {
         [0.0; 3],
         -1,
         shader,
-        if index == 10 { -1 } else { alpha },
+        if matches!(index, 10 | 18) { -1 } else { alpha },
         attr::VERTEX | attr::UVS | attr::NORMALS | attr::COLORS,
         &vertices,
         &triangles,
@@ -137,7 +160,7 @@ fn make_fixture(directory: &Path) {
         }
     }
     std::fs::write(directory.join("textures/effects/grey.dds"), palette).unwrap();
-    for i in 0..14 {
+    for i in 0..27 {
         std::fs::write(directory.join(format!("meshes/effect{i}.nif")), model(i)).unwrap();
     }
     for src in 0..=10 {
@@ -171,16 +194,21 @@ fn rnd_22_effect_pipeline_preserves_blend_palette_falloff_and_vertices() {
     let directory = export.as_deref().map(Path::new).unwrap_or(temp.path());
     make_fixture(directory);
     let source = DataSource::open(directory).unwrap();
-    for i in 0..14 {
+    for i in 0..19 {
         let surfaces = source
             .item_preview_surfaces(&format!("effect{i}.nif"))
             .unwrap();
         let (arrays, textures) = &surfaces[0];
         let material = &arrays.material;
         let effect = material.effect.as_ref().unwrap();
-        assert_eq!(effect.params.base_color_scale, 1.0);
+        let scale = match i {
+            14 => 0.5,
+            15 => 2.0,
+            _ => 1.0,
+        };
+        assert_eq!(effect.params.base_color_scale, scale);
         assert_eq!(effect.params.base_color, [0.4, 0.4, 0.4, 0.25]);
-        assert_eq!(effect.blend.is_some(), i != 10);
+        assert_eq!(effect.blend.is_some(), !matches!(i, 10 | 18));
         assert_eq!(textures.greyscale.is_some(), matches!(i, 7 | 12 | 13));
         assert!(arrays.colors.iter().all(|c| *c == [128.0 / 255.0; 4]));
         if i == 5 {
@@ -238,6 +266,37 @@ fn rnd_22_cache_and_batch_keys_separate_every_effect_parameter() {
             MaterialKey::from(&variant.material)
         );
         assert_ne!(BatchKey::of(&arrays), BatchKey::of(&variant));
+    }
+}
+
+#[test]
+fn rnd_22_non_unit_emissive_multiples_do_not_change_base_alpha() {
+    for (index, scale) in [(14, 0.5), (15, 2.0)] {
+        let file = soe_nif::parse(&model(index)).unwrap();
+        let meshes = file.meshes().unwrap();
+        let effect = meshes[0].material.effect.as_ref().unwrap();
+        assert_eq!(effect.base_color_scale, scale);
+        assert_eq!(effect.base_color, [0.4, 0.4, 0.4, 0.25]);
+    }
+}
+
+#[test]
+fn rnd_22_falloff_endpoint_order_and_equal_endpoints_survive_upload() {
+    for (index, angles) in [(5, [0.0, 1.0]), (16, [1.0, 0.0]), (17, [0.5, 0.5])] {
+        let file = soe_nif::parse(&model(index)).unwrap();
+        let meshes = file.meshes().unwrap();
+        let data = super::mesh_data_from(&meshes[0], &soe_nif::Transform::IDENTITY);
+        let arrays =
+            crate::mesh::build_surface(&data, crate::mesh::MeshOptions::default()).unwrap();
+        let effect = &arrays.material.effect.as_ref().unwrap().params;
+        assert_eq!(
+            [effect.falloff_start_angle, effect.falloff_stop_angle],
+            angles
+        );
+        assert_eq!(
+            [effect.falloff_start_opacity, effect.falloff_stop_opacity],
+            [0.1, 0.5]
+        );
     }
 }
 
