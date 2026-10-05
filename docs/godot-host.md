@@ -254,6 +254,23 @@ and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
 the cell ambience is released. The test uses a windowed 640 by 360 Godot
 process and exits when the transition check finishes.
 
+## Walkthrough audio, AUD-11
+
+When gameplay starts, `PlayerNode` attaches its `SoundBank` before syncing audio
+for the loaded cell. The cell's XCMO music type selects one eligible MUSC track
+through `soe_game::music`, and cell ambience selects the first eligible track
+through `soe_game::ambience`. Later cell changes repeat both selections.
+`SoundBank` exposes cumulative start counts for effects, voices, music and
+ambience so an integration run can report the paths that actually started.
+Music uses the host's configured WMA decoder, including the default in-process
+decoder for vanilla xWMA tracks.
+
+Set `SOE_AUD_11_TEST=1` when launching `godot/walkthrough.gd` with installed
+data to inject a forward walk for 20 seconds. The script captures and drains
+the master bus, then reports its peak in dB and the four start counts. It exits
+with failure if any count is zero or the master peak does not exceed -60 dB.
+The windowed test is `aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_system`.
+
 ### Papyrus weather image-space selection, SCR-54
 
 `Weather.SetActive` requests flow from `World` into `ImageSpaceStack` on the
