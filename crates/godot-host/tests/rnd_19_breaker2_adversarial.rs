@@ -33,7 +33,12 @@ fn source(child_flags: u16, grandchild_parent: u32) -> (tempfile::TempDir, DataS
     }
     plugin.groups.push(worlds);
     std::fs::write(directory.path().join("Skyrim.esm"), plugin.to_bytes()).unwrap();
-    for name in ["Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"] {
+    for name in [
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
         std::fs::write(
             directory.path().join(name),
             Plugin::new(FileHeader::default()).to_bytes(),
@@ -47,13 +52,19 @@ fn source(child_flags: u16, grandchild_parent: u32) -> (tempfile::TempDir, DataS
 #[test]
 fn rnd_19_each_parent_must_opt_in_to_lod_inheritance() {
     let (_directory, source) = source(0, 0x101);
-    assert_eq!(source.lod_worldspace(id(0x102)), Some((id(0x101), "Middle".into())));
+    assert_eq!(
+        source.lod_worldspace(id(0x102)),
+        Some((id(0x101), "Middle".into()))
+    );
 }
 
 #[test]
 fn rnd_19_use_land_alone_does_not_continue_the_lod_parent_chain() {
     let (_directory, source) = source(1, 0x101);
-    assert_eq!(source.lod_worldspace(id(0x102)), Some((id(0x101), "Middle".into())));
+    assert_eq!(
+        source.lod_worldspace(id(0x102)),
+        Some((id(0x101), "Middle".into()))
+    );
 }
 
 #[test]
@@ -70,10 +81,15 @@ fn rnd_19_installed_gameplay_capture_shows_terrain_and_tracks_lod() {
     let data = PathBuf::from(
         "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
     );
-    let godot = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from("/run/media/pengolodh/linux-data-games/tmp/soe-run/bin/godot")
-    });
-    assert!(data.join("Skyrim.esm").is_file(), "installed Skyrim data missing");
+    let godot = std::env::var_os("SOE_GODOT_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from("/run/media/pengolodh/linux-data-games/tmp/soe-run/bin/godot")
+        });
+    assert!(
+        data.join("Skyrim.esm").is_file(),
+        "installed Skyrim data missing"
+    );
     let capture = project.join(".godot/rnd-19-whiterun-exterior-lod.png");
     let output = Command::new(godot)
         .args(["--path"])
@@ -91,7 +107,23 @@ fn rnd_19_installed_gameplay_capture_shows_terrain_and_tracks_lod() {
             && stdout.contains("RESULT: PASS: PlayerNode streams terrain LOD around Whiterun")
             && capture.is_file(),
         "Godot RND-19 capture failed\nstdout tail:\n{}\nstderr tail:\n{}",
-        stdout.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"),
-        stderr.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"),
+        stdout
+            .lines()
+            .rev()
+            .take(30)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n"),
+        stderr
+            .lines()
+            .rev()
+            .take(30)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
 }
