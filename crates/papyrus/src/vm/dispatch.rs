@@ -203,7 +203,9 @@ impl Vm {
         }
         for (iid, s, f) in targets {
             let frame = Self::make_frame(Some(iid), Some(object), Some(s), f, args, None);
-            out.push(self.spawn(frame));
+            let id = self.spawn(frame);
+            self.record_event_health(id, name);
+            out.push(id);
         }
         out
     }

@@ -29,6 +29,7 @@ impl Vm {
             }
             let function = frame.function.clone();
             let profile_script = frame.script.as_ref().map(|script| script.name.clone());
+            let health_object = frame.self_object;
             let profile_name = function.name.clone();
             let profile_first_call = !frame.profile_recorded;
             let pc = frame.pc;
@@ -39,7 +40,9 @@ impl Vm {
             soe_trace::count(soe_trace::Operation::PapyrusInstructions, 1);
             let started = Instant::now();
             self.exec(t, ins.op, &ins.args);
+            let elapsed_ns = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
             if let Some(script) = profile_script {
+                self.record_running_health(health_object, &script, elapsed_ns);
                 let thread_id = self.threads[t].id;
                 let mut profiler = self.profiling.borrow_mut();
                 if let Some((scope, _)) = &profiler.active {
@@ -51,7 +54,7 @@ impl Vm {
                         let key = format!("{script}.{profile_name}");
                         let entry = profiler.functions.entry(key).or_default();
                         entry.0 += u64::from(profile_first_call);
-                        entry.1 += started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+                        entry.1 += elapsed_ns;
                     }
                 }
             }

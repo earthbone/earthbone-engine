@@ -133,6 +133,12 @@ impl World {
     }
 
     fn send_quest_start_stop(&mut self, id: GlobalFormId, started: bool) {
+        if !started {
+            self.timers.retain(|timer| {
+                !matches!(self.handles.get(&timer.object),
+                Some(Handle::Form(quest) | Handle::Alias { quest, .. }) if *quest == id)
+            });
+        }
         let Some(quest) = self.quest(id) else {
             return;
         };

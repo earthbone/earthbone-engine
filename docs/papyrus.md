@@ -620,3 +620,31 @@ still goes through the TOOL-06 tracing system. VM errors write a `stack:` block
 with source lines when available, otherwise `Line ?`, following
 `engine-refs/ck-wiki/Papyrus_Runtime_Errors.wikitext`. The INI key defaults
 and enabled preset follow the local Wrye Bash Skyrim debug-log presets.
+
+## Frame health, PRF-19
+
+`Vm::health` and `health_rows` expose transient scheduler diagnostics without
+running threads or changing saved execution state. Backlog counts runnable
+stacks left at an exhausted instruction budget. Its age is elapsed real time
+since the oldest deferred stack last received instructions. Sleeping and
+native-latent stacks are excluded. Queued events count handler deliveries
+awaiting their first instruction. One event can deliver to multiple scripts.
+Event names are lowercase. Arrival meters retain a trailing second and the
+session peak, with separate meters for the VM, each script and each attachment
+plugin, so disjoint instance peaks are not added together.
+
+`advance_clocks` starts the next diagnostic frame. Suspended duration is summed
+real seconds across waiting stacks, including menu time while ordinary waits
+remain paused. A reached sleep deadline clips the interval, using the
+corresponding gameplay, menu or game-hour clock. Instruction execution records
+CPU nanoseconds against its defining script. Nested suspended stacks appear
+once in every defining script on the stack and once in the VM total.
+Successful state loading resets diagnostic durations, backlog ages and event
+meters. Live restored sleepers remain visible. These diagnostics are absent
+from saves and hashes.
+
+The meanings follow local CK `Utility_Script.wikitext` and
+`OnUpdate_-_Form.wikitext`. The existing scheduler owns execution, so external
+profilers cannot supply these live queue counts. The `prf_19_` tests cover
+budget deferral, event draining, wait domains, native completion, nested stacks
+and save-state independence.

@@ -4516,3 +4516,18 @@ The routing source is the local Godot documentation's GlobalScope
 `push_error`, `push_warning` and `print_rich` contracts. Lifecycle callbacks
 follow local gdext `godot-core/src/init/mod.rs`. Details of the subscriber,
 retention bounds and dependencies are in [trace.md](trace.md).
+
+## Papyrus health overlay, PRF-19
+
+`PlayerNode.papyrus_health` exposes Game's total, script and attachment-plugin
+health rows as dictionaries. An absent game returns zero totals and empty
+rows. The F3 system overlay shows backlog and age, four timer counts, suspended
+stacks, waiting stack seconds, running CPU milliseconds and event queues with
+session peaks per second. F4 switches between per-script and per-plugin rows.
+A scroll container keeps long reports inside the viewport. The adapter adds
+no per-reference nodes.
+
+`godot/prf_19_health_test.gd` checks the adapter, F3 and F4 views and installed
+script rows when `SKYRIM_DATA` is set. `SOE_PRF_19_CAPTURE` selects a PNG path
+for a windowed capture. The script frees its nodes and quits with the result.
+The host dictionary and UI calls use the existing Godot 4.4 API path.

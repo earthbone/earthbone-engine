@@ -9,6 +9,31 @@ use soe_trace::System;
 
 use super::PlayerNode;
 
+fn health_dictionary(health: &soe_trace::PapyrusHealth) -> VarDictionary {
+    let mut events = VarDictionary::new();
+    for (name, event) in &health.events {
+        events.set(
+            name.as_str(),
+            &vdict! {
+                "queued" => event.queued as i64,
+                "peak_per_second" => event.peak_per_second as i64,
+            },
+        );
+    }
+    vdict! {
+        "backlog" => health.backlog as i64,
+        "oldest_wait_seconds" => health.oldest_wait_seconds,
+        "repeating_updates" => health.updates.repeating as i64,
+        "single_updates" => health.updates.single as i64,
+        "repeating_game_time_updates" => health.updates.repeating_game_time as i64,
+        "single_game_time_updates" => health.updates.single_game_time as i64,
+        "waiting_seconds" => health.waiting_seconds,
+        "running_ms" => health.running_ns as f64 / 1e6,
+        "suspended_stacks" => health.suspended_stacks as i64,
+        "events" => &events,
+    }
+}
+
 impl PlayerNode {
     pub(super) fn register_system_monitors(&mut self) {
         let mut performance = Performance::singleton();
@@ -42,6 +67,29 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Frame Papyrus health with per-script and per-attachment-plugin rows.
+    #[func]
+    fn papyrus_health(&self) -> VarDictionary {
+        let report = self
+            .game
+            .as_ref()
+            .map(soe_game::Game::papyrus_health)
+            .unwrap_or_default();
+        let mut scripts = VarDictionary::new();
+        for (script, health) in &report.scripts {
+            scripts.set(script.as_str(), &health_dictionary(health));
+        }
+        let mut plugins = VarDictionary::new();
+        for (plugin, rows) in &report.plugins {
+            let mut scripts = VarDictionary::new();
+            for (script, health) in rows {
+                scripts.set(script.as_str(), &health_dictionary(health));
+            }
+            plugins.set(plugin.as_str(), &scripts);
+        }
+        vdict! { "total" => &health_dictionary(&report.total), "scripts" => &scripts, "plugins" => &plugins }
+    }
+
     /// Milliseconds in the latest presentation frame, for custom monitor callbacks.
     #[func]
     fn system_monitor_ms(&self, index: i64) -> f64 {

@@ -59,6 +59,7 @@ pub const MAX_COMPLETED_THREAD_HISTORY: usize = 4096;
 mod collection;
 mod dispatch;
 mod execution;
+pub mod health;
 mod properties;
 mod scheduler;
 
@@ -538,6 +539,7 @@ const SETTER_BUDGET: usize = 4096;
 
 #[derive(Default)]
 pub struct Vm {
+    health: health::Tracker,
     coverage: Option<coverage::Tracker>,
     scripts: HashMap<String, Rc<LoadedScript>>,
     objects: HashMap<ObjectId, GameObject>,

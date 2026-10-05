@@ -51,6 +51,7 @@ pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;
+pub mod papyrus_health;
 mod papyrus_logs;
 pub mod perks;
 pub mod play;
@@ -842,6 +843,9 @@ impl Game {
                 continue;
             }
             report.scripts_attached += 1;
+            if let Some(plugin) = self.world.borrow().order().files().get(file) {
+                self.vm.set_health_owner(object, &entry.name, &plugin.name);
+            }
             for p in &entry.properties {
                 if p.status == 3 {
                     continue;
@@ -1664,6 +1668,7 @@ impl Game {
                     }
                 }
                 Pending::Event { object, name, args } => {
+                    self.prepare_health_event(object, &name);
                     self.vm.send_event(object, &name, &args);
                 }
                 Pending::ReferenceEvent { reference, name } => {

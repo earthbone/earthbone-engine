@@ -15,7 +15,11 @@ impl World {
         repeat: bool,
         game_time: bool,
     ) {
-        self.unregister_update(object, game_time);
+        self.timers.retain(|timer| {
+            !(timer.object == object
+                && timer.game_time == game_time
+                && timer.interval.is_some() == repeat)
+        });
         let now = if game_time {
             self.clock.game_hours()
         } else {
