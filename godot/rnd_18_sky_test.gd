@@ -111,8 +111,8 @@ func _run() -> void:
 	check(sky.last_frame.has("rotation"), "interior retains its own directional lighting")
 	check(sky.environment.ambient_light_color == sky.last_frame.ambient, "interior ambient template reaches Environment")
 	var fog_end: float = sky.last_frame.fog.y
-	if sky.last_frame.fog_clip > 0.0:
-		fog_end = minf(fog_end, sky.last_frame.fog_clip)
+	if sky.last_frame.fog_clip_distance > 0.0:
+		fog_end = minf(fog_end, sky.last_frame.fog_clip_distance)
 	check(is_equal_approx(sky.fog_material.get_shader_parameter("fog_far"), fog_end / 70.0), "interior fog template reaches depth pass")
 	for index in sky.ambient_lights.size():
 		check(sky.ambient_lights[index].visible and sky.ambient_lights[index].light_color == sky.last_frame.ambient_directions[index], "interior directional ambient reaches host")
