@@ -145,7 +145,10 @@ fn rnd_20_runtime_stream_does_not_draw_a_record_editor_marker() {
 
 #[test]
 fn rnd_20_installed_gate_surfaces_have_albedo_or_documented_glow_exception() {
-    let data = std::env::var("SKYRIM_DATA").expect("SKYRIM_DATA must point at installed game data");
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA not set, skipping installed Whiterun albedo check");
+        return;
+    };
     let source = DataSource::open_with_threads(Path::new(&data), 2).unwrap();
     let order = source.shared_order();
     let mut checked = 0;
