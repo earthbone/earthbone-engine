@@ -202,11 +202,11 @@ impl PlayerNode {
 
     pub(super) fn create_menu(&mut self) {
         let mut theme = Theme::new_gd();
-        theme.set_default_font_size(22);
+        theme.set_default_font_size(16);
         theme.set_color("font_color", "Label", Color::from_rgb(0.94, 0.94, 0.96));
         let mut style = StyleBoxFlat::new_gd();
         style.set_bg_color(Color::from_rgba(0.06, 0.07, 0.09, 0.98));
-        style.set_content_margin_all(32.0);
+        style.set_content_margin_all(12.0);
         theme.set_stylebox("panel", "PanelContainer", &style);
 
         let mut canvas = CanvasLayer::new_alloc();
@@ -313,47 +313,15 @@ impl PlayerNode {
         if self.menu.title() != Some("Inventory") {
             return false;
         }
-        let Some(game) = self.game.as_mut() else {
+        if !self.present_inventory_items() {
             return false;
-        };
-        let player = game.player();
-        let entries = inventory_menu::entries(game, player, category);
-        let Some(mut content) = self
-            .menu_view
-            .as_ref()
-            .map(|view| view.content.clone().upcast::<Control>())
-        else {
-            return false;
-        };
-        let mut rows = self.item_menu_rows(&mut content, entries.first().map(|entry| entry.item));
-        let base = self.base().clone();
-        let _guard = self.base_mut();
-        for (index, category) in Category::ALL.into_iter().enumerate() {
-            let mut button = Button::new_alloc();
-            button.set_text(category.label());
-            let callback = base
-                .callable("inventory_category")
-                .bindv(&varray![index as i64]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
-            if index == 0 {
-                button.grab_focus();
-            }
         }
-        let mut heading = Label::new_alloc();
-        heading.set_text(&format!("{} ({})", category.label(), entries.len()));
-        rows.add_child(&heading);
-        for entry in entries {
-            let mut button = Button::new_alloc();
-            let equipped = if entry.equipped { " [Equipped]" } else { "" };
-            button.set_text(&format!("{} x{}{}", entry.name, entry.count, equipped));
-            let callback = base.callable("toggle_inventory_item").bindv(&varray![
-                i64::from(entry.item.file),
-                i64::from(entry.item.object),
-            ]);
-            super::item_card::connect_preview(&base, &mut button, entry.item);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
+        if let Some(mut view) = self
+            .menu_content()
+            .and_then(|content| content.get_node_or_null("ItemMenu"))
+        {
+            let _guard = self.base_mut();
+            view.call("select_category", &[category.label().to_variant()]);
         }
         true
     }
@@ -488,6 +456,7 @@ impl PlayerNode {
             return false;
         }
         self.container_menu = None;
+        self.barter_menu = None;
         self.crafting_bench = None;
         self.item_card_view = None;
         let previous_focus = self

@@ -36,6 +36,7 @@ pub mod input;
 pub mod interior_prefetch;
 pub mod inventory_menu;
 pub mod item_card;
+pub mod item_menu;
 pub mod lod_rebuild;
 pub mod magic_menu;
 pub mod mcm_menu;
