@@ -2685,6 +2685,7 @@ version = "0.1.0"
 dependencies = [
  "godot",
  "rayon",
+ "serde_json",
  "soe-audio",
  "soe-bsa",
  "soe-dds",
@@ -2697,6 +2698,7 @@ dependencies = [
  "soe-physics",
  "soe-profile",
  "soe-save",
+ "soe-swf-convert",
  "soe-trace",
  "tempfile",
  "thiserror 2.0.20",

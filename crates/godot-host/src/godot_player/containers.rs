@@ -3,7 +3,7 @@
 //! Container controls read the same inventory rows as the player menu and
 //! move an item through the shared game's notified transaction.
 
-use godot::classes::{Button, Label, VBoxContainer};
+use godot::classes::{Button, Label};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
@@ -39,43 +39,13 @@ impl PlayerNode {
                         service
                             .merchandise
                             .iter()
-                            .map(|(item, count)| {
-                                let name = game
-                                    .world()
-                                    .name_of(*item)
-                                    .unwrap_or_else(|| format!("{item}"));
-                                format!("{name} x{count}")
-                            })
+                            .map(|(item, count)| (crate::item_menu::item(game, *item, count), 0))
                             .collect::<Vec<_>>()
                     })
             })
         });
-        let Some(mut content) = self.menu_content() else {
-            self.close_menu();
-            return false;
-        };
-        let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
-        }
-        let mut rows = VBoxContainer::new_alloc();
-        content.add_child(&rows);
-        match goods.filter(|items| !items.is_empty()) {
-            Some(items) => {
-                for item in items {
-                    let mut label = Label::new_alloc();
-                    label.set_text(&item);
-                    rows.add_child(&label);
-                }
-            }
-            None => {
-                let mut empty = Label::new_alloc();
-                empty.set_text("No goods available.");
-                rows.add_child(&empty);
-            }
-        }
-        true
+        let rows = goods.unwrap_or_default();
+        self.present_items("barter", &rows)
     }
 
     pub(super) fn open_gift_menu(&mut self) -> bool {
@@ -154,44 +124,16 @@ impl PlayerNode {
     }
 
     fn container_content(&mut self, holder: GlobalFormId, category: Category) -> bool {
-        if !self.menu.is_open() || self.container_menu.is_none() {
-            return false;
-        }
-        let Some(game) = self.game.as_ref() else {
-            return false;
-        };
-        let entries = inventory_menu::entries(game, holder, category);
-        let Some(mut content) = self.menu_content() else {
-            return false;
-        };
         self.container_menu = Some((holder, category));
-        let mut rows = self.item_menu_rows(&mut content, entries.first().map(|entry| entry.item));
-        let base = self.base().clone();
-        let _guard = self.base_mut();
-        for (index, category) in Category::ALL.into_iter().enumerate() {
-            let mut button = Button::new_alloc();
-            button.set_text(category.label());
-            let callback = base
-                .callable("container_category")
-                .bindv(&varray![index as i64]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
+        if !self.present_container_items(holder) {
+            return false;
         }
-        let mut heading = Label::new_alloc();
-        heading.set_text(&format!("{} ({})", category.label(), entries.len()));
-        rows.add_child(&heading);
-        for entry in entries {
-            let mut button = Button::new_alloc();
-            button.set_text(&format!("Take {} x{}", entry.name, entry.count));
-            let callback = base.callable("take_container_item").bindv(&varray![
-                i64::from(holder.file),
-                i64::from(holder.object),
-                i64::from(entry.item.file),
-                i64::from(entry.item.object),
-            ]);
-            super::item_card::connect_preview(&base, &mut button, entry.item);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
+        if let Some(mut view) = self
+            .menu_content()
+            .and_then(|content| content.get_node_or_null("ItemMenu"))
+        {
+            let _guard = self.base_mut();
+            view.call("select_category", &[category.label().to_variant()]);
         }
         true
     }

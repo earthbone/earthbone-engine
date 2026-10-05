@@ -179,16 +179,16 @@ fn mesh(mesh: &Mesh, path: &Path) -> Result<(), Error> {
     );
     for (index, surface) in surfaces.iter().enumerate() {
         if let Paint::Bitmap { id, .. } = &surface.paint {
-            let _ = writeln!(result, "[ext_resource type=\"Texture2D\" path=\"bitmap-{id}.tres\" id=\"texture-{index}\"]");
+            let _ = writeln!(result, "[ext_resource type=\"Texture2D\" path=\"bitmap-{id}.tres\" id=\"texture_{index}\"]");
         }
     }
     result.push('\n');
     for (index, surface) in surfaces.iter().enumerate() {
-        let _ = writeln!(result, "[sub_resource type=\"Shader\" id=\"shader-{index}\"]\ncode = {}\n\n[sub_resource type=\"ShaderMaterial\" id=\"paint-{index}\"]\nshader = SubResource(\"shader-{index}\")", quoted(&shader(&surface.paint)?));
+        let _ = writeln!(result, "[sub_resource type=\"Shader\" id=\"shader_{index}\"]\ncode = {}\n\n[sub_resource type=\"ShaderMaterial\" id=\"paint_{index}\"]\nshader = SubResource(\"shader_{index}\")", quoted(&shader(&surface.paint)?));
         if matches!(surface.paint, Paint::Bitmap { .. }) {
             let _ = writeln!(
                 result,
-                "shader_parameter/bitmap = ExtResource(\"texture-{index}\")"
+                "shader_parameter/bitmap = ExtResource(\"texture_{index}\")"
             );
         }
         result.push('\n');
@@ -212,7 +212,7 @@ fn mesh(mesh: &Mesh, path: &Path) -> Result<(), Error> {
             vertex_data.extend_from_slice(&0_f32.to_le_bytes());
         }
         // CONTEXT: Godot 4.4's current surface format is version 2 at bit 35, with VERTEX at bit 0.
-        native.push(format!("{{\"format\": 34359738369, \"primitive\": 3, \"vertex_data\": {}, \"vertex_count\": {}, \"aabb\": AABB({}, {}, 0, {}, {}, 0.00001), \"material\": SubResource(\"paint-{index}\"), \"name\": \"surface-{index}\"}}",
+        native.push(format!("{{\"format\": 34359738369, \"primitive\": 3, \"vertex_data\": {}, \"vertex_count\": {}, \"aabb\": AABB({}, {}, 0, {}, {}, 0.00001), \"material\": SubResource(\"paint_{index}\"), \"name\": \"surface_{index}\"}}",
             bytes(&vertex_data), surface.indices.len(), min[0], min[1], (max[0]-min[0]).max(0.00001), (max[1]-min[1]).max(0.00001)));
     }
     let _ = writeln!(result, "[resource]\n_surfaces = [{}]\nmetadata/swf_id = {}\nmetadata/swf_bounds = Rect2({}, {}, {}, {})", native.join(",\n"), mesh.id, mesh.bounds[0],mesh.bounds[1],mesh.bounds[2],mesh.bounds[3]);
@@ -266,18 +266,18 @@ pub(crate) fn write(movie: &Movie, directory: &Path) -> Result<(), Error> {
     let assets: Vec<_> = movie
         .meshes
         .keys()
-        .map(|id| (format!("shape/{id}"), format!("shape-{id}.tres")))
+        .map(|id| (format!("shape_{id}"), format!("shape-{id}.tres")))
         .chain(
             movie
                 .fonts
                 .keys()
-                .map(|id| (format!("font/{id}"), format!("font-{id}.tres"))),
+                .map(|id| (format!("font_{id}"), format!("font-{id}.tres"))),
         )
         .chain(
             movie
                 .bitmaps
                 .keys()
-                .map(|id| (format!("bitmap/{id}"), format!("bitmap-{id}.tres"))),
+                .map(|id| (format!("bitmap_{id}"), format!("bitmap-{id}.tres"))),
         )
         .collect();
     let mut result = format!(
@@ -287,7 +287,7 @@ pub(crate) fn write(movie: &Movie, directory: &Path) -> Result<(), Error> {
     for (index, (_, file)) in assets.iter().enumerate() {
         let _ = writeln!(
             result,
-            "[ext_resource type=\"Resource\" path={} id=\"asset-{index}\"]",
+            "[ext_resource type=\"Resource\" path={} id=\"asset_{index}\"]",
             quoted(file)
         );
     }
@@ -297,7 +297,7 @@ pub(crate) fn write(movie: &Movie, directory: &Path) -> Result<(), Error> {
         variant(&metadata)
     );
     for (index, (name, _)) in assets.iter().enumerate() {
-        let _ = writeln!(result, "metadata/{name} = ExtResource(\"asset-{index}\")");
+        let _ = writeln!(result, "metadata/{name} = ExtResource(\"asset_{index}\")");
     }
     std::fs::write(directory.join("movie.tres"), result)?;
     Ok(())

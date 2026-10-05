@@ -62,6 +62,13 @@ display list and labels form that frame. Other frame-count mismatches, subtag
 truncation errors and nesting beyond 64 levels remain errors. Synthetic
 fixtures cover both omissions, nested sprites and partial tags.
 
+Empty-depth Modify and Replace tags leave the display list unchanged, following
+normal frame playback in Ruffle's
+[MovieClip::place_object](https://github.com/ruffle-rs/ruffle/blob/master/core/src/display_object/movie_clip.rs).
+PlaceObject2/3 payloads must be fully consumed by the typed reader. The breaker
+fixture for an unoccupied depth contains an extra payload byte and is rejected
+for that malformed envelope rather than its empty depth.
+
 ## Scripted player input, PLY-01
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
@@ -3406,6 +3413,17 @@ worn extra data remain in the game layer. The public inventory_menu reader
 takes a Game, holder and category, allowing the container menu to reuse its
 form-backed rows without a second inventory model. Drop, use, charge, favorite
 and instance-specific actions remain outside UI-02.
+
+The item card and inventory row share this category reader, including the food
+icon. Its flag follows local xEdit `Core/wbDefinitionsTES5.pas`, and SkyUI's
+`ItemMenus/InventoryDataSetter.as` supplies the food classification behavior.
+SkyUI cache scene checks require `SOE_TEST_SKYUI` and either `SOE_FFDEC_JAR`
+or `SOE_FFDEC`. Without those inputs they report a skip. JPEXS FFDec's local
+CLI help lists `yes`, `ask` and `local` as import options. The converter uses
+`local` alone, leaving both import and prompting disabled, as confirmed by
+the bundled `CommandLineArgumentParser` and `ConsoleUrlResolver` classes.
+The archive survey checks bounded sprite definitions when Ruffle's parser
+rejects SkyUI's omitted sprite End tags.
 
 When activation opens a container, its menu presents the same category buttons
 and lists the container's positive inventory totals. The rows come from its shared

@@ -291,7 +291,7 @@ fn rnd_11_land_grass_fixture_places_deterministic_bounded_batches() {
     let single = by_x(2);
     const { assert!(1 < INSTANCE_MIN_PLACEMENTS) };
     assert_eq!(single.1, 1);
-    assert!(single.3.is_empty());
+    assert_eq!(single.3.len(), 0);
     assert_eq!(single.2, vec![(None, None)]);
     if !kept {
         std::fs::remove_dir_all(directory).unwrap();
