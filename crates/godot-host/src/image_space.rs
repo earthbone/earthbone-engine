@@ -291,6 +291,31 @@ pub mod renderer {
                     .map(|base| base.duplicate_resource())
                     .unwrap_or_else(Environment::new_gd)
             });
+            if let Some(base) = camera
+                .get_world_3d()
+                .and_then(|world| world.get_environment())
+            {
+                for property in [
+                    "background_mode",
+                    "background_color",
+                    "sky",
+                    "ambient_light_source",
+                    "ambient_light_color",
+                    "ambient_light_energy",
+                    "reflected_light_source",
+                    "fog_enabled",
+                    "fog_mode",
+                    "fog_depth_begin",
+                    "fog_depth_end",
+                    "fog_depth_curve",
+                    "fog_light_color",
+                    "fog_light_energy",
+                    "fog_sky_affect",
+                    "fog_density",
+                ] {
+                    environment.set(property, &base.get(property));
+                }
+            }
             environment.set("adjustment_enabled", &true.to_variant());
             environment.set("adjustment_saturation", &values.saturation.to_variant());
             environment.set("adjustment_brightness", &values.brightness.to_variant());

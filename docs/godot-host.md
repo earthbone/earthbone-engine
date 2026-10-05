@@ -254,11 +254,9 @@ next host sync. If no explicit image-space selection is active, the stack reads
 the selected WTHR record's daytime `IMSP` slot and resolves its `IMGS` values.
 The camera renderer applies those values through Godot's `Environment` and
 `CameraAttributesPractical`. An explicit image-space selection takes
-precedence. This path renders image-space adjustments only. It does not render
-WTHR cloud layers, sky colors, precipitation, ambient lighting or transition
-timing, and the daytime slot is used at all game hours. The override and
-acceleration flags are retained in the request but do not change this
-presentation.
+precedence. The image-space path uses the daytime slot at all game hours.
+The RND-18 sky controller separately renders WTHR clouds, colors, ambient
+lighting and transitions through the shared World request.
 
 ### Debug collision switch, SCR-21
 
@@ -3645,8 +3643,10 @@ continue through the Environment and CameraAttributesPractical controls. The
 camera Environment starts as a copy of the WorldEnvironment when present.
 Clearing the base and modifier sources removes the camera resources. The host weather
 selection method accepts a WTHR editor id, two slots and a blend. An empty id
-returns to CELL/XCIM. `godot/walkthrough.gd` still supplies background and
-ambient light through its WorldEnvironment.
+returns to CELL/XCIM. `godot/walkthrough.gd` supplies the RND-18 record sky
+and interior lighting.
+The camera environment refreshes its sky and fog inputs from the current
+WorldEnvironment before applying image-space adjustments.
 
 `ImageSpaceStack::render_layers` samples active authored IMAD curves through
 the shared World. `RenderedModifiers::from_layers` composes tint, blur radius,
@@ -4756,3 +4756,68 @@ test verifies that an exterior CELL does not receive interior lighting.
 `godot/rnd_21_capture_test.gd` streams and renders the Bannered Mare through
 the host with installed data and checks the captured image. Godot 4.4.1 with llvmpipe at 640 by
 360 measured average linear luminance 0.0782 and zero fully clipped pixels.
+
+## Exterior skies and interior lighting, RND-18
+
+The walkthrough and bench attach `godot/record_sky.gd`. Its SkyRecords
+RefCounted sampler reads the gameplay PlayerNode's shared World, or owns a
+preview World for a benchmark without gameplay. The controller owns one
+WorldEnvironment, one directional sun light and one full-screen fog mesh.
+It creates no node per placed reference.
+
+The sky shader draws upper, lower and horizon NAM0 colors. CLMT sun and glare
+textures, moon textures selected by TNAM flags and phase length, and the
+texture named by CLMT's night NIF come through the DataSource VFS. The sun
+light follows the sampled sun direction and WTHR sunlight color. The ambient
+light uses WTHR ambient color. Cloud layers use their authored colors, alpha
+and XY velocities. Unique textures upload to an RGBA8 Texture2DArray at
+512 by 512 per layer. The shader supports 256 cloud contributions, including
+source and destination layers during interrupted weather transitions.
+
+The fog mesh reads Godot's depth buffer and blends NAM0 near and far fog
+colors across FNAM near and far distances, with its power and maximum opacity.
+Sky pixels are excluded. Environment retains the same fog inputs for camera
+image-space copies, with built-in fog disabled to avoid a second fog pass.
+Interiors use CELL/XCLL and inherited LGTM fields for ambient light,
+directional light and fog. Show Sky draws their region sky. Use Sky Lighting
+selects weather lighting independently of that background flag. Ordinary
+interiors keep a color background. Changing the bound source clears texture
+selections and cached uploads.
+
+The night texture reader accepts ordinary NIF texture sets, effect-shader
+source textures and SSE BSSkyShaderProperty's baseTexture. The last layout
+comes from local nifly `src/Shaders.cpp` and `src/Objects.cpp`. The NIF crate
+retains that block as opaque data, so the host reads its texture field without
+changing the parser's crate scope. Godot's local sky shader and Environment
+documentation supplies the host APIs. The near and far fog color contract
+requires the depth shader because Environment exposes one fog color.
+
+`godot/rnd_18_sky_test.gd` streams Whiterun, renders vanilla SkyrimClear at
+noon and midnight, captures both views under `target/rnd_18`, and compares the
+sky region with NAM0. Its thresholds are 0.08 per color channel and at least
+500 matching pixels. It checks sun visibility, fog distances, cloud count,
+VFS sun/moon/night textures, moon phases, a live weather transition and
+interior replacement. The SKYRIM_DATA-gated Rust runner is
+`rnd_18_installed_whiterun_noon_night_sky_capture_and_host_controls`.
+The shader-texture unit test covers an SSE block with extra data and truncation.
+The installed Bannered Mare has Show Sky set and Use Sky Lighting cleared.
+The capture checks that its region sky draws while its own ambient,
+directional and fog lighting reach the host.
+
+On Godot 4.4.1 with software Vulkan, the Whiterun capture passed with 9,938
+noon pixels and 6,663 night pixels inside that tolerance. Mean brightness in
+the sampled sky region was 0.639 at noon and 0.272 at night, exceeding the
+0.05 difference threshold. The host texture, fog, phase, transition and
+interior checks passed in the same windowed run, which exited with status 0.
+
+The radius-zero Whiterun bench used 51 renderer instances, 42 meshes and
+31,146 triangles. Its 600-frame software Vulkan sample had a 33.105 ms p99
+at the benchmark's fixed 1600 by 900 render size in a 640 by 360 window.
+It exceeded the existing 16.7 ms p99 budget and exited with status 2. This
+measurement includes the world renderer and sky together. The walkthrough
+initialized gameplay and the record sky, but its 120-frame capture did not
+finish before the supplied launcher's 300-second limit, which returned 124.
+The separate `rnd_18_walkthrough_shared_world_interior_smoke` test loads the
+walkthrough with gameplay, pauses simulation stepping, checks its shared
+World interior lighting and captures eight rendered frames. It passed and
+exited with status 0. This smoke run does not measure interactive frame time.

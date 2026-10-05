@@ -94,6 +94,7 @@ mod package_navmesh_restore;
 mod performance;
 mod projectile_restore;
 pub mod shader_particles;
+pub mod sky;
 pub use npc_restore::NpcRestoreReport;
 mod record_change_restore;
 mod record_overrides;

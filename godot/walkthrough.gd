@@ -4,6 +4,7 @@ extends SceneTree
 ## WASD move, mouse looks, Space jumps, Ctrl sneaks, F changes camera, Esc exits.
 const Warmup := preload("res://render_warmup.gd")
 const SystemOverlay := preload("res://system_overlay.gd")
+const RecordSky := preload("res://record_sky.gd")
 
 var player: Node3D
 var system_overlay: CanvasLayer
@@ -82,6 +83,12 @@ func _start() -> void:
 		quit(1)
 		return
 	print("STARTUP ready ms=", Time.get_ticks_msec() - startup_msec)
+	var sky := RecordSky.new()
+	scene.add_child(sky)
+	if not sky.use_player(player):
+		printerr("Could not initialize the record sky")
+		quit(1)
+		return
 	loading_label.queue_free()
 	loading_label = null
 	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, F3 system timings, Esc exit")

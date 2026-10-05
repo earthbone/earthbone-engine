@@ -162,6 +162,12 @@ func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch:
 	streamer_node = streamer
 	_apply_cell_lighting(scene_holder, streamer.call("cell_lighting", cell))
 	_setup_camera()
+	var sky := preload("res://record_sky.gd").new()
+	scene_root.add_child(sky)
+	if not sky.use_streamer(streamer, cell):
+		printerr("RESULT: FAIL: could not initialize the record sky")
+		quit(1)
+		return
 	var warmed: Dictionary = await Warmup.prepare()
 	if not warmed.error.is_empty():
 		printerr("RESULT: ERROR: " + warmed.error)
@@ -243,7 +249,6 @@ func _apply_cell_lighting(parent: Node3D, values: Dictionary) -> void:
 		ambient.shadow_enabled = false
 		ambient.rotation = rotations[index]
 		parent.add_child(ambient)
-
 
 func _capture() -> void:
 	if capture_path.is_empty() or DisplayServer.get_name() == "headless":

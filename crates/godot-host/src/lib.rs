@@ -81,6 +81,8 @@ pub mod godot_ragdoll;
 #[cfg(feature = "godot")]
 pub mod godot_reference_editor;
 #[cfg(feature = "godot")]
+mod godot_sky;
+#[cfg(feature = "godot")]
 pub mod godot_tether;
 #[cfg(feature = "godot")]
 mod godot_world;

@@ -640,6 +640,15 @@ impl World {
         h.f64(self.clock.real_seconds);
         h.f64(self.clock.game_days);
         h.f64(self.clock.timescale);
+        let mut sky = soe_papyrus::vm::state::Writer::new();
+        super::sky::write_sky(
+            self,
+            &mut sky,
+            &mut soe_papyrus::vm::state::ArrayPool::default(),
+        );
+        if !sky.out.is_empty() {
+            h.bytes(&sky.out);
+        }
         let clock = h.finish();
 
         let mut h = StateHasher::new();
