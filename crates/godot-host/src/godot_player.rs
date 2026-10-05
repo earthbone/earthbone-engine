@@ -103,6 +103,8 @@ pub struct PlayerNode {
     #[export]
     exterior_byte_budget: i64,
     host_frame: soe_trace::FrameSnapshot,
+    profile_inputs: Vec<soe_trace::InputLatency>,
+    profile_applied_inputs: Vec<soe_trace::InputLatency>,
     host_history: soe_trace::FrameHistory,
     monitor_names: Vec<StringName>,
     rig: CameraRig,
@@ -208,6 +210,8 @@ impl INode3D for PlayerNode {
             exterior_triangle_budget: 0,
             exterior_byte_budget: 0,
             host_frame: soe_trace::FrameSnapshot::now(),
+            profile_inputs: Vec::new(),
+            profile_applied_inputs: Vec::new(),
             host_history: soe_trace::FrameHistory::default(),
             monitor_names: Vec::new(),
             rig: CameraRig::default(),
@@ -295,7 +299,12 @@ impl INode3D for PlayerNode {
     }
 
     fn ready(&mut self) {
+        soe_trace::Profile::from_environment();
         self.register_system_monitors();
+        RenderingServer::singleton().connect(
+            "frame_post_draw",
+            &self.base().callable("profile_frame_presented"),
+        );
         if let Some(mut window) = self.base().get_window() {
             window.connect("focus_exited", &self.base().callable("input_focus_lost"));
             window.connect("focus_entered", &self.base().callable("input_focus_gained"));
@@ -329,6 +338,23 @@ impl INode3D for PlayerNode {
     }
 
     fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        let latency = event
+            .clone()
+            .try_cast::<InputEventKey>()
+            .ok()
+            .and_then(|key| {
+                soe_trace::Profile::input(|| {
+                    format!(
+                        "key_{}_{}",
+                        key.get_keycode().ord(),
+                        if key.is_pressed() {
+                            "pressed"
+                        } else {
+                            "released"
+                        }
+                    )
+                })
+            });
         let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         if !self.input_focused {
             return;
@@ -343,6 +369,9 @@ impl INode3D for PlayerNode {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
                 }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
+                }
                 return;
             }
             if key.get_keycode() == Key::M
@@ -353,6 +382,9 @@ impl INode3D for PlayerNode {
             {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
+                }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
                 }
                 return;
             }
@@ -365,6 +397,9 @@ impl INode3D for PlayerNode {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
                 }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
+                }
                 return;
             }
             if key.get_keycode() == Key::ESCAPE && key.is_pressed() && !key.is_echo() {
@@ -376,11 +411,17 @@ impl INode3D for PlayerNode {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
                 }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
+                }
                 return;
             }
         }
         if self.menu.is_open() {
             return;
+        }
+        if let Some(latency) = latency {
+            self.profile_inputs.push(latency);
         }
         if let Ok(key) = event.clone().try_cast::<InputEventKey>() {
             self.devices.key(
@@ -414,6 +455,7 @@ impl INode3D for PlayerNode {
     fn physics_process(&mut self, delta: f64) {
         if self.auto_step {
             self.advance(delta);
+            self.profile_applied_inputs.append(&mut self.profile_inputs);
             self.sync_actor_bodies();
             self.update_grab_actor();
         }
@@ -451,12 +493,18 @@ impl INode3D for PlayerNode {
             view.tick_presentation(delta);
         }
         drop(render_scope);
-        self.host_history.record(self.host_frame.finish());
+        let sample = self.host_frame.finish();
+        soe_trace::Profile::systems("host", &sample);
+        self.host_history.record(sample);
         self.host_frame = soe_trace::FrameSnapshot::now();
     }
 
     fn exit_tree(&mut self) {
         self.remove_system_monitors();
+        RenderingServer::singleton().disconnect(
+            "frame_post_draw",
+            &self.base().callable("profile_frame_presented"),
+        );
         let mut server = RenderingServer::singleton();
         for (_, rid) in std::mem::take(&mut self.debug_ref_markers) {
             server.free_rid(rid);

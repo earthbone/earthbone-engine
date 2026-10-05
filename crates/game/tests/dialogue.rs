@@ -2001,3 +2001,21 @@ fn tst_14_dialogue_reuses_the_installed_parse_and_isolates_games() {
     assert_eq!(first.world().perk_points, 9);
     assert_eq!(second.world().perk_points, 0);
 }
+
+/// Two topics with reached predicates for the entity-attribution check.
+pub(crate) fn prf_13_fixture() -> Game {
+    let predicate = condition(136, SPEAKER, 1.0, 0);
+    let mut data = plugin(vec![
+        info(INFO, 0, &["Profile first"], false).sub(T(b"CTDA"), predicate.clone())
+    ]);
+    add_topic(
+        &mut data,
+        topic(LINKED_TOPIC, OTHER_QUEST),
+        vec![info(ADDED_INFO, 0, &["Profile second"], false).sub(T(b"CTDA"), predicate)],
+        true,
+    );
+    let mut game = game(data);
+    open(&mut game);
+    game.start_quest(id(OTHER_QUEST));
+    game
+}

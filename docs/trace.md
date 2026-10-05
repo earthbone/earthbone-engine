@@ -1,5 +1,43 @@
 # soe-trace: timing spans and deterministic work
 
+## Entity attribution, PRF-13
+
+PRF-22 summary counters include explicit entity, plugin and phase metadata.
+Existing summary names and numeric metrics retain their meaning. Active
+captures also retain exclusive system totals through `Profile::systems`.
+Game tick and host presentation domains are separate because their intervals
+overlap. System totals are excluded from plugin rankings and do not duplicate
+entity time in plugin shares. Their call count is the number of frames,
+including idle frames. Capture-off frames add no system rows.
+The counter format is consumed by `soe-bench profile-diff`, documented in
+[performance.md](performance.md).
+
+`Profile` controls optional entity scopes independently of the always-on frame
+clock and the existing `Trace` switch. `EntityScope` constructs metadata only
+when capture is enabled. Each scope records calls, inclusive and self time,
+and the work counts charged inside its innermost entity. Nested scopes subtract
+child duration from parent self time. Entity and plugin rankings use self time.
+The session totals retain every completed scope. The event list retains at
+most `MAX_EVENTS` scopes, dropping the oldest at capacity. The rolling overlay
+selects completions in the preceding wall-clock second from that list.
+
+Entities carry a kind, stable identity, owning plugin and phase. Script
+identities include the declaring function. Plugin counters sum self time and
+innermost operations, avoiding nested time duplication. Latent scheduler
+intervals report real seconds separately from running time. Input latency
+records wall time until the host completes the token at presentation.
+Render-instance submission wrappers measure elapsed time and charge the
+existing work counter.
+
+`export_chrome_json` writes completed scopes with entity and plugin arguments.
+`export_summary` writes session entity and plugin counters as Chrome counter
+events. Both files use the Chrome trace envelope that Perfetto imports. Export
+errors return the filesystem error. All attribution is transient and uses no
+save fields. The only added dependency is `serde_json` for export tests.
+The design uses the repository's Chrome writer and local Godot profiler manual
+for inclusive versus self time. godotwind's dynamic model timings informed the
+rolling view, but do not provide Rust actor or script identities.
+
 `Span` records optional Chrome trace events in the existing global event list.
 `SystemScope` also provides always-on exclusive elapsed timings for fourteen fixed
 slots: Papyrus VM, AI planning, AI movement, combat, magic, quests and story

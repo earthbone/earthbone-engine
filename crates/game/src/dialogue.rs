@@ -857,7 +857,7 @@ impl Game {
             if random_group && flags & RANDOM == 0 && !refusal {
                 break;
             }
-            if Self::info_eligible(&mut world, &self.vm, session, id, &info, quest)? {
+            if Self::info_eligible(&mut world, &self.vm, session, id, &info, quest, topic)? {
                 if refusal {
                     refusals.push((id, info));
                     continue;
@@ -901,6 +901,7 @@ impl Game {
         id: GlobalFormId,
         info: &DialogueInfo,
         quest: GlobalFormId,
+        topic: GlobalFormId,
     ) -> Result<bool, Error> {
         let flags = info.data.as_ref().map_or(0, |data| data.flags());
         if flags & (1 << 7) != 0 {
@@ -931,7 +932,14 @@ impl Game {
             skill_use: None,
             light_level: None,
         };
-        if !conditions::evaluate(world, vm, context, &info.conditions)? {
+        let lookup = |object, name: String| vm.conditional_vars(object, &name);
+        if !conditions::evaluate_for_caller(
+            world,
+            context,
+            &info.conditions,
+            Some(&lookup),
+            conditions::ProfileCaller::DialogueTopic(topic),
+        )? {
             return Ok(false);
         }
         if flags & SPENDS_FAVOR != 0 {

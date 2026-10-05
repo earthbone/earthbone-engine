@@ -65,6 +65,10 @@ impl Planner {
                 break;
             }
             if let Some(request) = self.requests.get_mut(&actor) {
+                let _entity = soe_trace::EntityScope::new(
+                    || world.profile_entity("actor", actor, "planning"),
+                    1,
+                );
                 let used = request.advance(world, self.remaining.min(REQUEST_BUDGET));
                 self.remaining -= used;
                 self.last_work += used;
@@ -212,6 +216,59 @@ mod tests {
             center: [0.0; 3],
             radius: 10.0,
         }
+    }
+
+    fn profile_child(name: &str) -> bool {
+        if std::env::var("SOE_PRF_13_CHILD").is_ok_and(|value| value == "1") {
+            return false;
+        }
+        let name = format!("{}::{name}", module_path!().split_once("::").unwrap().1);
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name, "--nocapture"])
+            .env("SOE_PRF_13_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        true
+    }
+
+    #[test]
+    fn prf_13_resumed_marker_work_keeps_actor_ownership() {
+        if profile_child("prf_13_resumed_marker_work_keeps_actor_ownership") {
+            return;
+        }
+        use soe_trace::{Operation, Profile};
+        Profile::disable();
+        let mut world = fixture();
+        let actor = id(0x810);
+        let mut planner = Planner::default();
+        planner.begin_frame(&mut world, &[actor]);
+        assert!(planner.request(&mut world, actor, goal()).is_pending());
+        Profile::clear();
+        Profile::enable();
+        planner.begin_frame(&mut world, &[actor]);
+        Profile::disable();
+        assert_eq!(planner.last_work, REQUEST_BUDGET);
+        let rows = Profile::summary();
+        let (_, stats) = rows
+            .iter()
+            .find(|(e, _)| {
+                e.kind == "actor"
+                    && e.id == actor.to_string()
+                    && e.phase == "planning"
+                    && e.plugin == "Prf11MarkerSlices.esm"
+            })
+            .unwrap();
+        assert_eq!(stats.calls, 1);
+        assert!(stats.total_ns > 0);
+        assert!(rows.iter().any(|(e, s)| e.kind == "record"
+            && e.plugin == "Prf11MarkerSlices.esm"
+            && s.work.get(Operation::RecordLookups) > 0));
     }
 
     #[test]

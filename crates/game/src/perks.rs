@@ -196,14 +196,14 @@ fn entry_point_invocations_with_conditions(
     for (perk_id, sections) in entries {
         let rank = actor_perk_rank(world, &owned, perk_id)?;
         let mut matching = Vec::new();
-        for section in sections {
+        for (section_index, section) in sections.into_iter().enumerate() {
             if section.entry_point != entry_point {
                 continue;
             }
             if u16::from(section.rank) + 1 > rank {
                 continue;
             }
-            if !entry_conditions(world, vm, lookup, perk_id, &section, context)? {
+            if !entry_conditions(world, vm, lookup, perk_id, section_index, &section, context)? {
                 continue;
             }
             let invocation = EntryPointInvocation {
@@ -570,6 +570,7 @@ fn entry_conditions(
     vm: Option<&Vm>,
     lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     perk: GlobalFormId,
+    section_index: usize,
     section: &EntrySection,
     context: &EntryPointContext,
 ) -> Result<bool, DispatchError> {
@@ -599,13 +600,21 @@ fn entry_conditions(
             skill_use: context.skill_use,
             light_level: None,
         };
-        let result = match (vm, lookup) {
-            (Some(vm), _) => conditions::evaluate(world, vm, condition_context, conditions),
-            (_, Some(lookup)) => {
-                conditions::evaluate_with_lookup(world, condition_context, conditions, lookup)
-            }
-            (None, None) => conditions::evaluate_without_vm(world, condition_context, conditions),
+        let caller = conditions::ProfileCaller::PerkEntry {
+            entry: section.entry_point,
+            section: section_index,
+            tab: *tab,
         };
+        let vm_lookup = |object, name: String| {
+            vm.map_or_else(Vec::new, |vm| vm.conditional_vars(object, &name))
+        };
+        let lookup = if vm.is_some() {
+            Some(&vm_lookup as &dyn Fn(ObjectId, String) -> Vec<Value>)
+        } else {
+            lookup
+        };
+        let result =
+            conditions::evaluate_for_caller(world, condition_context, conditions, lookup, caller);
         if !result.map_err(|error| DispatchError::Condition(perk, error))? {
             return Ok(false);
         }

@@ -1180,9 +1180,14 @@ impl World {
     /// Construct a world with reproducible, seed-derived random streams.
     pub fn new_with_seed(order: LoadOrder, seed: u64) -> World {
         let mut world = Self::new(order);
-        world.rng = if seed == 0 { 1 } else { seed };
-        world.rng_streams = rng::derive_streams(seed);
+        world.reset_random_seed(seed);
         world
+    }
+
+    /// Reset the existing gameplay random streams for a recorded input session.
+    pub fn reset_random_seed(&mut self, seed: u64) {
+        self.rng = if seed == 0 { 1 } else { seed };
+        self.rng_streams = rng::derive_streams(seed);
     }
 
     /// Use the immutable form table already opened by the host.
