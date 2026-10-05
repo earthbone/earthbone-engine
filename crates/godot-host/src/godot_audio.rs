@@ -105,6 +105,7 @@ pub struct SoundBank {
     source: Option<Arc<DataSource>>,
     async_sender: mpsc::Sender<AsyncAudioResult>,
     async_receiver: mpsc::Receiver<AsyncAudioResult>,
+    async_workers: Vec<std::thread::JoinHandle<()>>,
     music_generation: u64,
     ambience_generation: u64,
     music_cache: HashMap<(String, AsyncAudioKind), CachedTrack>,
@@ -128,6 +129,15 @@ pub struct SoundBank {
     music_starts: u64,
     ambience_starts: u64,
     last_error: GString,
+}
+
+impl Drop for SoundBank {
+    fn drop(&mut self) {
+        // SAFETY: Workers execute extension code, so join before library unload.
+        for worker in self.async_workers.drain(..) {
+            let _ = worker.join();
+        }
+    }
 }
 
 impl crate::dialogue_menu::VoiceOutput for SoundBank {
@@ -156,6 +166,7 @@ impl INode3D for SoundBank {
             source: None,
             async_sender,
             async_receiver,
+            async_workers: Vec::new(),
             music_generation: 0,
             ambience_generation: 0,
             music_cache: HashMap::new(),
@@ -722,7 +733,7 @@ impl SoundBank {
         let sender = self.async_sender.clone();
         let requested_path = path.to_owned();
         let result_path = key;
-        if let Err(error) = std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("soe-audio-decode".to_owned())
             .spawn(move || {
                 let decoded = source.decode(&requested_path);
@@ -733,16 +744,27 @@ impl SoundBank {
                     music_options,
                     decoded,
                 });
-            })
-        {
-            self.last_error = GString::from(error.to_string().as_str());
-            return false;
+            });
+        match worker {
+            Ok(worker) => self.async_workers.push(worker),
+            Err(error) => {
+                self.last_error = GString::from(error.to_string().as_str());
+                return false;
+            }
         }
         self.last_error = GString::new();
         true
     }
 
     fn finish_async_audio(&mut self) {
+        let mut index = 0;
+        while index < self.async_workers.len() {
+            if self.async_workers[index].is_finished() {
+                let _ = self.async_workers.swap_remove(index).join();
+            } else {
+                index += 1;
+            }
+        }
         while let Ok(result) = self.async_receiver.try_recv() {
             if result
                 .decoded

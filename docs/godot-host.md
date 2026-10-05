@@ -2889,6 +2889,14 @@ until its replacement is ready. Decoded music and ambience paths share a
 cache with a 64 MiB audio-data budget. Effects and voices
 keep their existing path, which decodes synchronously.
 
+SoundBank retains decode workers and joins them before destruction, so no
+worker executes extension code after the library unloads. Finished workers
+are joined during polling. This follows the local
+`godot-docs/tutorials/performance/using_multiple_threads.rst` shutdown example.
+An accepted request can still fail during decoding, which updates `last_error`
+without incrementing the playback start count. The AUD-11 counter check waits
+for decode completion before checking missing assets and restarts.
+
 `aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes` checks
 request latency, replacement cancellation, continued current playback, cache
 reuse and the cache budget using generated WAV files. It also checks the fast

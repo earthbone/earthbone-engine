@@ -52,8 +52,15 @@ func run() -> void:
 		printerr("could not open installed audio data: ", bank.call("last_error"))
 		quit(1)
 		return
-	if bank.call("play_ambience", "sound/missing/aud_11.wav"):
-		printerr("missing ambience unexpectedly started")
+	if not bank.call("play_ambience", "sound/missing/aud_11.wav"):
+		printerr("missing ambience request was not accepted")
+		quit(1)
+		return
+	var deadline := Time.get_ticks_msec() + 5000
+	while str(bank.call("last_error")).is_empty() and Time.get_ticks_msec() < deadline:
+		await process_frame
+	if not str(bank.call("last_error")).contains("sound/missing/aud_11.wav"):
+		printerr("missing ambience did not report its decode failure")
 		quit(1)
 		return
 	if int(bank.call("ambience_start_count")) != 0:
@@ -66,6 +73,9 @@ func run() -> void:
 			printerr("valid ambience failed: ", bank.call("last_error"))
 			quit(1)
 			return
+		deadline = Time.get_ticks_msec() + 5000
+		while int(bank.call("ambience_start_count")) < expected and Time.get_ticks_msec() < deadline:
+			await process_frame
 		if int(bank.call("ambience_start_count")) != expected:
 			printerr("ambience count did not match successful start ", expected)
 			quit(1)
