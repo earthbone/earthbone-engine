@@ -66,10 +66,27 @@ fn settings(plugin: &mut Plugin) {
 /// so the only difference between the kill case and the bleedout case is
 /// which actor swings.
 fn fixture() -> Game {
+    fixture_with_npc_perks(&[])
+}
+
+fn fixture_with_npc_perks(entries: &[Vec<u8>]) -> Game {
     let mut acbs = vec![0; 24];
     acbs[..4].copy_from_slice(&flags::PROTECTED.to_le_bytes());
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800).sub(Tag(*b"ACBS"), acbs));
+    let mut npc = Record::new(Tag(*b"NPC_"), 0x800).sub(Tag(*b"ACBS"), acbs);
+    for entry in entries {
+        npc = npc.sub(Tag(*b"PRKR"), entry.clone());
+    }
+    plugin.push_top(npc);
+    plugin.push_top(
+        Record::new(Tag(*b"PERK"), 0x810)
+            .sub(Tag(*b"DATA"), [0, 0, 1, 1, 0])
+            .sub(Tag(*b"PRKE"), [2, 0, 0])
+            .sub(Tag(*b"DATA"), [36, 2, 3])
+            .sub(Tag(*b"EPFT"), [1])
+            .sub(Tag(*b"EPFD"), 2.0_f32.to_le_bytes())
+            .sub(Tag(*b"PRKF"), []),
+    );
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x801));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x901).sub(Tag(*b"NAME"), 0x801_u32.to_le_bytes()));
@@ -96,6 +113,29 @@ fn hit_from(attacker: GlobalFormId) -> MeleeHit {
         weapon: id(0xA00),
         is_bash: false,
         is_power_attack: false,
+    }
+}
+
+#[test]
+fn cmb_39_duplicate_prkr_keeps_player_kill_and_npc_bleedout_paths() {
+    let mut first = 0x810_u32.to_le_bytes().to_vec();
+    first.extend_from_slice(&[1, 0, 0, 0]);
+    let mut second = first.clone();
+    second[4] = 2;
+    for attacker in [id(0x14), id(0x901)] {
+        let mut game = fixture_with_npc_perks(&[first.clone(), second.clone()]);
+        game.world_mut()
+            .set_actor_value(id(0x900), "health", 15.0)
+            .unwrap();
+        let result = game.melee_hit(hit_from(attacker)).unwrap();
+        let mut world = game.world_mut();
+        let target = world.actor(id(0x900)).unwrap();
+        if attacker == id(0x14) {
+            assert_eq!(result.health_damage, 17.0, "the incoming perk applies once");
+            assert!(result.killed && target.dead && !target.unconscious);
+        } else {
+            assert!(!result.killed && !target.dead && target.unconscious);
+        }
     }
 }
 
@@ -252,7 +292,7 @@ fn cmb_34_installed_protected_npc_takes_the_player_exception() {
     {
         let mut world = game.world_mut();
         world.set_actor_value(player, "onehanded", 100.).unwrap();
-        // CONTEXT: isolate protection from the installed player's perk entries.
+        // CONTEXT: clear runtime grants while retaining authored base PRKR entries.
         world.actor(player).unwrap().perks.clear();
         world.add_item(player, survey_weapon, 1);
         world.actor(player).unwrap().equipped.insert(survey_weapon);

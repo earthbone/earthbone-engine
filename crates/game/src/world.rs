@@ -821,6 +821,8 @@ pub struct World {
     quest_alias_candidates: std::sync::OnceLock<Option<Arc<[GlobalFormId]>>>,
     pub(crate) dialogue: crate::dialogue::State,
     pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
+    /// NPC bases warned about during this world session, excluded from saves.
+    pub(crate) duplicate_npc_perk_warnings: BTreeSet<GlobalFormId>,
     /// Source-level CommonLib event channels backed by this live world.
     pub(crate) commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
@@ -1339,6 +1341,7 @@ impl World {
             quest_alias_candidates: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
             known_dialogue_topics: BTreeSet::new(),
+            duplicate_npc_perk_warnings: BTreeSet::new(),
             commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
