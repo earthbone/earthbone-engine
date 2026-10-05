@@ -25,12 +25,10 @@ fn order() -> Arc<LoadOrder> {
     master.push_top(Record::new(Tag(*b"CELL"), CELL));
     master.push_top(Record::new(Tag(*b"MISC"), ITEM));
     master.push_top(Record::new(Tag(*b"MISC"), OVERRIDE_ITEM));
-    master.push_top(
-        Record::new(Tag(*b"CONT"), BASE).sub(
-            Tag(*b"CNTO"),
-            [ITEM.to_le_bytes(), 2_i32.to_le_bytes()].concat(),
-        ),
-    );
+    master.push_top(Record::new(Tag(*b"CONT"), BASE).sub(
+        Tag(*b"CNTO"),
+        [ITEM.to_le_bytes(), 2_i32.to_le_bytes()].concat(),
+    ));
     let mut reference = Record::new(Tag(*b"REFR"), REFERENCE)
         .sub(Tag(*b"NAME"), BASE.to_le_bytes())
         .sub(Tag(*b"DATA"), vec![0; 24]);
@@ -92,7 +90,11 @@ fn sav_71_repeated_loaded_reset_rebuilds_winning_inventory() {
 
     assert!(loaded.reset_reference(id(REFERENCE), None));
     assert_eq!(
-        loaded.reference_ref(id(REFERENCE)).unwrap().inventory.count(id(ITEM)),
+        loaded
+            .reference_ref(id(REFERENCE))
+            .unwrap()
+            .inventory
+            .count(id(ITEM)),
         7
     );
     loaded
