@@ -55,6 +55,8 @@ fn hst_12_disabled_reference_rejects_late_body_pose() {
 #[test]
 fn hst_12_invalid_pose_does_not_change_world() {
     let (mut world, id) = fixture();
+    let placement = world.ref_placement(id).unwrap();
     assert!(!world.set_host_ref_pose(id, [f32::NAN, 0.0, 0.0], [0.0; 3]));
-    assert!(world.ref_placement(id).is_none());
+    assert!(world.reference_ref(id).is_none());
+    assert_eq!(world.ref_placement(id), Some(placement));
 }
