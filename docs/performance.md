@@ -1,5 +1,179 @@
 # Performance
 
+## Capacity probes, PRF-28, 2026-10-05
+
+The CPU and light probes are described in [bench.md](bench.md) and
+[godot-host.md](godot-host.md). These measurements use the Ryzen 9 7900X,
+with 24 online logical CPUs. CPU curves use one worker in a release build,
+ten warm-up ticks and 120 measured ticks per rung. Each curve doubles from
+16 through at most 65,536 actors, stopping on the first p99 above 16.7 ms
+or worst frame above 33 ms. The table records sampled passing rungs,
+not exact maxima between those rungs. Setup and reports are excluded.
+No local Cargo build overlapped these CPU measurements. Other machine
+activity was not controlled. CPU subsystem curves do not measure a complete
+rendered gameplay frame.
+
+| Workload | Highest passing rung | First failing rung | Passing p99 | Failing p99 | Failing worst |
+|---|---:|---:|---:|---:|---:|
+| Synthetic high-process AI | 4,096 | 8,192 | 15.524 ms | 33.560 ms | 50.656 ms |
+| Whiterun high-process AI | 2,048 | 4,096 | 12.199 ms | 22.473 ms | 24.429 ms |
+| Synthetic CPU animation | 2,048 | 4,096 | 15.972 ms | 24.711 ms | 24.877 ms |
+| Whiterun CPU animation | 512 | 1,024 | 7.540 ms | 18.970 ms | 21.755 ms |
+
+The synthetic AI workload retains the existing Travel/Sandbox records.
+Whiterun uses the five installed masters and repeats enabled placed actor
+bases with their authored packages and positions. The synthetic animation
+fixture blends two constant 99-bone clips. Whiterun's first selected actor
+uses a 99-bone rig, 822 graph nodes, 205 loaded clips and 94 skin matrices
+across its visible surfaces. Its loader reports 14 missing clips and 13
+unresolved behavior references. The log records unsupported interpreter
+work at every rung. Both animation curves measure graph evaluation and CPU
+skin matrices, without GPU vertex skinning or render submissions.
+
+Reproduction, after building `soe-bench --release`:
+
+```text
+rtk proxy target/release/soe-bench capacity ai synthetic --start 16 --max 65536
+rtk proxy env SKYRIM_DATA=<Data> target/release/soe-bench capacity ai whiterun --start 16 --max 65536
+rtk proxy target/release/soe-bench capacity animation synthetic --start 16 --max 65536
+rtk proxy env SKYRIM_DATA=<Data> target/release/soe-bench capacity animation whiterun --start 16 --max 65536
+rtk proxy env SKYRIM_DATA=<Data> target/release/soe-bench capacity settings
+```
+
+### CPU p99 curves
+
+Every cell below is a measured p99 in milliseconds. A dash means the
+curve stopped at an earlier breach. These are separate subsystem workloads.
+
+| Actors | Synthetic AI | Whiterun AI | Synthetic animation | Whiterun animation |
+|---:|---:|---:|---:|---:|
+| 16 | 0.056 | 0.203 | 0.093 | 0.112 |
+| 32 | 0.093 | 0.592 | 0.194 | 0.335 |
+| 64 | 0.197 | 1.086 | 0.328 | 0.732 |
+| 128 | 0.572 | 1.663 | 0.835 | 1.727 |
+| 256 | 0.738 | 3.394 | 1.564 | 4.312 |
+| 512 | 1.808 | 7.467 | 3.274 | 7.540 |
+| 1024 | 2.736 | 8.914 | 6.522 | 18.970 |
+| 2048 | 7.382 | 12.199 | 15.972 | - |
+| 4096 | 15.524 | 22.473 | 24.711 | - |
+| 8192 | 33.560 | - | - | - |
+
+### Windowed light curves
+
+The light runs use Godot 4.4.1 Forward+ with llvmpipe LLVM 22.1.8 software
+Vulkan. They render 1,600 by 900 inside a 640 by 360 window, with vsync off.
+Every rung measures at least 600 frames and five seconds after pipeline
+warm-up. Lights move every frame through server RIDs and add zero nodes per
+light. The positional shadow atlas is 4,096 pixels with 1,024 map slots.
+The maximum configured light count is 512, matching the clustered-element
+limit. These runs measure this software renderer, not a physical GPU.
+
+| Scene and lights | Highest passing rung | First failing rung | Baseline p99 | Passing p99 | Failing p99 | Failing worst |
+|---|---:|---:|---:|---:|---:|---:|
+| Synthetic dynamic | 256 | 512 | 6.922 ms | 16.544 ms | 21.686 ms | 23.592 ms |
+| Synthetic shadow | 8 | 16 | 8.437 ms | 16.441 ms | 20.520 ms | 24.459 ms |
+| Whiterun dynamic | 0 | 1 | 87.372 ms | - | 82.796 ms | 89.030 ms |
+| Whiterun shadow | 0 | 1 | 79.790 ms | - | 251.902 ms | 336.052 ms |
+
+Each cell below is frame-wall p99 in milliseconds. The zero-light rung is
+the baseline. A dash means that the curve stopped at an earlier breach.
+
+| Added lights | Synthetic dynamic | Synthetic shadow | Whiterun dynamic | Whiterun shadow |
+|---:|---:|---:|---:|---:|
+| 0 | 6.922 | 8.437 | 87.372 | 79.790 |
+| 1 | 9.963 | 9.854 | 82.796 | 251.902 |
+| 2 | 7.830 | 11.509 | - | - |
+| 4 | 7.899 | 13.128 | - | - |
+| 8 | 9.243 | 16.441 | - | - |
+| 16 | 9.274 | 20.520 | - | - |
+| 32 | 8.967 | - | - | - |
+| 64 | 11.071 | - | - | - |
+| 128 | 13.477 | - | - | - |
+| 256 | 16.544 | - | - | - |
+| 512 | 21.686 | - | - | - |
+
+The synthetic scene draws a plane and 64 boxes. Whiterun streams nine cells,
+957 references, 287 render instances and 282 parsed meshes with no failed
+meshes. Its baseline draws 388,160 triangles and 289 draw calls. The probe
+checks that more than the boxes' 768 triangles reach rendering. Buried
+geometry extends the raw scene bounds far below the city, so the camera and
+light grid use the upper eight metres of those bounds. Pixel checks confirm
+that lights change the image and disabling shadows changes each shadow rung.
+
+Both Whiterun baselines already exceed the budgets. Zero is the measured
+capacity for added lights in these runs. The dynamic baseline has a 1,354.335 ms
+worst frame, despite pipeline warm-up, and the following one-light window has
+an 89.030 ms worst frame. The shadow run's one-light rung increases drawn
+primitives to 900,092 and draw calls to 578. These are separate scene runs,
+not estimates of light-only time. They do not establish physical GPU capacity.
+
+Build the release extension and import once before these commands. Set
+`SOE_CAPACITY_WORLD` to `synthetic` or `whiterun`, and
+`SOE_CAPACITY_LIGHTS` to `dynamic` or `shadow` for each curve:
+
+```text
+rtk cargo build -p soe-godot-host --release
+rtk proxy "$SOE_GODOT_BIN" --headless --path godot --import
+rtk proxy env SKYRIM_DATA=<Data> SOE_CAPACITY_WORLD=whiterun SOE_CAPACITY_LIGHTS=shadow SOE_CAPACITY_MAX=512 "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script capacity_lights.gd
+rtk proxy "$SOE_GODOT_BIN" --headless --path godot --script prf_28_capacity_test.gd
+```
+
+The corrected Whiterun dynamic run set `SOE_CAPACITY_MAX=1` and failed at that
+first rung. The other three curves used 512. Each completed windowed process
+exited with status zero after releasing the scene and light RIDs. Raw reports
+are retained locally under `target/prf-28-{ai,animation,lights}-*.log`, with
+settings in `target/prf-28-settings-vanilla.log`. The light logs contain p50, p99, p99.9 and worst values. CPU logs contain
+p99 and worst values, workload counts and unsupported animation work.
+`target/prf-28-report.json` combines them with source hashes for this checkout.
+
+Validation ran the installed-data Rust cases: 22 bench tests passed and one
+existing stress survey remained ignored. All ten new `prf_28_` Rust tests
+passed. The six headless light-ladder checks and four windowed light curves
+completed successfully. Bench and host clippy with all targets passed. The
+full gate is left to the reviewer, as requested.
+
+### Stored settings and source boundaries
+
+The Skyrim.esm-only survey finds 35 numeric name candidates containing actor,
+process, light or shadow. The stored detection settings include
+`iLightLevelInteriorMod=25`, `iLightLevelMax=300`,
+`fDetectionSneakLightMod=15`, `fSneakLightMult=0.33` and
+`fSneakLightExteriorMult=0.5`. These are light-level inputs, not counts of
+renderable lights. No numeric processing or rendered-light count cap is
+stored among those candidates.
+
+Local Wrye Bash `Mopy/bash/patcher/patchers/multitweak_settings.py` names
+`iAINumberActorsComplexScene` as the active-AI limit and
+`iNumberActorsInCombatPlayer` as the combatant limit. It lists 20 for both
+TES5 defaults. `iNumberActorsAllowedToFollowPlayer` is a follower limit.
+All three are absent from this installed Skyrim.esm. Those published defaults
+are not values read from its DATA fields. UESP's local GMST page states that
+many used GMST defaults are omitted from plugins and that editor IDs supply
+setting identity. The synthetic patch test verifies that a later record with
+the same editor ID can raise a setting through the existing World reader.
+
+Local Community Shaders `src/Features/LightLimitFix.cpp::DataLoaded` names
+`iMagicLightMaxCount` and raises it to the maximum signed integer. This name
+is also absent from the stored numeric survey. `LightLimitFix.h` describes
+a vanilla four-light renderer restriction. Its cluster and total-light
+constants belong to that mod's renderer, not to Skyrim.esm records or to
+this engine's Godot renderer.
+
+The installed `Skyrim_Default.ini` contains `[Display]`
+`fLightLODMaxStartFade=3500`, `fLightLODStartFade=3500`,
+`fShadowLODMaxStartFade=1000` and `iShadowMapResolutionPrimary=2048`.
+They control fade distances and shadow resolution. They do not state actor
+process-level counts or a general light count cap. INI values do not come
+from Skyrim.esm. The local CK dump has no page defining those processing or
+light-count settings. No game binary was read for this survey.
+
+PRF-28 is incomplete. This checkout has no middle-high, middle-low or low
+process scheduler and no PRF-17 worker implementation, so those curves cannot
+be measured through an executing engine path. The probes reject those modes.
+GPU actor capacity and runtime application of GMST/INI caps also remain
+unimplemented. The measured rungs are not installed as runtime limits.
+
+
 ## Permanent AI breakdown, PRF-27
 
 F5 in the walkthrough shows the always-on AI breakdown from
