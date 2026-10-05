@@ -1,5 +1,30 @@
 # soe-game: the runtime form table and the first natives
 
+## Per-system frame timing, PRF-12
+
+`Game::tick` and `tick_menu_mode` record an always-on exclusive system frame
+through `soe-trace`. `Game::frame_history` exposes the last tick's breakdown
+and rolling p50, p99 and worst over 240 ticks, with zero samples for idle
+systems. The frame denominator is the tick's elapsed wall time, independent
+of the simulated time argument. This history is session data and is not saved.
+
+The tick times magic updates, scene/dialogue work, quest lifecycle and story
+manager dispatch, and Papyrus scheduling. The actor driver times package and path planning,
+movement and combat selection/pursuit. Per-actor movement bookkeeping stays
+in the outer movement scope. Combat timing starts after eligibility checks
+accept the actor, before scanning targets. Direct spell, melee and dialogue
+entry points also carry system scopes, including calls from Papyrus natives.
+Sound request queuing uses the audio slot and save serialization uses the
+save slot. Nested system scopes exclude their
+children's time. Host-only systems remain present with zero tick time.
+Host snapshots can surround ticks and include saves and input between them.
+
+The fixed-slot timing model is documented in [trace.md](trace.md).
+`prf_12_frame` tests check tick accounting, paused idle systems and host/save
+snapshots. Its optimized 1,000-actor calibration uses the public record
+builders and travel/sandbox fixture from `crates/bench/src/stress/fixtures.rs`.
+
+
 ## Initial inventory list selection, UI-25
 
 Fresh references resolve CNTO and distributed LVLI quantities through the
@@ -24,30 +49,6 @@ UI-25 reuses it because a menu-specific list selection would create a second
 inventory and change the result on refresh. `ui_25_initial_inventory.rs` checks
 concrete counts, repeated lookup, native save reload, dynamic placement and
 invalid cyclic lists.
-
-## Per-system frame timing, PRF-12
-
-`Game::tick` and `tick_menu_mode` record an always-on exclusive system frame
-through `soe-trace`. `Game::frame_history` exposes the last tick's breakdown
-and rolling p50, p99 and worst over 240 ticks, with zero samples for idle
-systems. The frame denominator is the tick's elapsed wall time, independent
-of the simulated time argument. This history is session data and is not saved.
-
-The tick times magic updates, scene/dialogue work, quest lifecycle and story
-manager dispatch, and Papyrus scheduling. The actor driver times package and path planning,
-movement and combat selection/pursuit. Per-actor movement bookkeeping stays
-in the outer movement scope. Combat timing starts after eligibility checks
-accept the actor, before scanning targets. Direct spell, melee and dialogue
-entry points also carry system scopes, including calls from Papyrus natives.
-Sound request queuing uses the audio slot and save serialization uses the
-save slot. Nested system scopes exclude their
-children's time. Host-only systems remain present with zero tick time.
-Host snapshots can surround ticks and include saves and input between them.
-
-The fixed-slot timing model is documented in [trace.md](trace.md).
-`prf_12_frame` tests check tick accounting, paused idle systems and host/save
-snapshots. Its optimized 1,000-actor calibration uses the public record
-builders and travel/sandbox fixture from `crates/bench/src/stress/fixtures.rs`.
 
 The MIT CommonLib shim's `WorldState` implementation reads and writes actor
 values in the existing actor component store for actors already built in the
