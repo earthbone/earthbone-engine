@@ -143,6 +143,15 @@ func run() -> void:
 		failures.append("cached music path decoded again")
 	if int(bank.call("ambience_start_count")) != 1:
 		failures.append("ambience did not start after decode")
+	# Music and positional playback use separate stream caches.
+	var warm_voice := int(bank.call("play_voice", "music/aud12_short.wav", Vector3.ZERO))
+	if warm_voice < 0:
+		failures.append("small voice decode stopped working")
+	else:
+		bank.call("stop_voice", warm_voice)
+	var effects_before := int(bank.call("effect_start_count"))
+	var voices_before := int(bank.call("voice_start_count"))
+	var decoded_before_short := int(bank.call("decoded_count"))
 	var effect_start := Time.get_ticks_usec()
 	var short_effect: Variant = bank.call("play_effect", "music/aud12_short.wav", Vector3.ZERO)
 	var effect_ms := float(Time.get_ticks_usec() - effect_start) / 1000.0
@@ -153,7 +162,9 @@ func run() -> void:
 		failures.append("small effect or voice decode stopped working")
 	if effect_ms >= 2.0 or voice_ms >= 2.0:
 		failures.append("cached short effect or voice request blocked %.2f/%.2f ms" % [effect_ms, voice_ms])
-	if int(bank.call("effect_start_count")) != 1 or int(bank.call("voice_start_count")) != 1:
+	if int(bank.call("decoded_count")) != decoded_before_short:
+		failures.append("cached effect or voice path decoded again")
+	if int(bank.call("effect_start_count")) != effects_before + 1 or int(bank.call("voice_start_count")) != voices_before + 1:
 		failures.append("effect and voice start counters did not advance")
 	for path in ["music/aud12_cap_a.wav", "music/aud12_cap_b.wav"]:
 		var before := int(bank.call("decoded_count"))
