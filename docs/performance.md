@@ -1,5 +1,96 @@
 # Performance
 
+## Recorded sessions and profile differences, PRF-22
+
+Record a fixed-step workload through the PLY-01 input layer. In Rust, call
+`Driver::start_recording(&mut game, seed)`, queue and execute commands, then
+write the returned `Driver::finish_recording(&game)` session with
+`Session::write(path)`. A Wait command represents an idle simulation frame.
+The recording includes the seed, initial world and VM snapshot, transient
+residency and binding state, inputs, results and a state hash every 60 frames.
+It also hashes the initial state and the final partial interval.
+
+Enable `soe_trace::Profile` and clear it after setup. Export the first run
+with `Profile::export_summary(before_path)`. Load the same content definitions
+and providers in a fresh Game, call `Driver::start_replay`, then step its
+queued commands. Check `Driver::replay_error` after each step. Changed plugin
+or script provenance rejects replay before replacing state. An outcome or
+hash divergence stops execution and reports its frame. Export the replay's
+summary as `after.json`, then compare:
+
+```text
+rtk cargo run -p soe-bench --release -- profile-diff before.json after.json
+```
+
+The command accepts the PRF-13 `soe-entities.json` counter summary, rather
+than its scope trace. It needs no SKYRIM_DATA. Save a copy of each summary
+after ending capture. Repeat the same session after changing the engine to
+compare per-entity behavior and cost with the same inputs. Content changes
+require a new recording. Keep the CPU and workload fixed when interpreting
+wall-clock differences. The diff ranks actors, scripts, quests, plugins and
+systems independently for self time, inclusive time, calls, waits and each
+work counter, with signed percentages. Script functions and entity phases
+are grouped. Each metric lists the ten largest absolute changes, including
+decreases. New entities have a zero baseline, so their percentage is reported
+as new. Game and host system intervals are reported separately and excluded
+from plugin sums. Older PRF-13 files lack system totals, which compare as zero.
+
+PlayerNode exposes the same workflow with `record_player_session(seed)`,
+`write_player_session(absolute_path)` and `replay_player_session(absolute_path)`.
+Set `auto_step` to false, feed `queue_player_input` while recording, and use
+`step_player_input` for both runs. The method reports replay divergence as
+false, and `player_session_error` supplies its diagnostic. Only PLY-01 inputs
+are recorded. Arbitrary device controls and renderer state are outside the
+session hash, which covers Game and VM state.
+
+The automated test
+`prf_22_600_frame_session_replays_twice_and_injected_slow_script_tops_profile_diff`
+records 600 frames, replays twice with matching hashes and injects a
+five-millisecond native delay into SlowScript during the second replay.
+It compares actual PRF-13 exports through the CLI and requires SlowScript
+to head the script self-time diff. The delay affects execution time without
+changing gameplay state. After building and importing the extension, export
+the synthetic PLY-01 fixture and run the host replay check:
+
+```text
+rtk proxy env SOE_PLY_01_FIXTURE="$PWD/target/prf-22-fixture" cargo test -p soe-game --test it ply_01_sequence_opens -- --nocapture
+rtk proxy env SOE_PLY_01_FIXTURE="$PWD/target/prf-22-fixture" "$SOE_GODOT_BIN" --headless --path godot --script prf_22_session_test.gd
+```
+
+The host check records and replays 600 steps twice, checks eleven hashes and
+complete event logs, and quits. This is a simulation correctness check.
+Rendering frame comparisons continue to use the windowed bench.gd workflow.
+
+## Entity capture workflow, PRF-13
+
+The ignored release check `prf_13_disabled_capture_retains_prf_12_frame_budget`
+compares two optimized timing probes through `SOE_PRF_13_BASELINE` and
+`SOE_PRF_13_CURRENT`. Both use `prf_12_frame::actors(1000)`, ten warmup ticks
+and 240 measured ticks. Each prints elapsed nanoseconds and a checksum of the
+actors' final positions. The baseline uses the pre-change crates with system
+timing suspended. The current probe keeps system timing on and entity capture
+off. Fifteen alternating pairs must have equal checksums and a median ratio
+below 1.01. The existing PRF-12 calibration also runs in that test.
+
+Press F4 in the walkthrough to enable entity capture and its rolling rankings.
+Press it again to finish capture and write `user://soe-profile.json` and
+`user://soe-entities.json`. Player exit also writes both reports. F3 continues
+to show system frame timings. Headless Game runs accept `SOE_PROFILE=1` and
+`SOE_PROFILE_DIR=<existing-directory>` to write the same reports on drop.
+Open either JSON file in Perfetto. The scope trace carries entity and plugin
+arguments, while the summary contains session counter events per entity phase
+and plugin. Script identities include functions. The overlay groups functions
+by script and ranks actors, scripts, quests and plugins by self time.
+
+Nested scopes report inclusive time and self time. Plugin totals use self
+time, and operation counts belong to the innermost entity. Latent waits
+report real scheduler intervals separately from running time. Forms charge
+their defining plugin, regardless of the winner. Archived PEX providers map
+to plugin names, loose PEX files retain their source paths as provider labels.
+The trace retains the newest `MAX_EVENTS` scopes, while summary totals cover
+the complete session. Disabled factories do not construct strings or read
+clocks. Attribution adds no saved state and uses no new runtime dependency.
+
 The harness is `crates/bench` (binary `soe-bench`) plus `crates/trace`
 (scoped spans) and `godot/bench.gd` (frame time). Every number below comes
 from one machine and one commit, so a later run on the same machine can be
@@ -994,4 +1085,19 @@ guarantee. Earlier failed diagnostic runs remain recorded above.
 
 ```text
 PRF-11 actors=7 frames=3600 seconds=60 evaluations=24900 worst_ai_us=1756.340 failures=0
+```
+
+### TST-18 installed gameplay frame budget
+
+`godot/tst_18_frame_budget_test.gd` follows the walkthrough's installed-data
+startup in the Bannered Mare, then starts gameplay in the WhiterunWorld
+exterior. It runs ten warm-up frames followed by 3,600 fixed 60 Hz frames in
+each location, requires NPCs and package evaluations, and checks every
+measured gameplay step against the PRF-07 p99 budget of 16.7 ms and
+worst-frame budget of 33 ms. Each sample times one fixed `PlayerNode.advance`
+call. Headless walkthrough startup skips viewport pipeline warm-up.
+Run the check after building and importing the release extension:
+
+```text
+SOE_GODOT_BIN --headless --path godot --script tst_18_frame_budget_test.gd
 ```

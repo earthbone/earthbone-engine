@@ -1,5 +1,29 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Entity host capture, PRF-13
+
+The existing system overlay uses F4 to toggle `soe_trace::Profile`, displaying
+the top five actors, scripts, quests and plugins by self time in the preceding
+second. F3 retains its system view. Switching F4 off or leaving the player
+writes `user://soe-profile.json` and `user://soe-entities.json` for Perfetto.
+Headless startup also honors `SOE_PROFILE=1`.
+
+PlayerNode collects key-event latency tokens while profiling. A physics step
+moves control tokens into the presentation queue after application. Opening
+or closing a menu queues its token immediately. RenderingServer's
+`frame_post_draw` signal completes the presentation queue. This measures elapsed time from a key
+callback through the next applied and presented frame. It does not infer
+whether an unbound key changed a visible pixel. Audio playback scopes count
+voice and effect starts at the existing `AudioStreamPlayer3D.play` call.
+RenderingServer instance creation uses a shared submission wrapper to record
+its elapsed time and count in one output entity.
+
+The overlay reuses its panel and label and adds no per-reference nodes. No
+saved fields or dependency were added. The windowed `prf_13_` host check
+covers F4, an applied camera switch, presentation latency, an audio start,
+installed render submissions, summary JSON and an overlay capture. It uses
+the existing input path and the local Godot RenderingServer signal contract.
+
 ## Per-system frame monitors, PRF-12
 
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`
@@ -62,7 +86,32 @@ display list and labels form that frame. Other frame-count mismatches, subtag
 truncation errors and nesting beyond 64 levels remain errors. Synthetic
 fixtures cover both omissions, nested sprites and partial tags.
 
+Empty-depth Modify and Replace tags leave the display list unchanged, following
+normal frame playback in Ruffle's
+[MovieClip::place_object](https://github.com/ruffle-rs/ruffle/blob/master/core/src/display_object/movie_clip.rs).
+PlaceObject2/3 payloads must be fully consumed by the typed reader. The breaker
+fixture for an unoccupied depth contains an extra payload byte and is rejected
+for that malformed envelope rather than its empty depth.
+
 ## Scripted player input, PLY-01
+
+PRF-22 exposes `record_player_session(seed)`, `write_player_session(path)` and
+`replay_player_session(path)` on PlayerNode. Paths are absolute filesystem
+paths. Recording and replay use the same PLY-01 driver as headless Game.
+Set `auto_step` to false for explicit scripted stepping. Replay restores the
+Game snapshot and synchronizes the controller and cell resources, then
+`step_player_input` verifies the recorded outcome and each scheduled hash.
+`player_session_error` returns the latest divergence and `player_session_hash`
+returns the current Game and VM hash as hexadecimal text. A failed replay
+clears its pending queue and rejects further steps. Device controls outside
+the scripted input layer are not recorded by this transport.
+
+`godot/prf_22_session_test.gd` records 600 steps against the exported PLY-01
+fixture, replays the file twice, compares eleven hashes and complete event
+logs, then quits. It checks simulation and host transport without measuring
+render throughput. PRF-13 summaries also include host presentation system
+totals separately from overlapping Game tick totals. No per-reference node
+path or native save field is added.
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
 `soe_game::player_input::Driver`. `step_player_input` executes one queued
@@ -262,6 +311,31 @@ are not implemented.
 and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
 the cell ambience is released. The test uses a windowed 640 by 360 Godot
 process and exits when the transition check finishes.
+
+## Walkthrough audio, AUD-11
+
+When gameplay starts, `PlayerNode` attaches its `SoundBank` before syncing audio
+for the loaded cell. The cell's XCMO music type selects one eligible MUSC track
+through `soe_game::music`, and cell ambience selects the first eligible track
+through `soe_game::ambience`. Later cell changes repeat both selections.
+`SoundBank` exposes cumulative start counts for effects, voices, music and
+ambience so an integration run can report the paths that actually started.
+Music uses the host's configured WMA decoder, including the default in-process
+decoder for vanilla xWMA tracks.
+
+Set `SOE_AUD_11_TEST=1` when launching `godot/walkthrough.gd` with installed
+data to inject a forward walk for 20 seconds. The script captures and drains
+the master bus, then approaches Hulda through the existing scripted MoveTo
+command and selects her first offered topic through the dialogue menu. It
+captures two seconds of response playback before reporting the peak in dB and
+the four start counts. Walk duration and distance are measured before that
+interaction. A straight unattended walk does not guarantee NPC speech, and
+this check exercises the existing response playback path. It exits
+with failure if any count is zero or the master peak does not exceed -60 dB.
+The windowed test is `aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_system`.
+The AUD-11 Rust checks build the release extension in Cargo's current target
+directory, register it in isolated Godot projects and skip when `SKYRIM_DATA`
+or `SOE_GODOT_BIN` is unset.
 
 ### Papyrus weather image-space selection, SCR-54
 
@@ -1416,6 +1490,13 @@ Loading durations, worst loading frame and pipeline counts are reported
 separately. This is a quiet-counter predicate, not an API for pending compiler
 jobs. It does not warm views or effects introduced later.
 
+The render warm-up timeout begins at the first `frame_post_draw`, so time
+before the first drawn frame does not use the 30 second settle limit. The
+successful load report records that delay as `load_first_frame_wait_ms` and
+records the subsequent pipeline settling time as `load_render_ms`.
+`godot/prf_08_test.gd` checks the timeout behavior after a 77 minute simulated
+undrawn wait and checks both report fields with a windowed renderer.
+
 Sources read for PRF-08: local `godot-docs/tutorials/performance/pipeline_compilations.rst`,
 `classes/class_renderingserver.rst` and `classes/class_projectsettings.rst`.
 Godot documents deferred compilation for instance overrides, covered rendering
@@ -2297,6 +2378,9 @@ the call rather than retrying after Jolt reports an error. The PRF-32 checks a
 hulls to Godot's Jolt server. Its installed-data check streams Bannered Mare
 through the host and runs `physics_test.gd`, requiring collision bodies,
 contact and no Jolt shape error.
+The installed collision helper builds and registers the release extension.
+Clippy can leave metadata at the debug library path, so existence alone does
+not establish a loadable library.
 
 ## Capacity checks
 
@@ -3415,6 +3499,17 @@ worn extra data remain in the game layer. The public inventory_menu reader
 takes a Game, holder and category, allowing the container menu to reuse its
 form-backed rows without a second inventory model. Drop, use, charge, favorite
 and instance-specific actions remain outside UI-02.
+
+The item card and inventory row share this category reader, including the food
+icon. Its flag follows local xEdit `Core/wbDefinitionsTES5.pas`, and SkyUI's
+`ItemMenus/InventoryDataSetter.as` supplies the food classification behavior.
+SkyUI cache scene checks require `SOE_TEST_SKYUI` and either `SOE_FFDEC_JAR`
+or `SOE_FFDEC`. Without those inputs they report a skip. JPEXS FFDec's local
+CLI help lists `yes`, `ask` and `local` as import options. The converter uses
+`local` alone, leaving both import and prompting disabled, as confirmed by
+the bundled `CommandLineArgumentParser` and `ConsoleUrlResolver` classes.
+The archive survey checks bounded sprite definitions when Ruffle's parser
+rejects SkyUI's omitted sprite End tags.
 
 When activation opens a container, its menu presents the same category buttons
 and lists the container's positive inventory totals. The rows come from its shared

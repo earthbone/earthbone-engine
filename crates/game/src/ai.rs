@@ -563,6 +563,8 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
 /// The first candidate whose schedule and conditions hold. A running
 /// `Must Complete` package that still holds keeps its place.
 pub fn select(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
+    let _entity =
+        soe_trace::EntityScope::new(|| world.profile_entity("actor", actor, "planning"), 1);
     measure_phase(world, "package_selection", |world| {
         select_inner(world, actor)
     })
@@ -729,6 +731,11 @@ fn condition_holds(
     quest: Option<GlobalFormId>,
     c: &Condition,
 ) -> bool {
+    let _entity = soe_trace::EntityScope::new(
+        || world.profile_entity("condition", package_id, "packages"),
+        1,
+    );
+    soe_trace::count(soe_trace::Operation::Conditions, 1);
     let target = match c.run_on {
         0 => Some(subject),
         2 => world.resolve_from(package_id, c.reference),
@@ -958,6 +965,10 @@ fn function_value(
 /// scripts. Returns the package now running.
 pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Option<GlobalFormId> {
     let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
+    let _entity = soe_trace::EntityScope::new(
+        || world.profile_entity("actor", actor, "package_evaluation"),
+        1,
+    );
     let chosen = select(world, actor);
     switch_to(world, actor, chosen, alloc)
 }
@@ -1932,6 +1943,7 @@ fn idle_marker_animation(world: &mut World, marker: GlobalFormId) -> Option<Stri
 /// over the load order.
 pub fn references_in_cell(world: &mut World, cell: GlobalFormId) -> Vec<GlobalFormId> {
     measure_phase(world, "cell_references", |world| {
+        soe_trace::trace!(target: "game::ai", system = "game::ai", form_id = %cell, "reading cell references");
         soe_trace::debug!(target: "game::ai", system = "game::ai", form_id = %cell, "reading cell reference index");
         soe_trace::debug!(target: "game::ai", system = "game::ai", form_id = %cell, "querying cell reference index");
         let mut references = world.cell_references(cell);
@@ -2149,7 +2161,11 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
     world.ai.evaluation_time = std::time::Duration::ZERO;
     let navigation_started = std::time::Instant::now();
     if let Some(graph) = &world.ai.nav {
-        world.ai.planner.begin_frame(graph, &world.ai.nav_cells);
+        let mut planner = std::mem::take(&mut world.ai.planner);
+        planner.begin_frame_attributed(graph, &world.ai.nav_cells, |actor| {
+            world.profile_entity("actor", actor, "planning")
+        });
+        world.ai.planner = planner;
     }
     world
         .ai
@@ -2162,6 +2178,8 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
     });
     let now = world.clock.real_seconds;
     for actor in actors {
+        let _entity =
+            soe_trace::EntityScope::new(|| world.profile_entity("actor", actor, "movement"), 1);
         measure_phase(world, "actor_driver", |world| {
             if world.is_player(actor) {
                 return;
@@ -2792,6 +2810,10 @@ pub(crate) fn path_points(world: &mut World, from: [f32; 3], to: [f32; 3]) -> Ve
 }
 
 fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
+    let _entity = soe_trace::EntityScope::new(
+        || world.profile_entity("actor", actor, "procedure_movement"),
+        1,
+    );
     let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
     measure_phase(world, "movement", |world| {
         step_inner(world, actor, dt, alloc);

@@ -254,11 +254,13 @@ impl Game {
     }
 
     pub fn new(order: LoadOrder) -> Game {
+        soe_trace::Profile::from_environment();
         Self::from_shared_order(std::sync::Arc::new(order))
     }
 
     /// Use the immutable form table already opened by the host.
     pub fn from_shared_order(order: std::sync::Arc<LoadOrder>) -> Game {
+        soe_trace::Profile::from_environment();
         let world = Rc::new(RefCell::new(World::from_shared_order(order)));
         let mut vm = Vm::new();
         let budget_usage = Rc::new(natives::BudgetUsage::default());
@@ -436,7 +438,42 @@ impl Game {
         for path in pex {
             match vfs.read(&path) {
                 Ok(bytes) => match self.load_script(&bytes) {
-                    Ok(()) => report.scripts_loaded += 1,
+                    Ok(()) => {
+                        report.scripts_loaded += 1;
+                        let provider = match vfs.resolve(&path) {
+                            Some(soe_bsa::Source::Archived { archive, .. }) => vfs.archives()
+                                [*archive]
+                                .path()
+                                .file_stem()
+                                .map(|stem| stem.to_string_lossy().into_owned())
+                                .unwrap_or_default(),
+                            Some(soe_bsa::Source::Loose(path)) => {
+                                format!("<loose:{}>", path.display())
+                            }
+                            None => "<unknown>".to_owned(),
+                        };
+                        let plugin = self
+                            .world
+                            .borrow()
+                            .order()
+                            .files()
+                            .iter()
+                            .find(|file| {
+                                let stem = Path::new(&file.name)
+                                    .file_stem()
+                                    .map_or("", |stem| stem.to_str().unwrap_or_default());
+                                provider.eq_ignore_ascii_case(stem)
+                                    || provider
+                                        .to_ascii_lowercase()
+                                        .starts_with(&format!("{} - ", stem.to_ascii_lowercase()))
+                            })
+                            .map_or(provider.clone(), |file| file.name.clone());
+                        if let Some(script) =
+                            Path::new(&path).file_stem().and_then(|stem| stem.to_str())
+                        {
+                            self.vm.set_script_plugin(script, &plugin);
+                        }
+                    }
                     Err(e) => report.scripts_failed.push((path, e.to_string())),
                 },
                 Err(e) => report.scripts_failed.push((path, e.to_string())),
@@ -1517,7 +1554,9 @@ impl Game {
         self.push_tick_hash();
         drop(tick_scope);
         if let Some(frame) = frame {
-            self.frame_history.record(frame.finish());
+            let sample = frame.finish();
+            soe_trace::Profile::systems("game", &sample);
+            self.frame_history.record(sample);
         }
         self.last_work_counts = work_frame.counts();
     }
@@ -1952,4 +1991,22 @@ fn find_oar_clip(directory: &Path, file_name: &std::ffi::OsStr) -> Option<PathBu
         }
     }
     None
+}
+
+impl Drop for Game {
+    fn drop(&mut self) {
+        if std::env::var("SOE_PROFILE").is_ok_and(|value| value == "1") {
+            let directory = std::env::var_os("SOE_PROFILE_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            if let Err(error) =
+                soe_trace::Profile::export_chrome_json(&directory.join("soe-profile.json"))
+                    .and_then(|()| {
+                        soe_trace::Profile::export_summary(&directory.join("soe-entities.json"))
+                    })
+            {
+                soe_trace::error!(target: "game", system = "game", error = %error, "Could not write entity profile");
+            }
+        }
+    }
 }

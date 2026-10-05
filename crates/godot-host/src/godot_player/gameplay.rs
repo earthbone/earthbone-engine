@@ -210,8 +210,8 @@ impl PlayerNode {
             soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
         }
         self.effect_shaders.sync(&game.world());
-        self.start_footstep_audio();
         self.game = Some(game);
+        self.start_footstep_audio();
         self.clear_player_input();
         self.refresh_image_space();
         self.main_menu.leave();
@@ -621,8 +621,9 @@ impl PlayerNode {
                 godot::builtin::Vector3::new(pos.x, pos.y, pos.z),
             );
             let rid = *self.debug_ref_markers.entry(id).or_insert_with(|| {
-                soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-                let rid = server.instance_create2(mesh.get_rid(), scenario);
+                let rid = soe_trace::Profile::render_submission(|| {
+                    server.instance_create2(mesh.get_rid(), scenario)
+                });
                 if let Some(material) = material {
                     server.instance_geometry_set_material_override(rid, material.get_rid());
                 }
@@ -994,6 +995,7 @@ impl PlayerNode {
             self.collision_references = collision.references;
             self.loaded_cell = Some(cell);
             self.sync_cell_ambience(cell);
+            self.sync_cell_music(cell);
             self.record_door_texture_preparation(texture_preparation);
             self.footstep_cadence.reset();
             self.motion = CameraMotion::new(feet, self.capsule_height());

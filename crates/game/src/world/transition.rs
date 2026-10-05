@@ -37,7 +37,7 @@
 //! and the tests pin the choice rather than claim it is vanilla.
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Reader, Writer};
 use soe_papyrus::{ObjectId, VmError};
 
 use super::save::{read_form_id, write_form_id, FormReader};
@@ -58,6 +58,62 @@ pub struct CellTransition {
 }
 
 impl World {
+    pub(crate) fn record_session_residency(&self) -> Vec<u8> {
+        let mut writer = Writer::new();
+        for set in [
+            &self.streamed_cells,
+            &self.loaded_3d_references,
+            &self.attached_cells,
+        ] {
+            let mut ids: Vec<_> = set.iter().copied().collect();
+            ids.sort_unstable();
+            writer.len(ids.len());
+            for id in ids {
+                writer.u16(id.file);
+                writer.u32(id.object);
+            }
+        }
+        writer.bool(self.pending_unload.is_some());
+        if let Some(id) = self.pending_unload {
+            writer.u16(id.file);
+            writer.u32(id.object);
+        }
+        writer.out
+    }
+
+    pub(crate) fn restore_session_residency(&mut self, bytes: &[u8]) -> Result<(), VmError> {
+        let mut reader = Reader::new(bytes);
+        let mut sets = Vec::new();
+        for _ in 0..3 {
+            let mut ids = std::collections::HashSet::new();
+            for _ in 0..reader.len()? {
+                let id = GlobalFormId {
+                    file: reader.u16()?,
+                    object: reader.u32()?,
+                };
+                if !ids.insert(id) {
+                    return Err(VmError::State("duplicate session residency id".into()));
+                }
+            }
+            sets.push(ids);
+        }
+        let pending_unload = if reader.bool()? {
+            Some(GlobalFormId {
+                file: reader.u16()?,
+                object: reader.u32()?,
+            })
+        } else {
+            None
+        };
+        reader.expect_end()?;
+        let mut sets = sets.into_iter();
+        self.streamed_cells = sets.next().unwrap_or_default();
+        self.loaded_3d_references = sets.next().unwrap_or_default();
+        self.attached_cells = sets.next().unwrap_or_default();
+        self.pending_unload = pending_unload;
+        Ok(())
+    }
+
     /// Whether the cell currently has streamed host resources.
     #[must_use]
     pub fn cell_is_attached(&self, cell: GlobalFormId) -> bool {

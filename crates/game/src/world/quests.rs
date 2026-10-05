@@ -152,6 +152,7 @@ impl World {
     pub fn start_quest(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
         let _start = soe_trace::Span::new("game.start_quest", "game");
         let state = soe_trace::Span::new("game.quest_start_state", "game");
+        let _entity = soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "start"), 1);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
         if self.quest_state(id).is_none_or(|quest| quest.running) {
             return false;
@@ -240,6 +241,8 @@ impl World {
     /// The search is capped across winning `ACHR` and `REFR` records. If the
     /// cap is exceeded, the result is incomplete and no searched alias is filled.
     fn fill_reference_aliases(&mut self, id: GlobalFormId) -> bool {
+        let _entity =
+            soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "alias_fills"), 1);
         let Some(state) = self.quest_state(id) else {
             return false;
         };
@@ -332,6 +335,8 @@ impl World {
 
     /// Fill location aliases whose QUST record names a specific `LCTN` in `ALFL`.
     fn fill_specific_location_aliases(&mut self, id: GlobalFormId) -> bool {
+        let _entity =
+            soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "alias_fills"), 1);
         let Some(quest_ref) = self.order.winner_ref(id) else {
             return false;
         };
@@ -434,6 +439,7 @@ impl World {
     }
 
     pub fn stop_quest(&mut self, id: GlobalFormId) -> bool {
+        let _entity = soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "stop"), 1);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
         let stopped = match self.quest_state(id) {
             Some(q) if q.running => {
@@ -454,6 +460,8 @@ impl World {
     /// applies the log entry flags, and queues the stage fragment. Returns
     /// false for a stage the quest does not define.
     pub fn set_stage(&mut self, id: GlobalFormId, stage: u16, alloc: Alloc<'_>) -> bool {
+        let _entity =
+            soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "stage_changes"), 1);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
         let Some(q) = self.quest_state(id) else {
             return false;
@@ -608,6 +616,8 @@ impl World {
         alias: u32,
         target: Option<GlobalFormId>,
     ) -> bool {
+        let _entity =
+            soe_trace::EntityScope::new(|| self.profile_entity("quest", quest, "alias_fills"), 1);
         match self.quest_state(quest) {
             Some(q) if q.def.alias(alias).is_some() => {
                 q.aliases.insert(alias, target);

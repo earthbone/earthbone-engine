@@ -11,6 +11,8 @@ use soe_esm::GlobalFormId;
 use crate::combat::{Hand, MeleeHit};
 use crate::Game;
 
+pub mod session;
+
 /// Simulation seconds advanced after each command, including a rejected command.
 pub const STEP_SECONDS: f64 = 1.0 / 60.0;
 
@@ -66,6 +68,8 @@ pub enum Command {
 /// Invalid input or a failure reported by the shared gameplay executor.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("player input replay already owns the command queue")]
+    Replay,
     #[error("player input contains a non-finite transform")]
     Transform,
     #[error("player input reference unavailable: {0:?}")]
@@ -101,6 +105,8 @@ pub struct Event {
 pub struct Driver {
     queue: VecDeque<Command>,
     events: Vec<Event>,
+    session: Option<session::Capture>,
+    session_error: Option<session::Error>,
 }
 
 impl Driver {
@@ -109,6 +115,9 @@ impl Driver {
     /// # Errors
     /// Rejects non-finite positions or rotations before enqueueing.
     pub fn push(&mut self, command: Command) -> Result<(), Error> {
+        if matches!(self.session, Some(session::Capture::Replay(_))) {
+            return Err(Error::Replay);
+        }
         let values = match &command {
             Command::MoveTo { offset, .. } => Some(offset),
             Command::Turn { rotation } => Some(rotation),
@@ -135,6 +144,9 @@ impl Driver {
     /// An empty queue does not advance time. Gameplay failures are logged and
     /// consume their step, so a script can inspect and reproduce a rejection.
     pub fn step(&mut self, game: &mut Game) -> Option<Event> {
+        if self.session_error.is_some() {
+            return None;
+        }
         let command = self.queue.pop_front()?;
         let trace_start = game.vm.log.entries.len();
         let result = game
@@ -161,6 +173,7 @@ impl Driver {
                 .collect(),
         };
         self.events.push(event.clone());
+        self.capture_step(game, &event);
         Some(event)
     }
 }

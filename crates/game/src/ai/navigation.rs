@@ -166,7 +166,19 @@ impl Planner {
             .is_some_and(|request| request.result.is_pending())
     }
 
+    #[cfg(test)]
     pub(super) fn begin_frame(&mut self, graph: &NavGraph, cells: &[Option<GlobalFormId>]) {
+        self.begin_frame_attributed(graph, cells, |actor| {
+            soe_trace::Entity::new("actor", actor.to_string(), "<unknown>", "planning")
+        });
+    }
+
+    pub(super) fn begin_frame_attributed(
+        &mut self,
+        graph: &NavGraph,
+        cells: &[Option<GlobalFormId>],
+        entity: impl Fn(GlobalFormId) -> soe_trace::Entity,
+    ) {
         let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
         self.frame = self.frame.wrapping_add(1);
         self.remaining = FRAME_NODE_BUDGET;
@@ -186,6 +198,12 @@ impl Planner {
         if pending.is_empty() {
             return;
         }
+        let entities = soe_trace::Profile::enabled().then(|| {
+            pending
+                .iter()
+                .map(|(actor, _)| (**actor, entity(**actor)))
+                .collect::<BTreeMap<_, _>>()
+        });
         let recorder = soe_trace::WorkRecorder::current();
         let workers = self.pool.as_ref().map_or_else(
             rayon::current_num_threads,
@@ -204,8 +222,12 @@ impl Planner {
             let mut execute = || {
                 batch
                     .par_iter_mut()
-                    .map(|(_, request)| {
+                    .map(|(actor, request)| {
                         let _work = recorder.as_ref().map(soe_trace::WorkRecorder::enter);
+                        let actor = **actor;
+                        let _entity = entities.as_ref().map(|entities| {
+                            soe_trace::EntityScope::new(|| entities[&actor].clone(), 1)
+                        });
                         let started = Instant::now();
                         let mut phases = BTreeMap::new();
                         let used = request.advance(graph, cells, budget, &mut phases);
@@ -444,6 +466,64 @@ pub(super) fn request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn profile_child(name: &str) -> bool {
+        if std::env::var("SOE_PRF_13_CHILD").is_ok_and(|value| value == "1") {
+            return false;
+        }
+        let name = format!("{}::{name}", module_path!().split_once("::").unwrap().1);
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name, "--nocapture"])
+            .env("SOE_PRF_13_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        true
+    }
+
+    #[test]
+    fn prf_13_resumed_navigation_charges_each_requesting_actor() {
+        if profile_child("prf_13_resumed_navigation_charges_each_requesting_actor") {
+            return;
+        }
+        use soe_trace::Profile;
+        Profile::disable();
+        let graph = strip();
+        let mut planner = Planner::default();
+        let actors = [actor(0x800), actor(0x801)];
+        for id in actors {
+            assert!(planner
+                .request(&graph, &[None], id, [10.0, 25.0, 0.0], goal())
+                .is_pending());
+        }
+        Profile::clear();
+        Profile::enable();
+        planner.begin_frame_attributed(&graph, &[None], profile_actor);
+        Profile::disable();
+        let rows = Profile::summary();
+        for actor in actors {
+            let (_, stats) = rows
+                .iter()
+                .find(|(e, _)| {
+                    e.kind == "actor"
+                        && e.id == actor.to_string()
+                        && e.phase == "planning"
+                        && e.plugin == "Prf11.esm"
+                })
+                .unwrap();
+            assert_eq!(stats.calls, 1);
+            assert!(stats.total_ns > 0);
+        }
+    }
+
+    fn profile_actor(id: GlobalFormId) -> soe_trace::Entity {
+        soe_trace::Entity::new("actor", id.to_string(), "Prf11.esm", "planning")
+    }
 
     fn strip() -> NavGraph {
         let mut graph = NavGraph::new();
@@ -798,10 +878,11 @@ mod tests {
         assert_eq!(world.reference(id).unwrap().position, [10.0, 25.0, 0.0]);
         let mut frames = 0;
         while world.ai.planner.waiting(id) {
-            world
-                .ai
-                .planner
-                .begin_frame(world.ai.nav.as_ref().unwrap(), &world.ai.nav_cells);
+            world.ai.planner.begin_frame_attributed(
+                world.ai.nav.as_ref().unwrap(),
+                &world.ai.nav_cells,
+                |id| soe_trace::Entity::new("actor", id.to_string(), "Prf11.esm", "planning"),
+            );
             frames += 1;
             assert!(world.ai.planner.last_work <= REQUEST_NODE_BUDGET);
             assert_eq!(world.actor(id).unwrap().ai, before);
@@ -878,7 +959,7 @@ mod tests {
         assert_eq!(planner.last_work, FRAME_NODE_BUDGET);
         let mut completed = HashSet::new();
         for _ in 0..100 {
-            planner.begin_frame(&graph, &[None]);
+            planner.begin_frame_attributed(&graph, &[None], profile_actor);
             assert!(planner.last_work <= FRAME_NODE_BUDGET);
             for request in planner.requests.values() {
                 if let Work::Route(Some(search)) = &request.work {
@@ -921,7 +1002,7 @@ mod tests {
             .request(&graph, &[None], actor(1), from, goal)
             .is_pending());
         for _ in 0..100 {
-            planner.begin_frame(&graph, &[None]);
+            planner.begin_frame_attributed(&graph, &[None], profile_actor);
             assert!(planner.last_work <= REQUEST_NODE_BUDGET);
             if !planner.waiting(actor(1)) {
                 break;
@@ -966,7 +1047,7 @@ mod tests {
             );
             assert_eq!(planner.last_work, 1);
             for _ in 0..3600 {
-                planner.begin_frame(&graph, &[None; 2]);
+                planner.begin_frame_attributed(&graph, &[None; 2], profile_actor);
                 assert_eq!(
                     planner.request(&graph, &[None; 2], actor(1), from, goal),
                     expected
@@ -982,7 +1063,7 @@ mod tests {
                 expected
             );
             assert_eq!(planner.last_work, 1, "explicit cancellation must retry");
-            planner.begin_frame(&graph, &[None; 2]);
+            planner.begin_frame_attributed(&graph, &[None; 2], profile_actor);
             assert!(planner.moved(actor(1), [20.0, 25.0, 0.0]));
             assert_eq!(
                 planner.request(&graph, &[None; 2], actor(1), [20.0, 25.0, 0.0], goal),
@@ -990,7 +1071,7 @@ mod tests {
             );
             assert_eq!(planner.last_work, 1, "changed start must retry");
             planner.clear();
-            planner.begin_frame(&graph, &[None; 2]);
+            planner.begin_frame_attributed(&graph, &[None; 2], profile_actor);
             assert_eq!(
                 planner.request(&graph, &[None; 2], actor(1), from, goal),
                 expected

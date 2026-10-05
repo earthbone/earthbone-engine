@@ -212,3 +212,19 @@ fn prg_08_false_conditions_and_missing_tabs_do_not_run_handlers() {
     );
     assert_eq!(game.world_mut().actor_value(actor, "health"), 10.0);
 }
+
+/// Distinct entry-point sections for the entity-attribution check.
+pub(crate) fn prf_13_fixture() -> Game {
+    let mut record = Record::new(Tag(*b"PERK"), PERK).sub(Tag(*b"DATA"), [0, 0, 1, 1, 0]);
+    for entry in [35, 36] {
+        record = record
+            .sub(Tag(*b"PRKE"), [2, 0, 0])
+            .sub(Tag(*b"DATA"), [entry, 2, 1])
+            .sub(Tag(*b"PRKC"), [0])
+            .sub(Tag(*b"CTDA"), condition(448, PERK, 1.0))
+            .sub(Tag(*b"EPFT"), [1])
+            .sub(Tag(*b"EPFD"), 1.0f32.to_le_bytes())
+            .sub(Tag(*b"PRKF"), []);
+    }
+    game(vec![record])
+}
