@@ -58,6 +58,9 @@ func hst_20_first_draw_timeout_starts_after_a_long_undrawn_wait() -> void:
 
 func hst_20_prepare_reports_first_frame_wait_separately() -> void:
 	var report: Dictionary = await Warmup.prepare()
+	if DisplayServer.get_name() == "headless":
+		check(report.error == "render warm-up requires a windowed renderer", "headless render warm-up is rejected")
+		return
 	check(report.error.is_empty(), "windowed render warm-up succeeds")
 	check(report.has("load_first_frame_wait_ms"), "report includes first-frame wait")
 	check(report.has("load_render_ms"), "report includes render warm-up duration")
