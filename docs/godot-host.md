@@ -26,6 +26,13 @@ display list and labels form that frame. Other frame-count mismatches, subtag
 truncation errors and nesting beyond 64 levels remain errors. Synthetic
 fixtures cover both omissions, nested sprites and partial tags.
 
+Empty-depth Modify and Replace tags leave the display list unchanged, following
+normal frame playback in Ruffle's
+[MovieClip::place_object](https://github.com/ruffle-rs/ruffle/blob/master/core/src/display_object/movie_clip.rs).
+PlaceObject2/3 payloads must be fully consumed by the typed reader. The breaker
+fixture for an unoccupied depth contains an extra payload byte and is rejected
+for that malformed envelope rather than its empty depth.
+
 ## Scripted player input, PLY-01
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared

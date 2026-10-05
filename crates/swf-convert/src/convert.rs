@@ -229,6 +229,17 @@ fn read_tags(mut bytes: &[u8], version: u8, nesting: usize) -> Result<Vec<Tag<'_
                 num_frames,
                 tags: read_tags(sprite.get_ref(), version, nesting + 1)?,
             })
+        } else if matches!(code, 26 | 70) {
+            let mut place_reader = swf::read::Reader::new(payload, version);
+            let place = place_reader
+                .read_place_object_2_or_3(if code == 26 { 2 } else { 3 })
+                .map_err(|e| Error::Swf(e.to_string()))?;
+            if !place_reader.get_ref().is_empty() {
+                return Err(Error::Invalid(format!(
+                    "PlaceObject tag {code} has trailing payload bytes"
+                )));
+            }
+            Tag::PlaceObject(Box::new(place))
         } else {
             swf::read::Reader::new(bytes, version)
                 .read_tag()
@@ -471,20 +482,12 @@ fn timeline(
                         visible: true,
                         filters: vec![],
                     },
-                    PlaceObjectAction::Modify => {
+                    PlaceObjectAction::Modify | PlaceObjectAction::Replace(_) => {
                         let Some(previous) = display.get(&place.depth).cloned() else {
-                            // A modifier for an empty depth leaves the display list unchanged.
+                            // CONTEXT: Ruffle ignores updates to empty depths during frame playback.
                             continue;
                         };
                         previous
-                    }
-                    PlaceObjectAction::Replace(_) => {
-                        display.get(&place.depth).cloned().ok_or_else(|| {
-                            Error::Invalid(format!(
-                                "timeline {id} modifies empty depth {}",
-                                place.depth
-                            ))
-                        })?
                     }
                 };
                 if let PlaceObjectAction::Replace(character) = place.action {
