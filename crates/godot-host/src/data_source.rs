@@ -652,10 +652,25 @@ impl DataSource {
     }
 
     /// The worldspace and editor id whose terrain and object LOD assets back
-    /// the requested worldspace, following its use-parent-land flag.
+    /// the requested worldspace, following PNAM's Use LOD Data bit.
+    /// xEdit's wbDefinitionsTES5.pas defines this separately from Use Land Data.
     #[must_use]
     pub fn lod_worldspace(&self, world: GlobalFormId) -> Option<(GlobalFormId, String)> {
-        let lod_world = self.land_parent_of(world).unwrap_or(world);
+        let mut lod_world = world;
+        let mut visited = std::collections::HashSet::new();
+        loop {
+            if !visited.insert(lod_world) {
+                return None;
+            }
+            let owner = self.order.winner_ref(lod_world)?;
+            let record = self.order.record(owner);
+            let localized = self.order.file(owner.file).plugin.header.is_localized();
+            let view = soe_esm::records::wrld::World::from_record(record, localized).ok()?;
+            if view.parent_flags.is_none_or(|flags| flags & 0x0002 == 0) {
+                break;
+            }
+            lod_world = self.order.resolve(owner.file, view.parent?);
+        }
         let editor_id = self
             .order
             .winner(lod_world)

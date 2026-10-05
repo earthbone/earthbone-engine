@@ -2585,7 +2585,8 @@ impl CellStreamerNode {
 
     /// One incremental LOD step for a focus at cell (`cell_x`, `cell_y`),
     /// with the settings the last `stream_terrain_lod` call gave: at most
-    /// one block read and two released, then the budget enforced. Call it
+    /// one block read and two distant blocks released, then the budget enforced.
+    /// Every block overlapping near coverage is released in the same call. Call it
     /// when the focus changes cell, alongside the cell streamer, to keep
     /// the LOD ring following the player without a long frame. Returns the
     /// blocks drawn by this call, or -1 when `stream_terrain_lod` has not
@@ -2631,6 +2632,17 @@ impl CellStreamerNode {
         self.terrain_lod
             .as_ref()
             .map_or(0, |lod| lod.streamer.usage_bytes() as i64)
+    }
+
+    /// Toggle only distant terrain instances, retaining residency and nearby cells.
+    #[func]
+    pub fn set_terrain_lod_visible(&mut self, visible: bool) {
+        let mut server = RenderingServer::singleton();
+        if let Some(lod) = &self.terrain_lod {
+            for instance in lod.blocks.values().flatten() {
+                server.instance_set_visible(instance.rid, visible);
+            }
+        }
     }
 
     /// The LOD state as a dictionary: world, level, anchor_x, anchor_y,

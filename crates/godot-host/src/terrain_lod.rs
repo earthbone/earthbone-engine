@@ -222,15 +222,16 @@ pub enum LodConfigError {
 pub struct TerrainLodConfig {
     pub level: LodLevel,
     /// Ring distance in cells, inclusive, that keeps full resolution LAND
-    /// terrain. Should match the cell streamer's own `load_radius` so the
-    /// two never disagree about which cells are near.
+    /// terrain. Cover the cell streamer's retained cells, including its
+    /// unload radius when it uses hysteresis.
     pub full_res_radius: i32,
     /// Ring distance in cells, inclusive, out to which LOD blocks replace
     /// full resolution terrain. Must exceed `full_res_radius`.
     pub lod_radius: i32,
     /// Most blocks to start loading in one `update`. 0 means unlimited.
     pub max_loads_per_tick: usize,
-    /// Most blocks to release in one `update`. 0 means unlimited.
+    /// Most distant blocks to release in one `update`. 0 means unlimited.
+    /// Blocks overlapping full resolution coverage are always released immediately.
     pub max_unloads_per_tick: usize,
     /// Recorded byte cap across resident blocks. 0 means unlimited, and
     /// `evict_to_budget` is then a no-op.
@@ -454,9 +455,15 @@ impl TerrainLodStreamer {
             })
             .collect();
         stale.sort_by_key(|b| (std::cmp::Reverse(b.ring_distance(focus)), b.x, b.y));
-        if self.config.max_unloads_per_tick > 0 {
-            stale.truncate(self.config.max_unloads_per_tick);
-        }
+        let mut distant_unloads = 0;
+        stale.retain(|block| {
+            if block.ring_distance(focus) <= self.config.full_res_radius {
+                return true;
+            }
+            distant_unloads += 1;
+            self.config.max_unloads_per_tick == 0
+                || distant_unloads <= self.config.max_unloads_per_tick
+        });
 
         for b in &wanted {
             self.resident.entry(*b).or_insert(0);
