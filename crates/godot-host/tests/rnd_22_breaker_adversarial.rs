@@ -5,13 +5,18 @@
 
 use std::{path::PathBuf, process::Command};
 
-use soe_godot_host::{mesh::{EffectMaterial, MaterialDesc}, nif_effect};
+use soe_godot_host::{
+    mesh::{EffectMaterial, MaterialDesc},
+    nif_effect,
+};
 use soe_nif::{blocks::flags1, mesh::EffectParams};
 
 #[test]
-fn rnd_22_uv_transform_matches_nif_loader_center_and_offset_convention() {
-    let mut material = MaterialDesc::default();
-    material.shader_flags_1 = flags1::ZBUFFER_TEST;
+fn rnd_22_effect_uv_transform_applies_authored_scale_and_offset() {
+    let material = MaterialDesc {
+        shader_flags_1: flags1::ZBUFFER_TEST,
+        ..Default::default()
+    };
     let effect = EffectMaterial {
         params: EffectParams::default(),
         blend: None,
@@ -21,9 +26,7 @@ fn rnd_22_uv_transform_matches_nif_loader_center_and_offset_convention() {
     };
     let shader = nif_effect::shader(&material, &effect);
 
-    assert!(shader.contains(
-        "vec2 uv = (UV - vec2(0.5)) * uv_scale + vec2(0.5) - uv_offset;"
-    ));
+    assert!(shader.contains("vec2 uv = UV * uv_scale + uv_offset;"));
 }
 
 #[test]
@@ -36,7 +39,9 @@ fn rnd_22_installed_effect_capture_renders_mist_and_window() {
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = workspace.join("godot");
-    assert!(workspace.join("target/release/libsoe_godot_host.so").is_file());
+    assert!(workspace
+        .join("target/release/libsoe_godot_host.so")
+        .is_file());
 
     let output = Command::new(godot)
         .arg("--path")

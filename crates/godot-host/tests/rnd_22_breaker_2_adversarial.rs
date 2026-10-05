@@ -3,7 +3,10 @@
 
 //! Source-backed checks for RND-22 material edge behavior.
 
-use soe_godot_host::{mesh::{EffectMaterial, MaterialDesc}, nif_effect};
+use soe_godot_host::{
+    mesh::{EffectMaterial, MaterialDesc},
+    nif_effect,
+};
 use soe_nif::{
     blocks::{flags1, flags2, BlendFactor, TestFunc},
     mesh::{AlphaTest, Blend, EffectParams},
