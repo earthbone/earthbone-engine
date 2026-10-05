@@ -4,7 +4,8 @@
 //! Adversarial checks for authored effect-material state sent to Godot.
 
 use soe_godot_host::{
-    mesh::{EffectMaterial, MaterialDesc}, nif_effect,
+    mesh::{EffectMaterial, MaterialDesc},
+    nif_effect,
 };
 use soe_nif::{
     blocks::{flags1, flags2, BlendFactor, TestFunc},
@@ -93,15 +94,16 @@ fn rnd_22_each_ni_alpha_blend_factor_is_translated_without_aliasing() {
             assert!(code.contains("blend_"), "{src:?}, {dst:?}");
             if !matches!(
                 (src, dst),
-                (BlendFactor::SrcAlpha, BlendFactor::OneMinusSrcAlpha)
-                    | (BlendFactor::One, BlendFactor::OneMinusSrcAlpha)
-                    | (BlendFactor::SrcAlpha, BlendFactor::One)
-                    | (BlendFactor::One, BlendFactor::One)
-                    | (BlendFactor::DstColor, BlendFactor::Zero)
+                (
+                    BlendFactor::SrcAlpha | BlendFactor::One,
+                    BlendFactor::OneMinusSrcAlpha | BlendFactor::One
+                ) | (BlendFactor::DstColor | BlendFactor::One, BlendFactor::Zero)
                     | (BlendFactor::Zero, BlendFactor::SrcColor)
-                    | (BlendFactor::One, BlendFactor::Zero)
             ) {
-                assert!(code.contains("texture(screen_texture, SCREEN_UV)"), "{src:?}, {dst:?}");
+                assert!(
+                    code.contains("texture(screen_texture, SCREEN_UV)"),
+                    "{src:?}, {dst:?}"
+                );
             }
         }
     }

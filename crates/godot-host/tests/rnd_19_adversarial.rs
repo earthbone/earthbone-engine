@@ -63,13 +63,15 @@ fn lod_parent_selection_uses_the_wrld_use_lod_flag() {
             .expect("installed child WRLD resolves for LOD");
         assert_eq!(
             actual,
-            (expected_id, expected_editor_id.to_owned()),
-            "{} must follow its PNAM Use LOD Data bit",
-            editor_id
+            (expected_id, expected_editor_id.clone()),
+            "{editor_id} must follow its PNAM Use LOD Data bit"
         );
         checked += 1;
     }
-    assert!(checked > 0, "Skyrim.esm should include parented WRLD records");
+    assert!(
+        checked > 0,
+        "Skyrim.esm should include parented WRLD records"
+    );
 }
 
 #[test]
@@ -99,7 +101,9 @@ fn lod_focus_move_releases_departed_ring_and_fills_new_ring() {
     let mut streamer = TerrainLodStreamer::new(config).expect("valid radii");
     let first = CellCoord::new(-17, 23);
     assert!(!streamer.settle(first).load.is_empty());
-    let old = streamer.resident_blocks().collect::<std::collections::HashSet<_>>();
+    let old = streamer
+        .resident_blocks()
+        .collect::<std::collections::HashSet<_>>();
     let moved = CellCoord::new(29, -11);
     let plan = streamer.settle(moved);
 

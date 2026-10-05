@@ -7,7 +7,9 @@ mod common;
 
 use common::{quad, NifWriter};
 use soe_nif::{
-    blocks::{flags1, flags2, AlphaProperty, BlendFactor, TestFunc}, parse, vertex::attr,
+    blocks::{flags1, flags2, AlphaProperty, BlendFactor, TestFunc},
+    parse,
+    vertex::attr,
 };
 
 fn effect_mesh(alpha_flags: Option<u16>) -> Vec<u8> {
