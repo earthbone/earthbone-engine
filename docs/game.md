@@ -7737,8 +7737,9 @@ authored HasPerk conditions, this supports retaining lower identities. That
 retention is an inference, without a direct original-runtime purchase
 comparison. NPC PRKR is a separate FormID plus rank byte. UESP labels that
 byte unused, and the existing NPC reader retains only its FormID. This
-purchase path does not reinterpret it. Entry-point dispatch separately reads
-the rank from an actor base's PRKR entries. The full CK Perk page was absent from
+purchase path does not reinterpret it. Entry-point dispatch also uses PRKR
+for identities and derives ranks from NNAM chains. The full CK Perk page was
+absent from
 the local dump and its online fetch was unavailable for PRG-02, PRG-16 did
 not need it since the installed corpus and the sources above settle all four
 bytes. The existing CTDA parser, condition evaluator, actor values and
@@ -7766,9 +7767,9 @@ malformed graph policy, effect execution or menu behavior.
 ## Perk entry-point dispatch (PRG-08)
 
 `EntryPointDispatcher` registers handlers by entry-point ID and visits an
-actor's owned winning PERK records in load-order order. NPC actors use the
-rank byte from their base record's PRKR entry. Other actors use the highest
-owned rank in that PERK's NNAM chain. Within each PERK it filters out complex
+actor's owned winning PERK records in load-order order. NPC base PRKR entries
+also supply owned identities. All actors use the highest owned rank in that
+PERK's NNAM chain. Within each PERK it filters out complex
 entries above that rank, then orders eligible entries by ascending PRKE
 priority. Equal priorities retain their source order. The invocation carries
 the entry's one-based PRKE rank, priority, and EPFT/EPFD data. Priority direction, tie
@@ -7796,6 +7797,29 @@ It does not claim the unresolved priority-tie, acquisition-order or exact
 versus cumulative rank behavior documented above. Source-order ties and
 ascending priority are deterministic engine choices, not captured vanilla
 behavior. Cross-perk ordering also needs a capture.
+
+### NPC perk loading and sparse condition tabs, CMB-39
+
+NPC base PRKR entries retain the first occurrence of each resolved perk
+identity. A duplicate does not run a perk's effects again or reject dispatch.
+The rank byte does not override NNAM-derived eligibility. A structured
+`game::perks` warning names the NPC base once per world, including when
+multiple references share that base. Its warning set is session diagnostics
+and is excluded from saves. PRKR payloads must still be exactly eight bytes.
+
+Complex entry DATA's third byte describes available condition tab types,
+rather than the number of serialized PRKC groups. An absent group imposes
+no conditions. Present groups still evaluate against their supplied tab
+subjects and report missing subjects or condition errors before handlers run.
+The installed player's `AlchemySkillBoosts` PERK uses sparse groups and
+participates in attack-damage dispatch, including the protected-NPC kill path.
+
+Sources are local UESP `NPC.wikitext` and `PERK.wikitext`, xEdit
+`Core/wbDefinitionsTES5.pas` NPC PRKR and PERK condition definitions, and
+Mutagen `Npc.xml` and `Perk.xml`. UESP calls PRKR's rank byte unused, and
+xEdit marks the tab-count byte `cpIgnore`. The local CK `AddPerk` page
+does not specify duplicate PRKR rank selection. The existing reader and
+dispatcher are reused with identity deduplication and optional tab groups.
 
 ## Leveled item entry extras
 
