@@ -268,7 +268,7 @@ decoder for vanilla xWMA tracks.
 Set `SOE_AUD_11_TEST=1` when launching `godot/walkthrough.gd` with installed
 data to inject a forward walk for 20 seconds. The script captures and drains
 the master bus, then approaches Hulda through the existing scripted MoveTo
-command and selects her offered gossip topic through the dialogue menu. It
+command and selects her first offered topic through the dialogue menu. It
 captures two seconds of response playback before reporting the peak in dB and
 the four start counts. Walk duration and distance are measured before that
 interaction. A straight unattended walk does not guarantee NPC speech, and

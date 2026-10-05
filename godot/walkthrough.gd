@@ -151,6 +151,8 @@ func _run_aud_11_check() -> void:
 		ambience_starts = int(bank.call("ambience_start_count"))
 		music_starts = int(bank.call("music_start_count"))
 		voice_starts = int(bank.call("voice_start_count"))
+		if voice_requested and voice_starts == 0:
+			printerr("AUD-11 voice did not start: ", bank.call("last_error"))
 	var peak_db := -INF if peak <= 0.0 else 20.0 * log(peak) / log(10.0)
 	print("AUD-11 systems footsteps=", footstep_starts, " ambience=", ambience_starts,
 		" music=", music_starts, " voices=", voice_starts, " master_peak_db=", peak_db,
@@ -163,22 +165,23 @@ func _run_aud_11_check() -> void:
 
 func _aud_11_start_voice() -> bool:
 	# CONTEXT: A straight unattended walk does not request a dialogue response.
-	var move := {"action": "move_to", "file": 0, "object": 0x1A671,
+	var move := {"action": "move_to", "file": 0, "object": 0x1A66E,
 		"offset": Vector3(0.0, -150.0, 0.0), "match_rotation": false}
 	if not player.call("queue_player_input", move) or not player.call("step_player_input"):
 		printerr("AUD-11 could not approach Hulda")
 		return false
-	if not player.call("open_dialogue_menu", 0, 0x1A671):
+	if not player.call("open_dialogue_menu", 0, 0x1A66E):
 		printerr("AUD-11 could not open Hulda's dialogue")
 		return false
 	var content := player.get_node("MenuLayer/MenuPanel/Layout/Content")
 	if content.get_child_count() > 0:
 		var rows := content.get_child(0).get_child(0)
 		for option in rows.get_children():
-			if option is Button and option.text == "Give me the latest gossip.":
+			if option is Button:
+				print("AUD-11 dialogue topic: ", option.text)
 				option.emit_signal("pressed")
 				return true
-	printerr("AUD-11 Hulda did not offer the installed gossip topic")
+	printerr("AUD-11 Hulda did not offer a dialogue topic")
 	return false
 
 func _process(_delta: float) -> bool:
