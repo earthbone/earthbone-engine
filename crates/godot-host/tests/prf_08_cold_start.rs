@@ -51,6 +51,9 @@ fn prf_08_loading_reporting_and_repetition_contracts_in_stock_godot() {
         "bench.gd",
         "system_overlay.gd",
         "walkthrough.gd",
+        "record_sky.gd",
+        "record_sky.gdshader",
+        "record_fog.gdshader",
     ] {
         std::fs::copy(root.join("godot").join(script), project.path().join(script)).unwrap();
     }
