@@ -14,6 +14,14 @@ func _check(ok: bool, message: String) -> void:
         failures += 1
         printerr("FAIL rnd_17: ", message)
 
+func _capture(path: String) -> Image:
+    await process_frame
+    await process_frame
+    await RenderingServer.frame_post_draw
+    var image := get_root().get_texture().get_image()
+    _check(image.save_png(path) == OK, "capture saves")
+    return image
+
 func _run() -> void:
     var data := OS.get_environment("SKYRIM_DATA")
     if data.is_empty():
@@ -58,6 +66,30 @@ func _run() -> void:
     _check(streamer.call("reference_collision_bodies", file, reference) == 0, "first tick has no barricade host collision")
     var initial_bodies: Dictionary = player.call("reference_collision_bodies", file, reference)
     _check(initial_bodies.get("movement", -1) == 0 and initial_bodies.get("query", -1) == 0, "initially disabled barricade has no player collision")
+    player.call("advance", 0.2)
+    _check(not player.call("door_fade_active"), "cell entry fade finishes before capturing geometry")
+    var environment := Environment.new()
+    environment.background_mode = Environment.BG_COLOR
+    environment.background_color = Color(0.15, 0.2, 0.3)
+    environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+    environment.ambient_light_color = Color.WHITE
+    environment.ambient_light_energy = 0.8
+    var world_environment := WorldEnvironment.new()
+    world_environment.environment = environment
+    get_root().add_child(world_environment)
+    var sun := DirectionalLight3D.new()
+    sun.rotation_degrees = Vector3(-45.0, -30.0, 0.0)
+    get_root().add_child(sun)
+    var focus := Vector3(float(manifest.px), float(manifest.pz), -float(manifest.py)) * 0.0142875 + Vector3(0.0, 1.5, 0.0)
+    var camera := Camera3D.new()
+    get_root().add_child(camera)
+    camera.global_position = focus + Vector3(6.0, 4.0, 8.0)
+    camera.look_at(focus)
+    camera.current = true
+    var capture_dir := target.path_join("rnd_17")
+    _check(DirAccess.make_dir_recursive_absolute(capture_dir) == OK, "capture directory")
+    var disabled := await _capture(capture_dir.path_join("disabled.png"))
+    var capture_index := 0
     for enabled in [true, false, true, false]:
         _check(player.call("set_reference_enabled", file, marker, enabled), "marker toggles")
         player.call("advance", 0.0)
@@ -71,8 +103,22 @@ func _run() -> void:
         _check((int(bodies.get("movement", -1)) > 0) == enabled, "movement collision follows parent")
         _check((int(bodies.get("query", -1)) > 0) == enabled, "query collision follows parent")
         _check(streamer.get_child_count() == children, "enable adds no scene nodes")
+        _check(streamer.call("rendered_reference_count", file, reference) > 0, "intact barricade geometry is uploaded")
+        var image := await _capture(capture_dir.path_join("toggle_%d.png" % capture_index))
+        if capture_index == 0:
+            var changed := 0
+            for y in image.get_height():
+                for x in image.get_width():
+                    var a := image.get_pixel(x, y)
+                    var b := disabled.get_pixel(x, y)
+                    if max(abs(a.r - b.r), abs(a.g - b.g), abs(a.b - b.b)) > 0.05:
+                        changed += 1
+            _check(changed >= 100, "enabling the marker changes at least 100 rendered pixels")
+            print("rnd_17 changed_pixels=", changed)
+        capture_index += 1
         print("rnd_17 enabled=", enabled, " alignment=", error, " bodies=", bodies)
     player.free()
+    streamer.call("clear")
     streamer.free()
     print("RESULT: ", "PASS" if failures == 0 else "FAIL", " rnd_17_whiterun_runtime_enable_without_reload")
     quit(0 if failures == 0 else 1)
