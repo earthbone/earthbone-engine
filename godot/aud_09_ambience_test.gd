@@ -36,7 +36,9 @@ func _run() -> void:
 
 	var player := bank.get_node("AmbiencePlayer") as AudioStreamPlayer
 	_check(bank.call("play_ambience", "Music/Cell.wav"), "eligible cell ambience did not start: " + str(bank.call("last_error")))
-	await process_frame
+	var deadline := Time.get_ticks_msec() + 5_000
+	while int(bank.call("ambience_start_count")) == 0 and Time.get_ticks_msec() < deadline:
+		await process_frame
 	_check(player.playing, "cell ambience AudioStreamPlayer is not playing after transition")
 	_check(player.has_stream_playback(), "cell ambience has no Godot stream playback")
 

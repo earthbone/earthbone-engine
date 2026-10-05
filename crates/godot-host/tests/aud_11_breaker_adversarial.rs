@@ -70,6 +70,9 @@ func run() -> void:
 			printerr("valid ambience failed: ", bank.call("last_error"))
 			quit(1)
 			return
+		var deadline := Time.get_ticks_msec() + 5_000
+		while int(bank.call("ambience_start_count")) < expected and Time.get_ticks_msec() < deadline:
+			await process_frame
 		if int(bank.call("ambience_start_count")) != expected:
 			printerr("ambience count did not match successful start ", expected)
 			quit(1)

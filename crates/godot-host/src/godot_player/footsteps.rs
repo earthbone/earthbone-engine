@@ -43,11 +43,12 @@ impl PlayerNode {
             return;
         }
         let mut bank = bank.bind_mut();
-        bank.stop_ambience();
         if let Some(track) = track {
             if !bank.play_ambience(track.path.as_str().into()) {
                 soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "cell ambience {}: {}", track.path, bank.last_error());
             }
+        } else {
+            bank.stop_ambience();
         }
     }
 

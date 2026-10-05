@@ -92,6 +92,11 @@ func check(value: bool, message: String) -> void:
     if not value:
         failures += 1
         printerr("FAIL: ", message)
+func wait_ready(bank: Node3D, path: String) -> void:
+    var deadline := Time.get_ticks_msec() + 5_000
+    while str(bank.call("current_ambience_path")) != path.to_lower() and Time.get_ticks_msec() < deadline:
+        await process_frame
+    check(str(bank.call("current_ambience_path")) == path.to_lower(), "decode did not become ready: " + path)
 func _initialize() -> void:
     call_deferred("run")
 func run() -> void:
@@ -103,13 +108,15 @@ func run() -> void:
     check(bank.call("open_data", OS.get_environment("AUD_09_TEST_DATA")), "fixture data opens")
     var player := bank.get_node("AmbiencePlayer") as AudioStreamPlayer
     check(bank.call("play_ambience", "Music/First.wav"), "first cell ambience starts")
+    await wait_ready(bank, "Music/First.wav")
     await process_frame
     check(player.playing, "first descriptor owns active playback")
-    var first_data: PackedByteArray = player.stream.data
+    var first_stream := player.stream
     check(bank.call("play_ambience", "Music/Second.wav"), "next cell ambience starts")
+    await wait_ready(bank, "Music/Second.wav")
     await process_frame
     check(player.playing, "replacement descriptor plays on the same player")
-    check(player.stream.data != first_data, "departed descriptor stream is replaced")
+    check(player.stream != first_stream, "departed descriptor stream is replaced")
     bank.call("stop_ambience")
     await process_frame
     check(not player.playing, "release stops current cell ambience")

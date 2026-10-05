@@ -17,6 +17,8 @@ pub mod actor;
 pub mod animated_static;
 pub mod animation_dispatch;
 pub mod audio;
+#[cfg(feature = "godot")]
+mod background_audio;
 pub mod batch;
 pub mod camera;
 pub mod collision;

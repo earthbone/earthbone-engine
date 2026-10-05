@@ -115,6 +115,11 @@ func check(ok: bool, message: String) -> void:
 		failures += 1
 		printerr("FAIL: ", message)
 
+func wait_ready(bank: Node3D, path: String) -> void:
+	var deadline := Time.get_ticks_msec() + 5_000
+	while str(bank.call("current_music_path")) != path.to_lower() and Time.get_ticks_msec() < deadline:
+		await process_frame
+	check(str(bank.call("current_music_path")) == path.to_lower(), "decode did not become ready: " + path)
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -127,20 +132,22 @@ func _run() -> void:
 	await process_frame
 	check(bank.call("open_data", OS.get_environment("AUD_05_TEST_DATA")), "fixture data did not open")
 	check(bank.call("play_music_track", "music/aud05_first.wav", 1.0, 1.0, false), "first track did not start")
+	await wait_ready(bank, "music/aud05_first.wav")
 	var first_player := bank.get_child(16) as AudioStreamPlayer
 	var second_player := bank.get_child(17) as AudioStreamPlayer
 	var first_stream = first_player.stream
 	check(bank.call("play_music_track", "music/aud05_second.wav", 1.0, 1.0, false), "second track did not start")
+	await wait_ready(bank, "music/aud05_second.wav")
 	check(first_player.playing and second_player.playing, "first crossfade did not overlap its two tracks")
 	check(bank.call("play_music_track", "music/aud05_third.wav", 1.0, 1.0, false), "third track did not interrupt")
+	await wait_ready(bank, "music/aud05_third.wav")
 	check(not first_player.playing or first_player.stream != first_stream, "stale first instance was not stopped or replaced")
 	await create_timer(1.2).timeout
 	var active := int(first_player.playing) + int(second_player.playing)
 	check(active == 1, "completed fade left stale music instances playing")
 	var newest := first_player if first_player.playing else second_player
-	check(newest.stream.data.size() > 0, "latest track has no stream data")
-	var data: PackedByteArray = newest.stream.data
-	check(data != first_stream.data, "latest player still carries the first track")
+	check(newest.has_stream_playback(), "latest track has no stream playback")
+	check(newest.stream != first_stream, "latest player still carries the first track")
 	first_player.stop()
 	second_player.stop()
 	bank.queue_free()
