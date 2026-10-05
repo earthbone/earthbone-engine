@@ -478,6 +478,15 @@ quest's script variables. Both modes reject failed world passes. Neither mode
 changes the external save. `load_world_checkpoint` exposes this startup choice
 to callers without a command-line process.
 
+PLY-03's gated corpus survey loads the first three numbered main quest saves in
+the supplied sequence. It runs the source checkpoint through the route runner,
+then compares its restored quest stages, quest flags and player inventory with
+the next checkpoint. Differences are printed with the quest or item identity
+and field name. The current survey route only checks VM errors. It does not
+advance quest progress between checkpoints, so its differences measure the
+state that remains after the available route execution rather than a completed
+main quest replay. It requires `SKYRIM_DATA` and `SOE_TEST_SAVES`.
+
 Local CK `PathToReference_-_Actor.wikitext` supplies path failure and interruption
 semantics, and `Activate_-_ObjectReference.wikitext` supplies default activation
 and blocked OnActivate behavior. `GetItemCount_-_ObjectReference.wikitext` describes
@@ -486,6 +495,77 @@ Recast/Detour `DetourNavMeshQuery.cpp`, `findStraightPath`. Detour's independent
 mesh representation is not introduced. `ply_02_` tests cover grammar, navigation,
 interaction steps, bounded waits, assertions, diagnostics and external corpus
 startup through the binary.
+
+`ply_05_seeded_bot_walks_interacts_checks_invariants_and_repeats_its_report`
+chooses a movement rate from its seed, runs the route through the PLY-02
+executor, and advances another 30 minutes of game time at 1/60-second steps.
+It checks finite actor and player transforms after every tick, rejects Papyrus
+VM errors and compares repeated reports for the same seed. Navigation checks
+the player's path against NAVM surfaces through the existing PLY-02 executor.
+`ply_05_installed_city_cells_are_available_for_headless_soak` is gated by
+`SKYRIM_DATA` and confirms the installed Whiterun and Riverwood exterior cells
+resolve. The current soak does not yet drive the installed city records or
+compare actor heights against exterior terrain.
+
+### AI-driven player routes and workstation commands, PLY-06
+
+`Command::RunPackage` gives the player a priority 100 forced ActorUtil
+override and enables the same AI flag as `Game.SetPlayerAIDriven`. The actor
+driver ticks the player only while that flag is true. `Driver` holds later
+commands until the package tree finishes, then ends the package through the
+normal boundary event path and restores the prior flag and any prior override
+for that package. A positive optional duration bounds endless packages such
+as Sandbox using non-menu seconds. Expiry and explicit `cancel_package`
+return ownership without marking the package complete. Unsupported procedures
+and interrupted handoffs report errors and release ownership. Manual scripted
+actions reject while AI owns the player. Wait remains available. AI movement
+updates the player's cell residency and trigger crossings through Game's
+existing APIs. Sit accepts a target input as used by the vanilla SitTarget
+template, reserves its furniture marker and releases it on completion.
+Successful Activate attempts advance their package branch.
+
+The route queue, deadline and prior ownership are transient Driver state.
+Call `cancel_package` before discarding a driver with a running route.
+Persistent ActorUtil overrides belong to each actor, separate from SPID
+insertion positions. The five ActorUtil package natives add, remove, count,
+clear and remove across actors. Priority is clamped to 0 to 100, and the last
+added override wins a tie. Only the highest override is tested. Its failed
+schedule or conditions fall back to the ordinary package stack. Flags value 1
+bypasses those checks. Completion removes its override. Overrides retain
+addition order and resolved PACK identity in the PLY-06 actor save section
+and participate in the actor state hash. Missing sections leave no overrides.
+
+Forge confirmations call `Game::craft`. Alchemy confirmations supply two
+ingredient forms to `Game::brew_potion`. Both use the shared inventory and
+notification paths. A FURN station's WBDT type 5 accepts alchemy without a
+recipe keyword. Brewing with authored MGEF costs grants Alchemy skill use
+from the sum of floored effect values, then applies the AVIF use multiplier
+through `World::advance_skill`. NoMagnitude and NoDuration select unit value
+factors. The calculation uses the effects the existing two-ingredient brewer
+produces. Definitions without MGEF DATA retain the prior no-experience path.
+Missing components or failed progression leave inventory and notifications
+unchanged.
+
+The installed-data PLY-06 tests execute `WhiterunAdrianneEstablishingScene`,
+`WhiterunAdrianneSandboxForgePackage6x11` and `C06EorlundReforgeWuuthrad`.
+They craft the vanilla iron dagger recipe at Warmaiden's forge and combine
+Blue Mountain Flower with Wheat at Breezehome's enabled alchemy lab. The
+checks verify component removal, output inventory, skill experience and
+engine save/load. Synthetic cases cover cancellation, unsupported procedures,
+priority and eligibility, cell residency, menu pauses and section corruption.
+
+The local CK `Game_Script.wikitext` defines SetPlayerAIDriven's flag, and
+`EvaluatePackage_-_Actor.wikitext` describes reevaluation. The named individual
+SetPlayerAIDriven and Package pages are absent from this corpus. The existing
+PACK reader and procedure tree use local xEdit and UESP PACK definitions.
+`PapyrusUtil/Scripts/Source/ActorUtil.psc` supplies priority and latest-added
+semantics, while `PapyrusUtil/PackageData.cpp` supplies forced eligibility and
+completion removal. The script's 0 priority boundary is retained despite that
+older C++ implementation clamping it to 1. Skyrim address hooks in that source
+cannot run in this Rust engine, so these operations use the existing form-backed
+package interpreter. The per-effect value calculation follows the author's
+[W.H.A.T. technical notes](https://www.nexusmods.com/skyrimspecialedition/articles/11367).
+Local UESP `MGEF.wikitext` supplies the flags and base-cost field.
 
 ### MCM script lifecycle, UI-05
 
@@ -1174,6 +1254,23 @@ stored separately and remains unchanged. All reference fields are already in
 SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
+
+Reset selects leveled base inventory again through the shared LVLI resolver.
+Its chance-none draw can produce different contents from first construction.
+Native save/load preserves the selected inventory and RNG without another
+draw. SAV-71 checks reset after loading changed references, winning plugin
+overrides, fixed and leveled inventory, actor state and failed cyclic-list
+selection. The installed check samples 32 fixed and 32 leveled containers.
+The two SAV-68 installed equality checks select fixed CNTO containers.
+
+The SAV-71 historical check found both installed failures already present at
+`3547411b`, before the requested bisect range. All ten SAV-68 checks pass at
+`f9db8db7`. Its child `f16d16ac` (UI-25) fails both installed checks because it
+materializes leveled contents during reference construction and Reset. Their
+former first container can roll empty initially and four items on Reset,
+before any save is written. This follows the local UESP `LVLI.wikitext`
+chance-none contract and CK `Reset_-_ObjectReference` inventory reset contract.
+No saved field, version or section changes.
 
 **ObjectReference.TetherToHorse.** The native moves the supplied horse by the
 CK page's local cart offset (72, 300, 0) Skyrim units, rotates that offset by
@@ -7739,8 +7836,9 @@ authored HasPerk conditions, this supports retaining lower identities. That
 retention is an inference, without a direct original-runtime purchase
 comparison. NPC PRKR is a separate FormID plus rank byte. UESP labels that
 byte unused, and the existing NPC reader retains only its FormID. This
-purchase path does not reinterpret it. Entry-point dispatch separately reads
-the rank from an actor base's PRKR entries. The full CK Perk page was absent from
+purchase path does not reinterpret it. Entry-point dispatch also uses PRKR
+for identities and derives ranks from NNAM chains. The full CK Perk page was
+absent from
 the local dump and its online fetch was unavailable for PRG-02, PRG-16 did
 not need it since the installed corpus and the sources above settle all four
 bytes. The existing CTDA parser, condition evaluator, actor values and
@@ -7768,9 +7866,9 @@ malformed graph policy, effect execution or menu behavior.
 ## Perk entry-point dispatch (PRG-08)
 
 `EntryPointDispatcher` registers handlers by entry-point ID and visits an
-actor's owned winning PERK records in load-order order. NPC actors use the
-rank byte from their base record's PRKR entry. Other actors use the highest
-owned rank in that PERK's NNAM chain. Within each PERK it filters out complex
+actor's owned winning PERK records in load-order order. NPC base PRKR entries
+also supply owned identities. All actors use the highest owned rank in that
+PERK's NNAM chain. Within each PERK it filters out complex
 entries above that rank, then orders eligible entries by ascending PRKE
 priority. Equal priorities retain their source order. The invocation carries
 the entry's one-based PRKE rank, priority, and EPFT/EPFD data. Priority direction, tie
@@ -7798,6 +7896,29 @@ It does not claim the unresolved priority-tie, acquisition-order or exact
 versus cumulative rank behavior documented above. Source-order ties and
 ascending priority are deterministic engine choices, not captured vanilla
 behavior. Cross-perk ordering also needs a capture.
+
+### NPC perk loading and sparse condition tabs, CMB-39
+
+NPC base PRKR entries retain the first occurrence of each resolved perk
+identity. A duplicate does not run a perk's effects again or reject dispatch.
+The rank byte does not override NNAM-derived eligibility. A structured
+`game::perks` warning names the NPC base once per world, including when
+multiple references share that base. Its warning set is session diagnostics
+and is excluded from saves. PRKR payloads must still be exactly eight bytes.
+
+Complex entry DATA's third byte describes available condition tab types,
+rather than the number of serialized PRKC groups. An absent group imposes
+no conditions. Present groups still evaluate against their supplied tab
+subjects and report missing subjects or condition errors before handlers run.
+The installed player's `AlchemySkillBoosts` PERK uses sparse groups and
+participates in attack-damage dispatch, including the protected-NPC kill path.
+
+Sources are local UESP `NPC.wikitext` and `PERK.wikitext`, xEdit
+`Core/wbDefinitionsTES5.pas` NPC PRKR and PERK condition definitions, and
+Mutagen `Npc.xml` and `Perk.xml`. UESP calls PRKR's rank byte unused, and
+xEdit marks the tab-count byte `cpIgnore`. The local CK `AddPerk` page
+does not specify duplicate PRKR rank selection. The existing reader and
+dispatcher are reused with identity deduplication and optional tab groups.
 
 ## Leveled item entry extras
 

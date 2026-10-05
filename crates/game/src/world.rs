@@ -59,6 +59,8 @@ mod detection;
 mod dialogue_scene_restore;
 mod doorway;
 mod driver;
+mod package_overrides;
+pub use package_overrides::PackageOverride;
 pub mod effect_shader;
 mod encounter_zones;
 mod events;
@@ -382,6 +384,8 @@ pub struct ActorState {
     /// package list. Persisted with the actor because distribution is not
     /// rerun when SOEW restores an existing actor.
     pub package_overrides: Vec<(usize, GlobalFormId)>,
+    /// ActorUtil overrides in addition order, independent of SPID insertion.
+    pub runtime_package_overrides: Vec<PackageOverride>,
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
@@ -822,6 +826,8 @@ pub struct World {
     quest_alias_candidates: std::sync::OnceLock<Option<Arc<[GlobalFormId]>>>,
     pub(crate) dialogue: crate::dialogue::State,
     pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
+    /// NPC bases warned about during this world session, excluded from saves.
+    pub(crate) duplicate_npc_perk_warnings: BTreeSet<GlobalFormId>,
     /// Source-level CommonLib event channels backed by this live world.
     pub(crate) commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
@@ -1340,6 +1346,7 @@ impl World {
             quest_alias_candidates: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
             known_dialogue_topics: BTreeSet::new(),
+            duplicate_npc_perk_warnings: BTreeSet::new(),
             commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),

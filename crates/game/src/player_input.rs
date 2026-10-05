@@ -2,13 +2,15 @@
 
 //! Fixed-step player commands over Game, shared by headless and Godot runs.
 //! PLY-01 defines the schedule. CK Activate, MoveTo and OnContainerChanged
-//! define the interaction contracts, documented in docs/game.md.
+//! define the interaction contracts, documented in docs/game.md. PLY-06 uses
+//! CK SetPlayerAIDriven and PapyrusUtil ActorUtil package ownership.
 
 use std::collections::VecDeque;
 
 use soe_esm::GlobalFormId;
 
 use crate::combat::{Hand, MeleeHit};
+use crate::world::PackageOverride;
 use crate::Game;
 
 pub mod session;
@@ -28,11 +30,23 @@ pub enum Confirmation {
         bench: GlobalFormId,
         recipe: GlobalFormId,
     },
+    /// Mix two ingredient forms through the shared alchemy transaction.
+    Alchemy {
+        bench: GlobalFormId,
+        ingredients: [GlobalFormId; 2],
+    },
 }
 
 /// One player action at the next fixed simulation step.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
+    /// Force a PACK onto the player until its tree finishes. A duration also
+    /// bounds endless packages such as Sandbox, using non-menu seconds.
+    /// Driver waits for the package before executing the next queued command.
+    RunPackage {
+        package: GlobalFormId,
+        duration: Option<f64>,
+    },
     /// Place the player at a reference plus a world-space offset in Skyrim units.
     /// This is an explicit placement command, rather than a navigation request.
     MoveTo {
@@ -68,6 +82,12 @@ pub enum Command {
 /// Invalid input or a failure reported by the shared gameplay executor.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("player package duration must be finite and positive")]
+    Duration,
+    #[error("player package unavailable: {0:?}")]
+    Package(GlobalFormId),
+    #[error("player input is controlled by AI")]
+    AiDriven,
     #[error("player input replay already owns the command queue")]
     Replay,
     #[error("player input contains a non-finite transform")]
@@ -105,8 +125,17 @@ pub struct Event {
 pub struct Driver {
     queue: VecDeque<Command>,
     events: Vec<Event>,
+    active_package: Option<PackageStep>,
     session: Option<session::Capture>,
     session_error: Option<session::Error>,
+}
+
+#[derive(Debug)]
+struct PackageStep {
+    package: GlobalFormId,
+    until: Option<f64>,
+    prior_driven: bool,
+    prior_override: Option<(usize, PackageOverride)>,
 }
 
 impl Driver {
@@ -115,6 +144,7 @@ impl Driver {
     /// # Errors
     /// Rejects non-finite positions or rotations before enqueueing.
     pub fn push(&mut self, command: Command) -> Result<(), Error> {
+        validate_duration(&command)?;
         if matches!(self.session, Some(session::Capture::Replay(_))) {
             return Err(Error::Replay);
         }
@@ -132,7 +162,7 @@ impl Driver {
 
     /// Commands still waiting for a simulation step.
     pub fn pending(&self) -> usize {
-        self.queue.len()
+        self.queue.len() + usize::from(self.active_package.is_some())
     }
 
     /// Completed steps in execution order.
@@ -147,12 +177,80 @@ impl Driver {
         if self.session_error.is_some() {
             return None;
         }
-        let command = self.queue.pop_front()?;
+        let continuing = self.active_package.is_some();
+        let command = if continuing {
+            if matches!(self.session, Some(session::Capture::Replay(_))) {
+                self.queue.pop_front()?
+            } else {
+                Command::Wait
+            }
+        } else {
+            self.queue.pop_front()?
+        };
         let trace_start = game.vm.log.entries.len();
-        let result = game
-            .apply_player_input(&command)
-            .map_err(|error| error.to_string());
+        let prior = if let Command::RunPackage { package, duration } = &command {
+            let player = game.player();
+            let world = game.world();
+            Some(PackageStep {
+                package: *package,
+                until: duration.map(|seconds| world.clock.real_seconds + seconds),
+                prior_driven: world.player_ai_driven,
+                prior_override: world.actor_ref(player).and_then(|state| {
+                    state
+                        .runtime_package_overrides
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .find(|(_, entry)| entry.package == *package)
+                }),
+            })
+        } else {
+            None
+        };
+        let mut result = if continuing {
+            Ok("package running".into())
+        } else {
+            game.apply_player_input(&command)
+                .map_err(|error| error.to_string())
+        };
+        if !continuing && result.is_ok() {
+            self.active_package = prior;
+        }
         game.tick(STEP_SECONDS);
+        if let Some(active) = &self.active_package {
+            let player = game.player();
+            let world = game.world();
+            let state = world.actor_ref(player);
+            let finished = state.is_some_and(|state| {
+                state.ai.package == Some(active.package)
+                    && state.ai.tree.as_ref().is_some_and(|tree| tree.finished)
+            });
+            let interrupted = !world.player_ai_driven
+                || state.is_none_or(|state| {
+                    state.dead || state.unconscious || state.ai.package != Some(active.package)
+                });
+            let unsupported = state.and_then(|state| match &state.ai.procedure {
+                crate::ai::Procedure::Unsupported(name) => Some(name.clone()),
+                _ => None,
+            });
+            let elapsed = active
+                .until
+                .is_some_and(|until| world.clock.real_seconds >= until);
+            drop(world);
+            if let Some(name) = unsupported {
+                result = Err(format!("player package procedure unsupported: {name}"));
+            } else if interrupted {
+                result = Err("player package interrupted".into());
+            } else if finished {
+                result = Ok("package completed".into());
+            } else if elapsed {
+                result = Ok("package duration elapsed".into());
+            }
+            if finished || elapsed || result.is_err() {
+                self.cancel_package(game);
+                game.pump();
+            }
+        }
         let player = game.player();
         let (cell, position, rotation) = game
             .world()
@@ -176,6 +274,43 @@ impl Driver {
         self.capture_step(game, &event);
         Some(event)
     }
+
+    /// Return package ownership and restore the prior AI flag. Call before
+    /// discarding a driver with an active route. Queued commands remain queued.
+    pub fn cancel_package(&mut self, game: &mut Game) {
+        let Some(active) = self.active_package.take() else {
+            return;
+        };
+        let player = game.player();
+        let mut world = game.world.borrow_mut();
+        world.remove_package_override(player, active.package);
+        if world.current_package(player) == Some(active.package) {
+            crate::ai::stop_player_package(&mut world, &mut |name, class| {
+                game.vm.create_object_of(name, class)
+            });
+        }
+        if let Some((index, entry)) = active.prior_override {
+            if let Some(state) = world.actor(player) {
+                let index = index.min(state.runtime_package_overrides.len());
+                state.runtime_package_overrides.insert(index, entry);
+                state.ai.reevaluate = true;
+            }
+        }
+        world.set_player_ai_driven(active.prior_driven);
+    }
+}
+
+fn validate_duration(command: &Command) -> Result<(), Error> {
+    if let Command::RunPackage {
+        duration: Some(seconds),
+        ..
+    } = command
+    {
+        if !seconds.is_finite() || *seconds <= 0.0 {
+            return Err(Error::Duration);
+        }
+    }
+    Ok(())
 }
 
 impl Game {
@@ -185,8 +320,32 @@ impl Game {
     /// # Errors
     /// Reports unavailable references, invalid transforms or gameplay rejection.
     pub fn apply_player_input(&mut self, command: &Command) -> Result<String, Error> {
+        validate_duration(command)?;
         let player = self.player();
+        if self.world().player_ai_driven
+            && !matches!(command, Command::Wait | Command::RunPackage { .. })
+        {
+            return Err(Error::AiDriven);
+        }
         match command {
+            Command::RunPackage { package, .. } => {
+                let mut world = self.world_mut();
+                if world
+                    .reference(player)
+                    .is_none_or(|reference| !reference.enabled || reference.deleted)
+                    || world
+                        .actor(player)
+                        .is_none_or(|state| state.dead || state.unconscious)
+                    || crate::ai::package(&world, *package).is_none()
+                {
+                    return Err(Error::Package(*package));
+                }
+                if !world.add_package_override(player, *package, 100, 1) {
+                    return Err(Error::Package(*package));
+                }
+                world.set_player_ai_driven(true);
+                Ok("package running".into())
+            }
             Command::MoveTo {
                 target,
                 offset,
@@ -288,6 +447,10 @@ impl Game {
                 Confirmation::Craft { bench, recipe } => {
                     let outcome = self.craft(player, *bench, *recipe)?;
                     Ok(format!("crafted: {outcome:?}"))
+                }
+                Confirmation::Alchemy { bench, ingredients } => {
+                    let outcome = self.brew_potion(player, *bench, ingredients)?;
+                    Ok(format!("brewed: {outcome:?}"))
                 }
             },
             Command::Wait => Ok("waited".into()),

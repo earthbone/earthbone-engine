@@ -60,23 +60,9 @@ fn sav_68_changed_vanilla_container_resets_to_winning_record_after_load() {
         .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
         .unwrap();
     let mut world = World::new(order);
-    let reference = world
-        .order()
-        .winners_of(Tag(*b"REFR"))
-        .find_map(|(id, record)| {
-            let base = record.find(Tag(*b"NAME"))?;
-            let raw = u32::from_le_bytes(base.try_into().ok()?);
-            let base_id = GlobalFormId {
-                file: id.file,
-                object: raw,
-            };
-            world
-                .order()
-                .winner(base_id)
-                .filter(|base| base.tag == Tag(*b"CONT") && base.find(Tag(*b"CNTO")).is_some())
-                .map(|_| id)
-        })
-        .expect("Skyrim.esm contains a placed container with base inventory");
+    let reference = crate::common::installed::fixed_container_references(world.order())
+        .next()
+        .expect("Skyrim.esm contains a placed container with fixed base inventory");
     let authored = world.reference(reference).unwrap().clone();
     {
         let changed = world.reference(reference).unwrap();

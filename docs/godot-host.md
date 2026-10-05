@@ -206,6 +206,26 @@ model build took 1,199.392 ms during concurrent Cargo checks, including NIF,
 texture and mesh preparation. This measures menu selection latency on that
 software-rendered run.
 
+`godot/ply_04_route_test.gd` runs a JSON route through the same PlayerNode
+queue in a windowed Godot process. The route has a `start` object with a cell
+editor id and a three-number Skyrim-unit position, followed by `steps`. Each
+step has a `command` dictionary, optional frame count, and optional checkpoint
+name. MoveTo `offset` and Turn `rotation` arrays are converted to Vector3
+values. Each checkpoint saves a viewport PNG, and every step records its
+action, sampled frame count, worst wall-frame time, and capture path in
+`frame_times.json`. Route or capture failure writes a failed result and exits
+with status 1. `godot/ply_04_route.json` is a one-step installed-data smoke
+route through WhiterunBanneredMare.
+
+Set `SKYRIM_DATA` to the installed Data directory. Optionally set
+`SOE_PLY_04_ROUTE` to another route JSON file and
+`SOE_PLY_04_OUTPUT_DIR` to the capture and log directory. Run the extension
+windowed with:
+
+```text
+godot --path godot --resolution 640x360 --script ply_04_route_test.gd
+```
+
 ## Live detection observations, CMB-32
 
 PlayerNode samples ordered pairs of resident, living actors in the same cell

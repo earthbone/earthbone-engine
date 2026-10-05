@@ -22,6 +22,11 @@
 //! fields a shorter format omits. A record in either shorter, documented
 //! encoding is readable, not malformed.
 //! See docs/game.md, "Ordinary perk purchases", for the sources read.
+//!
+//! NPC PRKR follows xEdit's eight-byte layout and UESP NPC's unused rank
+//! byte. Repeated resolved identities keep their first occurrence (CMB-39).
+//! xEdit marks DATA's condition-tab count as ignored metadata. UESP describes
+//! optional PRKC groups, so absent groups impose no conditions.
 
 use crate::{conditions, Game, World};
 use soe_esm::{records::gameplay::Condition, GlobalFormId, Tag};
@@ -234,6 +239,7 @@ fn actor_npc_perks(
         return Ok(BTreeSet::new());
     };
     let mut perks = BTreeSet::new();
+    let mut repeated = false;
     for subrecord in record
         .subrecords
         .iter()
@@ -244,10 +250,12 @@ fn actor_npc_perks(
         };
         let raw_perk = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         if let Some(perk) = world.resolve_from(base, raw_perk) {
-            if !perks.insert(perk) {
-                return Err(DispatchError::Malformed(base));
-            }
+            repeated |= !perks.insert(perk);
         }
+    }
+    if repeated && world.duplicate_npc_perk_warnings.insert(base) {
+        soe_trace::warn!(target: "game::perks", system = "game", form_id = %base,
+            "NPC has repeated PRKR perk identities, keeping the first occurrence");
     }
     Ok(perks)
 }
@@ -430,7 +438,6 @@ struct EntrySection {
     rank: u8,
     priority: u8,
     function: u8,
-    tab_count: u8,
     tabs: Vec<(u8, Vec<Condition>)>,
     data_type: Option<u8>,
     data: Vec<u8>,
@@ -465,7 +472,6 @@ fn entry_point_sections(
                         rank: sub.data[1],
                         priority: sub.data[2],
                         function: 0,
-                        tab_count: 0,
                         tabs: Vec::new(),
                         data_type: None,
                         data: Vec::new(),
@@ -479,7 +485,6 @@ fn entry_point_sections(
                     rank: sub.data[1],
                     priority: sub.data[2],
                     function: 0,
-                    tab_count: 0,
                     tabs: Vec::new(),
                     data_type: None,
                     data: Vec::new(),
@@ -499,7 +504,6 @@ fn entry_point_sections(
                 section.has_data = true;
                 section.entry_point = sub.data[0];
                 section.function = sub.data[1];
-                section.tab_count = sub.data[2];
             }
             b"PRKC" if current.is_some() => {
                 if !current.as_ref().is_some_and(|section| section.complex) {
@@ -574,9 +578,6 @@ fn entry_conditions(
     section: &EntrySection,
     context: &EntryPointContext,
 ) -> Result<bool, DispatchError> {
-    if section.tabs.len() != usize::from(section.tab_count) {
-        return Err(DispatchError::Malformed(perk));
-    }
     if section.entry_point == u8::MAX {
         return Ok(false);
     }
