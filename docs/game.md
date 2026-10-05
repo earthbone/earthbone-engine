@@ -1731,10 +1731,11 @@ Creation Engine frame capture or memory budgets.
 - `Weather.SetActive` stores the selected `WTHR` form and its optional override
   and acceleration flags in `World::weather_request`. Both flags default to
   false. A non-weather receiver logs an error and leaves the previous request
-  unchanged. This transient request is not saved. The host image-space view
-  uses the request's daytime WTHR `IMSP` entry unless an explicit image-space
-  selection is active. The shipped `Weather.psc` defines the native defaults.
-  WTHR sky colors, clouds, precipitation and transition timing are not rendered.
+  unchanged. The RND-18 world section saves this request and sky transition.
+  The host image-space view uses the request's daytime WTHR `IMSP` entry unless
+  an explicit image-space selection is active. The shipped `Weather.psc`
+  defines the native defaults.
+  The RND-18 host sky reads WTHR colors, clouds and transition timing.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
@@ -3436,8 +3437,10 @@ The fixed world, actor, reference and faction bodies retain the layout at
 metadata, and version 36 stores scene phase and completed action slots.
 AI-80 faction attacks, MAG-43 Reanimate owners and CRF-03 learned effects
 use world sections. MAG-72 weather and time image-space selection and MAG-19
-active-effect taper values also use world sections. Missing sections restore
-an empty selection and untapered effects. AI-64 movement flags and AI-15
+active-effect taper values also use world sections. RND-18 stores weather
+requests, climate or region identity and weighted transitions in a world section. An
+absent RND-18 section restores the default weather state. Missing sections
+restore an empty selection and untapered effects. AI-64 movement flags and AI-15
 stacked package frames use actor sections. MAG-64 pending reference bindings use a world section,
 after AI-16 script calls, to preserve their combined queue order. The source
 for this engine-owned layout is the frozen repository writer, rather than
@@ -7147,9 +7150,8 @@ SCR-73's audit records the registered `Weather.SetActive` method and eight
 additional vanilla Weather natives missing from the registry. SCR-54 binds
 `Weather.SetActive` to the shared request API and rejects deleted or
 non-weather receivers and non-Boolean flags without replacing the current
-request. The host applies the selected weather's image-space values. It does
-not render weather transitions, clouds, sky colors or precipitation, and does
-not apply the override or acceleration flags.
+request. The host applies the selected weather's image-space values. The
+RND-18 sky also consumes the override and acceleration flags.
 
 Several rendering contracts need further evidence within MAG-71. The local
 UESP `IMAD.wikitext` describes normalized times but leaves interpolation
@@ -8330,3 +8332,57 @@ events through `soe-trace`. AI events include the resolved cell FormID.
 to reload it. Invalid directives leave the current filter in place. A missing
 host subscriber returns a console error. The command uses the shared
 [logging controls](trace.md) and changes no saved game state.
+
+## Record sky inputs, RND-18
+
+`World::sky_frame(cell)` reads winning CELL, WRLD, REGN, CLMT and WTHR forms.
+Climate lookup follows the owning WRLD/CNAM, including WNAM parents whose
+PNAM climate inheritance bit is set. CELL/XCCM selects a REGN. Its WNAM world
+supplies the climate and its RDWT weather entry replaces the climate weather
+list when present. Interior Show Sky and Use Sky Lighting flags are separate.
+A sky can draw while `interior_lighting` applies XCLL inheritance bits
+separately to LGTM ambient, directional and fog fields. Ordinary interiors
+return no weather frame.
+
+An initial weather uses CLMT/WLST weights and optional GLOB chance values,
+with a repeatable draw from the cell identity. A Weather.SetActive request
+replaces that selection. The override flag retains it across climate changes.
+The snapshot samples the four NAM0 color entries through the CLMT sunrise and
+sunset intervals. FNAM day and night distances, power and maximum opacity
+blend through those intervals. The solar orbit uses their midpoints.
+Moon visibility follows the two TNAM flags. Eight moon texture phases advance
+by TNAM's phase length, starting at full. The moon orbit uses a five-day
+Secunda offset from Masser.
+
+Cloud textures follow the sequential ASCII layer tags and old DNAM, CNAM,
+ANAM and BNAM aliases. LNAM bounds the layer count, NAM1 excludes disabled
+layers, PNAM supplies time colors and JNAM supplies alpha. Finite alpha values
+saturate to the rendering range. RNAM and QNAM decode signed UV velocities
+around byte 127. ONAM is the unused old speed field in xEdit.
+
+Changing weather retains weighted source FormIDs and starts the destination's
+DATA transition duration, scaled from its byte to 0 to 0.25 game hours.
+Acceleration chooses the smallest nonzero encoded duration. Interrupted
+transitions retain the current weights. Colors, fog and cloud contributions
+are sampled from these forms each frame. World owns the transition, the host
+retains no authoritative weather copy. Section RND-18 saves the requests,
+climate or region selection, target, source weights and timing through
+FormReader. SAVE_VERSION stays 37. A load failure restores the live weather state.
+
+Sources are local UESP `WTHR.wikitext`, `CLMT.wikitext`, `CELL.wikitext`,
+`LGTM.wikitext` and `REGN.wikitext`, xEdit `wbDefinitionsTES5.pas`, and OpenMW
+`apps/openmw/mwrender/sky.cpp` and `skyutil.cpp`. OpenMW separates sky colors,
+cloud scrolling, celestial bodies and weather blending. Its OSG renderer
+cannot be used by the Godot host, so this engine samples Skyrim records and
+uses a Godot sky shader. The named CK Weather page is absent from the local
+corpus. Its [Weather documentation mirror](https://tesck.ru/index.php/Weather)
+describes Trans Delta as a duration in game hours. The local format sources
+supply the byte scaling.
+The CELL XCCM target follows xEdit's Skyrim REGN definition, rather than the
+older UESP CELL page's assumed climate interpretation.
+
+The `rnd_18_` integration tests exercise time slots, cloud encodings, fog,
+sun and moon inputs, weather changes, interruption, acceleration, interior
+inheritance, winning overrides, save restoration and malformed inputs. The
+installed-data survey reads all 108 live weather winners and nine climates
+from the five masters, then samples Whiterun at noon and midnight.

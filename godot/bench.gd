@@ -161,6 +161,12 @@ func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch:
 	scene_holder = scene_root
 	streamer_node = streamer
 	_setup_camera()
+	var sky := preload("res://record_sky.gd").new()
+	scene_root.add_child(sky)
+	if not sky.use_streamer(streamer, cell):
+		printerr("RESULT: FAIL: could not initialize the record sky")
+		quit(1)
+		return
 	var warmed: Dictionary = await Warmup.prepare()
 	if not warmed.error.is_empty():
 		printerr("RESULT: ERROR: " + warmed.error)
@@ -192,18 +198,6 @@ func _setup_camera() -> void:
 	camera.position = target + Vector3(0.0, radius * 0.6, radius * 1.4)
 	camera.look_at(target, Vector3.UP)
 	camera.make_current()
-	var light := DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-50.0, 30.0, 0.0)
-	scene_holder.add_child(light)
-	var env := WorldEnvironment.new()
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.55, 0.65, 0.8)
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.6, 0.6, 0.65)
-	environment.ambient_light_energy = 0.8
-	env.environment = environment
-	scene_holder.add_child(env)
 	print("godot_scene_extent %.1f m" % (radius * 2.0))
 
 

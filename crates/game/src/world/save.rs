@@ -1210,6 +1210,7 @@ impl World {
             learned_enchantment_effects.clone(),
         );
         let previous_weather_image_space = std::mem::take(&mut self.weather_image_space);
+        let previous_weather = std::mem::take(&mut self.weather);
         let previous_cloaks = std::mem::take(&mut self.cloak_effects);
         let previous_effect_shaders = std::mem::take(&mut self.effect_shaders);
         let fallback_player_level = player
@@ -1269,6 +1270,7 @@ impl World {
         );
         let weather_image_space =
             std::mem::replace(&mut self.weather_image_space, previous_weather_image_space);
+        let weather = std::mem::replace(&mut self.weather, previous_weather);
         let cloak_effects = std::mem::take(&mut self.cloak_effects);
         let effect_shaders = std::mem::replace(&mut self.effect_shaders, previous_effect_shaders);
         self.unresolved_records = previous_unresolved;
@@ -1497,6 +1499,7 @@ impl World {
         }
         self.image_space = image_space;
         self.weather_image_space = weather_image_space;
+        self.weather = weather;
 
         self.objects = objects;
         self.handles = handles;

@@ -19,9 +19,10 @@ pub struct WeatherRequest {
     pub accelerate: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct WeatherState {
-    request: Option<WeatherRequest>,
+    pub(super) request: Option<WeatherRequest>,
+    pub(super) sky: super::sky::SkyState,
 }
 
 impl World {

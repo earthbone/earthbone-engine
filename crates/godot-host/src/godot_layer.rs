@@ -3208,7 +3208,7 @@ fn material_with_textures(
 /// A decoded RGBA8 texture gets a generated mip chain, since without mips
 /// every minified sample of a 2048 square texture misses the texture cache.
 /// `None` only if `Image::create_from_data` refuses the base level too.
-fn image_texture_from(texture: &TextureData) -> Option<Gd<ImageTexture>> {
+pub(crate) fn image_texture_from(texture: &TextureData) -> Option<Gd<ImageTexture>> {
     ImageTexture::create_from_image(&image_from_texture(texture)?)
 }
 

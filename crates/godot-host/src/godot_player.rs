@@ -54,6 +54,7 @@ mod menu;
 mod race;
 mod saves;
 mod scripted;
+mod sky;
 mod training;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The

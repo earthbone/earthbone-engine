@@ -3,6 +3,7 @@ extends SceneTree
 ## Gameplay integration prototype. Requires SKYRIM_DATA and the release extension.
 ## WASD move, mouse looks, Space jumps, Ctrl sneaks, F changes camera, Esc exits.
 const Warmup := preload("res://render_warmup.gd")
+const RecordSky := preload("res://record_sky.gd")
 
 var player: Node3D
 var frames := 0
@@ -50,18 +51,6 @@ func _start() -> void:
 		quit(1)
 		return
 	print("STARTUP render ms=", Time.get_ticks_msec() - phase_msec)
-	var lighting := WorldEnvironment.new()
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.05, 0.05, 0.07)
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.7, 0.65, 0.6)
-	environment.ambient_light_energy = 0.8
-	lighting.environment = environment
-	scene.add_child(lighting)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55, -35, 0)
-	scene.add_child(sun)
 	player = ClassDB.instantiate("PlayerNode")
 	player.set("capture_mouse", OS.get_environment("SOE_CAPTURE_PATH").is_empty())
 	scene.add_child(player)
@@ -88,6 +77,12 @@ func _start() -> void:
 		quit(1)
 		return
 	print("STARTUP ready ms=", Time.get_ticks_msec() - startup_msec)
+	var sky := RecordSky.new()
+	scene.add_child(sky)
+	if not sky.use_player(player):
+		printerr("Could not initialize the record sky")
+		quit(1)
+		return
 	loading_label.queue_free()
 	loading_label = null
 	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, Esc exit")
