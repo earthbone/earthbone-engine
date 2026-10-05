@@ -9,8 +9,11 @@ use std::process::Command;
 
 #[test]
 fn installed_cell_lighting_distinguishes_interior_exterior_and_missing_cells() {
-    let data = std::env::var("SKYRIM_DATA").expect("SKYRIM_DATA must point at installed game data");
-    let godot = std::env::var("SOE_GODOT_BIN").expect("SOE_GODOT_BIN must point at Godot 4.4+");
+    let (Ok(data), Ok(godot)) = (std::env::var("SKYRIM_DATA"), std::env::var("SOE_GODOT_BIN"))
+    else {
+        eprintln!("SKYRIM_DATA or SOE_GODOT_BIN not set, skipping the cell lighting probe");
+        return;
+    };
     let probe_name = format!("rnd_21_probe_{}.gd", std::process::id());
     let project = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../godot");
     let probe_path = project.join(&probe_name);
