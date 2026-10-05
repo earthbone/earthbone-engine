@@ -1071,24 +1071,37 @@ placed references.
 
 `PlayerNode` starts terrain and object LOD when its gameplay focus enters an
 exterior worldspace. It gets the asset folder from the winning worldspace
-record, following the world's use-parent-land flag, and uses the same cell
-focus as exterior cell streaming. The
-default full-resolution radius is one cell and the LOD radius is 16 cells.
-Both radii and a shared approximate byte budget are exported on the player.
-Each player update advances both LOD streams at the current cell coordinate,
-so block loading and release follow cell movement. A worldspace change starts
-both streams for the destination world, and leaving exterior gameplay clears
-both streams. `DataSource::lod_worldspace` returns the worldspace and editor
-id selected by the parent-land rule.
+record, following PNAM's Use LOD Data bit through parent worlds. Use Land
+Data does not select LOD assets. Missing parents and cycles return no LOD
+identity. xEdit `Core/wbDefinitionsTES5.pas` defines the two independent flags,
+and `Core/wbLOD.pas` supplies block alignment and settings. The NIF block
+layouts are documented by local `nifxml/nif.xml`.
 
-`godot/rnd_19_player_lod_capture.gd` enters the Whiterun exterior through the
-Bannered Mare door, waits for the player-owned streams, checks that Tamriel
-terrain and object LOD have resident rendered instances, and saves
-`docs/images/rnd-19-whiterun-exterior-lod.png`. The lower part of the captured
-view must contain visible scene pixels rather than only the viewport
-background. The Rust test
-`rnd_19_player_exterior_lod_tracks_gameplay_and_captures_distant_terrain`
-runs this check with installed data and the release extension.
+The default LOD radius is 16 cells. The exported full-resolution exclusion
+radius is clamped to at least the near streamer's two-cell unload radius,
+covering cells retained by hysteresis. Both radii and an approximate byte
+budget per LOD stream are exported on the player. Each player update advances
+both LOD streams at the current cell coordinate. Blocks overlapping the
+full-resolution exclusion are released immediately, ahead of near uploads,
+while distant releases retain their per-update quota. A worldspace change
+starts both streams for the destination world, and leaving exterior gameplay
+clears both streams. Residency and handoff operate on whole BTR and BTO blocks.
+`set_terrain_lod_visible` toggles resident terrain instances without changing
+near geometry or object LOD, for capture comparisons. The gate diagnostic
+returns both ends of its teleport link, allowing the check to move from
+authored references in each worldspace.
+
+`godot/rnd_19_player_lod_capture.gd` enters WhiterunWorld through the Bannered
+Mare door and looks south from the city gate toward the mountains. It captures
+the same frozen view with terrain LOD hidden and visible, requiring at least
+500 terrain-contributed pixels in the middle third of the image. Captures go
+to `godot/.godot/rnd-19-whiterun-exterior-lod.png` and its `-no-terrain.png`
+control. It crosses into Tamriel, checks a configured 12-cell LOD radius,
+moves six cells, verifies resident LOD blocks change without overlapping
+retained full cells, and returns to the interior to verify both streams clear.
+The Rust `rnd_19_` tests run this installed-data capture, survey WRLD flags,
+and exercise independent land/LOD inheritance, nested parents, invalid
+parents, focus movement, radius validation and immediate near handoff.
 
 ## Mesh
 
@@ -4217,10 +4230,11 @@ relative to the worldspace's anchor, including negative offsets.
 
 `TerrainLodStreamer` mirrors `streaming::CellStreamer`'s hysteresis: blocks
 between `full_res_radius` and `lod_radius` (ring distance in cells) are
-wanted, nearer or farther blocks are stale, loads and unloads are capped per
-tick and sorted nearest first or farthest first. `full_res_radius` should
-match the cell streamer's own `load_radius` so the two never disagree about
-which cells are near. One streamer covers one LOD level, a caller that wants
+wanted, nearer or farther blocks are stale, loads and distant unloads are
+capped per tick and sorted nearest first or farthest first. Near overlaps
+are released immediately. `full_res_radius` covers retained full cells,
+including the unload radius when the near streamer uses hysteresis.
+One streamer covers one LOD level, a caller that wants
 more than one level resident at once runs one streamer per level with
 disjoint radius bands, finer levels nearer the focus. Picking a level by
 distance can use `lod_rebuild::select_far_level`, which chooses the coarsest

@@ -16,7 +16,7 @@ fn data_path() -> Option<PathBuf> {
 }
 
 #[test]
-fn lod_parent_selection_uses_the_wrld_use_lod_flag() {
+fn rnd_19_lod_parent_selection_uses_the_wrld_use_lod_flag() {
     let Some(path) = data_path() else {
         eprintln!("SKYRIM_DATA not set, skipping installed WRLD LOD inheritance check");
         return;
@@ -75,7 +75,7 @@ fn lod_parent_selection_uses_the_wrld_use_lod_flag() {
 }
 
 #[test]
-fn unknown_worldspace_has_no_lod_identity() {
+fn rnd_19_unknown_worldspace_has_no_lod_identity() {
     let Some(path) = data_path() else {
         eprintln!("SKYRIM_DATA not set, skipping unknown worldspace LOD lookup");
         return;
@@ -91,7 +91,7 @@ fn unknown_worldspace_has_no_lod_identity() {
 }
 
 #[test]
-fn lod_focus_move_releases_departed_ring_and_fills_new_ring() {
+fn rnd_19_lod_focus_move_releases_departed_ring_and_fills_new_ring() {
     let config = TerrainLodConfig {
         level: LodLevel::L4,
         full_res_radius: 1,
@@ -116,7 +116,7 @@ fn lod_focus_move_releases_departed_ring_and_fills_new_ring() {
 }
 
 #[test]
-fn lod_radius_must_extend_beyond_full_resolution_coverage() {
+fn rnd_19_lod_radius_must_extend_beyond_full_resolution_coverage() {
     for radius in [-1, 2] {
         let result = TerrainLodStreamer::new(TerrainLodConfig {
             level: LodLevel::L4,
