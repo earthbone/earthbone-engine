@@ -228,10 +228,10 @@ godot --path godot --resolution 640x360 --script ply_04_route_test.gd
 
 ## Live detection observations, CMB-32
 
-PlayerNode samples ordered pairs of resident, living actors in the same cell
+PlayerNode samples ordered pairs of resident, living actors in the same coordinate space
 within the winning `fSneakMaxDistance` after the player's pose reaches Game.
 Their FormIDs come from
-`World::contact_actors`. A Godot physics ray from eye to eye reports the first
+`World::contact_actor_placements`. A Godot physics ray from eye to eye reports the first
 body, including an intervening actor or static obstruction. The query uses
 the existing RID-backed actor bodies and allocates no reference nodes.
 
@@ -251,12 +251,51 @@ bins current light spheres in a 1,024-unit grid. A sphere covering more than
 influencing contributions retain FormID order and the existing radius, color,
 negative-light and fade calculation. Runtime visibility overrides authored
 initial-disable flags, so Enable can turn an initially disabled light on.
+Loading reference state does not override the LIGH Off By Default flag.
+That flag still suppresses the light estimate for an enabled reference.
 Moved and spawned lights use their current shared placement.
 `PlayerNode::detection_time_usec` measures the whole update, including actor
 body synchronization, sampling and world evaluation. `detection_worldspace`
 reports the active exterior worldspace's editor ID for the walking check.
 Body synchronization and detection reuse one resident actor-placement list.
 No per-reference scene nodes are added.
+
+PRF-31 selects living actors in attached cells before resolving controller
+height. A per-frame spatial pass keeps actors within detection range of another
+actor, including NPC pairs away from the player, and observers near a queued
+sound. Sound owners retain their placement even when distant. Current effective
+enable state follows XESP parents. Detached and merely prefetched cells do not
+supply host contact placements. The selection reads current World state each
+frame, including moved and spawned references.
+Exterior actors also need an attached grid at their current position in their
+owning worldspace. Actors filed under the worldspace's persistent cell retain
+that parent FormID, while distant placements outside the host grid are excluded.
+`DetectionSpaces` shares pair neighborhoods across grid cells and the persistent
+cell of one worldspace. Interiors and distinct worldspaces remain separate.
+Light callbacks still receive each target's original cell, preserving its light
+lookup. The walk requires observations in both exterior phases. Its controlled
+sound uses `emit_detection_sound_at`, which queues a sound at one reference
+owned by a separate actor through `World::create_detection_event`.
+
+Body synchronization creates selected bodies and retains other eligible bodies
+that already exist. It writes a transform only when the feet position changed
+or a held/thrown body invalidated the last synchronized pose. Full contact
+queries still resolve every eligible controller shape. Detection shares a
+`ContactRays` object, direct space state and inverted actor-to-body exclusion
+map for its rays. Switching observers replaces the exclusion array, while
+repeated rays from the same observer reuse it. The local Godot references
+`class_physicsrayqueryparameters3d.rst` and
+`class_physicsdirectspacestate3d.rst` specify exclusion RIDs and first-hit results.
+`detection_stage_times` reports body selection/sync, light construction,
+observations and evaluation in microseconds. The outer timer also includes
+settings, event filtering and frame bookkeeping.
+
+The local CommonLibSSE-NG `include/RE/P/ProcessLists.h` distinguishes high,
+middle and low actor processes. OpenMW `mwmechanics/actors.cpp` bounds AI work
+by actor processing distance. This host instead preserves every eligible nearby
+NPC pair and CK `CreateDetectionEvent` source ownership, using the existing
+detection range and shared reference table rather than introducing another
+actor process store. This adds no dependency or saved state.
 A sound event uses its source position and owning actor FormID. Footsteps emit
 a detection sound after successful playback. World keeps the stealth pool and
 observer state across cell resource replacement.
@@ -319,47 +358,41 @@ outdoor WTHR lighting.
 
 ## Cell ambience, AUD-09
 
-The player owns one non-positional ambience stream through a Godot
-`AudioStreamPlayer`. On a cell change it stops the prior stream and starts the
-first eligible single-track path returned by `soe_game::ambience`, which reads
-MUST conditions and palette leaves. This uses Godot's audio server path
-documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
-crossfades, multiple regional sound descriptors and MUSC priority arbitration
-are not implemented.
-
-`tests/aud_09_godot_ambience.rs` launches Godot with a generated WAV fixture
-and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
-the cell ambience is released. The test uses a windowed 640 by 360 Godot
-process and exits when the transition check finishes.
+The MUST track lookup and non-positional `SoundBank::play_ambience` entry
+point remain available. `tests/aud_09_godot_ambience.rs` uses a generated WAV
+fixture to check that entry point's AudioStreamPlayer start and release in a
+windowed 640 by 360 process. PlayerNode uses the ambient SNDR descriptors
+connected by AUD-11 below.
 
 ## Walkthrough audio, AUD-11
 
-When gameplay starts, `PlayerNode` attaches its `SoundBank` before syncing audio
-for the loaded cell. The cell's XCMO music type selects one eligible MUSC track
-through `soe_game::music`, and cell ambience selects the first eligible track
-through `soe_game::ambience`. Later cell changes repeat both selections.
-`SoundBank` exposes cumulative start counts for effects, voices, music and
-ambience so an integration run can report the paths that actually started.
-Music uses the host's configured WMA decoder, including the default in-process
-decoder for vanilla xWMA tracks.
+When gameplay starts, `PlayerNode` attaches its `SoundBank` before selecting
+cell audio. Music follows CELL/XCMO, regional RDMO or WRLD/ZNAM through
+`soe_game::music`. A destination without a selection stops the prior music.
+Ambience follows CELL/XCAS, ASPC/SNAM/RDAT and CELL/XCLR regional descriptors
+through `soe_game::ambience` and `sound::prepare_for`. Godot non-positional
+players apply the selected descriptor's gain, pitch and ordinary loop mode.
+Cell changes stop and release those players. Envelope loop modes return an
+unsupported playback error. The older MUST ambience entry point remains
+available to callers.
 
-Set `SOE_AUD_11_TEST=1` when launching `godot/walkthrough.gd` with installed
-data to inject a forward walk for 20 seconds. The script captures and drains
-the master bus, then approaches Hulda through the existing scripted MoveTo
-command and selects her first offered topic through the dialogue menu. It
-captures two seconds of response playback before reporting the peak in dB and
-the four start counts. Walk duration and distance are measured before that
-interaction. A straight unattended walk does not guarantee NPC speech, so the
-check requests a response explicitly. It exits with failure if footsteps,
-ambience, music or the requested voice do not start, or the master peak does
-not exceed -60 dB.
-The windowed test is `aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_system`.
-The injected walk itself has no dialogue stimulus. The follow-up interaction
-checks voice playback. The AUD-12 audio fixture checks direct voice playback
-and its under 2 ms fast path.
-The AUD-11 Rust checks build the release extension in Cargo's current target
-directory, register it in isolated Godot projects and skip when `SKYRIM_DATA`
-or `SOE_GODOT_BIN` is unset.
+Nearby Misc Hello and Idle responses selected by Game play at the speaker's
+position through the existing SoundBank voice pool, without opening a menu.
+Each response starts once. When its voice ends the host advances the shared
+session, including INFO end fragments. Session interruption stops its voice.
+Voice filenames follow local Mutagen `VoiceTypeAssetLookup.GetVoiceLineFilePaths`.
+The playback and loop APIs follow local Godot AudioServer, AudioStreamPlayer3D
+and AudioStreamWAV class documentation. No new per-reference node path is added.
+Cell ambience owns one AudioStreamPlayer per selected descriptor.
+
+`SOE_AUD_11_TEST=1` runs the installed-data walkthrough with a forward walk
+for 20 seconds. The master-bus capture is drained throughout the walk and the
+log reports footsteps, ambience, music and voices that started. The check
+fails if any count is zero, movement is under 10 units or the captured peak
+is at or below -60 dB. NPC speech is selected during normal gameplay ticks.
+The windowed `aud_11_` tests launch this check and inspect its result and exit
+status. The vanilla response test resolves and decodes the selected voice
+asset independently. Checks skip when SKYRIM_DATA or SOE_GODOT_BIN is unset.
 
 ### Papyrus weather image-space selection, SCR-54
 
@@ -3232,7 +3265,8 @@ directly. Both run the segment from the node origin along its negated basis Z
 column, which is Skyrim local +Y after the axis map in `units.rs`. The length
 is `World::melee_reach` converted to metres. `sync_contact_actors` and
 `contact_actor_body` expose the store for diagnostics, `contact_actor_bodies`
-lists every body with its owner and World position in Godot space,
+lists every body with its owner and World position in Godot space, cell,
+coordinate space, dead flag and detection range,
 `last_melee_target` names the actor the last HitFrame query reached, and
 `equip_melee_weapon` gives and equips a weapon so a headless script can arm
 the player.
@@ -4788,6 +4822,33 @@ hidden subtrees. The three trailing range bytes follow local `nifxml/nif.xml`
 and `nifly/include/Nodes.hpp`, using the existing NIF header and stream reader.
 Other damage ranges remain hidden, and ordinary hidden helpers stay excluded.
 
+`rnd_17_hidden_barricade_damage_stages_build_only_intact_surfaces` exercises
+that selection through the VFS and surface builder with a synthetic NIF. The
+intact stage builds two triangles, damaged stages contribute no surfaces, and
+an ordinary hidden ancestor still hides the intact geometry.
+`rnd_17_whiterun_barricade_has_no_surface_or_collision_until_parent_enabled`
+surveys all nine disabled-parent ACTI barricades in installed WhiterunWorld.
+Each is absent from authored cell geometry and collision, then builds two
+nonempty surfaces and static collision after marker `0:0376E0` is enabled.
+The survey restores the marker's disabled state between references.
+
+With SKYRIM_DATA and SOE_GODOT_BIN set, the survey also runs
+`godot/rnd_17_enable_parent_test.gd` in a 640 by 360 window. Build the release
+extension and import the Godot project before running it. The script toggles
+the marker four times without reloading the cell, checks uploaded geometry
+alignment, host, movement and query collision, and unchanged streamer child
+count. It writes disabled and toggled captures under `target/rnd_17` and
+requires at least 100 pixels to change by more than 0.05 in one color channel
+when the marker first turns on. The script quits and the Rust test checks its
+exit status and result marker.
+
+The installed survey passed for all nine barricades. The windowed check on
+Godot 4.4.1 with software Vulkan changed 4,949 pixels on enable, measured zero
+uploaded geometry alignment error through all four toggles, and switched
+movement and query collision between one body and none. The streamer child
+count stayed unchanged and the process exited with status 0. The capture
+fixture advances 200 ms before drawing to finish the cell entry fade.
+
 ## Whiterun white geometry, RND-20
 
 The pre-fix installed-data survey streams the nine grid cells around
@@ -4931,34 +4992,54 @@ cells return an empty dictionary so callers do not add an interior light to
 them. LGTM DATA and DALC follow the local UESP CELL and LGTM layouts and xEdit
 XCLL definition in the engine reference corpus.
 
-The walkthrough and benchmark configure Godot's ambient color, fog, the cell's
-directional color, and its six directional ambient colors from this dictionary.
-Those six colors use non-shadowing directional lights pointed along the cell's
-positive and negative axes. The authored directional light uses the cell's
-rotation and fade values. Neither script adds the former fixed environment
-color or a weather sun. Exterior cells return no cell-lighting dictionary.
-Until RND-18 supplies weather lighting, the benchmark gives those cells only
-its dark background environment. The Bannered Mare capture
-check uses installed data and requires average linear pixel brightness from
-0.02 to 0.65, with fewer than one percent of pixels clipped in all three
-channels. Those bounds are recorded before the capture run.
+The walkthrough and benchmark attach the same `record_sky.gd` controller and
+create no additional Environment or directional lights. The controller owns
+one WorldEnvironment, one weather sun, one interior directional light and six
+non-shadowing directional ambient lights. Interior ambient axes follow the
+Skyrim-to-Godot coordinate mapping. Only the interior lights are visible for
+ordinary interiors, including cells with Show Sky but without Use Sky Lighting.
+Exterior sunlight color and direction come from RND-18's current WTHR and
+clock sample. The weather sun is hidden below the horizon. Use Sky Lighting
+selects this weather lighting for an interior independently of Show Sky.
 
-`cell_lighting::tests::rnd_21_cell_light_applies_lgtm_inheritance_and_keeps_uninherited_fields`
-checks each inherited group and retained CELL values. The companion exterior
-test verifies that an exterior CELL does not receive interior lighting.
-`godot/rnd_21_capture_test.gd` streams and renders the Bannered Mare through
-the host with installed data and checks the captured image. Godot 4.4.1 with llvmpipe at 640 by
-360 measured average linear luminance 0.0782 and zero fully clipped pixels.
+SkyRecords supplies the resolved cell fields through the same CELL/LGTM
+resolver used by `cell_lighting`. LGTM's far fog color, maximum opacity and
+light fade fields start at byte 72, after its unused ambient-color block.
+Directional ambient colors come from DALC. The resolver accepts the legacy
+24-byte LGTM DATA prefix and modern 92-byte DATA, and rejects truncated
+modern data or DALC. Interior fog uses both authored colors, near and far
+distances, power and maximum opacity, with far distance bounded by a positive
+fog clip distance. Runtime point-light RIDs receive their cell's inherited
+light fade start and length converted to metres through RenderingServer.
+Invalid or empty fade ranges disable distance fading. No saved state,
+dependency or per-reference node path is added.
+
+The `rnd_21_` unit tests cover inherited and retained fields, independent
+LGTM tail offsets, legacy and malformed template sizes, and point-light fade
+conversion. `rnd_21_lighting.rs` checks both production scripts for exclusive
+controller ownership. Its installed-data windowed cases run the walkthrough
+and the interior and exterior benchmark setup, inspect the active Environment
+and every directional light, and check weather and time changes and lighting
+replacement in both directions. The walkthrough check pauses simulation
+stepping and captures eight rendered frames. It does not measure gameplay
+frame time. The benchmark check uses its production setup and warm-up, then
+quits before the timing sample.
+
+`godot/rnd_21_capture_test.gd` streams the Bannered Mare main room through the
+production controller and captures it at 640 by 360. Its stored average
+linear luminance range is 0.02 to 0.65, with fewer than one percent of pixels
+clipped in all three channels. Captures are saved under `target`.
 
 ## Exterior skies and interior lighting, RND-18
 
 The walkthrough and bench attach `godot/record_sky.gd`. Its SkyRecords
 RefCounted sampler reads the gameplay PlayerNode's shared World, or owns a
 preview World for a benchmark without gameplay. The controller owns one
-WorldEnvironment, one directional sun light, six directional ambient lights
-and one full-screen fog mesh. Walkthrough and bench attach this controller
-without creating a second environment or independent cell lights.
-It creates no node per placed reference.
+WorldEnvironment, one weather sun, one interior directional light and six
+non-shadowing directional ambient lights, plus one full-screen fog mesh.
+Walkthrough and bench attach this controller without creating a second
+environment or independent cell lights. It creates no node per placed
+reference.
 
 The sky shader draws upper, lower and horizon NAM0 colors. CLMT sun and glare
 textures, moon textures selected by TNAM flags and phase length, and the

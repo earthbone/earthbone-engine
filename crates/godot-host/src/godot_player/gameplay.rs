@@ -299,6 +299,7 @@ impl PlayerNode {
         }
         self.refresh_image_space();
 
+        self.advance_ambient_dialogue();
         self.capture_screenshot_requests();
         let training_request = self
             .game
