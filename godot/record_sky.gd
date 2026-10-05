@@ -16,6 +16,7 @@ var cloud_paths: Array[String] = []
 var cloud_array: Texture2DArray
 var night_model := ""
 var phase := -1
+var ambient_lights: Array[DirectionalLight3D] = []
 var fog_material := ShaderMaterial.new()
 var fog_pass := MeshInstance3D.new()
 
@@ -34,6 +35,15 @@ func _ready() -> void:
 	add_child(world_environment)
 	add_child(sun)
 	sun.shadow_enabled = true
+	var rotations := [Vector3(0, -PI / 2, 0), Vector3(0, PI / 2, 0),
+		Vector3(PI / 2, 0, 0), Vector3(-PI / 2, 0, 0), Vector3(0, PI, 0), Vector3.ZERO]
+	for rotation in rotations:
+		var light := DirectionalLight3D.new()
+		light.rotation = rotation
+		light.shadow_enabled = false
+		light.visible = false
+		add_child(light)
+		ambient_lights.append(light)
 	fog_material.shader = preload("res://record_fog.gdshader")
 	fog_material.render_priority = 127
 	var quad := QuadMesh.new()
@@ -83,6 +93,7 @@ func refresh() -> bool:
 		return false
 	if last_frame.is_empty():
 		return true
+	_apply_interior_directions(last_frame)
 	if not last_frame.weather_sky:
 		environment.background_mode = Environment.BG_COLOR
 		environment.background_color = Color.BLACK
@@ -132,9 +143,27 @@ func refresh() -> bool:
 		material.set_shader_parameter("stars_enabled", not texture_path.is_empty())
 	return _clouds(f.clouds)
 
+func _apply_interior_directions(frame: Dictionary) -> void:
+	sun.distance_fade_enabled = false
+	for index in ambient_lights.size():
+		var light := ambient_lights[index]
+		light.visible = frame.has("ambient_directions")
+		if light.visible:
+			light.light_color = frame.ambient_directions[index]
+			light.light_energy = 1.0 / 6.0
+			light.distance_fade_enabled = frame.light_fade.y > frame.light_fade.x
+			light.distance_fade_begin = frame.light_fade.x / UNITS_PER_METRE
+			light.distance_fade_length = maxf(0.0, frame.light_fade.y - frame.light_fade.x) / UNITS_PER_METRE
+	if frame.has("light_fade"):
+		sun.distance_fade_enabled = frame.light_fade.y > frame.light_fade.x
+		sun.distance_fade_begin = frame.light_fade.x / UNITS_PER_METRE
+		sun.distance_fade_length = maxf(0.0, frame.light_fade.y - frame.light_fade.x) / UNITS_PER_METRE
+
 func _apply_fog(frame: Dictionary) -> void:
 	var near: float = frame.fog.x / UNITS_PER_METRE
 	var far: float = frame.fog.y / UNITS_PER_METRE
+	if frame.has("fog_clip") and frame.fog_clip > 0.0:
+		far = minf(far, frame.fog_clip / UNITS_PER_METRE)
 	environment.fog_enabled = false
 	environment.fog_mode = Environment.FOG_MODE_DEPTH
 	environment.fog_depth_begin = near

@@ -8754,6 +8754,15 @@ A sky can draw while `interior_lighting` applies XCLL inheritance bits
 separately to LGTM ambient, directional and fog fields. Ordinary interiors
 return no weather frame.
 
+Interior lighting accepts complete optional four-byte tails from 64 to 92
+bytes in XCLL and LGTM/DATA. Template directional ambient colors come from
+LGTM/DALC, independently of DATA's unused color block. Ambient inheritance
+selects all six directional colors with the scalar ambient color. Missing
+optional far fog color uses the near color, maximum fog opacity defaults to
+one, and absent light fade distances default to zero. Fog clip and light
+fade use their own inheritance flags. Malformed DALC and nonfinite numeric
+lighting fields return errors.
+
 An initial weather uses CLMT/WLST weights and optional GLOB chance values,
 with a repeatable draw from the cell identity. A Weather.SetActive request
 replaces that selection. The override flag retains it across climate changes.
@@ -8795,4 +8804,5 @@ The `rnd_18_` integration tests exercise time slots, cloud encodings, fog,
 sun and moon inputs, weather changes, interruption, acceleration, interior
 inheritance, winning overrides, save restoration and malformed inputs. The
 installed-data survey reads all 108 live weather winners and nine climates
-from the five masters, then samples Whiterun at noon and midnight.
+from the five masters, checks cells linked to lighting templates, then samples
+Whiterun at noon and midnight against the winning NAM0 bytes.

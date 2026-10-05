@@ -4955,7 +4955,9 @@ the host with installed data and checks the captured image. Godot 4.4.1 with llv
 The walkthrough and bench attach `godot/record_sky.gd`. Its SkyRecords
 RefCounted sampler reads the gameplay PlayerNode's shared World, or owns a
 preview World for a benchmark without gameplay. The controller owns one
-WorldEnvironment, one directional sun light and one full-screen fog mesh.
+WorldEnvironment, one directional sun light, six directional ambient lights
+and one full-screen fog mesh. Walkthrough and bench attach this controller
+without creating a second environment or independent cell lights.
 It creates no node per placed reference.
 
 The sky shader draws upper, lower and horizon NAM0 colors. CLMT sun and glare
@@ -4977,6 +4979,11 @@ selects weather lighting independently of that background flag. Ordinary
 interiors keep a color background. Changing the bound source clears texture
 selections and cached uploads.
 
+Interior directional ambient colors use the six lights with shadows disabled.
+They are hidden for weather lighting. Interior fog clip limits the far fog
+distance, and authored light fade distances are converted from Skyrim units
+to metres before reaching the lights.
+
 The night texture reader accepts ordinary NIF texture sets, effect-shader
 source textures and SSE BSSkyShaderProperty's baseTexture. The last layout
 comes from local nifly `src/Shaders.cpp` and `src/Objects.cpp`. The NIF crate
@@ -4996,6 +5003,13 @@ The shader-texture unit test covers an SSE block with extra data and truncation.
 The installed Bannered Mare has Show Sky set and Use Sky Lighting cleared.
 The capture checks that its region sky draws while its own ambient,
 directional and fog lighting reach the host.
+
+The capture also checks cloud velocity uniforms and compares two sky captures
+120 presentation seconds apart, requiring at least 100 pixels to change by
+more than 0.02 in one color channel. The walkthrough smoke checks that only
+one WorldEnvironment exists. The benchmark smoke runs the benchmark setup
+and rendering warmup for Whiterun, then checks that its sole environment and
+sun come from the record sky before exiting. It does not measure frame time.
 
 On Godot 4.4.1 with software Vulkan, the Whiterun capture passed with 9,938
 noon pixels and 6,663 night pixels inside that tolerance. Mean brightness in
