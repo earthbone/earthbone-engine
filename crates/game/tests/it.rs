@@ -7,6 +7,9 @@
 mod common;
 mod support;
 
+#[path = "aud_11_breaker_adversarial.rs"]
+mod aud_11_breaker_adversarial;
+
 #[path = "cmb_39_breaker_adversarial.rs"]
 mod cmb_39_breaker_adversarial;
 #[path = "sav_71_breaker_adversarial.rs"]

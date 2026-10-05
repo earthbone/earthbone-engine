@@ -55,6 +55,8 @@ fn aud_11_dial_snam_signature_overrides_legacy_numeric_subtype() {
 
     assert_eq!(
         world.dialogue_topic(id(0x1000)).unwrap().subtype,
-        Some(soe_esm::records::gameplay::TopicSubtype::Signature(*b"HELO"))
+        Some(soe_esm::records::gameplay::TopicSubtype::Signature(
+            *b"HELO"
+        ))
     );
 }
