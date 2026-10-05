@@ -1,5 +1,29 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Entity host capture, PRF-13
+
+The existing system overlay uses F4 to toggle `soe_trace::Profile`, displaying
+the top five actors, scripts, quests and plugins by self time in the preceding
+second. F3 retains its system view. Switching F4 off or leaving the player
+writes `user://soe-profile.json` and `user://soe-entities.json` for Perfetto.
+Headless startup also honors `SOE_PROFILE=1`.
+
+PlayerNode collects key-event latency tokens while profiling. A physics step
+moves control tokens into the presentation queue after application. Opening
+or closing a menu queues its token immediately. RenderingServer's
+`frame_post_draw` signal completes the presentation queue. This measures elapsed time from a key
+callback through the next applied and presented frame. It does not infer
+whether an unbound key changed a visible pixel. Audio playback scopes count
+voice and effect starts at the existing `AudioStreamPlayer3D.play` call.
+RenderingServer instance creation uses a shared submission wrapper to record
+its elapsed time and count in one output entity.
+
+The overlay reuses its panel and label and adds no per-reference nodes. No
+saved fields or dependency were added. The windowed `prf_13_` host check
+covers F4, an applied camera switch, presentation latency, an audio start,
+installed render submissions, summary JSON and an overlay capture. It uses
+the existing input path and the local Godot RenderingServer signal contract.
+
 ## Per-system frame monitors, PRF-12
 
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`
@@ -62,7 +86,32 @@ display list and labels form that frame. Other frame-count mismatches, subtag
 truncation errors and nesting beyond 64 levels remain errors. Synthetic
 fixtures cover both omissions, nested sprites and partial tags.
 
+Empty-depth Modify and Replace tags leave the display list unchanged, following
+normal frame playback in Ruffle's
+[MovieClip::place_object](https://github.com/ruffle-rs/ruffle/blob/master/core/src/display_object/movie_clip.rs).
+PlaceObject2/3 payloads must be fully consumed by the typed reader. The breaker
+fixture for an unoccupied depth contains an extra payload byte and is rejected
+for that malformed envelope rather than its empty depth.
+
 ## Scripted player input, PLY-01
+
+PRF-22 exposes `record_player_session(seed)`, `write_player_session(path)` and
+`replay_player_session(path)` on PlayerNode. Paths are absolute filesystem
+paths. Recording and replay use the same PLY-01 driver as headless Game.
+Set `auto_step` to false for explicit scripted stepping. Replay restores the
+Game snapshot and synchronizes the controller and cell resources, then
+`step_player_input` verifies the recorded outcome and each scheduled hash.
+`player_session_error` returns the latest divergence and `player_session_hash`
+returns the current Game and VM hash as hexadecimal text. A failed replay
+clears its pending queue and rejects further steps. Device controls outside
+the scripted input layer are not recorded by this transport.
+
+`godot/prf_22_session_test.gd` records 600 steps against the exported PLY-01
+fixture, replays the file twice, compares eleven hashes and complete event
+logs, then quits. It checks simulation and host transport without measuring
+render throughput. PRF-13 summaries also include host presentation system
+totals separately from overlapping Game tick totals. No per-reference node
+path or native save field is added.
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
 `soe_game::player_input::Driver`. `step_player_input` executes one queued
@@ -159,8 +208,9 @@ software-rendered run.
 
 ## Live detection observations, CMB-32
 
-PlayerNode samples each ordered pair of resident, living actors in the same
-cell after the player's pose reaches Game. Their FormIDs come from
+PlayerNode samples ordered pairs of resident, living actors in the same cell
+within the winning `fSneakMaxDistance` after the player's pose reaches Game.
+Their FormIDs come from
 `World::contact_actors`. A Godot physics ray from eye to eye reports the first
 body, including an intervening actor or static obstruction. The query uses
 the existing RID-backed actor bodies and allocates no reference nodes.
@@ -172,6 +222,21 @@ placement and enable state, including `PlaceAtMe` references, and bounds the
 resulting record-derived light estimate to 0 to 150. The host sends that
 value, sight, motion and queued detection sounds to
 `World::evaluate_detection` each step.
+PRF-31 builds a uniform actor grid and a separate grid of sound source
+positions each frame. A nearby event can belong to a distant actor and does
+not grant sight to its owner. Each target's light is sampled once per frame.
+`LightSamples` reads `World::light_references_in_cell` for each actor cell and
+bins current light spheres in a 1,024-unit grid. A sphere covering more than
+512 buckets uses a separate list queried at every point in that cell. All
+influencing contributions retain FormID order and the existing radius, color,
+negative-light and fade calculation. Runtime visibility overrides authored
+initial-disable flags, so Enable can turn an initially disabled light on.
+Moved and spawned lights use their current shared placement.
+`PlayerNode::detection_time_usec` measures the whole update, including actor
+body synchronization, sampling and world evaluation. `detection_worldspace`
+reports the active exterior worldspace's editor ID for the walking check.
+Body synchronization and detection reuse one resident actor-placement list.
+No per-reference scene nodes are added.
 A sound event uses its source position and owning actor FormID. Footsteps emit
 a detection sound after successful playback. World keeps the stealth pool and
 observer state across cell resource replacement.
@@ -246,6 +311,35 @@ are not implemented.
 and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
 the cell ambience is released. The test uses a windowed 640 by 360 Godot
 process and exits when the transition check finishes.
+
+## Walkthrough audio, AUD-11
+
+When gameplay starts, `PlayerNode` attaches its `SoundBank` before syncing audio
+for the loaded cell. The cell's XCMO music type selects one eligible MUSC track
+through `soe_game::music`, and cell ambience selects the first eligible track
+through `soe_game::ambience`. Later cell changes repeat both selections.
+`SoundBank` exposes cumulative start counts for effects, voices, music and
+ambience so an integration run can report the paths that actually started.
+Music uses the host's configured WMA decoder, including the default in-process
+decoder for vanilla xWMA tracks.
+
+Set `SOE_AUD_11_TEST=1` when launching `godot/walkthrough.gd` with installed
+data to inject a forward walk for 20 seconds. The script captures and drains
+the master bus, then approaches Hulda through the existing scripted MoveTo
+command and selects her first offered topic through the dialogue menu. It
+captures two seconds of response playback before reporting the peak in dB and
+the four start counts. Walk duration and distance are measured before that
+interaction. A straight unattended walk does not guarantee NPC speech, so the
+check requests a response explicitly. It exits with failure if footsteps,
+ambience, music or the requested voice do not start, or the master peak does
+not exceed -60 dB.
+The windowed test is `aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_system`.
+The injected walk itself has no dialogue stimulus. The follow-up interaction
+checks voice playback. The AUD-12 audio fixture checks direct voice playback
+and its under 2 ms fast path.
+The AUD-11 Rust checks build the release extension in Cargo's current target
+directory, register it in isolated Godot projects and skip when `SKYRIM_DATA`
+or `SOE_GODOT_BIN` is unset.
 
 ### Papyrus weather image-space selection, SCR-54
 
@@ -1421,6 +1515,13 @@ Loading durations, worst loading frame and pipeline counts are reported
 separately. This is a quiet-counter predicate, not an API for pending compiler
 jobs. It does not warm views or effects introduced later.
 
+The render warm-up timeout begins at the first `frame_post_draw`, so time
+before the first drawn frame does not use the 30 second settle limit. The
+successful load report records that delay as `load_first_frame_wait_ms` and
+records the subsequent pipeline settling time as `load_render_ms`.
+`godot/prf_08_test.gd` checks the timeout behavior after a 77 minute simulated
+undrawn wait and checks both report fields with a windowed renderer.
+
 Sources read for PRF-08: local `godot-docs/tutorials/performance/pipeline_compilations.rst`,
 `classes/class_renderingserver.rst` and `classes/class_projectsettings.rst`.
 Godot documents deferred compilation for instance overrides, covered rendering
@@ -2291,6 +2392,21 @@ Native boxes, spheres, capsules and convex hulls replace the former box-hull
 approximations. See [physics](physics.md) for geometry tests and measurement
 limits, and [the reference map](reference-audit.md) for future work.
 
+Convex point clouds are reduced to the boundary vertices using
+`soe_physics::hull::triangles` before `PhysicsServer3D` receives them. If that
+cannot produce a 3D hull, the host removes duplicate and non-finite points and
+submits a slightly padded bounds hull. A repaired hull reports its source mesh
+path and NIF collision node name once per process. Godot's `shape_set_data`
+returns no hull failure result, so this check prepares the point set before
+the call rather than retrying after Jolt reports an error. The PRF-32 checks a
+44-point cloud with interior points and a flat cloud, then sends both repaired
+hulls to Godot's Jolt server. Its installed-data check streams Bannered Mare
+through the host and runs `physics_test.gd`, requiring collision bodies,
+contact and no Jolt shape error.
+The installed collision helper builds and registers the release extension.
+Clippy can leave metadata at the debug library path, so existence alone does
+not establish a loadable library.
+
 ## Capacity checks
 
 `godot/bench.gd` now fails when its frame p99 exceeds 16.7 ms or its worst
@@ -2784,6 +2900,29 @@ SoundBank in Godot with three synthetic archive tracks. It checks both players
 during the first fade, verifies each configured fade changes player volume,
 then interrupts the fade and checks that the reused slot no longer has the
 first track assigned. AudioEffectCapture confirms mixer output during playback.
+
+### Asynchronous music and ambience (AUD-12)
+
+Music and ambience requests decode on a worker. The main thread creates the
+`AudioStreamWav` only after PCM is ready, then starts playback. A newer request
+invalidates an older decode result, and the current music continues playing
+until its replacement is ready. Decoded music and ambience paths share a
+cache with a 64 MiB audio-data budget. Effects and voices
+keep their existing path, which decodes synchronously.
+
+SoundBank retains decode workers and joins them before destruction, so no
+worker executes extension code after the library unloads. Finished workers
+are joined during polling. This follows the local
+`godot-docs/tutorials/performance/using_multiple_threads.rst` shutdown example.
+An accepted request can still fail during decoding, which updates `last_error`
+without incrementing the playback start count. The AUD-11 counter check waits
+for decode completion before checking missing assets and restarts.
+
+`aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes` checks
+request latency, replacement cancellation, continued current playback, cache
+reuse and the cache budget using generated WAV files. It also checks the fast
+effect and voice path. The installed PRF-12 test exercises the real walkthrough
+and checks the audio system's worst recorded frame time.
 
 Loose `.xwm` music and xWMA files in FUZ require the optional
 `xwma-ffmpeg` feature. The host does not apply the MUSC ducking amount, queue
@@ -3408,6 +3547,17 @@ worn extra data remain in the game layer. The public inventory_menu reader
 takes a Game, holder and category, allowing the container menu to reuse its
 form-backed rows without a second inventory model. Drop, use, charge, favorite
 and instance-specific actions remain outside UI-02.
+
+The item card and inventory row share this category reader, including the food
+icon. Its flag follows local xEdit `Core/wbDefinitionsTES5.pas`, and SkyUI's
+`ItemMenus/InventoryDataSetter.as` supplies the food classification behavior.
+SkyUI cache scene checks require `SOE_TEST_SKYUI` and either `SOE_FFDEC_JAR`
+or `SOE_FFDEC`. Without those inputs they report a skip. JPEXS FFDec's local
+CLI help lists `yes`, `ask` and `local` as import options. The converter uses
+`local` alone, leaving both import and prompting disabled, as confirmed by
+the bundled `CommandLineArgumentParser` and `ConsoleUrlResolver` classes.
+The archive survey checks bounded sprite definitions when Ruffle's parser
+rejects SkyUI's omitted sprite End tags.
 
 When activation opens a container, its menu presents the same category buttons
 and lists the container's positive inventory totals. The rows come from its shared
@@ -4504,6 +4654,8 @@ recorder for each ordered chunk.
 
 `godot/prf_14_work_test.gd` loads the installed Bannered Mare, compares actual
 instance creation with the streamed count and verifies empty-window reset.
+The Rust wrapper runs it in an isolated project with an explicit extension list,
+loading Cargo's current test-built library rather than a cached release build.
 It is a headless correctness check. The counter paths add no per-reference
 nodes and no saved state. The row uses the existing RenderingServer and
 PhysicsDirectSpaceState3D APIs described in the local Godot class docs.
@@ -4888,3 +5040,32 @@ falloff, palette, vertex-alpha, alpha-test and depth-intersection controls,
 then installed FXMistLow01HalfVis near Whiterun and Windhelm interior window
 glow over two backdrops. It also checks all 121 factor pairs against an opaque
 backdrop. Captures are written under `godot/.godot`, outside tracked content.
+
+## Detection neighborhoods, PRF-31
+
+`godot/prf_31_detection_test.gd` measures one installed Whiterun exterior
+update, then walks the player at Whiterun's gate for 30 seconds in
+WhiterunWorld and 30 seconds in Tamriel. It samples every physics frame for two 30-second wall-time phases, checks resident
+NPCs and movement in both worldspaces, and rejects every
+complete detection update over the fixed 2,000-microsecond budget. Each run
+quits after reporting its sample count, maximum and over-budget count.
+The capsule and exterior residency advance through the host physics and
+streaming paths. NPC placements are held fixed and AI planning and VM ticks
+are omitted. The timing still covers the whole gameplay detection updater.
+The CPU light and actor grids use no new dependencies. The local OpenMW
+`components/sceneutil/lightmanager.cpp` intersects light spheres with object
+bounds and limits renderer lights. `clusteredlighting.hpp` declares the
+rendering light grid. Those OSG paths do not fit this host CPU query, which
+retains every influencing light without a renderer light limit.
+CK `GetLightLevel` and `CreateDetectionEvent` supply the light range and the
+separate source/owner contract. The Rust PRF-31 tests compare indexed samples
+with a full reference scan and cover reference mutations, sound ownership,
+sparse actor neighborhoods and native-save cache reconstruction.
+
+The installed headless run completed both 30-second phases with 3,623 updates,
+9 Whiterun actors near the gate and 446 Tamriel actors. Tamriel formed 530
+nearby observations. Maximum detection time was 6,657 microseconds and 1,813
+updates exceeded the 2,000-microsecond budget, so the check exited one.
+The full-update timing requirement remains unmet, see [performance.md](performance.md).
+The check runs a zero-time gameplay frame after load-door transitions to settle
+pending unload before exterior walking.

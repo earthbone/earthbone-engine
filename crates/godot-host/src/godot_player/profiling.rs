@@ -42,6 +42,52 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Complete keys only after the physics step has applied their controls.
+    #[func]
+    fn profile_frame_presented(&mut self) {
+        for latency in self.profile_applied_inputs.drain(..) {
+            latency.presented();
+        }
+    }
+
+    /// Enable optional per-entity profiling from the F4 overlay.
+    #[func]
+    fn set_entity_profiling(&mut self, enabled: bool) {
+        if enabled {
+            soe_trace::Profile::enable();
+        } else {
+            soe_trace::Profile::disable();
+        }
+    }
+
+    /// Whether entity capture is currently enabled.
+    #[func]
+    fn entity_profiling_enabled(&self) -> bool {
+        soe_trace::Profile::enabled()
+    }
+
+    /// Top actors, scripts, quests and plugins over the preceding second.
+    #[func]
+    fn entity_profile_overlay(&self) -> GString {
+        GString::from(soe_trace::Profile::overlay_text().as_str())
+    }
+
+    /// Export the captured scopes and session entity counters for Perfetto.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)] // CONTEXT: Godot callbacks receive owned Variants.
+    fn write_entity_profile(&self, directory: GString) -> bool {
+        let directory = std::path::PathBuf::from(directory.to_string());
+        match soe_trace::Profile::export_chrome_json(&directory.join("soe-profile.json"))
+            .and_then(|()| soe_trace::Profile::export_summary(&directory.join("soe-entities.json")))
+        {
+            Ok(()) => true,
+            Err(error) => {
+                godot_error!("Could not write entity profile: {error}");
+                false
+            }
+        }
+    }
+
     /// Milliseconds in the latest presentation frame, for custom monitor callbacks.
     #[func]
     fn system_monitor_ms(&self, index: i64) -> f64 {

@@ -534,7 +534,7 @@ mod tests {
         let map = BoneMap::build(&bones, &skel);
         assert_eq!(map.skeleton_index, vec![Some(0)]);
         assert_eq!(map.matched_by_case, 1);
-        assert!(map.unmatched.is_empty());
+        assert_eq!(map.unmatched.len(), 0);
     }
 
     #[test]

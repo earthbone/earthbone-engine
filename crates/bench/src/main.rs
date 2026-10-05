@@ -27,6 +27,7 @@
 
 mod allocations;
 mod gates;
+mod profile_diff;
 mod stress;
 
 use gates::Gates;
@@ -64,6 +65,18 @@ struct Options {
 
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "profile-diff") {
+        return match profile_diff::run(&args[1..]) {
+            Ok(report) => {
+                print!("{report}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.first().is_some_and(|arg| arg == "stress") {
         return match stress::run(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,

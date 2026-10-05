@@ -36,6 +36,13 @@ static func named(counts: Array[int]) -> Dictionary:
 	return result
 
 
+static func timing_fields(prepare_started: int, first_drawn_frame: int, settled: int) -> Dictionary:
+	return {
+		"load_first_frame_wait_ms": (first_drawn_frame - prepare_started) / 1000.0,
+		"load_render_ms": (settled - first_drawn_frame) / 1000.0,
+	}
+
+
 func begin(now: int, counts: Array[int]) -> void:
 	started = now
 	quiet_since = now
@@ -59,17 +66,22 @@ static func prepare() -> Dictionary:
 	if DisplayServer.get_name() == "headless":
 		return {"error": "render warm-up requires a windowed renderer"}
 	var wait = load("res://render_warmup.gd").new()
+	var prepare_started := Time.get_ticks_usec()
 	var before := snapshot()
-	var first := Time.get_ticks_usec()
-	wait.begin(first, before)
-	var last := first
+	var first_drawn_frame := 0
+	var last := prepare_started
 	var worst_ms := 0.0
 	var worst_frame := 0
 	while true:
 		await RenderingServer.frame_post_draw
+		var frame_drawn_at := Time.get_ticks_usec()
 		# CONTEXT: Drain submitted GPU work inside loading, never inside measured frames.
 		RenderingServer.force_sync()
 		var now := Time.get_ticks_usec()
+		if first_drawn_frame == 0:
+			first_drawn_frame = frame_drawn_at
+			wait.begin(first_drawn_frame, before)
+			last = now
 		var frame_ms := (now - last) / 1000.0
 		if frame_ms > worst_ms:
 			worst_ms = frame_ms
@@ -80,15 +92,16 @@ static func prepare() -> Dictionary:
 		if wait.timed_out(now):
 			return {"error": "pipeline counters did not settle within 30 seconds"}
 		if ready:
-			return {
+			var report := {
 				"error": "",
-				"load_render_ms": (now - first) / 1000.0,
 				"load_render_frames": wait.frames,
 				"load_render_worst_ms": worst_ms,
 				"load_render_worst_frame": worst_frame,
 				"pipelines_before_render": named(before),
 				"pipelines_after_load": named(counts),
 			}
+			report.merge(timing_fields(prepare_started, first_drawn_frame, now))
+			return report
 	return {"error": "render warm-up interrupted"}
 
 

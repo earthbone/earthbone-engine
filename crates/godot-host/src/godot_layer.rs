@@ -633,8 +633,9 @@ impl CellStreamerNode {
                     &surface.textures,
                 );
                 let mesh = array_mesh_from(&surface.arrays);
-                soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-                let rid = server.instance_create2(mesh.get_rid(), scenario);
+                let rid = soe_trace::Profile::render_submission(|| {
+                    server.instance_create2(mesh.get_rid(), scenario)
+                });
                 server.instance_set_transform(rid, Transform3D::IDENTITY);
                 server.instance_geometry_set_material_override(rid, material.get_rid());
                 instances.push(LodInstance {
@@ -764,8 +765,9 @@ impl CellStreamerNode {
                 }
             }
             material.set_blend_mode(effect_blend_mode(request.appearance.blend));
-            soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-            let rid = server.instance_create2(mesh.get_rid(), scenario);
+            let rid = soe_trace::Profile::render_submission(|| {
+                server.instance_create2(mesh.get_rid(), scenario)
+            });
             server.instance_set_transform(rid, transform);
             server.instance_geometry_set_material_override(rid, material.get_rid());
             self.effect_shaders.insert(
@@ -926,7 +928,9 @@ impl CellStreamerNode {
                     material.set_texture(TextureParam::ALBEDO, &texture);
                 }
             }
-            let rid = server.instance_create2(mesh.get_rid(), scenario);
+            let rid = soe_trace::Profile::render_submission(|| {
+                server.instance_create2(mesh.get_rid(), scenario)
+            });
             server.instance_set_transform(rid, transform);
             server.instance_geometry_set_material_override(rid, material.get_rid());
             self.visual_effects.insert(
@@ -992,8 +996,9 @@ impl CellStreamerNode {
                 multi.set_mesh(&mesh);
                 multi.set_instance_count(particle_count);
                 multi.set_visible_instance_count(particle_count);
-                soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-                let rid = server.instance_create2(multi.get_rid(), scenario);
+                let rid = soe_trace::Profile::render_submission(|| {
+                    server.instance_create2(multi.get_rid(), scenario)
+                });
                 self.shader_particles.insert(
                     geometry.form,
                     ShaderParticleInstance {
@@ -1373,8 +1378,8 @@ impl CellStreamerNode {
                 render.radius,
             );
             server.light_set_negative(light, render.negative);
-            soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-            let instance = server.instance_create2(light, scenario);
+            let instance =
+                soe_trace::Profile::render_submission(|| server.instance_create2(light, scenario));
             server.instance_set_transform(instance, transform);
             self.runtime_lights
                 .insert(reference, RuntimeLight { light, instance });
@@ -2964,8 +2969,9 @@ impl CellStreamerNode {
         // CONTEXT: Mesh materials expose pipelines during loading. Instance overrides defer them.
         mesh.surface_set_material(0, material);
         let mut server = RenderingServer::singleton();
-        soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-        let rid = server.instance_create2(mesh.get_rid(), scenario);
+        let rid = soe_trace::Profile::render_submission(|| {
+            server.instance_create2(mesh.get_rid(), scenario)
+        });
         server.instance_set_transform(rid, Transform3D::IDENTITY);
         self.bounds = Some(match self.bounds {
             Some(b) => crate::batch::merge_bounds(b, arrays.bounds),
@@ -2997,8 +3003,9 @@ impl CellStreamerNode {
             mesh.surface_set_material(0, &material);
         }
         let mut server = RenderingServer::singleton();
-        soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-        let rid = server.instance_create2(multi.get_rid(), scenario);
+        let rid = soe_trace::Profile::render_submission(|| {
+            server.instance_create2(multi.get_rid(), scenario)
+        });
         server.instance_set_transform(rid, Transform3D::IDENTITY);
         let bounds = group_bounds(group);
         self.bounds = Some(match self.bounds {
@@ -3046,8 +3053,9 @@ impl CellStreamerNode {
         ];
         server.call("occluder_set_mesh", &mesh_args);
         let instance_args = [mesh.to_variant(), scenario.to_variant()];
-        soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-        let instance: Rid = server.call("instance_create2", &instance_args).to();
+        let instance: Rid = soe_trace::Profile::render_submission(|| {
+            server.call("instance_create2", &instance_args).to()
+        });
         server.instance_set_transform(instance, Transform3D::IDENTITY);
         self.occluders.push(CellOccluder {
             cell,
@@ -3178,8 +3186,9 @@ impl CellStreamerNode {
         let mut mesh = array_mesh_from(&surface.arrays);
         mesh.surface_set_material(0, &material);
         let mut server = RenderingServer::singleton();
-        soe_trace::count(soe_trace::Operation::RenderInstances, 1);
-        let rid = server.instance_create2(mesh.get_rid(), scenario);
+        let rid = soe_trace::Profile::render_submission(|| {
+            server.instance_create2(mesh.get_rid(), scenario)
+        });
         server.instance_set_transform(rid, Transform3D::IDENTITY);
         LodInstance {
             rid,

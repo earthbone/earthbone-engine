@@ -223,7 +223,7 @@ impl DataSource {
     }
 
     /// Worldspace ownership comes from the winning CELL's own file namespace.
-    #[cfg(feature = "godot")]
+    #[cfg(any(feature = "godot", test))]
     pub(crate) fn exterior_world(&self, cell: GlobalFormId) -> Option<GlobalFormId> {
         if self.cell_index().is_interior(cell) {
             return None;
@@ -421,7 +421,7 @@ mod hst_08_tests {
             },
             |_| cost,
         );
-        assert!(deferred.load.is_empty());
+        assert_eq!(deferred.load.len(), 0);
         let selected = streamer.update_with_budget(
             focus,
             StreamBudget {

@@ -29,13 +29,13 @@ fn scr_24_host_snapshot_tracks_game_play_stop_expiry_and_world_replacement() {
     assert_eq!(host.playbacks()[0].remaining, Some(1.0));
     game.world_mut().stop_effect_shader(id(1), id(10)).unwrap();
     host.sync(&game.world());
-    assert!(host.playbacks().is_empty());
+    assert_eq!(host.playbacks().len(), 0);
     game.world_mut()
         .play_effect_shader(id(1), id(10), 0.5)
         .unwrap();
     game.tick(0.5);
     host.sync(&game.world());
-    assert!(host.playbacks().is_empty());
+    assert_eq!(host.playbacks().len(), 0);
     host.sync(&Game::new(LoadOrder::new()).world());
-    assert!(host.playbacks().is_empty());
+    assert_eq!(host.playbacks().len(), 0);
 }

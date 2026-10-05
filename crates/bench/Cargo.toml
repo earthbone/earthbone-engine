@@ -18,12 +18,12 @@ soe-navmesh = { path = "../navmesh" }
 soe-trace = { path = "../trace" }
 soe-godot-host = { path = "../godot-host", default-features = false }
 stats_alloc = "0.1.10"
+serde_json = "1.0"
 
 [dev-dependencies]
 soe-nif = { path = "../nif" }
 soe-dds = { path = "../dds" }
 divan = "0.1.21"
-serde_json = "1.0"
 
 [[bench]]
 name = "prf_15"

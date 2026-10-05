@@ -10,6 +10,13 @@ func _check(ok: bool, message: String) -> void:
 		failures += 1
 		printerr("FAIL: ", message)
 
+func _wait_for_ambience_count(bank: Node, expected: int) -> bool:
+	for _frame in range(120):
+		if int(bank.call("ambience_start_count")) >= expected:
+			return true
+		await process_frame
+	return false
+
 func _run() -> void:
 	var extension_status := GDExtensionManager.load_extension("res://soe.gdextension")
 	if extension_status != GDExtensionManager.LOAD_STATUS_OK and extension_status != GDExtensionManager.LOAD_STATUS_ALREADY_LOADED:
@@ -36,6 +43,7 @@ func _run() -> void:
 
 	var player := bank.get_node("AmbiencePlayer") as AudioStreamPlayer
 	_check(bank.call("play_ambience", "Music/Cell.wav"), "eligible cell ambience did not start: " + str(bank.call("last_error")))
+	_check(await _wait_for_ambience_count(bank, 1), "cell ambience decode did not finish")
 	await process_frame
 	_check(player.playing, "cell ambience AudioStreamPlayer is not playing after transition")
 	_check(player.has_stream_playback(), "cell ambience has no Godot stream playback")

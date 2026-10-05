@@ -554,6 +554,7 @@ impl World {
         if !self.refs.contains_key(&id) {
             let st = self.load_ref(id)?;
             self.refs.insert(id, st);
+            self.track_light_reference(id);
         }
         self.refs.get_mut(&id)
     }
@@ -792,6 +793,7 @@ impl World {
         }
         st.item = self.loose_item(Some(base), None, None);
         self.refs.insert(id, st);
+        self.track_light_reference(id);
         id
     }
 
@@ -987,6 +989,7 @@ impl World {
         }
         let is_actor = fresh.is_actor;
         self.refs.insert(id, fresh);
+        self.track_light_reference(id);
         if is_actor {
             let _ = self.resurrect_actor(id);
         }

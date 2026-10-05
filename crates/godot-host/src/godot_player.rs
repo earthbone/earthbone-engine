@@ -47,6 +47,7 @@ mod footsteps;
 mod gameplay;
 mod hud;
 mod item_card;
+mod items;
 mod lockpicking;
 mod magic;
 mod melee;
@@ -105,6 +106,8 @@ pub struct PlayerNode {
     #[export]
     exterior_byte_budget: i64,
     host_frame: soe_trace::FrameSnapshot,
+    profile_inputs: Vec<soe_trace::InputLatency>,
+    profile_applied_inputs: Vec<soe_trace::InputLatency>,
     host_history: soe_trace::FrameHistory,
     monitor_names: Vec<StringName>,
     /// Cell radius beyond which distant LOD replaces full resolution geometry.
@@ -118,6 +121,7 @@ pub struct PlayerNode {
     exterior_lod_byte_budget: i64,
     rig: CameraRig,
     motion: CameraMotion,
+    detection_time_usec: i64,
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
@@ -198,10 +202,12 @@ pub struct PlayerNode {
     race_choice: Option<(GlobalFormId, bool)>,
     appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
+    interface_cache: Option<String>,
     quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
     objective_map_snapshot: Option<Vec<crate::objective_map::Marker>>,
     mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
+    barter_menu: Option<(GlobalFormId, GlobalFormId)>,
     crafting_bench: Option<GlobalFormId>,
     lockpick_target: Option<GlobalFormId>,
     lockpick_angle: f32,
@@ -220,12 +226,15 @@ impl INode3D for PlayerNode {
             exterior_triangle_budget: 0,
             exterior_byte_budget: 0,
             host_frame: soe_trace::FrameSnapshot::now(),
+            profile_inputs: Vec::new(),
+            profile_applied_inputs: Vec::new(),
             host_history: soe_trace::FrameHistory::default(),
             monitor_names: Vec::new(),
             exterior_lod_full_res_radius: 1,
             exterior_lod_radius: 16,
             exterior_lod_byte_budget: 0,
             rig: CameraRig::default(),
+            detection_time_usec: 0,
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
             driver: Driver::new(),
@@ -296,10 +305,12 @@ impl INode3D for PlayerNode {
             race_choice: None,
             appearance_choice: None,
             menu_view: None,
+            interface_cache: None,
             quest_journal_snapshot: None,
             objective_map_snapshot: None,
             mcm_config: None,
             container_menu: None,
+            barter_menu: None,
             crafting_bench: None,
             lockpick_target: None,
             lockpick_angle: 0.0,
@@ -311,7 +322,12 @@ impl INode3D for PlayerNode {
     }
 
     fn ready(&mut self) {
+        soe_trace::Profile::from_environment();
         self.register_system_monitors();
+        RenderingServer::singleton().connect(
+            "frame_post_draw",
+            &self.base().callable("profile_frame_presented"),
+        );
         if let Some(mut window) = self.base().get_window() {
             window.connect("focus_exited", &self.base().callable("input_focus_lost"));
             window.connect("focus_entered", &self.base().callable("input_focus_gained"));
@@ -345,6 +361,23 @@ impl INode3D for PlayerNode {
     }
 
     fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        let latency = event
+            .clone()
+            .try_cast::<InputEventKey>()
+            .ok()
+            .and_then(|key| {
+                soe_trace::Profile::input(|| {
+                    format!(
+                        "key_{}_{}",
+                        key.get_keycode().ord(),
+                        if key.is_pressed() {
+                            "pressed"
+                        } else {
+                            "released"
+                        }
+                    )
+                })
+            });
         let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         if !self.input_focused {
             return;
@@ -359,6 +392,9 @@ impl INode3D for PlayerNode {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
                 }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
+                }
                 return;
             }
             if key.get_keycode() == Key::M
@@ -369,6 +405,9 @@ impl INode3D for PlayerNode {
             {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
+                }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
                 }
                 return;
             }
@@ -381,6 +420,9 @@ impl INode3D for PlayerNode {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
                 }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
+                }
                 return;
             }
             if key.get_keycode() == Key::ESCAPE && key.is_pressed() && !key.is_echo() {
@@ -392,11 +434,17 @@ impl INode3D for PlayerNode {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
                 }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
+                }
                 return;
             }
         }
         if self.menu.is_open() {
             return;
+        }
+        if let Some(latency) = latency {
+            self.profile_inputs.push(latency);
         }
         if let Ok(key) = event.clone().try_cast::<InputEventKey>() {
             self.devices.key(
@@ -430,6 +478,7 @@ impl INode3D for PlayerNode {
     fn physics_process(&mut self, delta: f64) {
         if self.auto_step {
             self.advance(delta);
+            self.profile_applied_inputs.append(&mut self.profile_inputs);
             self.sync_actor_bodies();
             self.update_grab_actor();
         }
@@ -467,12 +516,18 @@ impl INode3D for PlayerNode {
             view.tick_presentation(delta);
         }
         drop(render_scope);
-        self.host_history.record(self.host_frame.finish());
+        let sample = self.host_frame.finish();
+        soe_trace::Profile::systems("host", &sample);
+        self.host_history.record(sample);
         self.host_frame = soe_trace::FrameSnapshot::now();
     }
 
     fn exit_tree(&mut self) {
         self.remove_system_monitors();
+        RenderingServer::singleton().disconnect(
+            "frame_post_draw",
+            &self.base().callable("profile_frame_presented"),
+        );
         let mut server = RenderingServer::singleton();
         for (_, rid) in std::mem::take(&mut self.debug_ref_markers) {
             server.free_rid(rid);
@@ -772,6 +827,7 @@ impl PlayerNode {
                 if self.base().is_node_ready() {
                     self.register_actions();
                 }
+                self.interface_cache = None;
                 self.data_source = Some(Arc::new(source));
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
@@ -808,6 +864,7 @@ impl PlayerNode {
             self.register_actions();
         }
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
+        self.interface_cache = None;
         self.data_source = Some(source);
         self.game = None;
         self.clear_player_input();
@@ -890,6 +947,7 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        self.detection_time_usec = -1;
         let _system = soe_trace::SystemScope::new(soe_trace::System::Other);
         let frame = soe_trace::WorkFrame::begin();
         self.advance_measured(delta);
@@ -1550,6 +1608,14 @@ impl PlayerNode {
             row.set("object", i64::from(id.object));
             row.set("far_file", i64::from(far.file));
             row.set("far_object", i64::from(far.object));
+            if let Some(name) = world
+                .reference(far)
+                .and_then(|reference| reference.cell)
+                .and_then(|cell| self.data_source.as_ref()?.exterior_world(cell))
+                .and_then(|worldspace| world.record(worldspace)?.editor_id())
+            {
+                row.set("far_worldspace", &GString::from(&name));
+            }
             row.set("locked", world.reference(id).is_none_or(|r| r.locked));
             result.push(&row);
         }

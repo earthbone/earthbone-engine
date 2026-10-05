@@ -39,6 +39,9 @@ pub mod logging;
 pub use tracing;
 pub use tracing::{debug, error, info, trace, warn};
 
+mod entity;
+pub use entity::{Entity, EntityScope, EntityStats, InputLatency, Profile};
+
 /// Events kept in the global list. Past this the oldest are dropped, so a
 /// runaway trace keeps the newest window.
 pub const MAX_EVENTS: usize = 1 << 22;
