@@ -72,7 +72,8 @@ and are not part of world or VM saves. No dependency was added.
 
 ## Structured logging
 
-`logging` provides the shared tracing subscriber used by the host.
+`Span` collects opt-in scope timings, Chrome trace events and per-name
+statistics. `logging` provides the shared tracing subscriber used by the host.
 It follows [tracing's event and structured-field API](https://docs.rs/tracing)
 and [tracing-subscriber's EnvFilter and reload layers](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html).
 Both libraries use MIT licenses. Filters disable regular-expression matching.

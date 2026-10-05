@@ -1,0 +1,22 @@
+[package]
+name = "soe-swf-convert"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Load-order SWF art conversion into Godot resources"
+
+[lints]
+workspace = true
+
+[dependencies]
+soe-bsa = { path = "../bsa" }
+swf = "0.3"
+lyon_tessellation = "1"
+tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
+flate2 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tempfile = "3"

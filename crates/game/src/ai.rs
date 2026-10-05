@@ -1933,6 +1933,7 @@ fn idle_marker_animation(world: &mut World, marker: GlobalFormId) -> Option<Stri
 pub fn references_in_cell(world: &mut World, cell: GlobalFormId) -> Vec<GlobalFormId> {
     measure_phase(world, "cell_references", |world| {
         soe_trace::debug!(target: "game::ai", system = "game::ai", form_id = %cell, "reading cell reference index");
+        soe_trace::debug!(target: "game::ai", system = "game::ai", form_id = %cell, "querying cell reference index");
         let mut references = world.cell_references(cell);
         references.retain(|id| {
             world

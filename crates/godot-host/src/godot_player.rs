@@ -420,10 +420,10 @@ impl INode3D for PlayerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         if let Some(view) = self.item_card_view.as_mut() {
             view.tick(delta);
         }
-        let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         if self.menu.title() == Some("Quests") {
             self.refresh_quest_journal();
         }
