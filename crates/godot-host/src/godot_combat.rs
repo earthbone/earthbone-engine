@@ -57,7 +57,9 @@ pub fn first_contact<S: BuildHasher>(
         .space_get_direct_state(space)
         .ok_or(Error::Unsupported("unavailable physics contact space"))?;
     soe_trace::count(soe_trace::Operation::Raycasts, 1);
-    let result = state.intersect_ray(&query);
+    let result = soe_trace::measure_physics_query(soe_trace::PhysicsQueryKind::Raycast, || {
+        state.intersect_ray(&query)
+    });
     let Some(rid) = result
         .get("rid")
         .and_then(|value| value.try_to::<Rid>().ok())
@@ -102,7 +104,9 @@ pub fn first_projectile_contact<S: BuildHasher>(
         .space_get_direct_state(space)
         .ok_or(Error::Unsupported("unavailable projectile contact space"))?;
     soe_trace::count(soe_trace::Operation::Raycasts, 1);
-    let result = state.intersect_ray(&query);
+    let result = soe_trace::measure_physics_query(soe_trace::PhysicsQueryKind::Raycast, || {
+        state.intersect_ray(&query)
+    });
     let Some(rid) = result
         .get("rid")
         .and_then(|value| value.try_to::<Rid>().ok())

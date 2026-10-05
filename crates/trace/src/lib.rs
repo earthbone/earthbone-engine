@@ -28,8 +28,9 @@ use std::time::Instant;
 
 mod frame;
 pub use frame::{
-    with_timing_suspended, FrameHistory, FrameSample, FrameSnapshot, System, SystemScope,
-    SystemStats, FRAME_HISTORY, SYSTEM_COUNT,
+    measure_physics_query, physics_query_stats, reset_physics_queries, with_timing_suspended,
+    FrameHistory, FrameSample, FrameSnapshot, PhysicsQueryKind, PhysicsQueryStats, System,
+    SystemScope, SystemStats, FRAME_HISTORY, SYSTEM_COUNT,
 };
 
 mod work;

@@ -76,4 +76,37 @@ impl PlayerNode {
     fn system_summary(&self) -> GString {
         GString::from(self.host_history.summary_text().as_str())
     }
+
+    /// Last presentation frame's physics steps, catch-up and timed queries.
+    #[func]
+    fn physics_frame_breakdown(&self) -> VarDictionary {
+        let mut queries = VarDictionary::new();
+        for (name, kind) in [
+            ("raycast", soe_trace::PhysicsQueryKind::Raycast),
+            ("shape_cast", soe_trace::PhysicsQueryKind::ShapeCast),
+            ("overlap", soe_trace::PhysicsQueryKind::Overlap),
+        ] {
+            let mut by_system = VarDictionary::new();
+            for system in System::ALL {
+                by_system.set(
+                    system.name(),
+                    &vdict! {
+                        "count" => self.last_physics_queries.count(kind, system) as i64,
+                        "ms" => self.last_physics_queries.elapsed_ns(kind, system) as f64 / 1e6,
+                    },
+                );
+            }
+            queries.set(name, &by_system);
+        }
+        let mut report = vdict! {
+            "steps" => self.last_physics_steps.max(self.physics_advances_since_process) as i64,
+            "catchup_steps" => self.last_catchup_steps as i64,
+            "jolt_step_ms" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::TIME_PHYSICS_PROCESS) * 1000.0,
+            "active_bodies" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::PHYSICS_3D_ACTIVE_OBJECTS) as i64,
+            "collision_pairs" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::PHYSICS_3D_COLLISION_PAIRS) as i64,
+            "islands" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::PHYSICS_3D_ISLAND_COUNT) as i64,
+        };
+        report.set("queries", &queries);
+        report
+    }
 }
