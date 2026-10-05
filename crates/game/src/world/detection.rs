@@ -212,12 +212,17 @@ impl World {
             let Some(cell) = target_ref.cell.filter(|cell| self.cell_is_resident(*cell)) else {
                 continue;
             };
+            let space = self.cell_coordinate_space(cell);
             for observer in pool.observers.keys() {
                 if pairs.contains(&(*observer, *target)) {
                     continue;
                 }
                 let Some(observer_ref) = self.reference_ref(*observer).filter(|reference| {
-                    reference.cell == Some(cell) && reference.enabled && !reference.deleted
+                    reference
+                        .cell
+                        .is_some_and(|cell| self.cell_coordinate_space(cell) == space)
+                        && reference.enabled
+                        && !reference.deleted
                 }) else {
                     continue;
                 };
@@ -416,7 +421,7 @@ mod prf_31_tests {
         GlobalFormId { file: 0, object }
     }
 
-    fn world() -> World {
+    fn world(extra: Vec<Record>) -> World {
         let mut plugin = Plugin::new(FileHeader::default());
         plugin.push_top(Record::new(super::super::T(b"CELL"), 1));
         plugin.push_top(Record::new(super::super::T(b"NPC_"), 2));
@@ -425,6 +430,9 @@ mod prf_31_tests {
                 Record::new(super::super::T(b"ACHR"), object).sub(b"NAME", 2_u32.to_le_bytes());
             reference.placement.cell = Some(1);
             plugin.push_top(reference);
+        }
+        for record in extra {
+            plugin.push_top(record);
         }
         let mut order = LoadOrder::new();
         order.add("Detection.esm", plugin).unwrap();
@@ -449,7 +457,7 @@ mod prf_31_tests {
 
     #[test]
     fn prf_31_pruned_pairs_advance_loss_and_recovery_without_new_observers() {
-        let mut world = world();
+        let mut world = world(Vec::new());
         let observation = Observation {
             observer: id(3),
             target: id(4),
@@ -482,7 +490,7 @@ mod prf_31_tests {
 
     #[test]
     fn prf_31_rejected_batch_does_not_age_pruned_pairs() {
-        let mut world = world();
+        let mut world = world(Vec::new());
         let observation = Observation {
             observer: id(3),
             target: id(4),
@@ -507,5 +515,47 @@ mod prf_31_tests {
             )
             .is_err());
         assert_eq!(world.detection, before);
+    }
+
+    #[test]
+    fn prf_31_exterior_pruned_pairs_age_across_persistent_and_grid_cells() {
+        let tag = super::super::T;
+        let mut persistent = Record::new(tag(b"CELL"), 5);
+        persistent.placement.world = Some(7);
+        persistent.placement.group = Some(soe_esm::GroupKind::WorldChildren(7));
+        let mut grid = Record::new(tag(b"CELL"), 6).sub(b"XCLC", [0_u8; 8]);
+        grid.placement.world = Some(7);
+        let mut world = world(vec![persistent, grid, Record::new(tag(b"WRLD"), 7)]);
+        world.load_cell(id(5));
+        world.attach_streaming_cells(&[id(6)]).unwrap();
+        world.reference(id(3)).unwrap().cell = Some(id(6));
+        world.reference(id(4)).unwrap().cell = Some(id(5));
+        world
+            .evaluate_detection(
+                &[Observation {
+                    observer: id(3),
+                    target: id(4),
+                    distance: 0.0,
+                    line_of_sight: true,
+                    light_level: 100.0,
+                    motion: crate::detection::Motion::Still,
+                    action_sound: 0.0,
+                    action_sound_distance: None,
+                    action_sound_line_of_sight: None,
+                }],
+                0.0,
+            )
+            .unwrap();
+        world.reference(id(4)).unwrap().position[0] = 1000.0;
+        world.evaluate_detection(&[], 1.0).unwrap();
+        assert_eq!(
+            world.awareness(id(3), id(4)).unwrap().level,
+            DetectionLevel::Lost
+        );
+        world.evaluate_detection(&[], 2.0).unwrap();
+        assert_eq!(
+            world.awareness(id(3), id(4)).unwrap().level,
+            DetectionLevel::Normal
+        );
     }
 }

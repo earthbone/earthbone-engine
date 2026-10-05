@@ -61,6 +61,7 @@ fn aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_sys
         .lines()
         .find(|line| line.contains("AUD-11 systems"))
         .expect("walkthrough emits its system report");
+    eprintln!("{report}");
     let walk_distance = report
         .split_once("walk_distance=")
         .and_then(|(_, value)| value.split_whitespace().next())
@@ -69,5 +70,63 @@ fn aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_sys
     assert!(
         walk_distance > 10.0,
         "walk did not move across the cell: {walk_distance} units"
+    );
+}
+
+#[test]
+fn aud_11_vanilla_nearby_idle_response_resolves_and_decodes_voice_asset() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    };
+    let source = soe_godot_host::data_source::DataSource::open(&data).unwrap();
+    let mut game = source.localized_game().unwrap();
+    let loadout = soe_profile::LoadoutInput {
+        game_dir: data.parent().unwrap().to_path_buf(),
+        data_roots: vec![data.clone()],
+        plugins_txt: None,
+        loadorder_txt: None,
+        ini_dir: None,
+        ccc: None,
+    }
+    .resolve()
+    .unwrap();
+    let vfs = soe_godot_host::data_source::vfs_from_loadout(&loadout).unwrap();
+    game.load_scripts_from_vfs(&vfs);
+    game.start();
+    let cell = source.resolve_cell("WhiterunBanneredMare").unwrap();
+    let player = game.player();
+    game.change_cell(Some(cell));
+    game.run_until_idle(64);
+    let hulda = game.world().form("HuldaRef").unwrap();
+    {
+        let mut world = game.world_mut();
+        assert!(world.drive_actor(hulda));
+        let speaker = world.reference(hulda).unwrap();
+        let position = speaker.position;
+        assert_eq!(speaker.cell, Some(cell));
+        let player_ref = world.reference(player).unwrap();
+        player_ref.cell = Some(cell);
+        player_ref.position = [position[0], position[1] - 100.0, position[2]];
+        world.debug_ai_enabled = false;
+    }
+    game.tick(1.0 / 60.0);
+    assert!(
+        game.ambient_dialogue(),
+        "nearby NPC did not select ambient dialogue: {:?}",
+        game.world().dialogue_session()
+    );
+    let line = game.dialogue_line().unwrap().unwrap();
+    let asset = soe_godot_host::dialogue_menu::voice_asset(&mut game, &line)
+        .expect("ambient INFO resolves its speaker's voice asset");
+    let wma = soe_audio::wma::Native;
+    let decoded = soe_audio::SoundSource::new(&vfs)
+        .with_wma_decoder(&wma)
+        .read(&asset.path)
+        .unwrap();
+    assert!(
+        decoded.pcm.peak() > 0.001,
+        "voice asset is silent: {}",
+        asset.path
     );
 }
