@@ -4931,32 +4931,52 @@ cells return an empty dictionary so callers do not add an interior light to
 them. LGTM DATA and DALC follow the local UESP CELL and LGTM layouts and xEdit
 XCLL definition in the engine reference corpus.
 
-The walkthrough and benchmark configure Godot's ambient color, fog, the cell's
-directional color, and its six directional ambient colors from this dictionary.
-Those six colors use non-shadowing directional lights pointed along the cell's
-positive and negative axes. The authored directional light uses the cell's
-rotation and fade values. Neither script adds the former fixed environment
-color or a weather sun. Exterior cells return no cell-lighting dictionary.
-Until RND-18 supplies weather lighting, the benchmark gives those cells only
-its dark background environment. The Bannered Mare capture
-check uses installed data and requires average linear pixel brightness from
-0.02 to 0.65, with fewer than one percent of pixels clipped in all three
-channels. Those bounds are recorded before the capture run.
+The walkthrough and benchmark attach the same `record_sky.gd` controller and
+create no additional Environment or directional lights. The controller owns
+one WorldEnvironment, one weather sun, one interior directional light and six
+non-shadowing directional ambient lights. Interior ambient axes follow the
+Skyrim-to-Godot coordinate mapping. Only the interior lights are visible for
+ordinary interiors, including cells with Show Sky but without Use Sky Lighting.
+Exterior sunlight color and direction come from RND-18's current WTHR and
+clock sample. The weather sun is hidden below the horizon. Use Sky Lighting
+selects this weather lighting for an interior independently of Show Sky.
 
-`cell_lighting::tests::rnd_21_cell_light_applies_lgtm_inheritance_and_keeps_uninherited_fields`
-checks each inherited group and retained CELL values. The companion exterior
-test verifies that an exterior CELL does not receive interior lighting.
-`godot/rnd_21_capture_test.gd` streams and renders the Bannered Mare through
-the host with installed data and checks the captured image. Godot 4.4.1 with llvmpipe at 640 by
-360 measured average linear luminance 0.0782 and zero fully clipped pixels.
+SkyRecords supplies the resolved cell fields through the same CELL/LGTM
+resolver used by `cell_lighting`. LGTM's far fog color, maximum opacity and
+light fade fields start at byte 72, after its unused ambient-color block.
+Directional ambient colors come from DALC. The resolver accepts the legacy
+24-byte LGTM DATA prefix and modern 92-byte DATA, and rejects truncated
+modern data or DALC. Interior fog uses both authored colors, near and far
+distances, power and maximum opacity, with far distance bounded by a positive
+fog clip distance. Runtime point-light RIDs receive their cell's inherited
+light fade start and length converted to metres through RenderingServer.
+Invalid or empty fade ranges disable distance fading. No saved state,
+dependency or per-reference node path is added.
+
+The `rnd_21_` unit tests cover inherited and retained fields, independent
+LGTM tail offsets, legacy and malformed template sizes, and point-light fade
+conversion. `rnd_21_lighting.rs` checks both production scripts for exclusive
+controller ownership. Its installed-data windowed cases run the walkthrough
+and the interior and exterior benchmark setup, inspect the active Environment
+and every directional light, and check weather and time changes and lighting
+replacement in both directions. The walkthrough check pauses simulation
+stepping and captures eight rendered frames. It does not measure gameplay
+frame time. The benchmark check uses its production setup and warm-up, then
+quits before the timing sample.
+
+`godot/rnd_21_capture_test.gd` streams the Bannered Mare main room through the
+production controller and captures it at 640 by 360. Its stored average
+linear luminance range is 0.02 to 0.65, with fewer than one percent of pixels
+clipped in all three channels. Captures are saved under `target`.
 
 ## Exterior skies and interior lighting, RND-18
 
 The walkthrough and bench attach `godot/record_sky.gd`. Its SkyRecords
 RefCounted sampler reads the gameplay PlayerNode's shared World, or owns a
 preview World for a benchmark without gameplay. The controller owns one
-WorldEnvironment, one directional sun light and one full-screen fog mesh.
-It creates no node per placed reference.
+WorldEnvironment, one directional sun light, seven interior lighting nodes
+and one full-screen fog mesh. The controller switches between weather and
+cell lighting. It creates no node per placed reference.
 
 The sky shader draws upper, lower and horizon NAM0 colors. CLMT sun and glare
 textures, moon textures selected by TNAM flags and phase length, and the

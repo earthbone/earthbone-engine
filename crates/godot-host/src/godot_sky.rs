@@ -165,20 +165,17 @@ impl SkyRecords {
                     clouds.push(&c);
                 }
                 out.set("clouds", &clouds);
-                if let Some(light) = frame.interior {
-                    interior(&mut out, &light);
+                if frame.interior.is_some() {
+                    if let Some(light) = self.interior_lighting(&cell_name.to_string()) {
+                        interior(&mut out, &light);
+                    } else {
+                        out.set("error", "missing or malformed interior lighting");
+                    }
                 }
             }
             Ok(None) => {
                 out.set("weather_sky", false);
-                let lighting = if let Some(player) = &self.player {
-                    player.bind().sky_interior_for_host()
-                } else {
-                    self.preview.as_ref().and_then(|world| {
-                        let cell = self.source.as_ref()?.resolve_cell(&cell_name.to_string())?;
-                        world.interior_lighting(cell).ok()
-                    })
-                };
+                let lighting = self.interior_lighting(&cell_name.to_string());
                 if let Some(light) = lighting {
                     interior(&mut out, &light);
                 }
@@ -260,24 +257,60 @@ impl SkyRecords {
     }
 }
 
-fn interior(out: &mut VarDictionary, light: &soe_game::world::sky::InteriorLighting) {
-    for (key, color) in [
+impl SkyRecords {
+    fn interior_lighting(&self, cell_name: &str) -> Option<crate::cell_lighting::CellLighting> {
+        if let Some(player) = &self.player {
+            player.bind().sky_interior_for_host()
+        } else {
+            let source = self.source.as_ref()?;
+            crate::cell_lighting::cell_lighting(
+                &source.shared_order(),
+                source.resolve_cell(cell_name)?,
+            )
+        }
+    }
+}
+
+fn interior(out: &mut VarDictionary, light: &crate::cell_lighting::CellLighting) {
+    let color = |rgb: [u8; 3]| {
+        Color::from_rgb(
+            f32::from(rgb[0]) / 255.0,
+            f32::from(rgb[1]) / 255.0,
+            f32::from(rgb[2]) / 255.0,
+        )
+    };
+    for (key, rgb) in [
         ("ambient", light.ambient),
         ("sunlight", light.directional),
-        ("fog_color", light.fog_color),
+        ("fog_color", light.fog_near_color),
         ("fog_far_color", light.fog_far_color),
     ] {
-        out.set(key, Color::from_rgb(color[0], color[1], color[2]));
+        out.set(key, color(rgb));
     }
     out.set(
         "fog",
-        Vector4::new(light.fog[0], light.fog[1], light.fog[2], light.fog[3]),
+        Vector4::new(
+            light.fog_near,
+            light.fog_far,
+            light.fog_power,
+            light.fog_max,
+        ),
     );
     out.set(
         "rotation",
-        Vector2::new(light.rotation[0], light.rotation[1]),
+        Vector2::new(light.rotation_xy as f32, light.rotation_z as f32),
     );
-    out.set("fade", light.fade);
+    out.set("fade", light.directional_fade);
+    let mut ambient_directions = Array::<Color>::new();
+    for rgb in light.ambient_directions {
+        ambient_directions.push(color(rgb));
+    }
+    out.set("ambient_directions", &ambient_directions);
+    out.set("fog_clip_distance", light.fog_clip_distance);
+    out.set(
+        "light_fade",
+        Vector2::new(light.light_fade_begin, light.light_fade_end),
+    );
 }
 
 fn direction(v: [f32; 3]) -> Vector3 {
