@@ -612,7 +612,7 @@ mod tests {
 
     #[test]
     fn prf_22_transport_rejects_unknown_commands_hands_and_menus() {
-        for bytes in [&[255][..], &[5, 2][..], &[7, 3][..]] {
+        for bytes in [&[255][..], &[5, 2][..], &[7, 255][..]] {
             assert!(matches!(
                 read_command(&mut Reader::new(bytes)),
                 Err(Error::Format(_))

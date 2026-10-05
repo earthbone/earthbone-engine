@@ -2356,18 +2356,16 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 evaluate_on_frame(world, actor, &mut *alloc, &mut evaluations);
             }
             step(world, actor, dt as f32, &mut *alloc);
-            if !world.is_player(actor) {
-                let completed = world.actor_ref(actor).and_then(|state| {
-                    state
-                        .ai
-                        .tree
-                        .as_ref()
-                        .filter(|tree| tree.finished)
-                        .and(state.ai.package)
-                });
-                if let Some(package) = completed {
-                    world.remove_package_override(actor, package);
-                }
+            let completed = world.actor_ref(actor).and_then(|state| {
+                state
+                    .ai
+                    .tree
+                    .as_ref()
+                    .filter(|tree| tree.finished)
+                    .and(state.ai.package)
+            });
+            if let Some(package) = completed {
+                world.remove_package_override(actor, package);
             }
         });
     }
