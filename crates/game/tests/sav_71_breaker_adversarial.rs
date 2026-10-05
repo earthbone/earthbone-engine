@@ -78,6 +78,37 @@ fn sav_71_loaded_reset_uses_only_the_winning_container_inventory() {
 }
 
 #[test]
+fn sav_71_repeated_loaded_reset_rebuilds_winning_inventory() {
+    let order = order();
+    let mut changed = World::from_shared_order(order.clone());
+    changed
+        .reference(id(REFERENCE))
+        .unwrap()
+        .inventory
+        .add(id(OVERRIDE_ITEM), 23)
+        .unwrap();
+    let mut loaded = World::from_shared_order(order);
+    loaded.load_state(&changed.save_state()).unwrap();
+
+    assert!(loaded.reset_reference(id(REFERENCE), None));
+    assert_eq!(
+        loaded.reference_ref(id(REFERENCE)).unwrap().inventory.count(id(ITEM)),
+        7
+    );
+    loaded
+        .reference(id(REFERENCE))
+        .unwrap()
+        .inventory
+        .add(id(OVERRIDE_ITEM), 11)
+        .unwrap();
+
+    assert!(loaded.reset_reference(id(REFERENCE), None));
+    let reset = loaded.reference_ref(id(REFERENCE)).unwrap();
+    assert_eq!(reset.inventory.count(id(ITEM)), 7);
+    assert_eq!(reset.inventory.count(id(OVERRIDE_ITEM)), 0);
+}
+
+#[test]
 fn sav_71_runtime_only_reference_cannot_reset_or_change_saved_state() {
     let order = order();
     let mut world = World::from_shared_order(order);
