@@ -215,7 +215,7 @@ impl PlayerNode {
                 *position = ((Vector3::from_array(*position) - center) / radius).to_array();
             }
             let mut mesh = crate::godot_layer::array_mesh_from(&arrays);
-            let material = crate::godot_layer::standard_material_from(&arrays.material, &textures);
+            let material = crate::godot_layer::material_from(&arrays.material, &textures);
             mesh.surface_set_material(0, &material);
             let mut instance = MeshInstance3D::new_alloc();
             instance.set_mesh(&mesh);

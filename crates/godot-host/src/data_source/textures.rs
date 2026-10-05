@@ -220,6 +220,16 @@ impl TextureCache {
 
     pub(super) fn resolve(&self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
         SurfaceTextures {
+            greyscale: material
+                .effect
+                .as_ref()
+                .filter(|_| {
+                    material.shader_flags_1
+                        & (soe_nif::blocks::flags1::GREYSCALE_TO_PALETTE_COLOR
+                            | soe_nif::blocks::flags1::GREYSCALE_TO_PALETTE_ALPHA)
+                        != 0
+                })
+                .and_then(|e| self.get_or_decode(vfs, &e.params.greyscale_texture)),
             environment: material
                 .environment_texture()
                 .and_then(|p| self.get_or_decode(vfs, p)),

@@ -320,10 +320,8 @@ impl SkinnedActorNode {
                 server.skeleton_bone_set_transform(skeleton, i as i32, Transform3D::IDENTITY);
             }
             let mut mesh = actor_array_mesh_from(&surface.arrays, &surface.expression_shapes);
-            let material = crate::godot_layer::standard_material_from(
-                &surface.arrays.material,
-                &surface.textures,
-            );
+            let material =
+                crate::godot_layer::material_from(&surface.arrays.material, &surface.textures);
             mesh.surface_set_material(0, &material);
             soe_trace::count(soe_trace::Operation::RenderInstances, 1);
             let instance = server.instance_create2(mesh.get_rid(), scenario);
@@ -332,7 +330,7 @@ impl SkinnedActorNode {
             server.instance_attach_skeleton(instance, skeleton);
             self.shapes.push(ShapeRids { instance, skeleton });
             self.meshes.push(mesh);
-            self.materials.push(material.upcast());
+            self.materials.push(material);
         }
     }
 

@@ -4842,3 +4842,49 @@ The separate `rnd_18_walkthrough_shared_world_interior_smoke` test loads the
 walkthrough with gameplay, pauses simulation stepping, checks its shared
 World interior lighting and captures eight rendered frames. It passed and
 exited with status 0. This smoke run does not measure interactive frame time.
+
+## NIF effect materials, RND-22
+
+BSEffectShaderProperty meshes use a separate ShaderMaterial path. The host
+carries their base color, scale, falloff cosines and opacities, soft depth,
+palette path, UV transform, clamp mode, NiAlphaProperty blend factors and
+alpha test into material and batch identity. Source and palette textures use
+the shared VFS and DDS caches. Effect vertex colors and alpha reach the
+mesh upload, and memory accounting includes those arrays and palette textures.
+
+The shader uses base RGB times its scale once, multiplies texture and authored
+vertex colors, and applies base alpha, texture alpha and flagged vertex alpha.
+Falloff interpolates the two opacities with a cubic smooth step between the
+absolute view-normal cosines. Equal endpoints use a step without division.
+Palette color uses source green and multiplied base red as coordinates. Palette
+alpha uses source alpha and accumulated opacity. The palette flags control
+each lookup separately. UV scale, offset and per-axis wrapping are retained.
+Soft effects sample the host depth buffer and fade both at scene intersections
+and near the camera, using the authored depth converted to metres.
+
+Alpha mix, additive, premultiplied alpha and multiplicative factor pairs use
+Godot blend modes. Additive source-one and source-alpha pairs retain distinct
+strengths. Other factors evaluate the blend equation against Godot's opaque
+screen copy, which cannot include preceding transparent surfaces. Blended
+effects never write depth. Opaque effects honor the authored depth-write bit,
+and all effects honor depth testing, culling and the alpha-test function.
+Native blend paths apply the authored lighting influence when effect lighting
+is flagged. Otherwise the output uses emission. The screen-copy fallback
+uses unlit effect color. This uses stock Godot shaders and adds no reference nodes.
+
+Sources read are nifly's effect fields, OpenMW's `components/nifosg/nifloader.cpp`,
+`files/shaders/compatibility/bs/nolighting.vert` and `lib/particle/soft.glsl`,
+Community Shaders' `package/Shaders/Effect.hlsl`, and Godot's spatial shader
+reference. OpenMW supplies falloff and soft-depth semantics but does not
+implement palette sampling in its NIF effect path. Community Shaders supplies
+the palette coordinates. The implementation translates those operations into
+Godot shader syntax instead of adding a second renderer.
+
+`model_meshes` builds model resources through the production material cache
+for inspection and capture tests. The Rust `rnd_22_` tests cover independent
+NIF/DDS fixtures, effect material and batch identity, and installed texture
+resolution. `godot/rnd_22_effect_material_test.gd` captures synthetic blend,
+falloff, palette, vertex-alpha, alpha-test and depth-intersection controls,
+then installed FXMistLow01HalfVis near Whiterun and Windhelm interior window
+glow over two backdrops. It also checks all 121 factor pairs against an opaque
+backdrop. Captures are written under `godot/.godot`, outside tracked content.

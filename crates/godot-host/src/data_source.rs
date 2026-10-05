@@ -239,6 +239,7 @@ pub struct SurfaceTextures {
     /// here even though the decoded form carries one.
     pub normal: Option<Arc<TextureData>>,
     pub glow: Option<Arc<TextureData>>,
+    pub greyscale: Option<Arc<TextureData>>,
 }
 
 pub struct LoadedCell {
@@ -1339,6 +1340,13 @@ pub(crate) fn mesh_data_from(shape: &NifMesh, combined: &NifTransform) -> MeshDa
         normals,
         tangents,
         uvs,
+        colors: shape.material.effect.as_ref().map(|_| {
+            if shape.colors.is_empty() {
+                vec![[1.0; 4]; shape.positions.len()]
+            } else {
+                shape.colors.clone()
+            }
+        }),
         indices: shape.indices.clone(),
         bone_indices,
         bone_weights,
@@ -1375,6 +1383,13 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         alpha,
         double_sided: m.double_sided,
         water: None,
+        effect: m.effect.as_ref().map(|params| crate::mesh::EffectMaterial {
+            params: params.clone(),
+            blend: m.blend,
+            alpha_test: m.alpha_test,
+            uv_offset: m.uv_offset,
+            uv_scale: m.uv_scale,
+        }),
     }
 }
 
@@ -1430,6 +1445,7 @@ fn water_plane_mesh(
         tangents: None,
         uvs,
         indices: vec![0, 1, 3, 0, 3, 2],
+        colors: None,
         bone_indices: None,
         bone_weights: None,
         material: MaterialDesc {
@@ -1463,3 +1479,6 @@ mod animated_static_mesh_tests;
 
 #[cfg(test)]
 mod rnd_17_tests;
+
+#[cfg(test)]
+mod rnd_22_tests;
