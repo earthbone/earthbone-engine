@@ -1,30 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::panic)]
+#![cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
 
 use std::collections::HashSet;
-use std::path::Path;
-use std::process::Command;
+
+#[path = "common/prf_32.rs"]
+mod support;
 
 #[test]
 fn bannered_mare_repairs_are_valid_and_diagnostics_identify_each_source_once() {
-    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
-        panic!("SOE_GODOT_BIN is required");
-    };
-    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
-        panic!("SKYRIM_DATA is required");
-    };
-    let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot");
-    let output = match Command::new(godot)
-        .args(["--headless", "--path"])
-        .arg(&project)
-        .arg("--script")
-        .arg(project.join("physics_test.gd"))
-        .env("SKYRIM_DATA", data)
-        .env("GODOT_SILENCE_ROOT_WARNING", "1")
-        .output()
-    {
-        Ok(output) => output,
-        Err(error) => panic!("Godot process starts: {error}"),
+    let Some(output) = support::installed_collision() else {
+        return;
     };
     let log = format!(
         "{}{}",

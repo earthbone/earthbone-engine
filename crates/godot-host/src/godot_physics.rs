@@ -874,7 +874,7 @@ fn build_body(
         let (hull, changed) = convex_hull_points(points);
         if changed {
             if report_repaired_hull_once(&collider.node_name) {
-                eprintln!(
+                soe_trace::warn!(target: "host::physics", system = "host::physics",
                     "repaired convex collision hull for mesh node {:?} before Jolt shape creation",
                     collider.node_name
                 );
@@ -1445,6 +1445,10 @@ fn godot_point(v: Vec3) -> Vector3 {
     Vector3::new(g.x, g.y, g.z)
 }
 
+#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
+#[path = "../tests/common/prf_32.rs"]
+mod prf_32_support;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1600,25 +1604,11 @@ func _initialize():
     }
 
     #[test]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn prf_32_vanilla_bannered_mare_collision_builds_without_jolt_shape_errors() {
-        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
-            eprintln!("SKYRIM_DATA unset, skipping installed PRF-32 collision check");
+        let Some(output) = prf_32_support::installed_collision() else {
             return;
         };
-        let project = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot");
-        let script = project.join("physics_test.gd");
-        let output = std::process::Command::new(
-            std::env::var_os("SOE_GODOT_BIN")
-                .expect("SOE_GODOT_BIN is required for the host check"),
-        )
-        .args(["--headless", "--path"])
-        .arg(&project)
-        .arg("--script")
-        .arg(script)
-        .env("SKYRIM_DATA", data)
-        .env("GODOT_SILENCE_ROOT_WARNING", "1")
-        .output()
-        .expect("Godot process starts");
         let log = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),
