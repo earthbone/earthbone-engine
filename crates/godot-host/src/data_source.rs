@@ -650,6 +650,18 @@ impl DataSource {
         crate::cell_lighting::dictionary(&self.order, id)
     }
 
+    /// The worldspace and editor id whose terrain and object LOD assets back
+    /// the requested worldspace, following its use-parent-land flag.
+    #[must_use]
+    pub fn lod_worldspace(&self, world: GlobalFormId) -> Option<(GlobalFormId, String)> {
+        let lod_world = self.land_parent_of(world).unwrap_or(world);
+        let editor_id = self
+            .order
+            .winner(lod_world)
+            .and_then(|record| record.editor_id())?;
+        Some((lod_world, editor_id))
+    }
+
     /// The first interior cell, by form id, whose reference count exceeds
     /// `min_refs`. Used when a named cell such as `WhiterunBanneredMare` is
     /// missing from an install, so the real-data test still has a populated

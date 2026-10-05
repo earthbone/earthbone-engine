@@ -107,6 +107,15 @@ pub struct PlayerNode {
     host_frame: soe_trace::FrameSnapshot,
     host_history: soe_trace::FrameHistory,
     monitor_names: Vec<StringName>,
+    /// Cell radius beyond which distant LOD replaces full resolution geometry.
+    #[export]
+    exterior_lod_full_res_radius: i32,
+    /// Cell radius out to which terrain and object LOD are streamed.
+    #[export]
+    exterior_lod_radius: i32,
+    /// Approximate resident mesh byte budget for each LOD stream. Zero is unlimited.
+    #[export]
+    exterior_lod_byte_budget: i64,
     rig: CameraRig,
     motion: CameraMotion,
     bindings: Bindings,
@@ -213,6 +222,9 @@ impl INode3D for PlayerNode {
             host_frame: soe_trace::FrameSnapshot::now(),
             host_history: soe_trace::FrameHistory::default(),
             monitor_names: Vec::new(),
+            exterior_lod_full_res_radius: 1,
+            exterior_lod_radius: 16,
+            exterior_lod_byte_budget: 0,
             rig: CameraRig::default(),
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
