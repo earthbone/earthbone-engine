@@ -115,6 +115,29 @@ fn cmb_39_duplicate_prkr_dispatches_each_perk_once() {
 
 #[test]
 fn cmb_39_duplicate_prkr_logs_the_base_once_across_calls_and_references() {
+    // CONTEXT: tracing's callsite cache is shared with concurrent test threads.
+    if std::env::var("SOE_CMB_39_LOG_CHILD").as_deref() != Ok("1") {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                &crate::common::child_test_name(
+                    module_path!(),
+                    "cmb_39_duplicate_prkr_logs_the_base_once_across_calls_and_references",
+                ),
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("SOE_CMB_39_LOG_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let mut game = fixture(&[
         placement(PERK, 1),
         placement(PERK, 2),

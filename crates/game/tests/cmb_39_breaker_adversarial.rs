@@ -120,6 +120,29 @@ fn cmb_39_malformed_prkr_after_duplicate_rejects_before_handler() {
 
 #[test]
 fn cmb_39_duplicate_warning_is_once_for_shared_base_across_repeated_calls() {
+    // CONTEXT: tracing's callsite cache is shared with concurrent test threads.
+    if std::env::var("SOE_CMB_39_LOG_CHILD").as_deref() != Ok("1") {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                &crate::common::child_test_name(
+                    module_path!(),
+                    "cmb_39_duplicate_warning_is_once_for_shared_base_across_repeated_calls",
+                ),
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("SOE_CMB_39_LOG_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let mut game = fixture(&[prkr(PERK, 1, [0, 0, 0]), prkr(PERK, 2, [0, 0, 0])]);
     let (subscriber, control) = soe_trace::logging::subscriber("warn", None, |_| {}).unwrap();
     soe_trace::tracing::subscriber::with_default(subscriber, || {
