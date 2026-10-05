@@ -4,9 +4,9 @@
 #[path = "../../nif/tests/common/mod.rs"]
 mod nif_fixture;
 
-use std::path::{Path, PathBuf};
 use soe_esm::{tag, Entry, FileHeader, GlobalFormId, Group, GroupKind, Plugin, Record};
 use soe_godot_host::data_source::{DataSource, TextureData};
+use std::path::{Path, PathBuf};
 
 fn fallback_nif(decal: bool) -> Vec<u8> {
     use nif_fixture::NifWriter;
@@ -55,8 +55,13 @@ fn fallback_nif(decal: bool) -> Vec<u8> {
         true,
     );
     let hidden = writer.add("BSTriShape", hidden);
-    let root_node =
-        writer.ni_node("Root", [0.0; 3], nif_fixture::IDENTITY, 1.0, &[visible, hidden]);
+    let root_node = writer.ni_node(
+        "Root",
+        [0.0; 3],
+        nif_fixture::IDENTITY,
+        1.0,
+        &[visible, hidden],
+    );
     writer.fill(root, root_node);
     writer.roots = vec![root];
     writer.finish()
@@ -98,28 +103,39 @@ fn make_fixture(directory: &Path) {
         cells.entries.push(Entry::Record(cell));
         let mut children = Group::new(GroupKind::CellChildren(cell_id));
         let mut references = Group::new(GroupKind::CellTemporary(cell_id));
-        references.entries.push(Entry::Record(plugin.push_record(
-            Record::new(tag::REFR, 0x300 + index as u32)
-                .sub(b"NAME", base_id.to_le_bytes())
-                .sub(b"DATA", [0; 24]),
-        )));
-        references.entries.push(Entry::Record(plugin.push_record(
-            Record::new(tag::REFR, 0x310 + index as u32)
-                .sub(b"NAME", (base_id + 0x10).to_le_bytes())
-                .sub(b"DATA", [0; 24]),
-        )));
-        references.entries.push(Entry::Record(plugin.push_record(
-            Record::new(tag::REFR, 0x320 + index as u32)
-                .sub(b"NAME", base_id.to_le_bytes())
-                .sub(b"DATA", [0; 24])
-                .sub(b"XOCP", [0; 32]),
-        )));
+        references.entries.push(Entry::Record(
+            plugin.push_record(
+                Record::new(tag::REFR, 0x300 + index as u32)
+                    .sub(b"NAME", base_id.to_le_bytes())
+                    .sub(b"DATA", [0; 24]),
+            ),
+        ));
+        references.entries.push(Entry::Record(
+            plugin.push_record(
+                Record::new(tag::REFR, 0x310 + index as u32)
+                    .sub(b"NAME", (base_id + 0x10).to_le_bytes())
+                    .sub(b"DATA", [0; 24]),
+            ),
+        ));
+        references.entries.push(Entry::Record(
+            plugin.push_record(
+                Record::new(tag::REFR, 0x320 + index as u32)
+                    .sub(b"NAME", base_id.to_le_bytes())
+                    .sub(b"DATA", [0; 24])
+                    .sub(b"XOCP", [0; 32]),
+            ),
+        ));
         children.entries.push(Entry::Group(references));
         cells.entries.push(Entry::Group(children));
     }
     plugin.groups.extend([statics, cells]);
     std::fs::write(directory.join("Skyrim.esm"), plugin.to_bytes()).unwrap();
-    for name in ["Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"] {
+    for name in [
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
         std::fs::write(
             directory.join(name),
             Plugin::new(FileHeader::default()).to_bytes(),
@@ -139,7 +155,11 @@ fn rnd_20_missing_texture_checker_survives_repeated_cell_streams() {
 
     for pass in 0..2 {
         let cell = source.stream_cell("Fallback0").unwrap();
-        assert_eq!(cell.surfaces.len(), 1, "markers and shaderless helpers stay hidden");
+        assert_eq!(
+            cell.surfaces.len(),
+            1,
+            "markers and shaderless helpers stay hidden"
+        );
         let Some(TextureData::Rgba8(image)) = cell.surfaces[0].textures.diffuse.as_deref() else {
             panic!("a missing named diffuse must provide an RGBA checker");
         };
@@ -147,7 +167,13 @@ fn rnd_20_missing_texture_checker_survives_repeated_cell_streams() {
         assert_eq!(&image.rgba[..4], &[255, 0, 255, 255]);
         assert_eq!(&image.rgba[(2 * 4)..(3 * 4)], &[0, 0, 0, 255]);
         assert_eq!(cell.stats.textures_missing.len(), usize::from(pass == 0));
-        assert_eq!(cell.surfaces[0].reference, GlobalFormId { file: 0, object: 0x300 });
+        assert_eq!(
+            cell.surfaces[0].reference,
+            GlobalFormId {
+                file: 0,
+                object: 0x300
+            }
+        );
     }
 }
 
@@ -165,7 +191,10 @@ fn rnd_20_whiterun_gate_has_no_unintended_textureless_surface() {
         let exterior = source.stream_exterior(origin, 1).unwrap();
         for (_, cell) in exterior.cells {
             assert_eq!(cell.stats.meshes_failed, 0);
-            assert!(cell.stats.textures_missing.is_empty(), "missing vanilla texture");
+            assert!(
+                cell.stats.textures_missing.is_empty(),
+                "missing vanilla texture"
+            );
             for surface in cell.surfaces {
                 checked += 1;
                 if surface.arrays.material.water.is_some() || surface.textures.diffuse.is_some() {
@@ -175,9 +204,21 @@ fn rnd_20_whiterun_gate_has_no_unintended_textureless_surface() {
                 let owner = order.winner_ref(surface.reference).unwrap();
                 let refr = soe_esm::records::refr::Refr::from_record(order.record(owner)).unwrap();
                 let base = order.resolve(owner.file, refr.base);
-                assert_eq!(base, GlobalFormId { file: 0, object: 0x03DE33 });
+                assert_eq!(
+                    base,
+                    GlobalFormId {
+                        file: 0,
+                        object: 0x03DE33
+                    }
+                );
                 assert_eq!(record.tag, tag::REFR);
-                assert_eq!(surface.reference, GlobalFormId { file: 0, object: 0x03DE34 });
+                assert_eq!(
+                    surface.reference,
+                    GlobalFormId {
+                        file: 0,
+                        object: 0x03DE34
+                    }
+                );
                 intended_glow += 1;
             }
         }

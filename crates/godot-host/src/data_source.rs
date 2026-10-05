@@ -859,11 +859,16 @@ impl DataSource {
             .winner_ref(reference)
             .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
         let refr = Refr::from_record(self.order.record(winner))?;
-        let model = self
+        let base = self
             .order
             .winner(self.order.resolve(winner.file, refr.base))
-            .and_then(model_for)
             .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
+        let Some(model) = models::render_model_for(base) else {
+            return Ok(LoadedCell {
+                stats: CellStats::default(),
+                surfaces: Vec::new(),
+            });
+        };
         self.stream_destruction_model(reference, &model)
     }
 
