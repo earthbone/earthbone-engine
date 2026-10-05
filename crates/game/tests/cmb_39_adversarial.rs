@@ -66,9 +66,7 @@ fn fixture(prkrs: &[Vec<u8>], malformed: bool) -> Game {
     plugin.push_top(npc);
     plugin.push_top(perk(PERK, Some(PERK + 1)));
     plugin.push_top(perk(PERK + 1, None));
-    plugin.push_top(
-        Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), BASE.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), BASE.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Cmb39Adversarial.esm", plugin).unwrap();
     Game::new(order)
@@ -151,7 +149,10 @@ fn cmb_39_repeated_prkr_with_conflicting_unused_ranks_dispatches_once() {
     .unwrap();
     assert_eq!(invocations.len(), 1, "one owned identity dispatches once");
     assert_eq!(invocations[0].perk, id(PERK));
-    assert_eq!(invocations[0].rank, 1, "PRKE rank is reported, not PRKR rank");
+    assert_eq!(
+        invocations[0].rank, 1,
+        "PRKE rank is reported, not PRKR rank"
+    );
 }
 
 #[test]
@@ -175,7 +176,9 @@ fn cmb_39_missing_perk_record_does_not_duplicate_valid_dispatch() {
 fn cmb_39_malformed_prkr_after_valid_duplicate_fails_before_any_combat_change() {
     let mut game = fixture(&[prkr(PERK, 1), prkr(PERK, 2)], true);
     let actor = id(0x900);
-    game.world_mut().set_actor_value(actor, "health", 10.0).unwrap();
+    game.world_mut()
+        .set_actor_value(actor, "health", 10.0)
+        .unwrap();
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, mark_handler);
     assert_eq!(
@@ -222,9 +225,7 @@ fn cmb_39_installed_protected_player_kill_loads_duplicate_player_perks() {
     });
     let own_prefix = (patch.header.masters.len() as u32) << 24;
     let raw_base = (u32::from(base.file) << 24) | base.object;
-    patch.push_top(
-        Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), raw_base.to_le_bytes()),
-    );
+    patch.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), raw_base.to_le_bytes()));
     patch.push_top(weapon(0xA00, 10, 6));
     settings(&mut patch);
     for record in &mut patch.records {

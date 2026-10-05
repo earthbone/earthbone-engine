@@ -124,10 +124,7 @@ fn cmb_39_malformed_prkr_after_duplicate_rejects_before_handler() {
 
 #[test]
 fn cmb_39_duplicate_warning_is_once_for_shared_base_across_repeated_calls() {
-    let mut game = fixture(&[
-        prkr(PERK, 1, [0, 0, 0]),
-        prkr(PERK, 2, [0, 0, 0]),
-    ]);
+    let mut game = fixture(&[prkr(PERK, 1, [0, 0, 0]), prkr(PERK, 2, [0, 0, 0])]);
     let (subscriber, control) = soe_trace::logging::subscriber("warn", None, |_| {}).unwrap();
     soe_trace::tracing::subscriber::with_default(subscriber, || {
         for actor in [id(0x900), id(0x900), id(0x901)] {
@@ -139,7 +136,10 @@ fn cmb_39_duplicate_warning_is_once_for_shared_base_across_repeated_calls() {
     });
     let lines = control.window(0, u64::MAX);
     assert_eq!(lines.len(), 1, "one warning per duplicated NPC base");
-    assert_eq!(lines[0].count, 1, "warning is emitted once, not log-collapsed");
+    assert_eq!(
+        lines[0].count, 1,
+        "warning is emitted once, not log-collapsed"
+    );
     assert_eq!(lines[0].fields["form_id"], id(BASE).to_string());
 }
 
@@ -200,23 +200,45 @@ fn cmb_39_installed_protected_npc_player_kill_succeeds_with_authored_perks() {
     dnam[8..12].copy_from_slice(&1.1_f32.to_bits().to_le_bytes());
     dnam[76..80].copy_from_slice(&6_u32.to_le_bytes());
     dnam[88..92].copy_from_slice(&u32::MAX.to_le_bytes());
-    patch.push_top(Record::new(Tag(*b"WEAP"), 0xA00).sub(Tag(*b"DATA"), data).sub(Tag(*b"DNAM"), dnam));
+    patch.push_top(
+        Record::new(Tag(*b"WEAP"), 0xA00)
+            .sub(Tag(*b"DATA"), data)
+            .sub(Tag(*b"DNAM"), dnam),
+    );
     for (i, (name, value)) in [
-        ("fDamageWeaponMult", 1_f32), ("fDamagePCSkillMin", 1.),
-        ("fDamagePCSkillMax", 1.5), ("fDamageSkillMin", 1.),
-        ("fDamageSkillMax", 3.), ("fArmorRatingBase", 1.),
-        ("fArmorRatingPCMax", 1.4), ("fArmorRatingMax", 2.5),
-        ("fArmorScalingFactor", 0.12), ("fArmorBaseFactor", 0.03),
+        ("fDamageWeaponMult", 1_f32),
+        ("fDamagePCSkillMin", 1.),
+        ("fDamagePCSkillMax", 1.5),
+        ("fDamageSkillMin", 1.),
+        ("fDamageSkillMax", 3.),
+        ("fArmorRatingBase", 1.),
+        ("fArmorRatingPCMax", 1.4),
+        ("fArmorRatingMax", 2.5),
+        ("fArmorScalingFactor", 0.12),
+        ("fArmorBaseFactor", 0.03),
         ("fMaxArmorRating", 80.),
-    ].into_iter().enumerate() {
-        patch.push_top(Record::new(Tag(*b"GMST"), 0xB00 + i as u32)
-            .sub(Tag(*b"EDID"), name.as_bytes().to_vec())
-            .sub(Tag(*b"DATA"), value.to_le_bytes().to_vec()));
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        patch.push_top(
+            Record::new(Tag(*b"GMST"), 0xB00 + i as u32)
+                .sub(Tag(*b"EDID"), name.as_bytes().to_vec())
+                .sub(Tag(*b"DATA"), value.to_le_bytes().to_vec()),
+        );
     }
-    for record in &mut patch.records { record.form_id |= prefix; }
+    for record in &mut patch.records {
+        record.form_id |= prefix;
+    }
     let file = order.add("Cmb39ProtectedSurvey.esp", patch).unwrap();
-    let target = GlobalFormId { file: file as u16, object: 0x900 };
-    let weapon = GlobalFormId { file: file as u16, object: 0xA00 };
+    let target = GlobalFormId {
+        file: file as u16,
+        object: 0x900,
+    };
+    let weapon = GlobalFormId {
+        file: file as u16,
+        object: 0xA00,
+    };
     let mut game = Game::new(order);
     let player = game.player();
     {
@@ -227,12 +249,17 @@ fn cmb_39_installed_protected_npc_player_kill_succeeds_with_authored_perks() {
         world.actor(player).unwrap().equipped.insert(weapon);
         world.set_actor_value(target, "health", 15.).unwrap();
     }
-    let result = game.melee_hit(MeleeHit {
-        attacker: player,
-        target,
-        weapon,
-        is_bash: false,
-        is_power_attack: false,
-    }).unwrap();
-    assert!(result.killed, "duplicate NPC PRKR data must not block the protected player kill");
+    let result = game
+        .melee_hit(MeleeHit {
+            attacker: player,
+            target,
+            weapon,
+            is_bash: false,
+            is_power_attack: false,
+        })
+        .unwrap();
+    assert!(
+        result.killed,
+        "duplicate NPC PRKR data must not block the protected player kill"
+    );
 }

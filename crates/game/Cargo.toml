@@ -18,6 +18,10 @@ path = "tests/it.rs"
 name = "cmb_39_adversarial"
 path = "tests/cmb_39_adversarial.rs"
 
+[[test]]
+name = "cmb_39_breaker_adversarial"
+path = "tests/cmb_39_breaker_adversarial.rs"
+
 [features]
 save-fault-tests = ["soe-save/fault-injection"]
 
