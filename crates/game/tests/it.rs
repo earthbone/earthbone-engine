@@ -1702,6 +1702,9 @@ mod visual_effects;
 #[path = "prf_12_frame.rs"]
 mod prf_12_frame;
 
+#[path = "prf_27_adversarial.rs"]
+mod prf_27_adversarial;
+
 #[path = "prf_14_work.rs"]
 mod prf_14_work;
 
