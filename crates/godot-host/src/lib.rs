@@ -75,6 +75,8 @@ pub mod godot_physics;
 #[cfg(feature = "godot")]
 pub mod godot_player;
 #[cfg(feature = "godot")]
+mod godot_profiler;
+#[cfg(feature = "godot")]
 pub mod godot_ragdoll;
 #[cfg(feature = "godot")]
 pub mod godot_reference_editor;
@@ -94,11 +96,13 @@ mod entry {
         fn on_stage_init(level: InitStage) {
             if level == InitStage::Scene {
                 crate::godot_logging::install();
+                crate::godot_profiler::register();
             }
         }
 
         fn on_stage_deinit(level: InitStage) {
             if level == InitStage::Scene {
+                crate::godot_profiler::unregister();
                 crate::godot_logging::flush(true);
             }
         }

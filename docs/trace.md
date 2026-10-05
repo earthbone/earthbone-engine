@@ -28,7 +28,7 @@ The bounded history and query-time statistics were checked against local
 `engine-refs/godotwind/src/core/world/performance_profiler.gd`. Its dynamic
 GDScript model tables do not fit the Rust scheduler's fixed system slots.
 The implementation retains the repository's `Instant` timing convention.
-It adds no dependencies and does not store profiling data in saves.
+It does not store profiling data in saves.
 
 The `prf_12_` unit tests cover complete system reports, exclusive nesting,
 overlapping snapshots, zero frame shares and rolling eviction. The game
@@ -69,6 +69,26 @@ follow the repository's PRF-14 contract and local
 `godotwind/docs/systems/benchmarking.md` guidance to fix workloads and keep
 setup and diagnostics outside measured intervals. Work counts are transient
 and are not part of world or VM saves. No dependency was added.
+
+## Tracy export, PRF-23
+
+The optional `tracy` Cargo feature uses `tracy-client` 0.19.0. The dependency
+is optional and the feature is off by default. With the feature enabled, the
+first recorded span starts the Tracy client. Every `Span`, including dynamic
+Papyrus native names, opens a Tracy zone and closes it when the Rust scope is
+dropped. The adapter uses Tracy's allocated source locations because runtime
+native names are not static. WorkFrame drops plot the ten deterministic work
+counters, and each completed `FrameHistory` sample emits a continuous frame
+mark. Other tracing features keep the Chrome event list and JSON export.
+
+The Tracy dependency enables on-demand capture and limits discovery to the
+local host. The editor and installed game are not needed to compile the
+feature. `cargo tree -p soe-trace` has no Tracy dependency. With `--features
+tracy`, the tree adds `tracy-client` 0.19.0, `tracy-client-sys` 0.30.0 and
+its `cc`, `find-msvc-tools` and `shlex` build dependencies.
+`prf_23_tracy_adapter_exports_scopes_counters_and_frame_marks` checks static
+and dynamic zone lifetimes, all ten counter plots and frame marks when that
+feature is enabled.
 
 ## Structured logging
 

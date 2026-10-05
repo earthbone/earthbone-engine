@@ -36,6 +36,19 @@ the frame denominator. Exit ownership follows local
 `godot-docs/classes/class_node.rst`. The fixed accumulator is described in
 [trace.md](trace.md).
 
+## Engine system profiler, PRF-23
+
+The host registers a Godot `EngineProfiler` named `soe_systems` at the Scene
+initialization stage and unregisters it when the extension shuts down. When
+Godot's debugger enables it, PlayerNode sends each completed presentation
+frame as seconds for the frame followed by name and seconds pairs for all
+fourteen engine systems. `EngineProfiler` receives these payloads through
+Godot's `EngineDebugger.profiler_add_frame_data` API. The adapter and payload
+use the local Godot 4.4 `class_engineprofiler.rst` and
+`class_enginedebugger.rst` contracts. The editor acceptance script verifies
+that the extension registered the profiler. It does not inspect the editor's
+Profiler tab display.
+
 ## Scripted player input, PLY-01
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
