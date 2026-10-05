@@ -62,6 +62,13 @@ display list and labels form that frame. Other frame-count mismatches, subtag
 truncation errors and nesting beyond 64 levels remain errors. Synthetic
 fixtures cover both omissions, nested sprites and partial tags.
 
+Empty-depth Modify and Replace tags leave the display list unchanged, following
+normal frame playback in Ruffle's
+[MovieClip::place_object](https://github.com/ruffle-rs/ruffle/blob/master/core/src/display_object/movie_clip.rs).
+PlaceObject2/3 payloads must be fully consumed by the typed reader. The breaker
+fixture for an unoccupied depth contains an extra payload byte and is rejected
+for that malformed envelope rather than its empty depth.
+
 ## Scripted player input, PLY-01
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
@@ -1400,6 +1407,13 @@ Loading durations, worst loading frame and pipeline counts are reported
 separately. This is a quiet-counter predicate, not an API for pending compiler
 jobs. It does not warm views or effects introduced later.
 
+The render warm-up timeout begins at the first `frame_post_draw`, so time
+before the first drawn frame does not use the 30 second settle limit. The
+successful load report records that delay as `load_first_frame_wait_ms` and
+records the subsequent pipeline settling time as `load_render_ms`.
+`godot/prf_08_test.gd` checks the timeout behavior after a 77 minute simulated
+undrawn wait and checks both report fields with a windowed renderer.
+
 Sources read for PRF-08: local `godot-docs/tutorials/performance/pipeline_compilations.rst`,
 `classes/class_renderingserver.rst` and `classes/class_projectsettings.rst`.
 Godot documents deferred compilation for instance overrides, covered rendering
@@ -2269,6 +2283,18 @@ Glow, environment and other shader features remain unwired.
 Native boxes, spheres, capsules and convex hulls replace the former box-hull
 approximations. See [physics](physics.md) for geometry tests and measurement
 limits, and [the reference map](reference-audit.md) for future work.
+
+Convex point clouds are reduced to the boundary vertices using
+`soe_physics::hull::triangles` before `PhysicsServer3D` receives them. If that
+cannot produce a 3D hull, the host removes duplicate and non-finite points and
+submits a slightly padded bounds hull. A repaired hull reports its source mesh
+path and NIF collision node name once per process. Godot's `shape_set_data`
+returns no hull failure result, so this check prepares the point set before
+the call rather than retrying after Jolt reports an error. The PRF-32 checks a
+44-point cloud with interior points and a flat cloud, then sends both repaired
+hulls to Godot's Jolt server. Its installed-data check streams Bannered Mare
+through the host and runs `physics_test.gd`, requiring collision bodies,
+contact and no Jolt shape error.
 
 ## Capacity checks
 
@@ -3388,6 +3414,17 @@ takes a Game, holder and category, allowing the container menu to reuse its
 form-backed rows without a second inventory model. Drop, use, charge, favorite
 and instance-specific actions remain outside UI-02.
 
+The item card and inventory row share this category reader, including the food
+icon. Its flag follows local xEdit `Core/wbDefinitionsTES5.pas`, and SkyUI's
+`ItemMenus/InventoryDataSetter.as` supplies the food classification behavior.
+SkyUI cache scene checks require `SOE_TEST_SKYUI` and either `SOE_FFDEC_JAR`
+or `SOE_FFDEC`. Without those inputs they report a skip. JPEXS FFDec's local
+CLI help lists `yes`, `ask` and `local` as import options. The converter uses
+`local` alone, leaving both import and prompting disabled, as confirmed by
+the bundled `CommandLineArgumentParser` and `ConsoleUrlResolver` classes.
+The archive survey checks bounded sprite definitions when Ruffle's parser
+rejects SkyUI's omitted sprite End tags.
+
 When activation opens a container, its menu presents the same category buttons
 and lists the container's positive inventory totals. The rows come from its shared
 `RefState::inventory`, including authored `CNTO` entries loaded from the xEdit
@@ -4481,6 +4518,8 @@ recorder for each ordered chunk.
 
 `godot/prf_14_work_test.gd` loads the installed Bannered Mare, compares actual
 instance creation with the streamed count and verifies empty-window reset.
+The Rust wrapper runs it in an isolated project with an explicit extension list,
+loading Cargo's current test-built library rather than a cached release build.
 It is a headless correctness check. The counter paths add no per-reference
 nodes and no saved state. The row uses the existing RenderingServer and
 PhysicsDirectSpaceState3D APIs described in the local Godot class docs.

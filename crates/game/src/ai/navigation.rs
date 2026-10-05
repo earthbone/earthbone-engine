@@ -2,11 +2,15 @@
 
 //! Frame-sliced NAVM requests, following Detour's sliced A* query contract.
 //! Request state is transient. Actors retain their current package step while waiting.
+//! Rayon executes disjoint pending requests over the immutable graph, as recorded
+//! in docs/threading.md. Budget reservation and result application stay ordered.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BinaryHeap, HashSet};
 use std::task::Poll;
+use std::time::{Duration, Instant};
 
+use rayon::prelude::*;
 use soe_navmesh::{NavGraph, NodeId, Path, PathSearch};
 
 use super::{distance, GlobalFormId, PlannedPath, World};
@@ -27,6 +31,30 @@ pub(super) enum Goal {
 }
 
 type ResultPath = Option<([f32; 3], PlannedPath)>;
+
+/// Last-frame measurements for resumed navigation jobs, excluding serial setup.
+#[derive(Debug, Default, Clone)]
+pub struct PlanningWorkers {
+    /// Jobs completed before returning to the actor driver.
+    pub jobs: usize,
+    /// Elapsed request execution per pool worker, indexed by Rayon worker index.
+    pub busy: Vec<Duration>,
+    /// Caller time inside pool dispatch and join, including scheduling overhead.
+    pub main_thread_wait: Duration,
+    /// Summed worker execution per search phase. Concurrent phases can overlap.
+    pub phase_busy: BTreeMap<&'static str, Duration>,
+}
+
+impl PlanningWorkers {
+    /// Fraction of available worker time occupied by requests during dispatch.
+    pub fn utilisation(&self) -> f64 {
+        let available = self.main_thread_wait.as_secs_f64() * self.busy.len() as f64;
+        if available == 0.0 {
+            return 0.0;
+        }
+        self.busy.iter().map(Duration::as_secs_f64).sum::<f64>() / available
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 struct Candidate {
@@ -81,6 +109,8 @@ pub(super) struct Planner {
     pub(super) last_work: usize,
     pub(super) phases: BTreeMap<&'static str, std::time::Duration>,
     next_actor: Option<GlobalFormId>,
+    pool: Option<rayon::ThreadPool>,
+    pub(super) workers: PlanningWorkers,
 }
 
 impl Default for Planner {
@@ -92,11 +122,25 @@ impl Default for Planner {
             last_work: 0,
             phases: BTreeMap::new(),
             next_actor: None,
+            pool: None,
+            workers: PlanningWorkers::default(),
         }
     }
 }
 
 impl Planner {
+    pub(super) fn set_workers(
+        &mut self,
+        workers: std::num::NonZeroUsize,
+    ) -> Result<(), rayon::ThreadPoolBuildError> {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(workers.get())
+            .thread_name(|index| format!("soe-ai-{index}"))
+            .build()?;
+        self.pool = Some(pool);
+        Ok(())
+    }
+
     pub(super) fn clear(&mut self) {
         self.requests.clear();
     }
@@ -123,37 +167,77 @@ impl Planner {
     }
 
     pub(super) fn begin_frame(&mut self, graph: &NavGraph, cells: &[Option<GlobalFormId>]) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
         self.frame = self.frame.wrapping_add(1);
         self.remaining = FRAME_NODE_BUDGET;
         self.last_work = 0;
         self.phases.clear();
+        self.workers = PlanningWorkers::default();
         self.requests
             .retain(|_, request| request.revision == graph.query_revision());
-        let keys: Vec<_> = self.requests.keys().copied().collect();
-        let start = self
-            .next_actor
-            .map_or(0, |next| keys.partition_point(|key| *key < next));
-        let len = keys.len();
-        for offset in 0..len {
-            let actor = keys[(start + offset) % len];
-            let Some(request) = self.requests.get_mut(&actor) else {
-                continue;
+        let mut pending: Vec<_> = self
+            .requests
+            .iter_mut()
+            .filter(|(_, request)| request.result.is_pending())
+            .collect();
+        let first = pending
+            .partition_point(|(actor, _)| self.next_actor.is_some_and(|next| **actor < next));
+        pending.rotate_left(first);
+        if pending.is_empty() {
+            return;
+        }
+        let recorder = soe_trace::WorkRecorder::current();
+        let workers = self.pool.as_ref().map_or_else(
+            rayon::current_num_threads,
+            rayon::ThreadPool::current_num_threads,
+        );
+        self.workers.busy = vec![Duration::ZERO; workers];
+        let mut offset = 0;
+        while offset < pending.len() {
+            if self.remaining == 0 {
+                self.next_actor = Some(*pending[offset].0);
+                break;
+            }
+            let budget = self.remaining.min(REQUEST_NODE_BUDGET);
+            let count = (self.remaining / budget).min(pending.len() - offset);
+            let batch = &mut pending[offset..offset + count];
+            let mut execute = || {
+                batch
+                    .par_iter_mut()
+                    .map(|(_, request)| {
+                        let _work = recorder.as_ref().map(soe_trace::WorkRecorder::enter);
+                        let started = Instant::now();
+                        let mut phases = BTreeMap::new();
+                        let used = request.advance(graph, cells, budget, &mut phases);
+                        (
+                            used,
+                            phases,
+                            started.elapsed(),
+                            rayon::current_thread_index(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
             };
-            if request.result.is_pending() {
-                if self.remaining == 0 {
-                    self.next_actor = Some(actor);
-                    break;
-                }
-                let used = request.advance(
-                    graph,
-                    cells,
-                    self.remaining.min(REQUEST_NODE_BUDGET),
-                    &mut self.phases,
-                );
+            let started = Instant::now();
+            let results = if let Some(pool) = &self.pool {
+                pool.install(execute)
+            } else {
+                execute()
+            };
+            self.workers.main_thread_wait += started.elapsed();
+            for ((_, request), (used, phases, busy, worker)) in batch.iter_mut().zip(results) {
                 self.remaining -= used;
                 self.last_work += used;
                 request.frame = self.frame;
+                self.workers.jobs += 1;
+                if let Some(worker) = worker {
+                    self.workers.busy[worker] += busy;
+                }
+                for (phase, elapsed) in phases {
+                    *self.workers.phase_busy.entry(phase).or_default() += elapsed;
+                }
             }
+            offset += count;
         }
     }
 
@@ -388,6 +472,176 @@ mod tests {
             to: [19990.0, 25.0, 0.0],
             cell: None,
             fallback: true,
+        }
+    }
+
+    fn serial_frame(planner: &mut Planner, graph: &NavGraph, cells: &[Option<GlobalFormId>]) {
+        planner.frame = planner.frame.wrapping_add(1);
+        planner.remaining = FRAME_NODE_BUDGET;
+        planner.last_work = 0;
+        planner.phases.clear();
+        planner
+            .requests
+            .retain(|_, request| request.revision == graph.query_revision());
+        let keys: Vec<_> = planner.requests.keys().copied().collect();
+        let start = planner
+            .next_actor
+            .map_or(0, |next| keys.partition_point(|key| *key < next));
+        for offset in 0..keys.len() {
+            let actor = keys[(start + offset) % keys.len()];
+            let request = planner.requests.get_mut(&actor).unwrap();
+            if !request.result.is_pending() {
+                continue;
+            }
+            if planner.remaining == 0 {
+                planner.next_actor = Some(actor);
+                break;
+            }
+            let used = request.advance(
+                graph,
+                cells,
+                planner.remaining.min(REQUEST_NODE_BUDGET),
+                &mut planner.phases,
+            );
+            planner.remaining -= used;
+            planner.last_work += used;
+            request.frame = planner.frame;
+        }
+    }
+
+    fn pending_planner(graph: &NavGraph, workers: usize) -> Planner {
+        let mut planner = Planner::default();
+        planner.set_workers(workers.try_into().unwrap()).unwrap();
+        for id in 0..32 {
+            let goal = if id % 5 == 0 {
+                Goal::Flee {
+                    threat: [0.0, 25.0, 0.0],
+                }
+            } else {
+                Goal::Point {
+                    to: [500.0 + ((id * 7919) % 19000) as f32, 25.0, 0.0],
+                    cell: Some(actor(0x800)),
+                    fallback: true,
+                }
+            };
+            let _ = planner.request(
+                graph,
+                &[Some(actor(0x800))],
+                actor(id),
+                [10.0, 25.0, 0.0],
+                goal,
+            );
+        }
+        planner
+    }
+
+    #[test]
+    fn prf_17_navigation_matches_serial_order_budgets_and_work_with_one_and_eight_workers() {
+        use soe_trace::WorkFrame;
+
+        let graph = strip();
+        let cells = [Some(actor(0x800))];
+        let mut serial = pending_planner(&graph, 1);
+        let mut single = pending_planner(&graph, 1);
+        let mut parallel = pending_planner(&graph, 8);
+        for _ in 0..256 {
+            let frame = WorkFrame::begin();
+            serial_frame(&mut serial, &graph, &cells);
+            let expected_counts = frame.counts();
+            drop(frame);
+            for planner in [&mut single, &mut parallel] {
+                let frame = WorkFrame::begin();
+                planner.begin_frame(&graph, &cells);
+                assert_eq!(frame.counts(), expected_counts);
+                assert_eq!(planner.last_work, serial.last_work);
+                assert!(planner.last_work <= FRAME_NODE_BUDGET);
+                assert_eq!(planner.remaining, serial.remaining);
+                assert_eq!(planner.next_actor, serial.next_actor);
+                for (id, expected) in &serial.requests {
+                    let actual = &planner.requests[id];
+                    assert_eq!(actual.frame, expected.frame, "actor {id}");
+                    assert_eq!(actual.result, expected.result, "actor {id}");
+                }
+                assert!(planner.workers.utilisation() <= 1.0);
+            }
+            if serial
+                .requests
+                .values()
+                .all(|request| request.result.is_ready())
+            {
+                assert!(single.workers.jobs > 0);
+                assert!(parallel.workers.jobs > 0);
+                assert_eq!(single.workers.busy.len(), 1);
+                assert_eq!(parallel.workers.busy.len(), 8);
+                assert!(parallel.workers.busy.iter().any(|time| !time.is_zero()));
+                return;
+            }
+        }
+        panic!("navigation requests starved for 256 frames");
+    }
+
+    #[test]
+    fn prf_17_navigation_cancellation_revision_and_idle_metrics() {
+        for workers in [1, 8] {
+            let mut graph = strip();
+            let mut planner = pending_planner(&graph, workers);
+            planner.begin_frame(&graph, &[None]);
+            assert!(planner.workers.jobs > 0);
+            planner.cancel(actor(3));
+            planner.retain_actors(&[actor(0), actor(3)]);
+            assert_eq!(
+                planner.requests.keys().copied().collect::<Vec<_>>(),
+                [actor(0)]
+            );
+            graph.add_mesh_with_adjacency(
+                vec![[0.0, 200.0, 0.0], [100.0, 200.0, 0.0], [0.0, 300.0, 0.0]],
+                &[[0, 1, 2]],
+            );
+            graph.prepare_queries();
+            planner.begin_frame(&graph, &[None; 2]);
+            assert!(planner.requests.is_empty());
+            assert_eq!(planner.workers.jobs, 0);
+            assert_eq!(planner.workers.main_thread_wait, Duration::ZERO);
+            assert_eq!(planner.workers.utilisation(), 0.0);
+        }
+    }
+
+    #[test]
+    fn prf_17_navigation_reports_worker_utilisation_and_join_time() {
+        let graph = strip();
+        for workers in [1, 8] {
+            let mut planner = pending_planner(&graph, workers);
+            let snapshot = soe_trace::FrameSnapshot::now();
+            let started = Instant::now();
+            let mut wait = Duration::ZERO;
+            let mut busy = vec![Duration::ZERO; workers];
+            let mut frames = 0;
+            while planner
+                .requests
+                .values()
+                .any(|request| request.result.is_pending())
+            {
+                planner.begin_frame(&graph, &[None]);
+                assert!(planner.last_work <= FRAME_NODE_BUDGET);
+                wait += planner.workers.main_thread_wait;
+                for (total, frame) in busy.iter_mut().zip(&planner.workers.busy) {
+                    *total += *frame;
+                }
+                frames += 1;
+                assert!(frames < 256);
+            }
+            assert!(wait > Duration::ZERO);
+            let sample = snapshot.finish();
+            assert!(
+                u128::from(sample.system_ns[soe_trace::System::AiPlanning as usize])
+                    >= wait.as_nanos()
+            );
+            let utilisation = busy.iter().map(Duration::as_secs_f64).sum::<f64>()
+                / (wait.as_secs_f64() * workers as f64);
+            eprintln!(
+                "PRF-17 navigation workers={workers} frames={frames} wall={:?} main_wait={wait:?} busy={busy:?} utilisation={utilisation:.3}",
+                started.elapsed()
+            );
         }
     }
 

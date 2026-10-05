@@ -5,8 +5,6 @@
 //! lets a hand selection decide which casting slot a click fills, so the
 //! two hand buttons stay visible beside the list rather than gating it.
 
-use godot::classes::control::SizeFlags;
-use godot::classes::{Button, Label, ScrollContainer, VBoxContainer};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 use soe_game::combat::Hand;
@@ -66,13 +64,6 @@ pub(super) struct HandCastInput {
     pub was_held: bool,
     pub held: bool,
     pub pressed: bool,
-}
-
-fn hand_label(hand: Hand) -> &'static str {
-    match hand {
-        Hand::Left => "Left Hand",
-        Hand::Right => "Right Hand",
-    }
 }
 
 fn select_telekinesis_target(
@@ -310,59 +301,7 @@ impl PlayerNode {
     }
 
     fn magic_content(&mut self) -> bool {
-        if self.menu.title() != Some("Magic") {
-            return false;
-        }
-        let Some(game) = self.game.as_mut() else {
-            return false;
-        };
-        let player = game.player();
-        let entries = magic_menu::entries(game, player);
-        let Some(mut content) = self.menu_content() else {
-            return false;
-        };
-        let hand = self.magic_hand;
-        let base = self.base().clone();
-        let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
-        }
-        let mut scroll = ScrollContainer::new_alloc();
-        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
-        let mut rows = VBoxContainer::new_alloc();
-        scroll.add_child(&rows);
-        content.add_child(&scroll);
-        for (index, candidate) in HANDS.into_iter().enumerate() {
-            let mut button = Button::new_alloc();
-            let mark = if candidate == hand { " *" } else { "" };
-            button.set_text(&format!("{}{}", hand_label(candidate), mark));
-            let callback = base
-                .callable("select_magic_hand")
-                .bindv(&varray![index as i64]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
-        }
-        let mut heading = Label::new_alloc();
-        heading.set_text(&format!("Known spells ({})", entries.len()));
-        rows.add_child(&heading);
-        for entry in entries {
-            let mut button = Button::new_alloc();
-            let equipped = match (entry.left_equipped, entry.right_equipped) {
-                (true, true) => " [Left, Right]",
-                (true, false) => " [Left]",
-                (false, true) => " [Right]",
-                (false, false) => "",
-            };
-            button.set_text(&format!("{} ({} cost){}", entry.name, entry.cost, equipped));
-            let callback = base.callable("equip_magic_spell").bindv(&varray![
-                i64::from(entry.spell.file),
-                i64::from(entry.spell.object),
-            ]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
-        }
-        true
+        self.menu.title() == Some("Magic") && self.present_magic_items()
     }
 }
 

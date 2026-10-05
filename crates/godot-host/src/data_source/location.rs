@@ -412,7 +412,7 @@ mod hst_08_tests {
             },
             |_| cost,
         );
-        assert!(deferred.load.is_empty());
+        assert_eq!(deferred.load.len(), 0);
         let selected = streamer.update_with_budget(
             focus,
             StreamBudget {
