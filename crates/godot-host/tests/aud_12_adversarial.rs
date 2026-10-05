@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
 
 //! Exercises music and ambience decode latency, cache reuse and request replacement in Godot.
+
+#[path = "common/aud_11.rs"]
+mod aud_11;
 
 use soe_bsa::{write_bsa, BsaFile, BsaVersion};
 use soe_esm::{FileHeader, Plugin};
@@ -73,15 +77,7 @@ fn aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes() {
         eprintln!("skipping: SOE_GODOT_BIN is not set");
         return;
     };
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace = manifest.join("../..");
-    let project = workspace.join("godot");
-    let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(
-        extension.exists(),
-        "missing release extension: {}",
-        extension.display()
-    );
+    let project = aud_11::project(&[]);
 
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
@@ -89,7 +85,7 @@ fn aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes() {
     let script = tempfile::Builder::new()
         .prefix("aud_12_adversarial_")
         .suffix(".gd")
-        .tempfile_in(&project)
+        .tempfile_in(project.path())
         .unwrap();
     std::fs::write(
         script.path(),
@@ -180,11 +176,13 @@ func run() -> void:
         .arg("45s")
         .arg(godot)
         .args(["--path"])
-        .arg(project)
+        .arg(project.path())
         .args(["--windowed", "--resolution", "640x360"])
         .arg("--script")
         .arg(script.path())
         .env("AUD_12_DATA", data)
+        .env("XDG_DATA_HOME", project.path())
+        .env("XDG_CACHE_HOME", project.path())
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -193,29 +191,29 @@ func run() -> void:
         output.status.success() && stdout.contains("AUD-12 PASS"),
         "AUD-12 Godot adversarial check failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    assert!(!stderr.contains("SCRIPT ERROR"), "{stderr}");
 }
 
 #[test]
 fn aud_12_installed_prf12_walkthrough_keeps_audio_under_two_ms() {
-    let data = PathBuf::from(
-        "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
-    );
-    let godot = std::env::var_os("SOE_GODOT_BIN")
-        .map(PathBuf::from)
-        .unwrap();
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace = manifest.join("../..");
-    let project = workspace.join("godot");
-    let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(
-        extension.exists(),
-        "missing release extension: {}",
-        extension.display()
-    );
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    };
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from) else {
+        eprintln!("skipping: SOE_GODOT_BIN is not set");
+        return;
+    };
+    let project = aud_11::project(&[
+        "prf_12_walkthrough_test.gd",
+        "walkthrough.gd",
+        "render_warmup.gd",
+        "system_overlay.gd",
+    ]);
     let script = tempfile::Builder::new()
         .prefix("aud_12_prf12_")
         .suffix(".gd")
-        .tempfile_in(&project)
+        .tempfile_in(project.path())
         .unwrap();
     std::fs::write(
         script.path(),
@@ -235,10 +233,12 @@ func _process(delta: float) -> bool:
         .arg("120s")
         .arg(godot)
         .args(["--path"])
-        .arg(&project)
+        .arg(project.path())
         .args(["--resolution", "640x360", "--script"])
         .arg(script.path())
         .env("SKYRIM_DATA", data)
+        .env("XDG_DATA_HOME", project.path())
+        .env("XDG_CACHE_HOME", project.path())
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -254,6 +254,7 @@ func _process(delta: float) -> bool:
         output.status.success() && audio_ms.is_some_and(|ms| ms <= 2.0),
         "installed PRF-12 audio budget failed, audio_ms={audio_ms:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    assert!(!stderr.contains("SCRIPT ERROR"), "{stderr}");
     println!(
         "AUD-12 installed PRF-12 worst audio frame: {:.3} ms",
         audio_ms.unwrap()
