@@ -265,3 +265,198 @@ fn prf_31_invalid_range_performs_no_sight_or_light_queries() {
         .is_empty());
     }
 }
+
+#[test]
+fn prf_31_candidates_preserve_npc_pairs_away_from_player_and_sound_owner_pose() {
+    let actors = vec![
+        actor(10, 1, [0.0; 3]),
+        actor(11, 1, [100.0, 0.0, 0.0]),
+        actor(12, 1, [10_000.0, 0.0, 0.0]),
+        actor(13, 1, [10_050.0, 0.0, 0.0]),
+        actor(14, 1, [20_000.0, 0.0, 0.0]),
+        actor(15, 1, [-20_000.0, 0.0, 0.0]),
+        actor(16, 1, [30_000.0, 0.0, 0.0]),
+    ];
+    let events = [DetectionEvent {
+        owner: id(14),
+        cell: id(1),
+        position: [-20_001.0, 0.0, 0.0],
+        sound_level: 125.0,
+    }];
+    let sampled = |actors: &[ContactActor]| {
+        observations_in_range(
+            actors,
+            &events,
+            &BTreeMap::new(),
+            100.0,
+            |_, _| true,
+            |_, _| 50.0,
+        )
+    };
+    let before = sampled(&actors);
+    let selected = candidate_actors(actors, &events, 100.0);
+    assert_eq!(
+        selected.iter().map(|actor| actor.actor).collect::<Vec<_>>(),
+        (10..16).map(id).collect::<Vec<_>>()
+    );
+    assert_eq!(sampled(&selected), before);
+}
+
+#[test]
+fn prf_31_candidates_follow_cell_and_position_each_frame() {
+    let mut actors = vec![actor(10, 1, [-100.0, 0.0, 0.0]), actor(11, 1, [0.0; 3])];
+    assert_eq!(candidate_actors(actors.clone(), &[], 100.0), actors);
+    actors[1].position[0] = 0.001;
+    assert!(candidate_actors(actors.clone(), &[], 100.0).is_empty());
+    actors[1].position[0] = 0.0;
+    actors[1].cell = id(2);
+    assert!(candidate_actors(actors.clone(), &[], 100.0).is_empty());
+    actors[1].cell = id(1);
+    assert_eq!(candidate_actors(actors.clone(), &[], 100.0), actors);
+}
+
+#[test]
+fn prf_31_candidates_reject_invalid_ranges() {
+    for range in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        assert!(candidate_actors(vec![actor(10, 1, [0.0; 3])], &[], range).is_empty());
+    }
+}
+
+#[test]
+fn prf_31_vanilla_candidate_observations_match_resident_population() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = crate::data_source::DataSource::open(std::path::Path::new(&data)).unwrap();
+    let mut world = World::from_shared_order(source.shared_order());
+    let range = world.detection_settings().unwrap().max_distance;
+    for name in ["WhiterunBanneredMare", "WhiterunOrigin"] {
+        let cell = source.resolve_cell(name).unwrap();
+        world.load_cell(cell);
+        let residents = world.contact_actors();
+        assert!(residents.len() > 1, "vanilla {name} has resident NPCs");
+        let mut candidates = candidate_actors(world.contact_actor_placements(), &[], range);
+        world.resolve_contact_actor_scales(&mut candidates);
+        let lights = LightSamples::new(
+            &world,
+            &residents.iter().map(|actor| actor.cell).collect::<Vec<_>>(),
+        );
+        let sample = |actors: &[ContactActor]| {
+            observations_in_range(
+                actors,
+                &[],
+                &BTreeMap::new(),
+                range,
+                |_, _| true,
+                |cell, point| lights.level(cell, point),
+            )
+        };
+        assert_eq!(
+            sample(&candidates),
+            sample(&residents),
+            "vanilla {name} preserves observations"
+        );
+    }
+}
+
+#[test]
+fn prf_31_light_sampler_follows_current_enable_parent() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(T(b"CELL"), 1));
+    let mut data = vec![0_u8; 48];
+    data[4..8].copy_from_slice(&100_u32.to_le_bytes());
+    data[8..11].fill(255);
+    plugin.push_top(Record::new(T(b"LIGH"), 2).sub(b"DATA", data));
+    let mut parent = Record::new(T(b"REFR"), 3).sub(b"NAME", 2_u32.to_le_bytes());
+    parent.flags |= flags::INITIALLY_DISABLED;
+    plugin.push_top(parent);
+    let mut child = Record::new(T(b"REFR"), 4)
+        .sub(b"NAME", 2_u32.to_le_bytes())
+        .sub(b"DATA", [0_u8; 24])
+        .sub(b"XESP", [3, 0, 0, 0, 0, 0, 0, 0]);
+    child.placement.cell = Some(1);
+    plugin.push_top(child);
+    let mut order = LoadOrder::new();
+    order.add("Parent.esm", plugin).unwrap();
+    let mut world = World::new(order);
+    assert_eq!(light_level(&world, id(1), [0.0; 3]), 0.0);
+    world.reference(id(3)).unwrap().enabled = true;
+    assert_eq!(light_level(&world, id(1), [0.0; 3]), 100.0);
+    world.reference(id(3)).unwrap().enabled = false;
+    assert_eq!(light_level(&world, id(1), [0.0; 3]), 0.0);
+}
+
+#[test]
+fn prf_31_vanilla_persistent_actors_require_attached_tamriel_grid() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = crate::data_source::DataSource::open(std::path::Path::new(&data)).unwrap();
+    let mut world = World::from_shared_order(source.shared_order());
+    let tamriel = world.form("Tamriel").unwrap();
+    let index = source.cell_index();
+    let persistent = index.world_persistent_cell(tamriel).unwrap();
+    let gate_grids = (3..=5)
+        .flat_map(|x| (-3..=-1).filter_map(move |y| index.exterior_cell(tamriel, x, y)))
+        .collect::<Vec<_>>();
+    world.load_cell(persistent);
+    let all = world.contact_actor_placements();
+    world.attach_streaming_cells(&gate_grids).unwrap();
+    let loaded = world.contact_actor_placements();
+    assert!(
+        loaded.len() < all.len(),
+        "persistent identity does not load every Tamriel actor"
+    );
+    assert!(
+        loaded.iter().any(|actor| actor.cell == persistent),
+        "nearby persistent NPCs remain eligible"
+    );
+    for actor in loaded {
+        assert!((3..=5).contains(&((actor.position[0] / 4096.0).floor() as i32)));
+        assert!((-3..=-1).contains(&((actor.position[1] / 4096.0).floor() as i32)));
+    }
+}
+
+#[test]
+fn prf_31_exterior_pairs_share_worldspace_and_keep_original_light_cells() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    for object in [100, 101] {
+        plugin.push_top(Record::new(T(b"WRLD"), object));
+    }
+    for (object, parent, x) in [(1, 100, 0_i32), (4, 100, 1), (5, 101, 0)] {
+        let mut grid = x.to_le_bytes().to_vec();
+        grid.extend_from_slice(&0_i32.to_le_bytes());
+        let mut cell = Record::new(T(b"CELL"), object).sub(b"XCLC", grid);
+        cell.placement.world = Some(parent);
+        plugin.push_top(cell);
+    }
+    plugin.push_top(Record::new(T(b"CELL"), 6));
+    let mut order = LoadOrder::new();
+    order.add("Spaces.esm", plugin).unwrap();
+    let world = World::new(order);
+    let actors = vec![
+        actor(10, 1, [4095.0, 0.0, 0.0]),
+        actor(11, 4, [4096.0, 0.0, 0.0]),
+        actor(12, 5, [4095.0, 0.0, 0.0]),
+        actor(13, 6, [4095.0, 0.0, 0.0]),
+    ];
+    let spaces = DetectionSpaces::new(&world, &actors, &[], 100.0);
+    let candidates = spaces.candidate_actors(actors, &[]);
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|actor| actor.actor)
+            .collect::<Vec<_>>(),
+        [id(10), id(11)]
+    );
+    let samples = spaces.observations(
+        &candidates,
+        &[],
+        &BTreeMap::new(),
+        |_, _| true,
+        |cell, _| cell.object as f32,
+    );
+    assert_eq!(samples.len(), 2);
+    assert_eq!(samples[0].light_level, 4.0);
+    assert_eq!(samples[1].light_level, 1.0);
+}

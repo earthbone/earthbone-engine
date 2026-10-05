@@ -211,7 +211,8 @@ An observer's combat awareness is indexed once per batch. Alert and busy
 modifiers remain specific to each pair. Previously known pairs absent from a
 batch receive a negative value, the lesser of the base detection value and
 negative one, only when their enabled references occupy the same resident
-cell farther apart than `fSneakMaxDistance`. Their existing loss and recovery
+coordinate space farther apart than `fSneakMaxDistance`. Exterior grid and
+persistent cells of one worldspace share that space. Their existing loss and recovery
 timers then advance without creating awareness for distant strangers.
 
 `World::light_references_in_cell` caches authored LIGH reference identities
@@ -8234,8 +8235,9 @@ dependent test file still compiles against the unchanged signature.
 collision without owning any of it.
 
 `World::contact_actors` lists every resident actor reference (`is_actor`)
-that is enabled, not deleted, has a base and a cell, and whose cell is the
-loaded cell or a streamed one (`cell_is_resident`). Each entry carries the
+that is effectively enabled, not deleted or destroyed, has a base and a cell,
+and whose cell is the loaded cell or an attached one (`cell_is_attached`).
+Prefetch alone does not attach a cell. Each entry carries the
 reference's position and rotation in game units and radians, and a scale
 equal to `actor_controller_scale` times the reference scale. An actor whose
 controller scale cannot be derived keeps 1.0 for that factor, so a template
@@ -8243,6 +8245,25 @@ error never drops a body. Dead actors stay listed because a corpse still
 blocks a blade. The list is sorted by form so a host sync is deterministic.
 Because it reads the placement tables directly, the list follows cell
 changes, streaming, enable state and scripted moves with no extra hook.
+
+PRF-31 splits contact placement from controller-height resolution.
+`contact_actor_placements` returns current attached placements with reference
+scale. `resolve_contact_actor_scales` resolves current NPC Traits templates and
+race height for a selected list, once per base in that call. Repeated resolution
+uses the reference scale again, so it does not multiply the previous result.
+The full contact list uses both steps. Detection selects living participants
+before resolving their height. These frame-local views add no saved state.
+Effective enable state follows the shared XESP reader, including parent changes.
+For attached exterior grids, an actor's current position must lie in an attached
+grid cell of its owning worldspace. The worldspace's persistent cell is an
+authored grouping, so attaching it does not make distant actors across that
+worldspace physically resident. Parent-cell identity remains unchanged.
+The existing `CellIndex` supplies XCLC coordinates and world persistent-cell
+identity, following local UESP `CELL.wikitext` and the winning record hierarchy.
+`cell_coordinate_space` provides that worldspace identity for exterior pair
+selection and aging of distant known pairs. Interiors keep separate cell spaces.
+The local CK `Is3DLoaded`, `OnCellAttach` and `IsDisabled` pages distinguish
+attached host resources from prefetch and current enable state.
 
 `World::melee_reach` returns the reach in game units for the weapon an
 attacker holds in one hand: `fCombatDistance` times the weapon's DNAM reach

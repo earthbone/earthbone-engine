@@ -295,3 +295,145 @@ fn melee_reach_falls_back_to_the_vanilla_combat_distance() {
     let expected = DEFAULT_COMBAT_DISTANCE * PLAYER_SCALE * SWORD_REACH;
     assert!((reach - expected).abs() < 1e-3, "reach {reach}");
 }
+
+#[test]
+fn prf_31_placement_selection_resolves_current_scale_and_preserves_contact_list() {
+    let g = game(None);
+    let mut world = g.world_mut();
+    let expected = world.contact_actors();
+    let mut placements = world.contact_actor_placements();
+    world.resolve_contact_actor_scales(&mut placements);
+    assert_eq!(placements, expected);
+    let guard = world.reference(id(GUARD_A)).unwrap();
+    guard.position = [150.0, 20.0, 10.0];
+    guard.scale = 2.0;
+    let mut placements = world.contact_actor_placements();
+    placements.retain(|actor| actor.actor == id(GUARD_A));
+    world.resolve_contact_actor_scales(&mut placements);
+    assert_eq!(placements[0].position, [150.0, 20.0, 10.0]);
+    assert_eq!(placements[0].scale, 2.0);
+    world.resolve_contact_actor_scales(&mut placements);
+    assert_eq!(placements[0].scale, 2.0, "scale resolution is idempotent");
+}
+
+#[test]
+fn prf_31_placements_follow_cell_attach_detach_and_runtime_spawns() {
+    let g = game(None);
+    let mut world = g.world_mut();
+    world.prefetch_cell(id(CELL_B));
+    assert!(!world
+        .contact_actor_placements()
+        .iter()
+        .any(|actor| actor.actor == id(GUARD_B)));
+    world.attach_streaming_cells(&[id(CELL_B)]).unwrap();
+    assert!(world
+        .contact_actor_placements()
+        .iter()
+        .any(|actor| actor.actor == id(GUARD_B)));
+    let spawned = world.place_at(id(GUARD_BASE), id(GUARD_B), false);
+    assert!(world
+        .contact_actor_placements()
+        .iter()
+        .any(|actor| actor.actor == spawned));
+    world.detach_streaming_cells(&[id(CELL_B)]).unwrap();
+    assert!(!world
+        .contact_actor_placements()
+        .iter()
+        .any(|actor| actor.cell == id(CELL_B)));
+}
+
+#[test]
+fn prf_31_contact_placements_follow_enable_parent_and_deletion() {
+    let mut plugin = plugin(None);
+    let guard = plugin
+        .records
+        .iter_mut()
+        .find(|record| record.form_id == GUARD_A)
+        .unwrap();
+    let mut parent = PLAYER.to_le_bytes().to_vec();
+    parent.extend_from_slice(&0_u32.to_le_bytes());
+    guard
+        .subrecords
+        .push(soe_esm::Subrecord::new(T(b"XESP"), parent));
+    let mut order = LoadOrder::new();
+    order
+        .add("Contact.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .unwrap();
+    let mut world = soe_game::World::new(order);
+    world.load_cell(id(CELL_A));
+    world.reference(id(PLAYER)).unwrap().enabled = false;
+    assert!(world.contact_actor_placements().is_empty());
+    world.reference(id(PLAYER)).unwrap().enabled = true;
+    world.reference(id(GUARD_A)).unwrap().enabled = false;
+    assert_eq!(
+        world.contact_actor_placements().len(),
+        2,
+        "parent supersedes child enable flag"
+    );
+    world.reference(id(GUARD_A)).unwrap().deleted = true;
+    assert_eq!(world.contact_actor_placements().len(), 1);
+}
+
+#[test]
+fn prf_31_persistent_exterior_actors_follow_their_physical_loaded_grid() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(T(b"WRLD"), 1));
+    let mut persistent = Record::new(T(b"CELL"), 2).sub(b"DATA", [0, 0]);
+    persistent.placement.world = Some(1);
+    persistent.placement.group = Some(GroupKind::WorldChildren(1));
+    plugin.push_top(persistent);
+    for (object, x) in [(3_u32, 0_i32), (4, 2), (8, -1)] {
+        let mut grid = x.to_le_bytes().to_vec();
+        grid.extend_from_slice(&0_i32.to_le_bytes());
+        let mut cell = Record::new(T(b"CELL"), object)
+            .sub(b"DATA", [0, 0])
+            .sub(b"XCLC", grid);
+        cell.placement.world = Some(1);
+        plugin.push_top(cell);
+    }
+    plugin.push_top(Record::new(T(b"NPC_"), 5));
+    for (object, x) in [(6_u32, 0.0), (7, 8192.0), (9, -0.001)] {
+        let mut actor = Record::new(T(b"ACHR"), object)
+            .sub(b"NAME", 5_u32.to_le_bytes())
+            .sub(b"DATA", at(x, 0.0, 0.0).to_bytes());
+        actor.placement.cell = Some(2);
+        actor.flags |= flags::PERSISTENT;
+        plugin.push_top(actor);
+    }
+    let mut order = LoadOrder::new();
+    order.add("Grid.esm", plugin).unwrap();
+    let mut world = soe_game::World::new(order);
+    world.prefetch_cell(id(2));
+    world.load_cell(id(3));
+    let listed = |world: &soe_game::World| {
+        world
+            .contact_actor_placements()
+            .iter()
+            .map(|a| a.actor)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(listed(&world), [id(6)]);
+    world.prefetch_cell(id(4));
+    assert_eq!(
+        listed(&world),
+        [id(6)],
+        "prefetch does not load the far actor's 3D"
+    );
+    world.attach_streaming_cells(&[id(4), id(8)]).unwrap();
+    assert_eq!(listed(&world), [id(6), id(7), id(9)]);
+    world.reference(id(6)).unwrap().position[0] = 4096.0;
+    assert_eq!(
+        listed(&world),
+        [id(7), id(9)],
+        "exact cell boundary enters the next grid"
+    );
+    world.reference(id(6)).unwrap().position[0] = 8192.0;
+    assert_eq!(listed(&world), [id(6), id(7), id(9)]);
+    assert_eq!(
+        world.reference_ref(id(6)).unwrap().cell,
+        Some(id(2)),
+        "parent form identity is retained"
+    );
+    world.detach_streaming_cells(&[id(4), id(8)]).unwrap();
+    assert!(listed(&world).is_empty());
+}

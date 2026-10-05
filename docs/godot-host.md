@@ -228,10 +228,10 @@ godot --path godot --resolution 640x360 --script ply_04_route_test.gd
 
 ## Live detection observations, CMB-32
 
-PlayerNode samples ordered pairs of resident, living actors in the same cell
+PlayerNode samples ordered pairs of resident, living actors in the same coordinate space
 within the winning `fSneakMaxDistance` after the player's pose reaches Game.
 Their FormIDs come from
-`World::contact_actors`. A Godot physics ray from eye to eye reports the first
+`World::contact_actor_placements`. A Godot physics ray from eye to eye reports the first
 body, including an intervening actor or static obstruction. The query uses
 the existing RID-backed actor bodies and allocates no reference nodes.
 
@@ -257,6 +257,43 @@ body synchronization, sampling and world evaluation. `detection_worldspace`
 reports the active exterior worldspace's editor ID for the walking check.
 Body synchronization and detection reuse one resident actor-placement list.
 No per-reference scene nodes are added.
+
+PRF-31 selects living actors in attached cells before resolving controller
+height. A per-frame spatial pass keeps actors within detection range of another
+actor, including NPC pairs away from the player, and observers near a queued
+sound. Sound owners retain their placement even when distant. Current effective
+enable state follows XESP parents. Detached and merely prefetched cells do not
+supply host contact placements. The selection reads current World state each
+frame, including moved and spawned references.
+Exterior actors also need an attached grid at their current position in their
+owning worldspace. Actors filed under the worldspace's persistent cell retain
+that parent FormID, while distant placements outside the host grid are excluded.
+`DetectionSpaces` shares pair neighborhoods across grid cells and the persistent
+cell of one worldspace. Interiors and distinct worldspaces remain separate.
+Light callbacks still receive each target's original cell, preserving its light
+lookup. The walk requires observations in both exterior phases. Its controlled
+sound uses `emit_detection_sound_at`, which queues a sound at one reference
+owned by a separate actor through `World::create_detection_event`.
+
+Body synchronization creates selected bodies and retains other eligible bodies
+that already exist. It writes a transform only when the feet position changed
+or a held/thrown body invalidated the last synchronized pose. Full contact
+queries still resolve every eligible controller shape. Detection shares a
+`ContactRays` object, direct space state and inverted actor-to-body exclusion
+map for its rays. Switching observers replaces the exclusion array, while
+repeated rays from the same observer reuse it. The local Godot references
+`class_physicsrayqueryparameters3d.rst` and
+`class_physicsdirectspacestate3d.rst` specify exclusion RIDs and first-hit results.
+`detection_stage_times` reports body selection/sync, light construction,
+observations and evaluation in microseconds. The outer timer also includes
+settings, event filtering and frame bookkeeping.
+
+The local CommonLibSSE-NG `include/RE/P/ProcessLists.h` distinguishes high,
+middle and low actor processes. OpenMW `mwmechanics/actors.cpp` bounds AI work
+by actor processing distance. This host instead preserves every eligible nearby
+NPC pair and CK `CreateDetectionEvent` source ownership, using the existing
+detection range and shared reference table rather than introducing another
+actor process store. This adds no dependency or saved state.
 A sound event uses its source position and owning actor FormID. Footsteps emit
 a detection sound after successful playback. World keeps the stealth pool and
 observer state across cell resource replacement.
@@ -3232,7 +3269,8 @@ directly. Both run the segment from the node origin along its negated basis Z
 column, which is Skyrim local +Y after the axis map in `units.rs`. The length
 is `World::melee_reach` converted to metres. `sync_contact_actors` and
 `contact_actor_body` expose the store for diagnostics, `contact_actor_bodies`
-lists every body with its owner and World position in Godot space,
+lists every body with its owner and World position in Godot space, cell,
+coordinate space, dead flag and detection range,
 `last_melee_target` names the actor the last HitFrame query reached, and
 `equip_melee_weapon` gives and equips a weapon so a headless script can arm
 the player.
