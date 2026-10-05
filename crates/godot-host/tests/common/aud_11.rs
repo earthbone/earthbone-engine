@@ -28,5 +28,17 @@ pub fn project(scripts: &[&str]) -> tempfile::TempDir {
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
-    isolated_project::project(scripts, Some(&target.join("release/libsoe_godot_host.so")))
+    let mut scripts = scripts.to_vec();
+    if scripts.contains(&"walkthrough.gd") {
+        for dependency in [
+            "record_sky.gd",
+            "record_sky.gdshader",
+            "record_fog.gdshader",
+        ] {
+            if !scripts.contains(&dependency) {
+                scripts.push(dependency);
+            }
+        }
+    }
+    isolated_project::project(&scripts, Some(&target.join("release/libsoe_godot_host.so")))
 }
