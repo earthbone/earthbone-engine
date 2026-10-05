@@ -7,6 +7,11 @@
 mod common;
 mod support;
 
+#[path = "sav_71_breaker_adversarial.rs"]
+mod sav_71_breaker_adversarial;
+#[path = "sav_71_reset.rs"]
+mod sav_71_reset;
+
 #[path = "scr_23_breaker_adversarial.rs"]
 mod scr_23_breaker_adversarial;
 
