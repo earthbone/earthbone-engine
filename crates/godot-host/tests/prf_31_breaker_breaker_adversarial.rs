@@ -42,10 +42,7 @@ fn exterior_world() -> World {
 #[test]
 fn prf_31_sound_from_sibling_exterior_cell_uses_source_and_owner_separately() {
     let world = exterior_world();
-    let actors = vec![
-        actor(10, 1, [0.0; 3]),
-        actor(11, 2, [20_000.0, 0.0, 0.0]),
-    ];
+    let actors = vec![actor(10, 1, [0.0; 3]), actor(11, 2, [20_000.0, 0.0, 0.0])];
     let events = [DetectionEvent {
         owner: id(11),
         cell: id(2),

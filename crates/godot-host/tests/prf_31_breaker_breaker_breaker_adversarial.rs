@@ -48,7 +48,10 @@ fn prf_31_runtime_spawned_light_joins_the_next_cell_sample() {
     let spawned = world.place_at(id(2), id(3), false);
     assert!(world.reference_ref(spawned).is_some());
     let after = light_level(&world, id(1), [10.0, 0.0, 0.0]);
-    assert!(after > before, "a runtime LIGH placement contributes: {after} <= {before}");
+    assert!(
+        after > before,
+        "a runtime LIGH placement contributes: {after} <= {before}"
+    );
 }
 
 #[test]
@@ -130,5 +133,8 @@ fn prf_31_observation_batch_samples_light_once_per_target_form() {
         },
     );
     assert_eq!(observations.len(), 6);
-    assert_eq!(samples, 3, "each target receives one light sample per batch");
+    assert_eq!(
+        samples, 3,
+        "each target receives one light sample per batch"
+    );
 }
