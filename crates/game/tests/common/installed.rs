@@ -10,7 +10,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use soe_esm::{LoadOrder, Plugin};
+use soe_esm::{GlobalFormId, LoadOrder, Plugin, Tag};
 use soe_game::Game;
 
 type CachedOrders = HashMap<Vec<String>, Result<Arc<LoadOrder>, String>>;
@@ -18,6 +18,34 @@ type CachedPlugins = HashMap<(PathBuf, String), Result<Plugin, String>>;
 
 static ORDERS: OnceLock<Mutex<CachedOrders>> = OnceLock::new();
 static PLUGINS: OnceLock<Mutex<CachedPlugins>> = OnceLock::new();
+
+/// Placed containers with fixed CNTO items for equality checks across resets.
+/// LVLI contents are selected again on reset and can differ from the first draw.
+pub fn fixed_container_references(order: &LoadOrder) -> impl Iterator<Item = GlobalFormId> + '_ {
+    order.winners_of(Tag(*b"REFR")).filter_map(|(id, record)| {
+        let raw = u32::from_le_bytes(record.find(Tag(*b"NAME"))?.try_into().ok()?);
+        let base = order.resolve(order.winner_ref(id)?.file, raw);
+        let base_ref = order.winner_ref(base)?;
+        let base_record = order.record(base_ref);
+        (base_record.tag == Tag(*b"CONT")
+            && !record.is_deleted()
+            && !base_record.is_deleted()
+            && base_record.find(Tag(*b"CNTO")).is_some()
+            && base_record.all(Tag(*b"CNTO")).all(|cnto| {
+                let Some(raw) = cnto
+                    .get(..4)
+                    .and_then(|bytes| bytes.try_into().ok())
+                    .map(u32::from_le_bytes)
+                else {
+                    return false;
+                };
+                order
+                    .winner(order.resolve(base_ref.file, raw))
+                    .is_some_and(|item| item.tag != Tag(*b"LVLI"))
+            }))
+        .then_some(id)
+    })
+}
 
 /// Return the installed data directory when this test process has one.
 pub fn data_dir() -> Option<PathBuf> {
