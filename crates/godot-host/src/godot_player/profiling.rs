@@ -5,6 +5,7 @@
 
 use godot::classes::Performance;
 use godot::prelude::*;
+use soe_game::ai::metrics::{ProcessLevel, Stimulus, DECISION_PHASES, PROCEDURE_PHASES};
 use soe_trace::System;
 
 use super::PlayerNode;
@@ -115,6 +116,102 @@ impl PlayerNode {
             );
         }
         report
+    }
+
+    /// Always-on inclusive AI phases, process counts and per-actor path/reaction data.
+    #[func]
+    fn ai_breakdown(&self) -> VarDictionary {
+        let mut phases = VarDictionary::new();
+        let mut procedures = VarDictionary::new();
+        let mut levels = VarDictionary::new();
+        let mut paths = VarDictionary::new();
+        let mut reactions = VarDictionary::new();
+        let mut stuck = PackedStringArray::new();
+        let world = self.game.as_ref().map(soe_game::Game::world);
+        for phase in DECISION_PHASES.into_iter().chain(PROCEDURE_PHASES) {
+            let duration = world
+                .as_ref()
+                .and_then(|world| world.ai.planning_phases.get(phase))
+                .copied()
+                .unwrap_or_default();
+            let calls = world
+                .as_ref()
+                .and_then(|world| world.ai.phase_calls.get(phase))
+                .copied()
+                .unwrap_or_default();
+            let row = vdict! { "us" => duration.as_secs_f64() * 1e6, "calls" => calls as i64 };
+            if let Some(name) = phase.strip_prefix("procedure.") {
+                procedures.set(name, &row);
+            } else {
+                phases.set(phase, &row);
+            }
+        }
+        if let Some(world) = &world {
+            for (phase, duration) in &world.ai.planning_phases {
+                if !phase.starts_with("procedure.") {
+                    let calls = world.ai.phase_calls.get(phase).copied().unwrap_or_default();
+                    phases.set(
+                        *phase,
+                        &vdict! { "us" => duration.as_secs_f64() * 1e6, "calls" => calls as i64 },
+                    );
+                }
+            }
+        }
+        for level in ProcessLevel::ALL {
+            let metrics = world.as_ref().map_or_else(Default::default, |world| {
+                world.ai.metrics.levels[level as usize].clone()
+            });
+            levels.set(
+                level.name(),
+                &vdict! {
+                    "actors" => metrics.actors as i64, "updates" => metrics.updates as i64,
+                    "us" => metrics.time.as_secs_f64() * 1e6,
+                    "interval_seconds" => metrics.mean_interval_seconds,
+                },
+            );
+        }
+        if let Some(world) = &world {
+            let now = std::time::Instant::now();
+            for (actor, metrics) in world.ai.path_metrics() {
+                let (requests, replans) = metrics.rates(now);
+                let mut samples = Array::<VarDictionary>::new();
+                for sample in &metrics.samples {
+                    samples.push(&vdict! {
+                        "latency_us" => sample.ready.duration_since(sample.started).as_secs_f64() * 1e6,
+                        "nodes_expanded" => sample.expanded as i64, "length" => sample.length,
+                        "failed" => sample.failed, "cancelled" => sample.cancelled, "replan" => sample.replan,
+                    });
+                }
+                paths.set(actor.to_string(), &vdict! {
+                    "requests" => metrics.requests as i64, "completed" => metrics.completed as i64,
+                    "failures" => metrics.failures as i64, "cancellations" => metrics.cancellations as i64,
+                    "replans" => metrics.replans as i64, "nodes_expanded" => metrics.expanded as i64,
+                    "requests_per_second" => requests as i64, "replans_per_second" => replans as i64,
+                    "samples" => &samples,
+                });
+            }
+            for (actor, metrics) in &world.ai.metrics.actors {
+                let mut kinds = VarDictionary::new();
+                for stimulus in Stimulus::ALL {
+                    let row = &metrics.reactions[stimulus as usize];
+                    kinds.set(stimulus.name(), &vdict! {
+                        "responses" => row.responses as i64, "pending" => row.pending.is_some(),
+                        "last_us" => row.last.as_secs_f64() * 1e6, "worst_us" => row.worst.as_secs_f64() * 1e6,
+                        "total_us" => row.total.as_secs_f64() * 1e6,
+                        "response" => row.response.map_or("none".to_owned(), |response| format!("{response:?}")),
+                    });
+                }
+                reactions.set(actor.to_string(), &kinds);
+                if metrics.stuck {
+                    stuck.push(&GString::from(actor.to_string().as_str()));
+                }
+            }
+        }
+        vdict! {
+            "phases" => &phases, "procedures" => &procedures, "levels" => &levels,
+            "paths" => &paths, "reactions" => &reactions, "stuck" => &stuck,
+            "capabilities" => &vdict! { "process_scheduler" => false, "combat_style_choice" => false, "idle_chatter" => false },
+        }
     }
 
     /// All session totals and worst times with rolling p50 and p99 per system.

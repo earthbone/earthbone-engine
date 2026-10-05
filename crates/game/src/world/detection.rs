@@ -185,6 +185,25 @@ impl World {
         }) {
             return Err(Error::Number);
         }
+        if let Some((player, pool)) = self
+            .player
+            .and_then(|player| next.pools.get(&player).map(|pool| (player, pool)))
+        {
+            for (observer, awareness) in &pool.observers {
+                let detected = matches!(
+                    awareness.level,
+                    DetectionLevel::Alert | DetectionLevel::Combat
+                );
+                let previously_detected = self.awareness(*observer, player).is_some_and(|old| {
+                    matches!(old.level, DetectionLevel::Alert | DetectionLevel::Combat)
+                });
+                if detected && !previously_detected {
+                    self.ai
+                        .metrics
+                        .stimulus(*observer, crate::ai::metrics::Stimulus::DetectedPlayer);
+                }
+            }
+        }
         self.detection = next;
         self.line_of_sight = line_of_sight;
         Ok(())

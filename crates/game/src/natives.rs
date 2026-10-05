@@ -1778,6 +1778,12 @@ fn actor(vm: &mut Vm, w: &Shared) {
         if let Some(a) = world.actor(me) {
             a.in_combat = true;
             a.combat_target = target;
+            if target.is_some() {
+                world
+                    .ai
+                    .metrics
+                    .response(me, crate::ai::metrics::Response::Combat);
+            }
         }
         none()
     });

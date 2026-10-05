@@ -61,7 +61,7 @@ fn prf_13_rejected_quest_predicates_still_charge_the_quest_and_plugin() {
     let _guard = PROFILE_LOCK.lock().unwrap();
     Profile::disable();
     Profile::clear();
-    let mut game = quest_game();
+    let game = quest_game();
     let context = quest_context();
     let rejected = unsupported_condition();
 
@@ -71,7 +71,7 @@ fn prf_13_rejected_quest_predicates_still_charge_the_quest_and_plugin() {
             &mut game.world_mut(),
             &game.vm,
             context,
-            &[rejected.clone()]
+            std::slice::from_ref(&rejected)
         )
         .is_err());
     }
@@ -98,6 +98,24 @@ fn prf_13_rejected_quest_predicates_still_charge_the_quest_and_plugin() {
 
 #[test]
 fn prf_13_synthetic_actor_script_and_quest_identities_are_distinct() {
+    if !std::env::var("SOE_PRF_13_CHILD").is_ok_and(|value| value == "1") {
+        let name = crate::common::child_test_name(
+            module_path!(),
+            "prf_13_synthetic_actor_script_and_quest_identities_are_distinct",
+        );
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name, "--nocapture"])
+            .env("SOE_PRF_13_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let _guard = PROFILE_LOCK.lock().unwrap();
     Profile::disable();
     Profile::clear();
@@ -145,7 +163,7 @@ fn prf_13_headless_environment_starts_and_exports_entity_reports() {
     if std::env::var("SOE_PRF_13_CHILD").is_ok_and(|value| value == "1") {
         Profile::disable();
         Profile::clear();
-        let mut game = quest_game();
+        let game = quest_game();
         assert!(Profile::enabled());
         assert!(conditions::evaluate(
             &mut game.world_mut(),
@@ -167,7 +185,10 @@ fn prf_13_headless_environment_starts_and_exports_entity_reports() {
 
     let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../target")
-        .join(format!("prf-13-headless-{}", std::process::id()));
+        .join(format!(
+            "prf-13-headless-adversarial-{}",
+            std::process::id()
+        ));
     std::fs::create_dir_all(&directory).unwrap();
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([

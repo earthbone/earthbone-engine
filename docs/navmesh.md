@@ -2,6 +2,16 @@
 
 Two halves, one graph type between them.
 
+## AI request expansions, PRF-27
+
+`PathSearch::last_expanded` returns the last slice's non-stale A* expansions,
+including the goal. It resets on every call, including zero-budget and consumed
+queries. `last_work` still includes stale heap entries for the scheduler budget.
+This counter is always available without a WorkFrame or optional trace. It
+follows the existing retained-search contract from local
+`recastnavigation/Detour/Source/DetourNavMeshQuery.cpp`. The PRF-27 test compares
+each slice with the existing PathNodes work counter.
+
 ## The vanilla half
 
 `soe-esm` already parses a `NAVM` record's `NVNM` block into vertices, triangles,

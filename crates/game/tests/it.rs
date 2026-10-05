@@ -1709,3 +1709,6 @@ mod prf_14_work;
 mod prf_13_adversarial;
 #[path = "prf_13_entities.rs"]
 mod prf_13_entities;
+
+#[path = "prf_27_ai.rs"]
+mod prf_27_ai;
