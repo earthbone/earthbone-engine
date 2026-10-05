@@ -1400,6 +1400,13 @@ Loading durations, worst loading frame and pipeline counts are reported
 separately. This is a quiet-counter predicate, not an API for pending compiler
 jobs. It does not warm views or effects introduced later.
 
+The render warm-up timeout begins at the first `frame_post_draw`, so time
+before the first drawn frame does not use the 30 second settle limit. The
+successful load report records that delay as `load_first_frame_wait_ms` and
+records the subsequent pipeline settling time as `load_render_ms`.
+`godot/prf_08_test.gd` checks the timeout behavior after a 77 minute simulated
+undrawn wait and checks both report fields with a windowed renderer.
+
 Sources read for PRF-08: local `godot-docs/tutorials/performance/pipeline_compilations.rst`,
 `classes/class_renderingserver.rst` and `classes/class_projectsettings.rst`.
 Godot documents deferred compilation for instance overrides, covered rendering

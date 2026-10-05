@@ -39,6 +39,32 @@ func prf_08_late_compilation_restarts_quiet_interval_and_timeout_fails() -> void
 	check(wait.timed_out(30_000_001), "unsettled rendering fails at thirty seconds")
 
 
+func hst_20_first_draw_timeout_starts_after_a_long_undrawn_wait() -> void:
+	var wait := Warmup.new()
+	var counts: Array[int] = [1, 2, 3, 4, 5]
+	var prepare_started := 10
+	var first_drawn_frame := prepare_started + 77 * 60 * 1_000_000
+	wait.begin(first_drawn_frame, counts)
+	check(not wait.timed_out(first_drawn_frame + Warmup.TIMEOUT_USEC - 1), "undrawn wait does not consume the timeout")
+	check(not wait.observe(first_drawn_frame, counts), "first drawn frame starts the warm-up")
+	check(not wait.observe(first_drawn_frame + 250_000, counts), "two drawn frames cannot finish loading")
+	var settled := first_drawn_frame + 500_000
+	check(wait.observe(settled, counts), "three drawn frames settle after the quiet interval")
+	check(not wait.timed_out(settled), "settled warm-up succeeds after a long undrawn wait")
+	var timing: Dictionary = Warmup.timing_fields(prepare_started, first_drawn_frame, settled)
+	check(timing.load_first_frame_wait_ms == 4_620_000.0, "first-frame delay has its own duration")
+	check(timing.load_render_ms == 500.0, "render duration starts at the first drawn frame")
+
+
+func hst_20_prepare_reports_first_frame_wait_separately() -> void:
+	var report: Dictionary = await Warmup.prepare()
+	check(report.error.is_empty(), "windowed render warm-up succeeds")
+	check(report.has("load_first_frame_wait_ms"), "report includes first-frame wait")
+	check(report.has("load_render_ms"), "report includes render warm-up duration")
+	check(report.get("load_first_frame_wait_ms", -1.0) >= 0.0, "first-frame wait is non-negative")
+	check(report.get("load_render_ms", -1.0) >= 0.0, "render warm-up duration is non-negative")
+
+
 func prf_08_worst_frame_is_first_maximum_and_resets_per_window() -> void:
 	var metrics := Metrics.new()
 	metrics.observe(1.0, 0.1, 0.1, 1)
@@ -81,8 +107,14 @@ func prf_08_repetition_failure_cannot_be_hidden_by_later_pass() -> void:
 
 
 func _initialize() -> void:
+	call_deferred("_run")
+
+
+func _run() -> void:
 	prf_08_loading_requires_drawn_frames_and_quiet_pipelines()
 	prf_08_late_compilation_restarts_quiet_interval_and_timeout_fails()
+	hst_20_first_draw_timeout_starts_after_a_long_undrawn_wait()
+	await hst_20_prepare_reports_first_frame_wait_separately()
 	prf_08_worst_frame_is_first_maximum_and_resets_per_window()
 	prf_08_cold_start_arguments_use_fresh_children()
 	prf_08_repetition_failure_cannot_be_hidden_by_later_pass()
