@@ -16,6 +16,7 @@
 //! [`soe_physics::SimpleWorld`] is what the simulation and the tests step.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 
 use godot::classes::physics_server_3d::{BodyMode, BodyParameter, BodyState};
 use godot::classes::{PhysicsRayQueryParameters3D, PhysicsServer3D};
@@ -53,6 +54,7 @@ pub fn ground_collision_position(
     let mut state = PhysicsServer3D::singleton()
         .space_get_direct_state(space)
         .ok_or("unavailable ground collision space")?;
+    soe_trace::count(soe_trace::Operation::Raycasts, 1);
     let result = state.intersect_ray(&query);
     let Some(hit) = result
         .get("position")
@@ -865,6 +867,21 @@ fn build_body(
 ) -> Option<(Rid, Vec<Rid>)> {
     let mut prims = Vec::new();
     flatten(&collider.shape, &collider.transform, &mut prims);
+    for prim in &mut prims {
+        let GodotPrim::Convex(points) = prim else {
+            continue;
+        };
+        let (hull, changed) = convex_hull_points(points);
+        if changed {
+            if report_repaired_hull_once(&collider.node_name) {
+                soe_trace::warn!(target: "host::physics", system = "host::physics",
+                    "repaired convex collision hull for mesh node {:?} before Jolt shape creation",
+                    collider.node_name
+                );
+            }
+            *points = hull;
+        }
+    }
     if mode == BodyMode::RIGID {
         let count = prims.len();
         prims.retain(|prim| !matches!(prim, GodotPrim::Trimesh(_)));
@@ -938,6 +955,118 @@ fn build_body(
     }
     stats.bodies += 1;
     Some((body, shapes))
+}
+
+fn convex_hull_points(points: &[Vector3]) -> (Vec<Vector3>, bool) {
+    let origin = points.first().copied().unwrap_or(Vector3::ZERO);
+    // CONTEXT: Translating the point cloud does not change its hull, and
+    // subtracting the origin keeps the face predicates precise at world scale.
+    let source: Vec<Vec3> = points
+        .iter()
+        .map(|point| Vec3::new(point.x - origin.x, point.y - origin.y, point.z - origin.z))
+        .collect();
+    let faces = soe_physics::hull::triangles(&source);
+    if !faces.is_empty() && has_three_dimensional_extent(&source) {
+        let mut boundary = vec![false; source.len()];
+        for face in faces {
+            for index in face {
+                if let Some(on_hull) = boundary.get_mut(index as usize) {
+                    *on_hull = true;
+                }
+            }
+        }
+        let hull: Vec<Vector3> = points
+            .iter()
+            .zip(boundary)
+            .filter_map(|(point, on_hull)| on_hull.then_some(*point))
+            .collect();
+        if hull.len() >= 4 {
+            let changed = hull.len() != points.len();
+            return (hull, changed);
+        }
+    }
+
+    let mut unique = Vec::new();
+    for &point in points {
+        if point.is_finite()
+            && unique
+                .iter()
+                .all(|other: &Vector3| other.distance_to(point) > 1e-6)
+        {
+            unique.push(point);
+        }
+    }
+    if unique.len() < 4 {
+        let changed = unique.len() != points.len();
+        return (unique, changed);
+    }
+    let mut low = unique[0];
+    let mut high = unique[0];
+    for &point in &unique[1..] {
+        low = Vector3::new(low.x.min(point.x), low.y.min(point.y), low.z.min(point.z));
+        high = Vector3::new(
+            high.x.max(point.x),
+            high.y.max(point.y),
+            high.z.max(point.z),
+        );
+    }
+    let extent = (high - low).length().max(1e-3);
+    let pad = extent * 1e-5;
+    low -= Vector3::new(pad, pad, pad);
+    high += Vector3::new(pad, pad, pad);
+    let inflated = [
+        Vector3::new(low.x, low.y, low.z),
+        Vector3::new(high.x, low.y, low.z),
+        Vector3::new(low.x, high.y, low.z),
+        Vector3::new(high.x, high.y, low.z),
+        Vector3::new(low.x, low.y, high.z),
+        Vector3::new(high.x, low.y, high.z),
+        Vector3::new(low.x, high.y, high.z),
+        Vector3::new(high.x, high.y, high.z),
+    ]
+    .to_vec();
+    (inflated, true)
+}
+
+fn has_three_dimensional_extent(points: &[Vec3]) -> bool {
+    let Some(&origin) = points.first() else {
+        return false;
+    };
+    let extent = points
+        .iter()
+        .map(|point| (*point - origin).length())
+        .fold(0.0_f32, f32::max);
+    if !extent.is_finite() || extent <= 1e-6 {
+        return false;
+    }
+    let epsilon = extent * 1e-6;
+    let Some(axis) = points
+        .iter()
+        .map(|point| *point - origin)
+        .find(|axis| axis.length() > epsilon)
+    else {
+        return false;
+    };
+    let Some(normal) = points
+        .iter()
+        .map(|point| axis.cross(*point - origin))
+        .find(|normal| normal.length() > epsilon * extent)
+        .map(Vec3::normalized)
+    else {
+        return false;
+    };
+    points
+        .iter()
+        .any(|point| normal.dot(*point - origin).abs() > epsilon)
+}
+
+fn report_repaired_hull_once(source_mesh: &str) -> bool {
+    static REPORTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let mut reported = REPORTED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    reported.insert(source_mesh.to_owned())
 }
 
 /// Primitive dimensions are in metres, following PhysicsServer3D's shape data.
@@ -1316,6 +1445,10 @@ fn godot_point(v: Vec3) -> Vector3 {
     Vector3::new(g.x, g.y, g.z)
 }
 
+#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
+#[path = "../tests/common/prf_32.rs"]
+mod prf_32_support;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1339,6 +1472,158 @@ mod tests {
 
     fn close(a: Vector3, b: Vector3) {
         assert!((a - b).length() < 1e-5, "{a:?} != {b:?}");
+    }
+
+    fn prf_32_44_point_cloud_fixture() -> Vec<Vector3> {
+        let mut points = Vec::with_capacity(44);
+        for x in [-1.0, 1.0] {
+            for y in [-1.0, 1.0] {
+                for z in [-1.0, 1.0] {
+                    points.push(Vector3::new(x, y, z));
+                }
+            }
+        }
+        for index in 0..36 {
+            let x = ((index * 17 % 31) as f32 / 30.0) * 1.4 - 0.7;
+            let y = ((index * 13 % 29) as f32 / 28.0) * 1.4 - 0.7;
+            let z = ((index * 11 % 23) as f32 / 22.0) * 1.4 - 0.7;
+            points.push(Vector3::new(x, y, z));
+        }
+        points
+    }
+
+    #[test]
+    fn prf_32_reduces_a_44_point_collision_cloud_to_its_valid_hull() {
+        let source = prf_32_44_point_cloud_fixture();
+        assert_eq!(source.len(), 44);
+        let (hull, changed) = convex_hull_points(&source);
+        assert!(changed, "interior points must be removed before Jolt");
+        assert_eq!(hull.len(), 8, "only the cube corners bound this cloud");
+    }
+
+    #[test]
+    fn prf_32_logs_each_source_mesh_only_once() {
+        let source = format!("prf-32-test-mesh-{}", std::process::id());
+        assert!(report_repaired_hull_once(&source));
+        assert!(!report_repaired_hull_once(&source));
+    }
+
+    #[test]
+    fn prf_32_inflates_a_degenerate_point_cloud_to_a_3d_hull() {
+        let source = [
+            Vector3::new(-1.0, -1.0, 0.0),
+            Vector3::new(1.0, -1.0, 0.0),
+            Vector3::new(1.0, 1.0, 0.0),
+            Vector3::new(-1.0, 1.0, 0.0),
+        ];
+        let (hull, changed) = convex_hull_points(&source);
+        assert!(changed, "a flat point cloud needs the padded fallback");
+        assert_eq!(
+            hull.len(),
+            8,
+            "the fallback submits a three-dimensional box"
+        );
+        assert!(
+            hull.iter().any(|point| point.z < 0.0) && hull.iter().any(|point| point.z > 0.0),
+            "padding supplies thickness around the original plane"
+        );
+    }
+
+    #[test]
+    fn prf_32_jolt_builds_the_repaired_hull_without_shape_errors() {
+        let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+            eprintln!("SOE_GODOT_BIN unset, skipping the Jolt hull integration check");
+            return;
+        };
+        let flat = [
+            Vector3::new(-1.0, -1.0, 0.0),
+            Vector3::new(1.0, -1.0, 0.0),
+            Vector3::new(1.0, 1.0, 0.0),
+            Vector3::new(-1.0, 1.0, 0.0),
+        ];
+        let point_sets = [
+            convex_hull_points(&prf_32_44_point_cloud_fixture()).0,
+            convex_hull_points(&flat).0,
+        ];
+        let points = point_sets
+            .iter()
+            .map(|hull| {
+                format!(
+                    "PackedVector3Array([{}])",
+                    hull.iter()
+                        .map(|point| format!("Vector3({}, {}, {})", point.x, point.y, point.z))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let script = format!(
+            r#"extends SceneTree
+func _initialize():
+	var server = PhysicsServer3D
+	var point_sets = [{points}]
+	for points in point_sets:
+		var shape = server.convex_polygon_shape_create()
+		server.shape_set_data(shape, points)
+		var data = server.shape_get_data(shape)
+		if data.size() < 4:
+			printerr("repaired convex hull was not created")
+			server.free_rid(shape)
+			quit(1)
+			return
+		server.free_rid(shape)
+	print("RESULT: PASS: prf_32 hull shapes=", point_sets.size())
+	quit(0)
+"#
+        );
+        let directory = tempfile::tempdir().expect("temporary script directory");
+        let path = directory.path().join("prf_32_jolt_hull.gd");
+        std::fs::write(&path, script).expect("write Godot hull test");
+        let project = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot");
+        let output = std::process::Command::new(godot)
+            .args(["--headless", "--path"])
+            .arg(project)
+            .arg("--script")
+            .arg(path)
+            .output()
+            .expect("Godot process starts");
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.status.success() && log.contains("RESULT: PASS: prf_32"),
+            "Godot Jolt rejected the repaired hull:\n{log}"
+        );
+        assert!(
+            !log.contains("Failed to build Jolt Physics convex polygon shape"),
+            "Godot printed a convex shape error:\n{log}"
+        );
+    }
+
+    #[test]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn prf_32_vanilla_bannered_mare_collision_builds_without_jolt_shape_errors() {
+        let Some(output) = prf_32_support::installed_collision() else {
+            return;
+        };
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.status.success()
+                && log.contains("static bodies built:")
+                && log.contains("RESULT: PASS"),
+            "Godot host did not build and use Bannered Mare collision:\n{log}"
+        );
+        assert!(
+            !log.contains("Failed to build Jolt Physics convex polygon shape"),
+            "Godot printed a convex shape error:\n{log}"
+        );
     }
 
     #[test]

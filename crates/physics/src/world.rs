@@ -290,6 +290,7 @@ impl SimpleWorld {
         s: &CharacterSettings,
         height: f32,
     ) -> (Vec3, Vec3, bool) {
+        soe_trace::count(soe_trace::Operation::ShapeCasts, 1);
         let mut position = position;
         let mut velocity = velocity;
         let mut on_ground = false;
@@ -336,6 +337,7 @@ impl SimpleWorld {
     /// that blocks characters. This is what refuses a stand up under a
     /// ceiling the full capsule does not fit beneath.
     fn overlaps(&self, position: Vec3, radius: f32, height: f32) -> bool {
+        soe_trace::count(soe_trace::Operation::ShapeCasts, 1);
         let (a, b) = axis_at(position, radius, height);
         let query = Aabb::of_points([a, b]).grow(radius + 1.0);
         for (si, pi) in self.candidates(&query) {
@@ -583,6 +585,7 @@ impl PhysicsWorld for SimpleWorld {
     }
 
     fn raycast(&self, from: Vec3, to: Vec3) -> Option<RayHit> {
+        soe_trace::count(soe_trace::Operation::Raycasts, 1);
         let query = Aabb::of_points([from, to]);
         let mut best: Option<RayHit> = None;
         let candidates = if self.dirty {

@@ -159,6 +159,7 @@ impl PlayerNode {
     /// player's active concentration effect is Telekinesis, then keep its
     /// host body at the same eye-relative position until World releases it.
     pub(super) fn update_telekinesis(&mut self, pressed: bool) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Magic);
         let player = self.game.as_mut().map(soe_game::Game::player);
         let Some(player) = player else {
             self.release_host_telekinesis();
@@ -282,6 +283,7 @@ impl PlayerNode {
     }
 
     pub(super) fn route_hand_casts(&mut self, left: HandCastInput, right: HandCastInput) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Magic);
         let Some(game) = self.game.as_mut() else {
             return;
         };

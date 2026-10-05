@@ -269,6 +269,7 @@ impl PlayerNode {
     /// Route the control-map press edge into the shared player's swing latch.
     /// A held frame is ignored after the initial press.
     pub(super) fn begin_melee_swing_from_input(&mut self, pressed: bool) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Combat);
         if !pressed {
             return;
         }
@@ -284,6 +285,7 @@ impl PlayerNode {
     /// Follow the shared World: one body per resident actor, moved to its
     /// current placement, and none for actors that left or were disabled.
     pub(super) fn sync_actor_bodies(&mut self) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Physics);
         let Some(world) = self.base().get_world_3d() else {
             return false;
         };
