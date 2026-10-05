@@ -24,7 +24,6 @@ The fixed-slot timing model is documented in [trace.md](trace.md).
 snapshots. Its optimized 1,000-actor calibration uses the public record
 builders and travel/sandbox fixture from `crates/bench/src/stress/fixtures.rs`.
 
-
 ## Initial inventory list selection, UI-25
 
 Fresh references resolve CNTO and distributed LVLI quantities through the
