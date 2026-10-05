@@ -174,38 +174,72 @@ fn sav_61_host_reports_missing_dependency_before_refusal_and_keeps_source() {
 }
 
 #[test]
-fn sav_61_host_refuses_unresolved_parw_and_preserves_ess_payload() {
+fn sav_19_transient_projectiles_are_counted_and_source_is_preserved() {
     let directory = Directory::new();
     let source_path = directory.0.join("unresolved.ess");
-    let mut save = empty_save();
-    save.change_forms.push(ChangeForm {
-        form: RefId::from_bytes([0, 0, 0]),
-        change_flags: 0,
-        type_field: 47,
-        version: 1,
-        uncompressed_len: 0,
-        data: vec![0xDE, 0xAD, 0xBE, 0xEF],
-    });
+    let mut save = recoverable_save();
+    for (index, type_field) in [47, 47, 40, 3].into_iter().enumerate() {
+        save.change_forms.push(ChangeForm {
+            form: RefId::from_bytes([0x80, 0, 0x20 + index as u8]),
+            change_flags: 0,
+            type_field,
+            version: 1,
+            uncompressed_len: 0,
+            data: vec![0xDE, 0xAD, 0xBE, 0xEF],
+        });
+    }
     let source_bytes = save.write().unwrap();
     fs::write(&source_path, &source_bytes).unwrap();
-    let before = save.change_forms[0].data.clone();
+    let before = save.write().unwrap();
     let mut game = game_with_skyrim();
 
-    let error = soe_godot_host::save_recovery::accept_vanilla_recovery_session(
+    let accepted = soe_godot_host::save_recovery::accept_vanilla_recovery_session(
         &mut game,
         &save,
         &directory.store(),
     )
-    .unwrap_err();
-
-    let soe_godot_host::save_recovery::VanillaRecoveryError::Refused { reasons, .. } = error else {
-        panic!("opaque PARW state should refuse session start")
-    };
-    assert!(reasons
-        .iter()
-        .any(|reason| reason.contains("PARW change form")));
-    assert_eq!(save.change_forms[0].data, before);
+    .unwrap();
+    assert_eq!(accepted.skipped_transient.get("PARW"), Some(&2));
+    assert_eq!(accepted.skipped_transient.get("PHZD"), Some(&1));
+    assert_eq!(accepted.skipped_transient.get("PGRE"), Some(&1));
+    for object in 0x20..=0x23 {
+        assert!(game
+            .world()
+            .reference_ref(soe_esm::GlobalFormId {
+                file: u16::MAX,
+                object,
+            })
+            .is_none());
+    }
+    assert_eq!(save.write().unwrap(), before);
     assert_eq!(fs::read(source_path).unwrap(), source_bytes);
+}
+
+#[test]
+fn sav_19_transient_omission_does_not_bypass_atomic_restore_failure() {
+    let directory = Directory::new();
+    let store = directory.store();
+    let mut save = recoverable_save();
+    save.change_forms.push(ChangeForm {
+        form: RefId::from_bytes([0x80, 0, 0x20]),
+        change_flags: 0,
+        type_field: 3,
+        version: 1,
+        uncompressed_len: 0,
+        data: vec![],
+    });
+    save.table_1.retain(|table| table.kind != 1);
+    let mut game = game_with_skyrim();
+    let before = game.save_state().unwrap();
+    assert!(matches!(
+        soe_godot_host::save_recovery::accept_vanilla_recovery_session(&mut game, &save, &store),
+        Err(soe_godot_host::save_recovery::VanillaRecoveryError::Restore { .. })
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+    assert_eq!(
+        fs::read_dir(directory.0.join("recovery")).unwrap().count(),
+        0
+    );
 }
 
 #[test]
