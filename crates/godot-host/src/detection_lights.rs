@@ -129,7 +129,7 @@ fn read_light(world: &World, id: GlobalFormId) -> Option<Light> {
         .filter(|record| record.tag == T(b"LIGH"))?;
     let data = light.find(T(b"DATA")).filter(|bytes| bytes.len() >= 48)?;
     let flags = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
-    if flags & (1 << 5) != 0 {
+    if runtime.is_none() && flags & (1 << 5) != 0 {
         return None;
     }
     let radius = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as f32;
