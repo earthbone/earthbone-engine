@@ -27,7 +27,12 @@ pub fn shader(desc: &MaterialDesc, effect: &EffectMaterial) -> String {
     } else {
         ""
     };
-    let (blend, output) = blend_output(effect);
+    let (blend, mut output) = blend_output(effect);
+    // CONTEXT: Godot 4.4's opaque depth pass includes depth_draw_never materials.
+    if !blended && f2 & flags2::ZBUFFER_WRITE == 0 {
+        output.push_str("ALPHA = 1.0;");
+    }
+    let soft = f1 & flags1::SOFT_EFFECT != 0;
     let alpha_test = effect
         .alpha_test
         .map(|a| {
@@ -54,6 +59,22 @@ pub fn shader(desc: &MaterialDesc, effect: &EffectMaterial) -> String {
     let template = include_str!("nif_effect.gdshader");
     template
         .replace("$MODES", &format!("{depth}, {cull}, {blend}{test}"))
+        .replace(
+            "$SCREEN_UNIFORM",
+            if output.contains("texture(screen_texture,") {
+                "uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_nearest;"
+            } else {
+                ""
+            },
+        )
+        .replace(
+            "$DEPTH_UNIFORM",
+            if soft {
+                "uniform sampler2D depth_texture : hint_depth_texture, repeat_disable, filter_nearest;"
+            } else {
+                ""
+            },
+        )
         .replace("$SOURCE_HINT", source_hint)
         .replace(
             "$FALLOFF",
@@ -89,10 +110,10 @@ pub fn shader(desc: &MaterialDesc, effect: &EffectMaterial) -> String {
         )
         .replace(
             "$SOFT",
-            if f1 & flags1::SOFT_EFFECT != 0 {
-                "true"
+            if soft {
+                include_str!("nif_effect_soft.gdshaderinc")
             } else {
-                "false"
+                ""
             },
         )
         .replace("$ALPHA_TEST", &alpha_test)

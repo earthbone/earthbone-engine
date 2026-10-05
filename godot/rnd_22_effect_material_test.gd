@@ -120,7 +120,13 @@ func _run() -> void:
 					var value := 0.4 * _factor(src) + 0.05 * _factor(dst)
 					_check(absf(actual.r - value) <= 0.025, "blend %d,%d actual=%f expected=%f" % [src, dst, actual.r, value])
 					instance.free()
+				print("rnd_22_blend_source ", src, ": 11 destination factors checked")
 			print("rnd_22_all_blend_factors_over_opaque_background: 121 pairs")
+		await _emissive_multiple()
+		await _falloff_angles()
+		await _depth_writes()
+		await _soft_camera_and_separation()
+		await _alpha_comparisons()
 	host.free()
 	var data := OS.get_environment("SKYRIM_DATA")
 	if data.is_empty():
@@ -138,6 +144,111 @@ func _run() -> void:
 	viewport.free()
 	print("rnd_22_effect_material_capture: ", "PASS" if failures == 0 else "FAIL")
 	quit(0 if failures == 0 else 1)
+
+func _effect(index: int) -> MeshInstance3D:
+	var resources := host.model_meshes("effect%d.nif" % index)
+	_check(resources.size() == 1, "fixture %d produces one surface" % index)
+	if resources.is_empty():
+		return null
+	var instance := MeshInstance3D.new()
+	instance.mesh = resources[0]
+	viewport.add_child(instance)
+	return instance
+
+func _emissive_multiple() -> void:
+	_backdrop(0.05)
+	for sample in [[14, 0.0875], [15, 0.2375]]:
+		var instance := _effect(sample[0])
+		if instance == null:
+			continue
+		var pixels := await _capture()
+		var actual := pixels.get_pixel(64, 64).srgb_to_linear().r
+		_check(absf(actual - sample[1]) <= 0.025, "emissive multiple %d actual=%f expected=%f" % [sample[0], actual, sample[1]])
+		instance.free()
+	print("rnd_22_emissive_multiple_scales_rgb_once_and_preserves_alpha")
+
+func _falloff_angles() -> void:
+	# CONTEXT: A distant perspective camera makes the center cosine known to 0.01.
+	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	camera.position.z = 20.0
+	camera.fov = 3.0
+	for index in [5, 16, 17]:
+		var instance := _effect(index)
+		if instance == null:
+			continue
+		for degrees in [0.0, 60.0, 80.0]:
+			if index == 17 and degrees == 60.0:
+				continue
+			instance.rotation.y = deg_to_rad(degrees)
+			var cosine := cos(deg_to_rad(degrees))
+			var t := cosine if index == 5 else 1.0 - cosine
+			t = t * t * (3.0 - 2.0 * t)
+			if index == 17:
+				t = 1.0 if cosine > 0.5 else 0.0
+			var opacity := 0.25 * lerpf(0.1, 0.5, t)
+			var expected := 0.4 * opacity + 0.05 * (1.0 - opacity)
+			var pixels := await _capture()
+			var actual := pixels.get_pixel(64, 64).srgb_to_linear().r
+			_check(absf(actual - expected) <= 0.01, "falloff %d at %f degrees actual=%f expected=%f" % [index, degrees, actual, expected])
+		instance.free()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.position.z = 2.0
+	print("rnd_22_falloff_angles_support_both_endpoint_orders_and_equal_endpoints")
+
+func _depth_writes() -> void:
+	_backdrop(0.0)
+	for sample in [[10, 0.0], [18, 0.1], [0, 0.1]]:
+		var front := _effect(sample[0])
+		if front == null:
+			continue
+		front.position.z = 0.2
+		var initial := await _capture()
+		var probe := _effect(1)
+		if probe == null:
+			front.free()
+			continue
+		# CONTEXT: Drawing the probe last measures depth rather than color ordering.
+		var probe_material := probe.mesh.surface_get_material(0).duplicate() as ShaderMaterial
+		probe_material.render_priority = 1
+		probe.material_override = probe_material
+		var pixels := await _capture()
+		var delta := pixels.get_pixel(64, 64).srgb_to_linear().r - initial.get_pixel(64, 64).srgb_to_linear().r
+		var expected := float(sample[1])
+		_check(absf(delta - expected) <= 0.015, "depth write %d additive probe delta=%f expected=%f" % [sample[0], delta, expected])
+		probe.free()
+		front.free()
+	print("rnd_22_opaque_depth_writes_occlude_and_blended_surfaces_transmit")
+
+func _soft_camera_and_separation() -> void:
+	_backdrop(0.05)
+	backdrop.position.z = -1.0
+	var instance := _effect(8)
+	if instance == null:
+		return
+	var distant := await _capture()
+	var far_signal := distant.get_pixel(64, 64).srgb_to_linear().r
+	_check(far_signal > 0.11 and far_signal < 0.14, "soft surface away from intersection remains visible: %f" % far_signal)
+	camera.position.z = 0.05
+	var nearby := await _capture()
+	var near_signal := nearby.get_pixel(64, 64).srgb_to_linear().r
+	_check(absf(near_signal - 0.05) <= 0.01, "soft surface fades near camera: %f" % near_signal)
+	camera.position.z = 2.0
+	instance.free()
+	print("rnd_22_soft_depth_fades_intersections_and_near_camera")
+
+func _alpha_comparisons() -> void:
+	_backdrop(0.05)
+	for comparison in range(8):
+		var instance := _effect(19 + comparison)
+		if instance == null:
+			continue
+		var opacity := 128.0 / 255.0
+		var expected := 0.4 * opacity + 0.05 * (1.0 - opacity) if comparison in [0, 2, 3, 6] else 0.05
+		var pixels := await _capture()
+		var actual := pixels.get_pixel(64, 64).srgb_to_linear().r
+		_check(absf(actual - expected) <= 0.01, "alpha comparison %d at equality actual=%f expected=%f" % [comparison, actual, expected])
+		instance.free()
+	print("rnd_22_alpha_test_comparisons_respect_equality_and_never")
 
 func _vanilla(model: String, label: String) -> void:
 	var instances: Array[MeshInstance3D] = []
