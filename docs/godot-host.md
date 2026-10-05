@@ -4589,6 +4589,12 @@ the generic model field and bit 23 marker rule.
 
 Streaming statistics count activator models separately from containers.
 
+The stockade barricade NIF stores every BSDamageStage as hidden. Placed-model
+preparation selects the intact range containing stage zero before filtering
+hidden subtrees. The three trailing range bytes follow local `nifxml/nif.xml`
+and `nifly/include/Nodes.hpp`, using the existing NIF header and stream reader.
+Other damage ranges remain hidden, and ordinary hidden helpers stay excluded.
+
 ## Whiterun white geometry, RND-20
 
 The pre-fix installed-data survey streams the nine grid cells around
@@ -4670,6 +4676,22 @@ record. REFR occlusion-plane, room and portal fields (`XOCP`, `XORD`, `XRMR`, `X
 subtrees, hidden subtrees and shaderless Skyrim geometry
 are removed before surface building. Collision continues to read the model
 through its existing selection path. No per-reference scene nodes are added.
+
+The ACTI models selected by RND-17 also expose `WRStairsStreamLACT` water
+geometry. Its `BSWaterShaderProperty` is retained as an unknown NIF block and
+has no host material binding. Visual streaming excludes that surface instead
+of drawing a default opaque white material. Its effect-shader foam remains
+visible. CELL/WATR water planes keep their existing rendering path. Binding
+NIF water shaders remains outside this correction.
+
+The expanded ACTI survey also retains reference `0:04221F`, base `0:021513`
+(`NorLever01`, `Dungeons/Nordic/Levers/RuinsLever01/NorLever01.nif`). Its
+`RuinsLever:3` shape uses a blended BSEffectShaderProperty with empty source
+and greyscale textures, flags `0x80000000` and `0x21`, and grayscale vertex
+colors. This authored detail is a second textureless exception. The NIF's
+separate named EditorMarker shape stays filtered. The strict survey verifies
+both identities and shader flags, plus the lever's vertex colors. It covers
+5,363 grid surfaces and 226 nearby persistent surfaces after the corrections.
 
 Named albedo paths that fail VFS lookup or DDS decoding resolve to a shared
 8 by 8 opaque magenta/black checker. Each failed canonical path logs once

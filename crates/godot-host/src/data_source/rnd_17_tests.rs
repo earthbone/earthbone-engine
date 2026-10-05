@@ -11,12 +11,16 @@ fn rnd_17_streaming_omits_initially_disabled_and_parent_disabled_models() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::create_dir(directory.path().join("meshes")).unwrap();
     let mut writer = NifWriter::new(100);
+    let textures = writer.texture_set(&[]);
+    let textures = writer.add("BSShaderTextureSet", textures);
+    let shader = writer.lighting_shader(0, 0, 0, textures, &[]);
+    let shader = writer.add("BSLightingShaderProperty", shader);
     let (vertices, triangles) = quad();
     let shape = writer.bs_tri_shape(
         "Quad",
         [0.0; 3],
         -1,
-        -1,
+        shader,
         -1,
         soe_nif::vertex::attr::VERTEX,
         &vertices,

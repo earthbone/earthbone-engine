@@ -643,6 +643,7 @@ impl DataSource {
     }
 
     /// Render lighting for a cell, with CELL XCLL values inherited from LTMP.
+    #[cfg(feature = "godot")]
     #[must_use]
     pub(crate) fn cell_lighting(&self, editor_id: &str) -> Option<godot::prelude::VarDictionary> {
         let id = self.resolve_cell(editor_id)?;
@@ -1144,18 +1145,26 @@ fn editor_marker_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usi
 }
 
 /// OpenMW's NiAVObject::Flag_Hidden excludes bounds and trigger meshes.
-/// Shaderless Skyrim shapes are emitter/helper geometry.
+/// Shaderless Skyrim shapes are emitter/helper geometry. NIF water shaders
+/// have no host material binding, so they must not become opaque white meshes.
 fn nonvisual_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usize> {
     use soe_nif::blocks::Block;
+    let unsupported = |shader: soe_nif::BlockRef| {
+        shader.get().is_none()
+            || matches!(
+                shader.get().and_then(|index| blocks.get(index)),
+                Some(Block::Unknown { type_name, .. }) if type_name == "BSWaterShaderProperty"
+            )
+    };
     let mut hidden = HashSet::new();
     for (index, block) in blocks.iter().enumerate() {
-        let (av, shaderless) = match block {
+        let (av, unsupported_shader) = match block {
             Block::Node(node) => (&node.av, false),
-            Block::TriShape(shape) => (&shape.av, shape.shader.get().is_none()),
-            Block::BsTriShape(shape) => (&shape.av, shape.shader.get().is_none()),
+            Block::TriShape(shape) => (&shape.av, unsupported(shape.shader)),
+            Block::BsTriShape(shape) => (&shape.av, unsupported(shape.shader)),
             _ => continue,
         };
-        if av.flags & 1 != 0 || shaderless {
+        if av.flags & 1 != 0 || unsupported_shader {
             mark_descendant_shapes(blocks, index, &mut hidden);
         }
     }
@@ -1192,6 +1201,29 @@ fn mark_descendant_shapes(
 pub(crate) fn placed_model(bytes: &[u8]) -> Result<soe_nif::NifFile, DataSourceError> {
     use soe_nif::blocks::Block;
     let mut file = soe_nif::parse(bytes)?;
+    // CONTEXT: nif.xml and nifly append Min, Max, Current to BSDamageStage.
+    // Select the intact range before ordinary hidden-subtree filtering.
+    if file
+        .header
+        .block_types
+        .iter()
+        .any(|kind| kind == "BSDamageStage")
+    {
+        let mut stream = soe_nif::stream::Stream::new(bytes);
+        soe_nif::header::read_header(&mut stream)?;
+        for (index, size) in file.header.block_sizes.iter().enumerate() {
+            let data = stream.take(*size as usize)?;
+            if file.header.block_type(index) == "BSDamageStage" {
+                if let Some(Block::Node(node)) = file.blocks.get_mut(index) {
+                    if data.get(data.len().saturating_sub(3)) == Some(&0) {
+                        node.av.flags &= !1;
+                    } else {
+                        node.av.flags |= 1;
+                    }
+                }
+            }
+        }
+    }
     // nifly reads Matrix3 directly into rows and applies row-dot-vector.
     // Our raw reader follows nif.xml's column naming, so transpose each local
     // scene rotation before composition. Translation and scale stay authored.
