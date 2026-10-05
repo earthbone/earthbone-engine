@@ -6,8 +6,7 @@ use std::sync::Arc;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::World;
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 const CELL: u32 = 0x100;
 const ITEM: u32 = 0x300;
