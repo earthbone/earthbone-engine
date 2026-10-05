@@ -517,6 +517,8 @@ mod cmb_38_breaker2_adversarial;
 mod cmb_38_breaker_adversarial;
 #[path = "cmb_39_duplicate_npc_perks.rs"]
 mod cmb_39_duplicate_npc_perks;
+#[path = "cmb_39_adversarial.rs"]
+mod cmb_39_adversarial;
 #[path = "combat_ai.rs"]
 mod combat_ai;
 #[path = "combat_bleedout.rs"]
