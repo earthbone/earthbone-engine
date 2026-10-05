@@ -171,7 +171,7 @@ pub fn light_level(world: &World, cell: GlobalFormId, point: [f32; 3]) -> f32 {
         let flags = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
         if placement.is_some_and(|p| !p.visible)
             || reference.is_some_and(|record| record.flags & flags::INITIALLY_DISABLED != 0)
-            || (placement.is_none() && flags & (1 << 5) != 0)
+            || (world.reference_ref(id).is_none() && flags & (1 << 5) != 0)
         {
             continue;
         }
