@@ -890,6 +890,8 @@ impl World {
     }
 
     /// Reset a reference to its winning record state and base inventory.
+    /// Leveled inventory is selected again. Loading saved reference state retains
+    /// the selected contents until a reset explicitly rebuilds them.
     /// An optional loaded target supplies the destination position and cell.
     /// Actor faction and relationship state lives outside `RefState` and is
     /// retained, while actors are resurrected.

@@ -240,22 +240,9 @@ fn sav_68_installed_changed_vanilla_reference_resets_and_round_trips() {
         .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
         .unwrap();
     let mut world = World::new(order);
-    let candidate = world
-        .order()
-        .winners_of(T(b"REFR"))
-        .find_map(|(id, record)| {
-            let base = record.find(T(b"NAME")).and_then(|bytes| {
-                let raw = u32::from_le_bytes(bytes.try_into().ok()?);
-                Some(GlobalFormId {
-                    file: id.file,
-                    object: raw,
-                })
-            })?;
-            let base_record = world.order().winner(base)?;
-            (base_record.tag == T(b"CONT") && base_record.find(T(b"CNTO")).is_some()).then_some(id)
-        });
+    let candidate = crate::common::installed::fixed_container_references(world.order()).next();
     let Some(reference) = candidate else {
-        panic!("Skyrim.esm contains no placed container with base inventory");
+        panic!("Skyrim.esm contains no placed container with fixed base inventory");
     };
     let authored = world.reference(reference).unwrap().clone();
     let item = authored.inventory.iter().next().map(|(item, _)| *item);
