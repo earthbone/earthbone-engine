@@ -328,6 +328,37 @@ declarations, the CommonLib source-level API, and its contract fixtures are in
 
 ## Design
 
+### Recorded input sessions, PRF-22
+
+`player_input::Driver::start_recording` resets the existing gameplay RNG
+streams to the supplied seed and captures the initial SOEG world and VM state.
+It retains executed PLY-01 commands and their success or rejection messages.
+Hashes cover the initial state, each 60-frame boundary and a final partial
+interval. `finish_recording` returns a `Session`, whose version-one SOER file
+uses the existing Papyrus Reader/Writer encoding and a payload CRC32.
+Truncated files, trailing bytes, unknown command tags, invalid transforms and
+missing or unordered checkpoint logs return errors.
+
+`start_replay` requires identical plugin and script provenance and validates
+the snapshot before loading it. The session also restores cell residency,
+reference 3D residency, deferred unload, binding bookkeeping, greeting range,
+held casting hands, MCM registration state and VM native-call counters. These transient inputs to
+gameplay are recorded separately because loading a native save clears or
+rebuilds them. Replay consumes the shared fixed-step queue, checks every
+outcome and scheduled hash, and stops at the first divergence. The error
+names its frame and differing hash subsystems. Queue and recording state
+remain diagnostic data, outside native saves and gameplay hashes.
+Definitions and runtime providers must be loaded before replay, as for SOEG.
+
+The session design follows the local Godot
+`godot-docs/tutorials/math/random_number_generation.rst` seed contract.
+The existing PLY-01 executor and SOEG snapshot already implement the required
+gameplay and state transport, so the session does not replace either reader.
+`prf_22_` tests record 600 frames with a running random and latent VM loop,
+replay twice, compare all checkpoints and events, and exercise corrupt files,
+changed definitions, rejected actions and divergence reporting.
+Game ticks also add exclusive system totals to active PRF-13 captures.
+
 ### Scripted player input, PLY-01
 
 `player_input::Driver` queues typed commands and executes one per step at

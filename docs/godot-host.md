@@ -62,6 +62,24 @@ the frame denominator. Exit ownership follows local
 
 ## Scripted player input, PLY-01
 
+PRF-22 exposes `record_player_session(seed)`, `write_player_session(path)` and
+`replay_player_session(path)` on PlayerNode. Paths are absolute filesystem
+paths. Recording and replay use the same PLY-01 driver as headless Game.
+Set `auto_step` to false for explicit scripted stepping. Replay restores the
+Game snapshot and synchronizes the controller and cell resources, then
+`step_player_input` verifies the recorded outcome and each scheduled hash.
+`player_session_error` returns the latest divergence and `player_session_hash`
+returns the current Game and VM hash as hexadecimal text. A failed replay
+clears its pending queue and rejects further steps. Device controls outside
+the scripted input layer are not recorded by this transport.
+
+`godot/prf_22_session_test.gd` records 600 steps against the exported PLY-01
+fixture, replays the file twice, compares eleven hashes and complete event
+logs, then quits. It checks simulation and host transport without measuring
+render throughput. PRF-13 summaries also include host presentation system
+totals separately from overlapping Game tick totals. No per-reference node
+path or native save field is added.
+
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
 `soe_game::player_input::Driver`. `step_player_input` executes one queued
 command at 1/60 second, synchronizes the controller and camera from World,

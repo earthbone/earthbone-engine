@@ -2,6 +2,16 @@
 
 ## Entity attribution, PRF-13
 
+PRF-22 summary counters include explicit entity, plugin and phase metadata.
+Existing summary names and numeric metrics retain their meaning. Active
+captures also retain exclusive system totals through `Profile::systems`.
+Game tick and host presentation domains are separate because their intervals
+overlap. System totals are excluded from plugin rankings and do not duplicate
+entity time in plugin shares. Their call count is the number of frames,
+including idle frames. Capture-off frames add no system rows.
+The counter format is consumed by `soe-bench profile-diff`, documented in
+[performance.md](performance.md).
+
 `Profile` controls optional entity scopes independently of the always-on frame
 clock and the existing `Trace` switch. `EntityScope` constructs metadata only
 when capture is enabled. Each scope records calls, inclusive and self time,

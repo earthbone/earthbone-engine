@@ -1479,7 +1479,9 @@ impl Game {
         self.push_tick_hash();
         drop(tick_scope);
         if let Some(frame) = frame {
-            self.frame_history.record(frame.finish());
+            let sample = frame.finish();
+            soe_trace::Profile::systems("game", &sample);
+            self.frame_history.record(sample);
         }
         self.last_work_counts = work_frame.counts();
     }

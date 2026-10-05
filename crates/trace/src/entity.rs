@@ -272,6 +272,27 @@ impl Profile {
             .map(|data| data.totals.clone())
             .unwrap_or_default()
     }
+    /// Add exclusive frame totals for a named measurement domain. Game ticks
+    /// and host presentation frames remain separate because they overlap.
+    pub fn systems(domain: &'static str, frame: &crate::FrameSample) {
+        if !Self::enabled() {
+            return;
+        }
+        if let Ok(mut data) = DATA.lock() {
+            for system in crate::System::ALL {
+                let ns = frame.system_ns[system as usize];
+                data.totals
+                    .entry(Entity::new("system", system.name(), "", domain))
+                    .or_default()
+                    .add(&EntityStats {
+                        calls: 1,
+                        total_ns: ns,
+                        self_ns: ns,
+                        ..EntityStats::default()
+                    });
+            }
+        }
+    }
     /// Only scopes completed in the preceding wall-clock second.
     #[must_use]
     pub fn last_second() -> BTreeMap<Entity, EntityStats> {
@@ -320,6 +341,9 @@ impl Profile {
     ) -> Vec<(String, EntityStats)> {
         let mut groups = BTreeMap::<String, EntityStats>::new();
         for (entity, stats) in totals {
+            if entity.kind == "system" && kind == "plugin" {
+                continue;
+            }
             if kind == "plugin" || entity.kind == kind {
                 let name = if kind == "plugin" {
                     &entity.plugin
@@ -372,7 +396,13 @@ impl Profile {
             for op in Operation::ALL {
                 let _ = write!(out, ",\"{}\":{}", op.name(), stats.work.get(op));
             }
-            out.push_str("}}");
+            let _ = write!(
+                out,
+                ",\"entity\":\"{}\",\"plugin\":\"{}\",\"phase\":\"{}\"}}}}",
+                json_escape(&entity.id),
+                json_escape(&entity.plugin),
+                json_escape(entity.phase)
+            );
         }
         for (plugin, stats) in Self::ranking(&totals, "plugin") {
             if !totals.is_empty() || !out.ends_with('[') {

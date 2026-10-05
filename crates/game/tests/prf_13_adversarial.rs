@@ -61,7 +61,7 @@ fn prf_13_rejected_quest_predicates_still_charge_the_quest_and_plugin() {
     let _guard = PROFILE_LOCK.lock().unwrap();
     Profile::disable();
     Profile::clear();
-    let mut game = quest_game();
+    let game = quest_game();
     let context = quest_context();
     let rejected = unsupported_condition();
 
@@ -71,7 +71,7 @@ fn prf_13_rejected_quest_predicates_still_charge_the_quest_and_plugin() {
             &mut game.world_mut(),
             &game.vm,
             context,
-            &[rejected.clone()]
+            std::slice::from_ref(&rejected)
         )
         .is_err());
     }
@@ -145,7 +145,7 @@ fn prf_13_headless_environment_starts_and_exports_entity_reports() {
     if std::env::var("SOE_PRF_13_CHILD").is_ok_and(|value| value == "1") {
         Profile::disable();
         Profile::clear();
-        let mut game = quest_game();
+        let game = quest_game();
         assert!(Profile::enabled());
         assert!(conditions::evaluate(
             &mut game.world_mut(),

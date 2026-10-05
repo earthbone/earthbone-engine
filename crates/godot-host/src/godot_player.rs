@@ -493,7 +493,9 @@ impl INode3D for PlayerNode {
             view.tick_presentation(delta);
         }
         drop(render_scope);
-        self.host_history.record(self.host_frame.finish());
+        let sample = self.host_frame.finish();
+        soe_trace::Profile::systems("host", &sample);
+        self.host_history.record(sample);
         self.host_frame = soe_trace::FrameSnapshot::now();
     }
 
