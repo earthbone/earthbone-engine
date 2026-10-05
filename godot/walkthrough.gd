@@ -97,6 +97,40 @@ func _start() -> void:
 	loading_label = null
 	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, F3 system timings, Esc exit")
 	loaded = true
+	if OS.get_environment("SOE_AUD_11_TEST") == "1":
+		await _run_aud_11_check()
+
+func _run_aud_11_check() -> void:
+	var capture := AudioEffectCapture.new()
+	capture.buffer_length = 0.25
+	AudioServer.add_bus_effect(0, capture)
+	Input.action_press("Forward")
+	var peak := 0.0
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < 20_000:
+		await process_frame
+		var frames := capture.get_frames_available()
+		if frames > 0:
+			for sample: Vector2 in capture.get_buffer(frames):
+				peak = maxf(peak, maxf(absf(sample.x), absf(sample.y)))
+	Input.action_release("Forward")
+	var bank := player.get_node_or_null("SoundBank")
+	var footstep_starts := int(player.call("footstep_count"))
+	var ambience_starts := -1
+	var music_starts := -1
+	var voice_starts := -1
+	if bank != null:
+		ambience_starts = int(bank.call("ambience_start_count"))
+		music_starts = int(bank.call("music_start_count"))
+		voice_starts = int(bank.call("voice_start_count"))
+	var peak_db := -INF if peak <= 0.0 else 20.0 * log(peak) / log(10.0)
+	print("AUD-11 systems footsteps=", footstep_starts, " ambience=", ambience_starts,
+		" music=", music_starts, " voices=", voice_starts, " master_peak_db=", peak_db,
+		" walk_seconds=", (Time.get_ticks_msec() - started) / 1000.0)
+	var passed := footstep_starts > 0 and ambience_starts > 0 and music_starts > 0 \
+		and voice_starts > 0 and peak_db > -60.0
+	print("AUD-11 RESULT: ", "PASS" if passed else "FAIL")
+	quit(0 if passed else 1)
 
 func _process(_delta: float) -> bool:
 	if is_instance_valid(loading_label):
