@@ -27,6 +27,19 @@ measure GPU execution. Details and source paths are in
 [trace.md](trace.md), [game.md](game.md) and [godot-host.md](godot-host.md).
 Percentiles are computed when queried, outside the simulation tick.
 
+## Music decode frame cost, AUD-12, 2026-10-05
+
+The installed PRF-12 walkthrough previously recorded 6,740.54 ms in the audio
+system's worst frame when music first started. Music and ambience now decode on
+a worker, and the Godot stream is created on the main thread after decoding.
+The current installed-data `aud_12_installed_prf12_walkthrough_keeps_audio_under_two_ms`
+run recorded a worst audio frame of 0.061 ms at its frame-12 report. The
+acceptance threshold is 2 ms. This is one run on the machine below, not a
+distribution across repeated launches. `aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes`
+also checks synthetic music and ambience requests return under 2 ms, discard a
+superseded result, preserve playing music until replacement, reuse cached paths
+and keep cache accounting within 64 MiB.
+
 Run the declared overhead gate, which alternates recorded and suspended
 eight-tick batches in one warmed 1,000-actor travel/sandbox world, then
 asserts the median paired on/off ratio is below 1.01. A second world replays

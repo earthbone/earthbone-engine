@@ -14,7 +14,8 @@ fn write_wave(path: &Path, bytes: u64) {
     let mut file = std::fs::File::create(path).unwrap();
     use std::io::Write;
     file.write_all(b"RIFF").unwrap();
-    file.write_all(&(36_u32 + data_bytes).to_le_bytes()).unwrap();
+    file.write_all(&(36_u32 + data_bytes).to_le_bytes())
+        .unwrap();
     file.write_all(b"WAVEfmt ").unwrap();
     file.write_all(&16_u32.to_le_bytes()).unwrap();
     file.write_all(&1_u16.to_le_bytes()).unwrap();
@@ -62,6 +63,8 @@ fn write_fixture(data: &Path) {
     write_wave(&data.join("Music/aud12_latest.wav"), 2 * 1024 * 1024);
     write_wave(&data.join("Music/aud12_ambience.wav"), 2 * 1024 * 1024);
     write_wave(&data.join("Music/aud12_short.wav"), 44_100);
+    write_wave(&data.join("Music/aud12_cap_a.wav"), 34 * 1024 * 1024);
+    write_wave(&data.join("Music/aud12_cap_b.wav"), 34 * 1024 * 1024);
 }
 
 #[test]
@@ -74,7 +77,11 @@ fn aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes() {
     let workspace = manifest.join("../..");
     let project = workspace.join("godot");
     let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(extension.exists(), "missing release extension: {}", extension.display());
+    assert!(
+        extension.exists(),
+        "missing release extension: {}",
+        extension.display()
+    );
 
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
@@ -106,8 +113,16 @@ func run() -> void:
 		printerr("fixture data failed: ", bank.call("last_error"))
 		quit(1)
 		return
+	bank.call("play_music_track", "music/aud12_short.wav", 0.0, 0.0, true)
+	for _frame in range(120):
+		await process_frame
+		if int(bank.call("music_start_count")) > 0:
+			break
+	var starts_before_requests := int(bank.call("music_start_count"))
 	var first_ms := elapsed_ms(func(): bank.call("play_music_track", "music/aud12_first.wav", 0.0, 0.0, true))
 	var latest_ms := elapsed_ms(func(): bank.call("play_music_track", "music/aud12_latest.wav", 0.0, 0.0, true))
+	if int(bank.call("music_playing_count")) == 0:
+		failures.append("current music stopped while its replacement decoded")
 	var ambience_ms := elapsed_ms(func(): bank.call("play_ambience", "music/aud12_ambience.wav"))
 	if first_ms >= 2.0:
 		failures.append("music request blocked %.2f ms" % first_ms)
@@ -119,7 +134,7 @@ func run() -> void:
 		await process_frame
 		if int(bank.call("music_start_count")) > 0 and int(bank.call("ambience_start_count")) > 0:
 			break
-	if int(bank.call("music_start_count")) != 1:
+	if int(bank.call("music_start_count")) != starts_before_requests + 1:
 		failures.append("superseded music request started %d tracks" % int(bank.call("music_start_count")))
 	var decoded_before := int(bank.call("decoded_count"))
 	bank.call("play_music_track", "music/aud12_latest.wav", 0.0, 0.0, true)
@@ -128,12 +143,27 @@ func run() -> void:
 		failures.append("cached music path decoded again")
 	if int(bank.call("ambience_start_count")) != 1:
 		failures.append("ambience did not start after decode")
+	var effect_start := Time.get_ticks_usec()
 	var short_effect: Variant = bank.call("play_effect", "music/aud12_short.wav", Vector3.ZERO)
+	var effect_ms := float(Time.get_ticks_usec() - effect_start) / 1000.0
+	var voice_start := Time.get_ticks_usec()
 	var short_voice: Variant = bank.call("play_voice", "music/aud12_short.wav", Vector3.ZERO)
+	var voice_ms := float(Time.get_ticks_usec() - voice_start) / 1000.0
 	if int(short_effect) < 0 or int(short_voice) < 0:
 		failures.append("small effect or voice decode stopped working")
+	if effect_ms >= 2.0 or voice_ms >= 2.0:
+		failures.append("cached short effect or voice request blocked %.2f/%.2f ms" % [effect_ms, voice_ms])
 	if int(bank.call("effect_start_count")) != 1 or int(bank.call("voice_start_count")) != 1:
 		failures.append("effect and voice start counters did not advance")
+	for path in ["music/aud12_cap_a.wav", "music/aud12_cap_b.wav"]:
+		var before := int(bank.call("decoded_count"))
+		bank.call("play_music_track", path, 0.0, 0.0, true)
+		for _frame in range(600):
+			await process_frame
+			if int(bank.call("decoded_count")) > before:
+				break
+	if int(bank.call("music_cache_bytes")) > 64 * 1024 * 1024:
+		failures.append("decoded cache exceeded its 64 MiB limit")
 	if failures.is_empty():
 		print("AUD-12 PASS")
 	else:
@@ -170,12 +200,18 @@ fn aud_12_installed_prf12_walkthrough_keeps_audio_under_two_ms() {
     let data = PathBuf::from(
         "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
     );
-    let godot = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from).unwrap();
+    let godot = std::env::var_os("SOE_GODOT_BIN")
+        .map(PathBuf::from)
+        .unwrap();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest.join("../..");
     let project = workspace.join("godot");
     let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(extension.exists(), "missing release extension: {}", extension.display());
+    assert!(
+        extension.exists(),
+        "missing release extension: {}",
+        extension.display()
+    );
     let script = tempfile::Builder::new()
         .prefix("aud_12_prf12_")
         .suffix(".gd")
@@ -209,10 +245,17 @@ func _process(delta: float) -> bool:
     let stderr = String::from_utf8_lossy(&output.stderr);
     let audio_ms = stdout
         .lines()
-        .find_map(|line| line.split_once("AUD-12 audio_ms=").map(|(_, value)| value.trim()))
+        .find_map(|line| {
+            line.split_once("AUD-12 audio_ms=")
+                .map(|(_, value)| value.trim())
+        })
         .and_then(|value| value.parse::<f64>().ok());
     assert!(
         output.status.success() && audio_ms.is_some_and(|ms| ms <= 2.0),
         "installed PRF-12 audio budget failed, audio_ms={audio_ms:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    println!(
+        "AUD-12 installed PRF-12 worst audio frame: {:.3} ms",
+        audio_ms.unwrap()
     );
 }

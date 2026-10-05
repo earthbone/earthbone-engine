@@ -268,8 +268,12 @@ decoder for vanilla xWMA tracks.
 Set `SOE_AUD_11_TEST=1` when launching `godot/walkthrough.gd` with installed
 data to inject a forward walk for 20 seconds. The script captures and drains
 the master bus, then reports its peak in dB and the four start counts. It exits
-with failure if any count is zero or the master peak does not exceed -60 dB.
+with failure if footsteps, ambience or music do not start, or the master peak
+does not exceed -60 dB.
 The windowed test is `aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_system`.
+The injected walk has no dialogue stimulus, so it reports the voice count but
+does not require a voice to start. The AUD-12 audio fixture checks direct voice
+playback and its under 2 ms fast path.
 
 ### Papyrus weather image-space selection, SCR-54
 
@@ -2806,6 +2810,21 @@ SoundBank in Godot with three synthetic archive tracks. It checks both players
 during the first fade, verifies each configured fade changes player volume,
 then interrupts the fade and checks that the reused slot no longer has the
 first track assigned. AudioEffectCapture confirms mixer output during playback.
+
+### Asynchronous music and ambience (AUD-12)
+
+Music and ambience requests decode on a worker. The main thread creates the
+`AudioStreamWav` only after PCM is ready, then starts playback. A newer request
+invalidates an older decode result, and the current music continues playing
+until its replacement is ready. Decoded music and ambience paths share a
+cache with a 64 MiB audio-data budget. Effects and voices
+keep their existing path, which decodes synchronously.
+
+`aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes` checks
+request latency, replacement cancellation, continued current playback, cache
+reuse and the cache budget using generated WAV files. It also checks the fast
+effect and voice path. The installed PRF-12 test exercises the real walkthrough
+and checks the audio system's worst recorded frame time.
 
 Loose `.xwm` music and xWMA files in FUZ require the optional
 `xwma-ffmpeg` feature. The host does not apply the MUSC ducking amount, queue

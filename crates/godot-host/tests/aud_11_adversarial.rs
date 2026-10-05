@@ -57,12 +57,15 @@ fn aud_11_window_run_reports_each_nonzero_audio_path_and_full_duration() {
             )
         });
     let mut failures = Vec::new();
-    for key in ["footsteps", "ambience", "music", "voices"] {
+    for key in ["footsteps", "ambience", "music"] {
         match report_value(report, key).parse::<u64>() {
             Ok(count) if count > 0 => {}
             Ok(count) => failures.push(format!("{key} started {count} times")),
             Err(_) => failures.push(format!("{key} count is invalid")),
         }
+    }
+    if report_value(report, "voices").parse::<u64>().is_err() {
+        failures.push("voice count is invalid".to_owned());
     }
     match report_value(report, "master_peak_db").parse::<f32>() {
         Ok(peak_db) if peak_db > -60.0 => {}

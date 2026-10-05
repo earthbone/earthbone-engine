@@ -92,6 +92,12 @@ func check(value: bool, message: String) -> void:
     if not value:
         failures += 1
         printerr("FAIL: ", message)
+func wait_for_ambience_count(bank: Node, expected: int) -> bool:
+    for _frame in range(120):
+        if int(bank.call("ambience_start_count")) >= expected:
+            return true
+        await process_frame
+    return false
 func _initialize() -> void:
     call_deferred("run")
 func run() -> void:
@@ -103,10 +109,12 @@ func run() -> void:
     check(bank.call("open_data", OS.get_environment("AUD_09_TEST_DATA")), "fixture data opens")
     var player := bank.get_node("AmbiencePlayer") as AudioStreamPlayer
     check(bank.call("play_ambience", "Music/First.wav"), "first cell ambience starts")
+    check(await wait_for_ambience_count(bank, 1), "first ambience decode finishes")
     await process_frame
     check(player.playing, "first descriptor owns active playback")
     var first_data: PackedByteArray = player.stream.data
     check(bank.call("play_ambience", "Music/Second.wav"), "next cell ambience starts")
+    check(await wait_for_ambience_count(bank, 2), "second ambience decode finishes")
     await process_frame
     check(player.playing, "replacement descriptor plays on the same player")
     check(player.stream.data != first_data, "departed descriptor stream is replaced")

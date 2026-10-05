@@ -128,6 +128,12 @@ func check(value: bool, message: String) -> void:
         printerr("FAIL: ", message)
 func _initialize() -> void:
     call_deferred("run")
+func wait_for_music_count(bank: Node, expected: int) -> bool:
+    for _frame in range(120):
+        if int(bank.call("music_start_count")) >= expected:
+            return true
+        await process_frame
+    return false
 func run() -> void:
     if not ClassDB.class_exists("SoundBank"):
         GDExtensionManager.load_extension(OS.get_environment("AUD_05_EXTENSION"))
@@ -140,8 +146,11 @@ func run() -> void:
     await process_frame
     check(bank.call("open_data", OS.get_environment("AUD_05_TEST_DATA")), "fixture data opens")
     check(bank.call("play_music_track", "music/end_first.wav", 0.12, 0.12, false), "first track starts")
+    check(await wait_for_music_count(bank, 1), "first track decode finishes")
     check(bank.call("play_music_track", "music/end_second.wav", 0.12, 0.12, false), "second track starts")
+    check(await wait_for_music_count(bank, 2), "second track decode finishes")
     check(bank.call("play_music_track", "music/end_third.wav", 0.12, 0.12, false), "third track interrupts fade")
+    check(await wait_for_music_count(bank, 3), "third track decode finishes")
     var latest_data: PackedByteArray = (bank.get_child(16) as AudioStreamPlayer).stream.data
     await create_timer(0.3).timeout
     var first := bank.get_child(16) as AudioStreamPlayer
