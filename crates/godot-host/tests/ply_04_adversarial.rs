@@ -37,6 +37,10 @@ fn run_route(route: &str, headless: bool, output_dir: &std::path::Path) -> Outpu
 
 #[test]
 fn ply_04_windowed_route_captures_each_checkpoint_and_reports_worst_frames() {
+    if std::env::var_os("SKYRIM_DATA").is_none() {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    }
     let _guard = GODOT_LOCK.lock().expect("Godot test lock");
     let output_dir = tempdir().expect("temporary output directory");
     let route = r#"{

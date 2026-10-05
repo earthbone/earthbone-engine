@@ -30,6 +30,10 @@ fn run_route(route: &str, output_dir: &std::path::Path) -> Output {
 
 #[test]
 fn ply_04_rejects_checkpoint_paths_that_escape_capture_directory() {
+    if std::env::var_os("SKYRIM_DATA").is_none() {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    }
     let output = tempdir().expect("temporary output directory");
     let result = run_route(
         r#"{"name":"path-check","start":{"cell":"WhiterunBanneredMare","position":[0,0,0]},"steps":[{"command":{"action":"wait"},"frames":1,"checkpoint":"../outside"}]}"#,
@@ -43,6 +47,10 @@ fn ply_04_rejects_checkpoint_paths_that_escape_capture_directory() {
 
 #[test]
 fn ply_04_windowed_single_checkpoint_writes_capture_and_frame_result() {
+    if std::env::var_os("SKYRIM_DATA").is_none() {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    }
     let output = tempdir().expect("temporary output directory");
     let result = run_route(
         r#"{"name":"single-checkpoint","start":{"cell":"WhiterunBanneredMare","position":[0,0,0]},"steps":[{"command":{"action":"wait"},"frames":1,"checkpoint":"one"}]}"#,

@@ -30,6 +30,10 @@ fn run_route(route: &str, output_dir: &std::path::Path) -> Output {
 
 #[test]
 fn ply_04_repeated_checkpoint_name_fails_without_claiming_all_captures() {
+    if std::env::var_os("SKYRIM_DATA").is_none() {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    }
     let output = tempdir().expect("temporary output directory");
     let result = run_route(
         r#"{"name":"duplicate-captures","start":{"cell":"WhiterunBanneredMare","position":[0,0,0]},"steps":[{"command":{"action":"wait"},"frames":1,"checkpoint":"same"},{"command":{"action":"wait"},"frames":1,"checkpoint":"same"}]}"#,
@@ -47,6 +51,10 @@ fn ply_04_repeated_checkpoint_name_fails_without_claiming_all_captures() {
 
 #[test]
 fn ply_04_each_distinct_checkpoint_gets_a_capture_and_worst_frame_entry() {
+    if std::env::var_os("SKYRIM_DATA").is_none() {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    }
     let output = tempdir().expect("temporary output directory");
     let result = run_route(
         r#"{"name":"two-captures","start":{"cell":"WhiterunBanneredMare","position":[0,0,0]},"steps":[{"command":{"action":"wait"},"frames":2,"checkpoint":"first"},{"command":{"action":"wait"},"frames":3,"checkpoint":"second"}]}"#,
