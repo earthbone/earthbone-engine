@@ -31,7 +31,7 @@ fn placed(kind: [u8; 4], id: u32, base: u32, position: [f32; 3]) -> Record {
         .sub(T(b"DATA"), data)
 }
 
-fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> {
+pub(crate) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> {
     let mut plugin = Plugin::new(FileHeader::default());
     let template = package::build_template(TEMPLATE, "StressTravelTemplate");
     let template = package::close_header(template, None);

@@ -2286,6 +2286,18 @@ Native boxes, spheres, capsules and convex hulls replace the former box-hull
 approximations. See [physics](physics.md) for geometry tests and measurement
 limits, and [the reference map](reference-audit.md) for future work.
 
+Convex point clouds are reduced to the boundary vertices using
+`soe_physics::hull::triangles` before `PhysicsServer3D` receives them. If that
+cannot produce a 3D hull, the host removes duplicate and non-finite points and
+submits a slightly padded bounds hull. A repaired hull reports its source mesh
+path and NIF collision node name once per process. Godot's `shape_set_data`
+returns no hull failure result, so this check prepares the point set before
+the call rather than retrying after Jolt reports an error. The PRF-32 checks a
+44-point cloud with interior points and a flat cloud, then sends both repaired
+hulls to Godot's Jolt server. Its installed-data check streams Bannered Mare
+through the host and runs `physics_test.gd`, requiring collision bodies,
+contact and no Jolt shape error.
+
 ## Capacity checks
 
 `godot/bench.gd` now fails when its frame p99 exceeds 16.7 ms or its worst
@@ -4497,6 +4509,8 @@ recorder for each ordered chunk.
 
 `godot/prf_14_work_test.gd` loads the installed Bannered Mare, compares actual
 instance creation with the streamed count and verifies empty-window reset.
+The Rust wrapper runs it in an isolated project with an explicit extension list,
+loading Cargo's current test-built library rather than a cached release build.
 It is a headless correctness check. The counter paths add no per-reference
 nodes and no saved state. The row uses the existing RenderingServer and
 PhysicsDirectSpaceState3D APIs described in the local Godot class docs.
