@@ -187,6 +187,14 @@ impl World {
         }
         self.detection = next;
         self.line_of_sight = line_of_sight;
+        soe_trace::metric_add(
+            soe_trace::Metric::DetectionChecks,
+            observations.len() as u64,
+        );
+        soe_trace::metric_add(
+            soe_trace::Metric::DetectionPairs,
+            by_target.values().map(|values| values.len() as u64).sum(),
+        );
         Ok(())
     }
 

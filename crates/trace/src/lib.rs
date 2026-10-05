@@ -39,6 +39,9 @@ pub mod logging;
 pub use tracing;
 pub use tracing::{debug, error, info, trace, warn};
 
+mod metrics;
+pub use metrics::{metric_add, metric_set, metric_snapshot, Metric, METRIC_COUNT};
+
 /// Events kept in the global list. Past this the oldest are dropped, so a
 /// runaway trace keeps the newest window.
 pub const MAX_EVENTS: usize = 1 << 22;
