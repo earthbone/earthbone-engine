@@ -220,6 +220,9 @@ fn aud_12_installed_prf12_walkthrough_keeps_audio_under_two_ms() {
         "walkthrough.gd",
         "render_warmup.gd",
         "system_overlay.gd",
+        "record_sky.gd",
+        "record_sky.gdshader",
+        "record_fog.gdshader",
     ]);
     let script = tempfile::Builder::new()
         .prefix("aud_12_prf12_")
