@@ -471,12 +471,20 @@ fn timeline(
                         visible: true,
                         filters: vec![],
                     },
-                    PlaceObjectAction::Modify | PlaceObjectAction::Replace(_) => {
+                    PlaceObjectAction::Modify => {
                         let Some(previous) = display.get(&place.depth).cloned() else {
                             // A modifier for an empty depth leaves the display list unchanged.
                             continue;
                         };
                         previous
+                    }
+                    PlaceObjectAction::Replace(_) => {
+                        display.get(&place.depth).cloned().ok_or_else(|| {
+                            Error::Invalid(format!(
+                                "timeline {id} modifies empty depth {}",
+                                place.depth
+                            ))
+                        })?
                     }
                 };
                 if let PlaceObjectAction::Replace(character) = place.action {

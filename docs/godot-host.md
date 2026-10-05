@@ -1,5 +1,31 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+The HTML menu embedding research and proposed PrismaUI compatibility contract
+are in [ui-frameworks.md](ui-frameworks.md#html-menus-and-prismaui-compatibility-ui-22).
+They describe options only. No HTML renderer or PrismaUI API adapter is
+implemented in the host.
+
+## SWF menu execution research, UI-23
+
+`docs/ui-frameworks.md` records the source-level Scaleform and `GameDelegate`
+inventory, Ruffle's signature change, compatibility gaps, estimates, and
+proposed runtime rows. `ui_23_scaleform_research.rs` checks the documented tag
+and API inventory, compares per-class vanilla calls with the supplied SkyUI
+ActionScript source when it is available, and checks the proposed estimates
+and work split. This host still presents its native Godot menus. UI-19 converts
+SWF art and retains ActionScript decompilation for reference, but does not
+execute the scripts.
+
+The art converter uses Ruffle `swf` 0.3's `Reader` for typed tags. Its
+`read_tag_list` requires an End tag, while the local
+`SkyUI-Community/source/swf/skyui/icons_item_psychosteve.xml` records complete
+sprites with `hasEndTag=false`. The converter walks sprite envelopes through
+Ruffle's length reader and accepts their declared byte boundary. Static
+one-frame sprites in the same icon movie also omit ShowFrame. Their final
+display list and labels form that frame. Other frame-count mismatches, subtag
+truncation errors and nesting beyond 64 levels remain errors. Synthetic
+fixtures cover both omissions, nested sprites and partial tags.
+
 ## Scripted player input, PLY-01
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
@@ -3226,6 +3252,11 @@ focus and releases the mouse. Escape and the Close button close the menu.
 Closing frees presenter controls, clears held gameplay actions and restores
 prior focus and mouse mode. Mouse restoration waits for window focus when
 closing while unfocused. Repeated opens and closes do not add shell nodes.
+
+UI-21 documents the public API and license boundary for SKSE Menu Framework
+and dMenu style ImGui pages, and compares host rendering options. Those
+frameworks are not implemented by the native menu framework described here.
+See [ui-frameworks.md](ui-frameworks.md) for the research and proposed rows.
 
 ### MCM text and toggle rows, UI-11
 
