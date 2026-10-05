@@ -270,6 +270,9 @@ data to inject a forward walk for 20 seconds. The script captures and drains
 the master bus, then reports its peak in dB and the four start counts. It exits
 with failure if any count is zero or the master peak does not exceed -60 dB.
 The windowed test is `aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_system`.
+The AUD-11 Rust checks build the release extension in Cargo's current target
+directory, register it in isolated Godot projects and skip when `SKYRIM_DATA`
+or `SOE_GODOT_BIN` is unset.
 
 ### Papyrus weather image-space selection, SCR-54
 
