@@ -54,7 +54,7 @@ fn aud_11_window_run_reports_each_nonzero_audio_path_and_full_duration() {
             )
         });
     let mut failures = Vec::new();
-    for key in ["footsteps", "ambience", "music"] {
+    for key in ["footsteps", "ambience", "music", "voices"] {
         match report_value(report, key).parse::<u64>() {
             Ok(count) if count > 0 => {}
             Ok(count) => failures.push(format!("{key} started {count} times")),

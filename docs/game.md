@@ -4649,7 +4649,8 @@ or complete the broader gameplay goal.
 DLG-02 starts a greeting when a driven, living actor enters the current
 `fAIInDialogueModeWithPlayerDistance` range of the player in the same cell or
 exterior worldspace. The DIAL must use the Player category and ForceGreet
-subtype, encoded as legacy DATA subtype 1 or SNAM `PFGT`. The normal dialogue
+subtype, encoded as legacy DATA subtype 1 or SNAM `PFGT`. AUD-11 also selects
+Misc Hello and Idle topics when no conversation is open. The normal dialogue
 choice path evaluates its quest and INFO conditions and starts the highest
 priority greeting among actors entering range on that tick. A per-Game actor
 set records which actors were already in range, so another gameplay tick does
@@ -8796,3 +8797,31 @@ sun and moon inputs, weather changes, interruption, acceleration, interior
 inheritance, winning overrides, save restoration and malformed inputs. The
 installed-data survey reads all 108 live weather winners and nine climates
 from the five masters, then samples Whiterun at noon and midnight.
+
+## Walkthrough ambient speech and sounds, AUD-11
+
+An unpaused tick selects a Misc Hello or Idle topic when an eligible loaded
+actor enters dialogue range and no conversation is open. Numeric DIAL subtypes
+79 and 94 and SNAM HELO and IDLE follow local xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Selection uses the existing quest,
+INFO, speaker and CTDA checks, quest priority, topic priority and FormID order.
+The same conversation session carries the response and fragment lifecycle.
+Explicit player conversations finish the ambient INFO before opening their
+new session. The range edge prevents speech from restarting every frame. Force greetings
+retain their priority arbitration. Dead, combat, unconscious, disabled,
+translucent non-ghost and PC-dialogue-disabled actors cannot start speech.
+The local CK `AllowPCDialogue_-_Actor` page supplies the PC-dialogue rule.
+An active PACK must enable PKDT interrupt bit 0 for Hello or bit 7 for Idle
+chatter. Actors without an active package have no package restriction.
+
+`ambience::descriptors_for_cell` follows CELL/XCAS to ASPC/SNAM for interior
+ambient sound and interior-only ASPC/RDAT for regional sounds. CELL/XCLR also supplies
+regions. REGN sound entries use RDSA weather masks and percentage chances,
+ordered by RDAT priority with override entries ending lower-priority selection.
+It returns resolved descriptor identities, leaving SNDR conditions and playback
+parameters to `sound::prepare_for`. Layout sources are local UESP ASPC and REGN
+pages and xEdit `wbDefinitionsCommon.pas` `wbRegionSounds`.
+The existing MUST track lookup remains available separately.
+`music_type_for_cell` resolves CELL/XCMO, regional RDMO and owning WRLD/ZNAM
+in that order, retaining an explicit null CELL music type as silence.
+No saved fields or save version change are introduced.

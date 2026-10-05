@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Cell music descriptors follow xEdit's CELL, REGN, MUSC and MUST layouts
+//! Cell audio follows xEdit's CELL, ASPC, REGN, MUSC and MUST layouts
 //! and UESP's corresponding record pages. Playback is owned by the host.
 
 use std::collections::BTreeSet;
@@ -28,6 +28,117 @@ pub struct Track {
     pub path: String,
 }
 
+/// Ambient SNDR forms from CELL/XCAS, ASPC/SNAM/RDAT and REGN/RDSA.
+/// Regional entries are selected by their weather mask and percentage chance.
+/// The caller supplies a normalized chance draw from the world's RNG.
+///
+/// # Errors
+/// Returns malformed fields, invalid chances and missing linked forms.
+pub fn descriptors_for_cell(
+    world: &World,
+    cell: GlobalFormId,
+    weather: u8,
+    draw: f32,
+) -> Result<Vec<GlobalFormId>> {
+    if !draw.is_finite() || !(0.0..1.0).contains(&draw) {
+        return Err(Error::Invalid("invalid ambience chance draw".into()));
+    }
+    let record = world
+        .record(cell)
+        .filter(|record| record.tag == T(b"CELL"))
+        .ok_or_else(|| Error::Invalid(format!("missing CELL {cell}")))?;
+    let cell_data = Cell::from_record(record, false)?;
+    let mut regions: Vec<_> = cell_data
+        .regions
+        .iter()
+        .filter_map(|raw| world.resolve_from(cell, *raw))
+        .collect();
+    let mut sounds = Vec::new();
+    if let Some(space) = cell_data
+        .acoustic_space
+        .and_then(|raw| world.resolve_from(cell, raw))
+    {
+        let space_record = world
+            .record(space)
+            .filter(|record| record.tag == T(b"ASPC"))
+            .ok_or_else(|| Error::Invalid(format!("missing ASPC {space}")))?;
+        for (tag, destination) in [(T(b"SNAM"), &mut sounds), (T(b"RDAT"), &mut regions)] {
+            if tag == T(b"RDAT") && cell_data.flags & 1 == 0 {
+                continue;
+            }
+            if let Some(data) = space_record.find(tag) {
+                let raw = Fields::new(T(b"ASPC"), tag, data).u32()?;
+                if data.len() != 4 {
+                    return Err(Error::Invalid(format!("invalid ASPC.{tag} at {space}")));
+                }
+                if raw != 0 {
+                    destination.push(
+                        world.resolve_from(space, raw).ok_or_else(|| {
+                            Error::Invalid(format!("invalid ASPC link at {space}"))
+                        })?,
+                    );
+                }
+            }
+        }
+    }
+    let mut entries = Vec::new();
+    for region in regions {
+        let record = world
+            .record(region)
+            .filter(|record| record.tag == T(b"REGN"))
+            .ok_or_else(|| Error::Invalid(format!("missing REGN {region}")))?;
+        let mut header = None;
+        for sub in &record.subrecords {
+            if sub.tag == T(b"RDAT") {
+                let mut fields = Fields::new(T(b"REGN"), sub.tag, &sub.data);
+                let kind = fields.u32()?;
+                let override_previous = fields.u8()? != 0;
+                let priority = fields.u8()?;
+                fields.skip(2)?;
+                if fields.remaining() != 0 {
+                    return Err(Error::Invalid(format!("invalid REGN.RDAT at {region}")));
+                }
+                header = (kind == 7).then_some((override_previous, priority));
+            } else if sub.tag == T(b"RDSA") {
+                if let Some((override_previous, priority)) = header {
+                    let mut fields = Fields::new(T(b"REGN"), sub.tag, &sub.data);
+                    let mut selected = Vec::new();
+                    while fields.remaining() != 0 {
+                        let raw = fields.u32()?;
+                        let flags = fields.u32()?;
+                        let chance = fields.f32()?;
+                        if flags & !15 != 0
+                            || !chance.is_finite()
+                            || !(0.0..=100.0).contains(&chance)
+                        {
+                            return Err(Error::Invalid(format!("invalid REGN.RDSA at {region}")));
+                        }
+                        if raw != 0
+                            && (flags == 0 || flags & u32::from(weather) != 0)
+                            && draw * 100.0 < chance
+                        {
+                            selected.push(world.resolve_from(region, raw).ok_or_else(|| {
+                                Error::Invalid(format!("invalid REGN sound at {region}"))
+                            })?);
+                        }
+                    }
+                    entries.push((priority, override_previous, selected));
+                }
+            }
+        }
+    }
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+    for (_, override_previous, selected) in entries {
+        sounds.extend(selected);
+        if override_previous {
+            break;
+        }
+    }
+    let mut seen = BTreeSet::new();
+    sounds.retain(|sound| seen.insert(*sound));
+    Ok(sounds)
+}
+
 /// Resolve supported single tracks with true MUST conditions for a cell.
 ///
 /// A cell's XCMO wins over regional RDMO. Regions are visited in their CELL
@@ -37,6 +148,17 @@ pub struct Track {
 /// # Errors
 /// Returns malformed CELL, REGN, MUST or track link fields.
 pub fn tracks_for_cell(world: &mut World, cell: GlobalFormId) -> Result<Vec<Track>> {
+    let Some(descriptor) = music_type_for_cell(world, cell)? else {
+        return Ok(Vec::new());
+    };
+    tracks_for_music(world, cell, descriptor)
+}
+
+/// Music identity from CELL/XCMO, region RDMO or the owning WRLD/ZNAM.
+///
+/// # Errors
+/// Returns malformed cell, region or world music links.
+pub fn music_type_for_cell(world: &World, cell: GlobalFormId) -> Result<Option<GlobalFormId>> {
     let record = world
         .record(cell)
         .filter(|record| record.tag == T(b"CELL"))
@@ -47,14 +169,30 @@ pub fn tracks_for_cell(world: &mut World, cell: GlobalFormId) -> Result<Vec<Trac
     } else {
         regional_music(world, cell, &cell_record.regions)?
     };
-    let Some(descriptor) = music else {
-        return Ok(Vec::new());
+    if music.is_some() || cell_record.music.is_some() {
+        return Ok(music);
+    }
+    let Some(owner) = record
+        .placement
+        .world
+        .and_then(|raw| world.resolve_from(cell, raw))
+    else {
+        return Ok(None);
     };
-    tracks_for_music(world, cell, descriptor)
+    let Some(data) = world
+        .record(owner)
+        .and_then(|record| record.find(T(b"ZNAM")))
+    else {
+        return Ok(None);
+    };
+    let mut fields = Fields::new(T(b"WRLD"), T(b"ZNAM"), data);
+    fields.exact(4)?;
+    let raw = fields.u32()?;
+    Ok((raw != 0).then(|| world.resolve_from(owner, raw)).flatten())
 }
 
 fn regional_music(
-    world: &mut World,
+    world: &World,
     cell: GlobalFormId,
     regions: &[u32],
 ) -> Result<Option<GlobalFormId>> {

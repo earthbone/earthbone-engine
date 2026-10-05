@@ -319,47 +319,41 @@ outdoor WTHR lighting.
 
 ## Cell ambience, AUD-09
 
-The player owns one non-positional ambience stream through a Godot
-`AudioStreamPlayer`. On a cell change it stops the prior stream and starts the
-first eligible single-track path returned by `soe_game::ambience`, which reads
-MUST conditions and palette leaves. This uses Godot's audio server path
-documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
-crossfades, multiple regional sound descriptors and MUSC priority arbitration
-are not implemented.
-
-`tests/aud_09_godot_ambience.rs` launches Godot with a generated WAV fixture
-and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
-the cell ambience is released. The test uses a windowed 640 by 360 Godot
-process and exits when the transition check finishes.
+The MUST track lookup and non-positional `SoundBank::play_ambience` entry
+point remain available. `tests/aud_09_godot_ambience.rs` uses a generated WAV
+fixture to check that entry point's AudioStreamPlayer start and release in a
+windowed 640 by 360 process. PlayerNode uses the ambient SNDR descriptors
+connected by AUD-11 below.
 
 ## Walkthrough audio, AUD-11
 
-When gameplay starts, `PlayerNode` attaches its `SoundBank` before syncing audio
-for the loaded cell. The cell's XCMO music type selects one eligible MUSC track
-through `soe_game::music`, and cell ambience selects the first eligible track
-through `soe_game::ambience`. Later cell changes repeat both selections.
-`SoundBank` exposes cumulative start counts for effects, voices, music and
-ambience so an integration run can report the paths that actually started.
-Music uses the host's configured WMA decoder, including the default in-process
-decoder for vanilla xWMA tracks.
+When gameplay starts, `PlayerNode` attaches its `SoundBank` before selecting
+cell audio. Music follows CELL/XCMO, regional RDMO or WRLD/ZNAM through
+`soe_game::music`. A destination without a selection stops the prior music.
+Ambience follows CELL/XCAS, ASPC/SNAM/RDAT and CELL/XCLR regional descriptors
+through `soe_game::ambience` and `sound::prepare_for`. Godot non-positional
+players apply the selected descriptor's gain, pitch and ordinary loop mode.
+Cell changes stop and release those players. Envelope loop modes return an
+unsupported playback error. The older MUST ambience entry point remains
+available to callers.
 
-Set `SOE_AUD_11_TEST=1` when launching `godot/walkthrough.gd` with installed
-data to inject a forward walk for 20 seconds. The script captures and drains
-the master bus, then approaches Hulda through the existing scripted MoveTo
-command and selects her first offered topic through the dialogue menu. It
-captures two seconds of response playback before reporting the peak in dB and
-the four start counts. Walk duration and distance are measured before that
-interaction. A straight unattended walk does not guarantee NPC speech, so the
-check requests a response explicitly. It exits with failure if footsteps,
-ambience, music or the requested voice do not start, or the master peak does
-not exceed -60 dB.
-The windowed test is `aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_system`.
-The injected walk itself has no dialogue stimulus. The follow-up interaction
-checks voice playback. The AUD-12 audio fixture checks direct voice playback
-and its under 2 ms fast path.
-The AUD-11 Rust checks build the release extension in Cargo's current target
-directory, register it in isolated Godot projects and skip when `SKYRIM_DATA`
-or `SOE_GODOT_BIN` is unset.
+Nearby Misc Hello and Idle responses selected by Game play at the speaker's
+position through the existing SoundBank voice pool, without opening a menu.
+Each response starts once. When its voice ends the host advances the shared
+session, including INFO end fragments. Session interruption stops its voice.
+Voice filenames follow local Mutagen `VoiceTypeAssetLookup.GetVoiceLineFilePaths`.
+The playback and loop APIs follow local Godot AudioServer, AudioStreamPlayer3D
+and AudioStreamWAV class documentation. No new per-reference node path is added.
+Cell ambience owns one AudioStreamPlayer per selected descriptor.
+
+`SOE_AUD_11_TEST=1` runs the installed-data walkthrough with a forward walk
+for 20 seconds. The master-bus capture is drained throughout the walk and the
+log reports footsteps, ambience, music and voices that started. The check
+fails if any count is zero, movement is under 10 units or the captured peak
+is at or below -60 dB. NPC speech is selected during normal gameplay ticks.
+The windowed `aud_11_` tests launch this check and inspect its result and exit
+status. The vanilla response test resolves and decodes the selected voice
+asset independently. Checks skip when SKYRIM_DATA or SOE_GODOT_BIN is unset.
 
 ### Papyrus weather image-space selection, SCR-54
 
