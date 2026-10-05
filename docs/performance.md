@@ -889,57 +889,117 @@ limits are unchanged.
 
 ## Detection neighborhoods, PRF-31
 
-The threshold fixed before the run is 2 ms for the whole of
+The threshold fixed before the first run is 2 ms for the whole of
 `PlayerNode::advance_detection`, including body synchronization, sight rays,
-light lookup and `World::evaluate_detection`. The installed-data check uses
-Godot 4.4.1 with the release extension and the five-master load order. The
-comparison opens Bannered Mare and uses its unlocked door into WhiterunWorld,
-then samples the same exterior update with 32 resident actors. The original
-path produced 266 observations and took 3,203 microseconds. The original
-process exited zero. Timing excludes startup and door resource replacement.
+light lookup and `World::evaluate_detection`. The installed-data checks use
+Godot 4.4.1, the release extension and the five-master load order. The walking
+harness holds NPC placements fixed and omits AI planning and VM ticks. It steps
+the host capsule, updates shared player placement, streams exterior residency
+and calls the whole gameplay detection updater. A zero-time gameplay frame
+after each load-door transition settles deferred unload before walking.
 
-The implementation keeps light-reference identity in a derived World index,
-bins current light influence for CPU queries, and builds observer/target pairs
-only within the GMST detection range. Sound source neighborhoods remain
-separate from actor neighborhoods. Light is shared per target in a frame,
+The initial implementation keeps light-reference identity in a derived World
+index, bins current light influence for CPU queries, and builds observer/target
+pairs within the winning GMST detection range. Sound source neighborhoods remain
+separate from actor neighborhoods. Light is shared per target in a frame, and
 actor senses and combat awareness are shared within an evaluation batch.
-Existing awareness beyond range advances loss and recovery timers without
-creating distant observer/target pairs. These indexes add no saved state or
+Previously known distant pairs advance loss and recovery timers without creating
+new awareness for distant strangers. These indexes add no saved state or
 reference scene nodes.
 
-The first spatial-path windowed comparison retained 32 actors and produced
-248 observations in 1,410 microseconds, compared with 266 observations in
-3,203 microseconds before the change. A later windowed sample of the final
-body-list reuse path measured 37,981 microseconds with the same actor and
-observation counts. These single samples show substantial timing variation,
-they do not establish the 2 ms acceptance budget.
+Earlier exterior comparisons measured 266 observations in 3,203 microseconds
+before spatial sampling, then 248 observations in 1,410 microseconds with 32
+actors. The previous corrected 60-second headless walk still failed. It sampled
+446 actors and 530 observations in Tamriel, with a 6,657-microsecond maximum
+and 1,813 over-budget updates out of 3,623. The lead's round-four measurement
+on `af106218` also failed, with a 4,540-microsecond maximum and 1,809
+over-budget updates out of 3,624. Those checkpoints had sparse pair and light
+lookup, but still synchronized the worldspace's entire built actor population.
 
-The corrected headless Godot 4.4.1 exterior sample took 717 microseconds with
-26 actors and 218 observations. It settles deferred unload and changes grid
-focus before sampling, so it does not share the earlier 32-actor cohort.
-Its walking check ran two 30-second wall-time phases, excluding gate resource
-replacement. It completed 3,623 detection
-updates and visited WhiterunWorld and Tamriel cells with resident NPCs. Maximum
-horizontal displacement was 468.237 units inside Whiterun and 1,503.824 units
-in Tamriel. Whiterun sampled 9 actors and 8 observations near the gate.
-Tamriel sampled 446 actors and 530 nearby observations, with reported samples
-of 3,591, 3,862 and 3,743 microseconds. The maximum was 6,657 microseconds and
-1,813 updates exceeded 2,000 microseconds. The process exited one. PRF-31's
-whole-update budget is not met. Sparse pair selection and light lookup are
-implemented, but the complete update remains over budget in this exterior.
+The 2026-10-05 pass separates cheap contact placements from controller-height
+resolution. Effective XESP enable state, deletion and destruction gate that
+view. Prefetch does not attach host resources. Exterior references also need an
+attached grid at their current position, including references authored under a
+worldspace's persistent cell. This retains their parent-cell identity without
+treating every built persistent actor as physically resident. Exterior grid
+and persistent cells share the worldspace's pair coordinates. Light lookup
+still receives the target's original cell.
 
-The walking harness holds NPC placements fixed and omits AI planning and VM
-ticks. It steps the host capsule, updates shared player placement, streams
-exterior residency and calls the whole gameplay detection updater. A zero-time
-gameplay frame after each load-door transition settles its deferred unload
-before walking. The earlier windowed attempt omitted that settlement and
-rejected streaming deltas, so its walking samples are not detection timings.
+A per-frame candidate pass retains actors near another observer, including NPC
+pairs away from the player, and observers near sound sources. Selected actors
+resolve controller height. Existing eligible contact bodies remain available,
+while unchanged feet positions skip physics transform writes. Contact rays
+share a direct space state, query parameters and actor-to-body exclusions for
+one update. The implementation reads current shared World state and introduces
+no dependency, saved state or per-reference nodes.
 
-Validation passed four new game unit tests, 23 existing game detection
-integration tests, 13 host detection tests with installed data, including
-indexed/full-scan light equality in Bannered Mare, Whiterun and Tamriel, and
-four existing host adversarial tests. Formatting and both changed packages'
-all-target Clippy checks passed. The workspace gate was left to the reviewer.
+`detection_stage_times` separates placement selection and body sync,
+`LightSamples::new`, observations including sight queries, and world evaluation.
+The following measurements show that split, in microseconds. Windowed whole
+samples enclose the GDScript `sample_detection` call. Walking samples read the
+outer Rust detection timer, which also includes settings, event filtering and
+bookkeeping outside the four stages.
+
+| Sample | Actors | Observations | Sync | Lights | Observations and rays | Evaluation | Whole |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Before this pass, Whiterun windowed | 26 | 218 | 63 | 56 | 779 | 255 | 1198 |
+| Partial pass before physical residency, Tamriel headless | 364 | 226 | 1482 | 29 | 853 | 614 | 3085 |
+| Final Whiterun windowed | 2 | 0 | 28 | 0 | 8 | 5 | 71 |
+| Final Tamriel walk, first frame | 2 | 1 | 222 | 24 | 15 | 12 | 286 |
+
+The partial pass already used effective enable state and reused sight queries,
+but left distant persistent placements eligible. It failed its 60-second walk
+with 1,730 over-budget updates out of 3,623, including a 56,580-microsecond
+maximum. Body sync, observations and evaluation all remained substantial,
+whereas light construction was 29 microseconds in the reported Tamriel sample.
+This failure led to physical grid residency filtering.
+
+The final fresh startup has one living resident NPC besides the player in each
+gate phase. Those NPCs are beyond the winning 2,500-unit detection range along
+the gate route. The unchanged passive route therefore produces no nearby sight
+pairs. The timed fixture queues a controlled sound at the player's reference,
+owned by the resident NPC, before each update. It requires observations in both
+phases and exercises the CK separate source and owner contract, including a
+distant owner. One untimed update primes that sound's actor before each phase.
+Sound creation, startup and gate resource replacement are outside detection's
+timer. Event consumption, candidate and body sync, light construction,
+observations and evaluation remain inside it.
+
+The final 60-second headless check passed and exited zero. It performed 3,624
+updates, 1,815 in WhiterunWorld and 1,809 in Tamriel, with one actor-owned sound
+observation per update. Its maximum was 1,171 microseconds and no update exceeded
+2,000 microseconds. Maximum horizontal displacement was 471.087 units inside
+Whiterun and 1,508.425 units in Tamriel. Mean stage costs were as follows.
+
+| Phase | Sync microseconds | Lights microseconds | Observations microseconds | Evaluation microseconds |
+| --- | --- | --- | --- | --- |
+| WhiterunWorld | 52.0 | 12.4 | 13.5 | 9.0 |
+| Tamriel | 187.7 | 19.3 | 14.5 | 11.9 |
+
+The separate live interior detection check passed with seven actors and 42
+ordered pairs. A PhysicsServer wall reduced detection from 40.985 to -12.832,
+and a sound raised it to 38.581. Toggling placed light `0:0C8FBD` changed its
+pair's value from -2.713 to 26.873. Forty full contact sync and detection samples
+took 5,660 microseconds, with no scene-node increase, and awareness survived
+a load door. The PRF-31 body check passed stationary RID reuse, moved placement,
+disable/re-enable, source/owner validation and unchanged scene-node count.
+
+Validation passed five game unit tests, ten contact integration tests, 23
+existing game detection integration tests and 20 host detection tests. The host
+tests ran with installed data, including indexed/full-scan light equality,
+candidate/full resident observation equality and Tamriel persistent-grid
+residency. Formatting and both changed packages' all-target Clippy checks exited
+zero. The full workspace gate was left to the reviewer as requested.
+
+The timing check does not exercise NPC AI, VM scheduling or resumed saves.
+An attempted straight approach to the city NPC fell through terrain, while the
+Tamriel approach was blocked, so the acceptance retains the gate route. An
+extra CMB-28 host run passed pose, body, obstruction and removal checks but failed
+its two authored HitFrame checks. Its graph reported `tailMTState`, `MTState`
+and `arrowDetach`, without HitFrame. Terrain route repair and authored animation
+markers are outside this row. The earlier full windowed walk also failed its
+Tamriel movement threshold, with only 73.319 units of displacement. The final
+windowed check is an exterior sample, and the 60-second acceptance is headless.
 
 ## Deterministic operation budgets, PRF-14
 

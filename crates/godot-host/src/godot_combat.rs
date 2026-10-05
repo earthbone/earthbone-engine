@@ -6,7 +6,9 @@
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
-use godot::classes::{PhysicsRayQueryParameters3D, PhysicsServer3D, Skeleton3D};
+use godot::classes::{
+    PhysicsDirectSpaceState3D, PhysicsRayQueryParameters3D, PhysicsServer3D, Skeleton3D,
+};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 use soe_game::combat::{Error, FlightSegment, Hand};
@@ -23,6 +25,80 @@ pub enum ContactHit {
     Actor(GlobalFormId),
     /// A world body blocks the actor behind it.
     Obstruction(Rid),
+}
+
+/// A physics tick's contact rays sharing query parameters and actor exclusions.
+/// Godot's PhysicsRayQueryParameters3D exclude property takes body RIDs.
+/// The inverted map avoids scanning every actor body for each sight ray.
+pub struct ContactRays<'a, S: BuildHasher> {
+    state: Gd<PhysicsDirectSpaceState3D>,
+    query: Gd<PhysicsRayQueryParameters3D>,
+    owners: &'a [&'a HashMap<Rid, GlobalFormId, S>],
+    excluded: HashMap<GlobalFormId, Array<Rid>>,
+    observer: Option<GlobalFormId>,
+}
+
+impl<'a, S: BuildHasher> ContactRays<'a, S> {
+    /// Prepare rays for this physics tick and the currently synchronized bodies.
+    ///
+    /// # Errors
+    /// An unavailable physics space.
+    pub fn new(space: Rid, owners: &'a [&'a HashMap<Rid, GlobalFormId, S>]) -> Result<Self, Error> {
+        let state = PhysicsServer3D::singleton()
+            .space_get_direct_state(space)
+            .ok_or(Error::Unsupported("unavailable physics contact space"))?;
+        let mut query = PhysicsRayQueryParameters3D::new_gd();
+        query.set_hit_from_inside(true);
+        let mut excluded: HashMap<GlobalFormId, Array<Rid>> = HashMap::new();
+        for map in owners {
+            for (&rid, &actor) in *map {
+                excluded.entry(actor).or_default().push(rid);
+            }
+        }
+        Ok(Self {
+            state,
+            query,
+            owners,
+            excluded,
+            observer: None,
+        })
+    }
+
+    /// Query the first body, excluding all bodies owned by this observer.
+    ///
+    /// # Errors
+    /// Non-finite or degenerate ray geometry.
+    pub fn first_contact(
+        &mut self,
+        observer: GlobalFormId,
+        from: Vector3,
+        to: Vector3,
+    ) -> Result<ContactHit, Error> {
+        if !from.is_finite() || !to.is_finite() || from == to {
+            return Err(Error::Number);
+        }
+        self.query.set_from(from);
+        self.query.set_to(to);
+        if self.observer != Some(observer) {
+            self.query
+                .set_exclude(self.excluded.get(&observer).unwrap_or(&Array::new()));
+            self.observer = Some(observer);
+        }
+        soe_trace::count(soe_trace::Operation::Raycasts, 1);
+        let result = self.state.intersect_ray(&self.query);
+        let Some(rid) = result
+            .get("rid")
+            .and_then(|value| value.try_to::<Rid>().ok())
+        else {
+            return Ok(ContactHit::Empty);
+        };
+        Ok(
+            match self.owners.iter().find_map(|map| map.get(&rid).copied()) {
+                Some(actor) => ContactHit::Actor(actor),
+                None => ContactHit::Obstruction(rid),
+            },
+        )
+    }
 }
 
 /// Query one authored weapon segment in Godot world coordinates, in metres.

@@ -1363,11 +1363,20 @@ impl CellStreamerNode {
                 Basis::IDENTITY,
                 Vector3::new(position.x, position.y, position.z),
             );
+            let fade = world
+                .reference_ref(reference)
+                .and_then(|state| state.cell)
+                .and_then(|cell| crate::cell_lighting::cell_lighting(world.order(), cell))
+                .and_then(|lighting| lighting.distance_fade());
             if let Some(light) = self.runtime_lights.get(&reference) {
                 server.instance_set_transform(light.instance, transform);
+                let [begin, length] = fade.unwrap_or_default();
+                server.light_set_distance_fade(light.light, fade.is_some(), begin, begin, length);
                 continue;
             }
             let light = server.omni_light_create();
+            let [begin, length] = fade.unwrap_or_default();
+            server.light_set_distance_fade(light, fade.is_some(), begin, begin, length);
             server.light_set_color(
                 light,
                 Color::from_rgb(render.color[0], render.color[1], render.color[2]),

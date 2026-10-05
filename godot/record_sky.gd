@@ -10,6 +10,8 @@ var cell := ""
 var environment := Environment.new()
 var material := ShaderMaterial.new()
 var sun := DirectionalLight3D.new()
+var directional := DirectionalLight3D.new()
+var ambient_directions: Array[DirectionalLight3D] = []
 var last_frame: Dictionary = {}
 var elapsed := 0.0
 var cloud_paths: Array[String] = []
@@ -33,7 +35,22 @@ func _ready() -> void:
 	world_environment.environment = environment
 	add_child(world_environment)
 	add_child(sun)
+	sun.name = "WeatherSun"
 	sun.shadow_enabled = true
+	sun.visible = false
+	directional.name = "CellDirectional"
+	directional.visible = false
+	add_child(directional)
+	var axes := [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK, Vector3.UP, Vector3.DOWN]
+	for index in axes.size():
+		var light := DirectionalLight3D.new()
+		light.name = "CellAmbientDirection%d" % index
+		var up := Vector3.FORWARD if absf(axes[index].y) > 0.99 else Vector3.UP
+		light.basis = Basis.looking_at(-axes[index], up)
+		light.light_energy = 1.0 / 6.0
+		light.visible = false
+		ambient_directions.append(light)
+		add_child(light)
 	fog_material.shader = preload("res://record_fog.gdshader")
 	fog_material.render_priority = 127
 	var quad := QuadMesh.new()
@@ -83,36 +100,39 @@ func refresh() -> bool:
 		return false
 	if last_frame.is_empty():
 		return true
-	if not last_frame.weather_sky:
+	var f := last_frame
+	var interior: bool = f.has("rotation")
+	directional.visible = false
+	for light in ambient_directions:
+		light.visible = false
+	sun.visible = false
+	environment.ambient_light_color = f.get("ambient", Color.BLACK)
+	environment.ambient_light_energy = 1.0
+	if interior:
+		directional.light_color = f.sunlight
+		directional.light_energy = maxf(0.0, f.fade)
+		directional.rotation_degrees = Vector3(-f.rotation.y, f.rotation.x, 0.0)
+		directional.visible = directional.light_energy > 0.0
+		for index in ambient_directions.size():
+			var light := ambient_directions[index]
+			light.light_color = f.ambient_directions[index]
+			light.visible = true
+	elif f.weather_sky:
+		sun.visible = f.sun_direction.y > 0.0
+		sun.light_color = f.sunlight
+		sun.light_energy = 1.0
+		var axis := Vector3.FORWARD if absf(f.sun_direction.y) > 0.99 else Vector3.UP
+		sun.basis = Basis.looking_at(-f.sun_direction, axis)
+	if f.has("fog"):
+		_apply_fog(f)
+	else:
+		fog_pass.visible = false
+	if not f.weather_sky:
 		environment.background_mode = Environment.BG_COLOR
 		environment.background_color = Color.BLACK
-		environment.fog_enabled = false
-		fog_pass.visible = false
-		sun.visible = false
-		if last_frame.has("ambient"):
-			environment.ambient_light_color = last_frame.ambient
-			environment.ambient_light_energy = 1.0
-			sun.light_color = last_frame.sunlight
-			sun.light_energy = maxf(0.0, last_frame.fade)
-			sun.rotation_degrees = Vector3(-last_frame.rotation.y, last_frame.rotation.x, 0.0)
-			sun.visible = sun.light_energy > 0.0
-			_apply_fog(last_frame)
 		return true
-	var f := last_frame
 	environment.background_mode = Environment.BG_SKY if f.sky_visible else Environment.BG_COLOR
 	environment.background_color = Color.BLACK
-	environment.ambient_light_color = f.ambient
-	environment.ambient_light_energy = 1.0
-	sun.visible = f.sun_direction.y > 0.0
-	sun.light_color = f.sunlight
-	sun.light_energy = 1.0
-	var axis := Vector3.FORWARD if absf(f.sun_direction.y) > 0.99 else Vector3.UP
-	sun.basis = Basis.looking_at(-f.sun_direction, axis)
-	if f.has("rotation"):
-		sun.light_energy = maxf(0.0, f.fade)
-		sun.rotation_degrees = Vector3(-f.rotation.y, f.rotation.x, 0.0)
-		sun.visible = sun.light_energy > 0.0
-	_apply_fog(f)
 	for key in ["upper", "lower", "horizon", "sun_direction", "sun_color", "sun_glare", "night_alpha", "stars_color", "masser_direction", "secunda_direction"]:
 		material.set_shader_parameter(key, f[key])
 	material.set_shader_parameter("elapsed", elapsed)
@@ -135,6 +155,8 @@ func refresh() -> bool:
 func _apply_fog(frame: Dictionary) -> void:
 	var near: float = frame.fog.x / UNITS_PER_METRE
 	var far: float = frame.fog.y / UNITS_PER_METRE
+	if frame.get("fog_clip_distance", 0.0) > 0.0:
+		far = minf(far, frame.fog_clip_distance / UNITS_PER_METRE)
 	environment.fog_enabled = false
 	environment.fog_mode = Environment.FOG_MODE_DEPTH
 	environment.fog_depth_begin = near

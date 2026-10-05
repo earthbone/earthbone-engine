@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use soe_esm::{plugin::flags, GlobalFormId};
+use soe_esm::GlobalFormId;
 use soe_game::World;
 
 use super::spatial::bucket;
@@ -106,18 +106,18 @@ fn contribution(light: &Light, point: [f32; 3]) -> f32 {
 }
 
 fn read_light(world: &World, id: GlobalFormId) -> Option<Light> {
+    if !world.reference_enabled(id) {
+        return None;
+    }
     let runtime = world.reference_ref(id);
     let record = world.record(id);
     let base = if let Some(runtime) = runtime {
-        if !runtime.enabled || runtime.deleted || runtime.destroyed {
+        if runtime.destroyed {
             return None;
         }
         runtime.base?
     } else {
         let record = record?;
-        if record.flags & flags::INITIALLY_DISABLED != 0 {
-            return None;
-        }
         let bytes = record.find(T(b"NAME")).filter(|bytes| bytes.len() == 4)?;
         world.resolve_from(
             id,
@@ -129,7 +129,7 @@ fn read_light(world: &World, id: GlobalFormId) -> Option<Light> {
         .filter(|record| record.tag == T(b"LIGH"))?;
     let data = light.find(T(b"DATA")).filter(|bytes| bytes.len() >= 48)?;
     let flags = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
-    if runtime.is_none() && flags & (1 << 5) != 0 {
+    if flags & (1 << 5) != 0 {
         return None;
     }
     let radius = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as f32;

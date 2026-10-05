@@ -211,7 +211,8 @@ An observer's combat awareness is indexed once per batch. Alert and busy
 modifiers remain specific to each pair. Previously known pairs absent from a
 batch receive a negative value, the lesser of the base detection value and
 negative one, only when their enabled references occupy the same resident
-cell farther apart than `fSneakMaxDistance`. Their existing loss and recovery
+coordinate space farther apart than `fSneakMaxDistance`. Exterior grid and
+persistent cells of one worldspace share that space. Their existing loss and recovery
 timers then advance without creating awareness for distant strangers.
 
 `World::light_references_in_cell` caches authored LIGH reference identities
@@ -4649,7 +4650,8 @@ or complete the broader gameplay goal.
 DLG-02 starts a greeting when a driven, living actor enters the current
 `fAIInDialogueModeWithPlayerDistance` range of the player in the same cell or
 exterior worldspace. The DIAL must use the Player category and ForceGreet
-subtype, encoded as legacy DATA subtype 1 or SNAM `PFGT`. The normal dialogue
+subtype, encoded as legacy DATA subtype 1 or SNAM `PFGT`. AUD-11 also selects
+Misc Hello and Idle topics when no conversation is open. The normal dialogue
 choice path evaluates its quest and INFO conditions and starts the highest
 priority greeting among actors entering range on that tick. A per-Game actor
 set records which actors were already in range, so another gameplay tick does
@@ -8234,8 +8236,9 @@ dependent test file still compiles against the unchanged signature.
 collision without owning any of it.
 
 `World::contact_actors` lists every resident actor reference (`is_actor`)
-that is enabled, not deleted, has a base and a cell, and whose cell is the
-loaded cell or a streamed one (`cell_is_resident`). Each entry carries the
+that is effectively enabled, not deleted or destroyed, has a base and a cell,
+and whose cell is the loaded cell or an attached one (`cell_is_attached`).
+Prefetch alone does not attach a cell. Each entry carries the
 reference's position and rotation in game units and radians, and a scale
 equal to `actor_controller_scale` times the reference scale. An actor whose
 controller scale cannot be derived keeps 1.0 for that factor, so a template
@@ -8243,6 +8246,25 @@ error never drops a body. Dead actors stay listed because a corpse still
 blocks a blade. The list is sorted by form so a host sync is deterministic.
 Because it reads the placement tables directly, the list follows cell
 changes, streaming, enable state and scripted moves with no extra hook.
+
+PRF-31 splits contact placement from controller-height resolution.
+`contact_actor_placements` returns current attached placements with reference
+scale. `resolve_contact_actor_scales` resolves current NPC Traits templates and
+race height for a selected list, once per base in that call. Repeated resolution
+uses the reference scale again, so it does not multiply the previous result.
+The full contact list uses both steps. Detection selects living participants
+before resolving their height. These frame-local views add no saved state.
+Effective enable state follows the shared XESP reader, including parent changes.
+For attached exterior grids, an actor's current position must lie in an attached
+grid cell of its owning worldspace. The worldspace's persistent cell is an
+authored grouping, so attaching it does not make distant actors across that
+worldspace physically resident. Parent-cell identity remains unchanged.
+The existing `CellIndex` supplies XCLC coordinates and world persistent-cell
+identity, following local UESP `CELL.wikitext` and the winning record hierarchy.
+`cell_coordinate_space` provides that worldspace identity for exterior pair
+selection and aging of distant known pairs. Interiors keep separate cell spaces.
+The local CK `Is3DLoaded`, `OnCellAttach` and `IsDisabled` pages distinguish
+attached host resources from prefetch and current enable state.
 
 `World::melee_reach` returns the reach in game units for the weapon an
 attacker holds in one hand: `fCombatDistance` times the weapon's DNAM reach
@@ -8796,3 +8818,31 @@ sun and moon inputs, weather changes, interruption, acceleration, interior
 inheritance, winning overrides, save restoration and malformed inputs. The
 installed-data survey reads all 108 live weather winners and nine climates
 from the five masters, then samples Whiterun at noon and midnight.
+
+## Walkthrough ambient speech and sounds, AUD-11
+
+An unpaused tick selects a Misc Hello or Idle topic when an eligible loaded
+actor enters dialogue range and no conversation is open. Numeric DIAL subtypes
+79 and 94 and SNAM HELO and IDLE follow local xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Selection uses the existing quest,
+INFO, speaker and CTDA checks, quest priority, topic priority and FormID order.
+The same conversation session carries the response and fragment lifecycle.
+Explicit player conversations finish the ambient INFO before opening their
+new session. The range edge prevents speech from restarting every frame. Force greetings
+retain their priority arbitration. Dead, combat, unconscious, disabled,
+translucent non-ghost and PC-dialogue-disabled actors cannot start speech.
+The local CK `AllowPCDialogue_-_Actor` page supplies the PC-dialogue rule.
+An active PACK must enable PKDT interrupt bit 0 for Hello or bit 7 for Idle
+chatter. Actors without an active package have no package restriction.
+
+`ambience::descriptors_for_cell` follows CELL/XCAS to ASPC/SNAM for interior
+ambient sound and interior-only ASPC/RDAT for regional sounds. CELL/XCLR also supplies
+regions. REGN sound entries use RDSA weather masks and percentage chances,
+ordered by RDAT priority with override entries ending lower-priority selection.
+It returns resolved descriptor identities, leaving SNDR conditions and playback
+parameters to `sound::prepare_for`. Layout sources are local UESP ASPC and REGN
+pages and xEdit `wbDefinitionsCommon.pas` `wbRegionSounds`.
+The existing MUST track lookup remains available separately.
+`music_type_for_cell` resolves CELL/XCMO, regional RDMO and owning WRLD/ZNAM
+in that order, retaining an explicit null CELL music type as silence.
+No saved fields or save version change are introduced.

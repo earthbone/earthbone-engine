@@ -7,6 +7,86 @@ use super::*;
 use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, Plugin, Record};
 
 #[test]
+fn rnd_17_hidden_barricade_damage_stages_build_only_intact_surfaces() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::create_dir(directory.path().join("meshes")).unwrap();
+    let mut writer = NifWriter::new(100);
+    let root = writer.reserve("NiNode");
+    let textures = writer.texture_set(&[]);
+    let textures = writer.add("BSShaderTextureSet", textures);
+    let shader = writer.lighting_shader(0, 0, 0, textures, &[]);
+    let shader = writer.add("BSLightingShaderProperty", shader);
+    let (vertices, triangles) = quad();
+    let mut stages = Vec::new();
+    for (name, range) in [
+        ("Intact", [0, 1, 0]),
+        ("Broken", [2, 3, 2]),
+        ("Destroyed", [4, 255, 4]),
+    ] {
+        let shape = writer.bs_tri_shape(
+            name,
+            [0.0; 3],
+            -1,
+            shader,
+            -1,
+            soe_nif::vertex::attr::VERTEX,
+            &vertices,
+            &triangles,
+            true,
+        );
+        let shape = writer.add("BSTriShape", shape);
+        let mut node = writer.ni_node(name, [0.0; 3], IDENTITY, 1.0, &[shape]);
+        node[12..16].copy_from_slice(&0x8000F_u32.to_le_bytes());
+        node.extend_from_slice(&range);
+        stages.push(writer.add("BSDamageStage", node));
+    }
+    let node = writer.ni_node("Root", [0.0; 3], IDENTITY, 1.0, &stages);
+    writer.fill(root, node);
+    writer.roots = vec![root];
+    let path = directory.path().join("meshes/barricade.nif");
+    std::fs::write(&path, writer.finish()).unwrap();
+    for name in BASE_MASTERS {
+        std::fs::write(
+            directory.path().join(name),
+            Plugin::new(FileHeader::default()).to_bytes(),
+        )
+        .unwrap();
+    }
+    let source = DataSource::open(directory.path()).unwrap();
+    let reference = Refr::from_record(
+        &Record::new(tag::REFR, 0x900)
+            .sub(b"NAME", 0x800_u32.to_le_bytes())
+            .sub(b"DATA", [0; 24]),
+    )
+    .unwrap();
+    let LoadedStatic::Surfaces { built, .. } = source
+        .load_static_surfaces("barricade.nif", &reference, false)
+        .unwrap();
+    assert_eq!(built.len(), 1, "only stage zero contributes geometry");
+    assert_eq!(built[0].0.triangle_count(), 2);
+
+    let mut helper = writer.ni_node("HiddenHelper", [0.0; 3], IDENTITY, 1.0, &[stages[0]]);
+    helper[12..16].copy_from_slice(&15_u32.to_le_bytes());
+    let helper = writer.add("NiNode", helper);
+    let node = writer.ni_node(
+        "Root",
+        [0.0; 3],
+        IDENTITY,
+        1.0,
+        &[helper, stages[1], stages[2]],
+    );
+    writer.fill(root, node);
+    std::fs::write(path, writer.finish()).unwrap();
+    let LoadedStatic::Surfaces { built, .. } = source
+        .load_static_surfaces("barricade.nif", &reference, false)
+        .unwrap();
+    assert!(
+        built.is_empty(),
+        "an ordinary hidden ancestor still hides the intact stage"
+    );
+}
+
+#[test]
 fn rnd_17_streaming_omits_initially_disabled_and_parent_disabled_models() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::create_dir(directory.path().join("meshes")).unwrap();
