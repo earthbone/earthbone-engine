@@ -47,6 +47,8 @@ mod ply_06_adversarial;
 mod ply_03_breaker_adversarial;
 #[path = "ply_03_breaker_adversarial_2.rs"]
 mod ply_03_breaker_adversarial_2;
+#[path = "ply_03_breaker_adversarial_3.rs"]
+mod ply_03_breaker_adversarial_3;
 #[path = "ply_05_breaker_adversarial.rs"]
 mod ply_05_breaker_adversarial;
 #[path = "ply_05_breaker_adversarial_2.rs"]
