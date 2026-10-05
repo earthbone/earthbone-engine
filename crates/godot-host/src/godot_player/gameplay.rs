@@ -210,8 +210,8 @@ impl PlayerNode {
             soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
         }
         self.effect_shaders.sync(&game.world());
-        self.start_footstep_audio();
         self.game = Some(game);
+        self.start_footstep_audio();
         self.clear_player_input();
         self.refresh_image_space();
         self.main_menu.leave();
@@ -995,6 +995,7 @@ impl PlayerNode {
             self.collision_references = collision.references;
             self.loaded_cell = Some(cell);
             self.sync_cell_ambience(cell);
+            self.sync_cell_music(cell);
             self.record_door_texture_preparation(texture_preparation);
             self.footstep_cadence.reset();
             self.motion = CameraMotion::new(feet, self.capsule_height());

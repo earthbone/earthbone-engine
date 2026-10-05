@@ -47,6 +47,7 @@ mod footsteps;
 mod gameplay;
 mod hud;
 mod item_card;
+mod items;
 mod lockpicking;
 mod magic;
 mod melee;
@@ -188,10 +189,12 @@ pub struct PlayerNode {
     race_choice: Option<(GlobalFormId, bool)>,
     appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
+    interface_cache: Option<String>,
     quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
     objective_map_snapshot: Option<Vec<crate::objective_map::Marker>>,
     mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
+    barter_menu: Option<(GlobalFormId, GlobalFormId)>,
     crafting_bench: Option<GlobalFormId>,
     lockpick_target: Option<GlobalFormId>,
     lockpick_angle: f32,
@@ -284,10 +287,12 @@ impl INode3D for PlayerNode {
             race_choice: None,
             appearance_choice: None,
             menu_view: None,
+            interface_cache: None,
             quest_journal_snapshot: None,
             objective_map_snapshot: None,
             mcm_config: None,
             container_menu: None,
+            barter_menu: None,
             crafting_bench: None,
             lockpick_target: None,
             lockpick_angle: 0.0,
@@ -804,6 +809,7 @@ impl PlayerNode {
                 if self.base().is_node_ready() {
                     self.register_actions();
                 }
+                self.interface_cache = None;
                 self.data_source = Some(Arc::new(source));
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
@@ -840,6 +846,7 @@ impl PlayerNode {
             self.register_actions();
         }
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
+        self.interface_cache = None;
         self.data_source = Some(source);
         self.game = None;
         self.clear_player_input();

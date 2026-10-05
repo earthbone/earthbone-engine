@@ -138,8 +138,11 @@ fn ui_10_map_control_handles_empty_and_degenerate_marker_sets() {
     let mut game = game();
     let marker = objective_map::markers(&mut game).remove(0);
 
-    assert!(objective_map::project(&[], 640.0, 360.0).is_empty());
+    assert_eq!(objective_map::project(&[], 640.0, 360.0).len(), 0);
     let points = objective_map::project(std::slice::from_ref(&marker), 640.0, 360.0);
     assert_eq!((points[0].x, points[0].y), (320.0, 180.0));
-    assert!(objective_map::project(std::slice::from_ref(&marker), f32::NAN, 360.0).is_empty());
+    assert_eq!(
+        objective_map::project(std::slice::from_ref(&marker), f32::NAN, 360.0).len(),
+        0
+    );
 }

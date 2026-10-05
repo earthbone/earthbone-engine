@@ -74,6 +74,10 @@ pub struct SoundBank {
     music_fade: Option<MusicFadeState>,
     ambience: Option<Gd<AudioStreamPlayer>>,
     dialogue_voice: crate::dialogue_menu::DialogueVoice,
+    effect_starts: u64,
+    voice_starts: u64,
+    music_starts: u64,
+    ambience_starts: u64,
     last_error: GString,
 }
 
@@ -113,6 +117,10 @@ impl INode3D for SoundBank {
             music_fade: None,
             ambience: None,
             dialogue_voice: crate::dialogue_menu::DialogueVoice::default(),
+            effect_starts: 0,
+            voice_starts: 0,
+            music_starts: 0,
+            ambience_starts: 0,
             last_error: GString::new(),
         }
     }
@@ -188,6 +196,7 @@ impl SoundBank {
         player.stop();
         player.set_stream(&stream);
         player.play();
+        self.ambience_starts += 1;
         self.last_error = GString::new();
         true
     }
@@ -287,6 +296,30 @@ impl SoundBank {
     #[func]
     fn decoded_count(&self) -> i64 {
         self.decoded_count as i64
+    }
+
+    /// Number of effect and footstep streams started since this node was added.
+    #[func]
+    fn effect_start_count(&self) -> i64 {
+        self.effect_starts as i64
+    }
+
+    /// Number of spoken voice streams started since this node was added.
+    #[func]
+    fn voice_start_count(&self) -> i64 {
+        self.voice_starts as i64
+    }
+
+    /// Number of music streams started since this node was added.
+    #[func]
+    fn music_start_count(&self) -> i64 {
+        self.music_starts as i64
+    }
+
+    /// Number of ambience streams started since this node was added.
+    #[func]
+    fn ambience_start_count(&self) -> i64 {
+        self.ambience_starts as i64
     }
 
     pub(crate) fn play_prepared(
@@ -506,6 +539,7 @@ impl SoundBank {
         target.set_stream(&stream);
         target.set_volume_db(-80.0);
         target.play();
+        self.music_starts += 1;
         self.music_current = Some(to);
         self.music_current_fade_out = fade_out;
         self.music_fade = Some(MusicFadeState {
@@ -573,7 +607,9 @@ impl SoundBank {
         #[cfg(feature = "xwma-ffmpeg")]
         let decoder = SoundSource::new(vfs).with_wma_decoder(&wma);
         #[cfg(not(feature = "xwma-ffmpeg"))]
-        let decoder = SoundSource::new(vfs);
+        let wma = soe_audio::wma::Native;
+        #[cfg(not(feature = "xwma-ffmpeg"))]
+        let decoder = SoundSource::new(vfs).with_wma_decoder(&wma);
         let sound = decoder
             .read(data_path)
             .map_err(|error| format!("{data_path}: {error}"))?;
@@ -654,7 +690,10 @@ impl SoundBank {
         );
         player.play();
         if kind == Kind::Voice {
+            self.voice_starts += 1;
             self.dialogue_voice.start(slot, lip, duration);
+        } else {
+            self.effect_starts += 1;
         }
         self.last_error = GString::new();
         slot as i32

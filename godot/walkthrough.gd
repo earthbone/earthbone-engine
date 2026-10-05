@@ -71,19 +71,24 @@ func _start() -> void:
 	system_overlay.player = player
 	get_root().add_child(system_overlay)
 	phase_msec = Time.get_ticks_msec()
-	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) <= 0:
+	var spawn := Vector3(0.0, 0.0, 500.0)
+	if OS.get_environment("SOE_AUD_11_TEST") == "1":
+		spawn = Vector3(-125.0, -800.0, 120.0)
+	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", "WhiterunBanneredMare", spawn.x, spawn.y, spawn.z) <= 0:
 		printerr("Could not enter the Bannered Mare")
 		quit(1)
 		return
 	print("STARTUP player ms=", Time.get_ticks_msec() - phase_msec)
 	loading_phase = "Preparing rendering"
-	var loading_cover := Warmup.cover(get_root())
-	var rendering: Dictionary = await Warmup.prepare()
-	if not rendering.error.is_empty():
-		printerr("Could not prepare rendering: ", rendering.error)
-		quit(1)
-		return
-	loading_cover.queue_free()
+	var rendering := {"error": "", "load_render_frames": 0, "load_render_ms": 0.0}
+	if DisplayServer.get_name() != "headless":
+		var loading_cover := Warmup.cover(get_root())
+		rendering = await Warmup.prepare()
+		if not rendering.error.is_empty():
+			printerr("Could not prepare rendering: ", rendering.error)
+			quit(1)
+			return
+		loading_cover.queue_free()
 	print("STARTUP rendering ", JSON.stringify(rendering))
 	loading_phase = "Starting game scripts"
 	await process_frame
@@ -97,6 +102,87 @@ func _start() -> void:
 	loading_label = null
 	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, F3 system timings, Esc exit")
 	loaded = true
+	if OS.get_environment("SOE_AUD_11_TEST") == "1":
+		await _run_aud_11_check()
+
+func _run_aud_11_check() -> void:
+	for _frame in range(120):
+		await process_frame
+	if not player.call("is_on_ground"):
+		printerr("AUD-11 player did not settle on the Bannered Mare floor")
+		quit(1)
+		return
+	var capture := AudioEffectCapture.new()
+	capture.buffer_length = 0.25
+	AudioServer.add_bus_effect(0, capture)
+	var walk_start: Vector3 = player.call("position")
+	var forward := InputEventKey.new()
+	forward.keycode = KEY_W
+	forward.pressed = true
+	Input.parse_input_event(forward)
+	Input.flush_buffered_events()
+	var peak := 0.0
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < 20_000:
+		await process_frame
+		var frames := capture.get_frames_available()
+		if frames > 0:
+			for sample: Vector2 in capture.get_buffer(frames):
+				peak = maxf(peak, maxf(absf(sample.x), absf(sample.y)))
+	forward.pressed = false
+	Input.parse_input_event(forward)
+	Input.flush_buffered_events()
+	var walk_seconds := (Time.get_ticks_msec() - started) / 1000.0
+	var bank := player.get_node_or_null("SoundBank")
+	var walk_distance := walk_start.distance_to(player.call("position"))
+	var voice_requested := _aud_11_start_voice()
+	var voice_started := Time.get_ticks_msec()
+	while voice_requested and Time.get_ticks_msec() - voice_started < 2_000:
+		await process_frame
+		var frames := capture.get_frames_available()
+		if frames > 0:
+			for sample: Vector2 in capture.get_buffer(frames):
+				peak = maxf(peak, maxf(absf(sample.x), absf(sample.y)))
+	var footstep_starts := int(player.call("footstep_count"))
+	var ambience_starts := -1
+	var music_starts := -1
+	var voice_starts := -1
+	if bank != null:
+		ambience_starts = int(bank.call("ambience_start_count"))
+		music_starts = int(bank.call("music_start_count"))
+		voice_starts = int(bank.call("voice_start_count"))
+		if voice_requested and voice_starts == 0:
+			printerr("AUD-11 voice did not start: ", bank.call("last_error"))
+	var peak_db := -INF if peak <= 0.0 else 20.0 * log(peak) / log(10.0)
+	print("AUD-11 systems footsteps=", footstep_starts, " ambience=", ambience_starts,
+		" music=", music_starts, " voices=", voice_starts, " master_peak_db=", peak_db,
+		" walk_seconds=", walk_seconds,
+		" walk_distance=", walk_distance)
+	var passed := footstep_starts > 0 and ambience_starts > 0 and music_starts > 0 \
+		and voice_requested and voice_starts > 0 and peak_db > -60.0 and walk_distance > 10.0
+	print("AUD-11 RESULT: ", "PASS" if passed else "FAIL")
+	quit(0 if passed else 1)
+
+func _aud_11_start_voice() -> bool:
+	# CONTEXT: A straight unattended walk does not request a dialogue response.
+	var move := {"action": "move_to", "file": 0, "object": 0x1A66E,
+		"offset": Vector3(0.0, -150.0, 0.0), "match_rotation": false}
+	if not player.call("queue_player_input", move) or not player.call("step_player_input"):
+		printerr("AUD-11 could not approach Hulda")
+		return false
+	if not player.call("open_dialogue_menu", 0, 0x1A66E):
+		printerr("AUD-11 could not open Hulda's dialogue")
+		return false
+	var content := player.get_node("MenuLayer/MenuPanel/Layout/Content")
+	if content.get_child_count() > 0:
+		var rows := content.get_child(0).get_child(0)
+		for option in rows.get_children():
+			if option is Button:
+				print("AUD-11 dialogue topic: ", option.text)
+				option.emit_signal("pressed")
+				return true
+	printerr("AUD-11 Hulda did not offer a dialogue topic")
+	return false
 
 func _process(_delta: float) -> bool:
 	if is_instance_valid(loading_label):

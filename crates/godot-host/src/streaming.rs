@@ -316,7 +316,7 @@ mod tests {
         let mut s = unlimited(2, 3);
         let plan = s.update(SkyrimPos::new(100.0, 100.0, 0.0));
         assert_eq!(plan.load.len(), 25);
-        assert!(plan.unload.is_empty());
+        assert_eq!(plan.unload.len(), 0);
         assert_eq!(plan.load[0], CellCoord::new(0, 0));
         // The four edge-adjacent cells come before any diagonal.
         for c in &plan.load[1..5] {
@@ -348,7 +348,7 @@ mod tests {
         let plan = s.update(SkyrimPos::new(CELL_UNITS + 1.0, 0.0, 0.0));
         assert_eq!(plan.load.len(), 5);
         assert!(plan.load.iter().all(|c| c.x == 3));
-        assert!(plan.unload.is_empty());
+        assert_eq!(plan.unload.len(), 0);
         assert_eq!(s.resident_count(), 30);
         // Two cells east: column x=-2 is at ring 4 and goes.
         let plan = s.update(SkyrimPos::new(2.0 * CELL_UNITS + 1.0, 0.0, 0.0));
@@ -392,7 +392,7 @@ mod tests {
             s.update(SkyrimPos::default()).load,
             vec![CellCoord::new(0, 0)]
         );
-        assert!(s.update(SkyrimPos::default()).load.is_empty());
+        assert_eq!(s.update(SkyrimPos::default()).load.len(), 0);
         s.mark_unloaded(CellCoord::new(0, 0));
         assert_eq!(
             s.update(SkyrimPos::default()).load,

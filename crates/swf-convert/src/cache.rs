@@ -64,7 +64,7 @@ impl Decompiler {
                 "-onerror",
                 "abort",
                 "-importAssets",
-                "no",
+                "local",
                 "-format",
                 "script:as",
                 "-export",
@@ -81,9 +81,10 @@ impl Decompiler {
                     "start JPEXS FFDec: {e}. Set SOE_FFDEC_JAR or SOE_FFDEC"
                 ))
             })?;
-        if let Some(mut input) = child.stdin.take() {
-            input.write_all(bytes)?;
-        }
+        let write_result = child
+            .stdin
+            .take()
+            .map_or(Ok(()), |mut input| input.write_all(bytes));
         let output = child.wait_with_output()?;
         if !output.status.success() {
             return Err(Error::Decompiler(format!(
@@ -93,11 +94,12 @@ impl Decompiler {
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
+        write_result?;
         let files = collect(directory)?;
-        if !files.keys().any(|p| {
-            std::path::Path::new(p)
+        if !files.keys().any(|path| {
+            Path::new(path)
                 .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("as"))
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("as"))
         }) {
             return Err(Error::Decompiler(
                 "JPEXS returned no ActionScript source for a movie with actions".into(),
@@ -133,6 +135,11 @@ fn digest(bytes: &[u8]) -> String {
 fn hash_part(hash: &mut Sha256, bytes: &[u8]) {
     hash.update((bytes.len() as u64).to_le_bytes());
     hash.update(bytes);
+}
+
+fn is_git_checkout(path: &Path) -> bool {
+    let marker = path.join(".git");
+    marker.is_file() || marker.join("HEAD").is_file()
 }
 
 fn collect(directory: &Path) -> Result<BTreeMap<String, String>, Error> {
@@ -209,7 +216,7 @@ pub fn build_cache(
 ) -> Result<Cache, Error> {
     std::fs::create_dir_all(root)?;
     let root = root.canonicalize()?;
-    if root.ancestors().any(|path| path.join(".git").exists()) {
+    if root.ancestors().any(is_git_checkout) {
         return Err(Error::Invalid(
             "interface caches must be outside git checkouts".into(),
         ));
@@ -229,9 +236,9 @@ pub fn build_cache(
         .list("interface")
         .into_iter()
         .filter(|path| {
-            std::path::Path::new(path)
+            Path::new(path)
                 .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("swf"))
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("swf"))
         })
         .collect();
     let mut inputs = vec![];
@@ -257,7 +264,7 @@ pub fn build_cache(
         inputs.push((path, data));
     }
     hash_part(&mut hash, decompiler.identity()?.as_bytes());
-    let key = format!("{:x}", hash.finalize());
+    let key = digest(&hash.finalize());
     let directory = root.join(&key);
     if let Some(cache) = cached(&directory, &key) {
         return Ok(cache);

@@ -957,3 +957,18 @@ guarantee. Earlier failed diagnostic runs remain recorded above.
 ```text
 PRF-11 actors=7 frames=3600 seconds=60 evaluations=24900 worst_ai_us=1756.340 failures=0
 ```
+
+### TST-18 installed gameplay frame budget
+
+`godot/tst_18_frame_budget_test.gd` follows the walkthrough's installed-data
+startup in the Bannered Mare, then starts gameplay in the WhiterunWorld
+exterior. It runs ten warm-up frames followed by 3,600 fixed 60 Hz frames in
+each location, requires NPCs and package evaluations, and checks every
+measured gameplay step against the PRF-07 p99 budget of 16.7 ms and
+worst-frame budget of 33 ms. Each sample times one fixed `PlayerNode.advance`
+call. Headless walkthrough startup skips viewport pipeline warm-up.
+Run the check after building and importing the release extension:
+
+```text
+SOE_GODOT_BIN --headless --path godot --script tst_18_frame_budget_test.gd
+```

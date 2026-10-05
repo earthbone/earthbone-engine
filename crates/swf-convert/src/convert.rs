@@ -164,38 +164,6 @@ fn string(value: &swf::SwfStr, version: u8) -> String {
     value.to_string_lossy(swf::SwfStr::encoding_for_version(version))
 }
 
-fn read_tags(data: &[u8], version: u8, nesting: usize) -> swf::error::Result<Vec<Tag<'_>>> {
-    if nesting > 64 {
-        return Err(swf::error::Error::invalid_data("sprite nesting exceeds 64"));
-    }
-    let mut reader = swf::read::Reader::new(data, version);
-    let mut tags = Vec::new();
-    loop {
-        // CONTEXT: SkyUI icon sprites omit End at their declared byte boundary.
-        if nesting > 0 && reader.get_ref().is_empty() {
-            break;
-        }
-        let mut header = swf::read::Reader::new(reader.get_ref(), version);
-        let (code, length) = header.read_tag_code_and_length()?;
-        let tag = if code == swf::TagCode::DefineSprite as u16 {
-            let mut sprite = swf::read::Reader::new(header.read_slice(length)?, version);
-            reader = header;
-            Tag::DefineSprite(swf::Sprite {
-                id: sprite.read_u16()?,
-                num_frames: sprite.read_u16()?,
-                tags: read_tags(sprite.get_ref(), version, nesting + 1)?,
-            })
-        } else {
-            reader.read_tag()?
-        };
-        if tag == Tag::End {
-            break;
-        }
-        tags.push(tag);
-    }
-    Ok(tags)
-}
-
 /// Parse and convert one SWF's art and authored display lists.
 ///
 /// # Errors
@@ -211,15 +179,11 @@ pub fn convert(bytes: &[u8]) -> Result<Movie, Error> {
         ));
     }
     let buffer = swf::decompress_swf(bytes).map_err(|e| Error::Swf(e.to_string()))?;
-    let source = swf::Swf {
-        header: buffer.header.clone(),
-        tags: read_tags(&buffer.data, buffer.header.version(), 0)
-            .map_err(|e| Error::Swf(e.to_string()))?,
-    };
+    let tags = read_tags(&buffer.data, buffer.header.version(), 0)?;
     let mut movie = Movie {
-        version: source.header.version(),
-        stage: geometry::bounds(*source.header.stage_size()),
-        frame_rate: source.header.frame_rate().to_f64(),
+        version: buffer.header.version(),
+        stage: geometry::bounds(*buffer.header.stage_size()),
+        frame_rate: buffer.header.frame_rate().to_f64(),
         symbols: BTreeMap::new(),
         imports: BTreeMap::new(),
         meshes: BTreeMap::new(),
@@ -232,10 +196,59 @@ pub fn convert(bytes: &[u8]) -> Result<Movie, Error> {
         action_blocks: 0,
         unsupported_tags: vec![],
     };
-    timeline(&source.tags, 0, source.header.num_frames(), &mut movie, 0)?;
+    timeline(&tags, 0, buffer.header.num_frames(), &mut movie, 0)?;
     movie.unsupported_tags.sort_unstable();
     movie.unsupported_tags.dedup();
     Ok(movie)
+}
+
+fn read_tags(mut bytes: &[u8], version: u8, nesting: usize) -> Result<Vec<Tag<'_>>, Error> {
+    if nesting > 64 {
+        return Err(Error::Invalid("sprite nesting exceeds 64".into()));
+    }
+    let mut tags = Vec::new();
+    while !bytes.is_empty() {
+        let mut reader = swf::read::Reader::new(bytes, version);
+        let (code, length) = reader
+            .read_tag_code_and_length()
+            .map_err(|e| Error::Swf(e.to_string()))?;
+        let payload = reader
+            .get_ref()
+            .get(..length)
+            .ok_or_else(|| Error::Swf("truncated tag payload".into()))?;
+        if code == 0 {
+            break;
+        }
+        let tag = if code == 39 {
+            // CONTEXT: Installed SkyUI sprites omit End. Ruffle bounds sprite streams.
+            let mut sprite = swf::read::Reader::new(payload, version);
+            let id = sprite.read_u16().map_err(|e| Error::Swf(e.to_string()))?;
+            let num_frames = sprite.read_u16().map_err(|e| Error::Swf(e.to_string()))?;
+            Tag::DefineSprite(swf::Sprite {
+                id,
+                num_frames,
+                tags: read_tags(sprite.get_ref(), version, nesting + 1)?,
+            })
+        } else if matches!(code, 26 | 70) {
+            let mut place_reader = swf::read::Reader::new(payload, version);
+            let place = place_reader
+                .read_place_object_2_or_3(if code == 26 { 2 } else { 3 })
+                .map_err(|e| Error::Swf(e.to_string()))?;
+            if !place_reader.get_ref().is_empty() {
+                return Err(Error::Invalid(format!(
+                    "PlaceObject tag {code} has trailing payload bytes"
+                )));
+            }
+            Tag::PlaceObject(Box::new(place))
+        } else {
+            swf::read::Reader::new(bytes, version)
+                .read_tag()
+                .map_err(|e| Error::Swf(e.to_string()))?
+        };
+        tags.push(tag);
+        bytes = &reader.get_ref()[length..];
+    }
+    Ok(tags)
 }
 
 fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
@@ -470,12 +483,11 @@ fn timeline(
                         filters: vec![],
                     },
                     PlaceObjectAction::Modify | PlaceObjectAction::Replace(_) => {
-                        display.get(&place.depth).cloned().ok_or_else(|| {
-                            Error::Invalid(format!(
-                                "timeline {id} modifies empty depth {}",
-                                place.depth
-                            ))
-                        })?
+                        let Some(previous) = display.get(&place.depth).cloned() else {
+                            // CONTEXT: Ruffle ignores updates to empty depths during frame playback.
+                            continue;
+                        };
+                        previous
                     }
                 };
                 if let PlaceObjectAction::Replace(character) = place.action {
@@ -531,12 +543,12 @@ fn timeline(
             _ => {}
         }
     }
-    // CONTEXT: SkyUI static icon sprites can omit their sole ShowFrame tag.
-    if id != 0 && declared_frames == 1 && frames.is_empty() {
+    if id != 0 && frames.len() + 1 == declared_frames as usize && !display.is_empty() {
+        // CONTEXT: SkyUI icon sprites retain their final display without ShowFrame.
         frames.push(Frame {
-            index: 0,
+            index: frames.len(),
             labels,
-            display_list: display.into_values().collect(),
+            display_list: display.values().cloned().collect(),
         });
     }
     if frames.len() != declared_frames as usize {
