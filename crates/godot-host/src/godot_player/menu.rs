@@ -50,7 +50,65 @@ pub(super) struct MenuView {
 }
 
 impl PlayerNode {
+    pub(super) fn advance_ambient_dialogue(&mut self) {
+        let ambient = self
+            .game
+            .as_ref()
+            .is_some_and(|game| game.ambient_dialogue());
+        if !ambient {
+            if self.ambient_response.take().is_some() {
+                self.stop_dialogue_voice();
+            }
+            return;
+        }
+        let line = self
+            .game
+            .as_ref()
+            .and_then(|game| game.dialogue_line().ok().flatten());
+        if line != self.ambient_response {
+            if let Some(line) = &line {
+                self.play_dialogue_voice(line);
+            }
+            self.ambient_response = line;
+            return;
+        }
+        let playing = self.dialogue_voice_slot.is_some_and(|slot| {
+            self.sound_bank
+                .as_ref()
+                .is_some_and(|bank| bank.bind().voice_playing(slot))
+        });
+        if !playing {
+            let next = self.game.as_mut().and_then(|game| {
+                match game.advance_dialogue() {
+                    Ok(Some(line)) => Some(line),
+                    Ok(None) => { game.close_dialogue(); None }
+                    Err(error) => {
+                        soe_trace::error!(target: "host::audio", system = "host::audio", "ambient dialogue: {error}");
+                        game.close_dialogue();
+                        None
+                    }
+                }
+            });
+            if let Some(line) = &next {
+                self.play_dialogue_voice(line);
+            } else {
+                self.stop_dialogue_voice();
+            }
+            self.ambient_response = next;
+        }
+    }
+
     pub(super) fn present_player_input_dialogue(&mut self) {
+        if self
+            .game
+            .as_ref()
+            .is_some_and(|game| game.ambient_dialogue())
+        {
+            return;
+        }
+        if self.ambient_response.take().is_some() {
+            self.stop_dialogue_voice();
+        }
         let line = self
             .game
             .as_ref()
@@ -198,6 +256,9 @@ impl PlayerNode {
             &mut self.dialogue_voice_slot,
             asset.as_ref(),
         );
+        if asset.is_some() && self.dialogue_voice_slot.is_none() {
+            soe_trace::error!(target: "host::audio", system = "host::audio", "dialogue voice: {}", bank.bind().last_error());
+        }
     }
 
     pub(super) fn create_menu(&mut self) {
@@ -788,6 +849,9 @@ impl PlayerNode {
         let listener = game.player();
         if game.begin_dialogue(speaker, listener).is_err() {
             return false;
+        }
+        if self.ambient_response.take().is_some() {
+            self.stop_dialogue_voice();
         }
         if !self.open_menu("Dialogue".into()) {
             if let Some(game) = self.game.as_mut() {

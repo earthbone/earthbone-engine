@@ -1776,3 +1776,9 @@ mod prf_13_entities;
 mod prf_22_adversarial;
 #[path = "prf_22_sessions.rs"]
 mod prf_22_sessions;
+
+#[path = "aud_11_audio.rs"]
+mod aud_11_audio;
+
+#[path = "aud_11_adversarial.rs"]
+mod aud_11_adversarial;

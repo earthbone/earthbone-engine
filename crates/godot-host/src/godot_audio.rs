@@ -123,6 +123,7 @@ pub struct SoundBank {
     music_current_fade_out: f32,
     music_fade: Option<MusicFadeState>,
     ambience: Option<Gd<AudioStreamPlayer>>,
+    descriptor_ambience: Vec<Gd<AudioStreamPlayer>>,
     dialogue_voice: crate::dialogue_menu::DialogueVoice,
     effect_starts: u64,
     voice_starts: u64,
@@ -184,6 +185,7 @@ impl INode3D for SoundBank {
             music_current_fade_out: 0.0,
             music_fade: None,
             ambience: None,
+            descriptor_ambience: Vec::new(),
             dialogue_voice: crate::dialogue_menu::DialogueVoice::default(),
             effect_starts: 0,
             voice_starts: 0,
@@ -244,6 +246,46 @@ impl SoundBank {
         if let Some(player) = &mut self.ambience {
             player.stop();
         }
+        for mut player in self.descriptor_ambience.drain(..) {
+            player.stop();
+            player.queue_free();
+        }
+    }
+
+    pub(crate) fn play_ambience_descriptor(
+        &mut self,
+        plan: &soe_game::sound::SoundPlayback,
+    ) -> bool {
+        if !matches!(plan.looping, 0 | 8) {
+            self.last_error = "ambience envelope loop mode is unsupported".into();
+            return false;
+        }
+        let (stream, _, _) = match self.stream(&plan.data_path) {
+            Ok(decoded) => decoded,
+            Err(error) => {
+                self.last_error = error.as_str().into();
+                return false;
+            }
+        };
+        let mut own_stream = AudioStreamWav::new_gd();
+        own_stream.set_data(&stream.get_data());
+        own_stream.set_format(stream.get_format());
+        own_stream.set_mix_rate(stream.get_mix_rate());
+        own_stream.set_stereo(stream.is_stereo());
+        if plan.looping == 8 {
+            own_stream.set_loop_mode(audio_stream_wav::LoopMode::FORWARD);
+            own_stream.set_loop_end(stream.get_data().len() as i32 / 2);
+        }
+        let mut player = AudioStreamPlayer::new_alloc();
+        player.set_stream(&own_stream);
+        player.set_pitch_scale(plan.pitch);
+        player.set_volume_db(linear_to_db(plan.gain));
+        self.base_mut().add_child(&player);
+        player.play();
+        self.descriptor_ambience.push(player);
+        self.ambience_starts += 1;
+        self.last_error = GString::new();
+        true
     }
 
     /// Start a non-positional ambience track resolved from a MUST record.
@@ -443,6 +485,18 @@ impl SoundBank {
         self.pool.release(slot);
         self.dialogue_voice.stop(slot);
         true
+    }
+
+    pub(crate) fn voice_playing(&self, slot: i32) -> bool {
+        usize::try_from(slot).is_ok_and(|slot| {
+            self.pool
+                .peek(slot)
+                .is_some_and(|playing| playing.kind == Kind::Voice)
+                && self
+                    .players
+                    .get(slot)
+                    .is_some_and(|player| player.is_playing())
+        })
     }
 
     /// Play a decoded music file with the supplied record fade durations.
@@ -647,7 +701,7 @@ impl SoundBank {
         true
     }
 
-    fn stop_music(&mut self) {
+    pub(crate) fn stop_music(&mut self) {
         self.music_generation = self.music_generation.wrapping_add(1);
         if self.music_players.len() != 2 {
             return;
