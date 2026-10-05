@@ -10,7 +10,7 @@ fn id(object: u32) -> GlobalFormId {
 
 #[test]
 fn rnd_18_lgtm_data_accepts_optional_directional_ambient_block() {
-    let mut data = vec![0; 40];
+    let mut data = vec![0; 64];
     data[0..4].copy_from_slice(&[20, 30, 40, 0]);
     data[4..8].copy_from_slice(&[50, 60, 70, 0]);
     data[8..12].copy_from_slice(&[80, 90, 100, 0]);
@@ -35,7 +35,7 @@ fn rnd_18_lgtm_data_accepts_optional_directional_ambient_block() {
     order.add("Lighting.esm", plugin).expect("load fixture");
     let light = World::new(order)
         .interior_lighting(id(31))
-        .expect("valid 40-byte LGTM/DATA prefix");
+        .expect("valid 64-byte LGTM/DATA body");
 
     assert_eq!(light.ambient, [20.0 / 255.0, 30.0 / 255.0, 40.0 / 255.0]);
     assert_eq!(light.ambient_directions, [[120.0 / 255.0; 3]; 6]);
