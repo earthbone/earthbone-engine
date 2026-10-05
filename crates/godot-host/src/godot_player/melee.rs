@@ -285,16 +285,20 @@ impl PlayerNode {
     /// Follow the shared World: one body per resident actor, moved to its
     /// current placement, and none for actors that left or were disabled.
     pub(super) fn sync_actor_bodies(&mut self) -> bool {
+        self.sync_actor_bodies_and_contacts().is_some()
+    }
+
+    pub(super) fn sync_actor_bodies_and_contacts(
+        &mut self,
+    ) -> Option<Vec<soe_game::world::ContactActor>> {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Physics);
-        let Some(world) = self.base().get_world_3d() else {
-            return false;
-        };
+        let world = self.base().get_world_3d()?;
         let space = world.get_space();
         if !space.is_valid() {
-            return false;
+            return None;
         }
         let Some(game) = &self.game else {
-            return false;
+            return None;
         };
         let mut shared = game.world_mut();
         for (actor, position) in self.actor_bodies.thrown_actor_poses() {
@@ -305,7 +309,8 @@ impl PlayerNode {
         }
         let actors = shared.contact_actors();
         let living: Vec<_> = actors
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|actor| {
                 shared.actor(actor.actor).is_none_or(|state| {
                     !crate::ragdoll::actor_uses_ragdoll(
@@ -317,7 +322,7 @@ impl PlayerNode {
             })
             .collect();
         self.actor_bodies.sync(space, &living);
-        true
+        Some(actors)
     }
 
     /// Route one graph event through the shared contact latch. `segment`

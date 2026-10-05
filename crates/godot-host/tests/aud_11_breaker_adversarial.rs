@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
 
 //! Checks that the walkthrough's ambience count tracks successful starts.
+
+#[path = "common/aud_11.rs"]
+mod aud_11;
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -26,20 +30,12 @@ fn aud_11_ambience_counter_ignores_missing_assets_and_counts_restarts() {
         eprintln!("skipping: SOE_GODOT_BIN is not set");
         return;
     };
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace = manifest.join("../..");
-    let project = workspace.join("godot");
-    let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(
-        extension.exists(),
-        "missing release extension: {}",
-        extension.display()
-    );
+    let project = aud_11::project(&[]);
 
     let script_file = tempfile::Builder::new()
         .prefix("aud_11_breaker_")
         .suffix(".gd")
-        .tempfile_in(&project)
+        .tempfile_in(project.path())
         .expect("temporary Godot test script is created");
     std::fs::write(
         script_file.path(),
@@ -82,10 +78,12 @@ func run() -> void:
 
     let output = Command::new(godot)
         .args(["--headless", "--path"])
-        .arg(&project)
+        .arg(project.path())
         .arg("--script")
         .arg(script_file.path())
         .env("SKYRIM_DATA", data)
+        .env("XDG_DATA_HOME", project.path())
+        .env("XDG_CACHE_HOME", project.path())
         .output()
         .expect("Godot process starts");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -107,22 +105,16 @@ fn aud_11_window_run_has_all_four_audio_paths_and_mixer_signal() {
         eprintln!("skipping: SOE_GODOT_BIN is not set");
         return;
     };
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace = manifest.join("../..");
-    let project = workspace.join("godot");
-    let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(
-        extension.exists(),
-        "missing release extension: {}",
-        extension.display()
-    );
+    let project = aud_11::project(&["walkthrough.gd", "render_warmup.gd", "system_overlay.gd"]);
 
     let output = Command::new(godot)
         .args(["--path"])
-        .arg(&project)
+        .arg(project.path())
         .args(["--windowed", "--resolution", "640x360", "--script"])
-        .arg(workspace.join("godot/walkthrough.gd"))
+        .arg(project.path().join("walkthrough.gd"))
         .env("SKYRIM_DATA", data)
+        .env("XDG_DATA_HOME", project.path())
+        .env("XDG_CACHE_HOME", project.path())
         .env("SOE_AUD_11_TEST", "1")
         .output()
         .expect("windowed Godot walkthrough starts");

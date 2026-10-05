@@ -1059,6 +1059,12 @@ mod prg_16_data_length_adversarial;
 #[path = "prg_16_purchase_data_semantics.rs"]
 mod prg_16_purchase_data_semantics;
 
+#[path = "prf_33_adversarial.rs"]
+mod prf_33_adversarial;
+#[path = "prf_33_breaker_adversarial.rs"]
+mod prf_33_breaker_adversarial;
+#[path = "prf_33_quest_startup.rs"]
+mod prf_33_quest_startup;
 #[path = "prg_17_adversarial.rs"]
 mod prg_17_adversarial;
 #[path = "prg_17_breaker_adversarial.rs"]
@@ -1716,3 +1722,12 @@ mod prf_17_adversarial;
 mod prf_17_breaker_adversarial;
 #[path = "prf_17_workers.rs"]
 mod prf_17_workers;
+
+#[path = "prf_13_adversarial.rs"]
+mod prf_13_adversarial;
+#[path = "prf_13_entities.rs"]
+mod prf_13_entities;
+#[path = "prf_22_adversarial.rs"]
+mod prf_22_adversarial;
+#[path = "prf_22_sessions.rs"]
+mod prf_22_sessions;

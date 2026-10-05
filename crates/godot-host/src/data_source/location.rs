@@ -215,7 +215,7 @@ impl DataSource {
     }
 
     /// Worldspace ownership comes from the winning CELL's own file namespace.
-    #[cfg(feature = "godot")]
+    #[cfg(any(feature = "godot", test))]
     pub(crate) fn exterior_world(&self, cell: GlobalFormId) -> Option<GlobalFormId> {
         if self.cell_index().is_interior(cell) {
             return None;

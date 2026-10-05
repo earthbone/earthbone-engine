@@ -1,29 +1,32 @@
 # soe-game: the runtime form table and the first natives
 
-## Initial inventory list selection, UI-25
+## Entity runtime hooks, PRF-13
 
-Fresh references resolve CNTO and distributed LVLI quantities through the
-existing `World::roll_leveled_inventory` path at their encounter level.
-Concrete quantities and leaf COED stacks replace the list entries in the
-shared reference inventory before outfit application. Repeated reference
-lookups use those stacks without another roll. Dynamic containers and the
-fallback player inventory use the same resolver. Invalid initial lists reject
-authored reference construction or disable a dynamic placement with an empty
-inventory. Failed selection restores the resolver's RNG state.
-Vendor VEND lists that name an LVLI match its descendant item forms after
-stock materialization, without another roll during vendor refresh.
+Optional scopes attribute actor planning, package evaluation, driver movement
+and procedure movement by resolved FormID. Resumed navigation and marker
+jobs carry their requesting actor's planning identity. Quest start, stop, stage changes,
+reference and location alias fills, forced alias changes and quest condition
+evaluations carry quest identities. Reached CTDA predicates carry caller IDs
+and separate dialogue, perk, magic, package and quest categories, including
+failed predicates. Dialogue identifies the topic and INFO. Perk dispatch
+identifies the entry-point code, section and condition tab. Other callers use
+the condition owner record. Ownership follows that owner even when a dialogue
+topic belongs to another plugin. Package conditions use their own evaluator.
 
-The existing inventory writer stores the concrete result. Native save loading
-and vanilla inventory restoration retain their supplied inventory and do not
-generate fresh contents. This adds no field or save section. The raw authored
-inventory builder remains available to the vanilla inventory delta importer.
+Form ownership follows local Mutagen `docs/plugins/ModKey, FormKey, FormLink.md`.
+It uses the plugin that defines the resolved FormID, even when
+another plugin supplies its winning override. Created forms use `<created>`.
+Runtime record overrides carry the same diagnostic identity. Script loading
+maps the winning VFS archive stem to a loaded plugin stem. Loose script files
+retain their winning path as a provider label because VFS has no plugin
+ownership for loose roots. `Vm::set_script_plugin` accepts an explicit provider.
 
-The source is local UESP `LVLI.wikitext` and the repository's shared LVLI
-resolver, which implements xEdit's list flags, nested counts and COED metadata.
-UI-25 reuses it because a menu-specific list selection would create a second
-inventory and change the result on refresh. `ui_25_initial_inventory.rs` checks
-concrete counts, repeated lookup, native save reload, dynamic placement and
-invalid cyclic lists.
+`SOE_PROFILE=1` enables capture on Game construction. Dropping a headless Game
+writes `soe-profile.json` and `soe-entities.json` into `SOE_PROFILE_DIR`, or the
+current directory when unset. Write failures are reported. This process-wide
+capture is independent of world state and adds no saved sections. The
+`prf_13_` integration tests exercise two actors, two scripts, one quest, all
+five predicate categories and installed master record ownership.
 
 ## Per-system frame timing, PRF-12
 
@@ -48,6 +51,31 @@ The fixed-slot timing model is documented in [trace.md](trace.md).
 `prf_12_frame` tests check tick accounting, paused idle systems and host/save
 snapshots. Its optimized 1,000-actor calibration uses the public record
 builders and travel/sandbox fixture from `crates/bench/src/stress/fixtures.rs`.
+
+## Initial inventory list selection, UI-25
+
+Fresh references resolve CNTO and distributed LVLI quantities through the
+existing `World::roll_leveled_inventory` path at their encounter level.
+Concrete quantities and leaf COED stacks replace the list entries in the
+shared reference inventory before outfit application. Repeated reference
+lookups use those stacks without another roll. Dynamic containers and the
+fallback player inventory use the same resolver. Invalid initial lists reject
+authored reference construction or disable a dynamic placement with an empty
+inventory. Failed selection restores the resolver's RNG state.
+Vendor VEND lists that name an LVLI match its descendant item forms after
+stock materialization, without another roll during vendor refresh.
+
+The existing inventory writer stores the concrete result. Native save loading
+and vanilla inventory restoration retain their supplied inventory and do not
+generate fresh contents. This adds no field or save section. The raw authored
+inventory builder remains available to the vanilla inventory delta importer.
+
+The source is local UESP `LVLI.wikitext` and the repository's shared LVLI
+resolver, which implements xEdit's list flags, nested counts and COED metadata.
+UI-25 reuses it because a menu-specific list selection would create a second
+inventory and change the result on refresh. `ui_25_initial_inventory.rs` checks
+concrete counts, repeated lookup, native save reload, dynamic placement and
+invalid cyclic lists.
 
 The MIT CommonLib shim's `WorldState` implementation reads and writes actor
 values in the existing actor component store for actors already built in the
@@ -177,6 +205,26 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   Kit archetype table describes it as unknown. See
   [combat AI](combat-ai.md) for the formula sources and what remains.
 
+Detection batches cache each observer's Sneak, Blindness and combat target,
+and each target's Sneak, invisibility, movement noise and worn armor weight.
+An observer's combat awareness is indexed once per batch. Alert and busy
+modifiers remain specific to each pair. Previously known pairs absent from a
+batch receive a negative value, the lesser of the base detection value and
+negative one, only when their enabled references occupy the same resident
+cell farther apart than `fSneakMaxDistance`. Their existing loss and recovery
+timers then advance without creating awareness for distant strangers.
+
+`World::light_references_in_cell` caches authored LIGH reference identities
+per cell and tracks instantiated light identities, including runtime spawns.
+It reads current reference cells when returning its sorted list, so moved
+lights leave their authored cell and enter their destination. Disabled and
+deleted identities remain in the list, visibility is read by the sampler.
+Cell prefetch builds membership before detection. Native-save load and vanilla
+reference restoration invalidate this derived index. The cache adds no saved
+fields. REFR/NAME and LIGH identity come from local
+`TES5Edit/Core/wbDefinitionsTES5.pas`, placement and visibility remain in
+`World::RefState`.
+
 CTDA function 513, `IsCombatTarget`, checks whether the condition subject's
 saved combat target is the placed NPC in parameter 1. It uses the same
 `ActorState::combat_target` relationship as `Actor.GetCombatTarget` and
@@ -299,6 +347,37 @@ declarations, the CommonLib source-level API, and its contract fixtures are in
 `crates/commonlib-shim`. Source headers are documented in `docs/shim.md`.
 
 ## Design
+
+### Recorded input sessions, PRF-22
+
+`player_input::Driver::start_recording` resets the existing gameplay RNG
+streams to the supplied seed and captures the initial SOEG world and VM state.
+It retains executed PLY-01 commands and their success or rejection messages.
+Hashes cover the initial state, each 60-frame boundary and a final partial
+interval. `finish_recording` returns a `Session`, whose version-one SOER file
+uses the existing Papyrus Reader/Writer encoding and a payload CRC32.
+Truncated files, trailing bytes, unknown command tags, invalid transforms and
+missing or unordered checkpoint logs return errors.
+
+`start_replay` requires identical plugin and script provenance and validates
+the snapshot before loading it. The session also restores cell residency,
+reference 3D residency, deferred unload, binding bookkeeping, greeting range,
+held casting hands, MCM registration state and VM native-call counters. These transient inputs to
+gameplay are recorded separately because loading a native save clears or
+rebuilds them. Replay consumes the shared fixed-step queue, checks every
+outcome and scheduled hash, and stops at the first divergence. The error
+names its frame and differing hash subsystems. Queue and recording state
+remain diagnostic data, outside native saves and gameplay hashes.
+Definitions and runtime providers must be loaded before replay, as for SOEG.
+
+The session design follows the local Godot
+`godot-docs/tutorials/math/random_number_generation.rst` seed contract.
+The existing PLY-01 executor and SOEG snapshot already implement the required
+gameplay and state transport, so the session does not replace either reader.
+`prf_22_` tests record 600 frames with a running random and latent VM loop,
+replay twice, compare all checkpoints and events, and exercise corrupt files,
+changed definitions, rejected actions and divergence reporting.
+Game ticks also add exclusive system totals to active PRF-13 captures.
 
 ### Scripted player input, PLY-01
 
@@ -2690,6 +2769,18 @@ Create Reference to Object (`ALCO`), are not created by this path, and aliases
 with `ALCO` are excluded from this placed-reference search. Closest search
 remains unsupported because local format sources do not establish the runtime
 distance origin or tie rule.
+
+PRF-33 skips candidate construction when a quest has no searched reference
+aliases. The first search derives a candidate index from the immutable load
+order's sorted winners. The World retains at most 4,096 FormIDs, or an overflow
+marker when the bound is exceeded, and reuses that result on later starts.
+Enabled, dead, destroyed and resident state, conditions and alias reuse are
+evaluated on each start. Runtime-created references remain outside this
+authored search, as before. The index is not saved and adds no save section.
+The implementation reuses `LoadOrder::winners` rather than introducing another
+record database. `prf_33_quest_startup.rs` covers repeated starts, live
+eligibility, winning overrides, search bounds, aliases and startup stages.
+`startup_timing` reports startup phases through optional `soe-trace` spans.
 
 **Specific location aliases, AI-18.** `Quest.Start` resolves a location
 alias's `ALFL` through the quest plugin's load-order namespace and fills it

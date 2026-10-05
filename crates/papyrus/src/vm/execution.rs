@@ -22,6 +22,26 @@ impl Vm {
                 coverage.record(frame, &self.scripts);
             }
             if frame.pc >= frame.function.code.len() {
+                let _entity = soe_trace::EntityScope::new(
+                    || {
+                        let script = frame
+                            .script
+                            .as_ref()
+                            .map_or("<native>", |script| script.name.as_str());
+                        let plugin = self
+                            .script_plugins
+                            .get(&script.to_ascii_lowercase())
+                            .map_or("<unknown>", String::as_str);
+                        soe_trace::Entity::new(
+                            "script",
+                            format!("{script}.{}", frame.function.name),
+                            plugin,
+                            "execute",
+                        )
+                    },
+                    u64::from(!frame.profile_recorded),
+                );
+                frame.profile_recorded = true;
                 // Falling off the end returns None.
                 self.return_from(t, Value::None);
                 n += 1;
@@ -36,9 +56,47 @@ impl Vm {
             let ins = &function.code[pc];
             self.threads[t].frames.last_mut().unwrap().pc += 1;
             n += 1;
+            let _entity = soe_trace::EntityScope::new(
+                || {
+                    let script = profile_script.as_deref().unwrap_or("<native>");
+                    let plugin = self
+                        .script_plugins
+                        .get(&script.to_ascii_lowercase())
+                        .map_or("<unknown>", String::as_str);
+                    soe_trace::Entity::new(
+                        "script",
+                        format!("{script}.{profile_name}"),
+                        plugin,
+                        "execute",
+                    )
+                },
+                u64::from(profile_first_call),
+            );
             soe_trace::count(soe_trace::Operation::PapyrusInstructions, 1);
             let started = Instant::now();
             self.exec(t, ins.op, &ins.args);
+            if !matches!(
+                self.threads[t].state,
+                ThreadState::Runnable | ThreadState::Done
+            ) {
+                soe_trace::Profile::wait(
+                    || {
+                        let script = profile_script.as_deref().unwrap_or("<native>");
+                        let plugin = self
+                            .script_plugins
+                            .get(&script.to_ascii_lowercase())
+                            .map_or("<unknown>", String::as_str);
+                        soe_trace::Entity::new(
+                            "script",
+                            format!("{script}.{profile_name}"),
+                            plugin,
+                            "latent_wait",
+                        )
+                    },
+                    0.0,
+                    1,
+                );
+            }
             if let Some(script) = profile_script {
                 let thread_id = self.threads[t].id;
                 let mut profiler = self.profiling.borrow_mut();

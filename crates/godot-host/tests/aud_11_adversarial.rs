@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
 
 //! Independently checks each audio path reported by the installed-data window run.
+
+#[path = "common/aud_11.rs"]
+mod aud_11;
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -17,31 +21,24 @@ fn report_value<'a>(report: &'a str, key: &str) -> &'a str {
 
 #[test]
 fn aud_11_window_run_reports_each_nonzero_audio_path_and_full_duration() {
-    let data = std::env::var_os("SKYRIM_DATA")
-        .map(PathBuf::from)
-        .expect("SKYRIM_DATA is required for the installed-data check");
-    let godot = std::env::var_os("SOE_GODOT_BIN")
-        .map(PathBuf::from)
-        .expect("SOE_GODOT_BIN is required for the windowed check");
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace = manifest.join("../..");
-    let project = workspace.join("godot");
-    let target = std::env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| workspace.join("target"));
-    let extension = target.join("release/libsoe_godot_host.so");
-    assert!(
-        extension.exists(),
-        "missing release extension: {}",
-        extension.display()
-    );
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    };
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from) else {
+        eprintln!("skipping: SOE_GODOT_BIN is not set");
+        return;
+    };
+    let project = aud_11::project(&["walkthrough.gd", "render_warmup.gd", "system_overlay.gd"]);
 
     let output = Command::new(godot)
         .args(["--path"])
-        .arg(&project)
+        .arg(project.path())
         .args(["--windowed", "--resolution", "640x360", "--script"])
-        .arg(workspace.join("godot/walkthrough.gd"))
+        .arg(project.path().join("walkthrough.gd"))
         .env("SKYRIM_DATA", data)
+        .env("XDG_DATA_HOME", project.path())
+        .env("XDG_CACHE_HOME", project.path())
         .env("SOE_AUD_11_TEST", "1")
         .output()
         .expect("Godot walkthrough process starts");

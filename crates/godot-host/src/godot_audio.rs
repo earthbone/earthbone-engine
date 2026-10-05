@@ -877,6 +877,21 @@ impl SoundBank {
         } else {
             0.0
         });
+        let _entity = soe_trace::EntityScope::new(
+            || {
+                soe_trace::Entity::new(
+                    "output",
+                    if kind == Kind::Voice {
+                        "audio_voices"
+                    } else {
+                        "audio_effects"
+                    },
+                    "<host>",
+                    "started",
+                )
+            },
+            1,
+        );
         player.play();
         if kind == Kind::Voice {
             self.voice_starts += 1;

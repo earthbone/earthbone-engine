@@ -20,6 +20,52 @@ fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
         .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
         .arg(workspace.join("target"))
         .output()
+        .expect("release extension build starts");
+    assert!(
+        build.status.success(),
+        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let release_project = workspace.join("godot");
+    // CONTEXT: A fresh checkout needs an import to register its GDExtension.
+    let import = std::process::Command::new(&godot)
+        .args(["--headless", "--path"])
+        .arg(&release_project)
+        .arg("--import")
+        .output()
+        .expect("Godot project import starts");
+    assert!(
+        import.status.success(),
+        "Godot project import failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&import.stdout),
+        String::from_utf8_lossy(&import.stderr)
+    );
+    let release_output = std::process::Command::new(&godot)
+        .args(["--headless", "--path"])
+        .arg(&release_project)
+        .args(["--script", "prf_14_work_test.gd"])
+        .output()
+        .unwrap();
+    let release_stdout = String::from_utf8_lossy(&release_output.stdout);
+    let release_stderr = String::from_utf8_lossy(&release_output.stderr);
+    assert!(
+        release_output.status.success(),
+        "{release_stdout}\n{release_stderr}"
+    );
+    assert!(
+        release_stdout.contains("RESULT: PASS"),
+        "{release_stdout}\n{release_stderr}"
+    );
+    assert!(release_stdout.contains("PRF_14_COUNTS"), "{release_stdout}");
+    assert!(!release_stderr.contains("SCRIPT ERROR"), "{release_stderr}");
+
+    // CONTEXT: Cargo test does not refresh the release library Godot loads.
+    let build = std::process::Command::new(env!("CARGO"))
+        .current_dir(&workspace)
+        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
+        .arg(workspace.join("target"))
+        .output()
         .unwrap();
     assert!(
         build.status.success(),
