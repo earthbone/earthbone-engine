@@ -1,29 +1,5 @@
 # soe-game: the runtime form table and the first natives
 
-## Per-system frame timing, PRF-12
-
-`Game::tick` and `tick_menu_mode` record an always-on exclusive system frame
-through `soe-trace`. `Game::frame_history` exposes the last tick's breakdown
-and rolling p50, p99 and worst over 240 ticks, with zero samples for idle
-systems. The frame denominator is the tick's elapsed wall time, independent
-of the simulated time argument. This history is session data and is not saved.
-
-The tick times magic updates, scene/dialogue work, quest lifecycle and story
-manager dispatch, and Papyrus scheduling. The actor driver times package and path planning,
-movement and combat selection/pursuit. Per-actor movement bookkeeping stays
-in the outer movement scope. Combat timing starts after eligibility checks
-accept the actor, before scanning targets. Direct spell, melee and dialogue
-entry points also carry system scopes, including calls from Papyrus natives.
-Sound request queuing uses the audio slot and save serialization uses the
-save slot. Nested system scopes exclude their
-children's time. Host-only systems remain present with zero tick time.
-Host snapshots can surround ticks and include saves and input between them.
-
-The fixed-slot timing model is documented in [trace.md](trace.md).
-`prf_12_frame` tests check tick accounting, paused idle systems and host/save
-snapshots. Its optimized 1,000-actor calibration uses the public record
-builders and travel/sandbox fixture from `crates/bench/src/stress/fixtures.rs`.
-
 ## Initial inventory list selection, UI-25
 
 Fresh references resolve CNTO and distributed LVLI quantities through the
@@ -48,6 +24,30 @@ UI-25 reuses it because a menu-specific list selection would create a second
 inventory and change the result on refresh. `ui_25_initial_inventory.rs` checks
 concrete counts, repeated lookup, native save reload, dynamic placement and
 invalid cyclic lists.
+
+## Per-system frame timing, PRF-12
+
+`Game::tick` and `tick_menu_mode` record an always-on exclusive system frame
+through `soe-trace`. `Game::frame_history` exposes the last tick's breakdown
+and rolling p50, p99 and worst over 240 ticks, with zero samples for idle
+systems. The frame denominator is the tick's elapsed wall time, independent
+of the simulated time argument. This history is session data and is not saved.
+
+The tick times magic updates, scene/dialogue work, quest lifecycle and story
+manager dispatch, and Papyrus scheduling. The actor driver times package and path planning,
+movement and combat selection/pursuit. Per-actor movement bookkeeping stays
+in the outer movement scope. Combat timing starts after eligibility checks
+accept the actor, before scanning targets. Direct spell, melee and dialogue
+entry points also carry system scopes, including calls from Papyrus natives.
+Sound request queuing uses the audio slot and save serialization uses the
+save slot. Nested system scopes exclude their
+children's time. Host-only systems remain present with zero tick time.
+Host snapshots can surround ticks and include saves and input between them.
+
+The fixed-slot timing model is documented in [trace.md](trace.md).
+`prf_12_frame` tests check tick accounting, paused idle systems and host/save
+snapshots. Its optimized 1,000-actor calibration uses the public record
+builders and travel/sandbox fixture from `crates/bench/src/stress/fixtures.rs`.
 
 The MIT CommonLib shim's `WorldState` implementation reads and writes actor
 values in the existing actor component store for actors already built in the
@@ -8409,6 +8409,40 @@ wall-clock durations for scheduling, resumed navigation, actor processing,
 selection, conditions, switching, combat checks, movement and path requests.
 The host exposes these alongside total planning time. Nested phase durations
 overlap, so they are not a partition of total time.
+
+### Navigation workers, PRF-17
+
+Pending navigation requests resume on Rayon workers borrowing the world's NAVM
+graph and mesh-to-cell table. The dispatcher reserves node budgets before each
+batch and applies results in the previous rotating FormID order. Unused node
+reservations feed the next batch. Both one-worker and multi-worker execution
+retain the 64-node request and 512-node frame budgets. No request can advance
+twice in a frame. Cancellation and graph revision checks precede dispatch.
+
+`AiWorld::set_planning_workers` installs a dedicated pool with a nonzero size.
+Pool creation errors preserve the existing pool and pending work. Without an
+explicit pool, resumed requests use Rayon's shared pool, whose worker count
+can be set through `RAYON_NUM_THREADS` before its first use.
+`AiWorld::planning_workers` exposes completed jobs, busy time per worker,
+caller dispatch/join time and utilisation for the last tick. These measurements
+cover resumed navigation only. Busy time measures elapsed request execution,
+not operating-system CPU accounting. Its `phase_busy` table sums worker search
+durations and can exceed frame wall time. These sums stay separate from the
+calling thread's `planning_phases` timings. PRF-14's active work recorder enters each job,
+so worker path and triangle operations remain in the caller's frame totals.
+The resumed navigation dispatch/join interval is charged once to PRF-12's
+AI planning system, without adding worker busy durations to frame wall time.
+
+The dispatcher uses exclusive request borrows, with no application mutex held
+or acquired by a job. There is no per-lock wait measurement for Rayon's internal
+scheduler. Worker configuration, requests and timing data are transient and do
+not change saves. The pool is joined before world mutation resumes.
+
+Initial request setup and its first slice still run on the calling thread,
+as do package evaluation, marker selection, combat and movement. Papyrus
+execution is unchanged. [threading.md](threading.md) records the reference
+evidence and the unimplemented parts of PRF-17. The dependency uses the already
+locked Rayon, rayon-core, either and Crossbeam utilities.
 
 Marker and bed base filtering reads existing reference state first, or the
 winning placement's NAME, XLCN and cell when absent. It shares BOS base selection

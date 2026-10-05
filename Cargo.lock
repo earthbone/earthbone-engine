@@ -2659,6 +2659,7 @@ name = "soe-game"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
+ "rayon",
  "soe-audio",
  "soe-bsa",
  "soe-commonlib-shim",

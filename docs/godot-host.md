@@ -4481,6 +4481,8 @@ recorder for each ordered chunk.
 
 `godot/prf_14_work_test.gd` loads the installed Bannered Mare, compares actual
 instance creation with the streamed count and verifies empty-window reset.
+The Rust wrapper runs it in an isolated project with an explicit extension list,
+loading Cargo's current test-built library rather than a cached release build.
 It is a headless correctness check. The counter paths add no per-reference
 nodes and no saved state. The row uses the existing RenderingServer and
 PhysicsDirectSpaceState3D APIs described in the local Godot class docs.
