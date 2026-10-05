@@ -57,15 +57,21 @@ impl World {
     }
 
     pub fn record(&self, id: GlobalFormId) -> Option<&Record> {
-        self.record_overrides
+        let runtime = self
+            .record_overrides
             .get(&id)
             .map(|value| &value.record)
             .or_else(|| {
                 self.created_base_records
                     .get(&id)
                     .map(|value| &value.record)
-            })
-            .or_else(|| self.order.winner(id))
+            });
+        if runtime.is_some() {
+            soe_trace::count(soe_trace::Operation::RecordLookups, 1);
+            runtime
+        } else {
+            self.order.winner(id)
+        }
     }
 
     pub fn exists(&self, id: GlobalFormId) -> bool {

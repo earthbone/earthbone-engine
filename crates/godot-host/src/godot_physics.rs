@@ -53,6 +53,7 @@ pub fn ground_collision_position(
     let mut state = PhysicsServer3D::singleton()
         .space_get_direct_state(space)
         .ok_or("unavailable ground collision space")?;
+    soe_trace::count(soe_trace::Operation::Raycasts, 1);
     let result = state.intersect_ray(&query);
     let Some(hit) = result
         .get("position")

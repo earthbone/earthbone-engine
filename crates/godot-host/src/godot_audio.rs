@@ -87,6 +87,7 @@ impl crate::dialogue_menu::VoiceOutput for SoundBank {
     }
 
     fn stop_voice(&mut self, slot: i32) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         SoundBank::stop_voice(self, slot)
     }
 }
@@ -138,6 +139,7 @@ impl INode3D for SoundBank {
     }
 
     fn process(&mut self, _delta: f64) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         // A player that has stopped hands its slot back. Polling rather than
         // wiring the `finished` signal keeps the release in one place and
         // costs one bool per slot per frame.
@@ -170,6 +172,7 @@ impl SoundBank {
     #[func]
     #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn play_ambience(&mut self, data_path: GString) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         let data_path = data_path.to_string();
         let stream = match self.stream(&data_path) {
             Ok((stream, _, _)) => stream,
@@ -291,6 +294,7 @@ impl SoundBank {
         plan: &soe_game::sound::SoundPlayback,
         position: Vector3,
     ) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         if plan.looping != 0 {
             self.last_error = "descriptor loop/envelope playback is not connected".into();
             return -1;
@@ -389,6 +393,7 @@ impl SoundBank {
     }
 
     fn play(&mut self, data_path: &str, position: Vector3, kind: Kind) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         self.play_with(data_path, position, kind, None)
     }
 
@@ -464,6 +469,7 @@ impl SoundBank {
     }
 
     fn begin_music(&mut self, data_path: &str, fade_in: f32, fade_out: f32, abrupt: bool) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         if self.music_players.len() != 2 {
             self.last_error = "SoundBank must be inside the scene tree".into();
             return false;

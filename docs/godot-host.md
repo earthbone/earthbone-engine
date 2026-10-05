@@ -1,5 +1,41 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Per-system frame monitors, PRF-12
+
+PlayerNode registers one Godot Performance custom monitor per `soe-trace`
+system when it enters the tree and removes its own monitors when it leaves.
+The names are `SOE/<system>_ms`. A second player uses a category containing
+its instance ID to avoid duplicate monitor names. Values are nonnegative
+milliseconds from the latest completed presentation frame. The callbacks
+read timings without computing percentiles.
+
+The host records input callbacks, gathered controls, player physics and actor
+body sync, detection, streaming, audio work and render submission. Game scopes
+inside the host frame retain exclusive accounting. Host frames end after
+PlayerNode's process work and use elapsed wall time between these boundaries,
+including physics ticks, idle time and rendering waits. These scopes include waits inside host calls. They do not measure GPU
+execution or Godot's internal mixer/physics work.
+`system_frame_breakdown` returns last-frame milliseconds and percentages with
+rolling p50, p99 and worst. `system_summary` returns session totals, means
+and worst times with rolling percentiles for every system.
+
+The walkthrough's F3 overlay displays these values and writes
+`user://soe-systems.txt` on the player's `tree_exiting` signal, also printing
+the summary while the node remains valid. The overlay is
+one CanvasLayer with a panel and label, with no nodes per placed reference.
+`godot/prf_12_monitors_test.gd` reads every monitor in a live scene, checks
+duplicate-player ownership and removal, toggles the overlay with F3, verifies
+its labels and frame shares, and writes and reads the summary. A windowed run
+can save an overlay PNG through `SOE_PRF_12_CAPTURE`.
+
+Monitor naming, callable arguments, nonnegative values and removal follow
+local `engine-refs/godot-docs/classes/class_performance.rst`, checked against
+the [official Performance reference](https://docs.godotengine.org/en/stable/classes/class_performance.html).
+The binding uses only the Godot 4.4 API. No built-in process monitor supplies
+the frame denominator. Exit ownership follows local
+`godot-docs/classes/class_node.rst`. The fixed accumulator is described in
+[trace.md](trace.md).
+
 The HTML menu embedding research and proposed PrismaUI compatibility contract
 are in [ui-frameworks.md](ui-frameworks.md#html-menus-and-prismaui-compatibility-ui-22).
 They describe options only. No HTML renderer or PrismaUI API adapter is
@@ -4431,6 +4467,54 @@ leaves the active game untouched. The destination cell and all six pose
 components must be present and finite before the host sync starts. The Godot
 acceptance check saves a live player's generation and attaches it to a fresh
 player using the same installed cell data.
+
+## Deterministic host work, PRF-14
+
+`PlayerNode.work_counts` returns all ten operation counters from the last
+`advance`, including its nested game tick, rays, headless capsule queries and
+host render instance creation. `CellStreamerNode.begin_work_frame` and
+`end_work_frame` bracket synchronous scripted work and return the same counter
+names, including zeros. End a window before awaiting another frame.
+RenderingServer `instance_create2` calls charge one instance, including
+MultiMeshes, actor surfaces, particles, lights and occluders. Host physics ray
+calls charge one query. Counts describe engine submissions, excluding Godot's
+internal renderer and physics work. Data-source workers enter the caller's
+recorder for each ordered chunk.
+
+`godot/prf_14_work_test.gd` loads the installed Bannered Mare, compares actual
+instance creation with the streamed count and verifies empty-window reset.
+It is a headless correctness check. The counter paths add no per-reference
+nodes and no saved state. The row uses the existing RenderingServer and
+PhysicsDirectSpaceState3D APIs described in the local Godot class docs.
+
+## AI planning measurement, PRF-11
+
+`PlayerNode.prepare_ai_planning_check` prepares the active world's NAVM graph
+and query caches. `ai_planning_microseconds` reports the last shared AI driver
+tick, including door refresh, package evaluation, navigation slices and movement.
+`ai_package_evaluations` reports the active world's evaluation count.
+`ai_planning_details` reports door refresh, evaluation scheduling, resumed
+navigation, actor processing, automatic evaluations, package selection and
+switching, conditions, combat flags and target checks, combat acquisition,
+procedure movement, fleeing, pursuit and path requests, plus instantiated actor
+count. Navigation details include request setup, search advancement, route
+result conversion and fallback containment, and flee search. Procedure details
+include tree entry, marker selection and Turn Undead checks. Marker details
+include cell lookup, base filtering, bed classification, reference initialization
+and resumed scans.
+Actor details also separate state checks, Calm checks and evaluation eligibility.
+Phase durations include their nested calls. For example, conditions are
+also included in package selection, and new path requests in movement.
+These measurement hooks add no actor scene nodes or saved fields.
+
+`godot/prf_11_ai_planning_check.gd` starts the installed Bannered Mare through
+the normal gameplay entry point and manually advances 3,600 frames at 60 Hz.
+It requires at least five contact actors and executed package evaluations,
+and rejects any AI driver tick above 8 ms. Graph preparation and gameplay
+startup occur before the 60 simulated seconds of measurement. The script
+frees its host nodes and quits with its check result. It skips when
+`SKYRIM_DATA` is unset.
+The result also prints the worst frame's index and inclusive phase timings.
 
 ## Shared logging and controls, TOOL-06
 

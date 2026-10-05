@@ -360,6 +360,7 @@ impl World {
             return 0;
         }
         let built = self.prefetch_cell(cell);
+        crate::ai::nav_graph(self);
         self.mark_cell_3d_loaded(cell);
         self.reset_cell_on_load(cell);
         self.attached_cells.insert(cell);

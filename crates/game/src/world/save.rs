@@ -231,6 +231,7 @@ impl World {
     /// no record to fall back on, dynamic references included, so it is
     /// written in full.
     pub fn save_state(&self) -> Vec<u8> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Save);
         let mut pool = ArrayPool::new();
         let mut body = Writer::new();
 

@@ -30,6 +30,7 @@ pub(super) fn config() -> StreamConfig {
 
 impl PlayerNode {
     pub(super) fn advance_exterior(&mut self) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let feet = self.feet();
         let focus = SkyrimPos::new(feet.x, feet.y, feet.z);
         let (Some(exterior), Some(source), Some(streamer), Some(physics), Some(game)) = (

@@ -467,6 +467,7 @@ fn evaluate_one_with_vm(
     context: Context,
     c: &Condition,
 ) -> Result<bool, Error> {
+    soe_trace::count(soe_trace::Operation::Conditions, 1);
     if c.flags & 0x0a != 0 {
         return Err(Error::Flags(c.flags & 0x1f));
     }

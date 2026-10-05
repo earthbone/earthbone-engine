@@ -1,5 +1,29 @@
 # soe-game: the runtime form table and the first natives
 
+## Per-system frame timing, PRF-12
+
+`Game::tick` and `tick_menu_mode` record an always-on exclusive system frame
+through `soe-trace`. `Game::frame_history` exposes the last tick's breakdown
+and rolling p50, p99 and worst over 240 ticks, with zero samples for idle
+systems. The frame denominator is the tick's elapsed wall time, independent
+of the simulated time argument. This history is session data and is not saved.
+
+The tick times magic updates, scene/dialogue work, quest lifecycle and story
+manager dispatch, and Papyrus scheduling. The actor driver times package and path planning,
+movement and combat selection/pursuit. Per-actor movement bookkeeping stays
+in the outer movement scope. Combat timing starts after eligibility checks
+accept the actor, before scanning targets. Direct spell, melee and dialogue
+entry points also carry system scopes, including calls from Papyrus natives.
+Sound request queuing uses the audio slot and save serialization uses the
+save slot. Nested system scopes exclude their
+children's time. Host-only systems remain present with zero tick time.
+Host snapshots can surround ticks and include saves and input between them.
+
+The fixed-slot timing model is documented in [trace.md](trace.md).
+`prf_12_frame` tests check tick accounting, paused idle systems and host/save
+snapshots. Its optimized 1,000-actor calibration uses the public record
+builders and travel/sandbox fixture from `crates/bench/src/stress/fixtures.rs`.
+
 ## Initial inventory list selection, UI-25
 
 Fresh references resolve CNTO and distributed LVLI quantities through the
@@ -8321,6 +8345,124 @@ use the existing reference flags. `ShowAllHidden`, unsupported cast checks
 and non-default equip parameters return explicit unsupported-state errors.
 Supported equipment requests use `World::equip_item`, and dispel requests use
 the shared active-effect removal path.
+
+## Deterministic tick work, PRF-14
+
+`Game::last_work_counts` returns the ten operation counters from the last
+`tick` or `tick_menu_mode`. Each tick starts a scoped work window. An enclosing
+scenario or host window includes that tick once. CTDA counts charge each
+attempted predicate, including errors, and exclude predicates skipped by OR
+short circuit. Runtime record overrides and created base records charge one
+lookup, while winning-record fallback charges through `LoadOrder`. Counters
+are transient diagnostics and have no saved fields. Quest-burst and error
+checks live in `tests/prf_14_work.rs`.
+
+## AI planning slices, PRF-11
+
+The package driver submits navigation requests through a transient per-world
+planner keyed by resolved actor FormID. Each request processes at most 64
+nodes per frame, and all requests share a 512-node frame budget. Pending actors
+retain their current package step and position until the result is ready.
+The scheduler rotates its starting actor when the frame budget is exhausted,
+so later FormIDs continue making progress. Requests are cancelled when their
+goal or start position changes, the package switches, navigation is invalidated,
+or the actor unloads, dies or becomes unconscious. Explicit package reevaluation
+also cancels a pending request. Forced fleeing retains the request while its
+effect remains active.
+
+Package travel, combat pursuit, forced fleeing and Orbit connectivity checks
+use sliced A*. Flee destination selection also budgets its reachability flood
+and candidate queries. Its heap orders candidates by decreasing threat distance,
+then increasing NodeId, preserving the previous destination selection.
+Normal package movement retains its empty-route result for disconnected
+on-mesh endpoints and its straight-line fallback for off-mesh endpoints.
+Combat queries keep their no-route result without that fallback.
+Door states refresh once per driver tick, rather than once per actor request.
+Graph query caches are prepared when the world builds its NAVM graph.
+
+Requests and the last tick's measured `AiWorld::planning_time` are runtime
+caches and are not serialized. Existing actor destinations, paths and package
+state keep their saved layout. The design follows the local
+`recastnavigation/Detour/Source/DetourNavMeshQuery.cpp` sliced-query contract,
+implemented on the engine's authored NAVM graph through `soe-navmesh`.
+
+Cell reference lookup reuses the load order's cell index already prepared by
+cell loading, filters to winning REFR and ACHR identities, and returns them
+in FormID order. It does not build a second world-sized index inside sandbox
+planning. Combat acquisition starts from Combat-awareness entries in the
+existing detection pools and retains its loaded-actor eligibility, nearest
+position and FormID tie rules. Unobserved actors are rejected before actor
+record queries. The last tick's `door_refresh_time` exposes the refresh portion
+of the full AI timing for measurement.
+
+Automatic package evaluation runs at most four actors per frame and at most
+once per actor in that frame. Explicit reevaluation requests take priority,
+then the oldest existing `last_evaluation` timestamp, then FormID. Actors
+waiting for an evaluation slot continue their existing step. Movement retains
+its FormID iteration order. Explicit `EvaluatePackage` calls still evaluate
+immediately. `evaluation_time` measures automatic evaluations within the full
+AI tick. Evaluation scheduling uses existing actor fields and adds no saved
+state.
+
+The transient `planning_phases` table resets on each AI tick and records inclusive
+wall-clock durations for scheduling, resumed navigation, actor processing,
+selection, conditions, switching, combat checks, movement and path requests.
+The host exposes these alongside total planning time. Nested phase durations
+overlap, so they are not a partition of total time.
+
+Marker and bed base filtering reads existing reference state first, or the
+winning placement's NAME, XLCN and cell when absent. It shares BOS base selection
+with reference initialization, without choosing actor templates or initializing
+inventory. Only eligible marker references need initialization.
+The field layouts follow local xEdit `wbDefinitionsTES5.pas` REFR and ACHR
+definitions and the existing `soe-esm` REFR reader.
+Idle-marker reservation checks read already initialized actors. This avoids
+initializing unrelated actors while looking for furniture or idle markers.
+Navigation diagnostics also record request setup, search advancement, route
+result conversion and fallback containment, flee search, procedure tree entry,
+marker selection and Turn Undead checks.
+
+Sandbox marker queries also retain their cursor and candidate FormIDs across
+frames. Each request examines at most 64 references in a tick and the frame
+shares 256 reference examinations. The scheduler rotates pending actors when
+the shared budget is exhausted. Pending actors hold their current step and
+consume no marker-choice RNG until the query completes. Candidate order remains
+FormID order. A changed package or search goal cancels the old query, and unloaded
+actors lose it. Marker requests are transient and restart after save restoration.
+Cell lookup, base filtering, bed classification and reference initialization
+have separate timing entries. `marker_resume` measures retained candidate scans.
+
+Failed navigation requests retain their completed result, including the empty
+route for disconnected on-mesh endpoints. Repeating the same start and goal
+performs no endpoint lookup or search. Changed starts, goals or graph revisions
+discard that result. Existing package switches, explicit reevaluation and
+navigation invalidation also cancel it, and unloading removes the actor's
+request. Successful routes are consumed as before. These are transient query
+results, with no saved fields. The retained-path model in local
+`openmw/apps/openmw/mwmechanics/aipackage.cpp`, `pathTo` and
+`doesPathNeedRecalc`, reuses successful paths but rebuilds empty ones. The
+engine caches empty results too because repeated endpoint lookup was the
+measured cost, and uses its NAVM revision to retry when walkability changes.
+
+Door refresh retains sorted door identities and the last position and open
+state applied to the graph. Every tick reads the live reference, but unchanged
+doors need no footprint query. Changed positions and open states rebind or
+update blocking and invalidate actor routes when graph walkability changes.
+The cache is rebuilt with the graph and is not saved. Door associations still
+follow local xEdit NVNM Door Links and CommonLibSSE-NG `BSNavmesh.h`.
+Actor diagnostics also separate state, Calm and evaluation-eligibility checks
+from combat checks, procedure-tree entry, marker work and path requests.
+
+Sandbox request setup reads only the existing index's slice lengths. Candidate
+scans merge its sorted persistent, temporary and deleted slices through three
+retained offsets. Both tag filtering and marker classification fit the reference
+budget, including the first tick, without copying or sorting a whole cell per
+actor. This retains the same FormID order as `references_in_cell` and reads
+live marker state during each bounded scan.
+
+Ordinary `World::load_cell` prepares the world NAVM graph and query caches
+after prefetching references and before attaching the cell. The first AI tick
+therefore reads the prepared graph without relying on a host measurement hook.
 
 ## Shared logging, TOOL-06
 

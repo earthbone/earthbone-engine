@@ -26,6 +26,15 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
+mod frame;
+pub use frame::{
+    with_timing_suspended, FrameHistory, FrameSample, FrameSnapshot, System, SystemScope,
+    SystemStats, FRAME_HISTORY, SYSTEM_COUNT,
+};
+
+mod work;
+pub use work::{count, Operation, WorkCounts, WorkFrame, WorkRecorder};
+
 pub mod logging;
 pub use tracing;
 pub use tracing::{debug, error, info, trace, warn};
@@ -320,7 +329,7 @@ mod tests {
         {
             let _s = Span::new("off", "test");
         }
-        assert!(Trace::events().is_empty());
+        assert_eq!(Trace::events(), Vec::<Event>::new());
         Trace::enable();
         {
             let _s = Span::with_payload("outer", "test", 7);

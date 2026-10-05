@@ -164,6 +164,7 @@ impl PlayerNode {
     }
 
     pub(super) fn advance_detection(&mut self, elapsed: f64, player_motion: Motion) -> i64 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
         if !elapsed.is_finite() || elapsed < 0.0 || !self.sync_actor_bodies() {
             return -1;
         }

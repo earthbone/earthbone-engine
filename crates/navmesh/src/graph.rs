@@ -12,15 +12,19 @@
 //! and waypoint ownership. Non-geometric graph links remain explicit segments.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
 
 mod funnel;
 #[cfg(test)]
 mod funnel_tests;
 #[cfg(test)]
+mod prf_11_tests;
+#[cfg(test)]
 mod query_tests;
+mod search;
 mod spatial;
+pub use search::PathSearch;
 use spatial::SpatialIndex;
 
 const WATER_FLAG: u16 = 0x0200;
@@ -78,6 +82,7 @@ pub struct Mesh {
     pub triangles: Vec<Triangle>,
     min: [f32; 3],
     max: [f32; 3],
+    spatial: SpatialIndex,
 }
 
 impl Mesh {
@@ -125,6 +130,7 @@ impl Mesh {
     /// Height of the triangle's plane at an XY position, or `None` when the
     /// XY position is outside the triangle.
     fn height_at(&self, triangle: u32, x: f32, y: f32) -> Option<f32> {
+        soe_trace::count(soe_trace::Operation::NavmeshTriangles, 1);
         let t = &self.triangles[triangle as usize];
         let [a, b, c] = t.vertices.map(|v| self.vertices[v as usize]);
         let d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
@@ -287,13 +293,15 @@ pub struct NavGraph {
     door_bindings: HashMap<u64, Vec<NodeId>>,
     /// A closed door blocks its bound NAVM triangle during path searches.
     closed_doors: HashSet<u64>,
+    door_blocks: HashMap<NodeId, usize>,
     spatial: OnceLock<SpatialIndex>,
     components: OnceLock<Vec<usize>>,
     obstacles: BTreeMap<ObstacleId, ObstacleShape>,
     next_obstacle_id: u64,
+    revision: u64,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Open {
     f: f32,
     g: f32,
@@ -368,8 +376,11 @@ impl NavGraph {
             triangles,
             min: [0.0; 3],
             max: [0.0; 3],
+            spatial: SpatialIndex::default(),
         };
         mesh.recompute_bounds();
+        mesh.spatial = SpatialIndex::triangles(&mesh);
+        self.revision = self.revision.wrapping_add(1);
         self.spatial.take();
         self.components.take();
         self.meshes.push(mesh);
@@ -413,11 +424,13 @@ impl NavGraph {
     /// Make `b` the neighbour of `a` across `edge`. One direction only, the
     /// other mesh carries its own link back.
     pub fn link(&mut self, a: NodeId, edge: usize, b: NodeId) {
+        self.revision = self.revision.wrapping_add(1);
         self.components.take();
         self.meshes[a.mesh as usize].triangles[a.triangle as usize].neighbors[edge] = Some(b);
     }
 
     pub fn set_blocked(&mut self, node: NodeId, blocked: bool) {
+        self.revision = self.revision.wrapping_add(1);
         self.meshes[node.mesh as usize].triangles[node.triangle as usize].blocked = blocked;
     }
 
@@ -438,6 +451,7 @@ impl NavGraph {
         }
         let id = ObstacleId(self.next_obstacle_id);
         self.next_obstacle_id = self.next_obstacle_id.checked_add(1)?;
+        self.revision = self.revision.wrapping_add(1);
         self.obstacles.insert(id, shape);
         Some(id)
     }
@@ -450,7 +464,11 @@ impl NavGraph {
     /// # Panics
     /// This function does not panic.
     pub fn remove_obstacle(&mut self, id: ObstacleId) -> bool {
-        self.obstacles.remove(&id).is_some()
+        let changed = self.obstacles.remove(&id).is_some();
+        if changed {
+            self.revision = self.revision.wrapping_add(1);
+        }
+        changed
     }
 
     fn is_blocked(&self, node: NodeId) -> bool {
@@ -500,6 +518,16 @@ impl NavGraph {
             .collect();
         let binding = if nodes.is_empty() { None } else { Some(nodes) };
         let changed = self.door_bindings.get(&door) != binding.as_ref();
+        if changed {
+            self.revision = self.revision.wrapping_add(1);
+            if self.closed_doors.contains(&door) {
+                let old = self.door_bindings.get(&door).cloned().unwrap_or_default();
+                self.adjust_door_blocks(&old, false);
+                if let Some(nodes) = &binding {
+                    self.adjust_door_blocks(nodes, true);
+                }
+            }
+        }
         if let Some(nodes) = binding {
             self.door_bindings.insert(door, nodes);
         } else {
@@ -514,20 +542,49 @@ impl NavGraph {
         if !self.door_bindings.contains_key(&door) {
             return false;
         }
-        if open {
+        let changed = if open {
             self.closed_doors.remove(&door)
         } else {
             self.closed_doors.insert(door)
+        };
+        if changed {
+            self.revision = self.revision.wrapping_add(1);
+            let nodes = self.door_bindings.get(&door).cloned().unwrap_or_default();
+            self.adjust_door_blocks(&nodes, !open);
+        }
+        changed
+    }
+
+    fn adjust_door_blocks(&mut self, nodes: &[NodeId], closed: bool) {
+        for node in nodes {
+            if closed {
+                *self.door_blocks.entry(*node).or_default() += 1;
+            } else if let Some(count) = self.door_blocks.get_mut(node) {
+                *count -= 1;
+                if *count == 0 {
+                    self.door_blocks.remove(node);
+                }
+            }
         }
     }
 
     fn node_blocked(&self, node: NodeId) -> bool {
-        self.is_blocked(node)
-            || self.closed_doors.iter().any(|door| {
-                self.door_bindings
-                    .get(door)
-                    .is_some_and(|nodes| nodes.contains(&node))
-            })
+        self.is_blocked(node) || self.door_blocks.contains_key(&node)
+    }
+
+    /// Whether a valid node can be traversed with current doors and obstacles.
+    ///
+    /// # Errors
+    /// Invalid node identities return `false`.
+    ///
+    /// # Panics
+    /// This function does not panic for valid graph geometry.
+    pub fn is_walkable(&self, node: NodeId) -> bool {
+        self.meshes
+            .get(node.mesh as usize)
+            .and_then(|mesh| mesh.triangles.get(node.triangle as usize))
+            .is_some()
+            && !self.node_blocked(node)
     }
 
     fn contains_xy(&self, node: NodeId, point: [f32; 3]) -> bool {
@@ -569,6 +626,7 @@ impl NavGraph {
         else {
             return false;
         };
+        self.revision = self.revision.wrapping_add(1);
         triangle.flags = flags;
         true
     }
@@ -597,13 +655,19 @@ impl NavGraph {
     /// the one whose surface is nearest in Z. Meshes whose bounds exclude
     /// the point are skipped, so this is cheap on a world-sized graph.
     pub fn locate(&self, point: [f32; 3]) -> Option<NodeId> {
+        soe_trace::count(soe_trace::Operation::NavmeshLocate, 1);
+        self.locate_impl(point, |_| {})
+    }
+
+    fn locate_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> Option<NodeId> {
         if !point.iter().all(|p| p.is_finite()) {
             return None;
         }
         let mut best: Option<(f32, NodeId)> = None;
+        let mut radius = f32::INFINITY;
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
-            .visit_xy(point, |mi| {
+            .visit_xy_nearest_height(point, &mut radius, |mi, radius| {
                 let mesh = &self.meshes[mi];
                 if point[0] < mesh.min[0]
                     || point[0] > mesh.max[0]
@@ -612,14 +676,18 @@ impl NavGraph {
                 {
                     return;
                 }
-                for ti in 0..mesh.triangles.len() {
-                    if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
-                        let candidate = ((z - point[2]).abs(), NodeId::new(mi as u32, ti as u32));
-                        if !self.is_blocked(candidate.1) && best.is_none_or(|old| candidate < old) {
-                            best = Some(candidate);
+                mesh.spatial
+                    .visit_xy_nearest_height(point, radius, |ti, radius| {
+                        let node = NodeId::new(mi as u32, ti as u32);
+                        tested(node);
+                        if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
+                            let candidate = ((z - point[2]).abs(), node);
+                            if !self.is_blocked(node) && best.is_none_or(|old| candidate < old) {
+                                *radius = candidate.0;
+                                best = Some(candidate);
+                            }
                         }
-                    }
-                }
+                    });
             });
         best.map(|(_, n)| n)
     }
@@ -632,32 +700,38 @@ impl NavGraph {
     /// # Panics
     /// This function does not panic.
     pub fn contains_point(&self, point: [f32; 3]) -> bool {
+        soe_trace::count(soe_trace::Operation::NavmeshLocate, 1);
+        self.contains_point_impl(point, |_| {})
+    }
+
+    fn contains_point_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> bool {
         if !point.iter().all(|value| value.is_finite()) {
             return false;
         }
-        let mut found = false;
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
-            .visit_xy(point, |mi| {
+            .any_xy(point, |mi| {
                 let mesh = &self.meshes[mi];
                 if point[0] < mesh.min[0]
                     || point[0] > mesh.max[0]
                     || point[1] < mesh.min[1]
                     || point[1] > mesh.max[1]
                 {
-                    return;
+                    return false;
                 }
-                found |= mesh
-                    .triangles
-                    .iter()
-                    .enumerate()
-                    .any(|(ti, _)| mesh.height_at(ti as u32, point[0], point[1]).is_some());
-            });
-        found
+                mesh.spatial.any_xy(point, |ti| {
+                    tested(NodeId::new(mi as u32, ti as u32));
+                    mesh.height_at(ti as u32, point[0], point[1]).is_some()
+                })
+            })
     }
 
     /// The triangle whose centroid is nearest, for points just off the mesh.
     pub fn nearest(&self, point: [f32; 3]) -> Option<NodeId> {
+        self.nearest_impl(point, |_| {})
+    }
+
+    fn nearest_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> Option<NodeId> {
         if !point.iter().all(|p| p.is_finite()) {
             return None;
         }
@@ -666,17 +740,19 @@ impl NavGraph {
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_nearest(point, |mi, radius| {
                 let mesh = &self.meshes[mi];
-                for ti in 0..mesh.triangles.len() {
-                    let node = NodeId::new(mi as u32, ti as u32);
-                    if self.node_blocked(node) {
-                        continue;
-                    }
-                    let candidate = (distance(mesh.centroid(ti as u32), point), node);
-                    if best.is_none_or(|old| candidate < old) {
-                        *radius = candidate.0;
-                        best = Some(candidate);
-                    }
-                }
+                mesh.spatial
+                    .visit_nearest_with_radius(point, radius, |ti, triangle_radius| {
+                        let node = NodeId::new(mi as u32, ti as u32);
+                        tested(node);
+                        if self.node_blocked(node) {
+                            return;
+                        }
+                        let candidate = (distance(mesh.centroid(ti as u32), point), node);
+                        if best.is_none_or(|old| candidate < old) {
+                            *triangle_radius = candidate.0;
+                            best = Some(candidate);
+                        }
+                    });
             });
         best.map(|(_, n)| n)
     }
@@ -750,6 +826,60 @@ impl NavGraph {
         endpoints: Option<([f32; 3], [f32; 3])>,
         costs: PathCosts,
     ) -> Option<Path> {
+        let mut search = self.start_search(from, to, endpoints, costs)?;
+        match search.advance(self, usize::MAX) {
+            std::task::Poll::Ready(path) => path,
+            std::task::Poll::Pending => None,
+        }
+    }
+
+    /// Prepare query caches before timed actor work.
+    ///
+    /// # Errors
+    /// This function does not return errors.
+    ///
+    /// # Panics
+    /// This function does not panic for valid graph geometry.
+    pub fn prepare_queries(&self) {
+        self.spatial
+            .get_or_init(|| SpatialIndex::build(&self.meshes));
+        self.components();
+    }
+
+    /// Revision of geometry, links and walkability for transient query caches.
+    ///
+    /// Compare revisions only on the same graph. Mutating query inputs advances
+    /// this value, including door bindings, flags and obstacles.
+    ///
+    /// # Errors
+    /// This function does not return errors.
+    ///
+    /// # Panics
+    /// This function does not panic.
+    pub fn query_revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Resolve endpoints once and start a resumable point-to-point search.
+    ///
+    /// # Errors
+    /// Returns `None` for invalid endpoints or an impossible mesh component.
+    ///
+    /// # Panics
+    /// This function does not panic for valid graph geometry.
+    pub fn start_path_between(&self, from: [f32; 3], to: [f32; 3]) -> Option<PathSearch> {
+        let a = self.locate(from).or_else(|| self.nearest(from))?;
+        let b = self.locate(to).or_else(|| self.nearest(to))?;
+        self.start_search(a, b, Some((from, to)), PathCosts::default())
+    }
+
+    fn start_search(
+        &self,
+        from: NodeId,
+        to: NodeId,
+        endpoints: Option<([f32; 3], [f32; 3])>,
+        costs: PathCosts,
+    ) -> Option<PathSearch> {
         let _span = soe_trace::Span::new("navmesh.find_path", "navmesh");
         soe_trace::trace!(target: "navmesh", system = "navmesh", from = ?from, to = ?to, "finding path");
         if !costs.is_valid() {
@@ -771,54 +901,7 @@ impl NavGraph {
         {
             return None;
         }
-        let goal = self.centroid(to);
-        let mut open = BinaryHeap::new();
-        let mut g: HashMap<NodeId, f32> = HashMap::new();
-        let mut came: HashMap<NodeId, (NodeId, usize)> = HashMap::new();
-        g.insert(from, 0.0);
-        open.push(Open {
-            f: distance(self.centroid(from), goal) * costs.minimum(),
-            node: from,
-            g: 0.0,
-        });
-        while let Some(Open {
-            node, g: queued, ..
-        }) = open.pop()
-        {
-            if queued > g[&node] {
-                continue;
-            }
-            if node == to {
-                return Some(self.assemble(from, to, &came, g[&to], endpoints));
-            }
-            let here = g[&node];
-            let c = self.centroid(node);
-            let tri = self.triangle(node);
-            for (edge, next) in tri.neighbors.iter().enumerate() {
-                let Some(next) = *next else { continue };
-                let Some(m) = self.meshes.get(next.mesh as usize) else {
-                    continue;
-                };
-                let Some(nt) = m.triangles.get(next.triangle as usize) else {
-                    continue;
-                };
-                if self.node_blocked(next) {
-                    continue;
-                }
-                let tentative =
-                    here + distance(c, m.centroid(next.triangle)) * costs.traversal_cost(nt.flags);
-                if g.get(&next).is_none_or(|&old| tentative < old) {
-                    g.insert(next, tentative);
-                    came.insert(next, (node, edge));
-                    open.push(Open {
-                        f: tentative + distance(m.centroid(next.triangle), goal) * costs.minimum(),
-                        node: next,
-                        g: tentative,
-                    });
-                }
-            }
-        }
-        None
+        Some(PathSearch::new(self, from, to, endpoints, costs))
     }
 
     /// Path between two world points, each located on the graph first.
@@ -868,6 +951,7 @@ impl NavGraph {
             if self.node_blocked(n) {
                 continue;
             }
+            soe_trace::count(soe_trace::Operation::PathNodes, 1);
             out.push(n);
             for next in self.triangle(n).neighbors.iter().flatten() {
                 if self
