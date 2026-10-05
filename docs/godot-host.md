@@ -251,6 +251,8 @@ bins current light spheres in a 1,024-unit grid. A sphere covering more than
 influencing contributions retain FormID order and the existing radius, color,
 negative-light and fade calculation. Runtime visibility overrides authored
 initial-disable flags, so Enable can turn an initially disabled light on.
+Loading reference state does not override the LIGH Off By Default flag.
+That flag still suppresses the light estimate for an enabled reference.
 Moved and spawned lights use their current shared placement.
 `PlayerNode::detection_time_usec` measures the whole update, including actor
 body synchronization, sampling and world evaluation. `detection_worldspace`

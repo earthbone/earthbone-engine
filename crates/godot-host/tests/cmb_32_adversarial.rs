@@ -43,8 +43,8 @@ fn cmb_32_initially_disabled_reference_does_not_emit_placed_light() {
 }
 
 #[test]
-fn cmb_32_off_by_default_light_does_not_emit_until_enabled() {
-    let mut world = light_world(0, 1 << 5);
+fn cmb_32_initially_disabled_light_does_not_emit_until_enabled() {
+    let mut world = light_world(flags::INITIALLY_DISABLED, 0);
     assert!(world.ref_placement(id(3)).is_some());
     assert_eq!(
         soe_godot_host::detection::light_level(&world, id(1), [0.0; 3]),
