@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic)]
 
-//! AUD-11 checks build a current release extension before running the walkthrough.
+//! Installed host checks build a current release extension before running scripts.
 //! Project registration follows the shared isolated Godot check helper.
 
 #[path = "isolated_project.rs"]

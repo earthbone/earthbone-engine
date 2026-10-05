@@ -267,7 +267,12 @@ decoder for vanilla xWMA tracks.
 
 Set `SOE_AUD_11_TEST=1` when launching `godot/walkthrough.gd` with installed
 data to inject a forward walk for 20 seconds. The script captures and drains
-the master bus, then reports its peak in dB and the four start counts. It exits
+the master bus, then approaches Hulda through the existing scripted MoveTo
+command and selects her offered gossip topic through the dialogue menu. It
+captures two seconds of response playback before reporting the peak in dB and
+the four start counts. Walk duration and distance are measured before that
+interaction. A straight unattended walk does not guarantee NPC speech, and
+this check exercises the existing response playback path. It exits
 with failure if any count is zero or the master peak does not exceed -60 dB.
 The windowed test is `aud_11_walkthrough_audio_runs_for_twenty_seconds_and_reports_each_playing_system`.
 The AUD-11 Rust checks build the release extension in Cargo's current target
@@ -2315,6 +2320,9 @@ the call rather than retrying after Jolt reports an error. The PRF-32 checks a
 hulls to Godot's Jolt server. Its installed-data check streams Bannered Mare
 through the host and runs `physics_test.gd`, requiring collision bodies,
 contact and no Jolt shape error.
+The installed collision helper builds and registers the release extension.
+Clippy can leave metadata at the debug library path, so existence alone does
+not establish a loadable library.
 
 ## Capacity checks
 

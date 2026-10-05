@@ -132,8 +132,17 @@ func _run_aud_11_check() -> void:
 	forward.pressed = false
 	Input.parse_input_event(forward)
 	Input.flush_buffered_events()
+	var walk_seconds := (Time.get_ticks_msec() - started) / 1000.0
 	var bank := player.get_node_or_null("SoundBank")
 	var walk_distance := walk_start.distance_to(player.call("position"))
+	var voice_requested := _aud_11_start_voice()
+	var voice_started := Time.get_ticks_msec()
+	while voice_requested and Time.get_ticks_msec() - voice_started < 2_000:
+		await process_frame
+		var frames := capture.get_frames_available()
+		if frames > 0:
+			for sample: Vector2 in capture.get_buffer(frames):
+				peak = maxf(peak, maxf(absf(sample.x), absf(sample.y)))
 	var footstep_starts := int(player.call("footstep_count"))
 	var ambience_starts := -1
 	var music_starts := -1
@@ -145,12 +154,32 @@ func _run_aud_11_check() -> void:
 	var peak_db := -INF if peak <= 0.0 else 20.0 * log(peak) / log(10.0)
 	print("AUD-11 systems footsteps=", footstep_starts, " ambience=", ambience_starts,
 		" music=", music_starts, " voices=", voice_starts, " master_peak_db=", peak_db,
-		" walk_seconds=", (Time.get_ticks_msec() - started) / 1000.0,
+		" walk_seconds=", walk_seconds,
 		" walk_distance=", walk_distance)
 	var passed := footstep_starts > 0 and ambience_starts > 0 and music_starts > 0 \
-		and voice_starts > 0 and peak_db > -60.0 and walk_distance > 10.0
+		and voice_requested and voice_starts > 0 and peak_db > -60.0 and walk_distance > 10.0
 	print("AUD-11 RESULT: ", "PASS" if passed else "FAIL")
 	quit(0 if passed else 1)
+
+func _aud_11_start_voice() -> bool:
+	# CONTEXT: A straight unattended walk does not request a dialogue response.
+	var move := {"action": "move_to", "file": 0, "object": 0x1A671,
+		"offset": Vector3(0.0, -150.0, 0.0), "match_rotation": false}
+	if not player.call("queue_player_input", move) or not player.call("step_player_input"):
+		printerr("AUD-11 could not approach Hulda")
+		return false
+	if not player.call("open_dialogue_menu", 0, 0x1A671):
+		printerr("AUD-11 could not open Hulda's dialogue")
+		return false
+	var content := player.get_node("MenuLayer/MenuPanel/Layout/Content")
+	if content.get_child_count() > 0:
+		var rows := content.get_child(0).get_child(0)
+		for option in rows.get_children():
+			if option is Button and option.text == "Give me the latest gossip.":
+				option.emit_signal("pressed")
+				return true
+	printerr("AUD-11 Hulda did not offer the installed gossip topic")
+	return false
 
 func _process(_delta: float) -> bool:
 	if is_instance_valid(loading_label):
