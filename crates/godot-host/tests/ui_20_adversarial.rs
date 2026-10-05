@@ -10,6 +10,9 @@ use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_godot_host::item_menu;
 
+#[path = "common/isolated_project.rs"]
+mod isolated_project;
+
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
@@ -80,7 +83,10 @@ fn ui_20_reopening_favorites_reconfigures_the_existing_item_menu() {
         data.join("Skyrim.esm").is_file(),
         "installed Skyrim data is unavailable"
     );
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let executable = std::env::current_exe().unwrap();
+    let library = executable.parent().unwrap().join("libsoe_godot_host.so");
+    let project =
+        isolated_project::project(&["ui/item_menu.gd", "ui/item_icon.gd"], Some(&library));
     let script = r#"extends SceneTree
 var failures := 0
 func check(ok: bool, message: String) -> void:
@@ -116,22 +122,25 @@ func run() -> void:
 	print("UI-20 adversarial ", "PASS" if failures == 0 else "FAIL")
 	quit(0 if failures == 0 else 1)
 "#;
-    let directory = tempfile::tempdir_in("/tmp").unwrap();
-    let script_path = directory.path().join("ui_20_adversarial.gd");
+    let script_path = project.path().join("ui_20_adversarial.gd");
     std::fs::write(&script_path, script).unwrap();
     let output = Command::new(godot)
         .args(["--path"])
-        .arg(workspace.join("godot"))
+        .arg(project.path())
         .arg("--headless")
         .arg("--script")
         .arg(&script_path)
         .env("SKYRIM_DATA", &data)
+        .env("SOE_INTERFACE_CACHE", "")
+        .env("XDG_DATA_HOME", project.path())
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        output.status.success() && stdout.contains("UI-20 adversarial PASS"),
+        output.status.success()
+            && stdout.contains("UI-20 adversarial PASS")
+            && !stderr.contains("SCRIPT ERROR"),
         "{stdout}\n{stderr}"
     );
 }

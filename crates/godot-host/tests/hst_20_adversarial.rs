@@ -4,6 +4,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "common/isolated_project.rs"]
+mod isolated_project;
+
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -99,9 +102,18 @@ func _run() -> void:
 
 #[test]
 fn hst_20_windowed_prepare_reports_both_real_intervals() {
+    let project = isolated_project::project(
+        &[
+            "render_warmup.gd",
+            "bench_metrics.gd",
+            "bench_runs.gd",
+            "prf_08_test.gd",
+        ],
+        None,
+    );
     let output = Command::new(godot_binary())
         .args(["--path"])
-        .arg(workspace().join("godot"))
+        .arg(project.path())
         .args(["--resolution", "640x360", "--script", "prf_08_test.gd"])
         .output()
         .expect("run windowed PRF-08 checks");
@@ -113,5 +125,8 @@ fn hst_20_windowed_prepare_reports_both_real_intervals() {
     println!("{log}");
     assert!(output.status.success(), "{log}");
     assert!(!log.contains("SCRIPT ERROR:"), "{log}");
-    assert!(log.contains("RESULT: PASS: prf_08 deterministic checks"), "{log}");
+    assert!(
+        log.contains("RESULT: PASS: prf_08 deterministic checks"),
+        "{log}"
+    );
 }

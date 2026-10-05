@@ -10,6 +10,9 @@ use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_godot_host::item_menu;
 
+#[path = "common/isolated_project.rs"]
+mod isolated_project;
+
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
@@ -151,12 +154,18 @@ fn run_scene(cache: Option<&std::path::Path>) {
         eprintln!("SOE_GODOT_BIN unset, skipped");
         return;
     };
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let capture = workspace.join("target/ui-20");
-    std::fs::create_dir_all(&capture).unwrap();
+    let project = isolated_project::project(
+        &[
+            "ui_20_item_menu_test.gd",
+            "ui/item_menu.gd",
+            "ui/item_icon.gd",
+        ],
+        None,
+    );
+    let capture = project.path().join("scene.png");
     let output = Command::new(godot)
         .args(["--path"])
-        .arg(workspace.join("godot"))
+        .arg(project.path())
         .args([
             "--resolution",
             "640x360",
@@ -167,7 +176,7 @@ fn run_scene(cache: Option<&std::path::Path>) {
             "SOE_INTERFACE_CACHE",
             cache.unwrap_or_else(|| std::path::Path::new("")),
         )
-        .env("SOE_UI_20_CAPTURE", capture.join("scene.png"))
+        .env("SOE_UI_20_CAPTURE", &capture)
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -178,7 +187,7 @@ fn run_scene(cache: Option<&std::path::Path>) {
             && !stderr.contains("SCRIPT ERROR"),
         "{stdout}\n{stderr}"
     );
-    assert!(capture.join("scene.png").exists());
+    assert!(capture.exists());
 }
 
 #[test]
