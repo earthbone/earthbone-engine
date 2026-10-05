@@ -27,16 +27,17 @@ func _initialize() -> void:
 	print("physics engine: ", ProjectSettings.get_setting("physics/3d/physics_engine", "(default)"))
 	if data == "":
 		print("SKYRIM_DATA not set, skipping")
-		quit(0)
+		_finish(0)
 		return
 	if not ClassDB.class_exists("CellStreamerNode"):
 		printerr("FAIL: CellStreamerNode is not registered, the extension did not load")
-		quit(1)
+		_finish(1)
 		return
 
 	var root := Node3D.new()
 	root.name = "Root"
 	get_root().add_child(root)
+	scene_root = root
 
 	streamer = ClassDB.instantiate("CellStreamerNode")
 	streamer.name = "Streamer"
@@ -44,9 +45,8 @@ func _initialize() -> void:
 
 	if not streamer.call("load_data", data):
 		printerr("FAIL: load_data(", data, ") returned false")
-		quit(1)
+		_finish(1)
 		return
-	scene_root = root
 
 
 ## The node has no World3D until the tree is actually running, so the space
@@ -58,7 +58,7 @@ func _build() -> void:
 	print("collision stats: ", streamer.call("collision_stats"))
 	if bodies <= 0:
 		printerr("FAIL: no static bodies were built")
-		quit(1)
+		_finish(1)
 		return
 
 	# A small sphere is the clearest probe: no orientation to argue about, and
@@ -79,13 +79,13 @@ func _build() -> void:
 
 func _physics_process(_delta: float) -> bool:
 	if done:
-		return true
+		return false
 	if not built:
 		built = true
 		_build()
 		return false
 	if body == null:
-		return true
+		return false
 	frame += 1
 	var y := body.position.y
 	if frame % 30 == 0:
@@ -103,15 +103,29 @@ func _physics_process(_delta: float) -> bool:
 		print("came to rest at y=", "%.3f" % y, " after ", frame, " frames")
 		if y < start_y - 0.05 and y > -50.0:
 			print("RESULT: PASS")
-			quit(0)
+			_finish(0)
 		else:
 			printerr("FAIL: rested at ", y, " from ", start_y, ", nothing caught it")
-			quit(1)
-		return true
+			_finish(1)
+		return false
 
 	if frame > 900:
 		done = true
 		printerr("FAIL: still falling after ", frame, " frames, y=", y)
-		quit(1)
-		return true
+		_finish(1)
+		return false
 	return false
+
+
+func _finish(code: int) -> void:
+	done = true
+	# Release collision RIDs before shutdown, outside the physics callback.
+	call_deferred("_cleanup", code)
+
+
+func _cleanup(code: int) -> void:
+	if is_instance_valid(body):
+		body.free()
+	if is_instance_valid(scene_root):
+		scene_root.free()
+	quit(code)
