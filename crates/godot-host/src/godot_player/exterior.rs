@@ -17,6 +17,50 @@ pub(super) struct ExteriorRuntime {
     pub world: GlobalFormId,
     pub planner: CellStreamer,
     pub cells: BTreeMap<GlobalFormId, Vec<BodyId>>,
+    pub lod_started: bool,
+}
+
+fn advance_lod(
+    exterior: &mut ExteriorRuntime,
+    source: &crate::data_source::DataSource,
+    streamer: &mut godot::prelude::Gd<crate::godot_layer::CellStreamerNode>,
+    focus: CellCoord,
+    full_res_radius: i32,
+    lod_radius: i32,
+    budget_bytes: i64,
+) -> bool {
+    let mut node = streamer.bind_mut();
+    if !exterior.lod_started {
+        let Some((_, world_editor_id)) = source.lod_worldspace(exterior.world) else {
+            soe_trace::error!(target: "host::exterior", system = "host::exterior", "PlayerNode: exterior world {} has no editor id for LOD", exterior.world);
+            return false;
+        };
+        let terrain = node.stream_terrain_lod(
+            godot::prelude::GString::from(world_editor_id.as_str()),
+            focus.x,
+            focus.y,
+            full_res_radius,
+            lod_radius,
+            budget_bytes,
+        );
+        let objects = node.stream_object_lod(
+            godot::prelude::GString::from(world_editor_id.as_str()),
+            focus.x,
+            focus.y,
+            full_res_radius,
+            lod_radius,
+            budget_bytes,
+        );
+        if terrain < 0 || objects < 0 {
+            node.clear_terrain_lod();
+            node.clear_object_lod();
+            return false;
+        }
+        exterior.lod_started = true;
+        return true;
+    }
+
+    node.update_terrain_lod(focus.x, focus.y) >= 0 && node.update_object_lod(focus.x, focus.y) >= 0
 }
 
 pub(super) fn config() -> StreamConfig {
@@ -43,6 +87,18 @@ impl PlayerNode {
         };
         game.record_exterior_cell_loads(0);
         let coord = CellCoord::containing(focus);
+        if !advance_lod(
+            exterior,
+            source,
+            streamer,
+            coord,
+            self.exterior_lod_full_res_radius,
+            self.exterior_lod_radius,
+            self.exterior_lod_byte_budget,
+        ) {
+            soe_trace::error!(target: "host::exterior", system = "host::exterior", "PlayerNode: exterior LOD update failed for {} at {},{}", exterior.world, coord.x, coord.y);
+            return false;
+        }
         let Some(cell) = source
             .cell_index()
             .exterior_cell(exterior.world, coord.x, coord.y)

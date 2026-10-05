@@ -949,6 +949,11 @@ impl PlayerNode {
                     }
                 }
             }
+            if worldspace.is_none() {
+                let mut node = streamer.bind_mut();
+                node.clear_terrain_lod();
+                node.clear_object_lod();
+            }
             if let Some(worldspace) = worldspace {
                 let mut planner = crate::streaming::CellStreamer::new(super::exterior::config())
                     .map_err(|error| {
@@ -980,6 +985,7 @@ impl PlayerNode {
                     world: worldspace,
                     planner: planner.clone(),
                     cells: location.collision_cells,
+                    lod_started: false,
                 });
             }
             let collision = location.collision;

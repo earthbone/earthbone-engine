@@ -895,6 +895,27 @@ cover any coordinate in that near area. This exercises the handoff through
 `RenderingServer` instances without treating BTO surfaces as individual
 placed references.
 
+`PlayerNode` starts terrain and object LOD when its gameplay focus enters an
+exterior worldspace. It gets the asset folder from the winning worldspace
+record, following the world's use-parent-land flag, and uses the same cell
+focus as exterior cell streaming. The
+default full-resolution radius is one cell and the LOD radius is 16 cells.
+Both radii and a shared approximate byte budget are exported on the player.
+Each player update advances both LOD streams at the current cell coordinate,
+so block loading and release follow cell movement. A worldspace change starts
+both streams for the destination world, and leaving exterior gameplay clears
+both streams. `DataSource::lod_worldspace` returns the worldspace and editor
+id selected by the parent-land rule.
+
+`godot/rnd_19_player_lod_capture.gd` enters the Whiterun exterior through the
+Bannered Mare door, waits for the player-owned streams, checks that Tamriel
+terrain and object LOD have resident rendered instances, and saves
+`docs/images/rnd-19-whiterun-exterior-lod.png`. The lower part of the captured
+view must contain visible scene pixels rather than only the viewport
+background. The Rust test
+`rnd_19_player_exterior_lod_tracks_gameplay_and_captures_distant_terrain`
+runs this check with installed data and the release extension.
+
 ## Mesh
 
 `mesh::MeshSource` is a trait shaped like the `nif` crate's neutral output: positions,
