@@ -18,7 +18,7 @@ mod lights;
 #[path = "detection_spatial.rs"]
 mod spatial;
 pub use lights::{light_level, LightSamples};
-pub use spatial::observations_in_range;
+pub use spatial::{candidate_actors, observations_in_range, DetectionSpaces};
 
 #[cfg(test)]
 use lights::full_scan_light_level;

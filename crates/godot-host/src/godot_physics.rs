@@ -1232,6 +1232,7 @@ struct ActorBody {
     body: Rid,
     shapes: Vec<Rid>,
     scale: f32,
+    position: Option<[f32; 3]>,
 }
 
 /// Query bodies in the controller capsule shape for the actors the shared
@@ -1257,6 +1258,32 @@ pub struct ActorBodies {
 }
 
 impl ActorBodies {
+    /// Sync selected detection bodies while retaining existing eligible contact
+    /// bodies. Retained bodies follow moved placements without parsing height.
+    /// A full contact sync resolves their current shape before a melee query.
+    pub fn sync_candidates(
+        &mut self,
+        space: Rid,
+        candidates: &[ContactActor],
+        eligible: &[ContactActor],
+    ) -> BodySyncPlan {
+        let selected: HashSet<_> = candidates.iter().map(|actor| actor.actor).collect();
+        let mut wanted = candidates.to_vec();
+        for actor in eligible {
+            if selected.contains(&actor.actor) {
+                continue;
+            }
+            if let Some(body) = self.bodies.get(&actor.actor) {
+                wanted.push(ContactActor {
+                    scale: body.scale,
+                    ..*actor
+                });
+            }
+        }
+        wanted.sort_unstable_by_key(|actor| actor.actor);
+        self.sync(space, &wanted)
+    }
+
     /// Bring the server bodies in line with `actors`. A different `space`
     /// frees every body first, since a body belongs to one space.
     pub fn sync(&mut self, space: Rid, actors: &[ContactActor]) -> BodySyncPlan {
@@ -1269,7 +1296,12 @@ impl ActorBodies {
             .iter()
             .map(|(form, body)| (*form, body.scale))
             .collect();
-        let plan = plan_body_sync(&scales, actors);
+        let mut plan = plan_body_sync(&scales, actors);
+        plan.moved.retain(|actor| {
+            self.bodies
+                .get(&actor.actor)
+                .is_none_or(|body| body.position != Some(actor.position))
+        });
         let mut server = PhysicsServer3D::singleton();
         for form in &plan.removed {
             if let Some(body) = self.bodies.remove(form) {
@@ -1289,8 +1321,9 @@ impl ActorBodies {
         for actor in &plan.moved {
             if self.grabbed_actor != Some(actor.actor) && !self.thrown_actors.contains(&actor.actor)
             {
-                if let Some(body) = self.bodies.get(&actor.actor) {
+                if let Some(body) = self.bodies.get_mut(&actor.actor) {
                     place(&mut server, body.body, actor);
+                    body.position = Some(actor.position);
                 }
             }
         }
@@ -1318,6 +1351,9 @@ impl ActorBodies {
             return false;
         };
         PhysicsServer3D::singleton().body_set_mode(body.body, BodyMode::KINEMATIC);
+        if let Some(body) = self.bodies.get_mut(&actor) {
+            body.position = None;
+        }
         self.grabbed_actor = Some(actor);
         true
     }
@@ -1478,6 +1514,7 @@ fn create_actor_body(
         body,
         shapes,
         scale: actor.scale,
+        position: Some(actor.position),
     }
 }
 

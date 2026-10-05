@@ -191,26 +191,39 @@ impl PlayerNode {
     /// free them.
     #[func]
     pub fn contact_actor_bodies(&self) -> Array<VarDictionary> {
-        let placements: std::collections::HashMap<GlobalFormId, [f32; 3]> = self
-            .game
-            .as_ref()
-            .map(|game| {
-                game.world_mut()
-                    .contact_actors()
-                    .into_iter()
-                    .map(|actor| (actor.actor, actor.position))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let placements: std::collections::HashMap<GlobalFormId, soe_game::world::ContactActor> =
+            self.game
+                .as_ref()
+                .map(|game| {
+                    game.world_mut()
+                        .contact_actors()
+                        .into_iter()
+                        .map(|actor| (actor.actor, actor))
+                        .collect()
+                })
+                .unwrap_or_default();
         let mut result = Array::new();
         for (body, form) in self.actor_bodies.owners() {
             let mut row = VarDictionary::new();
             row.set("file", i64::from(form.file));
             row.set("object", i64::from(form.object));
             row.set("body", *body);
-            if let Some([x, y, z]) = placements.get(form) {
-                let g = crate::units::SkyrimPos::new(*x, *y, *z).to_godot();
+            if let Some(actor) = placements.get(form) {
+                let [x, y, z] = actor.position;
+                let g = crate::units::SkyrimPos::new(x, y, z).to_godot();
                 row.set("position", Vector3::new(g.x, g.y, g.z));
+                row.set("cell", actor.cell.to_string());
+                if let Some(game) = &self.game {
+                    let world = game.world();
+                    row.set("space", world.cell_coordinate_space(actor.cell).to_string());
+                    row.set(
+                        "dead",
+                        world.actor_ref(*form).is_some_and(|actor| actor.dead),
+                    );
+                    if let Ok(settings) = world.detection_settings() {
+                        row.set("detection_range", settings.max_distance);
+                    }
+                }
             }
             result.push(&row);
         }
@@ -291,6 +304,16 @@ impl PlayerNode {
     pub(super) fn sync_actor_bodies_and_contacts(
         &mut self,
     ) -> Option<Vec<soe_game::world::ContactActor>> {
+        self.sync_actor_bodies_and_contacts_with(|_, actors| actors)
+    }
+
+    pub(super) fn sync_actor_bodies_and_contacts_with(
+        &mut self,
+        select: impl FnOnce(
+            &soe_game::World,
+            Vec<soe_game::world::ContactActor>,
+        ) -> Vec<soe_game::world::ContactActor>,
+    ) -> Option<Vec<soe_game::world::ContactActor>> {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Physics);
         let world = self.base().get_world_3d()?;
         let space = world.get_space();
@@ -307,12 +330,14 @@ impl PlayerNode {
                 .map_or([0.0; 3], |placement| placement.rotation);
             shared.set_host_actor_pose(actor, position, rotation);
         }
-        let actors = shared.contact_actors();
+        let placements = shared.contact_actor_placements();
+        let mut actors = select(&shared, placements.clone());
+        shared.resolve_contact_actor_scales(&mut actors);
         let living: Vec<_> = actors
             .iter()
             .copied()
             .filter(|actor| {
-                shared.actor(actor.actor).is_none_or(|state| {
+                shared.actor_ref(actor.actor).is_none_or(|state| {
                     !crate::ragdoll::actor_uses_ragdoll(
                         state.dead,
                         state.unconscious,
@@ -321,7 +346,19 @@ impl PlayerNode {
                 })
             })
             .collect();
-        self.actor_bodies.sync(space, &living);
+        let eligible: Vec<_> = placements
+            .into_iter()
+            .filter(|actor| {
+                shared.actor_ref(actor.actor).is_none_or(|state| {
+                    !crate::ragdoll::actor_uses_ragdoll(
+                        state.dead,
+                        state.unconscious,
+                        state.ragdoll_forced,
+                    )
+                })
+            })
+            .collect();
+        self.actor_bodies.sync_candidates(space, &living, &eligible);
         Some(actors)
     }
 
