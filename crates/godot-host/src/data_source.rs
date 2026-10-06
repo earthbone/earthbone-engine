@@ -66,6 +66,8 @@ mod marker_survey_tests;
 #[cfg(test)]
 mod rnd_20_tests;
 #[cfg(test)]
+mod prf_20_tests;
+#[cfg(test)]
 mod ui_25_tests;
 
 #[cfg(feature = "godot")]
@@ -153,6 +155,8 @@ pub enum DataSourceError {
 /// gated real-data test to report. Not `Copy`, `textures_missing` is a list.
 #[derive(Debug, Clone, Default)]
 pub struct CellStats {
+    /// Cell-local attribution retained through collision preparation and upload.
+    pub profile: soe_trace::LoadRecorder,
     pub references: usize,
     pub statics_with_model: usize,
     pub furniture_with_model: usize,
@@ -245,6 +249,43 @@ pub struct SurfaceTextures {
 pub struct LoadedCell {
     pub stats: CellStats,
     pub surfaces: Vec<LoadedSurface>,
+}
+
+impl LoadedCell {
+    /// Distinct texture payloads referenced by this cell, including generated
+    /// terrain and complete cubemap faces. Shared cells each report their usage.
+    pub fn texture_inventory(&self) -> std::collections::BTreeMap<String, usize> {
+        let mut inventory = std::collections::BTreeMap::new();
+        for surface in &self.surfaces {
+            let material = &surface.arrays.material;
+            let textures = &surface.textures;
+            for (path, texture) in [
+                (material.diffuse.as_deref(), textures.diffuse.as_deref()),
+                (material.normal.as_deref(), textures.normal.as_deref()),
+                (material.glow_texture(), textures.glow.as_deref()),
+                (
+                    material.environment_texture(),
+                    textures.environment.as_deref(),
+                ),
+                (
+                    material.environment_mask.as_deref(),
+                    textures.environment_mask.as_deref(),
+                ),
+            ] {
+                if let (Some(path), Some(texture)) = (path, texture) {
+                    inventory
+                        .entry(soe_bsa::normalize(path))
+                        .or_insert_with(|| texture.payload_bytes());
+                }
+            }
+        }
+        inventory
+    }
+
+    /// Refresh after exterior terrain and grass have been appended.
+    pub(crate) fn refresh_texture_inventory(&self) {
+        self.stats.profile.set_textures(self.texture_inventory());
+    }
 }
 
 /// One exterior cell of a block, by grid position in its worldspace.
@@ -395,6 +436,31 @@ fn parse_masters(
 }
 
 impl DataSource {
+    /// Requested capacity of retained record bodies, grouped by defining plugin.
+    /// Includes losing overrides and the raw TES4 record. Load-order indices and
+    /// decoded header metadata are outside these record body totals.
+    pub fn record_memory_by_plugin(&self) -> std::collections::BTreeMap<String, usize> {
+        fn body(record: &soe_esm::Record) -> usize {
+            record.subrecords.capacity() * std::mem::size_of::<soe_esm::Subrecord>()
+                + record
+                    .subrecords
+                    .iter()
+                    .map(|sub| sub.data.capacity())
+                    .sum::<usize>()
+        }
+        self.order
+            .files()
+            .iter()
+            .map(|file| {
+                let plugin = &file.plugin;
+                let bytes = plugin.records.capacity() * std::mem::size_of::<soe_esm::Record>()
+                    + plugin.records.iter().map(body).sum::<usize>()
+                    + std::mem::size_of::<soe_esm::Record>()
+                    + body(&plugin.header_record);
+                (file.name.clone(), bytes)
+            })
+            .collect()
+    }
     /// Load an EffectShader membrane texture through the source's shared DDS cache.
     #[cfg(feature = "godot")]
     pub(crate) fn effect_shader_texture(&self, path: &str) -> Option<Arc<TextureData>> {
@@ -729,8 +795,10 @@ impl DataSource {
     /// A reference whose mesh fails to read or parse is counted as failed and
     /// skipped, it does not stop the rest of the cell from loading.
     pub fn stream_cell_id(&self, cell_id: GlobalFormId) -> Result<LoadedCell, DataSourceError> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let _span = soe_trace::Span::new("host.stream_cell", "host");
         let mut stats = CellStats::default();
+        let _capture = stats.profile.enter();
         let work = {
             let _scan = soe_trace::Span::with_payload(
                 "host.scan_references",
@@ -875,7 +943,9 @@ impl DataSource {
             stats.triangles += water.arrays.triangle_count();
             surfaces.push(water);
         }
-        Ok(LoadedCell { stats, surfaces })
+        let loaded = LoadedCell { stats, surfaces };
+        loaded.refresh_texture_inventory();
+        Ok(loaded)
     }
 
     /// Builds one newly enabled reference without reloading its resident cell.
@@ -1040,7 +1110,13 @@ impl DataSource {
         let _span = soe_trace::Span::new("host.static", "host");
         let path = format!("meshes/{model}");
         let bytes = self.vfs.read(&path)?;
-        let file = placed_model(&bytes)?;
+        let file = {
+            let _parse = soe_trace::LoadMeasure::new(
+                soe_trace::LoadStage::NifParse,
+                &soe_bsa::normalize(&path),
+            );
+            placed_model(&bytes)?
+        };
         let marker_blocks = editor_marker_shape_blocks(&file);
         let nonvisual_blocks = nonvisual_shape_indices(&file.blocks);
         let mut meshes = file.meshes()?;

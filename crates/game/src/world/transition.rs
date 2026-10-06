@@ -416,12 +416,23 @@ impl World {
             return 0;
         }
         let built = self.prefetch_cell(cell);
+        let navigation_started = std::time::Instant::now();
         crate::ai::nav_graph(self);
+        self.navigation_load_times.insert(
+            cell,
+            u64::try_from(navigation_started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+        );
         self.mark_cell_3d_loaded(cell);
         self.reset_cell_on_load(cell);
         self.attached_cells.insert(cell);
         self.loaded_cell = Some(cell);
         built
+    }
+
+    /// Consume this cell's last NAVM preparation time for host load attribution.
+    /// These diagnostics are transient and do not change the saved world.
+    pub fn take_navigation_load_time(&mut self, cell: GlobalFormId) -> u64 {
+        self.navigation_load_times.remove(&cell).unwrap_or_default()
     }
 
     /// Build every reference a cell owns without attaching the cell.

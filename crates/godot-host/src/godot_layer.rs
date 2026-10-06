@@ -150,6 +150,7 @@ pub struct CellStreamerNode {
     /// camera to frame the scene without walking mesh nodes.
     bounds: Option<crate::mesh::Aabb>,
     last_stats: VarDictionary,
+    load_profiles: std::collections::BTreeMap<GlobalFormId, soe_trace::LoadRecorder>,
     work_frame: Option<soe_trace::WorkFrame>,
     /// Static bodies this node put into the physics space, freed with the
     /// instances. Empty until `stream_cell_collision` is called, since a
@@ -524,6 +525,7 @@ impl INode3D for CellStreamerNode {
             materials: MaterialMap::new(),
             bounds: None,
             last_stats: VarDictionary::new(),
+            load_profiles: std::collections::BTreeMap::new(),
             work_frame: None,
             collision: crate::godot_physics::CellBodies::default(),
             last_collision_stats: VarDictionary::new(),
@@ -1105,6 +1107,8 @@ impl CellStreamerNode {
         self.free_departed_occluders(departed);
         self.deferred_references
             .retain(|_, cell| !departed.contains(cell));
+        self.load_profiles
+            .retain(|cell, _| !departed.contains(cell));
         self.bounds = self
             .instances
             .iter()
@@ -2001,6 +2005,62 @@ impl CellStreamerNode {
         result
     }
 
+    /// Per-cell loading costs, distinct texture payloads and the slowest asset.
+    #[func]
+    pub fn streaming_profiles(&self) -> VarDictionary {
+        let mut cells = VarDictionary::new();
+        for (cell, recorder) in &self.load_profiles {
+            let report = recorder.report();
+            let mut stages = VarDictionary::new();
+            for stage in soe_trace::LoadStage::ALL {
+                stages.set(stage.name(), report.stage_ns[stage as usize] as i64);
+            }
+            let mut archives = VarDictionary::new();
+            for (name, ns) in &report.archive_ns {
+                archives.set(name.as_str(), *ns as i64);
+            }
+            let mut textures = VarDictionary::new();
+            for (name, bytes) in &report.texture_bytes {
+                textures.set(name.as_str(), *bytes as i64);
+            }
+            let slowest = report.slowest_asset();
+            cells.set(
+                cell.to_string().as_str(),
+                &vdict! {
+                    "stage_ns" => &stages,
+                    "archive_ns" => &archives,
+                    "texture_bytes" => &textures,
+                    "texture_total" => report.texture_total() as i64,
+                    "slowest_asset" => slowest.map_or("", |(path, _)| path),
+                    "slowest_asset_ns" => slowest.map_or(0, |(_, ns)| ns) as i64,
+                },
+            );
+        }
+        cells
+    }
+
+    /// Requested retained record body bytes, including losing plugin overrides.
+    #[func]
+    pub fn plugin_record_memory(&self) -> VarDictionary {
+        let mut report = VarDictionary::new();
+        if let Some(source) = &self.data_source {
+            for (name, bytes) in source.record_memory_by_plugin() {
+                report.set(name.as_str(), bytes as i64);
+            }
+        }
+        report
+    }
+
+    /// Streaming diagnostics suitable for inclusion in a frame hitch dump.
+    #[func]
+    pub fn streaming_diagnostic(&self) -> GString {
+        let mut text = String::new();
+        for (cell, recorder) in &self.load_profiles {
+            text.push_str(&format!("cell {cell}\n{}", recorder.report().diagnostic()));
+        }
+        GString::from(text.as_str())
+    }
+
     /// One dictionary per drawn instance that carries a water plane:
     /// `cell` (the owning cell's form id as text), `rid` (the
     /// RenderingServer instance), `height` (the plane's Godot y in metres),
@@ -2188,6 +2248,7 @@ impl CellStreamerNode {
             drop(instance.mesh);
         }
         self.free_departed_occluders(&[owner]);
+        self.load_profiles.remove(&owner);
         self.bounds = self
             .instances
             .iter()
@@ -2227,6 +2288,8 @@ impl CellStreamerNode {
             soe_trace::error!(target: "host::layer", system = "host::layer", "stream_cell_collision: no cell named {editor_id}");
             return -1;
         };
+        let profile = self.load_profiles.entry(cell_id).or_default();
+        let _capture = profile.enter();
         let (colliders, read) = match source.placed_cell_colliders(cell_id) {
             Ok(pair) => pair,
             Err(e) => {
@@ -2245,7 +2308,10 @@ impl CellStreamerNode {
         };
         self.defer_tethers_for_collision_reset();
         self.collision.free();
-        self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
+        self.collision = {
+            let _build = soe_trace::LoadMeasure::new(soe_trace::LoadStage::CollisionBuild, "");
+            crate::godot_physics::add_placed_statics(space, &colliders)
+        };
         self.collision_space = Some(space);
         self.collision_cell = Some(cell_id);
         let built = &self.collision.stats;
@@ -2759,6 +2825,7 @@ impl CellStreamerNode {
     /// included, and forgets the bounds. Materials stay cached.
     #[func]
     pub fn clear(&mut self) {
+        self.load_profiles.clear();
         self.collision.free();
         self.tethers.free();
         self.pending_tethers.clear();
@@ -2912,6 +2979,9 @@ impl CellStreamerNode {
     ) {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _span = soe_trace::Span::new("host.add_cell", "host");
+        let _capture = loaded.stats.profile.enter();
+        self.load_profiles
+            .insert(cell, loaded.stats.profile.clone());
         totals.add_cell(loaded);
         if self.cell_occluders {
             self.add_cell_occluder(cell, &loaded.surfaces, scenario);
@@ -3394,6 +3464,7 @@ fn decal_material(
     if let (Some(path), Some(data)) = (desc.environment_texture(), &textures.environment) {
         let key = soe_bsa::normalize(path);
         let cube = cubemaps.get(&key).cloned().or_else(|| {
+            let _upload = soe_trace::LoadMeasure::new(soe_trace::LoadStage::TextureUpload, &key);
             let cube = cubemap_from(data)?;
             cubemaps.insert(key, cube.clone());
             Some(cube)
@@ -3491,6 +3562,10 @@ fn cached_texture(
     if let Some(existing) = key.as_ref().and_then(|key| cache.get(key)) {
         return Some(existing.clone());
     }
+    let _upload = soe_trace::LoadMeasure::new(
+        soe_trace::LoadStage::TextureUpload,
+        &path.map(soe_bsa::normalize).unwrap_or_default(),
+    );
     let texture = image_texture_from(data)?;
     if let Some(key) = key {
         cache.insert(key, texture.clone());

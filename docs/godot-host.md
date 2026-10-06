@@ -42,6 +42,44 @@ frames, tail, counters and summary, then frees its node and quits. It runs
 both headless and windowed, without game records. Recorder details and the
 headless Rust output path are in [trace.md](trace.md).
 
+## Cell loading and memory attribution, PRF-20
+
+`CellStats::profile` retains a cell-local `soe-trace` recorder through model
+workers, textures, collision preparation and host texture creation. Exterior
+terrain and grass enter the same capture. `CellStreamerNode.streaming_profiles`
+reports each resident cell's stage durations in nanoseconds, I/O by winning
+archive or loose source, the slowest canonical asset, and distinct texture
+payload bytes with their sum. CPU durations include waits and sum worker work.
+Texture upload measures Godot resource creation, excluding GPU execution.
+Warm material and texture cache hits produce no new upload work. Clearing or
+releasing a cell removes its report. Shared textures are charged once to each
+cell that uses them, including every cubemap face and generated LAND albedo.
+Material caches can retain resources beyond cell release, so these per-cell
+totals describe cell usage rather than global physical texture residency.
+
+`plugin_record_memory` counts requested capacity of retained record bodies,
+subrecord tables and subrecord payloads per defining plugin, including losing
+overrides and raw TES4 records. Decoded header metadata, group tables and shared
+load-order indices are outside these record-body totals. The implementation
+uses the existing ESM structs rather than a second record store.
+
+Debug builds use a counting Rust System allocator. Optimized profiling builds
+enable it with `--features profile-memory`. The allocator adds an aligned owner
+prefix, preserves that owner across reallocation and frees on other threads,
+and leaves Godot's own heap outside the counters. PlayerNode's
+`system_frame_breakdown` includes `live_bytes` and `allocations` for every
+system in the last completed presentation frame. Reallocations count as calls.
+Unscoped allocations use `other`. No saved state or per-reference nodes were
+added. These hooks use the Rust allocator contract and the model timing table
+in local `godotwind/src/core/world/performance_profiler.gd`.
+
+`streaming_diagnostic` supplies the slowest asset for hitch-report consumers.
+The PRF-18 dump consumer is absent from this checkout. The PRF-20 Rust installed
+check loads Bannered Mare and WhiterunOrigin and checks preparation categories,
+NAVM handoff, plugin record bodies and texture sums. The headless Godot script
+`prf_20_attribution_test.gd` checks actual host uploads, source reports, sums
+and profile removal. It measures no rendering throughput.
+
 ## Per-system frame monitors, PRF-12
 
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`

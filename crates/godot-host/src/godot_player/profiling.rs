@@ -154,6 +154,8 @@ impl PlayerNode {
             report.set(
                 system.name(),
                 &vdict! {
+                    "live_bytes" => self.host_history.last().live_bytes[system as usize] as i64,
+                    "allocations" => self.host_history.last().allocation_calls[system as usize] as i64,
                     "ms" => self.host_history.last().milliseconds(system),
                     "percent" => self.host_history.last().percent(system),
                     "p50_ms" => stats.p50_ns as f64 / 1e6,

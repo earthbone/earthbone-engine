@@ -34,6 +34,11 @@ pub use frame::{
     SystemStats, FRAME_HISTORY, SYSTEM_COUNT,
 };
 
+mod memory;
+pub use memory::{memory_allocated, memory_freed, MemorySnapshot};
+mod stream;
+pub use stream::{LoadCapture, LoadMeasure, LoadRecorder, LoadReport, LoadStage};
+
 mod work;
 pub use work::{count, Operation, WorkCounts, WorkFrame, WorkRecorder};
 

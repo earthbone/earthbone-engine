@@ -13,6 +13,9 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+#[cfg(any(debug_assertions, feature = "profile-memory"))]
+mod allocations;
+
 pub mod actor;
 pub mod animated_static;
 pub mod animation_dispatch;

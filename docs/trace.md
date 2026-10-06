@@ -88,6 +88,39 @@ optional tracing off. The optimized overhead checks use a limit below 1.01.
 
 ## System timings and work counts
 
+## Cell costs and allocation counters, PRF-20
+
+`LoadRecorder` follows one cell through worker preparation, collision and host
+upload. Its scoped capture restores the previous cell on return or unwind.
+Joined workers explicitly enter the caller's recorder. `LoadReport` includes
+archive I/O by winning archive path or loose source, NIF parse, texture
+preparation, texture upload, collision build and NAVM preparation, including
+zero slots. Durations are cumulative CPU work and waits, rather than wall-time
+shares. Texture preparation includes DDS parsing and compressed mip padding.
+Archive reads include decompression and lock waits. Collision construction
+excludes separately measured archive reads and NIF parsing.
+
+Asset costs sum measured operations for each canonical path. The slowest asset
+uses that cumulative cost, with lexical tie breaking. `diagnostic` names it
+alongside stage and archive totals. Texture inventories contain one payload
+size per canonical path per cell, including generated terrain and cube faces.
+These totals describe referenced upload bytes, rather than driver allocations.
+
+`MemorySnapshot` holds process-wide Rust allocation counters for every system.
+The host counting allocator retains the allocating system in a prefix and
+charges deallocation and reallocation to that owner even after scope or thread
+changes. `FrameSample` reports live requested bytes and successful allocation
+or reallocation calls between snapshots. Godot's heap and GPU allocations are
+outside these counters. Instrumentation is enabled in host debug builds and
+optimized builds with `profile-memory`.
+
+The timing table was checked against local
+`godotwind/src/core/world/performance_profiler.gd`. Its aggregate Godot memory
+monitors do not provide Rust allocation ownership, so the host uses the Rust
+standard library allocator and layout contract. No dependency or saved state
+was added. The PRF-18 dump consumer is absent from this checkout. The diagnostic
+API supplies streaming attribution for a consumer to include.
+
 `Span` records optional Chrome trace events in the existing global event list.
 `SystemScope` also provides always-on exclusive elapsed timings for fourteen fixed
 slots: Papyrus VM, AI planning, AI movement, combat, magic, quests and story

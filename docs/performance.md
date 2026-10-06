@@ -102,6 +102,13 @@ measurements below remain tied to their recorded revisions.
 
 ## Per-system frames, PRF-12
 
+PRF-20 cell cost reports, texture inventories, plugin record bodies and counting
+allocator ownership are documented in [godot-host.md](godot-host.md) and
+[trace.md](trace.md). Optimized allocation captures require the host's
+`profile-memory` feature. The benchmark enables that feature and reads the
+shared counters as described in [bench.md](bench.md). Streaming diagnostics
+name the slowest asset. PRF-18's dump integration is not present in this branch.
+
 `soe-trace` records fixed-slot exclusive system time with optional Chrome
 tracing off. `Game::frame_history` provides headless tick frames and rolling
 240-frame statistics. PlayerNode provides presentation frames through
