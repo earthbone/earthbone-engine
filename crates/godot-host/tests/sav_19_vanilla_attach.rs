@@ -60,7 +60,7 @@ fn sav_19_vanilla_atomic_import_attaches_saved_cell_pose_camera_and_verified_fra
         let store = GenerationStore::new(directory.path(), 2).unwrap();
         let name = path.strip_prefix(&corpus).unwrap().to_string_lossy();
         match accept_vanilla_recovery_session(&mut game, &save, &store) {
-            Ok(accepted) => {
+            Ok(_accepted) => {
                 let player_id = game.player();
                 let world = game.world();
                 let player = world.reference_ref(player_id).unwrap();
@@ -94,7 +94,7 @@ fn sav_19_vanilla_atomic_import_attaches_saved_cell_pose_camera_and_verified_fra
                     .starts_with("Clean Saves");
                 clean_successes += usize::from(clean);
                 let interior = source.cell_index().is_interior(expected_cell);
-                survey.push(json!({"save": name, "ok": true, "skipped_transient": accepted.skipped_transient}));
+                survey.push(json!({"save": name, "ok": true}));
                 if clean && (selected.is_none() || (interior && !selected_interior)) {
                     let expected = json!({
                         "cell": expected_cell.to_string(),

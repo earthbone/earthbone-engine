@@ -157,17 +157,17 @@ fn opaque_projectile_bytes_are_refused(type_field: u8, expected: &str) {
     let mut game = game_with_skyrim();
     let snapshot = game.save_state().unwrap();
 
-    let error = soe_godot_host::save_recovery::accept_vanilla_recovery_session(
-        &mut game,
-        &save,
-        &store,
-    )
-    .expect_err("opaque projectile payload must not be silently dropped");
+    let error =
+        soe_godot_host::save_recovery::accept_vanilla_recovery_session(&mut game, &save, &store)
+            .expect_err("opaque projectile payload must not be silently dropped");
 
     assert!(error.to_string().contains(expected), "{error}");
     assert_eq!(game.save_state().unwrap(), snapshot);
     assert_eq!(save.write().unwrap(), before);
-    assert_eq!(fs::read_dir(directory.0.join("recovery")).unwrap().count(), 0);
+    assert_eq!(
+        fs::read_dir(directory.0.join("recovery")).unwrap().count(),
+        0
+    );
 }
 
 #[test]
