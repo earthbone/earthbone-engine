@@ -248,7 +248,7 @@ impl Capture {
         );
         std::fs::write(&path, json)?;
         std::fs::write(directory.join(format!("{stem}.txt")), &summary)?;
-        eprint!("{summary}");
+        crate::info!(target: "trace::hitch", system = "trace", "{}", summary.trim_end());
         Ok(path)
     }
 }
@@ -262,7 +262,7 @@ struct FlightRecorder {
 impl Drop for FlightRecorder {
     fn drop(&mut self) {
         if let Err(error) = join_writer(&mut self.writer) {
-            eprintln!("SOE hitch export: {error}");
+            crate::error!(target: "trace::hitch", system = "trace", "SOE hitch export: {error}");
         }
     }
 }
@@ -362,7 +362,7 @@ pub(crate) fn frame(frame_ns: u64) {
                 return;
             }
             if let Err(error) = join_writer(&mut flight.writer) {
-                eprintln!("SOE hitch export: {error}");
+                crate::error!(target: "trace::hitch", system = "trace", "SOE hitch export: {error}");
             }
             let directory = flight.directory.clone();
             match std::thread::Builder::new()
@@ -370,7 +370,9 @@ pub(crate) fn frame(frame_ns: u64) {
                 .spawn(move || capture.write(&directory).map(|_| ()))
             {
                 Ok(writer) => flight.writer = Some(writer),
-                Err(error) => eprintln!("SOE hitch writer: {error}"),
+                Err(error) => {
+                    crate::error!(target: "trace::hitch", system = "trace", "SOE hitch writer: {error}");
+                }
             }
         }
     });
