@@ -280,7 +280,6 @@ impl PlayerNode {
         }
         self.process_debug_host_requests();
         if let Some(game) = &mut self.game {
-            self.menu.tick(game, delta);
             if let Err(error) = self.image_space.sync(&game.world()) {
                 soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
             }
@@ -703,6 +702,17 @@ impl PlayerNode {
     }
 
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
+        let is_load_door = self.game.as_ref().is_some_and(|game| {
+            game.world()
+                .reference_ref(target)
+                .is_some_and(|reference| reference.teleport.is_some())
+        });
+        if is_load_door {
+            self.base_mut().emit_signal(
+                "transition_requested",
+                &[Variant::from("load_door"), Variant::from("activation")],
+            );
+        }
         let (activated, show_container, show_crafting, lockpick_request) = {
             let Some(game) = &mut self.game else {
                 return false;

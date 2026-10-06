@@ -56,6 +56,9 @@ impl World {
             self.record_witnessed_crime_in_faction(player, witness, CrimeType::Assault, faction)?;
         if let Some(actor) = self.actor(witness) {
             actor.alerted = true;
+            self.ai
+                .metrics
+                .response(witness, crate::ai::metrics::Response::Alarm);
         }
         Ok(bounty)
     }
@@ -462,6 +465,11 @@ impl World {
         let total = fs
             .crime_gold_violent
             .saturating_add(fs.crime_gold_nonviolent);
+        if self.is_player(perpetrator) {
+            self.ai
+                .metrics
+                .stimulus(witness, crate::ai::metrics::Stimulus::PlayerCrime);
+        }
         self.actor(witness)
             .ok_or(Error::Actor(witness))?
             .witnessed_crimes

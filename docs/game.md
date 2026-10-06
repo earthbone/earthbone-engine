@@ -1,5 +1,59 @@
 # soe-game: the runtime form table and the first natives
 
+## AI measurements, PRF-27
+
+`AiWorld::metrics` counts each NPC driver visit, including early returns, and
+records its inclusive time and mean interval on the non-menu real-seconds
+clock. The four slots follow local CommonLibSSE-NG `AIProcess.h` PROCESS_TYPE
+and `ProcessLists.h` actor arrays. The current driver visits every instantiated
+NPC at high process each tick. Middle high, middle low and low remain empty.
+These headers name process levels but do not supply scheduling intervals, so
+this instrumentation does not introduce a distance-based scheduler.
+
+Procedure phases cover every current `Procedure` variant. Unsupported
+UseItemAt requests have a separate category. Immediate UseMagic branches are
+timed around their actual cast path. Package selection, schedule windows,
+combat target selection, assigned-hand spell and weapon selection, automatic
+and assigned force greets, sandbox marker/furniture searches and steering
+have named timings. Ambient idle chatter topic scans and candidate checks have
+their own phase within automatic greeting evaluation. Durations are inclusive
+and can overlap. Per-procedure
+movement time includes state lookup and procedure-tree entry, sharing the
+existing movement clock pair. Activation and immediate casts have separate
+timings. Driver phase accumulation uses enum slots and publishes the named
+table once per tick. Actor cadence and progress share one metrics lookup.
+Menu and disabled-AI frames clear frame timings and process counts.
+Combat style choice has no executing subsystem and reports zero with an
+explicit host capability flag.
+
+Navigation records each new request once. Request-to-ready wall time includes
+waiting between slices. Expanded nodes exclude stale `A*` heap entries, include
+the goal and include unique walkable nodes in flee floods. Route length is the
+pulled polyline in game units, rather than `A*` cost. An absent native route is a
+failure even when the existing off-mesh straight-line fallback is returned.
+Cached failures are not new requests. Cancellation is separate from failure,
+and subsequent new requests by the same actor count as re-plans. Session totals
+and recent completed/cancelled samples are per actor. The preceding wall-clock
+second supplies request and re-plan counts, retaining at most 4096 entries of
+each kind per actor. Unloading removes actor measurements.
+
+Accepted detection transitions against the player, player melee contacts,
+witnessed player crimes and successful player dialogue requests start reaction
+measurements. Actual combat acquisition or StartCombat, assault alarms and
+opened conversations finish compatible stimuli. Repeated outstanding stimuli
+retain the earliest timestamp. Rejected requests and eligibility probes produce
+no response sample. A stimulus without an implemented response remains pending.
+These hooks cover the existing entry points, without creating a new response.
+Automatic greetings, package actions and scene conversations use the NPC
+entry point, so they do not invent a player-dialogue stimulus.
+
+A non-arrived actor with a remaining path is stuck after five non-menu seconds
+without decreasing its remaining polyline length by more than 0.01 game units.
+Backtracking does not reset the timer. Progress, arrival, inactive actors and a
+changed destination clear it. Metrics are transient, add no save sections and
+never supply gameplay decisions. The engine-owned timing and progress contract
+is PRF-27, rather than a vanilla saved-layout claim.
+
 ## Entity runtime hooks, PRF-13
 
 Optional scopes attribute actor planning, package evaluation, driver movement
@@ -27,6 +81,15 @@ current directory when unset. Write failures are reported. This process-wide
 capture is independent of world state and adds no saved sections. The
 `prf_13_` integration tests exercise two actors, two scripts, one quest, all
 five predicate categories and installed master record ownership.
+
+## PRF-24 observation counters
+
+Successful `World::evaluate_detection` batches add their observation count to
+`detection_checks` and their actor-to-actor observation count to
+`detection_pairs` in the shared transient `soe-trace` metric snapshot. The
+observation contains a caller-supplied line-of-sight result. It does not cast a
+ray, and the metric snapshot keeps `line_of_sight_raycasts` at zero until a
+host raycast is connected to this path.
 
 ## Per-system frame timing, PRF-12
 

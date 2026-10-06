@@ -216,6 +216,10 @@ fn start_topic(world: &mut World, actor: GlobalFormId, topic: GlobalFormId) {
         last_info: None,
         response_index: 0,
     });
+    world
+        .ai
+        .metrics
+        .response(actor, super::metrics::Response::Greeting);
 }
 
 fn route(

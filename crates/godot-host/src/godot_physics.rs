@@ -55,7 +55,9 @@ pub fn ground_collision_position(
         .space_get_direct_state(space)
         .ok_or("unavailable ground collision space")?;
     soe_trace::count(soe_trace::Operation::Raycasts, 1);
-    let result = state.intersect_ray(&query);
+    let result = soe_trace::measure_physics_query(soe_trace::PhysicsQueryKind::Raycast, || {
+        state.intersect_ray(&query)
+    });
     let Some(hit) = result
         .get("position")
         .and_then(|value| value.try_to::<Vector3>().ok())

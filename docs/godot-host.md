@@ -1,5 +1,94 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## AI breakdown and overlay, PRF-27
+
+`PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
+the four process levels, per-actor navigation counters and recent requests,
+reaction latencies and stuck actor FormIDs. It retains PRF-11 phase names and
+reports microseconds with counts and update intervals. Idle chatter topic
+selection has its own measured phase. Unavailable combat style choice and
+process scheduling have capability flags.
+No optional entity capture is required.
+
+F5 opens the existing system overlay's AI view. It displays all procedures and
+twelve decision durations, process counts and cadence, the stuck list, and up
+to three path and reaction rows. The complete tables remain available through the
+callable. F3 returns to systems, F4 returns to entity capture. The view reuses
+the existing panel and label, adding no per-reference nodes. The windowed
+`godot/prf_27_ai_overlay_test.gd` check reads the report with entity capture off,
+loads installed Bannered Mare NPCs, toggles F5, checks labels and viewport bounds,
+captures the window and quits.
+
+## Default menu art, UI-24
+
+The UI-20 inventory, container, barter, favorites and magic menus share
+`godot/ui/theme`. Its 15 generated Godot meshes contain NORDIC UI 2.4.1's
+inventory category icons, Favorites and general magic icons, an item-card
+frame, a background and an equipped marker. Item rows reuse the corresponding
+category artwork for their ten generic item types. The favorites groups Gear,
+Aid and Magic use Lorc's Battle gear, Potion ball and Magic swirl SVGs from
+Game-icons.net under CC BY 3.0. The theme manifest names every resource.
+`godot/ui/theme/CREDITS` records the authors, links, version, dates, permission
+quote and the fallback icon licence.
+
+The local source was
+`engine-refs/mods/NORDIC-UI-2.4.1/README.lead`. The
+[NORDIC mod page](https://www.nexusmods.com/skyrimspecialedition/mods/49881)
+grants use of the author's art and asks users to check SkyUI and SkyHUD
+permissions separately. The bundle therefore contains only generated art,
+with no original mod files, archives, scripts, fonts, menu layouts, SkyHUD
+components, third-party patches or WAV sounds. The source does not establish
+the sounds' origin. The [Game-icons licence](https://game-icons.net/)
+requires attribution, supplied alongside the icons. Native theme mappings and
+Godot controls remain GPL-3.0-or-later.
+
+`nordic_theme::extract` reads the user's NORDIC install through
+`SOE_TEST_NORDIC`, SkyUI's archive through `SOE_TEST_SKYUI` and vanilla's
+`Skyrim - Interface.bsa` through `SKYRIM_DATA`. The extraction binary takes
+an empty output directory as its argument. It scans every SWF and GFX art
+definition in both reference archives, including nested sprites. A shape or
+bitmap is excluded if its tag type and payload, excluding the movie-local
+character ID, match any reference definition. A shape that depends on an
+excluded bitmap is also excluded. Duplicate art IDs and malformed envelopes
+return errors. The UI-19 converter reads an art-only reconstruction and its
+`write_art` entry point writes meshes and bitmaps without movie metadata.
+The extractor reads four NORDIC SkyUI reskins, category icons, inventorylists,
+itemcard and mapmarkerart. The bundle selects 15 of the 125 definitions that
+pass these checks. `nordic/provenance.json` names each selected source and its
+SHA-256 fingerprint. No standalone DDS or NIF is extracted.
+
+The extractor reuses Ruffle's tag length reader and the existing UI-19
+converter rather than implementing SWF geometry or resource encoding.
+`serde_json`, `sha2` and `swf` are direct host dependencies already present
+through that converter, with no new resolved packages. No saved state or
+per-reference node path is added.
+
+Converted winning install art is tried before the default theme. Category
+labels use SkyUI's `inv_*`, `cat_favorites` and `mag_all` names, checked in
+local SkyUI Community's `source/swf/skyui/icons_category_psychosteve.xml`.
+Generic spells use `mag_all`, since the item icon source has no
+`default_spell` label. Panels select the named `background` instance inside
+`ItemCard`, while markers use the `EquipIcon` symbol in inventorylists.
+Character IDs parsed from JSON are converted to integers before timeline
+lookup, following local Godot `classes/class_json.rst`'s numeric conversion
+contract. Zero-alpha helper shapes are excluded using both the multiplier
+and additive alpha terms recorded in SkyUI's icon XML. Native controls tint
+panel meshes for text contrast. These install caches remain external and
+uncommitted. NORDIC theme meshes supply missing install art.
+
+The `ui_24_` tests cover duplicate shapes and bitmaps, renumbered IDs, nested
+sprites, excluded bitmap dependencies, malformed input, art-only output,
+bundle attribution and fresh extraction of the selected resources. The real
+install case skips when any of the three data variables is unset. The
+windowed scene checks every category and item type, panels and equipped
+markers across the five UI-20 modes, with a second run for installed SkyUI
+precedence. Both runs capture the viewport and quit. Render checks cover dark
+panel contrast and visible gaps in the weapon icon silhouette.
+
+The installed-data run passes all nine UI-24 tests, including both windowed
+640 by 360 scenes on Godot 4.4.1 with llvmpipe. The selected art totals
+1,343,317 bytes of generated meshes. Captures are written under `target`.
+
 ## Entity host capture, PRF-13
 
 The existing system overlay uses F4 to toggle `soe_trace::Profile`, displaying
@@ -24,7 +113,58 @@ covers F4, an applied camera switch, presentation latency, an audio start,
 installed render submissions, summary JSON and an overlay capture. It uses
 the existing input path and the local Godot RenderingServer signal contract.
 
+## PRF-24 runtime metric publication
+
+`PlayerNode::performance_metrics` returns the stable `soe-trace` metric names
+and values for the overlay and exit summary. `SoundBank` updates the active
+voice gauge each process frame and adds time spent decoding uncached sounds.
+This does not measure event-to-first-sample latency or the Godot output
+latency. Animation evaluation phases are not connected to a live actor
+animator in this host, so their snapshot values remain zero. Path-cache
+measurements remain zero because no path cache exists.
+
+## Transition timing, PRF-26
+
+`PlayerNode` emits `transition_requested(kind, name)` before opening or closing
+the modal menu shell, dialogue activation, a load-door activation, and native
+generation save, quick-save, quick-load and full-load work. The walkthrough's
+system overlay waits for `RenderingServer.frame_post_draw` for each request,
+then records the elapsed wall time under that transition key. On player exit it
+prints and writes `user://soe-transitions.txt` with the sample count, p50 and
+worst time. These measurements include requested synchronous work and end
+after the resulting frame is drawn. Load-door timing does not include a separate
+measurement of the first input callback after resource replacement.
+The completion boundary follows local
+`engine-refs/godot-docs/classes/class_renderingserver.rst`, which defines
+`frame_post_draw` as emitted after all Viewports finish updating.
+
+`godot/prf_26_menu_transitions_test.gd` opens and closes the named modal menu
+shells in a windowed run and builds 500 label rows in each. It times its list
+construction, string filtering and sorting operations by menu and item count.
+The list workload is a synthetic scene check. It does not time each native
+presenter's record-backed list construction. Fast travel has no host transition
+entry point in this checkout, and its timing is not reported.
+
 ## Per-system frame monitors, PRF-12
+
+PRF-16's `begin_budget_frame` and `end_budget_frame` delimit one fixed-step
+CPU window using the same exclusive PRF-12 slots. Nested begins fail, an end
+without a begin returns an empty dictionary, and successful ends return the
+wall milliseconds and every system's milliseconds. These temporary windows
+do not change presentation history or saved state. `budget_runtime_status`
+exposes completed Game ticks, real simulation seconds, package evaluations,
+cached navigation triangles and the current resolved worldspace editor id
+to reject stopped or misdirected runtime samples. The installed
+`prf_16_walkthrough_test.gd` extends the actual walkthrough startup with manual
+steps and captures the full CPU scenario, including authored-door activation.
+Each manual advance ticks Game once. The open-menu branch owns menu-mode
+ticks, while normal gameplay no longer ticks again through a closed MenuState.
+Headless startup skips rendering warm-up. Windowed startup retains it.
+`gameplay_doors` exposes the linked door's return position and yaw from the
+decoded XTEL transform when the return link names the original door. This
+supplies the walk approach without hard-coded placements. The source is
+local TES5Edit/Core/wbDefinitionsTES5.pas, REFR's XTEL definition. The suite
+and its fixed budgets are described in [performance.md](performance.md).
 
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`
 system when it enters the tree and removes its own monitors when it leaves.
@@ -51,6 +191,25 @@ one CanvasLayer with a panel and label, with no nodes per placed reference.
 duplicate-player ownership and removal, toggles the overlay with F3, verifies
 its labels and frame shares, and writes and reads the summary. A windowed run
 can save an overlay PNG through `SOE_PRF_12_CAPTURE`.
+
+The physics row also exposes `physics_frame_breakdown`. It reports the number
+of physics callbacks since the last presentation process callback, inferred
+catch-up steps, Godot's physics-step duration and PHYSICS_3D active body,
+collision pair and island monitors. Wrapped query counts and elapsed time are
+grouped by their active `soe-trace` system. The current host adapters wrap
+raycasts. Shape-cast and overlap categories have no instrumented host callers.
+Catch-up lasting at least one second emits one warning per continuous streak.
+The query timing covers wrapped host calls only. Godot's physics-frame monitor
+reports the last physics-step duration. The report does not split Jolt
+integration time among player, NPC, ragdoll or dropped-item bodies.
+Collision-shape build timing is
+not yet measured. The breakdown retains `player_controller_us`,
+`npc_controller_us`, `ragdoll_bodies`, `ragdoll_us`, `dropped_item_bodies`,
+`dropped_item_us` and `collision_shape_build_us` as nil until their measurements
+are available. A nil value indicates an unavailable measurement, while a
+numeric zero indicates measured work with no elapsed time or bodies.
+`godot/prf_25_physics_test.gd` runs three rigid capsule bodies and 100 direct
+space rays per physics callback and checks the report's values and categories.
 
 Monitor naming, callable arguments, nonnegative values and removal follow
 local `engine-refs/godot-docs/classes/class_performance.rst`, checked against
@@ -92,6 +251,19 @@ normal frame playback in Ruffle's
 PlaceObject2/3 payloads must be fully consumed by the typed reader. The breaker
 fixture for an unoccupied depth contains an extra payload byte and is rejected
 for that malformed envelope rather than its empty depth.
+
+## Engine system profiler, PRF-23
+
+The host registers a Godot `EngineProfiler` named `soe_systems` at the Scene
+initialization stage and unregisters it when the extension shuts down. When
+Godot's debugger enables it, PlayerNode sends each completed presentation
+frame as seconds for the frame followed by name and seconds pairs for all
+fourteen engine systems. `EngineProfiler` receives these payloads through
+Godot's `EngineDebugger.profiler_add_frame_data` API. The adapter and payload
+use the local Godot 4.4 `class_engineprofiler.rst` and
+`class_enginedebugger.rst` contracts. The editor acceptance script verifies
+that the extension registered the profiler. It does not inspect the editor's
+Profiler tab display.
 
 ## Scripted player input, PLY-01
 

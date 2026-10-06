@@ -61,6 +61,45 @@ The host check records and replays 600 steps twice, checks eleven hashes and
 complete event logs, and quits. This is a simulation correctness check.
 Rendering frame comparisons continue to use the windowed bench.gd workflow.
 
+## Permanent AI breakdown, PRF-27
+
+F5 in the walkthrough shows the always-on AI breakdown from
+`PlayerNode::ai_breakdown`, retaining the diagnostic phases formerly used only
+by the PRF-11 planning script. The headless data lives on `AiWorld` and is
+independent of optional trace/entity capture. Procedure and decision durations
+are inclusive, path latency uses wall time, process cadence and the five-second
+stuck threshold use the non-menu world clock. See [game.md](game.md) for the
+measured boundaries, bounded history and currently inactive categories.
+
+The `prf_27_` Rust tests exercise permanent phases, procedure categories,
+request slicing, expansion counts, failures, cached results, cancellations,
+re-plans, reaction pairing, stuck progress and process counts. The installed
+Bannered Mare case is gated on SKYRIM_DATA. The ignored release test
+`prf_27_retains_prf_12_accumulator_budget` applies PRF-12's existing median
+on/off threshold of 1.01 and checks identical actor positions. That calibration
+suspends system timing only. It does not isolate the new always-on AI
+measurements from a pre-change binary.
+
+The separate `prf_27_combined_measurements_stay_under_one_percent` release-probe
+comparison uses the same 1,000-actor fixture, ten warmup ticks and 240 measured
+ticks. The pre-change baseline uses `c3e2d1de` with system timing suspended.
+The current probe keeps system timing and AI measurements on. Both disable
+optional entity capture and tracing. Fifteen alternating process pairs must
+have equal final-position checksums and a median current/baseline ratio below
+1.01, fixed before the first comparison. The probe source is
+`crates/game/examples/prf_27_probe.rs`, copied into the baseline source snapshot
+before building it. Its `suspended` argument disables system timing.
+
+```text
+rtk cargo build -p soe-game --release --example prf_27_probe
+rtk cargo test -p soe-game --test it prf_27_combined_measurements_stay_under_one_percent -- --ignored --nocapture
+```
+
+The comparison takes executable paths through SOE_PRF_27_BASELINE and
+SOE_PRF_27_CURRENT. Keep both compiled probes outside Cargo's shared public
+example filename and verify that the current binary contains the new procedure
+slots. Run timing tests after all local builds and Godot checks have exited.
+
 ## Entity capture workflow, PRF-13
 
 The ignored release check `prf_13_disabled_capture_retains_prf_12_frame_budget`
@@ -100,6 +139,21 @@ Capacity sweeps, enforced frame budgets and sustained workload checks are
 documented in [performance-limits.md](performance-limits.md). Historical
 measurements below remain tied to their recorded revisions.
 
+## Menu and save transitions, PRF-26
+
+The walkthrough records modal-menu open and close requests, dialogue and
+load-door activation, native generation saves, quick saves, native quick-load
+recovery and full generation loads through the first
+`RenderingServer.frame_post_draw`. Its exit summary is written to
+`user://soe-transitions.txt` with p50 and worst milliseconds. The windowed
+`godot/prf_26_menu_transitions_test.gd` exercises the named menu shells and a
+500-row list workload, with per-menu list construction, filtering and sorting
+times. The rows are synthetic labels, not timings of each record-backed
+presenter. Door and dialogue timings end at first draw, rather than measuring
+the first resumed control callback. Fast travel has no host transition entry
+point in this checkout. PRF-16 has no transition budgets until the remaining
+paths and native presenter measurements are implemented.
+
 ## Per-system frames, PRF-12
 
 `soe-trace` records fixed-slot exclusive system time with optional Chrome
@@ -131,6 +185,46 @@ also checks synthetic music and ambience requests return under 2 ms, discard a
 superseded result, preserve playing music until replacement, reuse cached paths
 and keep cache accounting within 64 MiB.
 
+## Runtime metrics, PRF-24
+
+The F3 overlay and `user://soe-systems.txt` append a PRF-24 report. The
+report includes stable fields for AI detection checks and pairs, line-of-sight
+raycasts, path-cache hits and misses, physics bodies and contacts, audio voice
+count and decode time, audio latency categories, animation phases and event
+timing, and input-to-screen latency. The overlay also samples presentation
+frame deltas in a 240-frame ring and reports standard deviation, p50, p99 and
+worst. These frame values describe intervals between Godot overlay callbacks.
+
+At this checkpoint, only detection observations, active sound voices,
+uncached audio decode time, and presentation frame pacing have live producers.
+Detection observations carry a caller-supplied visibility result and do not
+perform a raycast. There is no path cache or live behavior-graph actor
+evaluator. Physics contact counts, audio event-to-first-sample and output
+latency, animation phase timings and gameplay annotation drift, and
+input-to-screen latency remain zero pending instrumentation at those sites.
+The field presence is a report contract, not evidence those systems have been
+measured. `prf_24_metrics_report_overlay_and_summary` checks the field set,
+frame statistics, overlay and written summary.
+
+The metric set and rolling report shape follow the local
+`engine-refs/godotwind/src/core/world/performance_profiler.gd` and
+`src/tools/performance_report_contract.gd`. The engine uses atomic Rust
+metrics for simulation and audio-host values, rather than copying the
+godotwind dynamic GDScript counters.
+
+## Physics frame details, PRF-25
+
+The F3 overlay includes physics callback count, inferred catch-up callbacks,
+Godot's `TIME_PHYSICS_PROCESS` per-step time and PHYSICS_3D active-object, collision-pair
+and island monitors. A continuous catch-up streak lasting one second logs one
+warning. Wrapped host raycasts report elapsed call time and count under the
+active system. The report reserves shape-cast and overlap categories, but no
+host caller currently records those kinds. `TIME_PHYSICS_PROCESS` reports the
+last physics-step time and does not split Jolt integration among
+body classes. Per-player/NPC controller time, ragdoll and dropped-item body
+time/count, and cell-load collision-shape build time are not yet reported.
+The synthetic report scene is `godot/prf_25_physics_test.gd`.
+
 Run the declared overhead gate, which alternates recorded and suspended
 eight-tick batches in one warmed 1,000-actor travel/sandbox world, then
 asserts the median paired on/off ratio is below 1.01. A second world replays
@@ -147,6 +241,177 @@ release extension build and import, run the live monitor and overlay check:
 ```text
 rtk proxy "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_12_monitors_test.gd
 ```
+
+## Tracy and editor profiling, PRF-23
+
+The optional `soe-trace/tracy` feature streams `Span` scopes to a running Tracy
+viewer, plots the ten `WorkCounts` metrics, and marks completed system frames.
+It is disabled by default. The client captures on demand and advertises only
+on the local host. Inspect its dependency tree with:
+
+```text
+rtk cargo tree -p soe-trace --features tracy
+```
+
+Build the Godot extension with `cargo build -p soe-godot-host --release
+--features tracy` to enable Tracy in a host run.
+
+The Godot extension registers an `EngineProfiler` named `soe_systems`.
+When enabled by the editor debugger, it receives a frame duration and
+fourteen system duration pairs in seconds for every PlayerNode presentation
+frame. The current editor script verifies registration. It does not verify
+that Godot displays the custom values in its built-in Profiler tab.
+The feature adapter test is
+`prf_23_tracy_adapter_exports_scopes_counters_and_frame_marks`. After building
+the release extension and importing the project, run the editor registration
+check:
+
+```text
+rtk proxy "$SOE_GODOT_BIN" --editor --path godot --script prf_23_profiler_test.gd
+```
+
+## Fixed installed-data CPU suite, PRF-16
+
+`tools/perf-budget.sh` builds the release extension and benchmark, imports
+the Godot project and runs three isolated headless scenarios. The first
+starts the actual walkthrough in WhiterunBanneredMare, warms navigation and
+120 fixed steps, then measures 3,600 steps with NPC packages for 60 seconds.
+The second starts the same walkthrough, walks toward an unlocked authored
+load door from its return marker, activates it through Game and replaces the
+host collision and geometry with WhiterunWorld. It measures the approach,
+the crossing and 3,600 exterior steps. Physical residency at the fresh city
+exit includes the player and one NPC after PRF-31. The walk requires both
+actor bodies and package evaluations during the exterior steps.
+The third drives PRF-07's 1,000 travel
+and sandbox actors on their record-backed NAVM for 3,600 steps after ten
+warm-up steps. Each scenario paces at 60 steps per second and retains every
+CPU sample. TST-18's installed walkthrough workload is the first two scenarios.
+
+The frame is CPU wall time inside a fixed simulation step, including door
+activation on the crossing step. Pacing, setup, telemetry and report writing
+are excluded. PRF-12's exclusive slots supply per-system p50, p99 and worst
+over the whole measured run, including idle zero samples. Headless rendering
+slots may be zero. These runs establish CPU costs, not rendering throughput.
+The thresholds below were fixed before the first PRF-16 run. Every reported
+statistic must meet its corresponding limit, including the overall frame.
+
+<!-- PRF-16 budgets -->
+
+| System | p50 ms | p99 ms | Worst ms |
+|---|---:|---:|---:|
+| frame | 8 | 16.7 | 33 |
+| papyrus_vm | 2 | 4 | 8 |
+| ai_planning | 2 | 4 | 8 |
+| ai_movement | 2 | 4 | 8 |
+| combat | 1 | 2 | 4 |
+| magic | 1 | 2 | 4 |
+| quests_story_manager | 1 | 2 | 4 |
+| dialogue | 1 | 2 | 4 |
+| physics_sync | 2 | 4 | 8 |
+| cell_streaming | 2 | 8 | 33 |
+| audio | 1 | 2 | 4 |
+| save | 2 | 8 | 33 |
+| input | 1 | 2 | 4 |
+| host_render_submission | 2 | 4 | 8 |
+| other | 2 | 4 | 8 |
+
+<!-- /PRF-16 budgets -->
+
+```text
+rtk proxy env SKYRIM_DATA=/path/to/Data tools/perf-budget.sh
+rtk proxy env SKYRIM_DATA=/path/to/Data tools/perf-budget.sh --sweep
+rtk proxy env SKYRIM_DATA=/path/to/Data python3 tools/performance.py final-sweep --out target/final-budget
+```
+
+Normal mode returns 2 for a budget breach, 1 for incomplete or invalid
+execution, and 0 when every scenario passes. It runs all scenarios even after
+a failure. `tools/performance.py final-sweep` calls this suite with `--sweep`.
+It returns zero after recording failures so a group can finish. Both modes write raw logs,
+`report.json` and `follow-up-rows.csv` under `target/perf-budget`. The latter
+contains one complete new backlog row per failed scenario, using the next
+unused PRF ids. The orchestrator imports those rows into BACKLOG.csv after
+reconciling ids with any concurrent additions. The runner does not edit the
+backlog. `--no-build` as the first argument reuses previously built binaries,
+while still importing the project before launching the scenarios.
+
+Sources: the local Godotwind benchmarking manual for fixed routes, separate
+setup and full-run statistics, xEdit's REFR XTEL for the authored return
+marker, this repository's PRF-12 timing API, and the parent project's
+`.claude/skills/soe-perf/SKILL.md`. The current timing contract supersedes
+that skill's historical process-monitor wording.
+
+## PRF-16 installed run, 2026-10-05
+
+Uncommitted PRF-16 changes on `draft4/PRF-16`, based on `a69bee42`.
+Release builds on the AMD Ryzen 9 7900X, 24 logical CPUs and 61.9 GiB
+RAM, using stock Godot 4.4.1 headless. These CPU checks perform no GPU
+rendering. The load order contains the five installed Special Edition
+masters. No compiler or other check launched by this agent overlapped
+the measured scenarios.
+
+| Scenario | Samples | Game ticks | Simulation seconds | Wall seconds | NPCs | Evaluations |
+|---|---:|---:|---:|---:|---:|---:|
+| bannered-mare | 3600 | 3600 | 60.000 | 60.069 | 7 | 12412 |
+| walk-out | 3624 | 3624 | 60.400 | 61.119 | 26 | 14489 |
+| thousand-actors | 3600 | 3600 | 60.000 | 60.000 | 1000 | 14440 |
+
+| Scenario | System | p50 ms | p99 ms | Worst ms |
+|---|---|---:|---:|---:|
+| bannered-mare | frame | 3.089889 | 4.648324 | 104.465270 |
+| bannered-mare | ai_movement | 0.829303 | 1.237961 | 1.718361 |
+| bannered-mare | ai_planning | 1.096298 | 1.832864 | 5.068457 |
+| bannered-mare | audio | 0.000090 | 0.000311 | 0.004729 |
+| bannered-mare | cell_streaming | 0.002495 | 0.130498 | 0.359499 |
+| bannered-mare | combat | 0.002544 | 0.004390 | 0.015118 |
+| bannered-mare | dialogue | 0.060515 | 0.096082 | 1.481378 |
+| bannered-mare | host_render_submission | 0.333993 | 0.527116 | 2.374088 |
+| bannered-mare | input | 0.016982 | 0.030678 | 0.259441 |
+| bannered-mare | magic | 0.448046 | 0.824949 | 1.552254 |
+| bannered-mare | other | 0.049963 | 0.082946 | 1.032108 |
+| bannered-mare | papyrus_vm | 0.096683 | 0.158129 | 2.479175 |
+| bannered-mare | physics_sync | 0.112193 | 0.164040 | 0.251706 |
+| bannered-mare | quests_story_manager | 0.011583 | 0.023656 | 100.462013 |
+| bannered-mare | save | 0.000000 | 0.000000 | 0.000000 |
+| walk-out | frame | 5.178666 | 7.577209 | 680.799649 |
+| walk-out | ai_movement | 1.028892 | 1.579179 | 4.816025 |
+| walk-out | ai_planning | 2.395355 | 3.569947 | 19.459391 |
+| walk-out | audio | 0.000090 | 0.000221 | 0.000642 |
+| walk-out | cell_streaming | 0.004137 | 0.521446 | 461.143531 |
+| walk-out | combat | 0.015866 | 0.025094 | 0.626454 |
+| walk-out | dialogue | 0.103426 | 0.155835 | 1.161656 |
+| walk-out | host_render_submission | 0.724226 | 1.160052 | 203.558696 |
+| walk-out | input | 0.017544 | 0.031599 | 0.050525 |
+| walk-out | magic | 0.556332 | 1.007745 | 2.247467 |
+| walk-out | other | 0.038083 | 0.066496 | 2.443009 |
+| walk-out | papyrus_vm | 0.101600 | 0.160081 | 2.145214 |
+| walk-out | physics_sync | 0.120688 | 0.185711 | 6.853982 |
+| walk-out | quests_story_manager | 0.012055 | 0.024517 | 103.755979 |
+| walk-out | save | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | frame | 3.557162 | 7.269708 | 11.816029 |
+| thousand-actors | papyrus_vm | 0.004318 | 0.006843 | 0.023554 |
+| thousand-actors | ai_planning | 0.009165 | 0.049494 | 0.914478 |
+| thousand-actors | ai_movement | 2.905501 | 5.810900 | 9.936738 |
+| thousand-actors | combat | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | magic | 0.074491 | 0.141528 | 0.441815 |
+| thousand-actors | quests_story_manager | 0.000390 | 0.000811 | 0.011631 |
+| thousand-actors | dialogue | 0.351975 | 0.882028 | 3.321977 |
+| thousand-actors | physics_sync | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | cell_streaming | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | audio | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | save | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | input | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | host_render_submission | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | other | 0.174651 | 0.409134 | 4.366021 |
+
+Every scenario completed and breached at least one fixed budget. The
+sweep recorded proposed rows PRF-34, PRF-35 and PRF-36 without changing
+BACKLOG.csv. Raw logs, the complete report and the rows are in
+`target/prf-16-installed-test`. The gated
+`prf_16_installed_sweep_runs_fixed_scenarios_and_records_budget_breaches`
+test passed. The earlier report in `target/prf-16-before-tick-fix` records
+the failing doubled Game ticks before removing the closed-menu tick.
+
+No vanilla-runtime timing comparison or rendering acceptance was run.
 
 ## Machine
 

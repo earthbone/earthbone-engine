@@ -142,3 +142,13 @@ fn ai_36_useweapon_state_round_trips_at_save_version_37() {
         Procedure::UseWeapon
     );
 }
+
+#[test]
+fn prf_27_weapon_choice_timing_wraps_an_actual_useweapon_contact() {
+    let mut game = game();
+    let before = game.world_mut().actor_value(id(TARGET), "health");
+    game.tick(0.1);
+    assert!(game.world_mut().actor_value(id(TARGET), "health") < before);
+    assert!(game.world().ai.planning_phases["weapon_choice"] > std::time::Duration::ZERO);
+    assert!(game.world().ai.planning_phases["procedure.UseWeapon"] > std::time::Duration::ZERO);
+}
