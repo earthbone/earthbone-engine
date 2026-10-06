@@ -1143,9 +1143,15 @@ therefore participates in the same divergence report as world and VM state.
 dependency preflight before restoring a vanilla ESS. Missing plugins, missing
 scripts and changed regular/light plugin kinds return the report and refuse
 session start. ESS provenance that is unavailable in the format remains
-reported as unknown. Unimported projectile and hazard changes, opaque PCON
-remainders and PARW payloads also refuse execution so they are not silently
-omitted. Other supported restoration errors return before a recovery
+reported as unknown. Unimported PMIS, PBEA, PFLA and PBAR changes and
+opaque PCON remainders also refuse execution. PARW placed arrows, PHZD placed
+hazards and PGRE grenade projectiles are classified as transient for
+accepted recovery. They are filtered from a private copy of the import input,
+omitted, with per-type counts returned in `AcceptedVanillaSession.skipped_transient`
+and logged after the generation is written. This policy does not restore
+unexpired arrows, grenade projectiles or active hazards. Their payloads remain
+in the original ESS. Dependency checks still inspect the complete source save.
+Other supported restoration errors return before a recovery
 generation is written.
 
 After restoration succeeds, the host writes a native generation to the
@@ -1166,11 +1172,43 @@ character, cell and camera remain attached. The caller should retain its active
 
 The UESP `Player_Location.wikitext` describes a world or cell, exterior cell
 coordinates and a position. FallrimTools' ESS player-location handling keeps
-that data separate from the player's ACHR change form. The game crate in this
-worktree does not expose the SAV-09 atomic world and VM restoration entry point,
-so no vanilla-save import currently calls this host adapter. The host check is
-therefore limited to the adapter's restored-pose validation. An end-to-end
-vanilla import, attached cell and advanced frame still require SAV-09.
+that data separate from the player's ACHR change form. xEdit's
+`wbDefinitionsTES5Saves.pas` leaves PHZD, PGRE and PARW subtype payloads empty,
+and FallrimTools falls back to opaque bytes for these types. Recovery uses the
+transient policy above rather than deriving an undocumented lifetime reader.
+CommonLib's `GrenadeProjectile.h` supplies the PGRE projectile identity, and
+`Projectile.h` separates its living time from reference placement.
+No new parser, dependency or per-reference scene node is added.
+
+`sav_19_vanilla_atomic_import_attaches_saved_cell_pose_camera_and_verified_frame`
+is gated on `SKYRIM_DATA` and `SOE_TEST_SAVES`. It attempts recovery across the
+external save corpus and writes each result to `target/sav_19/survey.json`.
+Refused imports must preserve the prior game snapshot. Every source ESS is
+checked for unchanged bytes. At least one Clean Save must recover. Its player
+cell, position and rotation are compared with ESS player-location and ACHR data.
+The test passes the resulting native generation to
+`godot/sav_19_vanilla_attach_test.gd` when `SOE_GODOT_BIN` is set. That windowed
+check uses `attach_restored_generation`, verifies the saved pose and current
+camera, checks that the game clock advanced, and captures a 640 by 360 frame.
+At least 100 sampled pixels must differ from the background by 0.05 in RGB
+distance. The script writes `target/sav_19/frame.png` and quits. Recovery
+refusals and host output remain in the survey and `target/sav_19/host.log`.
+
+The 2026-10-05 survey attempted all 60 external saves and accepted none. After
+transient filtering and quest alias object mapping, restoration reported 36
+saves with missing dynamic Papyrus targets, 14 with duplicate
+`DLC1DawnguardItemScript` bindings and one with a duplicate
+`briarheartIngredientScript` binding. Eight saves refused
+PMIS state and one refused opaque PCON state. The missing dynamic targets had
+object IDs 2950, 3794, 3911 and 4449. Among the 19 Clean Saves, six reported
+missing targets, ten the Dawnguard script collision, one the ingredient script
+collision, one PMIS and one PCON. The survey retains every per-save reason in
+`target/sav_19/survey.json` and verifies rollback and source-byte preservation.
+These are the first reported failures, so later restore passes remain untested
+for refused saves. No Clean Save reached host attachment or capture. The
+separate windowed native-generation attachment regression passed on Godot
+4.4.1 and exited zero. It does not establish vanilla-save attachment. SAV-19's
+vanilla frame check remains failing.
 
 `CellStreamer::update(focus)` returns a `StreamPlan`: cells to load, nearest first, and cells
 to unload, farthest first. The load square is `load_radius` cells each side of the focus cell
