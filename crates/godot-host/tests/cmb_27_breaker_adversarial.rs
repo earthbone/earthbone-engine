@@ -146,7 +146,7 @@ fn cmb_27_shared_hit_reacts_once_and_preserves_the_current_locomotion_state() {
     assert!(matches!(start, Some((StaggerGraphEvent::Start, magnitude)) if magnitude > 1.0));
     let (_, magnitude) = start.expect("the shared hit must begin a stagger");
     assert!(soe_godot_host::godot_actor::send_stagger_start(
-        &mut vm, magnitude
+        &mut vm, magnitude, None
     ));
     let played_reaction = (0..90).any(|_| {
         vm.update(1.0 / 60.0);
