@@ -109,6 +109,7 @@ pub struct PlayerNode {
     profile_inputs: Vec<soe_trace::InputLatency>,
     profile_applied_inputs: Vec<soe_trace::InputLatency>,
     host_history: soe_trace::FrameHistory,
+    budget_frame: Option<soe_trace::FrameSnapshot>,
     monitor_names: Vec<StringName>,
     /// Cell radius beyond which distant LOD replaces full resolution geometry.
     #[export]
@@ -230,6 +231,7 @@ impl INode3D for PlayerNode {
             profile_inputs: Vec::new(),
             profile_applied_inputs: Vec::new(),
             host_history: soe_trace::FrameHistory::default(),
+            budget_frame: None,
             monitor_names: Vec::new(),
             exterior_lod_full_res_radius: 1,
             exterior_lod_radius: 16,
@@ -1619,6 +1621,19 @@ impl PlayerNode {
                 row.set("far_worldspace", &GString::from(&name));
             }
             row.set("locked", world.reference(id).is_none_or(|r| r.locked));
+            if let Some((return_door, landing)) = world.reference(far).and_then(|r| r.teleport) {
+                if return_door == id {
+                    row.set(
+                        "return_position",
+                        Vector3::new(
+                            landing.position[0],
+                            landing.position[1],
+                            landing.position[2],
+                        ),
+                    );
+                    row.set("return_yaw", landing.rotation[2]);
+                }
+            }
             result.push(&row);
         }
         result

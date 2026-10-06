@@ -280,7 +280,6 @@ impl PlayerNode {
         }
         self.process_debug_host_requests();
         if let Some(game) = &mut self.game {
-            self.menu.tick(game, delta);
             if let Err(error) = self.image_space.sync(&game.world()) {
                 soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
             }
