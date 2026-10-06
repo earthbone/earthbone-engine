@@ -210,3 +210,16 @@ release argument elision, per-second counts, actor separation, shutdown,
 reentrant sinks, rotation, escaped lines, bounded retention and file errors.
 The hitch-window test includes unflushed messages and excludes both outside
 boundaries. Host routing and F3 controls are tested in Godot separately.
+
+## Papyrus health snapshots, PRF-19
+
+`PapyrusHealth`, `UpdateRegistrations` and `EventHealth` carry live scheduler
+counts and frame durations without trace events. `EventRate` measures arrivals
+in a trailing real-time second and retains the session peak. Equal timestamps
+share a bucket. The oldest bucket expires at its one-second boundary.
+`PapyrusHealth::add` sums counts and durations and takes the maximum backlog
+age. Its peak addition is for intermediate rows only. VM and Game reports
+replace those sums with the independently measured group peaks.
+
+The snapshot meanings follow the local CK OnUpdate, RegisterForSingleUpdate
+and Utility pages. These data structures add no dependencies or saved state.

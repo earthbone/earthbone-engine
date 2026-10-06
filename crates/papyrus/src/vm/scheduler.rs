@@ -76,6 +76,7 @@ impl Vm {
     /// whether gameplay is paused by a menu. Menu waits always see real time.
     pub fn advance_clocks(&mut self, real_seconds: f64, game_hours: f64, menu_mode: bool) {
         let seconds = real_seconds.max(0.0);
+        self.advance_health(seconds, game_hours.max(0.0), menu_mode);
         self.menu_time += seconds;
         if !menu_mode {
             self.time += seconds;
@@ -138,6 +139,9 @@ impl Vm {
                 }
                 let _slice_span = soe_trace::Span::new("vm.slice", "vm");
                 let n = self.step_thread(i, slice.min(budget - used));
+                if n > 0 {
+                    self.served_health(self.threads[i].id);
+                }
                 if self.threads[i].state == ThreadState::Done {
                     newly_completed.push(self.threads[i].id);
                 }
@@ -152,6 +156,7 @@ impl Vm {
                 break;
             }
         }
+        self.budget_health(used >= budget);
         self.retain_recent_completed_threads(&newly_completed);
         used
     }

@@ -37,6 +37,9 @@ pub use frame::{
 mod work;
 pub use work::{count, Operation, WorkCounts, WorkFrame, WorkRecorder};
 
+mod papyrus;
+pub use papyrus::{EventHealth, EventRate, PapyrusHealth, UpdateRegistrations};
+
 pub mod logging;
 pub use tracing;
 pub use tracing::{debug, error, info, trace, warn};
