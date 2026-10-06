@@ -458,6 +458,8 @@ mod cmb_08_adversarial;
 mod cmb_08_projectiles;
 #[path = "cmb_09_perk_hit_damage.rs"]
 mod cmb_09_perk_hit_damage;
+#[path = "cmb_09_breaker_adversarial.rs"]
+mod cmb_09_breaker_adversarial;
 #[path = "cmb_10_quality.rs"]
 mod cmb_10_quality;
 #[path = "cmb_10_quality_adversarial.rs"]
