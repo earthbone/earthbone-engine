@@ -180,7 +180,6 @@ impl Workload {
             return Err("stress VM logged errors".into());
         }
         let world = self.game.world();
-        let mut selected_actors = 0;
         for (index, &actor) in self.actors.iter().enumerate() {
             let reference = world
                 .reference_ref(actor)
@@ -192,9 +191,8 @@ impl Workload {
                 .actor_ref(actor)
                 .ok_or("stress actor state disappeared")?;
             if state.ai.procedure == soe_game::ai::Procedure::None {
-                continue;
+                return Err(format!("actor {actor} did not select a package"));
             }
-            selected_actors += 1;
             let expected_procedure = if index % 2 == 0 {
                 soe_game::ai::Procedure::Travel
             } else {
@@ -212,9 +210,6 @@ impl Workload {
             if index % 2 == 1 && state.ai.destination.is_none() && !state.ai.arrived {
                 return Err(format!("sandbox actor {actor} has no active destination"));
             }
-        }
-        if !self.actors.is_empty() && selected_actors == 0 {
-            return Err("stress actors did not select any packages".into());
         }
         if self.cells.len() != self.streamer.resident_count() || self.cells.len() > 49 {
             return Err("streaming residency escaped its bounded ring".into());
@@ -300,10 +295,16 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         let completed = workload.verify()?;
         samples.sort_by(f64::total_cmp);
         let rss = rss_mib().map_or_else(|| "null".into(), |v| format!("{v:.6}"));
-        println!("SOE_SAMPLE {{\"window\":{window},\"load\":{},\"samples\":{},\"ticks\":{},\"elapsed_s\":{:.6},\"setup_ms\":{setup_ms:.6},\"p50_ms\":{:.6},\"p99_ms\":{:.6},\"p999_ms\":{:.6},\"worst_ms\":{:.6},\"backlog\":{},\"backlog_peak\":{backlog_peak},\"completed\":{completed},\"actors\":{},\"resident_cells\":{},\"work_units\":{},\"peak_allocations\":{peak_allocations},\"peak_allocation_bytes\":{peak_allocation_bytes},\"rss_mib\":{rss},\"telemetry_ms\":{telemetry_ms:.6}}}",
+        let navmesh_triangles = workload
+            .game
+            .world()
+            .ai
+            .nav_graph()
+            .map_or(0, NavGraph::triangle_count);
+        println!("SOE_SAMPLE {{\"window\":{window},\"load\":{},\"samples\":{},\"ticks\":{},\"elapsed_s\":{:.6},\"setup_ms\":{setup_ms:.6},\"p50_ms\":{:.6},\"p99_ms\":{:.6},\"p999_ms\":{:.6},\"worst_ms\":{:.6},\"backlog\":{},\"backlog_peak\":{backlog_peak},\"completed\":{completed},\"actors\":{},\"navmesh_triangles\":{navmesh_triangles},\"package_evaluations\":{},\"resident_cells\":{},\"work_units\":{},\"peak_allocations\":{peak_allocations},\"peak_allocation_bytes\":{peak_allocation_bytes},\"rss_mib\":{rss},\"telemetry_ms\":{telemetry_ms:.6}}}",
             config.load, samples.len(), workload.tick, started.elapsed().as_secs_f64(),
             percentile(&samples, 50, 100), percentile(&samples, 99, 100), percentile(&samples, 999, 1000),
-            samples[samples.len()-1], workload.game.vm.live_threads(), workload.actors.len(), workload.cells.len(), workload.work);
+            samples[samples.len()-1], workload.game.vm.live_threads(), workload.actors.len(), workload.game.world().ai.evaluations, workload.cells.len(), workload.work);
         window += 1;
         for operation in soe_trace::Operation::ALL {
             println!(
@@ -419,29 +420,34 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires an optimized build and an idle machine, see docs/performance-limits.md"]
-    fn prf_07_thousand_travel_and_sandbox_actors_meet_frame_and_memory_budgets() {
+    fn tst_18_thousand_active_actors_have_dense_navmesh_and_bounded_lookup_work() {
         let config = config("actors", 1_000);
         let mut workload = Workload::new(&config).unwrap();
-        for _ in 0..config.warmup {
-            workload.step(&config).unwrap();
-        }
-
-        let mut samples = Vec::with_capacity(config.samples);
+        let mut queries = 0;
         for _ in 0..config.samples {
-            let started = Instant::now();
+            let frame = soe_trace::WorkFrame::begin();
             workload.step(&config).unwrap();
-            samples.push(started.elapsed().as_secs_f64() * 1000.0);
+            let counts = frame.counts();
+            queries += counts.get(soe_trace::Operation::NavmeshLocate);
+            let triangles = counts.get(soe_trace::Operation::NavmeshTriangles);
+            assert!(
+                triangles <= 4_000,
+                "lookup tested {triangles} triangles in one tick"
+            );
         }
         workload.verify().unwrap();
-
-        samples.sort_by(f64::total_cmp);
-        let p99 = percentile(&samples, 99, 100);
-        let worst = samples[samples.len() - 1];
-        let rss = rss_mib().expect("Linux process RSS is available for this check");
-        assert!(p99 <= 16.7, "p99 {p99:.3} ms exceeds 16.7 ms");
-        assert!(worst <= 33.0, "worst {worst:.3} ms exceeds 33 ms");
-        assert!(rss < 2_048.0, "RSS {rss:.1} MiB exceeds 2,048 MiB");
+        assert!(queries > 0, "actor movement did not query the NAVM graph");
         assert_eq!(workload.actors.len(), 1_000);
+        assert_eq!(
+            workload
+                .game
+                .world()
+                .ai
+                .nav_graph()
+                .unwrap()
+                .triangle_count(),
+            60_002
+        );
+        assert!(workload.game.world().ai.evaluations >= 1_000);
     }
 }

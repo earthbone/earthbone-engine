@@ -664,10 +664,9 @@ impl NavGraph {
             return None;
         }
         let mut best: Option<(f32, NodeId)> = None;
-        let mut radius = f32::INFINITY;
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
-            .visit_xy_nearest_height(point, &mut radius, |mi, radius| {
+            .visit_xy_nearest_height(point, &mut f32::INFINITY, |mi, _radius| {
                 let mesh = &self.meshes[mi];
                 if point[0] < mesh.min[0]
                     || point[0] > mesh.max[0]
@@ -676,18 +675,15 @@ impl NavGraph {
                 {
                     return;
                 }
-                mesh.spatial
-                    .visit_xy_nearest_height(point, radius, |ti, radius| {
-                        let node = NodeId::new(mi as u32, ti as u32);
-                        tested(node);
-                        if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
-                            let candidate = ((z - point[2]).abs(), node);
-                            if !self.is_blocked(node) && best.is_none_or(|old| candidate < old) {
-                                *radius = candidate.0;
-                                best = Some(candidate);
-                            }
+                for ti in 0..mesh.triangles.len() {
+                    tested(NodeId::new(mi as u32, ti as u32));
+                    if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
+                        let candidate = ((z - point[2]).abs(), NodeId::new(mi as u32, ti as u32));
+                        if !self.is_blocked(candidate.1) && best.is_none_or(|old| candidate < old) {
+                            best = Some(candidate);
                         }
-                    });
+                    }
+                }
             });
         best.map(|(_, n)| n)
     }
@@ -708,22 +704,24 @@ impl NavGraph {
         if !point.iter().all(|value| value.is_finite()) {
             return false;
         }
+        let mut found = false;
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
-            .any_xy(point, |mi| {
+            .visit_xy_nearest_height(point, &mut f32::INFINITY, |mi, _radius| {
                 let mesh = &self.meshes[mi];
                 if point[0] < mesh.min[0]
                     || point[0] > mesh.max[0]
                     || point[1] < mesh.min[1]
                     || point[1] > mesh.max[1]
                 {
-                    return false;
+                    return;
                 }
-                mesh.spatial.any_xy(point, |ti| {
+                found |= mesh.triangles.iter().enumerate().any(|(ti, _)| {
                     tested(NodeId::new(mi as u32, ti as u32));
                     mesh.height_at(ti as u32, point[0], point[1]).is_some()
-                })
-            })
+                });
+            });
+        found
     }
 
     /// The triangle whose centroid is nearest, for points just off the mesh.
@@ -740,19 +738,18 @@ impl NavGraph {
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_nearest(point, |mi, radius| {
                 let mesh = &self.meshes[mi];
-                mesh.spatial
-                    .visit_nearest_with_radius(point, radius, |ti, triangle_radius| {
-                        let node = NodeId::new(mi as u32, ti as u32);
-                        tested(node);
-                        if self.node_blocked(node) {
-                            return;
-                        }
-                        let candidate = (distance(mesh.centroid(ti as u32), point), node);
-                        if best.is_none_or(|old| candidate < old) {
-                            *triangle_radius = candidate.0;
-                            best = Some(candidate);
-                        }
-                    });
+                for ti in 0..mesh.triangles.len() {
+                    let node = NodeId::new(mi as u32, ti as u32);
+                    tested(node);
+                    if self.node_blocked(node) {
+                        continue;
+                    }
+                    let candidate = (distance(mesh.centroid(ti as u32), point), node);
+                    if best.is_none_or(|old| candidate < old) {
+                        *radius = candidate.0;
+                        best = Some(candidate);
+                    }
+                }
             });
         best.map(|(_, n)| n)
     }
