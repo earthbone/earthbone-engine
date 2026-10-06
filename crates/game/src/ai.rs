@@ -2982,7 +2982,7 @@ fn plan_flee(
     navigation::request(world, actor, from, navigation::Goal::Flee { threat })
 }
 
-fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+pub(crate) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
 }
 

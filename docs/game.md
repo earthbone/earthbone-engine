@@ -8802,6 +8802,9 @@ OpenMW `mwmechanics/actors.cpp` supplies a player-distance processing example.
 Those sources do not define these distances or cadences, which are engine
 policy. The driver retains package conditions, authored speeds, path ownership,
 FormID movement order and immediate explicit EvaluatePackage calls.
+Scheduling resolves coordinate spaces only for actors in another cell within
+the widest distance band. Distant actors need no cell-space lookup, while
+combat, teammate and scene overrides still select high processing.
 
 Immutable winning PACK definitions and procedure trees are cached by resolved
 FormID. A runtime record override bypasses the cache, including an override in

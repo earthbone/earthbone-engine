@@ -91,10 +91,16 @@ pub(crate) struct Schedule {
 
 pub(crate) fn coordinate_space(world: &World, cell: Option<GlobalFormId>) -> Option<GlobalFormId> {
     let cell = cell?;
-    if world.cell_is_interior(cell) {
+    let record = world.record(cell)?;
+    if record.tag == soe_esm::Tag(*b"CELL")
+        && record
+            .find(soe_esm::Tag(*b"DATA"))
+            .and_then(|data| data.first())
+            .is_some_and(|flags| flags & 1 != 0)
+    {
         return None;
     }
-    world.resolve_from(cell, world.record(cell)?.placement.world?)
+    world.resolve_from(cell, record.placement.world?)
 }
 
 pub(crate) fn level_from_state(
@@ -121,6 +127,10 @@ pub(crate) fn level_from_state(
     let Some(reference) = reference else {
         return ProcessLevel::Low;
     };
+    let separation = distance(player.position, reference.position);
+    if !separation.is_finite() || separation > 16384.0 {
+        return ProcessLevel::Low;
+    }
     if reference.cell != player.cell {
         let actor_space = reference
             .cell
@@ -129,7 +139,6 @@ pub(crate) fn level_from_state(
             return ProcessLevel::Low;
         }
     }
-    let separation = distance(player.position, reference.position);
     if separation <= 4096.0 {
         ProcessLevel::High
     } else if separation <= 8192.0 {

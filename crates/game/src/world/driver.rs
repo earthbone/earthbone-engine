@@ -26,9 +26,14 @@ impl World {
                 space: coordinate_space(self, reference.cell),
             });
         let mut spaces = HashMap::new();
-        if player.as_ref().is_some_and(|player| player.space.is_some()) {
+        if let Some(player) = player.as_ref().filter(|player| player.space.is_some()) {
             for actor in self.actors.keys() {
-                if let Some(cell) = self.refs.get(actor).and_then(|reference| reference.cell) {
+                if let Some(cell) = self.refs.get(actor).and_then(|reference| {
+                    (reference.cell != player.cell
+                        && crate::ai::distance(player.position, reference.position) <= 16384.0)
+                        .then_some(reference.cell)
+                        .flatten()
+                }) {
                     spaces
                         .entry(cell)
                         .or_insert_with(|| coordinate_space(self, Some(cell)));
