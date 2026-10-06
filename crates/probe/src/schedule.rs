@@ -76,6 +76,19 @@ impl ScheduleTable {
             let name = engine
                 .or(observed)
                 .map_or_else(String::new, |row| row.name.clone());
+            if engine
+                .zip(observed)
+                .is_some_and(|(left, right)| left.name != right.name)
+            {
+                differences.push(ScheduleDifference {
+                    hour,
+                    actor,
+                    name: name.clone(),
+                    field: "name".into(),
+                    engine: None,
+                    observed: None,
+                });
+            }
             for (field, engine_value, observed_value) in [
                 ("row", engine.map(|_| 1), observed.map(|_| 1)),
                 (

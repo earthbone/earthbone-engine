@@ -40,7 +40,12 @@ fn ply_03_replay_reaches_both_consecutive_corpus_checkpoints() {
         let route = Route::parse(routes[index]).unwrap();
         let report = play::run_to_checkpoint(&mut replay, &route, &mut successor).unwrap();
         if !report.passed() {
-            failures.push(format!("{} -> {}: {}", saves[index], saves[index + 1], report.format()));
+            failures.push(format!(
+                "{} -> {}: {}",
+                saves[index],
+                saves[index + 1],
+                report.format()
+            ));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -59,7 +64,10 @@ fn ply_03_union_scope_compares_successor_only_quest_to_source_defaults() {
     )
     .unwrap();
     assert!(!report.passed());
-    assert!(report.differences.iter().any(|field| field.contains("highest")));
+    assert!(report
+        .differences
+        .iter()
+        .any(|field| field.contains("highest")));
 }
 
 #[test]
@@ -73,10 +81,7 @@ fn ply_03_absent_and_zero_inventory_quantities_compare_equal() {
         .inventory
         .clone();
     let absent = Checkpoint::capture(&mut game, &[]).unwrap();
-    game.world_mut()
-        .reference(player)
-        .unwrap()
-        .inventory = inventory;
+    game.world_mut().reference(player).unwrap().inventory = inventory;
     let zeroed = Checkpoint::capture(&mut game, &[]).unwrap();
     assert_eq!(absent.differences(&zeroed), Vec::<String>::new());
 }
@@ -101,5 +106,8 @@ fn ply_03_failed_route_still_reports_successor_inventory_differences() {
     .unwrap();
     assert!(!report.passed());
     assert!(report.route.failure.is_some());
-    assert!(report.differences.iter().any(|field| field.contains("inventory")));
+    assert!(report
+        .differences
+        .iter()
+        .any(|field| field.contains("inventory")));
 }

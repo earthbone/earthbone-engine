@@ -24,8 +24,6 @@ fn ply_07_comparison_reports_a_named_actor_identity_mismatch() {
 
     assert_eq!(differences.len(), 24);
     assert!(differences.iter().all(|difference| {
-        difference.hour < 24
-            && difference.actor == 0x0001_3b93
-            && difference.field == "name"
+        difference.hour < 24 && difference.actor == 0x0001_3b93 && difference.field == "name"
     }));
 }
