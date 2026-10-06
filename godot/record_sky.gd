@@ -212,6 +212,7 @@ func _clouds(clouds: Array) -> bool:
 			image.convert(Image.FORMAT_RGBA8)
 			image.clear_mipmaps()
 			image.resize(512, 512, Image.INTERPOLATE_LANCZOS)
+			image.generate_mipmaps()
 			images.append(image)
 		if not images.is_empty():
 			cloud_array = Texture2DArray.new()
