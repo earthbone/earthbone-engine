@@ -109,6 +109,13 @@ impl World {
         }
     }
 
+    /// Whether [`World::record`] answers `id` with a runtime record, an
+    /// override or a created base, instead of its load-order winner. This
+    /// reads no record and counts no lookup.
+    pub(crate) fn has_runtime_record(&self, id: GlobalFormId) -> bool {
+        self.record_overrides.contains_key(&id) || self.created_base_records.contains_key(&id)
+    }
+
     pub fn exists(&self, id: GlobalFormId) -> bool {
         self.refs.contains_key(&id)
             || self.brewed_potions.contains_key(&id)

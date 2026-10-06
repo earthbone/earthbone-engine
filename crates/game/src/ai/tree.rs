@@ -64,12 +64,14 @@ impl Tree {
     fn load(world: &World, id: GlobalFormId) -> Option<std::sync::Arc<Self>> {
         let cached = world.ai.trees.borrow().get(&id).cloned();
         if let Some(cached) = cached {
-            if cached.chain.iter().all(|(id, _)| {
-                world
-                    .record(*id)
-                    .zip(world.order().winner(*id))
-                    .is_some_and(|(record, winner)| std::ptr::eq(record, winner))
-            }) {
+            // Only trees built from load-order winners are cached, and the
+            // load order is fixed, so a hit stays valid until a runtime
+            // record replaces one of the chain's records.
+            if cached
+                .chain
+                .iter()
+                .all(|(id, _)| !world.has_runtime_record(*id))
+            {
                 return Some(cached);
             }
         }
