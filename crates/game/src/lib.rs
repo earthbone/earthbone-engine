@@ -45,6 +45,7 @@ mod game_settings;
 pub mod harness;
 pub mod inventory;
 pub mod lockpicking;
+pub mod loot;
 pub mod mcm;
 pub mod moddata;
 pub mod music;

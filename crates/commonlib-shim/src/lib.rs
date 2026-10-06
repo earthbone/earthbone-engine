@@ -20,6 +20,7 @@ pub mod extra_data;
 pub mod form;
 pub mod headers;
 pub mod ni;
+pub mod quick_loot;
 pub mod refr;
 pub mod skse;
 pub mod support;

@@ -1,11 +1,12 @@
 # Saved cell, location and encounter-zone fields
 
-SAV-27 has partial typed decoding. CELL's documented fields and seen-data
-shape are decoded, while the high CELL flags with missing schemas are rejected.
-ECZN and LCTN common form flags are decoded and their other flagged bytes are
-retained as one opaque tail. SAV-28 applies supported fields to live records
-and retains those tails through engine save/load. This does not identify the
-fields inside the tails.
+SAV-27 decodes CELL fields with serialized layouts in xEdit, including its
+seen-data shape. The named CELL flags 28 to 30 are exposed as typed markers,
+and bytes after the defined fields remain an exact opaque suffix. ECZN and
+LCTN expose their named changed markers and common form flags. Their
+placeholder-union bytes remain an exact opaque tail. SAV-28 applies supported
+fields to live records and retains opaque bytes through engine save/load.
+Opaque bytes do not identify field widths or internal values.
 
 ## Source boundary
 
@@ -17,7 +18,10 @@ save payload schema.
 Local xEdit `6dbbed51d92456e39ffb916eece56040e91114b5`,
 `Core/wbDefinitionsTES5Saves.pas`, supplies CELL's u16 flags, length-prefixed
 full name, owner RefID and two seen-data shapes. Its CELL dispatch orders
-the common form flags, cell flags, seen data, full name and ownership.
+the common form flags, cell flags, seen data, full name and ownership. CELL
+flags 28 to 30 have named unions with `wbNull` alternatives, but xEdit omits
+those unions from the CELL dispatch. They therefore add typed flag state
+without a serialized field width in this schema.
 The exterior seen-data shape has 32 bytes. The interior shape has counted
 entries containing two single-byte fields and a 32-byte array.
 
@@ -26,12 +30,11 @@ length after adjusting for name and ownership. It does not consult an authored
 cell record. This heuristic needs validation against independent cell identity
 and complete payload boundaries before it becomes an engine decoder contract.
 
-CELL bits 28, 29 and 30 are named Exterior Short, Exterior Char and Detach Time,
-but their unions contain `wbNull` placeholders and the CELL dispatch omits them.
-ECZN's Zone Flags and Game Data unions are placeholders. LCTN's KeywordData and
-Cleared unions are also placeholders. A flag name does not establish its field
-width or a zero-length payload. The current corpus contains nonempty payloads
-using these flags.
+ECZN's Zone Flags and Game Data unions and LCTN's KeywordData and Cleared unions
+are `[wbNull, wbNull]`. The decoder treats these as zero-payload markers and
+retains remaining bytes without assigning them to a marker. These bytes still
+need controlled fixtures or a public serialized schema before they can be
+split into typed fields.
 
 The CommonLibSSE-NG headers confirm runtime CELL flag names, the LCTN runtime
 keyword-data entry shape and cleared booleans, and ECZN runtime data and game
@@ -75,7 +78,7 @@ change-form version 78, and none have individually compressed payloads.
 | LCTN | 4,135 | 65,820 | 2 |
 | ECZN | 573 | 9,168 | 1 |
 
-Of the CELL records, 71,027 set at least one of the undefined high flag fields.
+Of the CELL records, 71,027 set at least one of the high flag fields.
 The 50,511 records with flags `60000000` each have eight bytes. That length does
 not assign those bytes to Exterior Char or Detach Time. No observed CELL sets
 Exterior Short or Full Name, so those combinations also lack corpus coverage.
@@ -94,33 +97,31 @@ independently observed state. Include single flags, combinations, interior and
 exterior cells, variable counts and unchanged control saves. Account for every
 intervening field before assigning offsets or meanings.
 
-Once those boundaries are established, SAV-27 can implement typed fields,
-exact encodings and malformed-input checks for all supported combinations.
-The census does not satisfy that decoder completion check. No user save was
-modified or copied into this repository.
+Synthetic tests assert the source-defined layouts and each named zero-payload
+marker. They check truncation rejection for CELL fields with known widths and
+the common form flags. The census accounts for every target record, but it does
+not turn opaque suffixes into typed fields or establish internal truncation
+rules for those suffixes. No user save was modified or copied into this
+repository.
 
 `ChangeForm::cell_change` decodes CELL bits 0 to 3 and 31 in xEdit's order:
 common flags, cell flags, seen data, full name and ownership. It checks the
 remaining bytes against the 32-byte exterior shape or repeated interior
 entries of two one-byte fields plus 32 bytes, then validates the following
 name and owner. A truncated interior that leaves exactly 32 bytes remains
-indistinguishable from exterior data. CELL bits 28 to 30 remain unsupported
-because xEdit gives them placeholder unions and does not dispatch them in the
-CELL schema.
+indistinguishable from exterior data. Bits 28 to 30 are typed presence markers
+whose bytes are not laid out in xEdit's CELL schema. A suffix on such a form is
+kept opaque and re-encoded exactly.
 
 `ChangeForm::encounter_zone_change` accepts ECZN bits 0, 1 and 31, and
 `ChangeForm::location_change` accepts LCTN bits 0, 30 and 31. They decode the
-six-byte common form flags when present and retain the remaining bytes as an
-opaque tail. The source does not provide section boundaries inside that tail,
-so this does not reject truncations in those fields or name their values.
-`sav_27_spatial_changes.rs` covers source-defined flag combinations, exact
-re-encoding and known truncation cases. The existing external corpus survey
-continues to report per-type flag and payload-size counts without interpreting
-the opaque fields.
+six-byte common form flags when present and expose their named zero-payload
+markers. Remaining bytes stay opaque and re-encode exactly.
+`sav_27_spatial_changes.rs` covers source-defined flag combinations, marker
+state, exact re-encoding and truncation of fields with known widths. The
+external corpus survey reports per-type flags and payload sizes and tries the
+typed decoders for every target record.
 
-The survey also tries the typed decoders and checks exact bytes for every
-successful result. Its 60-save run decoded 7,754 CELL records and preserved
-71,052 other CELL payloads as rejected or unsupported. All 4,135 LCTN and 573
-ECZN records retained their payload bytes through the partial decoders. This
-accounts for the corpus without treating successful opaque preservation as a
-field interpretation.
+The survey also checks exact bytes for every successfully decoded record. Its
+60-save run accounts for all CELL, LCTN and ECZN records. Opaque tails are
+preserved as bytes and are not counted as decoded fields.

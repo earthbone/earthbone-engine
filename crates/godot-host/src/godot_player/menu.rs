@@ -516,6 +516,7 @@ impl PlayerNode {
         if !self.menu.open(&title.to_string()) {
             return false;
         }
+        self.hide_quick_loot();
         self.base_mut().emit_signal(
             "transition_requested",
             &[Variant::from("menu_open"), Variant::from(title.clone())],
