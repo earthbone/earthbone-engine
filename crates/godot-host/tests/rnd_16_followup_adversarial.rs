@@ -2,7 +2,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_godot_host::lod_rebuild::{select_far_level, silhouette_error_pixels};
-use soe_godot_host::terrain_lod::LodLevel;
 
 #[test]
 fn rnd_16_invalid_projected_bounds_cannot_pass_the_pixel_threshold() {
