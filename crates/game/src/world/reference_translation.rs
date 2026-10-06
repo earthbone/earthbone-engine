@@ -215,8 +215,7 @@ impl World {
         if !seconds.is_finite() || seconds <= 0.0 {
             return;
         }
-        let mut ids: Vec<_> = self.refs.keys().copied().collect();
-        ids.sort_unstable();
+        let ids = std::mem::take(&mut self.translation_candidates);
         for id in ids {
             if self
                 .refs
@@ -295,6 +294,7 @@ impl World {
                 state.translation = None;
             } else {
                 state.translation = Some(translation);
+                self.translation_candidates.insert(id);
             }
             if almost_complete {
                 self.translation_event(id, "OnTranslationAlmostComplete", alloc);

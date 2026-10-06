@@ -29,6 +29,7 @@ func _ready() -> void:
 	background.content_margin_bottom = 4.0
 	panel.add_theme_stylebox_override("panel", background)
 	label = Label.new()
+	label.add_theme_constant_override("line_spacing", 0)
 	label.add_theme_font_size_override("font_size", 12)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(label)
@@ -78,7 +79,7 @@ func refresh() -> void:
 	if not is_instance_valid(player):
 		return
 	var compact := get_viewport().get_visible_rect().size.y < 400.0
-	label.add_theme_font_size_override("font_size", 9 if ai or (entities and compact) else 12)
+	label.add_theme_font_size_override("font_size", 9 if ai or ((entities or player.has_method("magic_frame_breakdown")) and compact) else 12)
 	label.add_theme_constant_override("line_spacing", 0 if compact else 3)
 	if ai:
 		label.add_theme_font_size_override("font_size", 9)
@@ -92,7 +93,6 @@ func refresh() -> void:
 	var runtime: Dictionary = player.call("performance_metrics")
 	var text := "F3: Engine systems, exclusive scope ms and % of wall frame\n"
 	text += "System: last ms / frame % / rolling p50 / p99 / worst ms\n"
-	text += "Host phases split render submission, scene CPU excludes server calls\n"
 	text += "Host phases split render submission, scene CPU excludes server calls\n"
 	for system in report:
 		var row: Dictionary = report[system]
@@ -112,6 +112,12 @@ func refresh() -> void:
 			total_count += query_row.count
 			total_ms += query_row.ms
 		text += "  %s: %d / %.3f ms\n" % [kind, total_count, total_ms]
+	var phases: Dictionary = player.call("magic_frame_breakdown") if player.has_method("magic_frame_breakdown") else {}
+	if not phases.is_empty():
+		text += "Magic tick phases, included above: last / p50 / p99 / worst ms\n"
+		for phase in phases:
+			var row: Dictionary = phases[phase]
+			text += "%s: %.3f / %.3f / %.3f / %.3f\n" % [phase, row.ms, row.p50_ms, row.p99_ms, row.worst_ms]
 	label.text = text
 
 

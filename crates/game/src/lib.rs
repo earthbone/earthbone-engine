@@ -45,6 +45,7 @@ mod game_settings;
 pub mod harness;
 pub mod inventory;
 pub mod lockpicking;
+pub mod magic_profile;
 pub mod mcm;
 pub mod moddata;
 pub mod music;
@@ -186,6 +187,7 @@ pub struct Game {
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
     wasm_mods: WasmMods,
     frame_history: soe_trace::FrameHistory,
+    magic_frame_history: magic_profile::MagicFrameHistory,
     last_work_counts: soe_trace::WorkCounts,
     papyrus_logs: Option<papyrus_logs::FileLogs>,
     papyrus_log_cursor: usize,
@@ -285,6 +287,7 @@ impl Game {
             active_hand_casts: BTreeSet::new(),
             wasm_mods: WasmMods::new(),
             frame_history: soe_trace::FrameHistory::default(),
+            magic_frame_history: magic_profile::MagicFrameHistory::default(),
             last_work_counts: soe_trace::WorkCounts::default(),
             papyrus_logs: None,
             papyrus_log_cursor: 0,
@@ -1458,7 +1461,10 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        use magic_profile::{MagicFrame, MagicPhase};
+
         let frame = soe_trace::FrameSnapshot::when_recording();
+        let mut magic_frame = MagicFrame::default();
         let tick_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         let work_frame = soe_trace::WorkFrame::begin();
         soe_trace::trace!(target: "game", system = "game", real_seconds, menu_mode, "ticking runtime");
@@ -1491,23 +1497,37 @@ impl Game {
             let before = w.clock.game_days;
             w.advance_clock_scaled(real_seconds, slow_time_scale);
             let magic_scope = soe_trace::SystemScope::new(soe_trace::System::Magic);
+            let phase = soe_trace::FrameSnapshot::when_recording();
             w.tick_image_space(real_seconds);
+            magic_frame.record(MagicPhase::ImageSpace, phase);
+            let phase = soe_trace::FrameSnapshot::when_recording();
             w.tick_translations(real_seconds, &mut |name, class| {
                 vm.create_object_of(name, class)
             });
+            magic_frame.record(MagicPhase::Translations, phase);
+            let phase = soe_trace::FrameSnapshot::when_recording();
             w.tick_shader_particles(real_seconds);
+            magic_frame.record(MagicPhase::ShaderParticles, phase);
+            let phase = soe_trace::FrameSnapshot::when_recording();
             w.tick_effect_shaders(real_seconds);
+            magic_frame.record(MagicPhase::EffectShaders, phase);
+            let phase = soe_trace::FrameSnapshot::when_recording();
             if let Err(error) = w.tick_visual_effects(real_seconds) {
                 vm.log.push(vm.time(), error.to_string());
             }
+            magic_frame.record(MagicPhase::VisualEffects, phase);
+            let phase = soe_trace::FrameSnapshot::when_recording();
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
             }
+            magic_frame.record(MagicPhase::ActiveEffects, phase);
+            let phase = soe_trace::FrameSnapshot::when_recording();
             let errors = w.tick_concentration(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
             }
+            magic_frame.record(MagicPhase::Concentration, phase);
             drop(magic_scope);
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
@@ -1585,8 +1605,10 @@ impl Game {
         drop(tick_scope);
         if let Some(frame) = frame {
             let sample = frame.finish();
+            magic_frame.finish(sample.system_ns[soe_trace::System::Magic as usize]);
             soe_trace::Profile::systems("game", &sample);
             self.frame_history.record(sample);
+            self.magic_frame_history.record(magic_frame);
         }
         self.last_work_counts = work_frame.counts();
     }
@@ -1596,6 +1618,12 @@ impl Game {
     #[must_use]
     pub fn frame_history(&self) -> &soe_trace::FrameHistory {
         &self.frame_history
+    }
+
+    /// PRF-35 magic tick phases, included in the magic system's PRF-12 total.
+    #[must_use]
+    pub fn magic_frame_history(&self) -> &magic_profile::MagicFrameHistory {
+        &self.magic_frame_history
     }
 
     /// Deterministic operation counts for the last game tick, excluding host work.

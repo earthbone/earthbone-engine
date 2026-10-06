@@ -1801,3 +1801,7 @@ mod prf_34_adversarial;
 
 #[path = "prf_34_reference_changes.rs"]
 mod prf_34_reference_changes;
+#[path = "prf_35_adversarial.rs"]
+mod prf_35_adversarial;
+#[path = "prf_35_magic.rs"]
+mod prf_35_magic;

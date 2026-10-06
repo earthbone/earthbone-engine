@@ -172,6 +172,54 @@ measure GPU execution. Details and source paths are in
 [trace.md](trace.md), [game.md](game.md) and [godot-host.md](godot-host.md).
 Percentiles are computed when queried, outside the simulation tick.
 
+## Magic tick work, PRF-35, 2026-10-06
+
+The user's original Whiterun plains F3 capture on `8ae73582` recorded magic
+at 25.3 ms p50 and 28.7 ms p99, with no spell being cast. The measurements
+here compare `0cfd0df3` with this PRF-35 change on the same fixed route.
+They use the release extension, installed Skyrim data and windowed Godot
+4.4.1 at 640 by 360 on the private software Vulkan display. They measure
+one simulation tick per windowed sample, rather than the user's original
+session with automatic physics catch-up. Those two workloads have different
+timing distributions.
+
+`godot/prf_35_magic_test.gd` starts the actual walkthrough in the Bannered
+Mare, prepares navigation and warms 30 ticks. It measures 360 ticks of
+forward and backward walking at a simulated 60 Hz, exits through the authored
+tavern door and Whiterun gate, then repeats on the Tamriel plains.
+Each location checks movement, one tick per sample and running NPC packages.
+The CPU window surrounds `PlayerNode::advance` and closes before rendering
+waits or reporting. Magic's exclusive PRF-12 slot includes its nested work.
+The fixed acceptance limits, declared before measurement, are below 0.2 ms
+p50 and below 0.5 ms p99 at both locations.
+
+The old translation tick sorted every materialized reference, even without
+a translation. Active effects repeatedly decoded MGEF and SPEL records and
+called the actor builder, which rechecked passive spell lists. Grab Actor
+selected from all contact actors, resolving their controller scales even
+without a grab. These paths now use translation candidates, immutable decoded
+definitions, existing target state and active-effect identity indexes.
+Runtime MGEF overrides bypass the definition cache. Changed light transforms
+and fades update their existing RIDs. No per-reference nodes, dependencies
+or saved fields were added. Source paths and retained effect semantics are
+documented in [game.md](game.md) and [godot-host.md](godot-host.md).
+
+The report and F3 overlay subdivide the Game magic slot into image-space,
+translations, shader particles, effect shaders, visual effects, active effects,
+concentration, and a casting/dispatch remainder. The remainder accounts for
+reactive VM casts and bookkeeping outside the seven tick calls. These values
+are included in the existing system total. The percentile calculations stay
+outside the measured tick.
+
+The baseline raw samples are `target/prf-35-before-walk.json`. The gated
+`prf_35_installed_windowed_magic_budget` writes `target/prf-35-after.json`,
+its process log and an F3 PNG at each location, then quits Godot. Run it
+after building the release extension and importing the project:
+
+```text
+rtk proxy env SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" cargo test -p soe-game --test it prf_35_installed_windowed_magic_budget -- --nocapture
+```
+
 ## Music decode frame cost, AUD-12, 2026-10-05
 
 The installed PRF-12 walkthrough previously recorded 6,740.54 ms in the audio

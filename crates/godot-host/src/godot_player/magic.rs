@@ -102,13 +102,24 @@ impl PlayerNode {
     pub(super) fn update_grab_actor(&mut self) {
         let desired = self.game.as_mut().and_then(|game| {
             let player = game.player();
-            let mut world = game.world_mut();
-            world.contact_actors().into_iter().find_map(|actor| {
-                world
-                    .grab_actor_effect_on(actor.actor)
-                    .filter(|effect| effect.caster == Some(player))
-                    .map(|effect| (effect.id, actor.actor))
-            })
+            let world = game.world();
+            world
+                .grab_actor_effects()
+                .filter(|effect| effect.caster == Some(player))
+                .filter(|effect| world.reference_enabled(effect.target))
+                .filter(|effect| {
+                    world.reference_ref(effect.target).is_some_and(|reference| {
+                        reference.is_actor && !reference.deleted && !reference.destroyed
+                    })
+                })
+                .filter(|effect| {
+                    world
+                        .grab_actor_effect_on(effect.target)
+                        .is_some_and(|first| first.id == effect.id)
+                })
+                .filter(|effect| self.actor_bodies.body(effect.target).is_some())
+                .min_by_key(|effect| (effect.target, effect.id))
+                .map(|effect| (effect.id, effect.target))
         });
 
         if self

@@ -1506,8 +1506,14 @@ impl World {
         self.handles = handles;
         self.invalidate_all_references();
         self.refs = refs;
+        self.translation_candidates = self
+            .refs
+            .iter()
+            .filter_map(|(&id, state)| state.translation.is_some().then_some(id))
+            .collect();
         *self.light_references.get_mut() = super::light_references::LightReferences::default();
         self.actors = actors;
+        self.rebuild_effect_index();
         self.quests = quests;
         self.globals = globals;
         self.form_lists = form_lists;
