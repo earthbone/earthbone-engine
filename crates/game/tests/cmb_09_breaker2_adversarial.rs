@@ -43,16 +43,19 @@ fn fixture(perks: Vec<Record>, npc_perk: Option<u32>) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     let mut attacker_base = Record::new(Tag(*b"NPC_"), 0x800);
     if let Some(perk) = npc_perk {
-        attacker_base = attacker_base.sub(Tag(*b"PRKR"), [
-            perk as u8,
-            (perk >> 8) as u8,
-            (perk >> 16) as u8,
-            (perk >> 24) as u8,
-            0,
-            0,
-            0,
-            0,
-        ]);
+        attacker_base = attacker_base.sub(
+            Tag(*b"PRKR"),
+            [
+                perk as u8,
+                (perk >> 8) as u8,
+                (perk >> 16) as u8,
+                (perk >> 24) as u8,
+                0,
+                0,
+                0,
+                0,
+            ],
+        );
     }
     plugin.push_top(attacker_base);
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x801));
@@ -130,7 +133,11 @@ fn cmb_09_only_current_perk_rank_sections_apply() {
     let attacker = game_player();
     let target = id(0x901);
     let mut game = fixture(vec![perk(0x810, &[(0, 2, 2.0), (1, 2, 100.0)])], None);
-    game.world_mut().actor(attacker).unwrap().perks.insert(id(0x810));
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
 
     let result = game.melee_hit(hit(attacker, target)).unwrap();
 
@@ -147,7 +154,11 @@ fn cmb_09_repeated_hits_reapply_the_same_perk_amount_once() {
     let attacker = game_player();
     let target = id(0x901);
     let mut game = fixture(vec![perk(0x810, &[(0, 2, 3.0)])], None);
-    game.world_mut().actor(attacker).unwrap().perks.insert(id(0x810));
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
 
     let first = game.melee_hit(hit(attacker, target)).unwrap();
     let second = game.melee_hit(hit(attacker, target)).unwrap();
@@ -161,7 +172,7 @@ fn cmb_09_repeated_hits_reapply_the_same_perk_amount_once() {
 fn cmb_09_malformed_later_effect_does_not_commit_earlier_damage() {
     let attacker = game_player();
     let target = id(0x901);
-    let mut invalid = Record::new(Tag(*b"PERK"), 0x810)
+    let invalid = Record::new(Tag(*b"PERK"), 0x810)
         .sub(Tag(*b"DATA"), [0, 0, 1, 1, 0])
         .sub(Tag(*b"PRKE"), [2, 0, 0])
         .sub(Tag(*b"DATA"), [35, 2, 3])
@@ -180,9 +191,16 @@ fn cmb_09_malformed_later_effect_does_not_commit_earlier_damage() {
         .sub(Tag(*b"EPFD"), f32::NAN.to_le_bytes())
         .sub(Tag(*b"PRKF"), []);
     let mut game = fixture(vec![invalid], None);
-    game.world_mut().actor(attacker).unwrap().perks.insert(id(0x810));
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
     let health_before = game.world_mut().actor_value(target, "health");
 
     assert!(game.melee_hit(hit(attacker, target)).is_err());
-    assert_eq!(game.world_mut().actor_value(target, "health"), health_before);
+    assert_eq!(
+        game.world_mut().actor_value(target, "health"),
+        health_before
+    );
 }

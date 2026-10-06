@@ -61,7 +61,14 @@ fn perk_effect(perk: u32, entry: u8, function: u8, data_type: u8, data: &[u8]) -
         .sub(Tag(*b"PRKF"), [])
 }
 
-fn conditioned_effect(perk: u32, entry: u8, function: u8, value: f32, tab: u8, subject: u32) -> Record {
+fn conditioned_effect(
+    perk: u32,
+    entry: u8,
+    function: u8,
+    value: f32,
+    tab: u8,
+    subject: u32,
+) -> Record {
     let mut condition = vec![0; 32];
     condition[4..8].copy_from_slice(&1.0_f32.to_le_bytes());
     condition[8..10].copy_from_slice(&72_u16.to_le_bytes());
@@ -126,10 +133,22 @@ fn cmb_09_actor_value_operation_uses_each_entry_point_owner() {
         perk_effect(0x810, 35, 14, 2, &factor),
         perk_effect(0x812, 36, 14, 2, &factor),
     ]);
-    game.world_mut().actor(attacker).unwrap().perks.insert(id(0x810));
-    game.world_mut().actor(target).unwrap().perks.insert(id(0x812));
-    game.world_mut().set_actor_value(attacker, "onehanded", 100.0).unwrap();
-    game.world_mut().set_actor_value(target, "onehanded", 50.0).unwrap();
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+    game.world_mut()
+        .actor(target)
+        .unwrap()
+        .perks
+        .insert(id(0x812));
+    game.world_mut()
+        .set_actor_value(attacker, "onehanded", 100.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(target, "onehanded", 50.0)
+        .unwrap();
 
     let result = game.melee_hit(hit(attacker, target)).unwrap();
     assert!((result.weapon_damage - 45.0).abs() < 0.001);
@@ -144,8 +163,16 @@ fn cmb_09_conditions_use_target_and_attacker_tabs_for_damage_entries() {
         conditioned_effect(0x810, 35, 2, 3.0, 2, 0x801),
         conditioned_effect(0x812, 36, 2, -4.0, 1, 0x800),
     ]);
-    game.world_mut().actor(attacker).unwrap().perks.insert(id(0x810));
-    game.world_mut().actor(target).unwrap().perks.insert(id(0x812));
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+    game.world_mut()
+        .actor(target)
+        .unwrap()
+        .perks
+        .insert(id(0x812));
 
     let result = game.melee_hit(hit(attacker, target)).unwrap();
     assert!(
@@ -160,7 +187,11 @@ fn cmb_09_false_entry_condition_leaves_outgoing_damage_unchanged() {
     let attacker = id(0x14);
     let target = id(0x901);
     let mut game = fixture(vec![conditioned_effect(0x810, 35, 2, 100.0, 2, 0x900)]);
-    game.world_mut().actor(attacker).unwrap().perks.insert(id(0x810));
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
 
     let result = game.melee_hit(hit(attacker, target)).unwrap();
     assert!((result.weapon_damage - 15.0).abs() < 0.001);
@@ -168,11 +199,18 @@ fn cmb_09_false_entry_condition_leaves_outgoing_damage_unchanged() {
 }
 
 #[test]
-fn cmb_09_unowned_and_unrelated_entry_effects_do_not_change_damage() {
+fn cmb_09_unowned_outgoing_and_incoming_effects_do_not_change_damage() {
     let attacker = id(0x14);
     let target = id(0x901);
-    let mut game = fixture(vec![perk_effect(0x810, 35, 2, 1, &100.0_f32.to_le_bytes())]);
-    game.world_mut().actor(target).unwrap().perks.insert(id(0x810));
+    let mut game = fixture(vec![
+        perk_effect(0x810, 35, 2, 1, &100.0_f32.to_le_bytes()),
+        perk_effect(0x812, 36, 2, 1, &100.0_f32.to_le_bytes()),
+    ]);
+    game.world_mut()
+        .actor(target)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
 
     let result = game.melee_hit(hit(attacker, target)).unwrap();
     assert!((result.weapon_damage - 15.0).abs() < 0.001);
