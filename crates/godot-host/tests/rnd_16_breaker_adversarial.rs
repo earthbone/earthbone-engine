@@ -47,9 +47,9 @@ fn plugin_order(enabled: bool, slot: Slot) -> LoadOrder {
 
 #[test]
 fn rnd_16_does_not_select_a_far_level_when_every_level_exceeds_the_pixel_limit() {
-    let errors = [1.0, 1.2, 1.5, 2.0];
+    let errors = [1.1, 1.2, 1.5, 2.0];
     let selected = select_far_level(errors, 1.0);
-    assert_eq!(selected, LodLevel::L4);
+    assert_eq!(selected, None);
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn rnd_16_non_finite_silhouette_bounds_do_not_look_like_zero_error() {
     assert!(!invalid.is_finite());
     assert_eq!(
         select_far_level([invalid, 0.5, 0.75, 0.9], 1.0),
-        LodLevel::L32
+        Some(LodLevel::L32)
     );
 }
 
@@ -130,5 +130,8 @@ fn rnd_16_worker_panic_does_not_cache_partial_lod_and_allows_retry() {
 
 #[test]
 fn rnd_16_level_at_pixel_limit_is_accepted_and_next_level_is_rejected() {
-    assert_eq!(select_far_level([0.2, 0.5, 1.0, 1.1], 1.0), LodLevel::L16);
+    assert_eq!(
+        select_far_level([0.2, 0.5, 1.0, 1.1], 1.0),
+        Some(LodLevel::L16)
+    );
 }

@@ -148,7 +148,7 @@ fn rnd_16_order_change_starts_background_rebuild_and_reuses_hash_cache() {
 fn rnd_16_reference_switches_to_coarsest_far_level_at_the_pixel_limit() {
     let reference = [10.0, 20.0, 110.0, 120.0];
     let errors = [0.0, 0.35, 0.8, 1.0];
-    assert_eq!(select_far_level(errors, 1.0), LodLevel::L32);
+    assert_eq!(select_far_level(errors, 1.0), Some(LodLevel::L32));
     let under_pixel = [10.4, 20.2, 110.7, 119.5];
     let over_pixel = [10.4, 20.2, 111.1, 119.5];
     assert!(silhouette_error_pixels(reference, under_pixel) < 1.0);
@@ -163,19 +163,19 @@ fn rnd_16_reference_switches_to_coarsest_far_level_at_the_pixel_limit() {
             ],
             1.0
         ),
-        LodLevel::L8
+        Some(LodLevel::L8)
     );
 }
 
 #[test]
 fn rnd_16_far_level_uses_coarsest_level_under_one_pixel() {
     let errors = [0.0, 0.35, 0.8, 1.0];
-    assert_eq!(select_far_level(errors, 0.99), LodLevel::L16);
-    assert_eq!(select_far_level(errors, 0.79), LodLevel::L8);
-    assert_eq!(select_far_level(errors, 0.0), LodLevel::L4);
+    assert_eq!(select_far_level(errors, 0.99), Some(LodLevel::L16));
+    assert_eq!(select_far_level(errors, 0.79), Some(LodLevel::L8));
+    assert_eq!(select_far_level(errors, 0.0), Some(LodLevel::L4));
     assert_eq!(
         select_far_level([0.1, f32::NAN, 0.6, f32::INFINITY], 0.99),
-        LodLevel::L16
+        Some(LodLevel::L16)
     );
 }
 

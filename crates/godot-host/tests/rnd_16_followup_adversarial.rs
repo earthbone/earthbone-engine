@@ -10,6 +10,6 @@ fn rnd_16_invalid_projected_bounds_cannot_pass_the_pixel_threshold() {
     assert!(error.is_nan(), "invalid bounds must remain invalid");
     assert_eq!(
         select_far_level([error, f32::NAN, f32::NAN, f32::NAN], 1.0),
-        LodLevel::L4
+        None
     );
 }
