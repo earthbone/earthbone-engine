@@ -29,6 +29,8 @@ pub struct MaterialDesc {
     /// set is known.
     pub shader_flags_1: u32,
     pub shader_flags_2: u32,
+    /// BSLightingShaderType 18 uses the shared terrain noise mask.
+    pub landscape_lod_noise: bool,
     pub alpha: AlphaMode,
     /// Two-sided rendering, from the shader flags or an NiStencilProperty.
     pub double_sided: bool,
@@ -108,6 +110,7 @@ impl Default for MaterialDesc {
             environment_scale: 1.0,
             shader_flags_1: 0,
             shader_flags_2: 0,
+            landscape_lod_noise: false,
             alpha: AlphaMode::default(),
             double_sided: false,
             water: None,
@@ -149,6 +152,12 @@ impl WaterMaterial {
 }
 
 impl MaterialDesc {
+    /// Landscape LOD stores model-space normals with RGB encoding X, Z, Y.
+    pub fn landscape_lod_normals(&self) -> bool {
+        self.shader_flags_1 & soe_nif::blocks::flags1::MODEL_SPACE_NORMALS != 0
+            && self.shader_flags_2 & soe_nif::blocks::flags2::LOD_LANDSCAPE != 0
+    }
+
     /// The cubemap slot is active only for authored environment mapping.
     pub fn environment_texture(&self) -> Option<&str> {
         (self.shader_flags_1 & soe_nif::blocks::flags1::ENVIRONMENT_MAPPING != 0)
@@ -205,6 +214,8 @@ pub struct MaterialKey {
     /// bits, so two water types never share one material.
     water: Option<(u8, [u32; 9])>,
     effect: Option<EffectKey>,
+    landscape_lod_normals: bool,
+    landscape_lod_noise: bool,
 }
 
 impl From<&MaterialDesc> for MaterialKey {
@@ -226,6 +237,8 @@ impl From<&MaterialDesc> for MaterialKey {
                 .effect
                 .as_ref()
                 .map(|e| e.key([material.shader_flags_1, material.shader_flags_2])),
+            landscape_lod_normals: material.landscape_lod_normals(),
+            landscape_lod_noise: material.landscape_lod_normals() && material.landscape_lod_noise,
         }
     }
 }

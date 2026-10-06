@@ -240,6 +240,8 @@ pub struct SurfaceTextures {
     pub normal: Option<Arc<TextureData>>,
     pub glow: Option<Arc<TextureData>>,
     pub greyscale: Option<Arc<TextureData>>,
+    /// Shared linear mask for BSLightingShaderType 18 landscape LOD.
+    pub terrain_noise: Option<Arc<TextureData>>,
 }
 
 pub struct LoadedCell {
@@ -1395,6 +1397,10 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         },
         shader_flags_1: m.flags1,
         shader_flags_2: m.flags2,
+        landscape_lod_noise: matches!(
+            m.kind,
+            soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::LodLandscapeNoise)
+        ),
         alpha,
         double_sided: m.double_sided,
         water: None,

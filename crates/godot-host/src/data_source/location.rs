@@ -48,6 +48,11 @@ impl PreparedCell {
                 (0, material.glow_texture(), textures.glow.as_deref()),
                 (
                     0,
+                    Some("textures/terrain/noise.dds"),
+                    textures.terrain_noise.as_deref(),
+                ),
+                (
+                    0,
                     material
                         .effect
                         .as_ref()
@@ -378,6 +383,34 @@ mod hst_08_tests {
             instance_transform: None,
             mesh_identity: None,
         }
+    }
+
+    #[test]
+    fn rnd_26_stream_budget_counts_shared_terrain_noise_once() {
+        let texture = Arc::new(TextureData::Rgba8(soe_dds::Image {
+            width: 1,
+            height: 1,
+            depth: 1,
+            rgba: vec![128; 4],
+        }));
+        let mut surfaces = vec![surface(Arc::clone(&texture)), surface(texture)];
+        for surface in &mut surfaces {
+            surface.textures.terrain_noise = surface.textures.diffuse.take();
+            surface.arrays.material.diffuse = None;
+        }
+        let mut cell = PreparedCell {
+            id: GlobalFormId { file: 0, object: 2 },
+            loaded: LoadedCell {
+                stats: CellStats::default(),
+                surfaces,
+            },
+            colliders: Vec::new(),
+        };
+        let with_noise = cell.stream_cost().bytes;
+        for surface in &mut cell.loaded.surfaces {
+            surface.textures.terrain_noise = None;
+        }
+        assert_eq!(with_noise - cell.stream_cost().bytes, 4);
     }
 
     #[test]

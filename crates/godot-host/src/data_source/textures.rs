@@ -220,6 +220,9 @@ impl TextureCache {
 
     pub(super) fn resolve(&self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
         SurfaceTextures {
+            terrain_noise: (material.landscape_lod_normals() && material.landscape_lod_noise)
+                .then(|| self.get_or_decode(vfs, "textures/terrain/noise.dds"))
+                .flatten(),
             greyscale: material
                 .effect
                 .as_ref()
