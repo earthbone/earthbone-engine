@@ -4,7 +4,8 @@
 //! surface pipeline `load_static_surfaces` uses for placed statics. Missing
 //! BTO blocks can be generated from winning placements and static meshes. See
 //! `crate::terrain_lod` for the block coordinates, the file naming and the
-//! residency budget that decides which blocks to request.
+//! residency budget that decides which blocks to request. Tree LST/BTT data
+//! follows xEdit Core/wbLOD.pas and is built through crate::tree_lod.
 
 use std::collections::HashMap;
 
@@ -42,6 +43,99 @@ pub struct LoadedLodBlock {
 }
 
 impl DataSource {
+    /// Inventory winning BTR, BTO or BTT paths, including loose overrides.
+    /// The file's level and south-west cell are authoritative, not settings.
+    pub fn scenery_lod_blocks(
+        &self,
+        world_editor_id: &str,
+        kind: crate::terrain_lod::LodKind,
+    ) -> Vec<LodBlockCoord> {
+        let (folder, extension) = match kind {
+            crate::terrain_lod::LodKind::Terrain => ("", "btr"),
+            crate::terrain_lod::LodKind::Object => ("objects", "bto"),
+            crate::terrain_lod::LodKind::Tree => ("trees", "btt"),
+        };
+        let world_name = world_editor_id.to_ascii_lowercase();
+        let prefix = if folder.is_empty() {
+            format!("meshes/terrain/{world_name}/")
+        } else {
+            format!("meshes/terrain/{world_name}/{folder}/")
+        };
+        let mut blocks = Vec::new();
+        for path in self.vfs.paths().filter(|path| path.starts_with(&prefix)) {
+            let Some(name) = path.strip_prefix(&prefix) else {
+                continue;
+            };
+            let fields: Vec<_> = name.split('.').collect();
+            if fields.len() != 5
+                || fields[0] != world_editor_id.to_ascii_lowercase()
+                || fields[4] != extension
+            {
+                continue;
+            }
+            let (Ok(level), Ok(x), Ok(y)) =
+                (fields[1].parse(), fields[2].parse(), fields[3].parse())
+            else {
+                continue;
+            };
+            if let Some(level) = crate::terrain_lod::LodLevel::from_cells(level) {
+                blocks.push(LodBlockCoord { level, x, y });
+            }
+        }
+        blocks.sort_unstable_by_key(|b| (b.level.cells(), b.x, b.y));
+        blocks.dedup();
+        blocks
+    }
+
+    /// Read BTT references and their world's LST atlas through the shared VFS.
+    /// The resulting alpha-tested quads use absolute BTT world positions.
+    pub fn load_tree_lod_block(
+        &self,
+        world: GlobalFormId,
+        world_editor_id: &str,
+        block: LodBlockCoord,
+    ) -> Result<Option<LoadedLodBlock>, DataSourceError> {
+        let bytes = match self
+            .vfs
+            .read(&crate::terrain_lod::btt_path(world_editor_id, block))
+        {
+            Ok(bytes) => bytes,
+            Err(soe_bsa::Error::NotFound { .. }) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let references = crate::tree_lod::read_references(&bytes)?;
+        if references.is_empty() {
+            return Ok(None);
+        }
+        let list = self.vfs.read(&format!(
+            "meshes/terrain/{world_editor_id}/trees/{world_editor_id}.lst"
+        ))?;
+        let types = crate::tree_lod::read_types(&list)?;
+        let atlas =
+            format!("textures/terrain/{world_editor_id}/trees/{world_editor_id}treelod.dds");
+        let mesh = crate::tree_lod::build_billboards(&types, &references, &atlas)?;
+        let arrays = build_surface(&mesh, MeshOptions::default())?;
+        let approx_bytes = (arrays.positions.len() * 32 + arrays.indices.len() * 4) as u64;
+        let triangles = arrays.triangle_count();
+        let textures = self.textures.resolve(&self.vfs, &arrays.material);
+        Ok(Some(LoadedLodBlock {
+            surfaces: vec![LoadedSurface {
+                reference: world,
+                arrays,
+                textures,
+                placement: soe_physics::Iso::IDENTITY,
+                instance_transform: None,
+                mesh_identity: None,
+            }],
+            approx_bytes,
+            authored_references: references.len(),
+            triangles,
+            source_triangles: triangles,
+            source_approx_bytes: approx_bytes,
+            simplified_references: 0,
+        }))
+    }
+
     /// Generate a BTR from winning LAND records for one worldspace block.
     /// A child worldspace uses parent LAND at positions it does not own when
     /// its PNAM use-land bit is set. Returns `None` for a block without land.
@@ -248,7 +342,8 @@ impl DataSource {
     /// placements. Returns `None` if neither source yields geometry. BTO
     /// geometry is grouped by worldspace and block, so each returned surface
     /// keeps the resolved worldspace as its form identity while the caller
-    /// keeps resident mesh instances keyed by `LodBlockCoord`.
+    /// keeps resident mesh instances keyed by `LodBlockCoord`. Archived BTO
+    /// shapes already carry their world translation and level scale, unlike BTR.
     pub fn load_object_lod_block(
         &self,
         world: GlobalFormId,
@@ -268,20 +363,11 @@ impl DataSource {
         if meshes.is_empty() {
             return Ok(None);
         }
-        let origin = block.origin_cell();
-        let placement = NifTransform {
-            translation: NifVec3::new(
-                origin.x as f32 * CELL_UNITS,
-                origin.y as f32 * CELL_UNITS,
-                0.0,
-            ),
-            ..NifTransform::IDENTITY
-        };
         let mut surfaces = Vec::with_capacity(meshes.len());
         let mut approx_bytes = 0u64;
         for shape in &meshes {
             approx_bytes += shape.approx_bytes();
-            let data = super::mesh_data_from(shape, &placement.then(&shape.transform));
+            let data = super::mesh_data_from(shape, &shape.transform);
             let arrays = build_surface(&data, MeshOptions::default())?;
             let textures = self.textures.resolve(&self.vfs, &arrays.material);
             surfaces.push(LoadedSurface {

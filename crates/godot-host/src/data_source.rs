@@ -126,6 +126,8 @@ pub enum DataSourceError {
     #[error("{0}")]
     Mesh(#[from] MeshError),
     #[error("{0}")]
+    TreeLod(#[from] crate::tree_lod::TreeLodError),
+    #[error("{0}")]
     Dds(#[from] soe_dds::Error),
     #[error("{0}")]
     Profile(#[from] soe_profile::Error),
