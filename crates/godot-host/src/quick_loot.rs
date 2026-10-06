@@ -6,7 +6,9 @@
 //! modding/linking exceptions are recorded in docs/godot-host.md.
 //! Inventories remain in Game. This value owns only transient presentation.
 
+#[cfg(feature = "godot")]
 use godot::classes::{CanvasLayer, Label, VBoxContainer};
+#[cfg(feature = "godot")]
 use godot::prelude::Gd;
 use soe_commonlib_shim::quick_loot::{
     ButtonDefinition, Event, EventKind, Handle, HandleResult, ItemStack, ItemValue,
@@ -77,6 +79,7 @@ pub struct QuickLoot {
 }
 
 /// Godot controls for the nonmodal crosshair list and its item card.
+#[cfg(feature = "godot")]
 pub(super) struct QuickLootView {
     pub(super) layer: Gd<CanvasLayer>,
     pub(super) title: Gd<Label>,
