@@ -551,6 +551,7 @@ impl World {
     }
 
     pub fn reference(&mut self, id: GlobalFormId) -> Option<&mut RefState> {
+        self.ai.mark_nav_door(id);
         if !self.refs.contains_key(&id) {
             let st = self.load_ref(id)?;
             self.refs.insert(id, st);
@@ -991,6 +992,7 @@ impl World {
         }
         let is_actor = fresh.is_actor;
         self.refs.insert(id, fresh);
+        self.ai.mark_nav_door(id);
         self.track_light_reference(id);
         if is_actor {
             let _ = self.resurrect_actor(id);

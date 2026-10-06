@@ -58,11 +58,14 @@ use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormRead
 use crate::world::{Alloc, Handle, Pending, World};
 
 mod markers;
+mod movement;
 mod navigation;
 mod patrol;
+pub(crate) mod process;
 mod tree;
 pub use navigation::PlanningWorkers;
 pub use patrol::PatrolState;
+pub use process::{ProcessClock, ProcessLevel};
 pub use tree::TreeState;
 
 /// Units per real second used when a race lacks a usable movement type.
@@ -188,9 +191,17 @@ pub struct AiState {
 /// Per-world record caches and transient planning requests. Nothing here is saved.
 #[derive(Default)]
 pub struct AiWorld {
+    packages: std::cell::RefCell<BTreeMap<GlobalFormId, Option<Package>>>,
+    trees: std::cell::RefCell<BTreeMap<GlobalFormId, std::sync::Arc<tree::Tree>>>,
     nav: Option<NavGraph>,
     nav_doors: BTreeMap<u64, Option<NavDoor>>,
+    nav_door_ids: std::collections::HashSet<GlobalFormId>,
+    dirty_nav_doors: BTreeSet<GlobalFormId>,
     planner: navigation::Planner,
+    /// Actors considered at each process level in the most recent tick.
+    pub process_counts: [usize; 4],
+    /// Actors whose driver ran at each process level in the most recent tick.
+    pub process_updates: [usize; 4],
     markers: markers::Planner,
     /// Time spent in automatic package evaluation during the most recent tick.
     pub evaluation_time: std::time::Duration,
@@ -198,6 +209,8 @@ pub struct AiWorld {
     pub planning_time: std::time::Duration,
     /// Door refresh duration within the most recent AI driver tick.
     pub door_refresh_time: std::time::Duration,
+    /// Bound doors compared with their previous state in the last tick.
+    pub door_checks: usize,
     /// Inclusive phase durations within the most recent AI tick. Nested phases overlap.
     pub planning_phases: BTreeMap<&'static str, std::time::Duration>,
     /// The cell each navmesh of `nav` sits in, by mesh index.
@@ -216,6 +229,17 @@ struct NavDoor {
 }
 
 impl AiWorld {
+    pub(crate) fn mark_nav_door(&mut self, door: GlobalFormId) {
+        if self.nav_door_ids.contains(&door) {
+            self.dirty_nav_doors.insert(door);
+        }
+    }
+
+    pub(crate) fn mark_all_nav_doors(&mut self) {
+        self.dirty_nav_doors
+            .extend(self.nav_door_ids.iter().copied());
+    }
+
     /// Set the pool size for resumed navigation searches. Pending work is retained.
     ///
     /// # Errors
@@ -231,6 +255,11 @@ impl AiWorld {
     /// Measurements for resumed navigation jobs in the last AI tick.
     pub fn planning_workers(&self) -> &PlanningWorkers {
         &self.planner.workers
+    }
+
+    /// Waypoint worker execution and caller dispatch/join time for the last tick.
+    pub fn movement_workers(&self) -> &PlanningWorkers {
+        &self.planner.movement_workers
     }
 
     pub fn nav_graph(&self) -> Option<&NavGraph> {
@@ -258,7 +287,21 @@ pub struct Candidate {
 /// The `PACK` view of a winning record.
 pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
     let rec = world.record(id)?;
-    let mut package = Package::from_record(rec).ok()?;
+    let immutable = world
+        .order()
+        .winner(id)
+        .is_some_and(|winner| std::ptr::eq(rec, winner));
+    let mut package = if immutable {
+        world
+            .ai
+            .packages
+            .borrow_mut()
+            .entry(id)
+            .or_insert_with(|| Package::from_record(rec).ok())
+            .clone()?
+    } else {
+        Package::from_record(rec).ok()?
+    };
     if let Some(saved) = world.restored_pack_extra(id) {
         package.saved_waiting = saved.waiting;
         package.saved_never_run = saved.never_run;
@@ -2061,6 +2104,8 @@ fn invalidate_actor_paths(world: &mut World) {
 
 fn ensure_nav_graph(world: &mut World) {
     if world.ai.nav.is_none() {
+        // CONTEXT: Thread creation belongs to navigation preparation, not first movement.
+        let _ = rayon::current_num_threads();
         let _span = soe_trace::Span::new("ai.nav_graph", "game");
         let order = world.order();
         let mut b = Builder::new();
@@ -2108,6 +2153,14 @@ fn ensure_nav_graph(world: &mut World) {
         }
         graph.prepare_queries();
         world.ai.nav = Some(graph);
+        world.ai.nav_door_ids = doors
+            .keys()
+            .map(|key| GlobalFormId {
+                file: (key >> 32) as u16,
+                object: *key as u32,
+            })
+            .collect();
+        world.ai.dirty_nav_doors.clear();
         world.ai.nav_doors = doors;
         world.ai.nav_cells = cells;
     }
@@ -2117,17 +2170,19 @@ fn ensure_nav_graph(world: &mut World) {
 /// change invalidates cached actor routes so the next movement step replans.
 fn refresh_nav_doors(world: &mut World) {
     ensure_nav_graph(world);
-    let mut doors = std::mem::take(&mut world.ai.nav_doors);
+    let dirty = std::mem::take(&mut world.ai.dirty_nav_doors);
+    world.ai.door_checks = dirty.len();
     let mut door_changes = Vec::new();
-    for (&key, previous) in &mut doors {
-        let door = GlobalFormId {
-            file: (key >> 32) as u16,
-            object: key as u32,
-        };
+    for door in dirty {
+        let key = key_of(door);
         let state = world.reference(door).map(|reference| NavDoor {
             position: reference.position,
             opened: reference.opened,
         });
+        world.ai.dirty_nav_doors.remove(&door);
+        let Some(previous) = world.ai.nav_doors.get_mut(&key) else {
+            continue;
+        };
         if state != *previous {
             *previous = state;
             if let Some(NavDoor { position, opened }) = state {
@@ -2135,7 +2190,6 @@ fn refresh_nav_doors(world: &mut World) {
             }
         }
     }
-    world.ai.nav_doors = doors;
     let Some(graph) = world.ai.nav.as_mut() else {
         return;
     };
@@ -2168,15 +2222,47 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
     world.ai.planning_phases.clear();
     world.ai.planner.phases.clear();
     world.ai.planner.workers = PlanningWorkers::default();
+    world.ai.planner.movement_workers = PlanningWorkers::default();
+    world.ai.process_counts = [0; 4];
+    world.ai.process_updates = [0; 4];
     refresh_nav_doors(world);
     world.ai.door_refresh_time = started.elapsed();
     let scheduling_started = std::time::Instant::now();
-    let mut actors = world.loaded_actors();
-    actors.sort_unstable();
+    let actors = world.loaded_actors();
     world.ai.planner.retain_actors(&actors);
-    let mut due: Vec<_> = actors
+    let player = actors
+        .iter()
+        .find(|actor| world.is_player(**actor))
+        .and_then(|actor| {
+            world
+                .reference_ref(*actor)
+                .map(|reference| (reference.position, reference.cell))
+        });
+    let mut spaces = std::collections::HashMap::new();
+    let updates: Vec<_> = actors
         .iter()
         .filter_map(|actor| {
+            let level = process::level(world, *actor, player, &mut spaces);
+            world.ai.process_counts[level.index()] += 1;
+            if world
+                .actor_ref(*actor)
+                .is_some_and(|state| state.dead || state.unconscious)
+            {
+                world.ai.planner.cancel(*actor);
+                world.ai.markers.cancel(*actor);
+            }
+            let urgent = world
+                .actor_ref(*actor)
+                .is_some_and(|state| state.ai.reevaluate);
+            let clock = &mut world.loaded_actor_mut(*actor)?.process_clock;
+            let elapsed = ProcessClock::advance(clock, *actor, level, dt, urgent)?;
+            world.ai.process_updates[level.index()] += 1;
+            Some((*actor, elapsed))
+        })
+        .collect();
+    let mut due: Vec<_> = updates
+        .iter()
+        .filter_map(|(actor, _)| {
             let state = world.actor_ref(*actor)?;
             if (world.is_player(*actor) && !world.player_ai_driven)
                 || state.dead
@@ -2184,7 +2270,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 || world.actor_is_paralyzed(*actor)
                 || ((world.ai.planner.waiting(*actor) || world.ai.markers.waiting(*actor))
                     && !state.ai.reevaluate)
-                || !(state.ai.package.is_none()
+                || !(state.ai.last_evaluation == 0.0
                     || state.ai.reevaluate
                     || world.clock.real_seconds - state.ai.last_evaluation >= EVALUATION_INTERVAL)
             {
@@ -2226,7 +2312,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         world.ai.markers = markers;
     });
     let now = world.clock.real_seconds;
-    for actor in actors {
+    for (actor, dt) in updates {
         let _entity =
             soe_trace::EntityScope::new(|| world.profile_entity("actor", actor, "movement"), 1);
         measure_phase(world, "actor_driver", |world| {
@@ -2307,8 +2393,8 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 .is_some_and(|state| state.ai.procedure == Procedure::Flee);
             if active_target.is_none() && !fleeing {
                 let due = measure_phase(world, "evaluation_due", |world| {
-                    world.actor(actor).is_some_and(|state| {
-                        state.ai.package.is_none()
+                    world.actor_ref(actor).is_some_and(|state| {
+                        state.ai.last_evaluation == 0.0
                             || state.ai.reevaluate
                             || now - state.ai.last_evaluation >= EVALUATION_INTERVAL
                     })
@@ -2319,8 +2405,8 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             }
             if active_target.is_some() && !ignores_combat(world, actor) && !fleeing {
                 let due = measure_phase(world, "evaluation_due", |world| {
-                    world.actor(actor).is_some_and(|a| {
-                        a.ai.package.is_none()
+                    world.actor_ref(actor).is_some_and(|a| {
+                        a.ai.last_evaluation == 0.0
                             || a.ai.reevaluate
                             || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
                     })
@@ -2346,8 +2432,8 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 return;
             }
             let due = measure_phase(world, "evaluation_due", |world| {
-                world.actor(actor).is_some_and(|a| {
-                    a.ai.package.is_none()
+                world.actor_ref(actor).is_some_and(|a| {
+                    a.ai.last_evaluation == 0.0
                         || a.ai.reevaluate
                         || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
                 })
@@ -3174,51 +3260,15 @@ fn step_inner(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>)
             ai.path = path;
             ai.path_cells = cells;
         }
-        let mut pos = position;
-        let mut new_cell = cell;
-        let mut budget = ai.speed * dt;
-        while budget > 0.0 && !ai.path.is_empty() {
-            let next = ai.path[0];
-            let d = distance(pos, next);
-            if ai.procedure == Procedure::Patrol
-                && ai.path.len() == 1
-                && ai.radius > 0.0
-                && d - ai.radius <= budget
-            {
-                let t = ((d - ai.radius) / d).clamp(0.0, 1.0);
-                pos = std::array::from_fn(|axis| pos[axis] + (next[axis] - pos[axis]) * t);
-                if let Some(Some(target_cell)) = ai.path_cells.first() {
-                    new_cell = Some(*target_cell);
-                }
-                ai.path.clear();
-                ai.path_cells.clear();
-                ai.arrived = true;
-                break;
-            }
-            let waypoint_budget = if ai.procedure == Procedure::Patrol {
-                budget
-            } else {
-                budget.max(ARRIVAL_DISTANCE)
-            };
-            if d <= waypoint_budget {
-                pos = next;
-                budget -= d;
-                ai.path.remove(0);
-                if !ai.path_cells.is_empty() {
-                    if let Some(c) = ai.path_cells.remove(0) {
-                        new_cell = Some(c);
-                    }
-                }
-            } else {
-                let t = budget / d;
-                pos = [
-                    pos[0] + (next[0] - pos[0]) * t,
-                    pos[1] + (next[1] - pos[1]) * t,
-                    pos[2] + (next[2] - pos[2]) * t,
-                ];
-                budget = 0.0;
-            }
-        }
+        let entity = soe_trace::Profile::enabled()
+            .then(|| world.profile_entity("actor", actor, "path_following"));
+        let (pos, new_cell) = if ai.path.is_empty() {
+            (position, cell)
+        } else {
+            measure_phase(world, "path_following_dispatch", |world| {
+                world.ai.planner.follow(&mut ai, position, cell, dt, entity)
+            })
+        };
         if ai.path.is_empty() && distance(pos, dest) <= ARRIVAL_DISTANCE {
             ai.arrived = true;
             if ai.procedure == Procedure::Sandbox {

@@ -103,6 +103,7 @@ impl PlayerNode {
             Ok(store) => store,
             Err(error) => return failed(&error),
         };
+        self.flush_automatic_detection();
         let feet = self.feet();
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
         let Some(game) = &mut self.game else {
@@ -143,6 +144,7 @@ impl PlayerNode {
             Ok(selected) => selected,
             Err(error) => return failed_save(&error),
         };
+        self.automatic_detection = super::detection::AutomaticDetection::default();
         self.melee_contact.cancel();
         self.melee_bodies.clear();
         self.last_activate_reference = None;

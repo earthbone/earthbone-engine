@@ -1,5 +1,39 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## AI phase reporting, PRF-36
+
+`PlayerNode::ai_planning_details` reports inclusive driver phase timings,
+actor counts and updates for high, middle-high, middle-low and low processing,
+and separate navigation and waypoint worker job counts, busy times and caller
+waits. The `ai_movement` row in `system_frame_breakdown` includes that phase
+dictionary. F3 displays scheduling, actor processing, procedure preparation,
+waypoint dispatch and worker costs below the exclusive system totals. Nested
+phase timings describe the last simulation tick and overlap. Worker busy time is not added to main-thread system
+time. Caller dispatch and join waits remain charged to AI.
+
+Automatic physics catch-up accumulates detection elapsed time and the latest
+player motion, then samples once in the next presentation's first physics
+callback. Queries stay on the physics thread and observations use the current
+record-backed poses. Queued sound events remain in World until sampled. Manual
+`advance` still samples each call. Manual advances, native generation writes
+and session recording boundaries flush pending observations. Successful game
+replacement, recovery and replay clear the old batch. A failed restored-game
+attachment retains it. This host query batch is transient. Saved detection
+values remain in World. No scene node is added.
+
+`godot/prf_36_ai_budget_test.gd` uses the windowed walkthrough startup, exits
+through its interior door and Whiterun gate, then walks on the Tamriel plains.
+It samples 3,600 fixed steps per location through PRF-12, checks that packages
+were evaluated, and checks combined plains AI below 0.6 ms p50 and 1.2 ms p99.
+The complete driver must also stay below 8 ms. The host integration test runs
+this script and the existing PRF-11 Bannered Mare script and collects both
+process exit statuses, including after a failed budget. Logs are retained under
+`target`. Fixed samples yield to rendering every 60 steps. A second plains
+check injects ordinary walking input for 60 wall seconds with automatic
+simulation enabled and applies the same limits to F3 presentation frames.
+Both scripts quit when their checks end. Build and
+import the release extension before running the installed host test.
+
 ## Default menu art, UI-24
 
 The UI-20 inventory, container, barter, favorites and magic menus share
@@ -330,7 +364,8 @@ negative and off-by-default flags with FNAM fade. It samples current reference
 placement and enable state, including `PlaceAtMe` references, and bounds the
 resulting record-derived light estimate to 0 to 150. The host sends that
 value, sight, motion and queued detection sounds to
-`World::evaluate_detection` each step.
+`World::evaluate_detection` after each manual step, or once after automatic
+physics catch-up as described in PRF-36 above.
 PRF-31 builds a uniform actor grid and a separate grid of sound source
 positions each frame. A nearby event can belong to a distant actor and does
 not grant sight to its owner. Each target's light is sampled once per frame.

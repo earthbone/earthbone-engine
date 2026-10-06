@@ -98,6 +98,19 @@ fn sav_48_pack_navmesh_restore_is_atomic_and_survives_engine_save_load() {
 }
 
 #[test]
+fn prf_36_cached_package_reads_live_restored_markers_without_saving_definitions() {
+    let (mut world, save) = world_and_save();
+    let pack = id(0, 0x840);
+    let before = world.save_state();
+    let original = soe_game::ai::package(&world, pack).unwrap();
+    assert!(!original.saved_waiting && !original.saved_never_run);
+    assert_eq!(world.save_state(), before);
+    world.restore_vanilla_pack_navmesh(&save).unwrap();
+    let restored = soe_game::ai::package(&world, pack).unwrap();
+    assert!(restored.saved_waiting && restored.saved_never_run);
+}
+
+#[test]
 fn sav_48_installed_pack_and_navmesh_records_accept_restored_markers() {
     let Some(data) = std::env::var_os("SKYRIM_DATA") else {
         eprintln!("SKYRIM_DATA unset, skipping installed PACK/NAVM restore");

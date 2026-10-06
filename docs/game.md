@@ -3654,7 +3654,8 @@ active-effect taper values also use world sections. RND-18 stores weather
 requests, climate or region identity and weighted transitions in a world section. An
 absent RND-18 section restores the default weather state. Missing sections
 restore an empty selection and untapered effects. AI-64 movement flags and AI-15
-stacked package frames use actor sections. MAG-64 pending reference bindings use a world section,
+stacked package frames use actor sections. PRF-36 stores the coarse movement
+clock remainder and next update in an actor section. MAG-64 pending reference bindings use a world section,
 after AI-16 script calls, to preserve their combined queue order. The source
 for this engine-owned layout is the frozen repository writer, rather than
 the external vanilla ESS references.
@@ -8675,10 +8676,47 @@ scheduler. Worker configuration, requests and timing data are transient and do
 not change saves. The pool is joined before world mutation resumes.
 
 Initial request setup and its first slice still run on the calling thread,
-as do package evaluation, marker selection, combat and movement. Papyrus
+as do package evaluation, marker selection, combat and movement preparation. Papyrus
 execution is unchanged. [threading.md](threading.md) records the reference
 evidence and the unimplemented parts of PRF-17. The dependency uses the already
 locked Rayon, rayon-core, either and Crossbeam utilities.
+
+### Process cadence and waypoint workers, PRF-36
+
+With a placed player, the driver selects high, middle-high, middle-low and low
+process levels. The distance bands are 4,096, 8,192 and 16,384 units. High actors
+update every tick, middle-high every 0.1 seconds, middle-low every 0.5 seconds
+and low every 5 seconds. Actors in separate interiors or worldspaces are low
+even when their local coordinates overlap. Combat actors, teammates, scene
+packages, ForceGreet and DialogueActivate use high processing. Explicit package
+reevaluation bypasses the cadence. Without a placed player, every actor uses
+high processing. Coarse updates accumulate simulation delta for movement and
+stagger their first update by FormID. Actor-owned scheduling clocks retain the
+elapsed remainder and next update in the PRF-36 actor save section. An absent
+section leaves the clock uninitialized. Invalid or non-finite clock values are
+load errors. Automatic selection retries use the one-second interval even
+when the previous attempt selected no package.
+
+The levels come from local CommonLibSSE-NG `AIProcess.h` and `ProcessLists.h`.
+OpenMW `mwmechanics/actors.cpp` supplies a player-distance processing example.
+Those sources do not define these distances or cadences, which are engine
+policy. The driver retains package conditions, authored speeds, path ownership,
+FormID movement order and immediate explicit EvaluatePackage calls.
+
+Immutable winning PACK definitions and procedure trees are cached by resolved
+FormID. A runtime record override bypasses the cache, including an override in
+any template dependency. Waiting and never-run markers still come from the live
+record table. These caches contain definitions, not actor progress.
+
+Waypoint steering borrows the actor's detached AI state on the PRF-17 pool.
+The caller joins before applying position, cell changes, arrival effects and
+events in their existing order. No world or VM is sent to the worker. Patrol
+radius stopping and the four-unit arrival tolerance retain their existing
+rules. `movement_workers` reports jobs, worker busy time and caller dispatch
+and join time separately. The caller's wait remains in PRF-12 main-thread AI
+time. Empty routes do not dispatch a waypoint job. Process counts and updates
+report each level. SAVE_VERSION stays at 37. No dependency or per-reference
+host node is added.
 
 Marker and bed base filtering reads existing reference state first, or the
 winning placement's NAME, XLCN and cell when absent. It shares BOS base selection
@@ -8715,8 +8753,11 @@ engine caches empty results too because repeated endpoint lookup was the
 measured cost, and uses its NAVM revision to retry when walkability changes.
 
 Door refresh retains sorted door identities and the last position and open
-state applied to the graph. Every tick reads the live reference, but unchanged
-doors need no footprint query. Changed positions and open states rebind or
+state applied to the graph. Mutable reference access marks bound doors for
+comparison on the next tick. Translation, reference reset, native-save load
+and vanilla reference import also mark affected doors. Unmarked doors need no
+state scan or footprint query. `door_checks` counts comparisons for the last
+tick. Changed positions and open states rebind or
 update blocking and invalidate actor routes when graph walkability changes.
 The cache is rebuilt with the graph and is not saved. Door associations still
 follow local xEdit NVNM Door Links and CommonLibSSE-NG `BSNavmesh.h`.

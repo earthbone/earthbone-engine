@@ -118,6 +118,51 @@ measure GPU execution. Details and source paths are in
 [trace.md](trace.md), [game.md](game.md) and [godot-host.md](godot-host.md).
 Percentiles are computed when queried, outside the simulation tick.
 
+## Process cadence and waypoint timing, PRF-36
+
+The driver reports inclusive scheduling, actor processing, procedure-tree,
+marker, navigation and waypoint phases through `ai_planning_details`. F3 keeps
+exclusive PRF-12 system totals above these overlapping details. Navigation and
+waypoint job counts and worker busy time are separate. Caller dispatch and join
+waits remain part of main-thread AI time.
+
+Actors outside the player's high-process range use coarser updates, with
+accumulated simulation delta and actor-owned saved clocks. Immutable winning
+PACK definitions and procedure trees are cached by resolved FormID, while live
+overrides and restored package markers remain visible. Waypoint following uses
+the PRF-17 pool and applies joined results in FormID order. The distances and
+cadences are engine policy. Local CommonLibSSE-NG `AIProcess.h` and
+`ProcessLists.h` name the four process levels, and OpenMW
+`mwmechanics/actors.cpp` supplies the distance-processing example.
+
+After building and importing the release extension, run:
+
+```text
+rtk proxy env SKYRIM_DATA=/path/to/Data cargo test -p soe-godot-host --test prf_36_ai_budget -- --nocapture
+```
+
+The windowed installed walkthrough samples 3,600 fixed simulation steps in
+Bannered Mare, exits through the city gate, and samples another 3,600 while
+walking in Tamriel. Fixed samples yield to rendering every 60 steps, as the
+retained PRF-11 script does. A further 60-wall-second plains walk samples the
+actual F3 presentation frames with automatic simulation and ordinary device
+input. Both plains samples require combined main-thread `ai_movement` and
+`ai_planning` below 0.6 ms p50 and 1.2 ms p99. The complete fixed-step driver
+must stay below 8 ms. Evaluation counts, simulation progress, player movement
+and worker activity guard against idle samples. The host test also runs the
+unchanged PRF-11 Bannered Mare check, retains both logs under `target`, collects
+both exit statuses and leaves neither process running.
+
+The pre-change 120-step windowed probe on this worktree measured combined
+AI p50/p99 of 3.167/12.156 ms in Bannered Mare and 2.784/8.440 ms in the
+plains. These short probes do not establish a sustained budget. An intermediate
+3,600-step Bannered Mare run measured 0.746/2.228 ms and a 10.079 ms driver
+maximum, exceeding the 8 ms limit. That run rendered between every sample and
+the launcher's 300-second limit terminated it before the plains completed.
+Empty paths still dispatched waypoint jobs in that intermediate extension.
+The driver now skips those jobs. No dependency or per-reference scene node
+was added.
+
 ## Music decode frame cost, AUD-12, 2026-10-05
 
 The installed PRF-12 walkthrough previously recorded 6,740.54 ms in the audio

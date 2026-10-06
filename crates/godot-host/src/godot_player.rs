@@ -124,6 +124,8 @@ pub struct PlayerNode {
     motion: CameraMotion,
     detection_time_usec: i64,
     detection_stage_usec: [i64; 4],
+    automatic_detection: detection::AutomaticDetection,
+    automatic_physics_step: bool,
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
@@ -239,6 +241,8 @@ impl INode3D for PlayerNode {
             rig: CameraRig::default(),
             detection_time_usec: 0,
             detection_stage_usec: [0; 4],
+            automatic_detection: detection::AutomaticDetection::default(),
+            automatic_physics_step: false,
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
             driver: Driver::new(),
@@ -481,7 +485,13 @@ impl INode3D for PlayerNode {
 
     fn physics_process(&mut self, delta: f64) {
         if self.auto_step {
+            let frame = Engine::singleton().get_process_frames();
+            if let Some((elapsed, motion)) = self.automatic_detection.before_step(frame) {
+                self.advance_detection(elapsed, motion);
+            }
+            self.automatic_physics_step = true;
             self.advance(delta);
+            self.automatic_physics_step = false;
             self.profile_applied_inputs.append(&mut self.profile_inputs);
             self.sync_actor_bodies();
             self.update_grab_actor();
@@ -951,7 +961,12 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
-        self.detection_time_usec = -1;
+        if !self.automatic_physics_step {
+            self.flush_automatic_detection();
+        }
+        if !self.automatic_physics_step {
+            self.detection_time_usec = -1;
+        }
         let _system = soe_trace::SystemScope::new(soe_trace::System::Other);
         let frame = soe_trace::WorkFrame::begin();
         self.advance_measured(delta);
@@ -1116,7 +1131,11 @@ impl PlayerNode {
         } else {
             soe_game::detection::Motion::Still
         };
-        self.advance_detection(delta, player_motion);
+        if self.automatic_physics_step {
+            self.automatic_detection.push(delta, player_motion);
+        } else {
+            self.advance_detection(delta, player_motion);
+        }
         self.advance_door_fade(delta);
 
         self.motion.step(self.feet(), self.capsule_height());
@@ -1225,6 +1244,7 @@ impl PlayerNode {
         let mut result = VarDictionary::new();
         if let Some(game) = &self.game {
             let world = game.world();
+            result.set("door_checks", world.ai.door_checks as i64);
             result.set(
                 "door_refresh_us",
                 world.ai.door_refresh_time.as_secs_f64() * 1_000_000.0,
@@ -1237,6 +1257,38 @@ impl PlayerNode {
                 result.set(format!("{phase}_us"), duration.as_secs_f64() * 1_000_000.0);
             }
             result.set("instantiated_actors", world.loaded_actors().len() as i64);
+            for (prefix, workers) in [
+                ("navigation_worker", world.ai.planning_workers()),
+                ("movement_worker", world.ai.movement_workers()),
+            ] {
+                result.set(format!("{prefix}_jobs"), workers.jobs as i64);
+                result.set(
+                    format!("{prefix}_wait_us"),
+                    workers.main_thread_wait.as_secs_f64() * 1e6,
+                );
+                result.set(
+                    format!("{prefix}_busy_us"),
+                    workers
+                        .busy
+                        .iter()
+                        .map(std::time::Duration::as_secs_f64)
+                        .sum::<f64>()
+                        * 1e6,
+                );
+            }
+            for (index, name) in ["high", "middle_high", "middle_low", "low"]
+                .into_iter()
+                .enumerate()
+            {
+                result.set(
+                    format!("{name}_actors"),
+                    world.ai.process_counts[index] as i64,
+                );
+                result.set(
+                    format!("{name}_updates"),
+                    world.ai.process_updates[index] as i64,
+                );
+            }
         }
         result
     }

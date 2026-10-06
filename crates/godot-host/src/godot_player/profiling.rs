@@ -162,6 +162,11 @@ impl PlayerNode {
         let mut report = VarDictionary::new();
         for system in System::ALL {
             let stats = self.host_history.statistics(system);
+            let phases = if system == System::AiMovement {
+                self.ai_planning_details()
+            } else {
+                VarDictionary::new()
+            };
             report.set(
                 system.name(),
                 &vdict! {
@@ -170,6 +175,7 @@ impl PlayerNode {
                     "p50_ms" => stats.p50_ns as f64 / 1e6,
                     "p99_ms" => stats.p99_ns as f64 / 1e6,
                     "worst_ms" => stats.worst_ns as f64 / 1e6,
+                    "phases" => &phases,
                 },
             );
         }

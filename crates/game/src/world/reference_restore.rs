@@ -410,6 +410,7 @@ impl World {
         report.references = references.len();
         self.created_base_records.extend(created_records);
         self.refs.extend(references);
+        self.ai.mark_all_nav_doors();
         *self.light_references.get_mut() = super::light_references::LightReferences::default();
         self.player = Some(player);
         self.loaded_cell = player_cell;

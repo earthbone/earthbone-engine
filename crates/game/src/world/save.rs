@@ -1505,6 +1505,7 @@ impl World {
         self.objects = objects;
         self.handles = handles;
         self.refs = refs;
+        self.ai.mark_all_nav_doors();
         *self.light_references.get_mut() = super::light_references::LightReferences::default();
         self.actors = actors;
         self.quests = quests;
