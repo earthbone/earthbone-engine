@@ -154,7 +154,7 @@ pub const CELL_OCCLUDER_SURFACES: usize = 4;
 
 /// Flatten the largest opaque source surfaces into one cell-local occluder
 /// mesh. MultiMesh candidates are transformed into the same Godot space as
-/// their rendered placement. Skinned surfaces move with their skeleton and
+/// their rendered placement. Skinned and animated surfaces move and
 /// cannot be stationary occluders. Transparent and cutout surfaces cannot
 /// hide geometry behind their holes, so only fully opaque static surfaces
 /// qualify.
@@ -165,6 +165,7 @@ pub fn cell_occluder_mesh(surfaces: &[LoadedSurface]) -> (Vec<[f32; 3]>, Vec<i32
         .filter(|(_, surface)| {
             surface.arrays.material.alpha == AlphaMode::Opaque
                 && !surface.arrays.is_skinned()
+                && surface.animation.is_none()
                 && surface.arrays.triangle_count() > 0
         })
         .map(|(index, surface)| (index, surface.arrays.triangle_count()))
@@ -370,7 +371,7 @@ pub fn instancing_candidates(surfaces: &[LoadedSurface]) -> (Vec<InstanceGroup>,
             remainder.push(index);
             continue;
         };
-        if surface.arrays.is_skinned() {
+        if surface.arrays.is_skinned() || surface.animation.is_some() {
             remainder.push(index);
             continue;
         }
@@ -430,6 +431,7 @@ mod tests {
             ..MeshData::default()
         };
         LoadedSurface {
+            animation: None,
             reference: GlobalFormId {
                 file: 0,
                 object: offset as u32,
@@ -453,6 +455,7 @@ mod tests {
             ..MeshData::default()
         };
         LoadedSurface {
+            animation: None,
             reference: GlobalFormId {
                 file: 0,
                 object: offset as u32,

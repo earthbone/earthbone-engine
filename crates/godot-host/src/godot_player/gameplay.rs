@@ -779,7 +779,13 @@ impl PlayerNode {
             self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
         }
         if activated {
-            self.open_swing_door(target);
+            let animated = self
+                .game_streamer
+                .as_mut()
+                .is_some_and(|streamer| streamer.bind_mut().activate_object_animation(target));
+            if !animated {
+                self.open_swing_door(target);
+            }
         }
         activated
     }

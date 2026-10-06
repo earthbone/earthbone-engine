@@ -213,6 +213,15 @@ pub(crate) fn read_point3_interpolator(s: &mut Stream<'_>) -> Result<Point3Inter
 /// `delta` runs. `CYCLE_CLAMP` holds the edge pose rather than resetting,
 /// answering the task's open question on clamp semantics.
 pub fn evaluate_time(time: &TimeController, game_time: f32) -> f32 {
+    let value = map_time(time, game_time);
+    if time.flags.play_backwards {
+        time.stop_time - (value - time.start_time)
+    } else {
+        value
+    }
+}
+
+fn map_time(time: &TimeController, game_time: f32) -> f32 {
     let t = time.frequency * game_time + time.phase;
     let start = time.start_time;
     let stop = time.stop_time;
@@ -677,19 +686,58 @@ pub(crate) fn evaluate_track<T: Numeric>(group: &KeyGroup<T>, t: f32) -> Option<
                 a.value
             }
         }
-        Interpolation::Linear | Interpolation::Quadratic | Interpolation::Tbc => {
-            // TCB tangent generation is not implemented (see `Key::tbc`'s
-            // doc): a Tbc track interpolates linearly between keys rather
-            // than through the Kochanek-Bartels spline. TBC keys are a
-            // legacy 3ds Max/Blender feature, rare on Skyrim SE statics.
-            if group.interpolation == Interpolation::Quadratic {
-                hermite(a, b, frac)
-            } else {
-                a.value.add(b.value.sub(a.value).scale(frac))
-            }
+        Interpolation::Quadratic => hermite(a, b, frac),
+        Interpolation::Tbc => {
+            let mut a = *a;
+            let mut b = *b;
+            a.out_tan = tbc_tangent(&group.keys, i, true);
+            b.in_tan = tbc_tangent(&group.keys, j, false);
+            hermite(&a, &b, frac)
         }
-        Interpolation::XyzRotation => a.value.add(b.value.sub(a.value).scale(frac)),
+        Interpolation::Linear | Interpolation::XyzRotation => {
+            a.value.add(b.value.sub(a.value).scale(frac))
+        }
     })
+}
+
+fn tbc_tangent<T: Numeric>(keys: &[Key<T>], index: usize, outgoing: bool) -> T {
+    let key = keys[index];
+    let t = 1.0 - key.tbc.tension;
+    let c = key.tbc.continuity;
+    let b = key.tbc.bias;
+    let (left, right) = if outgoing {
+        (t * (1.0 + c) * (1.0 + b), t * (1.0 - c) * (1.0 - b))
+    } else {
+        (t * (1.0 - c) * (1.0 + b), t * (1.0 + c) * (1.0 - b))
+    };
+    if index == 0 {
+        return keys[1]
+            .value
+            .sub(key.value)
+            .scale(f32::midpoint(left, right));
+    }
+    if index + 1 == keys.len() {
+        return key
+            .value
+            .sub(keys[index - 1].value)
+            .scale(f32::midpoint(left, right));
+    }
+    let previous = keys[index - 1];
+    let next = keys[index + 1];
+    let span = next.time - previous.time;
+    if span <= 0.0 {
+        return T::default();
+    }
+    let weight = if outgoing {
+        next.time - key.time
+    } else {
+        key.time - previous.time
+    } / span;
+    key.value
+        .sub(previous.value)
+        .scale(left)
+        .add(next.value.sub(key.value).scale(right))
+        .scale(weight)
 }
 
 /// Evaluate a quaternion key track. Always slerps between the bracketing

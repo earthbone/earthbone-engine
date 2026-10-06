@@ -20,6 +20,7 @@ fn rnd_07_skinned_actor_geometry_is_not_used_as_a_static_occluder() {
         ..MeshData::default()
     };
     let surface = LoadedSurface {
+        animation: None,
         reference: GlobalFormId { file: 0, object: 1 },
         arrays: build_surface(&data, MeshOptions::default()).unwrap(),
         textures: SurfaceTextures::default(),
