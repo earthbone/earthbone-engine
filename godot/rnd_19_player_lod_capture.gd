@@ -35,7 +35,9 @@ func _lod_contract(player: Node3D, streamer: Node3D, radius: int) -> void:
 			for id in near:
 				if cells.has(id):
 					var coord: Vector2i = cells[id]
-					_check(not (coord.x >= origin.x and coord.x < origin.x + span and coord.y >= origin.y and coord.y < origin.y + span), kind + " double draws full cell " + id)
+					if kind == "object":
+						_check(not (coord.x >= origin.x and coord.x < origin.x + span and coord.y >= origin.y and coord.y < origin.y + span), kind + " double draws full cell " + id)
+	_check(not String(streamer.call("terrain_lod_stats").get("covered_cells", "")).is_empty(), "terrain handoff has no loaded cell mask")
 
 func _move(player: Node3D, reference: Dictionary, offset: Vector3) -> void:
 	_check(player.call("queue_player_input", {"action": "move_to", "file": reference.file, "object": reference.object, "offset": offset, "match_rotation": false}), "queue player movement")

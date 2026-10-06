@@ -2,8 +2,8 @@ extends SceneTree
 
 ## RND-10 live renderer check. It streams a full-resolution exterior cell,
 ## then real BTR terrain and BTO object LOD around that block's focus. Each
-## path must create RenderingServer instances, and every resident LOD block
-## must be spatially disjoint from the streamed near cells.
+## path must create RenderingServer instances. Terrain masks loaded LAND
+## cells and object blocks remain disjoint from the streamed near cells.
 
 var failures := 0
 
@@ -81,8 +81,8 @@ func _run() -> void:
 	var terrain: Dictionary = streamer.call("terrain_lod_stats")
 	_check(terrain_count > 0, "no real terrain LOD block became resident")
 	_check(int(terrain.get("instances", 0)) > 0, "terrain LOD created no RenderingServer instances")
-	_check(_blocks_are_disjoint(String(terrain.get("blocks", "")), near_cells),
-		"a terrain LOD block covers a full-resolution cell, so both levels would draw it")
+	_check(not String(terrain.get("covered_cells", "")).is_empty(),
+		"terrain handoff has no loaded LAND mask")
 
 	var object_count: int = streamer.call("stream_object_lod", world, focus.x, focus.y, 2, 16, 0)
 	var objects: Dictionary = streamer.call("object_lod_stats")

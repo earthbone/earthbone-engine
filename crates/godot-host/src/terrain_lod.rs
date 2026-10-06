@@ -324,6 +324,7 @@ pub struct TerrainLodStreamer {
     held_back: HashSet<LodBlockCoord>,
     /// The focus of the last `update`, which decides when `held_back` clears.
     last_focus: Option<CellCoord>,
+    cell_handoff: bool,
 }
 
 impl TerrainLodStreamer {
@@ -345,7 +346,15 @@ impl TerrainLodStreamer {
             absent: HashSet::new(),
             held_back: HashSet::new(),
             last_focus: None,
+            cell_handoff: false,
         })
+    }
+
+    /// Keep blocks touching near cells for a renderer that masks individual cells.
+    /// Object LOD retains the default whole-block exclusion.
+    pub fn with_cell_handoff(mut self) -> Self {
+        self.cell_handoff = true;
+        self
     }
 
     pub fn config(&self) -> &TerrainLodConfig {
@@ -430,7 +439,7 @@ impl TerrainLodStreamer {
             for x in (low.x..=high.x).step_by(span as usize) {
                 let block = LodBlockCoord { level, x, y };
                 let d = block.ring_distance(focus);
-                if d > self.config.full_res_radius
+                if (self.cell_handoff || d > self.config.full_res_radius)
                     && d <= r
                     && !self.resident.contains_key(&block)
                     && !self.absent.contains(&block)
@@ -451,7 +460,7 @@ impl TerrainLodStreamer {
             .copied()
             .filter(|b| {
                 let d = b.ring_distance(focus);
-                d > r || d <= self.config.full_res_radius
+                d > r || (!self.cell_handoff && d <= self.config.full_res_radius)
             })
             .collect();
         stale.sort_by_key(|b| (std::cmp::Reverse(b.ring_distance(focus)), b.x, b.y));

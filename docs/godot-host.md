@@ -1186,8 +1186,8 @@ placed-reference identities.
 block coordinates in the `blocks` field as space-separated
 `level:x:y` entries, alongside drawn instance and triangle counts. The live
 RND-10 renderer check streams a radius-2 exterior area and real BTR and BTO
-blocks in the same scenario, then checks that the LOD block squares do not
-cover any coordinate in that near area. This exercises the handoff through
+blocks in the same scenario, then checks terrain's loaded-cell mask and that
+object LOD block squares do not cover any coordinate in that near area. This exercises the handoff through
 `RenderingServer` instances without treating BTO surfaces as individual
 placed references.
 
@@ -1203,11 +1203,12 @@ The default LOD radius is 16 cells. The exported full-resolution exclusion
 radius is clamped to at least the near streamer's two-cell unload radius,
 covering cells retained by hysteresis. Both radii and an approximate byte
 budget per LOD stream are exported on the player. Each player update advances
-both LOD streams at the current cell coordinate. Blocks overlapping the
-full-resolution exclusion are released immediately, ahead of near uploads,
+both LOD streams at the current cell coordinate. Object blocks overlapping
+the full-resolution exclusion are released immediately, ahead of near uploads,
 while distant releases retain their per-update quota. A worldspace change
 starts both streams for the destination world, and leaving exterior gameplay
-clears both streams. Residency and handoff operate on whole BTR and BTO blocks.
+clears both streams. Residency operates on whole BTR and BTO blocks. Terrain
+handoff masks individual loaded LAND cells within resident BTR blocks.
 `set_terrain_lod_visible` toggles resident terrain instances without changing
 near geometry or object LOD, for capture comparisons. The gate diagnostic
 returns both ends of its teleport link, allowing the check to move from
@@ -1219,11 +1220,57 @@ the same frozen view with terrain LOD hidden and visible, requiring at least
 500 terrain-contributed pixels in the middle third of the image. Captures go
 to `godot/.godot/rnd-19-whiterun-exterior-lod.png` and its `-no-terrain.png`
 control. It crosses into Tamriel, checks a configured 12-cell LOD radius,
-moves six cells, verifies resident LOD blocks change without overlapping
-retained full cells, and returns to the interior to verify both streams clear.
+moves six cells, verifies resident blocks change and terrain retains a
+loaded-cell mask while object blocks exclude retained full cells, and returns to the interior to verify both streams clear.
 The Rust `rnd_19_` tests run this installed-data capture, survey WRLD flags,
 and exercise independent land/LOD inheritance, nested parents, invalid
 parents, focus movement, radius validation and immediate near handoff.
+
+## Loaded terrain and LOD join, RND-29
+
+Terrain LOD retains BTR blocks touching the near grid. Its coverage follows
+LAND surfaces actually uploaded, including hysteresis-retained cells. Pending
+cells keep their LOD coverage. `terrain_lod_join::join_surface` clips archived
+triangles to cell squares and omits loaded LAND squares. It subdivides exposed
+edges at the loaded 33 by 33 sample spacing and matches their heights, retaining
+BTR texture coordinates, colors, tangents and material. The triangle fan's
+centre keeps its BTR height. Distant blocks outside the near boundary retain
+their original geometry. Changed LAND coverage rebuilds only touching blocks
+and their neighbours from retained source surfaces. Departed cells regain LOD
+coverage in the same cell-delta application. The recorded byte budget includes
+retained source arrays and joined upload arrays, and releases distant blocks
+when their combined cost exceeds the cap. Bulk geometry uses server RIDs.
+
+`terrain_lod_stats.covered_cells` lists masked coordinates as `x:y` entries.
+`set_terrain_lod_debug_color` gives resident LOD a flat magenta override for
+capture checks. `set_terrain_lod_visible` retains its existing visibility toggle.
+
+Distant water is built as cell-sized planes at the same resolved XCLW or
+inherited DNAM height as loaded water. CELL and WRLD No LOD Water flags omit
+planes. WRLD NAM3 selects the distant material when it resolves. The renderer
+masks these planes inside loaded LAND cells without moving their water heights
+to LAND edge heights. It does not use one uniform NAM4 plane across cells with
+different recorded water heights.
+
+The layout source is xEdit `Core/wbLOD.pas`, `BlockForCell` and `LoadFromData`,
+and `Core/wbDefinitionsTES5.pas`, CELL and WRLD water fields and flags.
+`Core/wbDefinitionsCommon.pas` defines NAM3 and NAM4. OpenMW's
+`components/terrain/buffercache.cpp` connects different edge resolutions with
+triangle fans. Its regular-grid index buffers do not fit archived irregular
+BTR triangles, so the host clips those triangles before joining their edges.
+
+`rnd_29_terrain_join` tests cell coverage, all four height seams, unload
+restoration, preserved attributes, pending cells, water heights and malformed
+inputs. Synthetic records cover inherited water heights and both No LOD Water
+flags. The installed-data survey reads cell water heights around Whiterun and
+the western coast. `rnd_29_terrain_join_capture` runs a windowed plains view
+with an orthographic camera and a magenta coverage control. It requires zero
+LOD pixels inside loaded cells, zero background pixels in the five-cell
+boundary area, and at least 1000 LOD pixels outside. Clearing the near grid
+must restore at least 1000 LOD pixels inside its former coverage. A second
+normal view stands 1.7 metres above the installed LAND centre sample and looks
+south across the plains. Captures and logs are written under
+`godot/.godot/rnd-29-*`.
 
 ## Mesh
 
