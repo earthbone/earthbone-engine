@@ -46,6 +46,7 @@ pub mod harness;
 pub mod inventory;
 pub mod lockpicking;
 pub mod magic_profile;
+pub mod loot;
 pub mod mcm;
 pub mod moddata;
 pub mod music;

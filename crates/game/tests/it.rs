@@ -20,6 +20,10 @@ mod aud_11_breaker_adversarial;
 
 #[path = "cmb_39_breaker_adversarial.rs"]
 mod cmb_39_breaker_adversarial;
+#[path = "sav_13_adversarial.rs"]
+mod sav_13_adversarial;
+#[path = "sav_13_breaker_adversarial.rs"]
+mod sav_13_breaker_adversarial;
 #[path = "sav_71_breaker_adversarial.rs"]
 mod sav_71_breaker_adversarial;
 #[path = "sav_71_reset.rs"]
@@ -464,6 +468,10 @@ mod cmb_06_sneak_attack;
 mod cmb_08_adversarial;
 #[path = "cmb_08_projectiles.rs"]
 mod cmb_08_projectiles;
+#[path = "cmb_09_breaker2_adversarial.rs"]
+mod cmb_09_breaker2_adversarial;
+#[path = "cmb_09_breaker_adversarial.rs"]
+mod cmb_09_breaker_adversarial;
 #[path = "cmb_09_perk_hit_damage.rs"]
 mod cmb_09_perk_hit_damage;
 #[path = "cmb_10_quality.rs"]
@@ -1759,6 +1767,10 @@ mod ui_15_gift_menu;
 mod ui_17_adversarial;
 #[path = "ui_25_initial_inventory.rs"]
 mod ui_25_initial_inventory;
+#[path = "ui_26_adversarial.rs"]
+mod ui_26_adversarial;
+#[path = "ui_26_breaker_adversarial.rs"]
+mod ui_26_breaker_adversarial;
 #[path = "vanilla_save.rs"]
 mod vanilla_save;
 #[path = "visual_effects.rs"]

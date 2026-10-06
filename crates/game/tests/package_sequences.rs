@@ -158,9 +158,14 @@ fn sav_13_engine_save_resumes_saved_sequence_procedure_without_restart() {
     let mut restored = Game::new(order(tree, 0));
     restored.load_state(&bytes).unwrap();
     assert_eq!(
+        restored.world().actor_ref(id(ACTOR)).unwrap().ai.package,
+        Some(id(PACK)),
+        "engine save retains the actor's running package"
+    );
+    assert_eq!(
         restored.world().actor_ref(id(ACTOR)).unwrap().ai.tree,
         saved_cursor,
-        "engine save retains the active procedure branch"
+        "engine save retains the active procedure branch instead of reevaluating the tree"
     );
 
     original.tick(0.1);
