@@ -172,18 +172,18 @@ fn opaque_projectile_bytes_are_refused(type_field: u8, expected: &str) {
 
 #[test]
 fn sav_19_opaque_grenade_projectile_payload_is_not_silently_discarded() {
-    // UESP/FallrimTools type 3 is PGRE; xEdit declares no decoded PGRE payload.
+    // UESP/FallrimTools type 3 is PGRE. xEdit declares no decoded PGRE payload.
     opaque_projectile_bytes_are_refused(3, "PGRE");
 }
 
 #[test]
 fn sav_19_opaque_hazard_payload_is_not_silently_discarded() {
-    // UESP/FallrimTools type 40 is PHZD; xEdit declares no decoded PHZD payload.
+    // UESP/FallrimTools type 40 is PHZD. xEdit declares no decoded PHZD payload.
     opaque_projectile_bytes_are_refused(40, "PHZD");
 }
 
 #[test]
 fn sav_19_opaque_arrow_payload_is_not_silently_discarded() {
-    // UESP/FallrimTools type 47 is PARW; xEdit declares no decoded PARW payload.
+    // UESP/FallrimTools type 47 is PARW. xEdit declares no decoded PARW payload.
     opaque_projectile_bytes_are_refused(47, "PARW");
 }
