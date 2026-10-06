@@ -175,9 +175,6 @@ impl World {
                 .into_iter()
                 .filter_map(|(equipped, equipped_armor)| {
                     (equipped != item
-                        && !self.actor_ref(actor).is_some_and(|state| {
-                            state.prevent_equipment_removal.contains(&equipped)
-                        })
                         && equipped_armor.is_some_and(|equipped_armor| {
                             armor.slots & equipped_armor.slots & SUPPORTED_ARMOR_SLOTS != 0
                         }))

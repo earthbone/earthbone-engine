@@ -46,7 +46,11 @@ fn scr_74_default_arguments_allow_removal_and_show_equip_message() {
     let armor = obj(&mut game, "WarmArmor");
 
     call(&mut game, &player, "EquipItem", &[armor]);
-    assert!(game.world().notifications.iter().any(|text| text.contains("WarmArmor")));
+    assert!(game
+        .world()
+        .notifications
+        .iter()
+        .any(|text| text.contains("WarmArmor")));
     let armor = obj(&mut game, "WarmArmor");
     call(&mut game, &player, "UnequipItem", &[armor]);
 
