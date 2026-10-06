@@ -3,6 +3,7 @@ extends SceneTree
 ## Installed-data capture check for RND-21. Brightness bounds are fixed before
 ## the first capture: average linear luminance 0.02 to 0.65, fewer than one
 ## percent fully clipped pixels.
+const RecordSky := preload("res://record_sky.gd")
 const Warmup := preload("res://render_warmup.gd")
 const MIN_AVERAGE := 0.02
 const MAX_AVERAGE := 0.65
@@ -45,10 +46,18 @@ func _start() -> void:
 		printerr("RND-21 Bannered Mare has no resolved cell lighting")
 		quit(1)
 		return
-	_apply_lighting(scene, lighting)
+	var sky := RecordSky.new()
+	scene.add_child(sky)
+	sky.set_process(false)
+	if not sky.use_streamer(streamer, "WhiterunBanneredMare") or sky.sun.visible:
+		printerr("RND-21 interior controller failed or added a weather sun")
+		quit(1)
+		return
 	player = ClassDB.instantiate("PlayerNode")
+	player.set("auto_step", false)
+	player.set("capture_mouse", false)
 	scene.add_child(player)
-	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) <= 0:
+	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", "WhiterunBanneredMare", -125.0, -800.0, 120.0) <= 0:
 		printerr("RND-21 could not enter the Bannered Mare")
 		quit(1)
 		return
@@ -62,55 +71,12 @@ func _start() -> void:
 	loaded = true
 
 
-func _apply_lighting(scene: Node3D, values: Dictionary) -> void:
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.05, 0.05, 0.07)
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = values["ambient"]
-	environment.ambient_light_energy = 1.0
-	environment.fog_enabled = values["fog_far"] > values["fog_near"]
-	environment.fog_light_color = values["fog_near_color"]
-	environment.fog_depth_begin = maxf(values["fog_near"], 0.0)
-	var fog_end: float = values["fog_far"]
-	if values["fog_clip_distance"] > 0.0:
-		fog_end = minf(fog_end, values["fog_clip_distance"])
-	environment.fog_depth_end = maxf(fog_end, environment.fog_depth_begin + 0.01)
-	environment.fog_density = clampf(values["fog_power"] * values["fog_max"], 0.0, 1.0)
-	var world := WorldEnvironment.new()
-	world.environment = environment
-	scene.add_child(world)
-	var light := DirectionalLight3D.new()
-	light.name = "CellDirectionalAmbient"
-	light.light_color = values["directional"]
-	light.light_energy = clampf(values["directional_fade"], 0.0, 1.0)
-	light.rotation = Vector3(deg_to_rad(values["rotation_xy"]), 0.0, deg_to_rad(values["rotation_z"]))
-	light.distance_fade_enabled = values["light_fade_end"] > values["light_fade_begin"]
-	light.distance_fade_begin = values["light_fade_begin"]
-	light.distance_fade_length = maxf(values["light_fade_end"] - values["light_fade_begin"], 0.0)
-	light.shadow_enabled = false
-	scene.add_child(light)
-	var rotations := [
-		Vector3(0.0, -PI / 2.0, 0.0), Vector3(0.0, PI / 2.0, 0.0),
-		Vector3(PI / 2.0, 0.0, 0.0), Vector3(-PI / 2.0, 0.0, 0.0),
-		Vector3(0.0, PI, 0.0), Vector3.ZERO,
-	]
-	var ambient_directions: Array = values["ambient_directions"]
-	for index in ambient_directions.size():
-		var ambient := DirectionalLight3D.new()
-		ambient.name = "CellAmbientDirection%d" % index
-		ambient.light_color = ambient_directions[index]
-		ambient.light_energy = 1.0 / 6.0
-		ambient.shadow_enabled = false
-		ambient.rotation = rotations[index]
-		scene.add_child(ambient)
-
-
 func _process(_delta: float) -> bool:
 	if not loaded:
 		return false
 	frames += 1
-	if frames < 120:
+	player.set("auto_step", false)
+	if frames < 8:
 		return false
 	var image := get_root().get_texture().get_image()
 	var capture := ProjectSettings.globalize_path(CAPTURE)
@@ -130,7 +96,6 @@ func _process(_delta: float) -> bool:
 	var average := luminance_sum / float(total)
 	var clipped_ratio := float(clipped) / float(total)
 	print("RND-21 average_linear_luminance=%.4f clipped_pixel_ratio=%.5f" % [average, clipped_ratio])
-	DirAccess.remove_absolute(capture)
 	var ok := average >= MIN_AVERAGE and average <= MAX_AVERAGE and clipped_ratio < MAX_CLIPPED_RATIO
 	quit(0 if ok else 1)
 	return false

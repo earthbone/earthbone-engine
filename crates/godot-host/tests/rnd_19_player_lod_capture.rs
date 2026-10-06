@@ -26,7 +26,7 @@ fn rnd_19_player_exterior_lod_tracks_gameplay_and_captures_distant_terrain() {
         extension.display()
     );
 
-    let capture = workspace.join("docs/images/rnd-19-whiterun-exterior-lod.png");
+    let capture = project.join(".godot/rnd-19-whiterun-exterior-lod.png");
     let script = project.join("rnd_19_player_lod_capture.gd");
     let output = Command::new(godot)
         .args(["--path"])
@@ -39,15 +39,28 @@ fn rnd_19_player_exterior_lod_tracks_gameplay_and_captures_distant_terrain() {
         .expect("Godot process starts");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let log = project.join(".godot/rnd-19-player-lod.log");
+    std::fs::write(&log, format!("{stdout}\n{stderr}")).expect("capture log writes");
+    let diagnostics = stderr
+        .lines()
+        .filter(|line| line.starts_with("FAIL:") || line.starts_with("SCRIPT ERROR:"))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
         output.status.success()
             && stdout.contains("RESULT: PASS: PlayerNode streams terrain LOD around Whiterun"),
-        "Godot RND-19 capture failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        "Godot RND-19 capture failed, full log at {}\n{diagnostics}",
+        log.display()
     );
     assert!(
         capture.is_file(),
         "Godot did not save {}",
         capture.display()
     );
-    println!("{stdout}");
+    for line in stdout
+        .lines()
+        .filter(|line| line.starts_with("RND-19") || line.starts_with("RESULT:"))
+    {
+        println!("{line}");
+    }
 }

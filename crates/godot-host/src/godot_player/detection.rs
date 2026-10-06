@@ -11,7 +11,7 @@ use soe_game::detection::Motion;
 use soe_physics::PhysicsWorld;
 
 use super::PlayerNode;
-use crate::godot_combat::{first_contact, ContactHit};
+use crate::godot_combat::{ContactHit, ContactRays};
 use crate::units::SkyrimPos;
 
 #[godot_api(secondary)]
@@ -184,13 +184,37 @@ impl PlayerNode {
     /// Queue a sound from an actor reference for the next shared detection step.
     #[func]
     pub fn emit_detection_sound(&mut self, file: i32, object: i64, sound_level: i32) -> bool {
-        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+        self.emit_detection_sound_at(file, object, file, object, sound_level)
+    }
+
+    /// Queue an actor-owned sound at another reference, following the CK
+    /// CreateDetectionEvent source and owner contract for host checks.
+    #[func]
+    pub fn emit_detection_sound_at(
+        &mut self,
+        source_file: i32,
+        source_object: i64,
+        owner_file: i32,
+        owner_object: i64,
+        sound_level: i32,
+    ) -> bool {
+        let (Ok(source_file), Ok(source_object)) =
+            (u16::try_from(source_file), u32::try_from(source_object))
+        else {
             return false;
+        };
+        let (Ok(file), Ok(object)) = (u16::try_from(owner_file), u32::try_from(owner_object))
+        else {
+            return false;
+        };
+        let source = GlobalFormId {
+            file: source_file,
+            object: source_object,
         };
         let owner = GlobalFormId { file, object };
         self.game.as_mut().is_some_and(|game| {
             game.world_mut()
-                .create_detection_event(owner, owner, sound_level)
+                .create_detection_event(source, owner, sound_level)
         })
     }
 
@@ -220,9 +244,10 @@ impl PlayerNode {
                     continue;
                 };
                 let position = reference.position;
-                let Some(far_cell) = far
-                    .and_then(|far| world.reference(far))
-                    .and_then(|reference| reference.cell)
+                let Some(far) = far else {
+                    continue;
+                };
+                let Some(far_cell) = world.reference(far).and_then(|reference| reference.cell)
                 else {
                     continue;
                 };
@@ -239,6 +264,8 @@ impl PlayerNode {
                 }
                 row.set("file", i64::from(id.file));
                 row.set("object", i64::from(id.object));
+                row.set("far_file", i64::from(far.file));
+                row.set("far_object", i64::from(far.object));
                 row.set(
                     "position",
                     Vector3::new(position[0], position[1], position[2]),
@@ -268,6 +295,13 @@ impl PlayerNode {
         self.detection_time_usec
     }
 
+    /// Last update's body sync, light construction, observation and evaluation
+    /// costs in microseconds, for the PRF-31 stage measurement.
+    #[func]
+    pub fn detection_stage_times(&self) -> PackedInt64Array {
+        PackedInt64Array::from(self.detection_stage_usec.as_slice())
+    }
+
     pub(super) fn advance_detection(&mut self, elapsed: f64, player_motion: Motion) -> i64 {
         let started = std::time::Instant::now();
         let result = self.advance_detection_step(elapsed, player_motion);
@@ -280,61 +314,70 @@ impl PlayerNode {
         if !elapsed.is_finite() || elapsed < 0.0 {
             return -1;
         }
-        let Some(mut actors) = self.sync_actor_bodies_and_contacts() else {
-            return -1;
-        };
-        let Some(space) = self.base().get_world_3d().map(|world| world.get_space()) else {
-            return -1;
-        };
         let Some(game) = &mut self.game else {
             return -1;
         };
         let player = game.player();
-        actors.retain(|actor| {
-            game.world_mut()
-                .actor(actor.actor)
-                .is_some_and(|state| !state.dead)
-        });
-        let mut motions = BTreeMap::new();
-        motions.insert(player, player_motion);
-        let pending_events = game.world_mut().take_detection_events();
-        let events = pending_events
-            .into_iter()
-            .filter(|event| {
-                game.world_mut()
-                    .actor(event.owner)
-                    .is_some_and(|state| !state.dead)
-            })
-            .collect::<Vec<_>>();
-        let owners = [&self.melee_bodies, self.actor_bodies.owners()];
-        let world = game.world();
-        let range = match world.detection_settings() {
+        let range = match game.world().detection_settings() {
             Ok(settings) => settings.max_distance,
             Err(error) => {
                 godot_error!("PlayerNode detection: {error}");
                 return -1;
             }
         };
+        let mut shared = game.world_mut();
+        let events = shared
+            .take_detection_events()
+            .into_iter()
+            .filter(|event| {
+                shared
+                    .actor_ref(event.owner)
+                    .is_none_or(|state| !state.dead)
+            })
+            .collect::<Vec<_>>();
+        drop(shared);
+        let started = std::time::Instant::now();
+        let mut spaces = None;
+        let Some(actors) = self.sync_actor_bodies_and_contacts_with(|world, mut actors| {
+            actors.retain(|actor| world.actor_ref(actor.actor).is_none_or(|state| !state.dead));
+            let frame = crate::detection::DetectionSpaces::new(world, &actors, &events, range);
+            let candidates = frame.candidate_actors(actors, &events);
+            spaces = Some(frame);
+            candidates
+        }) else {
+            return -1;
+        };
+        self.detection_stage_usec[0] = started.elapsed().as_micros() as i64;
+        let Some(spaces) = spaces else { return -1 };
+        let Some(space) = self.base().get_world_3d().map(|world| world.get_space()) else {
+            return -1;
+        };
+        let Some(game) = &mut self.game else {
+            return -1;
+        };
+        let mut motions = BTreeMap::new();
+        motions.insert(player, player_motion);
+        let owners = [&self.melee_bodies, self.actor_bodies.owners()];
+        let world = game.world();
         let cells = actors.iter().map(|actor| actor.cell).collect::<Vec<_>>();
+        let started = std::time::Instant::now();
         let lights = crate::detection::LightSamples::new(&world, &cells);
-        let observations = crate::detection::observations_in_range(
+        self.detection_stage_usec[1] = started.elapsed().as_micros() as i64;
+        let started = std::time::Instant::now();
+        let Ok(mut rays) = ContactRays::new(space, &owners) else {
+            return -1;
+        };
+        let observations = spaces.observations(
             &actors,
             &events,
             &motions,
-            range,
             |observer, target| {
                 let position = |actor: &soe_game::world::ContactActor| {
                     let p = actor.position;
                     let eye = SkyrimPos::new(p[0], p[1], p[2] + 100.0 * actor.scale).to_godot();
                     Vector3::new(eye.x, eye.y, eye.z)
                 };
-                match first_contact(
-                    space,
-                    &owners,
-                    observer.actor,
-                    position(observer),
-                    position(target),
-                ) {
+                match rays.first_contact(observer.actor, position(observer), position(target)) {
                     Ok(ContactHit::Empty) => true,
                     Ok(ContactHit::Actor(id)) => id == target.actor,
                     _ => false,
@@ -342,9 +385,11 @@ impl PlayerNode {
             },
             |cell, point| lights.level(cell, point),
         );
+        self.detection_stage_usec[2] = started.elapsed().as_micros() as i64;
         drop(world);
         let observation_count = observations.len() as i64;
-        if let Err(error) = game
+        let started = std::time::Instant::now();
+        let result = if let Err(error) = game
             .world_mut()
             .evaluate_detection(&observations, elapsed as f32)
         {
@@ -352,6 +397,8 @@ impl PlayerNode {
             -1
         } else {
             observation_count
-        }
+        };
+        self.detection_stage_usec[3] = started.elapsed().as_micros() as i64;
+        result
     }
 }

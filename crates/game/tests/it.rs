@@ -7,6 +7,9 @@
 mod common;
 mod support;
 
+#[path = "aud_11_breaker_adversarial.rs"]
+mod aud_11_breaker_adversarial;
+
 #[path = "cmb_39_breaker_adversarial.rs"]
 mod cmb_39_breaker_adversarial;
 #[path = "sav_71_breaker_adversarial.rs"]
@@ -1776,3 +1779,9 @@ mod prf_13_entities;
 mod prf_22_adversarial;
 #[path = "prf_22_sessions.rs"]
 mod prf_22_sessions;
+
+#[path = "aud_11_audio.rs"]
+mod aud_11_audio;
+
+#[path = "aud_11_adversarial.rs"]
+mod aud_11_adversarial;

@@ -93,7 +93,8 @@ impl PlayerNode {
             source,
             streamer,
             coord,
-            self.exterior_lod_full_res_radius,
+            self.exterior_lod_full_res_radius
+                .max(config().unload_radius),
             self.exterior_lod_radius,
             self.exterior_lod_byte_budget,
         ) {
