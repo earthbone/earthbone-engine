@@ -79,9 +79,11 @@ soe-physics = { path = "../physics" }
 soe-profile = { path = "../profile" }
 soe-trace = { path = "../trace" }
 soe-swf-convert = { path = "../swf-convert" }
+serde_json = "1"
+sha2 = "0.10"
+swf = "0.3"
 rayon = "1.12"
 soe-editor = { path = "../editor" }
 
 [dev-dependencies]
 tempfile = "3"
-serde_json = "1"

@@ -2686,6 +2686,7 @@ dependencies = [
  "godot",
  "rayon",
  "serde_json",
+ "sha2",
  "soe-audio",
  "soe-bsa",
  "soe-dds",
@@ -2700,6 +2701,7 @@ dependencies = [
  "soe-save",
  "soe-swf-convert",
  "soe-trace",
+ "swf",
  "tempfile",
  "thiserror 2.0.20",
 ]

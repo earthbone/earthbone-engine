@@ -1,0 +1,171 @@
+{
+  "version": "2.4.1",
+  "extracted": "2026-10-06",
+  "elements": {
+    "icons_category_psychosteve/shape-2.tres": {
+      "bounds": [
+        1.95,
+        1.55,
+        124.5,
+        118.65
+      ],
+      "character": 2,
+      "sha256": "464ade9c044a8c3792e446106bf35100da38279c058a32c43b06951ada37e7a4",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-4.tres": {
+      "bounds": [
+        0.0,
+        0.0,
+        110.95,
+        117.8
+      ],
+      "character": 4,
+      "sha256": "7e7312d360b0fc418e5b73737c409f1b1bec9cd0a58dabddfee56e584ca310de",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-6.tres": {
+      "bounds": [
+        -198.1,
+        29.15,
+        670.75,
+        644.7
+      ],
+      "character": 6,
+      "sha256": "eb8838aa9cbb1968690b096d3c708e2d9b2fbf6c0d815949acb6d1cf32fff822",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-8.tres": {
+      "bounds": [
+        -23.15,
+        21.4,
+        502.55,
+        535.7
+      ],
+      "character": 8,
+      "sha256": "8d9e2d3341ee94c1993635fa61f7c3e56f57a6025de7cd4ffaec7b5597719a6a",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-10.tres": {
+      "bounds": [
+        49.95,
+        32.55,
+        552.2,
+        790.9
+      ],
+      "character": 10,
+      "sha256": "4bf45da2571a4147d3b3617408c176047860fd5e721b7cab4f055390f5050755",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-12.tres": {
+      "bounds": [
+        -102.05,
+        24.8,
+        327.7,
+        594.1
+      ],
+      "character": 12,
+      "sha256": "22f2c17b6dcd500df02ca2354e18bc7922329f38684ffdffe585296d354b2103",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-14.tres": {
+      "bounds": [
+        0.65,
+        20.2,
+        413.15,
+        481.4
+      ],
+      "character": 14,
+      "sha256": "3ab4d97c20ac298d0d27bcfeaa8ba86d3893e025d3a1eef909a91bfb1a48ae32",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-16.tres": {
+      "bounds": [
+        -27.55,
+        22.05,
+        540.25,
+        545.9
+      ],
+      "character": 16,
+      "sha256": "d992a2be4c9c615888eb11babc217ffbcc062dbf029b50e3ccb78c3af405a649",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-18.tres": {
+      "bounds": [
+        0.6,
+        -29.9,
+        516.5,
+        385.7
+      ],
+      "character": 18,
+      "sha256": "6466075a998bf7bf140295a0ffd76890bfdf3a3ef99bd2f23cb0d79d6c455c95",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-20.tres": {
+      "bounds": [
+        0.0,
+        0.0,
+        42.95,
+        118.0
+      ],
+      "character": 20,
+      "sha256": "3e3b5bc3227c39a66e56fbce2cc6118c13198f116941ae71aa5da5d633fda348",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-22.tres": {
+      "bounds": [
+        -2.1,
+        40.7,
+        651.75,
+        571.65
+      ],
+      "character": 22,
+      "sha256": "43ae1c0a9b2a99b9561da20ba9b56f360d58de3a77276a690c1eb9c15f9b8a24",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "icons_category_psychosteve/shape-24.tres": {
+      "bounds": [
+        2.6,
+        -32.05,
+        1097.1,
+        819.35
+      ],
+      "character": 24,
+      "sha256": "4bbb691551a82111ce4afba84485ed98e3d72f03862867713b6b16e80ee0f2f5",
+      "source": "interface/skyui/icons_category_psychosteve.swf"
+    },
+    "inventorylists/shape-17.tres": {
+      "bounds": [
+        0.0,
+        0.0,
+        20.0,
+        20.0
+      ],
+      "character": 17,
+      "sha256": "2d9053138575fdb5d7f6f88637983c6658a8997f25f52ef45de2cd067673e679",
+      "source": "interface/skyui/inventorylists.swf"
+    },
+    "inventorylists/shape-92.tres": {
+      "bounds": [
+        0.0,
+        0.0,
+        562.45,
+        754.4
+      ],
+      "character": 92,
+      "sha256": "840cb4f7cae78d3846e5b4807bb4583edad5714eaa675b796a4d8b927e572ad0",
+      "source": "interface/skyui/inventorylists.swf"
+    },
+    "itemcard/shape-58.tres": {
+      "bounds": [
+        0.0,
+        0.0,
+        427.85,
+        153.4
+      ],
+      "character": 58,
+      "sha256": "25b9df34951129557d388a850b918ca1173306d9e82dedfc184723f5baea1555",
+      "source": "interface/skyui/itemcard.swf"
+    }
+  }
+}

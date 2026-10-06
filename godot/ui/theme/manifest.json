@@ -1,0 +1,20 @@
+{
+  "category_favorites": "res://ui/theme/nordic/icons_category_psychosteve/shape-2.tres",
+  "category_all": "res://ui/theme/nordic/icons_category_psychosteve/shape-4.tres",
+  "default_weapon": "res://ui/theme/nordic/icons_category_psychosteve/shape-6.tres",
+  "default_armor": "res://ui/theme/nordic/icons_category_psychosteve/shape-8.tres",
+  "default_potion": "res://ui/theme/nordic/icons_category_psychosteve/shape-10.tres",
+  "default_scroll": "res://ui/theme/nordic/icons_category_psychosteve/shape-12.tres",
+  "default_food": "res://ui/theme/nordic/icons_category_psychosteve/shape-14.tres",
+  "default_ingredient": "res://ui/theme/nordic/icons_category_psychosteve/shape-16.tres",
+  "default_book": "res://ui/theme/nordic/icons_category_psychosteve/shape-18.tres",
+  "default_key": "res://ui/theme/nordic/icons_category_psychosteve/shape-20.tres",
+  "default_misc": "res://ui/theme/nordic/icons_category_psychosteve/shape-22.tres",
+  "default_spell": "res://ui/theme/nordic/icons_category_psychosteve/shape-24.tres",
+  "marker": "res://ui/theme/nordic/inventorylists/shape-17.tres",
+  "background": "res://ui/theme/nordic/inventorylists/shape-92.tres",
+  "frame": "res://ui/theme/nordic/itemcard/shape-58.tres",
+  "category_gear": "res://ui/theme/icons/battle-gear.svg",
+  "category_aid": "res://ui/theme/icons/potion-ball.svg",
+  "category_magic": "res://ui/theme/icons/magic-swirl.svg"
+}
