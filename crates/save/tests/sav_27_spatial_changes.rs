@@ -46,7 +46,7 @@ fn cell_data(flags: u32, interior: bool) -> Vec<u8> {
 
 #[test]
 fn sav_27_cell_all_source_defined_flag_combinations_round_trip() {
-    let known = [0u8, 1, 2, 3, 31];
+    let known = [0u8, 1, 2, 3, 28, 29, 30, 31];
     for subset in 0..1 << known.len() {
         let flags = known.iter().enumerate().fold(0, |flags, (index, bit)| {
             flags
@@ -172,11 +172,50 @@ fn sav_27_eczn_lctn_flag_combinations_keep_undefined_payload_bytes() {
 }
 
 #[test]
-fn sav_27_cell_unlaid_high_flags_are_rejected() {
-    for flags in [1 << 28, 1 << 29, 1 << 30, 0x6000_0000] {
-        assert!(
-            form(6, flags, vec![0; 8]).cell_change().is_err(),
-            "accepted CELL flags {flags:#010x} without a source-defined layout"
-        );
+fn sav_27_cell_placeholder_flags_retain_typed_markers_and_exact_suffix() {
+    for (flags, short, character, detach) in [
+        (1 << 28, true, false, false),
+        (1 << 29, false, true, false),
+        (1 << 30, false, false, true),
+        (0x6000_0000, false, true, true),
+    ] {
+        let bytes = vec![0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68];
+        let decoded = form(6, flags, bytes.clone())
+            .cell_change()
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded.exterior_short, short);
+        assert_eq!(decoded.exterior_char, character);
+        assert_eq!(decoded.detach_time, detach);
+        assert_eq!(decoded.opaque_suffix, bytes);
+        assert_eq!(decoded.data_bytes(), decoded.opaque_suffix);
+    }
+}
+
+#[test]
+fn sav_27_placeholder_markers_add_no_payload_width() {
+    for (kind, flags, zone, game, keyword, cleared) in [
+        (29, 2, true, false, false, false),
+        (29, 1 << 31, false, true, false, false),
+        (38, 1 << 30, false, false, true, false),
+        (38, 1 << 31, false, false, false, true),
+    ] {
+        let change = if kind == 29 {
+            form(kind, flags, Vec::new())
+                .encounter_zone_change()
+                .unwrap()
+                .unwrap()
+        } else {
+            form(kind, flags, Vec::new())
+                .location_change()
+                .unwrap()
+                .unwrap()
+        };
+        assert_eq!(change.zone_flags_changed, zone);
+        assert_eq!(change.game_data_changed, game);
+        assert_eq!(change.keyword_data_changed, keyword);
+        assert_eq!(change.cleared_changed, cleared);
+        assert!(change.opaque_payload.is_empty());
+        assert!(change.data_bytes().is_empty());
     }
 }
