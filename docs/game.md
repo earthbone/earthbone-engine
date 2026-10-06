@@ -15,14 +15,16 @@ UseItemAt requests have a separate category. Immediate UseMagic branches are
 timed around their actual cast path. Package selection, schedule windows,
 combat target selection, assigned-hand spell and weapon selection, automatic
 and assigned force greets, sandbox marker/furniture searches and steering
-have named timings. Durations are inclusive and can overlap. Per-procedure
+have named timings. Ambient idle chatter topic scans and candidate checks have
+their own phase within automatic greeting evaluation. Durations are inclusive
+and can overlap. Per-procedure
 movement time includes state lookup and procedure-tree entry, sharing the
 existing movement clock pair. Activation and immediate casts have separate
 timings. Driver phase accumulation uses enum slots and publishes the named
 table once per tick. Actor cadence and progress share one metrics lookup.
 Menu and disabled-AI frames clear frame timings and process counts.
-Combat style choice and idle chatter have no executing subsystem and report
-zero with explicit host capability flags.
+Combat style choice has no executing subsystem and reports zero with an
+explicit host capability flag.
 
 Navigation records each new request once. Request-to-ready wall time includes
 waiting between slices. Expanded nodes exclude stale A* heap entries, include

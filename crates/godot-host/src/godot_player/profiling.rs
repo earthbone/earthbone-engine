@@ -210,7 +210,7 @@ impl PlayerNode {
         vdict! {
             "phases" => &phases, "procedures" => &procedures, "levels" => &levels,
             "paths" => &paths, "reactions" => &reactions, "stuck" => &stuck,
-            "capabilities" => &vdict! { "process_scheduler" => false, "combat_style_choice" => false, "idle_chatter" => false },
+            "capabilities" => &vdict! { "process_scheduler" => false, "combat_style_choice" => false, "idle_chatter" => true },
         }
     }
 

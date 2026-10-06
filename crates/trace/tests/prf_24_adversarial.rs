@@ -6,7 +6,10 @@ use soe_trace::{metric_add, metric_set, metric_snapshot, Metric, METRIC_COUNT};
 fn prf_24_metrics_keep_the_report_schema_and_counter_gauge_semantics() {
     let names: Vec<_> = Metric::ALL.iter().map(|metric| metric.name()).collect();
     assert_eq!(names.len(), METRIC_COUNT);
-    assert_eq!(names.iter().collect::<std::collections::HashSet<_>>().len(), METRIC_COUNT);
+    assert_eq!(
+        names.iter().collect::<std::collections::HashSet<_>>().len(),
+        METRIC_COUNT
+    );
     assert_eq!(
         names,
         [

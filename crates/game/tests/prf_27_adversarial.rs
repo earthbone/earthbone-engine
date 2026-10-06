@@ -10,8 +10,7 @@ fn prf_27_process_cadence_mean_excludes_the_first_observation() {
         game.tick(0.1);
     }
 
-    let high = &game.world().ai.metrics.levels
-        [soe_game::ai::metrics::ProcessLevel::High as usize];
+    let high = &game.world().ai.metrics.levels[soe_game::ai::metrics::ProcessLevel::High as usize];
     assert_eq!(high.actors, ids.len() as u64);
     assert_eq!(high.updates, ids.len() as u64);
     assert!(

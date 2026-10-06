@@ -513,13 +513,13 @@ impl PlayerNode {
         if !self.base().is_inside_tree() || self.menu_view.is_none() {
             return false;
         }
+        if !self.menu.open(&title.to_string()) {
+            return false;
+        }
         self.base_mut().emit_signal(
             "transition_requested",
             &[Variant::from("menu_open"), Variant::from(title.clone())],
         );
-        if !self.menu.open(&title.to_string()) {
-            return false;
-        }
         self.container_menu = None;
         self.barter_menu = None;
         self.crafting_bench = None;

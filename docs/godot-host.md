@@ -5,8 +5,9 @@
 `PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
 the four process levels, per-actor navigation counters and recent requests,
 reaction latencies and stuck actor FormIDs. It retains PRF-11 phase names and
-reports microseconds with counts and update intervals. Unavailable combat
-style choice, idle chatter and process scheduling have capability flags.
+reports microseconds with counts and update intervals. Idle chatter topic
+selection has its own measured phase. Unavailable combat style choice and
+process scheduling have capability flags.
 No optional entity capture is required.
 
 F5 opens the existing system overlay's AI view. It displays all procedures and

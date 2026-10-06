@@ -1,3 +1,5 @@
+#![allow(clippy::panic)]
+
 use soe_trace::{
     measure_physics_query, physics_query_stats, reset_physics_queries, PhysicsQueryKind, System,
     SystemScope,

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#![allow(clippy::expect_used)]
+
 use soe_trace::{Span, Trace};
 use std::sync::Mutex;
 

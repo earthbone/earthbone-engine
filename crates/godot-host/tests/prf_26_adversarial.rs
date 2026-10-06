@@ -32,7 +32,11 @@ fn prf_26_failed_and_repeated_requests_are_not_reported_as_transitions() {
         root.join(target)
     };
     let library = target.join("debug/deps/libsoe_godot_host.so");
-    assert!(library.is_file(), "cargo test must build {}", library.display());
+    assert!(
+        library.is_file(),
+        "cargo test must build {}",
+        library.display()
+    );
 
     let project = tempfile::tempdir_in(&root).unwrap();
     std::fs::write(
@@ -83,7 +87,7 @@ func _run() -> void:
 		failures.append("menu return contract changed")
 	if failed_save.get("ok", true):
 		failures.append("save without gameplay unexpectedly succeeded")
-	var expected := ["menu_open.Inventory", "menu_close.Inventory"]
+	var expected := ["menu_open.Inventory", "menu_close.Inventory", "save.native_generation"]
 	if requests != expected:
 		failures.append("transition requests include failed/replaced actions: " + str(requests))
 	print("prf_26_requests=" + str(requests))
@@ -101,7 +105,12 @@ func _run() -> void:
     let output = Command::new(godot)
         .args(["--path"])
         .arg(project.path())
-        .args(["--resolution", "640x360", "--script", "prf_26_adversarial.gd"])
+        .args([
+            "--resolution",
+            "640x360",
+            "--script",
+            "prf_26_adversarial.gd",
+        ])
         .env("XDG_DATA_HOME", project.path())
         .output()
         .unwrap();
