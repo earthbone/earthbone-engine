@@ -70,12 +70,12 @@ impl PlayerNode {
         match key.get_keycode() {
             Key::UP => {
                 if let Some(game) = self.game.as_ref() {
-                    self.quick_loot.scroll(game, -1)
+                    self.quick_loot.scroll(game, -1);
                 }
             }
             Key::DOWN => {
                 if let Some(game) = self.game.as_ref() {
-                    self.quick_loot.scroll(game, 1)
+                    self.quick_loot.scroll(game, 1);
                 }
             }
             Key::E => {
@@ -217,7 +217,7 @@ impl PlayerNode {
         for row in &self.quick_loot.rows {
             names.push(&GString::from(row.name.as_str()));
         }
-        snapshot.set("names", names);
+        snapshot.set("names", &names);
         snapshot
     }
 }

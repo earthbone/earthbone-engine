@@ -63,21 +63,23 @@ fn quick_loot(count: i32) -> (Game, QuickLoot) {
 fn ui_26_take_one_refreshes_after_one_successful_transfer() {
     let (mut game, mut loot) = quick_loot(3);
     assert_eq!(loot.take(&mut game, false), 1);
+    let player = game.player();
     assert_eq!(game.world_mut().item_count(id(CHEST), id(GOLD)), 2);
-    assert_eq!(game.world_mut().item_count(game.player(), id(GOLD)), 1);
+    assert_eq!(game.world_mut().item_count(player, id(GOLD)), 1);
 }
 
 #[test]
 fn ui_26_take_all_moves_every_available_stack_quantity() {
     let (mut game, mut loot) = quick_loot(4);
     assert_eq!(loot.take(&mut game, true), 4);
+    let player = game.player();
     assert_eq!(game.world_mut().item_count(id(CHEST), id(GOLD)), 0);
-    assert_eq!(game.world_mut().item_count(game.player(), id(GOLD)), 4);
+    assert_eq!(game.world_mut().item_count(player, id(GOLD)), 4);
 }
 
 #[test]
 fn ui_26_empty_and_locked_targets_keep_their_distinct_view_states() {
-    let mut game = game(0);
+    let game = game(0);
     assert_eq!(game.world_mut().loot_state(id(CHEST)), LootState::Ready);
     let mut loot = QuickLoot::default();
     loot.refresh(&game, Some(id(CHEST)), false);
@@ -92,7 +94,7 @@ fn ui_26_empty_and_locked_targets_keep_their_distinct_view_states() {
 
 #[test]
 fn ui_26_owned_item_rows_are_flagged_for_stealing() {
-    let (mut game, mut loot) = quick_loot(1);
+    let (game, mut loot) = quick_loot(1);
     game.world_mut().reference(id(CHEST)).unwrap().owner = Some(id(OWNER));
     loot.refresh(&game, Some(id(CHEST)), false);
     assert!(loot.rows[0].stealing);
