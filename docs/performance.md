@@ -72,7 +72,7 @@ timing suspended. The current probe keeps system timing on and entity capture
 off. Fifteen alternating pairs must have equal checksums and a median ratio
 below 1.01. The existing PRF-12 calibration also runs in that test.
 
-Press F4 in the walkthrough to enable entity capture and its rolling rankings.
+Press F5 in the walkthrough to enable entity capture and its rolling rankings.
 Press it again to finish capture and write `user://soe-profile.json` and
 `user://soe-entities.json`. Player exit also writes both reports. F3 continues
 to show system frame timings. Headless Game runs accept `SOE_PROFILE=1` and

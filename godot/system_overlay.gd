@@ -41,7 +41,7 @@ func _ready() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.keycode == KEY_F4 and event.pressed and not event.echo:
+	if event is InputEventKey and event.keycode == KEY_F5 and event.pressed and not event.echo:
 		entities = not entities
 		player.call("set_entity_profiling", entities)
 		panel.visible = true

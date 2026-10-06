@@ -2,9 +2,9 @@
 
 ## Entity host capture, PRF-13
 
-The existing system overlay uses F4 to toggle `soe_trace::Profile`, displaying
+The existing system overlay uses F5 to toggle `soe_trace::Profile`, displaying
 the top five actors, scripts, quests and plugins by self time in the preceding
-second. F3 retains its system view. Switching F4 off or leaving the player
+second. F3 retains its system view. Switching F5 off or leaving the player
 writes `user://soe-profile.json` and `user://soe-entities.json` for Perfetto.
 Headless startup also honors `SOE_PROFILE=1`.
 
@@ -73,8 +73,8 @@ Unscoped allocations use `other`. No saved state or per-reference nodes were
 added. These hooks use the Rust allocator contract and the model timing table
 in local `godotwind/src/core/world/performance_profiler.gd`.
 
-`streaming_diagnostic` supplies the slowest asset for hitch-report consumers.
-The PRF-18 dump consumer is absent from this checkout. The PRF-20 Rust installed
+`streaming_diagnostic` supplies the slowest asset and adds it to the calling
+thread's bounded hitch history for PRF-18 dumps. The PRF-20 Rust installed
 check loads Bannered Mare and WhiterunOrigin and checks preparation categories,
 NAVM handoff, plugin record bodies and texture sums. The headless Godot script
 `prf_20_attribution_test.gd` checks actual host uploads, source reports, sums

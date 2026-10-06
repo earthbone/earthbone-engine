@@ -189,6 +189,11 @@ pub struct NameStats {
 pub struct Trace;
 
 impl Trace {
+    /// Add an instant diagnostic to the calling thread's bounded hitch history.
+    pub fn hitch_note(name: impl Into<String>) {
+        hitch::note(name.into());
+    }
+
     /// Override the calling thread's hitch directory, for host user-data paths.
     pub fn set_hitch_directory(path: &std::path::Path) {
         hitch::set_directory(path);

@@ -2056,7 +2056,11 @@ impl CellStreamerNode {
     pub fn streaming_diagnostic(&self) -> GString {
         let mut text = String::new();
         for (cell, recorder) in &self.load_profiles {
-            text.push_str(&format!("cell {cell}\n{}", recorder.report().diagnostic()));
+            let report = recorder.report();
+            text.push_str(&format!("cell {cell}\n{}", report.diagnostic()));
+            if let Some((asset, _)) = report.slowest_asset() {
+                soe_trace::Trace::hitch_note(format!("streaming_slowest_asset:{asset}"));
+            }
         }
         GString::from(text.as_str())
     }

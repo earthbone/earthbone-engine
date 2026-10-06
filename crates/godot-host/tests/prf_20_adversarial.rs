@@ -29,7 +29,10 @@ fn prf_20_adversarial_nested_captures_restore_after_unwind() {
     assert!(LoadRecorder::current().is_none());
     let outer_report = outer.report();
     let inner_report = inner.report();
-    assert_eq!(outer_report.asset_ns.keys().collect::<Vec<_>>(), [&"meshes/outer.nif"]);
+    assert_eq!(
+        outer_report.asset_ns.keys().collect::<Vec<_>>(),
+        [&"meshes/outer.nif"]
+    );
     assert!(outer_report.stage_ns[LoadStage::CollisionBuild as usize] > 0);
     assert!(inner_report.stage_ns[LoadStage::NifParse as usize] > 0);
     assert_eq!(inner_report.archive_ns.len(), 0);
@@ -87,11 +90,9 @@ fn prf_20_adversarial_allocator_keeps_owner_after_scope_and_thread_transfer() {
 #[test]
 fn prf_20_adversarial_installed_cells_report_every_stage_and_exact_texture_inventory() {
     let data = std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA must be set for PRF-20");
-    let source = soe_godot_host::data_source::DataSource::open_with_threads(
-        std::path::Path::new(&data),
-        1,
-    )
-    .unwrap();
+    let source =
+        soe_godot_host::data_source::DataSource::open_with_threads(std::path::Path::new(&data), 1)
+            .unwrap();
     let game = soe_game::Game::from_shared_order(source.shared_order());
     let plugin_bytes = source.record_memory_by_plugin();
     assert_eq!(plugin_bytes.len(), 5);
@@ -119,20 +120,27 @@ fn prf_20_adversarial_installed_cells_report_every_stage_and_exact_texture_inven
         let report = loaded.stats.profile.report();
         let diagnostic = report.diagnostic();
         for stage in LoadStage::ALL {
-            assert!(diagnostic.contains(stage.name()), "{cell_name}: {}", stage.name());
+            assert!(
+                diagnostic.contains(stage.name()),
+                "{cell_name}: {}",
+                stage.name()
+            );
         }
         assert!(report.archive_ns.values().all(|duration| *duration > 0));
         assert!(report
             .archive_ns
             .keys()
             .any(|name| name.to_ascii_lowercase().ends_with(".bsa")));
-        let expected_slowest = report.asset_ns.iter().max_by(|(a, left), (b, right)| {
-            left.cmp(right).then_with(|| b.cmp(a))
-        });
+        let expected_slowest = report
+            .asset_ns
+            .iter()
+            .max_by(|(a, left), (b, right)| left.cmp(right).then_with(|| b.cmp(a)));
         let actual_slowest = report.slowest_asset().unwrap();
         assert_eq!(
             (actual_slowest.0, actual_slowest.1),
-            expected_slowest.map(|(name, duration)| (name.as_str(), *duration)).unwrap()
+            expected_slowest
+                .map(|(name, duration)| (name.as_str(), *duration))
+                .unwrap()
         );
         assert!(diagnostic.contains(actual_slowest.0));
         assert_eq!(report.texture_bytes, loaded.texture_inventory());

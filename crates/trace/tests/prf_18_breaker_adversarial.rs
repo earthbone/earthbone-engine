@@ -12,13 +12,25 @@ fn prf_18_breaker_a_hitch_in_headless_history_exports_only_after_tail_and_respec
     Trace::set_hitch_threshold(Duration::from_millis(20)).unwrap();
 
     let mut history = FrameHistory::default();
-    history.record(FrameSample { frame_ns: 20_000_000, ..FrameSample::default() });
+    history.record(FrameSample {
+        frame_ns: 20_000_000,
+        ..FrameSample::default()
+    });
     std::thread::sleep(Duration::from_millis(20));
-    assert!(!directory.exists(), "threshold is strict and a matching frame is not a hitch");
-    history.record(FrameSample { frame_ns: 20_000_001, ..FrameSample::default() });
+    assert!(
+        !directory.exists(),
+        "threshold is strict and a matching frame is not a hitch"
+    );
+    history.record(FrameSample {
+        frame_ns: 20_000_001,
+        ..FrameSample::default()
+    });
     std::thread::sleep(Duration::from_millis(1_050));
     history.record(FrameSample::default());
     Trace::wait_for_hitch_exports().unwrap();
-    assert!(directory.exists(), "the headless frame recorder must export the hitch");
+    assert!(
+        directory.exists(),
+        "the headless frame recorder must export the hitch"
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }

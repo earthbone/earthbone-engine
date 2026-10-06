@@ -23,6 +23,9 @@ mod prf_19_health;
 #[path = "prf_19_adversarial.rs"]
 mod prf_19_adversarial;
 
+#[path = "prf_19_breaker_adversarial.rs"]
+mod prf_19_breaker_adversarial;
+
 #[path = "scr_23_breaker_adversarial.rs"]
 mod scr_23_breaker_adversarial;
 

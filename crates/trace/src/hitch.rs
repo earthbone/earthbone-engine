@@ -325,6 +325,23 @@ pub(crate) fn named_span(event: crate::Event, start: Instant, now: Instant) {
     });
 }
 
+pub(crate) fn note(name: String) {
+    let now = Instant::now();
+    named_span(
+        crate::Event {
+            name: Cow::Owned(name),
+            category: "diagnostic",
+            thread: crate::thread_id(),
+            start_ns: u64::try_from(now.duration_since(crate::epoch()).as_nanos())
+                .unwrap_or(u64::MAX),
+            duration_ns: 0,
+            payload: None,
+        },
+        now,
+        now,
+    );
+}
+
 pub(crate) fn frame(frame_ns: u64) {
     let now = Instant::now();
     let counts = WorkRecorder::current().map_or_else(WorkCounts::default, |work| work.snapshot());
@@ -403,6 +420,35 @@ pub(crate) fn wait_for_exports() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prf_20_streaming_hitch_notes_retain_the_asset_name() {
+        note("streaming_slowest_asset:meshes/slow.nif".into());
+        let event = FLIGHT.with(|flight| {
+            let flight = flight.borrow();
+            let event = flight.recorder.events.back().unwrap().clone();
+            assert!(matches!(
+                &event.kind,
+                Kind::NamedSpan { name, category: "diagnostic", .. }
+                    if name == "streaming_slowest_asset:meshes/slow.nif"
+            ));
+            event
+        });
+        let now = Instant::now();
+        let capture = Capture {
+            events: vec![event],
+            cutoff: now,
+            end: now,
+            trigger: now,
+            frame_ns: 20_000_001,
+            overwritten: 0,
+            thread: crate::thread_id(),
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = capture.write(directory.path()).unwrap();
+        let dump = std::fs::read_to_string(path).unwrap();
+        assert!(dump.contains("streaming_slowest_asset:meshes/slow.nif"));
+    }
 
     fn event(now: Instant, system: System) -> Event {
         Event {

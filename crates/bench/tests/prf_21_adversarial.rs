@@ -46,19 +46,20 @@ fn user_saves() -> Vec<PathBuf> {
 }
 
 fn report() -> Option<&'static Report> {
-    REPORT.get_or_init(|| {
-        let Some(path) = user_saves().into_iter().next() else {
-            eprintln!("no user saves found, set SOE_TEST_SAVES, skipping PRF-21 CLI checks");
-            return None;
-        };
-        let output = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
-            .args(["save", path.to_str().expect("save path is UTF-8")])
-            .env_remove("SKYRIM_DATA")
-            .output()
-            .expect("soe-bench starts");
-        Some(Report { output })
-    })
-    .as_ref()
+    REPORT
+        .get_or_init(|| {
+            let Some(path) = user_saves().into_iter().next() else {
+                eprintln!("no user saves found, set SOE_TEST_SAVES, skipping PRF-21 CLI checks");
+                return None;
+            };
+            let output = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
+                .args(["save", path.to_str().expect("save path is UTF-8")])
+                .env_remove("SKYRIM_DATA")
+                .output()
+                .expect("soe-bench starts");
+            Some(Report { output })
+        })
+        .as_ref()
 }
 
 fn stdout() -> &'static str {
@@ -123,7 +124,9 @@ fn prf_21_save_command_reports_each_named_section_size() {
         String::from_utf8_lossy(&report().unwrap().output.stderr)
     );
     assert!(
-        stdout().lines().any(|line| line.starts_with("save_section ")),
+        stdout()
+            .lines()
+            .any(|line| line.starts_with("save_section ")),
         "save report has no named section size rows"
     );
 }
@@ -134,7 +137,9 @@ fn prf_21_save_command_reports_load_time_per_section() {
         return;
     }
     assert!(
-        stdout().lines().any(|line| line.starts_with("save_section_time ")),
+        stdout()
+            .lines()
+            .any(|line| line.starts_with("save_section_time ")),
         "save report has no load timings per section"
     );
 }
@@ -145,7 +150,9 @@ fn prf_21_save_command_reports_plugin_sizes() {
         return;
     }
     assert!(
-        stdout().lines().any(|line| line.starts_with("save_plugin_section ")),
+        stdout()
+            .lines()
+            .any(|line| line.starts_with("save_plugin_section ")),
         "save report has no per-plugin section sizes"
     );
 }
@@ -156,7 +163,9 @@ fn prf_21_save_command_reports_load_time_per_plugin() {
         return;
     }
     assert!(
-        stdout().lines().any(|line| line.starts_with("save_plugin_load ")),
+        stdout()
+            .lines()
+            .any(|line| line.starts_with("save_plugin_load ")),
         "save report has no per-plugin load timings"
     );
 }
@@ -167,7 +176,9 @@ fn prf_21_save_command_attributes_papyrus_bytes_to_script_and_plugin() {
         return;
     }
     assert!(
-        stdout().lines().any(|line| line.starts_with("save_papyrus_script ")),
+        stdout()
+            .lines()
+            .any(|line| line.starts_with("save_papyrus_script ")),
         "save report has no Papyrus script rows"
     );
     assert!(

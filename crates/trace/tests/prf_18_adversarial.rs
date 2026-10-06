@@ -18,7 +18,11 @@ fn prf_18_ring_pressure_reports_evictions_and_keeps_recent_spans() {
     let mut history = FrameHistory::default();
     for index in 0..70_000 {
         let _span = soe_trace::Span::new(
-            if index < 10 { "early.pressure" } else { "recent.pressure" },
+            if index < 10 {
+                "early.pressure"
+            } else {
+                "recent.pressure"
+            },
             "adversarial",
         );
     }
@@ -36,7 +40,10 @@ fn prf_18_ring_pressure_reports_evictions_and_keeps_recent_spans() {
     let json_path = std::fs::read_dir(&directory)
         .expect("hitch directory should exist")
         .map(|entry| entry.expect("directory entry should be readable").path())
-        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
         .expect("hitch JSON should be written");
     let json = std::fs::read_to_string(json_path).expect("hitch JSON should be readable");
     let overwritten: u64 = json

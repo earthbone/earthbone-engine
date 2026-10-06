@@ -17,7 +17,7 @@ fn fixture() -> (Game, GlobalFormId) {
 }
 
 #[test]
-fn prf_19_pending_event_without_a_handler_is_not_a_queued_delivery() {
+fn prf_19_pending_event_without_a_handler_still_counts_as_queued() {
     let (mut game, _) = fixture();
     let object = game.vm.create_object("object");
     game.world_mut().pending.push(Pending::Event {
@@ -27,11 +27,11 @@ fn prf_19_pending_event_without_a_handler_is_not_a_queued_delivery() {
     });
 
     assert_eq!(game.vm.event_scripts(object, "OnItemAdded").len(), 0);
-    assert_eq!(game.papyrus_health().total.events["onitemadded"].queued, 0);
+    assert_eq!(game.papyrus_health().total.events["onitemadded"].queued, 1);
 }
 
 #[test]
-fn prf_19_reference_event_without_a_handler_is_not_a_queued_delivery() {
+fn prf_19_reference_event_without_a_handler_still_counts_as_queued() {
     let (mut game, reference) = fixture();
     let reference_object = game.object_of(Handle::Form(reference));
     game.world_mut().pending.push(Pending::Event {
@@ -39,6 +39,14 @@ fn prf_19_reference_event_without_a_handler_is_not_a_queued_delivery() {
         name: "OnMissingHandler".into(),
         args: vec![],
     });
-    assert_eq!(game.vm.event_scripts(reference_object, "OnMissingHandler").len(), 0);
-    assert_eq!(game.papyrus_health().total.events["onmissinghandler"].queued, 0);
+    assert_eq!(
+        game.vm
+            .event_scripts(reference_object, "OnMissingHandler")
+            .len(),
+        0
+    );
+    assert_eq!(
+        game.papyrus_health().total.events["onmissinghandler"].queued,
+        1
+    );
 }

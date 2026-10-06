@@ -64,9 +64,9 @@ mod destruction_tests;
 #[cfg(test)]
 mod marker_survey_tests;
 #[cfg(test)]
-mod rnd_20_tests;
-#[cfg(test)]
 mod prf_20_tests;
+#[cfg(test)]
+mod rnd_20_tests;
 #[cfg(test)]
 mod ui_25_tests;
 

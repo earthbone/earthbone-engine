@@ -9,14 +9,28 @@ use soe_papyrus::Opcode;
 #[test]
 fn prf_19_breaker_timer_modes_replace_only_the_same_registration_and_owner() {
     let mut order = LoadOrder::new();
-    order.add("Empty.esp", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Empty.esp", Plugin::new(FileHeader::default()))
+        .unwrap();
     let mut game = Game::new(order);
     let mut builder = ScriptBuilder::new("TimerOwner", "Form");
     for function in ["Repeating", "Single"] {
-        let native = if function == "Repeating" { "RegisterForUpdate" } else { "RegisterForSingleUpdate" };
+        let native = if function == "Repeating" {
+            "RegisterForUpdate"
+        } else {
+            "RegisterForSingleUpdate"
+        };
         builder = builder.function(
             FunctionBuilder::new(function, "None")
-                .ins(Opcode::CallMethod, vec![soe_papyrus::asm::ident(native), soe_papyrus::asm::ident("self"), soe_papyrus::asm::ident("::nonevar"), f(3.0)])
+                .ins(
+                    Opcode::CallMethod,
+                    vec![
+                        soe_papyrus::asm::ident(native),
+                        soe_papyrus::asm::ident("self"),
+                        soe_papyrus::asm::ident("::nonevar"),
+                        f(3.0),
+                    ],
+                )
                 .ins(Opcode::Return, vec![])
                 .build(),
         );
@@ -37,7 +51,9 @@ fn prf_19_breaker_timer_modes_replace_only_the_same_registration_and_owner() {
     assert_eq!(health.total.updates.single, 1);
     assert_eq!(health.scripts["timerowner"].updates.repeating, 2);
     assert_eq!(health.scripts["timerowner"].updates.single, 1);
-    assert!(!health.scripts["timerowner"].events.contains_key("onitemadded"));
+    assert!(!health.scripts["timerowner"]
+        .events
+        .contains_key("onitemadded"));
 
     let saved = game.save_state().unwrap();
     let mut restored_order = LoadOrder::new();
@@ -67,6 +83,9 @@ fn prf_19_breaker_godot_overlay_shows_health_in_both_script_and_plugin_views() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stdout}\n{stderr}");
-    assert!(stdout.contains("prf_19_host_health_and_plugin_overlay: PASS"), "{stdout}\n{stderr}");
+    assert!(
+        stdout.contains("prf_19_host_health_and_plugin_overlay: PASS"),
+        "{stdout}\n{stderr}"
+    );
     assert!(!stderr.contains("SCRIPT ERROR"), "{stderr}");
 }

@@ -24,6 +24,8 @@ fn prf_20_record_memory_counts_losing_overrides_in_the_defining_plugin() {
         workers: WorkerPools::default(),
         textures: TextureCache::default(),
         language: "english".into(),
+        profile_settings: soe_profile::Settings::default(),
+        profile_ini_dir: None,
     };
     let bytes = source.record_memory_by_plugin();
     assert_eq!(bytes.len(), 2);
