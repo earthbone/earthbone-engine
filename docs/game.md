@@ -570,6 +570,15 @@ MQ101 and MQ101DragonAttack PEX fragments and VMAD properties identify the
 Helgen actions used by the authored routes. No assets or saves are copied into
 the repository and no dependency is added.
 
+Placed-reference binding inherits the base form's VMAD scripts and property
+values before applying reference overrides. Removed scripts stay unattached,
+and saved instances retain their values. Each property's FormIDs resolve in
+its own source plugin. The local CK `Papyrus_Introduction.wikitext`, References
+Inheriting scripts and property values from parent base objects, supplies this
+contract. `quest_flow` checks inherited quest properties, overrides, script
+removal and single activation delivery. The installed Helgen trigger's MQ101
+property is authored on its base activator.
+
 Local CK `PathToReference_-_Actor.wikitext` supplies path failure and interruption
 semantics, and `Activate_-_ObjectReference.wikitext` supplies default activation
 and blocked OnActivate behavior. `GetItemCount_-_ObjectReference.wikitext` describes

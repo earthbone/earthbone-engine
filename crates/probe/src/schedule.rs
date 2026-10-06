@@ -43,8 +43,8 @@ impl ScheduleTable {
     /// Validate a complete 24-hour table and sort rows into stable order.
     ///
     /// # Errors
-    /// Rejects invalid hours, empty names, duplicate actor-hour keys, or an
-    /// actor whose name changes during the day.
+    /// Rejects empty tables, invalid hours, empty names, duplicate actor-hour
+    /// keys, or an actor whose name changes during the day.
     pub fn new(mut rows: Vec<ScheduleRow>) -> Result<Self, Error> {
         validate_rows(&mut rows, true)?;
         Ok(Self { rows })
@@ -143,7 +143,8 @@ fn validate_rows(rows: &mut [ScheduleRow], require_complete_day: bool) -> Result
     }
     let actors: BTreeSet<_> = rows.iter().map(|row| row.actor).collect();
     if require_complete_day
-        && (rows.len() != actors.len() * 24
+        && (rows.is_empty()
+            || rows.len() != actors.len() * 24
             || actors
                 .iter()
                 .any(|actor| (0..24).any(|hour| !seen.contains(&(hour, *actor)))))

@@ -276,7 +276,7 @@ and each missing or extra actor-hour separately.
 
 Schedule rows use stable FormIDs, not load-order runtime slots, so captures
 from Skyrim and the engine can be compared when they use the same declared
-load order. The table API handles captured rows; it does not enumerate actors
+load order. The table API handles captured rows. It does not enumerate actors
 or generate the Papyrus schedule recorder.
 
 ## Sources and validation

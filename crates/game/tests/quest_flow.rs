@@ -355,6 +355,78 @@ fn script_errors(game: &Game) -> Vec<String> {
         .collect()
 }
 
+fn inherited_lever_game(reference: Option<ScriptEntry>) -> Game {
+    let mut plugin = test_plugin();
+    let base = plugin
+        .records
+        .iter_mut()
+        .find(|record| record.form_id == LEVER_BASE)
+        .unwrap();
+    base.subrecords.push(soe_esm::Subrecord::new(
+        T(b"VMAD"),
+        vmad_for(
+            *b"ACTI",
+            vec![script_with("LeverScript", &[form_prop("MyQuest", QUEST)])],
+        ),
+    ));
+    let lever = plugin
+        .records
+        .iter_mut()
+        .find(|record| record.form_id == LEVER)
+        .unwrap();
+    lever.subrecords.retain(|sub| sub.tag != T(b"VMAD"));
+    if let Some(entry) = reference {
+        lever.subrecords.push(soe_esm::Subrecord::new(
+            T(b"VMAD"),
+            vmad_for(*b"REFR", vec![entry]),
+        ));
+    }
+    let mut order = LoadOrder::new();
+    order
+        .add("Test.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .unwrap();
+    let mut game = Game::new(order);
+    for script in scripts() {
+        game.load_script(&script).unwrap();
+    }
+    game.start();
+    let cell = game.form("TestCellA").unwrap();
+    game.load_cell(cell);
+    game
+}
+
+#[test]
+fn placed_references_inherit_base_properties_and_dispatch_one_activation() {
+    for entry in [None, Some(ScriptEntry::new("LeverScript"))] {
+        let mut game = inherited_lever_game(entry);
+        let lever = game.form("LeverRef").unwrap();
+        let player = game.player();
+        assert!(game.activate(lever, player));
+        let quest = game.form("MQ01").unwrap();
+        assert_eq!(game.world().quest(quest).unwrap().highest, 20);
+        assert_eq!(game.world().notifications, ["Lever pulled"]);
+        assert!(script_errors(&game).is_empty(), "{:?}", game.traces());
+    }
+}
+
+#[test]
+fn placed_reference_overrides_inherited_properties_and_removes_inherited_scripts() {
+    let mut game =
+        inherited_lever_game(Some(script_with("LeverScript", &[form_prop("MyQuest", 0)])));
+    let lever = game.form("LeverRef").unwrap();
+    let object = game.object_of_form(lever);
+    assert_eq!(
+        game.vm.get_property(object, "LeverScript", "MyQuest"),
+        Some(soe_papyrus::Value::None)
+    );
+    let mut removed = ScriptEntry::new("LeverScript");
+    removed.status = 3;
+    let mut game = inherited_lever_game(Some(removed));
+    let lever = game.form("LeverRef").unwrap();
+    let object = game.object_of_form(lever);
+    assert!(game.vm.scripts_on(object).is_empty());
+}
+
 #[test]
 fn a_quest_advances_on_activation_end_to_end() {
     let mut game = game();

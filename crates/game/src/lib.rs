@@ -742,21 +742,57 @@ impl Game {
                 if !is_placed_reference(record.tag) {
                     return None;
                 }
-                let raw = record.find(Tag::new(b"VMAD"))?;
-                let vmad = Vmad::parse(raw, record.tag).ok()?;
+                let vmad = record.find(Tag::new(b"VMAD")).map_or_else(
+                    || Some(Vmad::default()),
+                    |raw| Vmad::parse(raw, record.tag).ok(),
+                )?;
                 Some((rref.file, vmad))
             })
         };
         if let Some((file, mut vmad)) = carrier {
-            // CONTEXT: Restored instances retain their saved property values.
-            if let Some(object) = self.world.borrow().object_id(Handle::Form(id)) {
-                let attached = self.vm.scripts_on(object);
-                vmad.scripts.retain(|entry| {
+            let base = self
+                .world
+                .borrow_mut()
+                .reference(id)
+                .and_then(|reference| reference.base);
+            let base_carrier = base.and_then(|base| {
+                let world = self.world.borrow();
+                let source = world.order().winner_ref(base)?;
+                let record = world.record(base)?;
+                let raw = record.find(Tag::new(b"VMAD"))?;
+                Some((source.file, Vmad::parse(raw, record.tag).ok()?))
+            });
+            if vmad.scripts.is_empty()
+                && base_carrier
+                    .as_ref()
+                    .is_none_or(|(_, base)| base.scripts.is_empty())
+            {
+                return;
+            }
+            let attached = self
+                .world
+                .borrow()
+                .object_id(Handle::Form(id))
+                .map_or_else(Vec::new, |object| self.vm.scripts_on(object));
+            if let Some((base_file, mut base_vmad)) = base_carrier {
+                base_vmad.scripts.retain(|entry| {
                     !attached
                         .iter()
                         .any(|name| name.eq_ignore_ascii_case(&entry.name))
+                        && !vmad.scripts.iter().any(|overridden| {
+                            overridden.status == 3
+                                && overridden.name.eq_ignore_ascii_case(&entry.name)
+                        })
                 });
+                let object = self.object_of_form(id);
+                self.attach_all(object, id, base_file, &base_vmad.scripts, report);
             }
+            // CONTEXT: Restored instances retain their saved property values.
+            vmad.scripts.retain(|entry| {
+                !attached
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&entry.name))
+            });
             self.bound_forms.insert(id);
             self.bind_carrier(id, file, &vmad, report);
         }
@@ -875,11 +911,18 @@ impl Game {
             if entry.status == 3 {
                 continue;
             }
-            if self.vm.attach(object, &entry.name).is_err() {
-                report.scripts_missing.push((entry.name.clone(), owner));
-                continue;
+            if !self
+                .vm
+                .scripts_on(object)
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(&entry.name))
+            {
+                if self.vm.attach(object, &entry.name).is_err() {
+                    report.scripts_missing.push((entry.name.clone(), owner));
+                    continue;
+                }
+                report.scripts_attached += 1;
             }
-            report.scripts_attached += 1;
             for p in &entry.properties {
                 if p.status == 3 {
                     continue;
