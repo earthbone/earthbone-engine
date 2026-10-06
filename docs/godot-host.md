@@ -5284,6 +5284,24 @@ the sampled sky region was 0.639 at noon and 0.272 at night, exceeding the
 0.05 difference threshold. The host texture, fog, phase, transition and
 interior checks passed in the same windowed run, which exited with status 0.
 
+### WTHR cloud scroll rates, RND-25
+
+`godot/record_sky.gd` converts each decoded WTHR cloud velocity to UV units
+per presentation second by dividing both axes by 400 before uploading them to
+the sky shader. The shader advances UV coordinates by that velocity times
+elapsed seconds. WTHR speed bytes use `(byte - 127) / 127 / 10`, as described
+by the local UESP WTHR page and implemented by Mutagen's Skyrim weather
+reader. The `/400` time scale follows OpenMW's sky cloud animation update in
+`apps/openmw/mwrender/sky.cpp`.
+
+`godot/rnd_25_cloud_speed_test.gd` loads installed data, selects
+`SkyrimCloudy`, and checks each uploaded axis against the source weather rate
+divided by 400 with a 3 percent tolerance. It also requires at least one
+moving layer. The Rust runner is
+`rnd_25_installed_skyrimcloudy_cloud_rate_matches_its_weather_record`, and a
+source contract test checks that the shader applies the uploaded rate over
+elapsed seconds.
+
 The radius-zero Whiterun bench used 51 renderer instances, 42 meshes and
 31,146 triangles. Its 600-frame software Vulkan sample had a 33.105 ms p99
 at the benchmark's fixed 1600 by 900 render size in a 640 by 360 window.

@@ -4,6 +4,7 @@ extends Node3D
 const SKY_SHADER := preload("res://record_sky.gdshader")
 const PHASES := ["full", "three_wan", "half_wan", "one_wan", "new", "one_wax", "half_wax", "three_wax"]
 const UNITS_PER_METRE := 70.0
+const CLOUD_UV_SPEED_SCALE := 1.0 / 400.0
 
 var records = ClassDB.instantiate("SkyRecords")
 var cell := ""
@@ -229,7 +230,7 @@ func _clouds(clouds: Array) -> bool:
 		var color: Color = cloud.color
 		color.a = cloud.alpha
 		colors.append(color)
-		velocities.append(cloud.speed)
+		velocities.append(cloud.speed * CLOUD_UV_SPEED_SCALE)
 		layers.append(float(paths.find(cloud.texture)))
 	colors.resize(256)
 	velocities.resize(256)
