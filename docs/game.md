@@ -1544,7 +1544,7 @@ restraint, and active magic. The concrete contract differences found were:
 | Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | HasLOS accepts finite positions for references in the same cell. PathToReference returns true only for a valid speed and an already reached target. | SCR-10. |
 | Actor.IsFlying | Reports the actor's flight state. | Reads live movement flight flags or the Hover package procedure. | SCR-10. |
 | Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | GetSleepState maps the sleep procedure and sleeping flag to 0, 2 or 3. | SCR-10 and SCR-11. |
-| Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | Both arguments are ignored. No lock or message state is represented. | SCR-74 owns the lock and message behavior. |
+| Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | The actor retains protected equipped forms, rejects replacement and direct unequip for them, and queues an `Equipped <name>` notification unless silent. `UnequipAll` and `RemoveAllItems` clear the protection. Actor protection survives save/load in the `SCR-74` actor section. | The local CK `EquipItem` and `UnequipItem` pages specify the replacement, removal, and bulk-removal rules. |
 
 `Actor.GetActorValueMax` and its `GetAVMax` alias include current modifiers.
 The value path reads the shared actor-value components. `Actor.StartSneaking`
@@ -3723,6 +3723,7 @@ stacked package frames use actor sections. MAG-64 pending reference bindings use
 after AI-16 script calls, to preserve their combined queue order. The source
 for this engine-owned layout is the frozen repository writer, rather than
 the external vanilla ESS references.
+SCR-74 prevented equipment removal is stored in an actor section.
 
 Legacy test fixtures measure trailing cuts with `version_tail_len` or
 `truncate_to_version` in `tests/common/save_tail.rs`, using a fresh world and
