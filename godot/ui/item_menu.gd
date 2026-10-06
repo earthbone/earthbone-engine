@@ -7,6 +7,7 @@ signal activate_item(row: Dictionary, amount: int, side: int)
 signal favorite_item(row: Dictionary)
 
 const Icon = preload("res://ui/item_icon.gd")
+const DefaultTheme = preload("res://ui/theme/theme.gd")
 const INVENTORY_CATEGORIES = ["All", "Weapons", "Apparel", "Potions", "Scrolls", "Food", "Ingredients", "Books", "Keys", "Misc"]
 const FAVORITE_CATEGORIES = ["All", "Gear", "Aid", "Magic"]
 const MAGIC_CATEGORIES = ["All", "Spells"]
@@ -41,11 +42,24 @@ func _ready() -> void:
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
 	custom_minimum_size = Vector2(0, 180)
 	add_theme_font_size_override("font_size", 12)
+	theme = DefaultTheme.controls()
 	var background := ColorRect.new()
 	background.color = Color(0.025, 0.03, 0.035, 0.94)
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for decoration_name in ["background", "frame"]:
+		var decoration := Icon.new()
+		decoration.name = decoration_name.capitalize()
+		decoration.icon_name = decoration_name
+		decoration.stretch_art = true
+		decoration.art_color = Color(0.035, 0.045, 0.05, 0.96) if decoration_name == "background" else Color(0.10, 0.13, 0.15, 0.85)
+		decoration.cache_directory = cache_directory
+		decoration.cache_movie = "itemcard.swf"
+		decoration.cache_symbol = "ItemCard"
+		decoration.cache_instance = "background"
+		add_child(decoration)
+		decoration.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var body := HBoxContainer.new()
 	body.name = "Body"
 	add_child(body)
@@ -53,7 +67,7 @@ func _ready() -> void:
 	body.add_theme_constant_override("separation", 10)
 	categories = VBoxContainer.new()
 	categories.name = "Categories"
-	categories.custom_minimum_size.x = 82
+	categories.custom_minimum_size.x = 100
 	body.add_child(categories)
 	var list := VBoxContainer.new()
 	list.name = "List"
@@ -100,6 +114,16 @@ func configure(menu_mode: String, data: Array, cache: String = "") -> void:
 	source_rows = data
 	cache_directory = cache
 	if is_node_ready():
+		for decoration_name in ["Background", "Frame"]:
+			var decoration = get_node(decoration_name)
+			decoration.cache_directory = cache_directory
+			decoration.meshes.clear()
+			decoration.art_bounds = Rect2()
+			decoration.art_source = "builtin"
+			decoration._load_art()
+			if decoration.meshes.is_empty():
+				decoration._load_theme()
+			decoration.queue_redraw()
 		refresh()
 
 func replace_rows(data: Array) -> void:
@@ -253,6 +277,17 @@ func refresh() -> void:
 		button.name = str(choice)
 		button.toggle_mode = true
 		button.button_pressed = category == choice
+		button.custom_minimum_size.y = 24
+		var category_art := Icon.new()
+		category_art.name = "CategoryIcon"
+		category_art.icon_name = DefaultTheme.category_icon(str(choice))
+		category_art.cache_directory = cache_directory
+		category_art.cache_icon_name = DefaultTheme.installed_category(str(choice))
+		category_art.custom_minimum_size = Vector2(20, 20)
+		button.add_child(category_art)
+		category_art.position = Vector2(1, 1)
+		category_art.size = Vector2(20, 20)
+		button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	if mode in ["container", "barter"]:
 		var sides := ["Take", "Store"] if mode == "container" else ["Buy", "Sell"]
 		for index in range(2):
@@ -296,6 +331,14 @@ func refresh() -> void:
 				icon.cache_directory = cache_directory
 				_cell(icon, key)
 				cells.add_child(icon)
+			elif key == "equipped" and row.get("equipped", false):
+				var marker := Icon.new()
+				marker.icon_name = "marker"
+				marker.cache_directory = cache_directory
+				marker.cache_movie = "inventorylists.swf"
+				marker.cache_symbol = "EquipIcon"
+				_cell(marker, key)
+				cells.add_child(marker)
 			else:
 				var label := Label.new()
 				label.add_theme_font_size_override("font_size", 12)

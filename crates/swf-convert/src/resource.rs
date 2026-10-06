@@ -238,7 +238,12 @@ fn variant(value: &Value) -> String {
     }
 }
 
-pub(crate) fn write(movie: &Movie, directory: &Path) -> Result<(), Error> {
+/// Write only mesh and bitmap resources from the supplied art dictionary.
+///
+/// # Errors
+/// Returns resource encoding or filesystem errors. No scripts, fonts, text,
+/// linkage names, buttons or timelines are written.
+pub fn write_art(movie: &Movie, directory: &Path) -> Result<(), Error> {
     std::fs::create_dir_all(directory)?;
     for (id, bitmap_data) in &movie.bitmaps {
         bitmap(bitmap_data, &directory.join(format!("bitmap-{id}.tres")))?;
@@ -246,6 +251,11 @@ pub(crate) fn write(movie: &Movie, directory: &Path) -> Result<(), Error> {
     for (id, mesh_data) in &movie.meshes {
         mesh(mesh_data, &directory.join(format!("shape-{id}.tres")))?;
     }
+    Ok(())
+}
+
+pub(crate) fn write(movie: &Movie, directory: &Path) -> Result<(), Error> {
+    write_art(movie, directory)?;
     for (id, font_data) in &movie.fonts {
         font(font_data, &directory.join(format!("font-{id}.tres")))?;
         for (index, glyph) in font_data.glyphs.iter().enumerate() {
