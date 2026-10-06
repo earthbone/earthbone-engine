@@ -62,6 +62,13 @@ and worst alongside its rolling p50 and p99. Recording does not sort or allocate
 `with_timing_suspended` provides a thread-local baseline for overhead
 calibration and restores recording after the closure, including on unwind.
 
+`Metric` also exposes stable atomic counters and gauges for PRF-24. Detection
+checks and actor pairs accumulate after a successful observation batch. The
+Godot audio host publishes active voice count and cumulative decode nanoseconds.
+The snapshot always includes pathing, physics, audio, animation, frame and
+input metric names, with zero values for measurements whose runtime path does
+not publish a value yet. These values are transient and are not saved.
+
 The bounded history and query-time statistics were checked against local
 `engine-refs/godotwind/src/core/world/performance_profiler.gd`. Its dynamic
 GDScript model tables do not fit the Rust scheduler's fixed system slots.

@@ -170,6 +170,33 @@ also checks synthetic music and ambience requests return under 2 ms, discard a
 superseded result, preserve playing music until replacement, reuse cached paths
 and keep cache accounting within 64 MiB.
 
+## Runtime metrics, PRF-24
+
+The F3 overlay and `user://soe-systems.txt` append a PRF-24 report. The
+report includes stable fields for AI detection checks and pairs, line-of-sight
+raycasts, path-cache hits and misses, physics bodies and contacts, audio voice
+count and decode time, audio latency categories, animation phases and event
+timing, and input-to-screen latency. The overlay also samples presentation
+frame deltas in a 240-frame ring and reports standard deviation, p50, p99 and
+worst. These frame values describe intervals between Godot overlay callbacks.
+
+At this checkpoint, only detection observations, active sound voices,
+uncached audio decode time, and presentation frame pacing have live producers.
+Detection observations carry a caller-supplied visibility result and do not
+perform a raycast. There is no path cache or live behavior-graph actor
+evaluator. Physics contact counts, audio event-to-first-sample and output
+latency, animation phase timings and gameplay annotation drift, and
+input-to-screen latency remain zero pending instrumentation at those sites.
+The field presence is a report contract, not evidence those systems have been
+measured. `prf_24_metrics_report_overlay_and_summary` checks the field set,
+frame statistics, overlay and written summary.
+
+The metric set and rolling report shape follow the local
+`engine-refs/godotwind/src/core/world/performance_profiler.gd` and
+`src/tools/performance_report_contract.gd`. The engine uses atomic Rust
+metrics for simulation and audio-host values, rather than copying the
+godotwind dynamic GDScript counters.
+
 Run the declared overhead gate, which alternates recorded and suspended
 eight-tick batches in one warmed 1,000-actor travel/sandbox world, then
 asserts the median paired on/off ratio is below 1.01. A second world replays

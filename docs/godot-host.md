@@ -42,6 +42,16 @@ covers F4, an applied camera switch, presentation latency, an audio start,
 installed render submissions, summary JSON and an overlay capture. It uses
 the existing input path and the local Godot RenderingServer signal contract.
 
+## PRF-24 runtime metric publication
+
+`PlayerNode::performance_metrics` returns the stable `soe-trace` metric names
+and values for the overlay and exit summary. `SoundBank` updates the active
+voice gauge each process frame and adds time spent decoding uncached sounds.
+This does not measure event-to-first-sample latency or the Godot output
+latency. Animation evaluation phases are not connected to a live actor
+animator in this host, so their snapshot values remain zero. Path-cache
+measurements remain zero because no path cache exists.
+
 ## Per-system frame monitors, PRF-12
 
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`

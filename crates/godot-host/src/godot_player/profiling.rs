@@ -6,7 +6,7 @@
 use godot::classes::Performance;
 use godot::prelude::*;
 use soe_game::ai::metrics::{ProcessLevel, Stimulus, DECISION_PHASES, PROCEDURE_PHASES};
-use soe_trace::System;
+use soe_trace::{Metric, System};
 
 use super::PlayerNode;
 
@@ -218,5 +218,16 @@ impl PlayerNode {
     #[func]
     fn system_summary(&self) -> GString {
         GString::from(self.host_history.summary_text().as_str())
+    }
+
+    /// Cumulative counters, gauges and latest values for the PRF-24 report.
+    #[func]
+    fn performance_metrics(&self) -> VarDictionary {
+        let values = soe_trace::metric_snapshot();
+        let mut report = VarDictionary::new();
+        for (index, metric) in Metric::ALL.into_iter().enumerate() {
+            report.set(metric.name(), values[index] as i64);
+        }
+        report
     }
 }

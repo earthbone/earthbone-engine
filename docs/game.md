@@ -80,6 +80,15 @@ capture is independent of world state and adds no saved sections. The
 `prf_13_` integration tests exercise two actors, two scripts, one quest, all
 five predicate categories and installed master record ownership.
 
+## PRF-24 observation counters
+
+Successful `World::evaluate_detection` batches add their observation count to
+`detection_checks` and their actor-to-actor observation count to
+`detection_pairs` in the shared transient `soe-trace` metric snapshot. The
+observation contains a caller-supplied line-of-sight result. It does not cast a
+ray, and the metric snapshot keeps `line_of_sight_raycasts` at zero until a
+host raycast is connected to this path.
+
 ## Per-system frame timing, PRF-12
 
 `Game::tick` and `tick_menu_mode` record an always-on exclusive system frame
