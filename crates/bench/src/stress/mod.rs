@@ -5,6 +5,9 @@
 //! manual. The Python runner owns process isolation, budgets and refinement.
 
 mod fixtures;
+mod frame_budget;
+
+pub(super) use frame_budget::run as run_frame_budget;
 
 use std::collections::HashMap;
 use std::hint::black_box;

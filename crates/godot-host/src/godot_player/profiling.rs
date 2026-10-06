@@ -88,6 +88,65 @@ impl PlayerNode {
         }
     }
 
+    /// Runtime progress and cached navigation for fixed-step acceptance checks.
+    #[func]
+    fn budget_runtime_status(&self) -> VarDictionary {
+        let Some(game) = self.game.as_ref() else {
+            return VarDictionary::new();
+        };
+        let world = game.world();
+        let triangles = world.ai.nav_graph().map_or(0, |graph| {
+            graph
+                .meshes()
+                .iter()
+                .map(|mesh| mesh.triangles.len())
+                .sum::<usize>()
+        });
+        let world_editor_id = self
+            .data_source
+            .as_ref()
+            .and_then(|source| {
+                let cell = self.loaded_cell?;
+                let worldspace = source.exterior_world(cell)?;
+                source.order().winner(worldspace)?.editor_id()
+            })
+            .unwrap_or_default();
+        vdict! {
+            "ticks" => game.frame_history().frames() as i64,
+            "seconds" => world.clock.real_seconds,
+            "evaluations" => world.ai.evaluations as i64,
+            "navmesh_triangles" => triangles as i64,
+            "world_editor_id" => world_editor_id.as_str(),
+        }
+    }
+
+    /// Open a fixed-step CPU timing window. Nested windows are rejected.
+    #[func]
+    fn begin_budget_frame(&mut self) -> bool {
+        if self.budget_frame.is_some() {
+            return false;
+        }
+        self.budget_frame = Some(soe_trace::FrameSnapshot::now());
+        true
+    }
+
+    /// Close the CPU window before pacing or telemetry. Empty without a begin.
+    #[func]
+    fn end_budget_frame(&mut self) -> VarDictionary {
+        let Some(frame) = self.budget_frame.take() else {
+            return VarDictionary::new();
+        };
+        let sample = frame.finish();
+        let mut systems = VarDictionary::new();
+        for system in System::ALL {
+            systems.set(system.name(), sample.milliseconds(system));
+        }
+        vdict! {
+            "frame_ms" => sample.frame_ns as f64 / 1e6,
+            "systems" => &systems,
+        }
+    }
+
     /// Milliseconds in the latest presentation frame, for custom monitor callbacks.
     #[func]
     fn system_monitor_ms(&self, index: i64) -> f64 {

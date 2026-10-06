@@ -26,6 +26,25 @@ the existing input path and the local Godot RenderingServer signal contract.
 
 ## Per-system frame monitors, PRF-12
 
+PRF-16's `begin_budget_frame` and `end_budget_frame` delimit one fixed-step
+CPU window using the same exclusive PRF-12 slots. Nested begins fail, an end
+without a begin returns an empty dictionary, and successful ends return the
+wall milliseconds and every system's milliseconds. These temporary windows
+do not change presentation history or saved state. `budget_runtime_status`
+exposes completed Game ticks, real simulation seconds, package evaluations,
+cached navigation triangles and the current resolved worldspace editor id
+to reject stopped or misdirected runtime samples. The installed
+`prf_16_walkthrough_test.gd` extends the actual walkthrough startup with manual
+steps and captures the full CPU scenario, including authored-door activation.
+Each manual advance ticks Game once. The open-menu branch owns menu-mode
+ticks, while normal gameplay no longer ticks again through a closed MenuState.
+Headless startup skips rendering warm-up. Windowed startup retains it.
+`gameplay_doors` exposes the linked door's return position and yaw from the
+decoded XTEL transform when the return link names the original door. This
+supplies the walk approach without hard-coded placements. The source is
+local TES5Edit/Core/wbDefinitionsTES5.pas, REFR's XTEL definition. The suite
+and its fixed budgets are described in [performance.md](performance.md).
+
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`
 system when it enters the tree and removes its own monitors when it leaves.
 The names are `SOE/<system>_ms`. A second player uses a category containing
