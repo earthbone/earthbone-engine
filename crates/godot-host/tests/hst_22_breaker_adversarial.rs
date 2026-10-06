@@ -66,8 +66,6 @@ fn hst_22_installed_tankard_carries_collides_drops_and_activates_on_tap() {
         output.status.success()
             && stdout.contains("HST-22 PASS")
             && !stderr.contains("SCRIPT ERROR"),
-        "{}\n{}",
-        stdout,
-        stderr
+        "{stdout}\n{stderr}"
     );
 }

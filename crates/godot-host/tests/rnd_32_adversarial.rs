@@ -134,8 +134,9 @@ fn rnd_32_installed_cells_match_winning_enable_and_model_eligibility() {
             let Some(base) = order.winner(order.resolve(owner.file, raw_base)) else {
                 continue;
             };
-            let is_base_marker = matches!(base.tag.as_bytes(), b"STAT" | b"ACTI" | b"FURN" | b"DOOR")
-                && base.flags & (1 << 23) != 0;
+            let is_base_marker =
+                matches!(base.tag.as_bytes(), b"STAT" | b"ACTI" | b"FURN" | b"DOOR")
+                    && base.flags & (1 << 23) != 0;
             let is_marker_only = loaded.stats.reference_skips.get(&id) == Some(&"marker model");
             if enabled(&order, id, &mut HashSet::new())
                 && model_bearing(base)
@@ -157,10 +158,17 @@ fn rnd_32_installed_cells_match_winning_enable_and_model_eligibility() {
             }
         }
 
-        assert_eq!(drawn, expected, "{name} built references differ from source eligibility");
+        assert_eq!(
+            drawn, expected,
+            "{name} built references differ from source eligibility"
+        );
         let counts = &loaded.stats.reference_counts;
         let built: usize = counts.values().map(|count| count.built).sum();
-        assert_eq!(built, drawn.len(), "{name} built count must count unique REFRs");
+        assert_eq!(
+            built,
+            drawn.len(),
+            "{name} built count must count unique REFRs"
+        );
         for (kind, count) in counts {
             assert_eq!(
                 count.placed,
@@ -175,12 +183,7 @@ fn rnd_32_installed_cells_match_winning_enable_and_model_eligibility() {
         }
         let serialized_counts: serde_json::Map<String, serde_json::Value> = counts
             .iter()
-            .map(|(kind, count)| {
-                (
-                    kind.to_string(),
-                    serde_json::json!({"built": count.built}),
-                )
-            })
+            .map(|(kind, count)| (kind.to_string(), serde_json::json!({"built": count.built})))
             .collect();
         manifest.push(serde_json::json!({
             "cell": name,

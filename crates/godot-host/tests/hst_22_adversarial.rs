@@ -47,7 +47,11 @@ fn hst_22_installed_tankard_hold_collision_drop_and_tap_scenario() {
                 "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
             )
         });
-    assert!(data.is_dir(), "installed Skyrim data is required: {}", data.display());
+    assert!(
+        data.is_dir(),
+        "installed Skyrim data is required: {}",
+        data.display()
+    );
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
     let source = DataSource::open(&data).expect("installed plugin and archive data");
     let order = source.shared_order();
