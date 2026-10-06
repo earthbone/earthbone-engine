@@ -378,6 +378,33 @@ model build took 1,199.392 ms during concurrent Cargo checks, including NIF,
 texture and mesh preparation. This measures menu selection latency on that
 software-rendered run.
 
+## QuickLoot containers and corpses, UI-26
+
+The host observes the shared crosshair reference and shows an unpaused compact
+list beside it for eligible unlocked containers and dead actors. It hides the
+list during modal menus, grabs, disabled presentation and invalid targets.
+Up and Down select rows, E takes one, T takes all, R cycles the sort, Tab or
+Enter opens the full container menu, and Escape closes the list. The card uses
+the same record-backed model preview as UI-25. Rows show category glyphs and
+an ownership marker. Empty and locked targets have separate states.
+
+Game performs each take against the shared inventory and preserves owner extra
+data. API `ModifyInventory` rows can add valid named display entries, following
+the contract in QuickLootIE `include/QuickLootAPI.h`. Such presentation-only
+rows cannot bypass Game's inventory selection validation during a take.
+`soe-commonlib-shim::quick_loot` implements the source-level MIT header surface
+without importing GPL code. The host behavior follows QuickLootIE
+`src/LootMenu.cpp`, `src/LootMenuManager.cpp`, `src/LootMenu.Sorting.cpp`,
+`src/Items/ItemStack.cpp` and `include/QuickLootAPI.h`. The GPL-3.0-or-later
+notice and its modding exception remain with the host implementation.
+
+`ui_26_adversarial.rs` checks shared inventory transfers, stolen owner data,
+empty and locked states, event cancellation and API-added rows.
+`godot/ui_26_quick_loot_test.gd` checks the installed-data host scene, take,
+take-all, empty presentation, owned-row marker, item card and full-container
+handoff. This does not verify a live original-game probe, physical speaker or
+human window observation.
+
 `godot/ply_04_route_test.gd` runs a JSON route through the same PlayerNode
 queue in a windowed Godot process. The route has a `start` object with a cell
 editor id and a three-number Skyrim-unit position, followed by `steps`. Each
@@ -4379,6 +4406,29 @@ count, built and source triangle counts and the NIF mesh byte estimate used
 by the same residency budget as BTO blocks. The generated result is held in
 memory and is not serialized to a BTO file. Skyrim tree billboard generation
 and atlas baking are not part of this path.
+
+## LOD rebuild support, RND-16
+
+`lod_rebuild::LoadOrderHash` hashes ordered plugin names, enabled flags and
+resolved slots. `LodBuildCache` stores completed values in memory by that
+hash. A cache miss starts the supplied builder on a worker thread, and
+`LodBuildRequest::finish` publishes its complete result under the key. A
+builder can return object and terrain products together. This helper is not
+connected to `DataSource::open_loadout`, the object or terrain generators, or
+the Godot streamer, and its cache is not persisted between processes.
+
+`silhouette_error_pixels` measures the maximum edge displacement between two
+axis-aligned projected bounds. `select_far_level` chooses the coarsest level
+whose caller-supplied projected error is within its pixel limit. These helpers
+do not project meshes or measure their rendered silhouettes. The streamer
+still uses one configured level, and generated terrain LOD is not implemented
+here. Automatic load-order monitoring, terrain generation, runtime far-level
+switching and a rendered under-one-pixel silhouette survey remain unverified.
+
+The named DynDOLOD and xLODGen documentation was not present in the local
+reference corpus. The available Wrye Bash distant-LOD note explicitly covers
+Oblivion, so its format claims are not used for Skyrim. Object LOD generation
+continues to follow the local TES5Edit `Core/wbLOD.pas` source described above.
 
 ## Distant-terrain LOD residency, RND-03
 

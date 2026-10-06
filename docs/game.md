@@ -3524,6 +3524,8 @@ changed definitions keep saved VM state suspended.
 SOEW versions 21 and later retain each driven actor's package procedure
 cursor, including the owning procedure tree, branch index and active or
 finished state. Loading an engine save lets the driver continue that branch.
+The `sav_13_engine_save_resumes_saved_sequence_procedure_without_restart`
+test checks package identity, cursor restoration and continued movement.
 Vanilla ESS package state is not connected to this cursor: named Sequence and
 Stacked procedure payloads are not decoded, so a saved actor cannot yet resume
 its vanilla procedure.
