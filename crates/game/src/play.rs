@@ -5,8 +5,11 @@
 //! queries supply gameplay contracts. Navigation uses the existing Detour-based
 //! NAVM graph rather than implementing another pathfinder. See docs/game.md.
 
+mod checkpoint;
 mod navigation;
 mod parse;
+
+pub use checkpoint::{Checkpoint, QuestCheckpoint};
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -23,6 +26,8 @@ pub enum Error {
     Parse { line: usize, reason: String },
     #[error("route startup: {0}")]
     Startup(String),
+    #[error("route checkpoint: {0}")]
+    Checkpoint(String),
 }
 
 /// A point in a named cell, in Skyrim coordinates.
@@ -106,6 +111,52 @@ impl Report {
             self.trace.join("\n")
         )
     }
+}
+
+/// A route result and every quest or inventory mismatch against its successor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckpointReport {
+    pub route: Report,
+    pub differences: Vec<String>,
+}
+
+impl CheckpointReport {
+    /// Whether gameplay completed and every compared checkpoint field matches.
+    pub fn passed(&self) -> bool {
+        self.route.passed() && self.differences.is_empty()
+    }
+
+    /// Render gameplay failure evidence followed by each differing field.
+    pub fn format(&self) -> String {
+        format!(
+            "{}checkpoint: {} differing field(s)\n{}\n",
+            self.route.format(),
+            self.differences.len(),
+            self.differences.join("\n")
+        )
+    }
+}
+
+/// Play an authored route and compare live quest progress, flags and player
+/// quantities with an independently loaded successor. A failed route still
+/// produces field differences. Both worlds use the union of their loaded quests.
+///
+/// # Errors
+/// Returns a checkpoint error for a missing player or invalid scoped quest.
+pub fn run_to_checkpoint(
+    game: &mut Game,
+    route: &Route,
+    successor: &mut Game,
+) -> Result<CheckpointReport, Error> {
+    let route = run(game, route);
+    let mut scope = game.world().loaded_quests();
+    scope.extend(successor.world().loaded_quests());
+    let played = Checkpoint::capture(game, &scope)?;
+    let expected = Checkpoint::capture(successor, &scope)?;
+    Ok(CheckpointReport {
+        route,
+        differences: played.differences(&expected),
+    })
 }
 
 /// Read a route and run it from an external ESS save, without a rendering host.

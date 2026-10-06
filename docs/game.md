@@ -542,14 +542,33 @@ quest's script variables. Both modes reject failed world passes. Neither mode
 changes the external save. `load_world_checkpoint` exposes this startup choice
 to callers without a command-line process.
 
-PLY-03's gated corpus survey loads the first three numbered main quest saves in
-the supplied sequence. It runs the source checkpoint through the route runner,
-then compares its restored quest stages, quest flags and player inventory with
-the next checkpoint. Differences are printed with the quest or item identity
-and field name. The current survey route only checks VM errors. It does not
-advance quest progress between checkpoints, so its differences measure the
-state that remains after the available route execution rather than a completed
-main quest replay. It requires `SKYRIM_DATA` and `SOE_TEST_SAVES`.
+`play::Checkpoint` captures completed stages, current and highest stages,
+running, active, completed and failed flags, the other quest flags, saved form
+flags and player item quantities. `run_to_checkpoint` executes an authored
+route and compares both worlds over the union of their loaded quests. A quest
+outside one world's loaded table uses its winning record defaults without
+loading it or dispatching events. Missing player state and invalid scoped
+quests return checkpoint errors. Zero and absent inventory entries compare as
+quantity zero. Reports sort quest and item identities and name each differing
+field. A route failure retains its trace and the checkpoint differences.
+`CheckpointReport::passed` requires both successful gameplay and zero differences.
+Checkpoints and comparison reports are transient and add no saved state.
+
+The `ply_03_` synthetic tests exercise flag and stage differences, item additions
+and removals, absent quests, record defaults, invalid scope, failed routes and
+an inventory pickup route matching an independently constructed successor.
+The gated acceptance test executes two authored Helgen routes against the first
+three numbered main quest saves and requires zero differences for both pairs.
+It requires `SKYRIM_DATA` and `SOE_TEST_SAVES`, reads saves in place and lists
+all fields even when a route fails. It uses world-checkpoint startup and does
+not import saved VM variables, scene execution or timers.
+
+The comparison uses the existing ESS world importer. The local CommonLib
+`include/RE/T/TESQuest.h` defines the quest flag bits and the CK
+`Quest_Script.wikitext` defines highest completed stage queries. The installed
+MQ101 and MQ101DragonAttack PEX fragments and VMAD properties identify the
+Helgen actions used by the authored routes. No assets or saves are copied into
+the repository and no dependency is added.
 
 Local CK `PathToReference_-_Actor.wikitext` supplies path failure and interruption
 semantics, and `Activate_-_ObjectReference.wikitext` supplies default activation
