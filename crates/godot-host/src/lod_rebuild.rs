@@ -168,15 +168,15 @@ impl<T> LodBuildRequest<T> {
     }
 }
 
-/// Choose the coarsest level whose projected silhouette error is below the
-/// pixel limit. The input order is L4, L8, L16 and L32.
+/// Choose the coarsest level whose projected silhouette error is at or below
+/// the pixel limit. The input order is L4, L8, L16 and L32.
 #[must_use]
 pub fn select_far_level(projected_error_pixels: [f32; 4], pixel_limit: f32) -> LodLevel {
     let levels = [LodLevel::L4, LodLevel::L8, LodLevel::L16, LodLevel::L32];
     levels
         .iter()
         .zip(projected_error_pixels)
-        .filter(|(_, error)| error.is_finite() && *error < pixel_limit)
+        .filter(|(_, error)| error.is_finite() && *error <= pixel_limit)
         .map(|(level, _)| *level)
         .next_back()
         .unwrap_or(LodLevel::L4)

@@ -4380,6 +4380,29 @@ by the same residency budget as BTO blocks. The generated result is held in
 memory and is not serialized to a BTO file. Skyrim tree billboard generation
 and atlas baking are not part of this path.
 
+## LOD rebuild support, RND-16
+
+`lod_rebuild::LoadOrderHash` hashes ordered plugin names, enabled flags and
+resolved slots. `LodBuildCache` stores completed values in memory by that
+hash. A cache miss starts the supplied builder on a worker thread, and
+`LodBuildRequest::finish` publishes its complete result under the key. A
+builder can return object and terrain products together. This helper is not
+connected to `DataSource::open_loadout`, the object or terrain generators, or
+the Godot streamer, and its cache is not persisted between processes.
+
+`silhouette_error_pixels` measures the maximum edge displacement between two
+axis-aligned projected bounds. `select_far_level` chooses the coarsest level
+whose caller-supplied projected error is within its pixel limit. These helpers
+do not project meshes or measure their rendered silhouettes. The streamer
+still uses one configured level, and generated terrain LOD is not implemented
+here. Automatic load-order monitoring, terrain generation, runtime far-level
+switching and a rendered under-one-pixel silhouette survey remain unverified.
+
+The named DynDOLOD and xLODGen documentation was not present in the local
+reference corpus. The available Wrye Bash distant-LOD note explicitly covers
+Oblivion, so its format claims are not used for Skyrim. Object LOD generation
+continues to follow the local TES5Edit `Core/wbLOD.pas` source described above.
+
 ## Distant-terrain LOD residency, RND-03
 
 `DataSource::generate_terrain_lod_block` reads winning CELL and LAND records
