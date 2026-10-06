@@ -8,6 +8,7 @@ const RecordSky := preload("res://record_sky.gd")
 const LoadDiagnostics := preload("res://load_diagnostics.gd")
 
 var player: Node3D
+var streamer: Node3D
 var system_overlay: CanvasLayer
 var frames := 0
 var loaded := false
@@ -29,7 +30,7 @@ func _start() -> void:
 		return
 	var scene := Node3D.new()
 	get_root().add_child(scene)
-	var streamer: Node3D = ClassDB.instantiate("CellStreamerNode")
+	streamer = ClassDB.instantiate("CellStreamerNode")
 	scene.add_child(streamer)
 	var load_diagnostics := LoadDiagnostics.new()
 	load_diagnostics.streamer = streamer
@@ -58,7 +59,7 @@ func _start() -> void:
 		return
 	print("STARTUP render ms=", Time.get_ticks_msec() - phase_msec)
 	player = ClassDB.instantiate("PlayerNode")
-	player.set("capture_mouse", OS.get_environment("SOE_CAPTURE_PATH").is_empty())
+	_configure_player()
 	scene.add_child(player)
 	system_overlay = SystemOverlay.new()
 	system_overlay.player = player
@@ -157,6 +158,9 @@ func _run_aud_11_check() -> void:
 		and voice_starts > 0 and peak_db > -60.0 and walk_distance > 10.0
 	print("AUD-11 RESULT: ", "PASS" if passed else "FAIL")
 	quit(0 if passed else 1)
+
+func _configure_player() -> void:
+	player.set("capture_mouse", OS.get_environment("SOE_CAPTURE_PATH").is_empty())
 
 func _process(_delta: float) -> bool:
 	if is_instance_valid(loading_label):

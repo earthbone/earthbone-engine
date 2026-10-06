@@ -361,6 +361,149 @@ release extension build and import, run the live monitor and overlay check:
 rtk proxy "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_12_monitors_test.gd
 ```
 
+## Fixed installed-data CPU suite, PRF-16
+
+`tools/perf-budget.sh` builds the release extension and benchmark, imports
+the Godot project and runs three isolated headless scenarios. The first
+starts the actual walkthrough in WhiterunBanneredMare, warms navigation and
+120 fixed steps, then measures 3,600 steps with NPC packages for 60 seconds.
+The second starts the same walkthrough, walks toward an unlocked authored
+load door from its return marker, activates it through Game and replaces the
+host collision and geometry with WhiterunWorld. It measures the approach,
+the crossing and 3,600 exterior steps. Physical residency at the fresh city
+exit includes the player and one NPC after PRF-31. The walk requires both
+actor bodies and package evaluations during the exterior steps.
+The third drives PRF-07's 1,000 travel
+and sandbox actors on their record-backed NAVM for 3,600 steps after ten
+warm-up steps. Each scenario paces at 60 steps per second and retains every
+CPU sample. TST-18's installed walkthrough workload is the first two scenarios.
+
+The frame is CPU wall time inside a fixed simulation step, including door
+activation on the crossing step. Pacing, setup, telemetry and report writing
+are excluded. PRF-12's exclusive slots supply per-system p50, p99 and worst
+over the whole measured run, including idle zero samples. Headless rendering
+slots may be zero. These runs establish CPU costs, not rendering throughput.
+The thresholds below were fixed before the first PRF-16 run. Every reported
+statistic must meet its corresponding limit, including the overall frame.
+
+<!-- PRF-16 budgets -->
+
+| System | p50 ms | p99 ms | Worst ms |
+|---|---:|---:|---:|
+| frame | 8 | 16.7 | 33 |
+| papyrus_vm | 2 | 4 | 8 |
+| ai_planning | 2 | 4 | 8 |
+| ai_movement | 2 | 4 | 8 |
+| combat | 1 | 2 | 4 |
+| magic | 1 | 2 | 4 |
+| quests_story_manager | 1 | 2 | 4 |
+| dialogue | 1 | 2 | 4 |
+| physics_sync | 2 | 4 | 8 |
+| cell_streaming | 2 | 8 | 33 |
+| audio | 1 | 2 | 4 |
+| save | 2 | 8 | 33 |
+| input | 1 | 2 | 4 |
+| host_render_submission | 2 | 4 | 8 |
+| other | 2 | 4 | 8 |
+
+<!-- /PRF-16 budgets -->
+
+```text
+rtk proxy env SKYRIM_DATA=/path/to/Data tools/perf-budget.sh
+rtk proxy env SKYRIM_DATA=/path/to/Data tools/perf-budget.sh --sweep
+rtk proxy env SKYRIM_DATA=/path/to/Data python3 tools/performance.py final-sweep --out target/final-budget
+```
+
+Normal mode returns 2 for a budget breach, 1 for incomplete or invalid
+execution, and 0 when every scenario passes. It runs all scenarios even after
+a failure. `tools/performance.py final-sweep` calls this suite with `--sweep`.
+It returns zero after recording failures so a group can finish. Both modes write raw logs,
+`report.json` and `follow-up-rows.csv` under `target/perf-budget`. The latter
+contains one complete new backlog row per failed scenario, using the next
+unused PRF ids. The orchestrator imports those rows into BACKLOG.csv after
+reconciling ids with any concurrent additions. The runner does not edit the
+backlog. `--no-build` as the first argument reuses previously built binaries,
+while still importing the project before launching the scenarios.
+
+Sources: the local Godotwind benchmarking manual for fixed routes, separate
+setup and full-run statistics, xEdit's REFR XTEL for the authored return
+marker, this repository's PRF-12 timing API, and the parent project's
+`.claude/skills/soe-perf/SKILL.md`. The current timing contract supersedes
+that skill's historical process-monitor wording.
+
+## PRF-16 installed run, 2026-10-05
+
+Uncommitted PRF-16 changes on `draft4/PRF-16`, based on `a69bee42`.
+Release builds on the AMD Ryzen 9 7900X, 24 logical CPUs and 61.9 GiB
+RAM, using stock Godot 4.4.1 headless. These CPU checks perform no GPU
+rendering. The load order contains the five installed Special Edition
+masters. No compiler or other check launched by this agent overlapped
+the measured scenarios.
+
+| Scenario | Samples | Game ticks | Simulation seconds | Wall seconds | NPCs | Evaluations |
+|---|---:|---:|---:|---:|---:|---:|
+| bannered-mare | 3600 | 3600 | 60.000 | 60.069 | 7 | 12412 |
+| walk-out | 3624 | 3624 | 60.400 | 61.119 | 26 | 14489 |
+| thousand-actors | 3600 | 3600 | 60.000 | 60.000 | 1000 | 14440 |
+
+| Scenario | System | p50 ms | p99 ms | Worst ms |
+|---|---|---:|---:|---:|
+| bannered-mare | frame | 3.089889 | 4.648324 | 104.465270 |
+| bannered-mare | ai_movement | 0.829303 | 1.237961 | 1.718361 |
+| bannered-mare | ai_planning | 1.096298 | 1.832864 | 5.068457 |
+| bannered-mare | audio | 0.000090 | 0.000311 | 0.004729 |
+| bannered-mare | cell_streaming | 0.002495 | 0.130498 | 0.359499 |
+| bannered-mare | combat | 0.002544 | 0.004390 | 0.015118 |
+| bannered-mare | dialogue | 0.060515 | 0.096082 | 1.481378 |
+| bannered-mare | host_render_submission | 0.333993 | 0.527116 | 2.374088 |
+| bannered-mare | input | 0.016982 | 0.030678 | 0.259441 |
+| bannered-mare | magic | 0.448046 | 0.824949 | 1.552254 |
+| bannered-mare | other | 0.049963 | 0.082946 | 1.032108 |
+| bannered-mare | papyrus_vm | 0.096683 | 0.158129 | 2.479175 |
+| bannered-mare | physics_sync | 0.112193 | 0.164040 | 0.251706 |
+| bannered-mare | quests_story_manager | 0.011583 | 0.023656 | 100.462013 |
+| bannered-mare | save | 0.000000 | 0.000000 | 0.000000 |
+| walk-out | frame | 5.178666 | 7.577209 | 680.799649 |
+| walk-out | ai_movement | 1.028892 | 1.579179 | 4.816025 |
+| walk-out | ai_planning | 2.395355 | 3.569947 | 19.459391 |
+| walk-out | audio | 0.000090 | 0.000221 | 0.000642 |
+| walk-out | cell_streaming | 0.004137 | 0.521446 | 461.143531 |
+| walk-out | combat | 0.015866 | 0.025094 | 0.626454 |
+| walk-out | dialogue | 0.103426 | 0.155835 | 1.161656 |
+| walk-out | host_render_submission | 0.724226 | 1.160052 | 203.558696 |
+| walk-out | input | 0.017544 | 0.031599 | 0.050525 |
+| walk-out | magic | 0.556332 | 1.007745 | 2.247467 |
+| walk-out | other | 0.038083 | 0.066496 | 2.443009 |
+| walk-out | papyrus_vm | 0.101600 | 0.160081 | 2.145214 |
+| walk-out | physics_sync | 0.120688 | 0.185711 | 6.853982 |
+| walk-out | quests_story_manager | 0.012055 | 0.024517 | 103.755979 |
+| walk-out | save | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | frame | 3.557162 | 7.269708 | 11.816029 |
+| thousand-actors | papyrus_vm | 0.004318 | 0.006843 | 0.023554 |
+| thousand-actors | ai_planning | 0.009165 | 0.049494 | 0.914478 |
+| thousand-actors | ai_movement | 2.905501 | 5.810900 | 9.936738 |
+| thousand-actors | combat | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | magic | 0.074491 | 0.141528 | 0.441815 |
+| thousand-actors | quests_story_manager | 0.000390 | 0.000811 | 0.011631 |
+| thousand-actors | dialogue | 0.351975 | 0.882028 | 3.321977 |
+| thousand-actors | physics_sync | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | cell_streaming | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | audio | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | save | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | input | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | host_render_submission | 0.000000 | 0.000000 | 0.000000 |
+| thousand-actors | other | 0.174651 | 0.409134 | 4.366021 |
+
+Every scenario completed and breached at least one fixed budget. The
+sweep recorded proposed rows PRF-34, PRF-35 and PRF-36 without changing
+BACKLOG.csv. Raw logs, the complete report and the rows are in
+`target/prf-16-installed-test`. The gated
+`prf_16_installed_sweep_runs_fixed_scenarios_and_records_budget_breaches`
+test passed. The earlier report in `target/prf-16-before-tick-fix` records
+the failing doubled Game ticks before removing the closed-menu tick.
+
+No vanilla-runtime timing comparison or rendering acceptance was run.
+
 ## Machine
 
 - AMD Ryzen 9 7900X, 12 cores, 24 threads, up to 5.7 GHz
