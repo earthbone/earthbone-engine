@@ -1,89 +1,87 @@
 # Status, per subsystem
 
-## Checkpoint, 2026-10-03, end of backlog run round 3
+## Checkpoint, 2026-10-06, end of backlog run round 5
 
 The lead refreshes this section after every backlog round. The table comes from
-`.soe-run-tools/status_table.py` over BACKLOG.csv. Open rows carry their
-remaining work in the evidence column, partial rows name the open clause.
+`.soe-run-tools/status_table.py` over BACKLOG.csv. Rows merged as partial count
+as open there and name their open clause in the evidence column. Round 4 and
+round 5 ended with a full lint gate and every installed-data test passing on
+master (8ae73582).
 
 | Area | Done | Open | Blocked |
 |---|---:|---:|---:|
 | Papyrus natives (SCR) | 49 | 24 | 0 |
-| Performance (PRF) | 8 | 22 | 0 |
-| Saves (SAV) | 55 | 4 | 11 |
-| Menus and HUD (UI) | 13 | 13 | 0 |
+| Performance (PRF) | 10 | 23 | 0 |
+| Saves (SAV) | 56 | 4 | 11 |
+| Menus and HUD (UI) | 16 | 10 | 0 |
 | Animation (ANM) | 51 | 8 | 0 |
 | Magic (MAG) | 65 | 5 | 3 |
 | CommonLib shim (SHM) | 15 | 8 | 0 |
 | Test harness (TST) | 10 | 8 | 0 |
-| Playtest bots (PLY) | 0 | 7 | 0 |
+| Audio (AUD) | 6 | 6 | 0 |
 | AI packages, schedules, detection (AI) | 86 | 1 | 4 |
-| Godot host (HST) | 14 | 5 | 0 |
-| Audio (AUD) | 6 | 4 | 0 |
+| Godot host (HST) | 15 | 5 | 0 |
 | Progression (perks, skills, leveled lists) (PRG) | 17 | 3 | 1 |
 | Tools (TOOL) | 3 | 4 | 0 |
-| Combat (CMB) | 35 | 2 | 1 |
+| Combat (CMB) | 36 | 2 | 1 |
 | Editor (EDT) | 25 | 3 | 0 |
+| Playtest bots (PLY) | 4 | 3 | 0 |
 | File formats (FMT) | 28 | 2 | 0 |
 | Mod data (SPID, KID, BOS, OAR) (MOD) | 8 | 2 | 0 |
-| Rendering (RND) | 14 | 1 | 1 |
+| Rendering (RND) | 20 | 1 | 1 |
 | Crafting (CRF) | 8 | 0 | 0 |
 | Dialogue (DLG) | 21 | 0 | 0 |
 | Inventory (INV) | 8 | 0 | 0 |
-| **All 687 rows** | **539** | **126** | **21** |
+| **All 701 rows** | **557** | **122** | **21** |
 
 ### What runs today
 
 `godot/walkthrough.gd` is the playable prototype. With `SKYRIM_DATA` set and
 the release extension built, it loads the installed plugins and archives,
 streams Whiterun's Bannered Mare and places the player there: WASD moves, the
-mouse looks, E activates, Space jumps, Ctrl sneaks, F switches the camera.
-`PlayerNode::start_gameplay` starts the game VM over the same records and
-archives the renderer uses. Every frame `Game::tick` (`crates/game/src/lib.rs`)
-runs AI packages, activation, force greets, dialogue, magic, scene actions,
-quest lifecycle tasks and menu mode.
+mouse looks, E activates, Space jumps, Ctrl sneaks, F switches the camera. The
+lead's measurements on master, release build with installed data:
 
-The host also has the native menu framework, the dialogue menu (DLG-10),
-footsteps, dialogue voice playback, ranged release and projectile flight
-(CMB-08, CMB-22), death ragdolls (CMB-19), water, grass, rock instancing and
-distant terrain LOD (RND-02, RND-11, RND-04, RND-03). It saves and reloads its
-own native save generations (`save_game_generation`,
-`recover_game_generation`, SAV-63). Merged but partial, with the open clause
-in the backlog row: the main menu lifecycle (UI-18), music (AUD-05), stagger
-(CMB-27) and attaching a restored player (SAV-19, blocked). See
-[godot-host](godot-host.md) for each feature's evidence.
+- Startup reaches ready in about 7 to 10 seconds. Starting the 421 startup
+  quests takes 4 ms (PRF-33, it took 15 seconds before).
+- NPC planning stays under 8 ms per frame in a 60 second Bannered Mare check,
+  worst 2.8 ms (PRF-11). Walking out of Whiterun no longer freezes: detection
+  stays under 2 ms in all but 2 of 3622 frames of the 60 second exterior walk,
+  worst 2.56 ms (PRF-31).
+- Cells build only enabled references, so Whiterun no longer shows its civil war
+  props (RND-17). Interiors take their own cell lighting and exteriors a sun
+  from the weather (RND-21), with a sky, sun and moons from WTHR and CLMT
+  (RND-18), terrain and object LOD around the player (RND-19), effect shader
+  meshes with their blend and glow (RND-22) and a fallback for collision hulls
+  Jolt rejects (PRF-32). The white boxes in Whiterun were editor markers
+  (RND-20).
+- Ambience and music play, decoded off the main thread (AUD-11, AUD-12).
+- Menus show item names and an item preview (UI-25). SkyUI's look and its SWF
+  art conversion are partial (UI-19, UI-20, UI-21 to UI-23).
+- A logging layer with verbosity and a Papyrus log exists, partial (TOOL-06,
+  TOOL-07). Each engine system's share of the frame, operation counts and
+  per-operation baselines are reported (PRF-12, PRF-14, PRF-15), and NPC
+  pathfinding runs on worker threads (PRF-17, partial).
+- The playtest bots PLY-01, PLY-02, PLY-04 and PLY-06 run, PLY-03 and PLY-05
+  are partial.
+
+See [godot-host](godot-host.md) for each feature's evidence.
 
 ### What does not run yet
 
-- No vanilla save loads from the walkthrough. The host can convert a `.ess`
-  into one of its own save generations (`accept_vanilla_recovery_session` in
-  `crates/godot-host/src/save_recovery.rs`, SAV-61), refusing a save whose
-  PCON or PARW change forms it cannot read, and `attach_restored_generation`
-  resumes from a native generation. No GDScript call opens a `.ess` yet, and
-  SAV-19 (resume the host from a restored vanilla game) still lacks the test
-  that connects the two.
-- No new game starts. The walkthrough always begins in the Bannered Mare, and
-  the host has no new-game path.
-- 24 Papyrus native rows are open. The SCR rows in BACKLOG.csv name each
-  native and what its implementation still lacks.
-- The walkthrough is slow and stutters. Before PRF-11 a frame froze inside
-  NavGraph::locate during NPC planning. PRF-11 is drafted, not merged: on its
-  second pass, planning still takes over 8 ms in 637 of 3600 frames of a 60
-  second Bannered Mare check, worst 25 ms, most of it in the actor driver. No
-  per-system frame breakdown exists to show where the rest of the frame goes
-  (PRF-12 to PRF-15, the profiling rows run to PRF-30).
-- No logging layer exists. About twenty println and eprintln calls and the
-  host's godot_error calls are the only output, with no verbosity setting
-  (TOOL-06, and TOOL-07 for a Papyrus.0.log like vanilla's).
-- In the 2026-10-03 walkthrough, menus printed form IDs instead of item names:
-  the inventory menu falls back to the form ID when `World::name_of` finds no
-  name. Menus also have no item preview (UI-25), and container looting does not
-  follow QuickLoot IE yet (UI-26). The menus are the host's own, not SkyUI's:
-  converting interface SWF art (UI-19), SkyUI's look as the default (UI-20) and
-  a bundled theme from NORDIC UI's own art (UI-24) are open.
-- Everything in the game, Papyrus and navmesh crates runs on one thread. The VM
-  interleaves script threads on it in slices of 64 instructions (PRF-17).
-- The playtest bots (PLY-01 to PLY-07) are drafted, not merged.
+- No vanilla save loads. Recovery refuses all 60 saves of the corpus: it
+  restores placed arrows and hazards now, but still lacks dynamic Papyrus
+  targets, duplicate item scripts, PMIS projectiles and opaque PCON data
+  (SAV-19, blocked).
+- No new game starts. The walkthrough always begins in the Bannered Mare.
+- NPCs render without skinned character materials (RND-05).
+- NPC voices do not play yet in the walkthrough (AUD-11, open clause).
+- The main quest replay bot stops on a navmesh route with an off-surface link
+  between its first two checkpoints (PLY-03).
+- 24 Papyrus native rows are open, and Papyrus runs on one thread (PRF-17).
+- The profiling rows PRF-13, PRF-16, PRF-18 to PRF-21 and PRF-23 to PRF-30, the
+  NORDIC UI theme (UI-24) and QuickLoot looting (UI-26) have drafts that have
+  not been checked yet.
 - Checks only the user can run are pending: the TOOL-04 probe capture in the
   original game, HST-05 on a physical speaker, PRF-08 windowed cold starts and
   a SAV-65 crafting save. The kit is in `.soe-run-tools/session/`.
