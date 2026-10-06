@@ -1578,10 +1578,10 @@ nonzero values and 0.03 for dark values. No proprietary asset is embedded.
 ## Emissive materials, RND-06 (2026-09-20)
 
 The host carries BSLightingShaderProperty emissive RGB and multiplier into
-Godot materials. Slot two is loaded as a glow texture only when
-`SLSF2_Glow_Map` is set. The slot has other uses on skin and hair shaders,
-so its presence alone does not enable glow. Authored emission without a glow
-map remains a constant color.
+Godot materials. Slot two is loaded as a glow texture when `SLSF2_Glow_Map` is
+set. The slot has other uses on skin and hair shaders, so its presence alone
+does not enable glow. Authored emission without a glow map remains a constant
+color, except for the `_g.dds` `Own_Emit` convention documented under RND-24.
 
 The local references are `nifxml/nif.xml` for the slot and flag,
 `OpenMW/components/nifosg/nifloader.cpp` for emissive color and multiplier,
@@ -1618,6 +1618,31 @@ keeps the automated fixture independent of desktop window visibility. The
 full gate passed 1,197 top-level Rust tests and eleven Python tests, with
 all optional tools present. The determinism tests also run three child
 process checks, which are excluded from that top-level count.
+
+## Emission flag and glow-map mask, RND-24
+
+`MaterialDesc::emits_light` requires positive authored emission and either
+`SLSF1_Own_Emit` or `SLSF2_Glow_Map`. The standard and decal materials
+multiply enabled emission by the glow texture when one resolves.
+`SLSF2_Glow_Map` activates slot two directly. The installed Bannered Mare
+`CandleHornChandelier01.nif` instead has `SLSF1_Own_Emit`, a clear glow-map
+flag, and `HornCandles01_g.dds` in slot two. For this authored convention,
+`Own_Emit` plus a slot-two path ending in `_g.dds` also activates the texture
+mask. Other slot-two paths remain unused for emission. `Own_Emit` without a
+glow texture emits its constant authored color. Materials with emissive
+values but neither flag do not emit. The NIF reader already preserves both
+flags and the slot. Their bit definitions were checked against
+`engine-refs/nifly/include/Shaders.hpp` and the local `uesp-modfileformat`
+`TXST.wikitext` slot table, so no parser changes were needed.
+
+`rnd_24_emission_requires_own_emit_or_glow_map_and_glow_uses_slot_two` checks
+both enabling flags, the `_g.dds` Own_Emit convention and that an unrelated
+use of slot two is not treated as a glow map. The installed-data test checks
+that the Bannered Mare cell places the chandelier and that its emissive
+surfaces have a usable mask texture. `godot/rnd_24_emission_capture_test.gd`
+renders the installed Bannered Mare chandelier with Godot's production
+material path. It checks the glow map leaves most chandelier surface pixels
+dark while candle pixels remain bright.
 
 ## Materials (2026-09-17)
 
