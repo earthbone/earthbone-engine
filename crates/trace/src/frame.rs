@@ -284,6 +284,7 @@ impl Default for FrameHistory {
 impl FrameHistory {
     /// Append one completed frame in constant time.
     pub fn record(&mut self, sample: FrameSample) {
+        crate::Trace::frame_mark();
         for system in System::ALL {
             let index = system as usize;
             self.total_ns[index] = self.total_ns[index].saturating_add(sample.system_ns[index]);

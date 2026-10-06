@@ -111,6 +111,19 @@ PlaceObject2/3 payloads must be fully consumed by the typed reader. The breaker
 fixture for an unoccupied depth contains an extra payload byte and is rejected
 for that malformed envelope rather than its empty depth.
 
+## Engine system profiler, PRF-23
+
+The host registers a Godot `EngineProfiler` named `soe_systems` at the Scene
+initialization stage and unregisters it when the extension shuts down. When
+Godot's debugger enables it, PlayerNode sends each completed presentation
+frame as seconds for the frame followed by name and seconds pairs for all
+fourteen engine systems. `EngineProfiler` receives these payloads through
+Godot's `EngineDebugger.profiler_add_frame_data` API. The adapter and payload
+use the local Godot 4.4 `class_engineprofiler.rst` and
+`class_enginedebugger.rst` contracts. The editor acceptance script verifies
+that the extension registered the profiler. It does not inspect the editor's
+Profiler tab display.
+
 ## Scripted player input, PLY-01
 
 PRF-22 exposes `record_player_session(seed)`, `write_player_session(path)` and

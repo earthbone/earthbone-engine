@@ -521,6 +521,7 @@ impl INode3D for PlayerNode {
         let sample = self.host_frame.finish();
         soe_trace::Profile::systems("host", &sample);
         self.host_history.record(sample);
+        crate::godot_profiler::publish(&self.host_history);
         self.host_frame = soe_trace::FrameSnapshot::now();
     }
 

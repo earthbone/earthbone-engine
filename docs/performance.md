@@ -187,6 +187,34 @@ release extension build and import, run the live monitor and overlay check:
 rtk proxy "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_12_monitors_test.gd
 ```
 
+## Tracy and editor profiling, PRF-23
+
+The optional `soe-trace/tracy` feature streams `Span` scopes to a running Tracy
+viewer, plots the ten `WorkCounts` metrics, and marks completed system frames.
+It is disabled by default. The client captures on demand and advertises only
+on the local host. Inspect its dependency tree with:
+
+```text
+rtk cargo tree -p soe-trace --features tracy
+```
+
+Build the Godot extension with `cargo build -p soe-godot-host --release
+--features tracy` to enable Tracy in a host run.
+
+The Godot extension registers an `EngineProfiler` named `soe_systems`.
+When enabled by the editor debugger, it receives a frame duration and
+fourteen system duration pairs in seconds for every PlayerNode presentation
+frame. The current editor script verifies registration. It does not verify
+that Godot displays the custom values in its built-in Profiler tab.
+The feature adapter test is
+`prf_23_tracy_adapter_exports_scopes_counters_and_frame_marks`. After building
+the release extension and importing the project, run the editor registration
+check:
+
+```text
+rtk proxy "$SOE_GODOT_BIN" --editor --path godot --script prf_23_profiler_test.gd
+```
+
 ## Machine
 
 - AMD Ryzen 9 7900X, 12 cores, 24 threads, up to 5.7 GHz
