@@ -13,6 +13,8 @@ const CHEST_BASE: u32 = 0x801;
 const GOLD: u32 = 0x802;
 const CHEST: u32 = 0x803;
 const OWNER: u32 = 0x804;
+const CORPSE_BASE: u32 = 0x805;
+const CORPSE: u32 = 0x806;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -31,10 +33,23 @@ fn game(count: i32) -> Game {
             ),
     );
     plugin.push_top(Record::new(Tag(*b"FACT"), OWNER).zsub(Tag(*b"FULL"), "Other Faction"));
+    plugin.push_top(
+        Record::new(Tag(*b"NPC_"), CORPSE_BASE)
+            .zsub(Tag(*b"EDID"), "LootableCorpse")
+            .sub(
+                Tag(*b"CNTO"),
+                [GOLD.to_le_bytes(), count.to_le_bytes()].concat(),
+            ),
+    );
     plugin.push_top(Record::new(Tag(*b"REFR"), CHEST).sub(Tag(*b"NAME"), CHEST_BASE.to_le_bytes()));
+    plugin
+        .push_top(Record::new(Tag(*b"ACHR"), CORPSE).sub(Tag(*b"NAME"), CORPSE_BASE.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("QuickLootHost.esp", plugin).unwrap();
-    Game::new(order)
+    let game = Game::new(order);
+    game.world_mut().reference(id(CORPSE)).unwrap().is_actor = true;
+    game.world_mut().actor(id(CORPSE)).unwrap().dead = true;
+    game
 }
 
 fn quick_loot(count: i32) -> (Game, QuickLoot) {
@@ -98,4 +113,26 @@ fn ui_26_owned_item_rows_are_flagged_for_stealing() {
     game.world_mut().reference(id(CHEST)).unwrap().owner = Some(id(OWNER));
     loot.refresh(&game, Some(id(CHEST)), false);
     assert!(loot.rows[0].stealing);
+}
+
+#[test]
+fn ui_26_crosshair_container_opens_the_nonmodal_loot_list() {
+    let (game, mut loot) = quick_loot(2);
+    game.world_mut().set_crosshair_reference(Some(id(CHEST)));
+    let focused = game.world().crosshair_reference();
+    loot.refresh(&game, focused, false);
+    assert_eq!(loot.holder, Some(id(CHEST)));
+    assert_eq!(loot.rows.len(), 1);
+    assert_eq!(loot.rows[0].stack.count, 2);
+}
+
+#[test]
+fn ui_26_crosshair_dead_actor_opens_the_loot_list() {
+    let (game, mut loot) = quick_loot(2);
+    game.world_mut().set_crosshair_reference(Some(id(CORPSE)));
+    let focused = game.world().crosshair_reference();
+    loot.refresh(&game, focused, false);
+    assert_eq!(loot.holder, Some(id(CORPSE)));
+    assert_eq!(loot.rows.len(), 1);
+    assert!(!loot.rows[0].stealing);
 }
