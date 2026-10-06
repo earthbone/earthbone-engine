@@ -14,10 +14,6 @@ path = "src/lib.rs"
 name = "it"
 path = "tests/it.rs"
 
-[[test]]
-name = "ui_26_adversarial"
-path = "tests/ui_26_adversarial.rs"
-
 [features]
 save-fault-tests = ["soe-save/fault-injection"]
 
