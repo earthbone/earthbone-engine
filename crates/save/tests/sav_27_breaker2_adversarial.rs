@@ -37,10 +37,13 @@ fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
 #[test]
 fn sav_27_cell_marker_flag_combinations_preserve_zero_width_markers_and_bytes() {
     for subset in 0..8_u32 {
-        let flags = (1_u32 << 28) * (subset & 1)
-            | (1_u32 << 29) * ((subset >> 1) & 1)
-            | (1_u32 << 30) * ((subset >> 2) & 1);
-        let bytes: &[u8] = if flags == 0 { &[] } else { &[0x11, 0x22, 0x33, 0x44] };
+        let flags =
+            ((subset & 1) << 28) | (((subset >> 1) & 1) << 29) | (((subset >> 2) & 1) << 30);
+        let bytes: &[u8] = if flags == 0 {
+            &[]
+        } else {
+            &[0x11, 0x22, 0x33, 0x44]
+        };
         let decoded = form(6, flags, bytes.to_vec())
             .cell_change()
             .unwrap()
@@ -116,7 +119,10 @@ fn sav_27_spatial_known_width_truncation_and_reserved_flags_reject() {
             } else {
                 form(kind, 1, vec![0; len]).location_change()
             };
-            assert!(result.is_err(), "accepted {len} common flag bytes for {kind}");
+            assert!(
+                result.is_err(),
+                "accepted {len} common flag bytes for {kind}"
+            );
         }
     }
     assert!(form(29, 1 << 2, vec![]).encounter_zone_change().is_err());
@@ -150,12 +156,19 @@ fn sav_27_external_save_corpus_accounts_for_spatial_records_and_bytes() {
             let result = match name {
                 "CELL" => change.cell_change().map(|v| v.map(|c| c.data_bytes())),
                 "LCTN" => change.location_change().map(|v| v.map(|c| c.data_bytes())),
-                "ECZN" => change.encounter_zone_change().map(|v| v.map(|c| c.data_bytes())),
+                "ECZN" => change
+                    .encounter_zone_change()
+                    .map(|v| v.map(|c| c.data_bytes())),
                 _ => unreachable!(),
             };
             match result {
                 Ok(Some(bytes)) => {
-                    assert_eq!(bytes, payload.as_ref(), "{name} {:#010x}", change.change_flags);
+                    assert_eq!(
+                        bytes,
+                        payload.as_ref(),
+                        "{name} {:#010x}",
+                        change.change_flags
+                    );
                     *decoded.get_mut(name).unwrap() += 1;
                 }
                 Err(Error::SpatialChange { .. }) => *unsupported.get_mut(name).unwrap() += 1,

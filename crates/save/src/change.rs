@@ -583,7 +583,10 @@ impl ChangeForm {
         let (seen_data, suffix_offset, parsed_suffix) = if self.change_flags & (1 << 31) != 0 {
             let mut matches = Vec::new();
             for seen_len in std::iter::once(32).chain((0..=254).map(|count| count * 34)) {
-                if seen_len <= remainder.len() {
+                // A nonempty remainder cannot be explained by an empty
+                // interior array followed by marker bytes. With the seen-data
+                // flag set, it must begin with a complete source-defined shape.
+                if seen_len <= remainder.len() && (seen_len != 0 || remainder.is_empty()) {
                     if let Ok(suffix) = parse_cell_suffix(&remainder[seen_len..], self.change_flags)
                     {
                         matches.push((seen_len, suffix));
