@@ -6,7 +6,7 @@ use super::*;
 fn sav_30_breaker_saved_scene_phase_reaches_runtime_and_survives_engine_save_load() {
     let game = dialogue_game();
     let mut saved = fixture();
-    saved.change_forms[2].data[1..5].copy_from_slice(&1_u32.to_le_bytes());
+    saved.change_forms[2].data[7..11].copy_from_slice(&1_u32.to_le_bytes());
 
     game.world_mut()
         .restore_vanilla_dialogue_scene_changes(&saved)
@@ -34,14 +34,32 @@ fn sav_30_breaker_state_without_form_flags_preserves_record_flags_after_save_loa
         .unwrap();
     assert_eq!(game.world().record(id(0, INFO)).unwrap().flags, 0x0000_F00F);
     assert_eq!(game.world().record(id(0, SMQN)).unwrap().flags, 0x000F_0F0F);
-    assert_eq!(game.world().record(id(0, SCEN_ACTIVE)).unwrap().flags, 0xFFFF_00DF);
-    assert_eq!(game.world().restored_smqn_last_run_times(id(0, SMQN)), Some(&[][..]));
+    assert_eq!(
+        game.world().record(id(0, SCEN_ACTIVE)).unwrap().flags,
+        0xFFFF_00DF
+    );
+    assert_eq!(
+        game.world().restored_smqn_last_run_times(id(0, SMQN)),
+        Some(&[][..])
+    );
 
     let bytes = game.save_state().unwrap();
     let mut loaded = dialogue_game();
     loaded.load_state(&bytes).unwrap();
-    assert_eq!(loaded.world().record(id(0, INFO)).unwrap().flags, 0x0000_F00F);
-    assert_eq!(loaded.world().record(id(0, SMQN)).unwrap().flags, 0x000F_0F0F);
-    assert_eq!(loaded.world().record(id(0, SCEN_ACTIVE)).unwrap().flags, 0xFFFF_00DF);
-    assert_eq!(loaded.world().restored_info_said_once(id(0, INFO)), Some(true));
+    assert_eq!(
+        loaded.world().record(id(0, INFO)).unwrap().flags,
+        0x0000_F00F
+    );
+    assert_eq!(
+        loaded.world().record(id(0, SMQN)).unwrap().flags,
+        0x000F_0F0F
+    );
+    assert_eq!(
+        loaded.world().record(id(0, SCEN_ACTIVE)).unwrap().flags,
+        0xFFFF_00DF
+    );
+    assert_eq!(
+        loaded.world().restored_info_said_once(id(0, INFO)),
+        Some(true)
+    );
 }

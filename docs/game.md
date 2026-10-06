@@ -3510,10 +3510,9 @@ active markers and exact runtime bytes in record overrides. The save crate
 validates SCEN action widths, counts and field boundaries before this import.
 The `World::restore_vanilla_dialogue_scene_changes` path validates all targets
 before applying them. INFO state updates dialogue history, SCEN state updates
-the playing-scene set and starts active scenes at phase zero, and the record
-accessors expose the saved values. Saved `CHANGE_FORM_FLAGS` bits toggle the
-matching live record flags. The SCEN active payload remains opaque and does
-not restore saved phase or action progress. INFO has no saved timestamp, so
+the playing-scene set at the saved phase, and the record accessors expose the
+saved values. Saved `CHANGE_FORM_FLAGS` bits toggle the matching live record
+flags. SCEN action progress is not restored. INFO has no saved timestamp, so
 its said-once marker uses the current game day. Version 37 also retains PACK
 and NAVM change markers in record overrides.
 

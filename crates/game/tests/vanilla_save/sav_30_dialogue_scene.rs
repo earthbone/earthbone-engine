@@ -4,6 +4,8 @@ use super::*;
 
 #[path = "../sav_30_adversarial.rs"]
 mod adversarial;
+#[path = "../sav_30_breaker_adversarial.rs"]
+mod breaker;
 use soe_save::ChangeForm;
 
 const INFO: u32 = 0x800;
@@ -37,6 +39,7 @@ fn dialogue_game() -> Game {
             record = record
                 .sub(Tag(*b"HNAM"), [])
                 .zsub(Tag(*b"NAM0"), "First")
+                .sub(Tag(*b"HNAM"), [])
                 .sub(Tag(*b"HNAM"), [])
                 .sub(Tag(*b"ANAM"), []);
         }
