@@ -2,6 +2,8 @@
 
 //! DDS upload payloads and a per-source single-load cache. Uses the VFS's
 //! path normalization and Godot's complete mip-chain requirement.
+//! Nifly NifFile::TrimTexturePaths and OpenMW resourcehelpers.cpp/findDirectory
+//! strip export prefixes at a textures directory component before VFS lookup.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -161,6 +163,20 @@ pub(super) struct TextureCache {
 /// A texture read at most once, `None` after a miss or a failed read.
 type TextureSlot = Arc<OnceLock<Option<Arc<TextureData>>>>;
 
+fn texture_path(path: &str) -> String {
+    let path = soe_bsa::normalize(path.trim())
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("/");
+    if !path.starts_with("textures/") {
+        if let Some(root) = path.find("/textures/") {
+            return path[root + 1..].to_owned();
+        }
+    }
+    path
+}
+
 /// Shared opaque magenta/black albedo for a named texture that failed to load.
 pub(crate) fn checker_albedo() -> Arc<TextureData> {
     static CHECKER: OnceLock<Arc<TextureData>> = OnceLock::new();
@@ -194,7 +210,7 @@ pub(super) struct TextureCounters {
 
 impl TextureCache {
     pub(super) fn decode_rgba(&self, vfs: &Vfs, path: &str) -> Option<Arc<DdsImage>> {
-        let path = soe_bsa::normalize(path);
+        let path = texture_path(path);
         let mut cache = self
             .decoded_rgba
             .lock()
@@ -260,7 +276,7 @@ impl TextureCache {
         path: &str,
         load: impl FnOnce(&str) -> Option<Arc<TextureData>>,
     ) -> Option<Arc<TextureData>> {
-        let path = soe_bsa::normalize(path);
+        let path = texture_path(path);
         let slot = self
             .textures
             .lock()
@@ -341,6 +357,50 @@ mod tests {
     use std::sync::{Arc, Barrier, Mutex};
 
     use super::{BlockFormat, TextureCache, TextureData};
+
+    #[test]
+    fn rnd_32_texture_paths_strip_export_roots_on_directory_boundaries() {
+        for path in [
+            r"SkyrimHD\\build\\pc\\Data\\Textures\\Plants\\TundraShrub01.dds",
+            r"C:\Bethesda\Data\Textures\Plants\TundraShrub01.dds",
+            "  /textures//plants/tundrashrub01.dds\n",
+        ] {
+            assert_eq!(
+                super::texture_path(path),
+                "textures/plants/tundrashrub01.dds"
+            );
+        }
+        assert_eq!(
+            super::texture_path("textures/a/textures/b.dds"),
+            "textures/a/textures/b.dds"
+        );
+        assert_eq!(super::texture_path("mytextures/a.dds"), "mytextures/a.dds");
+    }
+
+    #[test]
+    fn rnd_32_export_texture_aliases_share_the_canonical_cache_slot() {
+        let cache = TextureCache::default();
+        let first = cache
+            .get_or_load(
+                r"SkyrimHD\\build\\pc\\data\\textures\\plants\\shrub.dds",
+                |canonical| {
+                    assert_eq!(canonical, "textures/plants/shrub.dds");
+                    Some(Arc::new(TextureData::Rgba8(soe_dds::Image {
+                        width: 1,
+                        height: 1,
+                        depth: 1,
+                        rgba: vec![1, 2, 3, 255],
+                    })))
+                },
+            )
+            .unwrap();
+        let alias = cache
+            .get_or_load("textures/plants/shrub.dds", |_| {
+                panic!("canonical texture was loaded twice")
+            })
+            .unwrap();
+        assert!(Arc::ptr_eq(&first, &alias));
+    }
 
     struct WarningCapture(Arc<Mutex<Vec<String>>>);
 
