@@ -13,3 +13,9 @@ __pycache__/
 # Reply files a Codex writer leaves at the worktree root.
 /writer-*.last
 /writer_reply.json
+# Run artifacts: temp homes, diagnosis projects and logs a fixer can leave.
+/.tmp*/
+/audio-diagnosis/
+/.tst-16/
+/*.log
+*-writer-reply.md
