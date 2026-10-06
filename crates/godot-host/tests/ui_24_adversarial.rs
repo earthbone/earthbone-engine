@@ -96,10 +96,7 @@ fn ui_24_skyui_category_art_wins_for_a_real_magic_spell_row() {
         eprintln!("SOE_GODOT_BIN or SOE_TEST_SKYUI unset, skipped");
         return;
     };
-    let archive = soe_bsa::Archive::open(
-        &PathBuf::from(skyui).join("SkyUI_SE.bsa"),
-    )
-    .unwrap();
+    let archive = soe_bsa::Archive::open(&PathBuf::from(skyui).join("SkyUI_SE.bsa")).unwrap();
     let cache = tempfile::tempdir_in(workspace().join("target")).unwrap();
     let mut movies = serde_json::Map::new();
     for name in [
@@ -187,10 +184,8 @@ fn ui_24_extracted_nordic_art_has_no_definition_in_either_reference_archive() {
         return;
     };
     let skyui = soe_bsa::Archive::open(&PathBuf::from(skyui).join("SkyUI_SE.bsa")).unwrap();
-    let vanilla = soe_bsa::Archive::open(
-        &PathBuf::from(data).join("Skyrim - Interface.bsa"),
-    )
-    .unwrap();
+    let vanilla =
+        soe_bsa::Archive::open(&PathBuf::from(data).join("Skyrim - Interface.bsa")).unwrap();
     let output = tempfile::tempdir_in(workspace().join("target")).unwrap();
     let manifest = soe_godot_host::nordic_theme::extract(
         &PathBuf::from(nordic),
@@ -218,8 +213,17 @@ fn ui_24_extracted_nordic_art_has_no_definition_in_either_reference_archive() {
     assert!(!elements.is_empty(), "NORDIC install yielded no owned art");
     for (path, definition) in elements {
         let fingerprint = definition["sha256"].as_str().unwrap();
-        assert!(!reference.contains(fingerprint), "reference art escaped: {path}");
-        assert!(output.path().join(path).is_file(), "missing extracted art: {path}");
-        assert!(definition["source"].as_str().unwrap().starts_with("interface/skyui/"));
+        assert!(
+            !reference.contains(fingerprint),
+            "reference art escaped: {path}"
+        );
+        assert!(
+            output.path().join(path).is_file(),
+            "missing extracted art: {path}"
+        );
+        assert!(definition["source"]
+            .as_str()
+            .unwrap()
+            .starts_with("interface/skyui/"));
     }
 }

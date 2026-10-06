@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use swf::{Tag, Sprite};
+use swf::{Sprite, Tag};
 
 fn movie(tags: &[Tag<'_>]) -> Vec<u8> {
     let mut header = swf::Header::default_with_swf_version(9);
@@ -47,28 +47,17 @@ fn ui_24_second_extraction_cannot_reuse_a_populated_output_directory() {
         return;
     };
     let skyui = soe_bsa::Archive::open(&PathBuf::from(skyui).join("SkyUI_SE.bsa")).unwrap();
-    let vanilla = soe_bsa::Archive::open(&PathBuf::from(data).join("Skyrim - Interface.bsa"))
-        .unwrap();
+    let vanilla =
+        soe_bsa::Archive::open(&PathBuf::from(data).join("Skyrim - Interface.bsa")).unwrap();
     let nordic = PathBuf::from(nordic);
-    let output = tempfile::tempdir_in(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"),
-    )
-    .unwrap();
-    let first = soe_godot_host::nordic_theme::extract(
-        &nordic,
-        &skyui,
-        &vanilla,
-        output.path(),
-    )
-    .unwrap();
+    let output =
+        tempfile::tempdir_in(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target")).unwrap();
+    let first =
+        soe_godot_host::nordic_theme::extract(&nordic, &skyui, &vanilla, output.path()).unwrap();
     let before = std::fs::read(output.path().join("provenance.json")).unwrap();
-    assert!(soe_godot_host::nordic_theme::extract(
-        &nordic,
-        &skyui,
-        &vanilla,
-        output.path(),
-    )
-    .is_err());
+    assert!(
+        soe_godot_host::nordic_theme::extract(&nordic, &skyui, &vanilla, output.path(),).is_err()
+    );
     assert_eq!(
         std::fs::read(output.path().join("provenance.json")).unwrap(),
         before
