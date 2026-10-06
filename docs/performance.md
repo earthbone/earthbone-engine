@@ -234,7 +234,6 @@ be measured through an executing engine path. The probes reject those modes.
 GPU actor capacity and runtime application of GMST/INI caps also remain
 unimplemented. The measured rungs are not installed as runtime limits.
 
-
 ## Permanent AI breakdown, PRF-27
 
 F5 in the walkthrough shows the always-on AI breakdown from

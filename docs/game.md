@@ -25,7 +25,7 @@ Combat style choice and idle chatter have no executing subsystem and report
 zero with explicit host capability flags.
 
 Navigation records each new request once. Request-to-ready wall time includes
-waiting between slices. Expanded nodes exclude stale A* heap entries, include
+waiting between slices. Expanded nodes exclude stale A\* heap entries, include
 the goal and include unique walkable nodes in flee floods. Route length is the
 pulled polyline in game units, rather than A* cost. An absent native route is a
 failure even when the existing off-mesh straight-line fallback is returned.
