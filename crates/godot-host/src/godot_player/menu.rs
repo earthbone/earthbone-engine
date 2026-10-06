@@ -516,6 +516,7 @@ impl PlayerNode {
         if !self.menu.open(&title.to_string()) {
             return false;
         }
+        self.hide_quick_loot();
         self.container_menu = None;
         self.barter_menu = None;
         self.crafting_bench = None;

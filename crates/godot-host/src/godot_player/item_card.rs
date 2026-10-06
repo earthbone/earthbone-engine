@@ -26,20 +26,24 @@ pub(super) struct ItemCardView {
 }
 
 impl ItemCardView {
-    fn create(parent: &mut Gd<HBoxContainer>) -> Self {
+    pub(super) fn create(parent: &mut Gd<HBoxContainer>) -> Self {
+        Self::create_sized(parent, 220.0)
+    }
+
+    pub(super) fn create_sized(parent: &mut Gd<HBoxContainer>, width: f32) -> Self {
         let mut card = VBoxContainer::new_alloc();
         card.set_name("ItemCard");
         card.set_h_size_flags(SizeFlags::EXPAND_FILL);
-        card.set_custom_minimum_size(Vector2::new(220.0, 0.0));
+        card.set_custom_minimum_size(Vector2::new(width, 0.0));
         let mut name = Label::new_alloc();
         name.set_name("ItemName");
         name.set_text("Select an item");
         name.set_autowrap_mode(godot::classes::text_server::AutowrapMode::WORD_SMART);
-        name.add_theme_font_size_override("font_size", 18);
+        name.add_theme_font_size_override("font_size", if width < 220.0 { 13 } else { 18 });
         card.add_child(&name);
         let mut container = SubViewportContainer::new_alloc();
         container.set_name("ModelPreview");
-        container.set_custom_minimum_size(Vector2::new(220.0, 96.0));
+        container.set_custom_minimum_size(Vector2::new(width, 72.0));
         container.set_v_size_flags(SizeFlags::EXPAND_FILL);
         container.set_stretch(true);
         let mut viewport = SubViewport::new_alloc();
@@ -72,7 +76,7 @@ impl ItemCardView {
         card.add_child(&container);
         let mut statistics = Label::new_alloc();
         statistics.set_name("Statistics");
-        statistics.add_theme_font_size_override("font_size", 16);
+        statistics.add_theme_font_size_override("font_size", if width < 220.0 { 12 } else { 16 });
         card.add_child(&statistics);
         let mut status = Label::new_alloc();
         status.set_name("PreviewStatus");
@@ -147,11 +151,11 @@ impl PlayerNode {
             return false;
         };
         let item = GlobalFormId { file, object };
-        if !self.menu.is_open() || self.item_card_view.is_none() {
+        if self.item_card_view.is_none() && self.quick_loot_card.is_none() {
             return false;
         }
         if self
-            .item_card_view
+            .active_item_card()
             .as_ref()
             .is_some_and(|view| view.selected == Some(item))
         {
@@ -169,7 +173,7 @@ impl PlayerNode {
                     .as_ref()
                     .map(|source| source.item_preview_surfaces(model))
             });
-        let Some(view) = self.item_card_view.as_mut() else {
+        let Some(view) = (if self.menu.is_open() { self.item_card_view.as_mut() } else { self.quick_loot_card.as_mut() }) else {
             return false;
         };
         view.selected = None;
