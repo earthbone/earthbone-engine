@@ -405,6 +405,11 @@ mod tests {
         let vfs = soe_bsa::Vfs::new();
         let lines = Arc::new(Mutex::new(Vec::new()));
         let dispatch = soe_trace::tracing::Dispatch::new(WarningCapture(Arc::clone(&lines)));
+        // CONTEXT: Two live dispatchers make callsite registration consult both
+        // subscribers even when another test first logs without a default.
+        let _other_dispatch = soe_trace::tracing::Dispatch::new(
+            soe_trace::tracing::subscriber::NoSubscriber::default(),
+        );
         std::thread::scope(|scope| {
             for path in [
                 "Textures\\Missing.DDS",
