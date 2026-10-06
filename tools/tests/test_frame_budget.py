@@ -80,9 +80,17 @@ class FrameBudgetTests(unittest.TestCase):
     def test_prf_16_rejects_crashes_script_errors_and_missing_reports(self):
         output = "SOE_BUDGET " + json.dumps(sample())
         for text, code in ((output, 1), (output + "\nSCRIPT ERROR: bad binding", 0),
+                           (output + "\nERROR: Godot binding failed", 0),
                            ("", 0), (output + "\n" + output, 0), ("SOE_BUDGET null", 0)):
             with self.assertRaises(ValueError):
                 perf.parse_output(text, "bannered-mare", self.limits, code)
+
+    def test_prf_16_keeps_completed_sample_with_papyrus_runtime_diagnostics(self):
+        output = "ERROR: 6040 ERROR papyrus message=\"cannot call Disable() on a None object\"\n"
+        output += "SOE_BUDGET " + json.dumps(sample())
+        row, reasons = perf.parse_output(output, "bannered-mare", self.limits, 0)
+        self.assertEqual(row["samples"], 3600)
+        self.assertEqual(reasons, [])
 
     def test_prf_16_sweep_runs_all_scenarios_emits_rows_and_does_not_block(self):
         backlog_before = (ROOT / "BACKLOG.csv").read_bytes()

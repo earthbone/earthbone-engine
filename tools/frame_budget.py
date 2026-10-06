@@ -23,6 +23,9 @@ SYSTEMS = (
     "audio", "save", "input", "host_render_submission", "other",
 )
 METRICS = ("p50_ms", "p99_ms", "worst_ms")
+FATAL_OUTPUT = re.compile(
+    r"(?:SCRIPT ERROR|Parse Error|PRF-16 ERROR|ERROR:(?!\s*\d+\s+ERROR\s+papyrus\b))"
+)
 
 
 def number(value, name):
@@ -87,7 +90,7 @@ def assess(row, scenario, limits):
 
 
 def parse_output(output, scenario, limits, returncode):
-    if returncode != 0 or re.search(r"(?:SCRIPT ERROR|Parse Error|PRF-16 ERROR|ERROR:)", output):
+    if returncode != 0 or FATAL_OUTPUT.search(output):
         raise ValueError(f"scenario process failed with exit {returncode}")
     samples = [line.removeprefix("SOE_BUDGET ") for line in output.splitlines() if line.startswith("SOE_BUDGET ")]
     if len(samples) != 1:
@@ -145,7 +148,7 @@ def run_suite(godot, binary, env, out, sweep, execute_process=execute):
     except OSError as error:
         code, output = 1, str(error)
         (out / "import.log").write_text(output)
-    import_failed = code != 0 or "ERROR:" in output
+    import_failed = code != 0 or FATAL_OUTPUT.search(output) is not None
     results = []
     for scenario in SCENARIOS:
         command = ([str(binary), "frame-budget"] if scenario == "thousand-actors" else
