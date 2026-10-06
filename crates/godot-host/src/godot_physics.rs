@@ -282,32 +282,85 @@ impl CellBodies {
             })
     }
 
-    /// Put a reference body into kinematic mode while the player holds it.
-    pub fn set_held(&self, reference: GlobalFormId, held: bool) -> bool {
-        let Some(body) = self.body_for_reference(reference) else {
-            return false;
-        };
-        let mut server = PhysicsServer3D::singleton();
-        server.body_set_mode(
-            body,
-            if held {
-                BodyMode::KINEMATIC
-            } else {
-                BodyMode::RIGID
-            },
-        );
-        true
+    /// Resolve a ray hit to its owning placed reference.
+    pub(crate) fn reference_for_body(&self, body: Rid) -> Option<GlobalFormId> {
+        self.entries
+            .iter()
+            .find(|entry| entry.body == body)
+            .and_then(|entry| entry.reference)
+            .or_else(|| {
+                self.movable
+                    .iter()
+                    .find(|entry| entry.body == body)
+                    .map(|entry| entry.reference)
+            })
     }
 
-    /// Move a held reference body by a Godot-space offset from its authored pose.
-    pub fn move_held(&self, reference: GlobalFormId, offset: Vector3) -> bool {
-        let Some(body) = self.body_for_reference(reference) else {
+    /// Capture a carry anchor only on a resident, currently rigid body.
+    pub(crate) fn carry_anchor(&self, reference: GlobalFormId, hit: Vector3) -> Option<Vector3> {
+        let entry = self
+            .movable
+            .iter()
+            .find(|entry| entry.reference == reference && entry.body.is_valid())?;
+        let mut server = PhysicsServer3D::singleton();
+        if self.grabbed_reference.is_some()
+            || server.body_get_mode(entry.body) != BodyMode::RIGID
+            || !hit.is_finite()
+        {
+            return None;
+        }
+        let transform = server
+            .body_get_state(entry.body, BodyState::TRANSFORM)
+            .try_to::<Transform3D>()
+            .ok()?;
+        server.body_set_state(entry.body, BodyState::SLEEPING, &false.to_variant());
+        Some(transform.affine_inverse() * hit)
+    }
+
+    /// Pull a local anchor toward the camera target without changing collision or velocity on release.
+    pub(crate) fn spring_carry(
+        &self,
+        reference: GlobalFormId,
+        anchor: Vector3,
+        target: Vector3,
+        delta: f32,
+    ) -> bool {
+        let Some(entry) = self
+            .movable
+            .iter()
+            .find(|entry| entry.reference == reference && entry.body.is_valid())
+        else {
             return false;
         };
         let mut server = PhysicsServer3D::singleton();
-        let mut transform = Transform3D::IDENTITY;
-        transform.origin = offset;
-        server.body_set_state(body, BodyState::TRANSFORM, &transform.to_variant());
+        if server.body_get_mode(entry.body) != BodyMode::RIGID
+            || !anchor.is_finite()
+            || !target.is_finite()
+        {
+            return false;
+        }
+        let Some(state) = server.body_get_direct_state(entry.body) else {
+            return false;
+        };
+        let position = state.get_transform() * anchor;
+        let velocity = state.get_linear_velocity();
+        let gravity = state.get_total_gravity();
+        let mass = server
+            .body_get_param(entry.body, BodyParameter::MASS)
+            .try_to::<f32>()
+            .unwrap_or(0.0);
+        let vector = |v: Vector3| Vec3::new(v.x, v.y, v.z);
+        let Some(impulse) = crate::carry::spring_impulse(
+            vector(target - position),
+            vector(velocity),
+            vector(gravity),
+            mass,
+            delta,
+        ) else {
+            return false;
+        };
+        server
+            .body_apply_central_impulse(entry.body, Vector3::new(impulse.x, impulse.y, impulse.z));
         true
     }
 
