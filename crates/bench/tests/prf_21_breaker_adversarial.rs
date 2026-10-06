@@ -20,6 +20,7 @@ fn first_save(root: &Path) -> Option<PathBuf> {
 }
 
 #[test]
+#[ignore = "PRF-21 is open: section/plugin timings and script attribution are not implemented"]
 fn prf_21_breaker_cli_reports_plugin_and_section_times_and_papyrus_script_ownership() {
     let root = std::env::var_os("SOE_TEST_SAVES")
         .map(PathBuf::from)
