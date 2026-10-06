@@ -68,6 +68,22 @@ fn float_effect(perk: u32, entry: u8, function: u8, value: f32, condition: bool)
         .sub(Tag(*b"PRKF"), [])
 }
 
+fn perk_with_effects(perk: u32, effects: &[(u8, u8, f32)]) -> Record {
+    let mut record = Record::new(Tag(*b"PERK"), perk).sub(Tag(*b"DATA"), [0, 0, 1, 1, 0]);
+    for &(entry, function, value) in effects {
+        record = record
+            .sub(Tag(*b"PRKE"), [2, 0, 0])
+            .sub(Tag(*b"DATA"), [entry, function, 3])
+            .sub(Tag(*b"PRKC"), [0])
+            .sub(Tag(*b"PRKC"), [1])
+            .sub(Tag(*b"PRKC"), [2])
+            .sub(Tag(*b"EPFT"), [1])
+            .sub(Tag(*b"EPFD"), value.to_le_bytes())
+            .sub(Tag(*b"PRKF"), []);
+    }
+    record
+}
+
 fn fixture(perks: Vec<Record>) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
@@ -106,21 +122,18 @@ fn hit(attacker: GlobalFormId, target: GlobalFormId) -> MeleeHit {
 }
 
 #[test]
-fn cmb_09_applies_outgoing_then_incoming_effects_in_record_order() {
+fn cmb_09_applies_eligible_outgoing_and_incoming_effects_in_source_order() {
     let attacker = id(0x14);
     let target = id(0x901);
     let mut game = fixture(vec![
-        float_effect(0x810, 35, 2, 3.0, false),
-        float_effect(0x812, 35, 3, 2.0, false),
+        perk_with_effects(0x810, &[(35, 2, 3.0), (35, 3, 2.0)]),
         float_effect(0x813, 36, 2, -2.0, false),
     ]);
-    for perk in [0x810, 0x812] {
-        game.world_mut()
-            .actor(attacker)
-            .unwrap()
-            .perks
-            .insert(id(perk));
-    }
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
     game.world_mut()
         .actor(target)
         .unwrap()
@@ -128,6 +141,7 @@ fn cmb_09_applies_outgoing_then_incoming_effects_in_record_order() {
         .insert(id(0x813));
 
     let result = game.melee_hit(hit(attacker, target)).unwrap();
+    // Base 15 becomes (15 + 3) * 2, then incoming damage adds -2.
     assert!((result.weapon_damage - 34.0).abs() < 0.001);
     assert!((result.health_damage - 34.0).abs() < 0.001);
 }
