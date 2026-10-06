@@ -1788,5 +1788,8 @@ mod aud_11_audio;
 #[path = "aud_11_adversarial.rs"]
 mod aud_11_adversarial;
 
+#[path = "prf_34_adversarial.rs"]
+mod prf_34_adversarial;
+
 #[path = "prf_34_reference_changes.rs"]
 mod prf_34_reference_changes;
