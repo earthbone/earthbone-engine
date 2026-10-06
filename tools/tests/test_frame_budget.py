@@ -18,6 +18,7 @@ def sample(scenario="bannered-mare"):
         scenario=scenario, samples=3600, game_ticks=3600, elapsed_s=60.1, simulated_s=60,
         actors=1000 if scenario == "thousand-actors" else 8, evaluations=4000,
         navmesh=True, walked=scenario == "walk-out", cell="WhiterunWorld", exterior_actors=8,
+        exterior_evaluations=4000 if scenario == "walk-out" else 0,
         world_editor_id="WhiterunWorld",
         frame=dict(p50_ms=1, p99_ms=2, worst_ms=3),
         systems={system: dict(p50_ms=0.1, p99_ms=0.2, worst_ms=0.3) for system in perf.SYSTEMS},
@@ -76,6 +77,17 @@ class FrameBudgetTests(unittest.TestCase):
         row["walked"] = False
         with self.assertRaisesRegex(ValueError, "walk"):
             perf.assess(row, "walk-out", self.limits)
+
+    def test_prf_16_walk_requires_resident_npc_and_exterior_package_evaluations(self):
+        row = sample("walk-out")
+        row["exterior_actors"] = 2
+        self.assertEqual(perf.assess(row, "walk-out", self.limits), [])
+        for name, value in (("exterior_actors", 1), ("exterior_evaluations", 0),
+                            ("exterior_evaluations", None), ("exterior_evaluations", True)):
+            with self.subTest(name=name, value=value):
+                invalid = {**row, name: value}
+                with self.assertRaisesRegex(ValueError, "exterior walk"):
+                    perf.assess(invalid, "walk-out", self.limits)
 
     def test_prf_16_rejects_crashes_script_errors_and_missing_reports(self):
         output = "SOE_BUDGET " + json.dumps(sample())

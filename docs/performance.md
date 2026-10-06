@@ -157,7 +157,10 @@ starts the actual walkthrough in WhiterunBanneredMare, warms navigation and
 The second starts the same walkthrough, walks toward an unlocked authored
 load door from its return marker, activates it through Game and replaces the
 host collision and geometry with WhiterunWorld. It measures the approach,
-the crossing and 3,600 exterior steps. The third drives PRF-07's 1,000 travel
+the crossing and 3,600 exterior steps. Physical residency at the fresh city
+exit includes the player and one NPC after PRF-31. The walk requires both
+actor bodies and package evaluations during the exterior steps.
+The third drives PRF-07's 1,000 travel
 and sandbox actors on their record-backed NAVM for 3,600 steps after ten
 warm-up steps. Each scenario paces at 60 steps per second and retains every
 CPU sample. TST-18's installed walkthrough workload is the first two scenarios.

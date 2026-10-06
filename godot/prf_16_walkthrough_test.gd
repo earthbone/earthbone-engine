@@ -8,6 +8,7 @@ var metrics := Metrics.new()
 var scenario := ""
 var measurement_started := 0
 var exterior_actors := 0
+var exterior_evaluations_start := 0
 var runtime_start := {}
 
 
@@ -118,9 +119,11 @@ func _walk_out() -> bool:
 		return false
 	print("PRF-16 walk ", before, " -> ", after, " cell=", outside, " stats=", stats)
 	exterior_actors = player.call("sync_contact_actors")
-	if exterior_actors < 5:
+	# CONTEXT: Physical residency includes the player and one NPC at the fresh city exit.
+	if exterior_actors < 2:
 		_fail("Whiterun NPC workload missing")
 		return false
+	exterior_evaluations_start = runtime.evaluations
 	return true
 
 
@@ -150,6 +153,10 @@ func _run_scenario() -> void:
 	var evaluations: int = runtime_end.evaluations - runtime_start.evaluations
 	var ticks: int = runtime_end.ticks - runtime_start.ticks
 	var seconds: float = runtime_end.seconds - runtime_start.seconds
+	var exterior_evaluations: int = runtime_end.evaluations - exterior_evaluations_start if scenario == "walk-out" else 0
+	if scenario == "walk-out" and exterior_evaluations <= 0:
+		_fail("Whiterun NPC packages did not run")
+		return
 	if evaluations <= 0 or ticks < STEPS or seconds < 59.999 or runtime_end.navmesh_triangles <= 0:
 		_fail("NPC packages, navigation or 60 simulation seconds did not run: " + str(runtime_end))
 		return
@@ -159,6 +166,7 @@ func _run_scenario() -> void:
 		"actors": actors, "evaluations": evaluations, "navmesh": true,
 		"walked": scenario == "walk-out", "cell": player.call("gameplay_cell"),
 		"exterior_actors": exterior_actors,
+		"exterior_evaluations": exterior_evaluations,
 		"world_editor_id": runtime_end.world_editor_id,
 	})
 	print("prf_16_", scenario.replace("-", "_"), "_installed_ai: PASS")

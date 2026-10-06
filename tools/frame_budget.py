@@ -68,7 +68,8 @@ def assess(row, scenario, limits):
     if scenario == "thousand-actors" and (row["actors"] != 1000 or row["evaluations"] < 1000):
         raise ValueError("thousand-actor workload missing")
     if scenario == "walk-out" and (row.get("walked") is not True or not row.get("cell")
-                                   or type(row.get("exterior_actors")) is not int or row["exterior_actors"] < 5
+                                   or type(row.get("exterior_actors")) is not int or row["exterior_actors"] < 2
+                                   or type(row.get("exterior_evaluations")) is not int or row["exterior_evaluations"] <= 0
                                    or row.get("world_editor_id") != "WhiterunWorld"):
         raise ValueError("scripted exterior walk missing")
     if not isinstance(row.get("systems"), dict) or set(row["systems"]) != set(SYSTEMS):
