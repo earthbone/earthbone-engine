@@ -556,6 +556,13 @@ impl World {
         weights.into_iter().filter(|(_, w)| *w > 0.0).collect()
     }
 
+    /// Current WTHR identity selected by the shared sky, including a transition target.
+    /// CommonLibSSE-NG Sky distinguishes this from its outgoing lastWeather.
+    #[must_use]
+    pub fn current_sky_weather(&self) -> Option<GlobalFormId> {
+        self.weather.sky.target
+    }
+
     /// Select climate or explicit region weather and blend its sky presentation.
     /// Interior show-sky and sky-lighting flags are independent.
     ///

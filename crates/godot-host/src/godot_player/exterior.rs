@@ -199,6 +199,7 @@ impl PlayerNode {
         }
         game.record_exterior_cell_loads(entered.len());
         exterior.planner = planner;
+        let audio_changed = self.loaded_cell != Some(cell);
         self.loaded_cell = Some(cell);
         soe_trace::info!(target: "host::exterior", system = "host::exterior",
             "EXTERIOR focus={cell} entered={} departed={} resident={}",
@@ -206,6 +207,10 @@ impl PlayerNode {
             departed.len(),
             exterior.cells.len()
         );
+        if audio_changed {
+            self.sync_cell_ambience(cell);
+            self.sync_cell_music(cell);
+        }
         true
     }
 }

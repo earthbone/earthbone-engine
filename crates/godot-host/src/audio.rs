@@ -16,6 +16,93 @@
 use soe_audio::Pcm;
 use soe_esm::GlobalFormId;
 
+/// Select CELL/XCMO, priority-ordered REGN/RDMO, then WRLD/ZNAM music.
+/// Regional sound entries follow xEdit's RDAT type, override and priority fields.
+/// An explicit null CELL music link suppresses inherited music.
+///
+/// # Errors
+/// Returns malformed fields and missing cell, region or world records.
+pub fn music_type_for_cell(
+    world: &soe_game::World,
+    cell: GlobalFormId,
+) -> soe_esm::Result<Option<GlobalFormId>> {
+    use soe_esm::cursor::Fields;
+    use soe_esm::{Error, Tag};
+
+    let record = world
+        .record(cell)
+        .filter(|record| record.tag == Tag(*b"CELL"))
+        .ok_or_else(|| Error::Invalid(format!("missing CELL {cell}")))?;
+    let data = soe_esm::records::cell::Cell::from_record(record, false)?;
+    if let Some(raw) = data.music {
+        return Ok((raw != 0).then(|| world.resolve_from(cell, raw)).flatten());
+    }
+    let mut candidates = Vec::new();
+    for raw in &data.regions {
+        let Some(region) = world.resolve_from(cell, *raw) else {
+            continue;
+        };
+        let record = world
+            .record(region)
+            .filter(|record| record.tag == Tag(*b"REGN"))
+            .ok_or_else(|| Error::Invalid(format!("missing REGN {region}")))?;
+        let mut header = None;
+        for sub in &record.subrecords {
+            if sub.tag == Tag(*b"RDAT") {
+                let mut fields = Fields::new(record.tag, sub.tag, &sub.data);
+                fields.exact(8)?;
+                let kind = fields.u32()?;
+                let overrides = fields.u8()?;
+                let priority = fields.u8()?;
+                fields.skip(2)?;
+                if overrides > 1 {
+                    return Err(Error::Invalid(format!("invalid REGN override at {region}")));
+                }
+                header = (kind == 7).then_some(candidates.len());
+                if kind == 7 {
+                    candidates.push((priority, overrides != 0, None));
+                }
+            } else if sub.tag == Tag(*b"RDMO") {
+                if let Some(index) = header {
+                    let mut fields = Fields::new(record.tag, sub.tag, &sub.data);
+                    fields.exact(4)?;
+                    let raw = fields.u32()?;
+                    candidates[index].2 = (raw != 0)
+                        .then(|| world.resolve_from(region, raw))
+                        .flatten();
+                }
+            }
+        }
+    }
+    candidates.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+    for (_, overrides, music) in candidates {
+        if music.is_some() {
+            return Ok(music);
+        }
+        if overrides {
+            break;
+        }
+    }
+    let Some(owner) = record
+        .placement
+        .world
+        .and_then(|raw| world.resolve_from(cell, raw))
+    else {
+        return Ok(None);
+    };
+    let record = world
+        .record(owner)
+        .filter(|record| record.tag == Tag(*b"WRLD"))
+        .ok_or_else(|| Error::Invalid(format!("missing WRLD {owner}")))?;
+    let Some(data) = record.find(Tag(*b"ZNAM")) else {
+        return Ok(None);
+    };
+    let mut fields = Fields::new(record.tag, Tag(*b"ZNAM"), data);
+    fields.exact(4)?;
+    let raw = fields.u32()?;
+    Ok((raw != 0).then(|| world.resolve_from(owner, raw)).flatten())
+}
+
 /// Tracks the cell and record that own the current ambience stream.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct AmbienceOwner {

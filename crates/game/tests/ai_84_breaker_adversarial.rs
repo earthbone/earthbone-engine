@@ -68,12 +68,11 @@ fn ai_84_get_day_of_week_matches_calendar_and_opposite_comparison() {
 #[test]
 fn ai_84_world_functions_report_missing_contract_diagnostics() {
     let game = fixture();
-    for function in [12, 62, 75, 148, 149, 153, 154] {
+    for function in [12, 62, 75, 148, 153, 154] {
         assert!(!conditions::supports_function(function));
-        let parameter = if function == 149 { 0x801 } else { 0 };
         for expected in [0.0, 1.0] {
             assert_eq!(
-                evaluate(&game, &condition(function, parameter, 0, expected)),
+                evaluate(&game, &condition(function, 0, 0, expected)),
                 Err(conditions::Error::Function(function)),
                 "function {function} has no usable local CK condition contract"
             );

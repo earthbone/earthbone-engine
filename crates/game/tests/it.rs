@@ -1787,3 +1787,6 @@ mod aud_11_audio;
 
 #[path = "aud_11_adversarial.rs"]
 mod aud_11_adversarial;
+
+#[path = "aud_13_weather_music.rs"]
+mod aud_13_weather_music;
