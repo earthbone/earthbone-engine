@@ -1,0 +1,25 @@
+NORDIC UI - Interface Overhaul 2.4.1
+Author: outobugi, also credited as Dopesan (dopesan) in the fomod.
+https://www.nexusmods.com/skyrimspecialedition/mods/49881
+Version date: 2021-08-14. Permission verified and art extracted: 2026-10-06.
+"Permissions are open to use my art as you wish."
+The next sentence asks users to check SkyUI's and SkyHUD's permissions.
+
+Only generated Godot meshes for the author's art are included. Each entry in
+nordic/provenance.json names its source movie, character ID and SHA-256 of the
+art tag type and payload without the movie-local ID. All SWF and GFX art from
+the user's SkyUI_SE.bsa and Skyrim - Interface.bsa was compared before export.
+Exact matches, including renumbered definitions, and shapes depending on an
+excluded bitmap are rejected. No original mod file, archive, script, font,
+layout, SkyHUD component, third-party patch or WAV sound is included.
+
+Game-icons.net gaps: Battle gear, Potion ball and Magic swirl by Lorc.
+https://game-icons.net/1x1/lorc/battle-gear.html
+https://game-icons.net/1x1/lorc/potion-ball.html
+https://game-icons.net/1x1/lorc/magic-swirl.html
+https://creativecommons.org/licenses/by/3.0/
+Licensed under Creative Commons Attribution 3.0 Unported (CC BY 3.0).
+Downloaded 2026-10-06 as white art on a transparent background, unmodified.
+
+Theme mapping, controls and native menu presentation: GPL-3.0-or-later.
+Converted art from a user's winning UI-19 install cache takes precedence.
