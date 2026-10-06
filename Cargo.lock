@@ -2732,6 +2732,7 @@ dependencies = [
  "sha2",
  "soe-audio",
  "soe-bsa",
+ "soe-commonlib-shim",
  "soe-dds",
  "soe-editor",
  "soe-esm",
