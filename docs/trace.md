@@ -69,6 +69,15 @@ The snapshot always includes pathing, physics, audio, animation, frame and
 input metric names, with zero values for measurements whose runtime path does
 not publish a value yet. These values are transient and are not saved.
 
+PRF-25 query probes support raycasts, shape casts and overlap calls. Each
+completed wrapped query increments its kind and elapsed nanoseconds under the
+active `SystemScope`, with unscoped work charged to `other`. The counters are
+thread-local and reset for each PlayerNode advance. Current host instrumentation
+covers the three direct raycast adapters. The duration is the wrapped query
+call, not surrounding query setup or result handling.
+`prf_25_physics_queries_count_time_and_charge_the_requesting_system` checks
+the three categories and caller attribution.
+
 The bounded history and query-time statistics were checked against local
 `engine-refs/godotwind/src/core/world/performance_profiler.gd`. Its dynamic
 GDScript model tables do not fit the Rust scheduler's fixed system slots.

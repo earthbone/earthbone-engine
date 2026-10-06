@@ -197,6 +197,19 @@ The metric set and rolling report shape follow the local
 metrics for simulation and audio-host values, rather than copying the
 godotwind dynamic GDScript counters.
 
+## Physics frame details, PRF-25
+
+The F3 overlay includes physics callback count, inferred catch-up callbacks,
+Godot's `TIME_PHYSICS_PROCESS` per-step time and PHYSICS_3D active-object, collision-pair
+and island monitors. A continuous catch-up streak lasting one second logs one
+warning. Wrapped host raycasts report elapsed call time and count under the
+active system. The report reserves shape-cast and overlap categories, but no
+host caller currently records those kinds. `TIME_PHYSICS_PROCESS` reports the
+last physics-step time and does not split Jolt integration among
+body classes. Per-player/NPC controller time, ragdoll and dropped-item body
+time/count, and cell-load collision-shape build time are not yet reported.
+The synthetic report scene is `godot/prf_25_physics_test.gd`.
+
 Run the declared overhead gate, which alternates recorded and suspended
 eight-tick batches in one warmed 1,000-actor travel/sandbox world, then
 asserts the median paired on/off ratio is below 1.01. A second world replays

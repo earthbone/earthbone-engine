@@ -96,6 +96,16 @@ func refresh() -> void:
 		text += "%s: %d\n" % [name, runtime[name]]
 	var pacing := frame_pacing()
 	text += "frame_ms stddev %.3f / p50 %.3f / p99 %.3f / worst %.3f\n" % [pacing.stddev_ms, pacing.p50_ms, pacing.p99_ms, pacing.worst_ms]
+	var physics: Dictionary = player.call("physics_frame_breakdown")
+	text += "Physics detail: %d steps, %d catch-up, %.3f ms per Jolt step, %d active bodies, %d pairs, %d islands\n" % [physics.steps, physics.catchup_steps, physics.jolt_step_ms, physics.active_bodies, physics.collision_pairs, physics.islands]
+	for kind in physics.queries:
+		var total_count := 0
+		var total_ms := 0.0
+		for system in physics.queries[kind]:
+			var query_row: Dictionary = physics.queries[kind][system]
+			total_count += query_row.count
+			total_ms += query_row.ms
+		text += "  %s: %d / %.3f ms\n" % [kind, total_count, total_ms]
 	label.text = text
 
 

@@ -80,6 +80,21 @@ duplicate-player ownership and removal, toggles the overlay with F3, verifies
 its labels and frame shares, and writes and reads the summary. A windowed run
 can save an overlay PNG through `SOE_PRF_12_CAPTURE`.
 
+The physics row also exposes `physics_frame_breakdown`. It reports the number
+of physics callbacks since the last presentation process callback, inferred
+catch-up steps, Godot's physics-step duration and PHYSICS_3D active body,
+collision pair and island monitors. Wrapped query counts and elapsed time are
+grouped by their active `soe-trace` system. The current host adapters wrap
+raycasts. Shape-cast and overlap categories have no instrumented host callers.
+Catch-up lasting at least one second emits one warning per continuous streak.
+The query timing covers wrapped host calls only. Godot's physics-frame monitor
+reports the last physics-step duration. The report does not split Jolt
+integration time among player, NPC, ragdoll or dropped-item bodies.
+Collision-shape build timing is
+not yet part of this breakdown.
+`godot/prf_25_physics_test.gd` runs three rigid capsule bodies and 100 direct
+space rays per physics callback and checks the report's values and categories.
+
 Monitor naming, callable arguments, nonnegative values and removal follow
 local `engine-refs/godot-docs/classes/class_performance.rst`, checked against
 the [official Performance reference](https://docs.godotengine.org/en/stable/classes/class_performance.html).
