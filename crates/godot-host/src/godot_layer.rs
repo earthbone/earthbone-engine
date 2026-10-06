@@ -692,6 +692,25 @@ impl CellStreamerNode {
         }
     }
 
+    pub(crate) fn reference_for_body(&self, body: Rid) -> Option<GlobalFormId> {
+        self.collision.reference_for_body(body)
+    }
+
+    pub(crate) fn carry_anchor(&self, reference: GlobalFormId, hit: Vector3) -> Option<Vector3> {
+        self.collision.carry_anchor(reference, hit)
+    }
+
+    pub(crate) fn spring_carry(
+        &self,
+        reference: GlobalFormId,
+        anchor: Vector3,
+        target: Vector3,
+        delta: f32,
+    ) -> bool {
+        self.collision
+            .spring_carry(reference, anchor, target, delta)
+    }
+
     pub(crate) fn grab_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
         self.collision.grab_movable_reference(reference)
     }

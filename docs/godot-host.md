@@ -616,21 +616,64 @@ the `soe-physics` `SimpleWorld` solver.
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each
-advance and stores the hit reference in the shared game world. The Game
-Papyrus globals `GetCurrentCrosshairRef` and `GetPlayerGrabbedRef` return those
-current host values. Holding the mapped Activate input converts a hit
-reference's collision body to kinematic mode and moves it with the look ray.
-Releasing Activate returns its body to rigid mode. The grabbed reference is
-cleared when the cell is replaced. These values are transient and are not
-saved.
+advance and stores the first hit reference in the shared game world. The ray
+uses the host physics space, including resident rigid clutter and static
+obstructions. Game Papyrus globals `GetCurrentCrosshairRef` and
+`GetPlayerGrabbedRef` return those current host values. HST-22 supplies the
+held-Activate path below. The grabbed reference is cleared when the cell is
+replaced. These values are transient and are not saved.
 
 The host also sends the active first-person POV to Game each camera-control
 sync. CTDA function 391 reads this value, and function 463 compares its REFR
 parameter with the current grabbed reference.
 
-The grab path currently uses references with static collision bodies loaded
-for the active cell. Movable-reference body creation and synchronizing their
-physics pose into the shared world remain HST-12 work.
+### Carrying loose objects, HST-22
+
+A mapped Activate press captures the reference under the crosshair. A release
+before 0.35 seconds performs ordinary activation through Game, including item
+pickup and object use. A hold reaching that threshold on the same reference
+starts carrying only if its resident body is rigid. Fixed and keyframed
+collision remains static, and a Papyrus motion override that makes a movable
+body static or kinematic prevents carrying it. A completed hold does not
+activate on release. Telekinesis retains its separate input path.
+
+The carry target stays at the captured eye-ray distance in front of the
+camera. The body remains rigid with its existing collision layer, mask,
+gravity and velocity. Each fixed step applies a central impulse from a damped
+spring between the hit anchor and that target. The spring uses acceleration
+100 times displacement minus 20 times velocity, compensates the body's current
+host gravity, bounds acceleration to 80 metres per second squared and bounds
+its impulse timestep to 1/30 second. Release stops applying impulses and keeps
+the body's linear and angular momentum. Jolt continues to resolve collisions
+while held and after the drop. Simulated poses reach the existing World
+reference fields and the renderer through HST-12's sync path.
+
+Successful grabs and releases queue `OnGrab()` and `OnRelease()` on the
+reference with no arguments. Focus loss, an open menu, disabled activation
+controls, removal of the body, a cell replacement and player exit clear the
+hold. `carry_status` exposes the shared crosshair and grabbed identities for
+host diagnostics. No saved field, dependency or per-reference node is added.
+
+Sources read were local `nifxml/nif.xml`'s `hkMotionType`, CK
+`SetMotionType_-_ObjectReference.wikitext`, `OnGrab_-_ObjectReference.wikitext`
+and `OnRelease_-_ObjectReference.wikitext`, Godot's PhysicsServer3D and direct
+body-state class references, and godotwind's
+`src/core/interaction/carry_controller.gd`. The NIF decoder and resident
+body builder already supply dynamic clutter. Godotwind uses node wrappers
+and a velocity drive. This host uses its existing RIDs and a spring impulse
+so contacts remain solver-controlled. The named CK Controls and UESP Skyrim
+Controls pages are absent from the local corpus, and their web endpoints
+refused retrieval. The task's held-Activate and release contract supplies the
+input behavior.
+
+The `hst_22_` tests cover tap and hold timing, interrupted or changed aim,
+spring forces and invalid inputs, fixed-container use, zero-argument reference
+events, dynamic versus static collision, and an installed Bannered Mare tankard. The windowed
+scene uses the mapped E input, checks collision against a server obstacle,
+carries the tankard two metres, releases with momentum, checks table or floor
+contact and settling, compares World and rendering poses, checks focus-loss
+release, then taps to pick up the dropped item. It captures
+`target/hst-22-carry.png`, writes `target/hst-22-scene.log` and quits.
 
 ### Destruction-stage models, CMB-37
 

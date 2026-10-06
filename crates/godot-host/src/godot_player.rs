@@ -40,6 +40,7 @@ use crate::door_fade::{DoorFade, GameFade};
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
+mod carry;
 mod containers;
 mod detection;
 mod exterior;
@@ -65,13 +66,6 @@ mod training;
 /// vanilla reach is about this, and it is a setting rather than a constant so
 /// a later pass can read `fActivatePickLength` from the INI.
 const ACTIVATE_REACH: f32 = 180.0;
-
-fn crosshair_reference(
-    hit: Option<soe_physics::world::RayHit>,
-    references: &HashMap<BodyId, GlobalFormId>,
-) -> Option<GlobalFormId> {
-    hit.and_then(|hit| references.get(&hit.body).copied())
-}
 
 struct DoorFadeView {
     overlay: Gd<ColorRect>,
@@ -195,7 +189,8 @@ pub struct PlayerNode {
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
     last_activate_reference: Option<GlobalFormId>,
-    grabbed_host: Option<(GlobalFormId, Vec3)>,
+    grabbed_host: Option<carry::HeldReference>,
+    activate_hold: crate::carry::ActivateHold,
     /// Distance from the eye to the host body held by Telekinesis.
     telekinesis_distance: Option<f32>,
     host_telekinesis_target: Option<GlobalFormId>,
@@ -313,6 +308,7 @@ impl INode3D for PlayerNode {
             last_activate_hit: false,
             last_activate_reference: None,
             grabbed_host: None,
+            activate_hold: crate::carry::ActivateHold::default(),
             telekinesis_distance: None,
             host_telekinesis_target: None,
             host_grab_actor: None,
@@ -580,6 +576,7 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        self.release_carry();
         self.remove_system_monitors();
         RenderingServer::singleton().disconnect(
             "frame_post_draw",
@@ -661,6 +658,7 @@ impl PlayerNode {
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
         }
+        self.release_carry();
         self.release_host_telekinesis();
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
@@ -996,7 +994,7 @@ impl PlayerNode {
         self.collision_visibility.clear();
         self.last_activate_hit = false;
         self.last_activate_reference = None;
-        self.grabbed_host = None;
+        self.release_carry();
         if let Some(game) = &mut self.game {
             game.world_mut().set_grabbed_reference(None);
             game.world_mut().set_crosshair_reference(None);
@@ -1039,6 +1037,7 @@ impl PlayerNode {
             self.open_gift_menu();
         }
         if self.menu.is_open() {
+            self.release_carry();
             if let Some(game) = &mut self.game {
                 self.menu.tick(game, delta);
             }
@@ -1076,7 +1075,9 @@ impl PlayerNode {
                 pressed: input.right_attack_pressed,
             },
         );
-        self.update_telekinesis(input.activate_pressed);
+        if self.grabbed_host.is_none() {
+            self.update_telekinesis(input.activate_pressed);
+        }
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
@@ -1105,67 +1106,7 @@ impl PlayerNode {
         drop(physics_scope);
         self.advance_footsteps(before, was_grounded, &input);
 
-        let crosshair_hit = self.activate_ray();
-        let crosshair_reference = crosshair_reference(crosshair_hit, &self.collision_references);
-        if let Some(game) = &mut self.game {
-            game.world_mut()
-                .set_crosshair_reference(crosshair_reference);
-        }
-        let activate_held = self.held_actions.contains(&Action::Activate);
-        if input.activate_pressed && self.grabbed_host.is_none() {
-            if let (Some(reference), Some(hit)) = (crosshair_reference, crosshair_hit) {
-                if self.query_collision.set_held(reference, true) {
-                    self.grabbed_host = Some((reference, hit.point));
-                    if let Some(game) = &mut self.game {
-                        game.world_mut().set_grabbed_reference(Some(reference));
-                        let player = game.player();
-                        let grabber = game.object_of_form(player);
-                        game.send_event(
-                            reference,
-                            "OnGrab",
-                            &[soe_papyrus::Value::Object(grabber)],
-                        );
-                    }
-                }
-            }
-        }
-        if let Some((reference, origin_hit)) = self.grabbed_host {
-            if activate_held {
-                let eye = self.rig.head(self.feet(), self.capsule_height());
-                let direction = self.rig.look_direction();
-                let reach = ACTIVATE_REACH * 0.55;
-                let target = Vec3::new(
-                    eye.x + direction.x * reach,
-                    eye.y + direction.y * reach,
-                    eye.z + direction.z * reach,
-                );
-                let offset = Vector3::new(
-                    (target.x - origin_hit.x) * crate::units::METRES_PER_UNIT,
-                    (target.z - origin_hit.z) * crate::units::METRES_PER_UNIT,
-                    -(target.y - origin_hit.y) * crate::units::METRES_PER_UNIT,
-                );
-                self.query_collision.move_held(reference, offset);
-            } else {
-                self.query_collision.set_held(reference, false);
-                self.grabbed_host = None;
-                if let Some(game) = &mut self.game {
-                    game.world_mut().set_grabbed_reference(None);
-                    let player = game.player();
-                    let releaser = game.object_of_form(player);
-                    game.send_event(
-                        reference,
-                        "OnRelease",
-                        &[soe_papyrus::Value::Object(releaser)],
-                    );
-                }
-            }
-        }
-        self.last_activate_hit = input.activate_pressed && crosshair_hit.is_some();
-        self.last_activate_reference = if input.activate_pressed {
-            crosshair_reference
-        } else {
-            None
-        };
+        self.update_carry_input(&input, delta);
 
         self.advance_game(delta, intent.sprinting);
         let player_motion = if input.is_moving() {
@@ -2065,19 +2006,6 @@ impl PlayerNode {
         state
     }
 
-    /// Cast from the eye along the look direction, the way activating works.
-    fn activate_ray(&self) -> Option<soe_physics::world::RayHit> {
-        let world = self.world.as_ref()?;
-        let head = self.rig.head(self.feet(), self.capsule_height());
-        let dir = self.rig.look_direction();
-        let to = Vec3::new(
-            head.x + dir.x * ACTIVATE_REACH,
-            head.y + dir.y * ACTIVATE_REACH,
-            head.z + dir.z * ACTIVATE_REACH,
-        );
-        world.raycast(head, to)
-    }
-
     fn create_door_fade(&mut self) {
         let mut canvas = CanvasLayer::new_alloc();
         canvas.set_name("DoorFadeLayer");
@@ -2315,29 +2243,5 @@ mod mag_42_tests {
             player_locomotion(intent, false),
             (intent.direction, intent.speed, intent.jump)
         );
-    }
-}
-
-#[cfg(test)]
-mod hst_18_tests {
-    use super::*;
-
-    #[test]
-    fn hst_18_crosshair_reports_hit_reference_and_clears_on_miss() {
-        let body = BodyId(4);
-        let reference = GlobalFormId {
-            file: 2,
-            object: 0x123,
-        };
-        let references = HashMap::from([(body, reference)]);
-        let hit = soe_physics::world::RayHit {
-            body,
-            material: None,
-            point: Vec3::ZERO,
-            normal: Vec3::Z,
-            fraction: 0.5,
-        };
-        assert_eq!(crosshair_reference(Some(hit), &references), Some(reference));
-        assert_eq!(crosshair_reference(None, &references), None);
     }
 }
