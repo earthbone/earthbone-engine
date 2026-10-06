@@ -10,6 +10,33 @@ var label: Label
 var elapsed := 0.0
 var entities := false
 var ai := false
+var orphan_elapsed := 0.0
+var orphan_start := -1.0
+var orphan_warning := false
+
+const MONITORS := {
+	"process_ms": Performance.TIME_PROCESS,
+	"physics_ms": Performance.TIME_PHYSICS_PROCESS,
+	"navigation_ms": Performance.TIME_NAVIGATION_PROCESS,
+	"objects": Performance.OBJECT_COUNT,
+	"nodes": Performance.OBJECT_NODE_COUNT,
+	"orphan_nodes": Performance.OBJECT_ORPHAN_NODE_COUNT,
+	"static_memory_bytes": Performance.MEMORY_STATIC,
+	"objects_in_frame": Performance.RENDER_TOTAL_OBJECTS_IN_FRAME,
+	"primitives_in_frame": Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME,
+	"draw_calls_in_frame": Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME,
+	"video_memory_bytes": Performance.RENDER_VIDEO_MEM_USED,
+	"texture_memory_bytes": Performance.RENDER_TEXTURE_MEM_USED,
+	"physics_3d_active_objects": Performance.PHYSICS_3D_ACTIVE_OBJECTS,
+	"physics_3d_collision_pairs": Performance.PHYSICS_3D_COLLISION_PAIRS,
+	"physics_3d_islands": Performance.PHYSICS_3D_ISLAND_COUNT,
+	"audio_output_latency_ms": Performance.AUDIO_OUTPUT_LATENCY,
+	"pipeline_canvas": Performance.PIPELINE_COMPILATIONS_CANVAS,
+	"pipeline_mesh": Performance.PIPELINE_COMPILATIONS_MESH,
+	"pipeline_surface": Performance.PIPELINE_COMPILATIONS_SURFACE,
+	"pipeline_draw": Performance.PIPELINE_COMPILATIONS_DRAW,
+	"pipeline_specialization": Performance.PIPELINE_COMPILATIONS_SPECIALIZATION,
+}
 
 
 func _ready() -> void:
@@ -30,6 +57,7 @@ func _ready() -> void:
 	panel.add_child(label)
 	add_child(panel)
 	panel.hide()
+	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	refresh()
 	if is_instance_valid(player):
 		entities = player.call("entity_profiling_enabled")
@@ -60,10 +88,20 @@ func _input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	orphan_elapsed += delta
+	if orphan_elapsed >= 10.0:
+		var current := float(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+		_sample_orphan_count(current)
+		orphan_elapsed = 0.0
 	elapsed += delta
 	if panel.visible and elapsed >= 0.25:
 		elapsed = 0.0
 		refresh()
+
+
+func _sample_orphan_count(current: float) -> void:
+	orphan_warning = orphan_start >= 0.0 and current > orphan_start
+	orphan_start = current
 
 
 func refresh() -> void:
@@ -85,6 +123,15 @@ func refresh() -> void:
 	for system in report:
 		var row: Dictionary = report[system]
 		text += "%s: %.3f / %.1f%% / %.3f / %.3f / %.3f\n" % [system, row.ms, row.percent, row.p50_ms, row.p99_ms, row.worst_ms]
+	var godot := godot_metrics()
+	text += "Godot ms: process %.3f, physics %.3f, navigation %.3f\n" % [godot.process_ms, godot.physics_ms, godot.navigation_ms]
+	text += "Godot objects: %d, nodes: %d, orphans: %d%s\n" % [godot.objects, godot.nodes, godot.orphan_nodes, " WARNING: orphan nodes grew over 10s" if orphan_warning else ""]
+	text += "Render visible/shadow/canvas objects: %d / %d / %d, draw calls: %d, primitives: %d\n" % [godot.visible.objects, godot.shadow.objects, godot.canvas.objects, godot.visible.draw_calls, godot.visible.primitives]
+	text += "Render CPU/GPU ms: %.3f / %.3f, video/texture MiB: %.1f / %.1f\n" % [godot.render_cpu_ms, godot.render_gpu_ms, godot.video_memory_bytes / 1048576.0, godot.texture_memory_bytes / 1048576.0]
+	for kind in ["cells", "plugins"]:
+		for name in godot.render_attribution.get(kind, {}):
+			var counts: Dictionary = godot.render_attribution[kind][name]
+			text += "%s %s: %d instances / %d draw calls / %d primitives\n" % [kind, name, counts.instances, counts.draw_calls, counts.primitives]
 	label.text = text
 
 
@@ -133,18 +180,57 @@ func ai_text(report: Dictionary) -> String:
 	return text
 
 
+func godot_metrics() -> Dictionary:
+	var values := {}
+	for name in MONITORS:
+		values[name] = Performance.get_monitor(MONITORS[name])
+	var server := RenderingServer
+	var rid := get_viewport().get_viewport_rid()
+	var passes := {}
+	for pair in [["visible", server.VIEWPORT_RENDER_INFO_TYPE_VISIBLE], ["shadow", server.VIEWPORT_RENDER_INFO_TYPE_SHADOW], ["canvas", server.VIEWPORT_RENDER_INFO_TYPE_CANVAS]]:
+		passes[pair[0]] = {
+			"objects": server.viewport_get_render_info(rid, pair[1], server.VIEWPORT_RENDER_INFO_OBJECTS_IN_FRAME),
+			"primitives": server.viewport_get_render_info(rid, pair[1], server.VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME),
+			"draw_calls": server.viewport_get_render_info(rid, pair[1], server.VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME),
+		}
+	values["visible"] = passes.visible
+	values["shadow"] = passes.shadow
+	values["canvas"] = passes.canvas
+	values["render_cpu_ms"] = server.viewport_get_measured_render_time_cpu(rid)
+	values["render_gpu_ms"] = server.viewport_get_measured_render_time_gpu(rid)
+	values["frame_setup_cpu_ms"] = server.get_frame_setup_time_cpu()
+	values["orphan_growth_warning"] = orphan_warning
+	values["render_attribution"] = _render_attribution(get_tree().root)
+	return values
+
+
+func _render_attribution(node: Node) -> Dictionary:
+	if node.has_method("render_attribution"):
+		return node.call("render_attribution")
+	for child in node.get_children():
+		var found := _render_attribution(child)
+		if not found.is_empty():
+			return found
+	return {}
+
+
 func write_summary() -> Error:
 	if not is_instance_valid(player):
 		return ERR_UNAVAILABLE
 	if not player.call("write_entity_profile", ProjectSettings.globalize_path("user://")):
 		return ERR_CANT_CREATE
-	var summary: String = player.call("system_summary")
-	print(summary)
+	var summary := JSON.stringify({"systems": player.call("system_summary"), "godot": godot_metrics()})
+	print("SOE_FRAME_REPORT " + summary)
 	var file := FileAccess.open("user://soe-systems.txt", FileAccess.WRITE)
 	if file == null:
 		return FileAccess.get_open_error()
 	file.store_string(summary)
 	return file.get_error()
+
+
+func _exit_tree() -> void:
+	if is_instance_valid(get_viewport()):
+		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), false)
 
 
 func _write_on_player_exit() -> void:

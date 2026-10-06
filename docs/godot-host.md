@@ -70,6 +70,26 @@ duplicate-player ownership and removal, toggles the overlay with F3, verifies
 its labels and frame shares, and writes and reads the summary. A windowed run
 can save an overlay PNG through `SOE_PRF_12_CAPTURE`.
 
+The same overlay and exit report include Godot's process, physics and
+navigation times, object and node counts, orphan nodes, static memory,
+rendered object/primitive/draw-call counts, video and texture memory, 3D
+physics counts, audio output latency and pipeline compilation counters. The
+root viewport reports visible, shadow and canvas objects, draw calls and
+primitives plus measured render CPU and GPU milliseconds. The overlay checks
+orphan node counts every ten seconds and flags an increase. Render timing is
+enabled for the overlay's viewport while it is in the tree.
+
+`CellStreamerNode.render_attribution` groups its live batch RIDs by loaded
+cell and derives source-plugin membership from each batch's reference table.
+Cell values count the cell's batch RIDs, one draw call per batch and the
+uploaded triangle count, with MultiMesh triangle counts multiplied by
+placement count. A plugin is counted once for each batch containing one of
+its references, so merged batches can appear under more than one plugin. These
+are resident batch totals. Godot's per-frame viewport counts exclude culled
+objects and are reported separately. The installed-data
+`godot/prf_30_godot_render_report_test.gd` checks these counts against the
+streamer's created batch count and checks monitor, viewport and report fields.
+
 Monitor naming, callable arguments, nonnegative values and removal follow
 local `engine-refs/godot-docs/classes/class_performance.rst`, checked against
 the [official Performance reference](https://docs.godotengine.org/en/stable/classes/class_performance.html).

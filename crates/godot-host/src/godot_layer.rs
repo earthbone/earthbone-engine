@@ -2141,6 +2141,70 @@ impl CellStreamerNode {
         result
     }
 
+    /// Counts renderer batches and their source references by loaded cell and plugin.
+    #[func]
+    pub fn render_attribution(&self) -> VarDictionary {
+        let mut cells = std::collections::BTreeMap::<GlobalFormId, (i64, i64, i64)>::new();
+        let mut plugins = std::collections::BTreeMap::<String, (i64, i64, i64)>::new();
+        let order = self
+            .data_source
+            .as_ref()
+            .map(|source| source.shared_order());
+        for instance in &self.instances {
+            let triangles = instance.arrays.triangle_count() as i64;
+            let references: Vec<GlobalFormId> = match &instance.table {
+                BatchTable::Triangles(members) => {
+                    members.iter().map(|member| member.reference).collect()
+                }
+                BatchTable::Instances(references) => references.clone(),
+            };
+            let placements = if matches!(&instance.table, BatchTable::Instances(_)) {
+                references.len().max(1) as i64
+            } else {
+                1
+            };
+            let cell = cells.entry(instance.cell).or_default();
+            cell.0 += 1;
+            cell.1 += 1;
+            cell.2 += triangles * placements;
+            let source_files: std::collections::BTreeSet<u16> =
+                references.iter().map(|reference| reference.file).collect();
+            for file_index in source_files {
+                let name = order
+                    .as_ref()
+                    .and_then(|load_order| load_order.files().get(file_index as usize))
+                    .map_or_else(|| format!("file:{file_index}"), |file| file.name.clone());
+                let plugin = plugins.entry(name).or_default();
+                plugin.0 += 1;
+                plugin.1 += 1;
+                plugin.2 += triangles * placements;
+            }
+        }
+        let pack = |entries: Vec<(String, (i64, i64, i64))>| {
+            let mut result = VarDictionary::new();
+            for (name, (instances, draw_calls, primitives)) in entries {
+                result.set(
+                    name,
+                    &vdict! {
+                        "instances" => instances,
+                        "draw_calls" => draw_calls,
+                        "primitives" => primitives,
+                    },
+                );
+            }
+            result
+        };
+        let cell_rows = cells
+            .into_iter()
+            .map(|(id, counts)| (id.to_string(), counts))
+            .collect();
+        let plugin_rows = plugins.into_iter().collect();
+        let mut result = VarDictionary::new();
+        result.set("cells", &pack(cell_rows));
+        result.set("plugins", &pack(plugin_rows));
+        result
+    }
+
     /// What the exterior cell at grid `cell_x`, `cell_y` currently draws:
     /// `instances` (every batch), `multimeshes` (instanced batches, where
     /// grass lands) and `multimesh_members` (placements across them). All
