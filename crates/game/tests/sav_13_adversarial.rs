@@ -55,7 +55,13 @@ fn order(tree: Record) -> LoadOrder {
     let pack = package::with_location_input(pack, 0, Location::NearReference(A), 0);
     let pack = package::with_location_input(pack, 1, Location::NearReference(B), 0);
     plugin.push_top(package::finish(pack));
-    let npc = npc::build_record(BASE, "Walker", "Walker", Config::default(), Stats::default());
+    let npc = npc::build_record(
+        BASE,
+        "Walker",
+        "Walker",
+        Config::default(),
+        Stats::default(),
+    );
     plugin.push_top(npc.sub(T(b"PKID"), PACK.to_le_bytes()));
     plugin.push_top(placed(*b"ACHR", ACTOR, BASE, 0.0));
     plugin.push_top(placed(*b"REFR", A, 0, 110.0));
@@ -99,9 +105,14 @@ fn save_load_mid_second_procedure_preserves_running_package_and_path() {
     };
 
     let mut restored = Game::new(order(tree));
-    restored.load_state(&original.save_state().unwrap()).unwrap();
+    restored
+        .load_state(&original.save_state().unwrap())
+        .unwrap();
     assert_eq!(restored.world().current_package(id(ACTOR)), Some(id(PACK)));
-    assert_eq!(restored.world().actor_ref(id(ACTOR)).unwrap().ai, expected_ai);
+    assert_eq!(
+        restored.world().actor_ref(id(ACTOR)).unwrap().ai,
+        expected_ai
+    );
 
     for _ in 0..3 {
         let bytes = restored.save_state().unwrap();
@@ -135,7 +146,9 @@ fn finished_sequence_stays_finished_after_engine_save_load() {
     assert!(completed.contains_key(&id(PACK)));
 
     let mut restored = Game::new(order(tree));
-    restored.load_state(&original.save_state().unwrap()).unwrap();
+    restored
+        .load_state(&original.save_state().unwrap())
+        .unwrap();
     for _ in 0..20 {
         restored.tick(0.1);
     }

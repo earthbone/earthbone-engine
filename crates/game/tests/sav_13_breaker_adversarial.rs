@@ -27,7 +27,13 @@ fn load_order() -> LoadOrder {
         package::build_record(PACK, "Route", 0, Schedule::default()),
         Some(TEMPLATE),
     )));
-    let npc = npc::build_record(BASE, "Walker", "Walker", Config::default(), Stats::default());
+    let npc = npc::build_record(
+        BASE,
+        "Walker",
+        "Walker",
+        Config::default(),
+        Stats::default(),
+    );
     plugin.push_top(npc.sub(Tag(*b"PKID"), PACK.to_le_bytes()));
     plugin.push_top(
         Record::new(Tag(*b"ACHR"), ACTOR)
@@ -36,7 +42,10 @@ fn load_order() -> LoadOrder {
     );
     let mut order = LoadOrder::new();
     order
-        .add("Sav13Breaker.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .add(
+            "Sav13Breaker.esm",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
         .unwrap();
     order
 }
