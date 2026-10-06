@@ -25,7 +25,10 @@ fn game(count: i32) -> Game {
     plugin.push_top(
         Record::new(Tag(*b"CONT"), CHEST_BASE)
             .zsub(Tag(*b"FULL"), "Treasure Chest")
-            .sub(Tag(*b"CNTO"), [GOLD.to_le_bytes(), count.to_le_bytes()].concat()),
+            .sub(
+                Tag(*b"CNTO"),
+                [GOLD.to_le_bytes(), count.to_le_bytes()].concat(),
+            ),
     );
     plugin.push_top(Record::new(Tag(*b"FACT"), OWNER).zsub(Tag(*b"FULL"), "Other Faction"));
     plugin.push_top(Record::new(Tag(*b"REFR"), CHEST).sub(Tag(*b"NAME"), CHEST_BASE.to_le_bytes()));
@@ -41,7 +44,12 @@ fn quick_loot(count: i32) -> (Game, QuickLoot) {
     let mut loot = QuickLoot::default();
     loot.holder = Some(id(CHEST));
     loot.rows.push(Row {
-        stack: ItemStack { item: handle(id(GOLD)), count, extra_index: None, drop_ref: None },
+        stack: ItemStack {
+            item: handle(id(GOLD)),
+            count,
+            extra_index: None,
+            drop_ref: None,
+        },
         name: "Gold".into(),
         category: Category::Misc,
         stealing: false,

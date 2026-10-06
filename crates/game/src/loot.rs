@@ -33,7 +33,9 @@ impl World {
         let (base, actor, locked) = (reference.base, reference.is_actor, reference.locked);
         let valid = if actor {
             self.actor(holder).is_some_and(|actor| actor.dead)
-                && !self.active_effects().any(|effect| effect.summoned == Some(holder))
+                && !self
+                    .active_effects()
+                    .any(|effect| effect.summoned == Some(holder))
         } else {
             base.is_some_and(|base| self.tag_of(base) == Some(Tag(*b"CONT")))
         };
@@ -67,19 +69,32 @@ impl World {
         let reference = self.reference(holder).ok_or(Error::Selection)?;
         let stack = reference.inventory.selected_stack(selected)?;
         let owner = stack.and_then(|stack| stack.extra(33)).and_then(|extra| {
-            if let [Field::Form(owner)] = extra.fields.as_slice() { *owner } else { None }
+            if let [Field::Form(owner)] = extra.fields.as_slice() {
+                *owner
+            } else {
+                None
+            }
         });
         let rank = stack.and_then(|stack| stack.extra(35)).and_then(|extra| {
-            if let [Field::Word(rank)] = extra.fields.as_slice() { Some(*rank as i32) } else { None }
+            if let [Field::Word(rank)] = extra.fields.as_slice() {
+                Some(*rank as i32)
+            } else {
+                None
+            }
         });
         if holder == actor || self.actor_ref(holder).is_some_and(|actor| actor.dead) {
             return Ok(false);
         }
-        let Some(container_owner) = self.loot_owner(holder) else { return Ok(false) };
+        let Some(container_owner) = self.loot_owner(holder) else {
+            return Ok(false);
+        };
         let owner = owner.unwrap_or(container_owner);
         let allowed = self.base_of(actor) == Some(owner)
             || self.actor(actor).is_some_and(|actor| {
-                actor.factions.get(&owner).is_some_and(|member| *member >= rank.unwrap_or(0))
+                actor
+                    .factions
+                    .get(&owner)
+                    .is_some_and(|member| *member >= rank.unwrap_or(0))
             });
         Ok(!allowed)
     }
@@ -100,9 +115,21 @@ impl Game {
                 return Err(Error::Selection);
             }
             let stealing = world.loot_is_stealing(holder, player, selected)?;
-            let owner = if stealing { world.loot_owner(holder) } else { None };
-            let mut source = world.reference(holder).ok_or(Error::Selection)?.inventory.clone();
-            let mut target = world.reference(player).ok_or(Error::Selection)?.inventory.clone();
+            let owner = if stealing {
+                world.loot_owner(holder)
+            } else {
+                None
+            };
+            let mut source = world
+                .reference(holder)
+                .ok_or(Error::Selection)?
+                .inventory
+                .clone();
+            let mut target = world
+                .reference(player)
+                .ok_or(Error::Selection)?
+                .inventory
+                .clone();
             let mut bundle = source.take_selected(selected)?;
             bundle.unequip();
             bundle.inherit_owner(owner);
@@ -110,8 +137,13 @@ impl Game {
             world.reference(holder).ok_or(Error::Selection)?.inventory = source;
             world.reference(player).ok_or(Error::Selection)?.inventory = target;
             let vm = &mut self.vm;
-            world.notify_item_bundle(holder, selected.item(), Some(player), &bundle,
-                &mut |name, class| vm.create_object_of(name, class))
+            world.notify_item_bundle(
+                holder,
+                selected.item(),
+                Some(player),
+                &bundle,
+                &mut |name, class| vm.create_object_of(name, class),
+            )
         };
         self.run_until_idle(64);
         Ok(moved)

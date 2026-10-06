@@ -17,12 +17,12 @@ use soe_esm::GlobalFormId;
 use super::PlayerNode;
 use crate::item_card::ItemCard;
 
-pub(super) struct ItemCardView {
-    name: Gd<Label>,
-    statistics: Gd<Label>,
-    status: Gd<Label>,
-    pivot: Gd<Node3D>,
-    selected: Option<GlobalFormId>,
+pub(crate) struct ItemCardView {
+    pub(super) name: Gd<Label>,
+    pub(super) statistics: Gd<Label>,
+    pub(super) status: Gd<Label>,
+    pub(super) pivot: Gd<Node3D>,
+    pub(super) selected: Option<GlobalFormId>,
 }
 
 impl ItemCardView {
@@ -111,6 +111,14 @@ pub(super) fn connect_preview(base: &Gd<Node3D>, button: &mut Gd<Button>, item: 
 }
 
 impl PlayerNode {
+    pub(super) fn active_item_card(&self) -> Option<&ItemCardView> {
+        if self.menu.is_open() {
+            self.item_card_view.as_ref()
+        } else {
+            self.quick_loot_view.as_ref().map(|view| &view.card)
+        }
+    }
+
     pub(super) fn item_menu_rows(
         &mut self,
         content: &mut Gd<Control>,
@@ -151,7 +159,7 @@ impl PlayerNode {
             return false;
         };
         let item = GlobalFormId { file, object };
-        if self.item_card_view.is_none() && self.quick_loot_card.is_none() {
+        if self.item_card_view.is_none() && self.quick_loot_view.is_none() {
             return false;
         }
         if self
@@ -173,7 +181,11 @@ impl PlayerNode {
                     .as_ref()
                     .map(|source| source.item_preview_surfaces(model))
             });
-        let Some(view) = (if self.menu.is_open() { self.item_card_view.as_mut() } else { self.quick_loot_card.as_mut() }) else {
+        let Some(view) = (if self.menu.is_open() {
+            self.item_card_view.as_mut()
+        } else {
+            self.quick_loot_view.as_mut().map(|view| &mut view.card)
+        }) else {
             return false;
         };
         view.selected = None;

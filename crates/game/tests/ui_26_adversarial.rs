@@ -25,7 +25,10 @@ fn game(count: i32) -> Game {
     plugin.push_top(
         Record::new(Tag(*b"CONT"), CHEST_BASE)
             .zsub(Tag(*b"FULL"), "Treasure Chest")
-            .sub(Tag(*b"CNTO"), [GOLD.to_le_bytes(), count.to_le_bytes()].concat()),
+            .sub(
+                Tag(*b"CNTO"),
+                [GOLD.to_le_bytes(), count.to_le_bytes()].concat(),
+            ),
     );
     plugin.push_top(Record::new(Tag(*b"FACT"), OWNER).zsub(Tag(*b"FULL"), "Other Faction"));
     plugin.push_top(Record::new(Tag(*b"REFR"), CHEST).sub(Tag(*b"NAME"), CHEST_BASE.to_le_bytes()));
@@ -53,7 +56,14 @@ fn ui_26_authored_contents_are_available_before_activation() {
     assert_eq!(game.world_mut().loot_state(id(CHEST)), LootState::Ready);
     let world = game.world();
     let reference = world.reference_ref(id(CHEST)).unwrap();
-    assert_eq!(reference.inventory.iter().map(|(_, count)| count).sum::<i32>(), 3);
+    assert_eq!(
+        reference
+            .inventory
+            .iter()
+            .map(|(_, count)| count)
+            .sum::<i32>(),
+        3
+    );
     assert!(!reference.opened);
 }
 
@@ -90,9 +100,18 @@ fn ui_26_owned_container_marks_taken_stack_with_its_owner() {
         .loot_is_stealing(id(CHEST), player, &selection)
         .unwrap());
     assert_eq!(game.loot_item(id(CHEST), &selection).unwrap(), 1);
-    let stacks = game.world_mut().reference_ref(player).unwrap().inventory.stacks(id(GOLD)).to_vec();
+    let stacks = game
+        .world_mut()
+        .reference_ref(player)
+        .unwrap()
+        .inventory
+        .stacks(id(GOLD))
+        .to_vec();
     assert_eq!(stacks.len(), 1);
-    assert_eq!(stacks[0].extra(33).unwrap().fields, vec![Field::Form(Some(id(OWNER)))]);
+    assert_eq!(
+        stacks[0].extra(33).unwrap().fields,
+        vec![Field::Form(Some(id(OWNER)))]
+    );
 }
 
 #[test]
