@@ -244,9 +244,10 @@ impl PlayerNode {
                     continue;
                 };
                 let position = reference.position;
-                let Some(far_cell) = far
-                    .and_then(|far| world.reference(far))
-                    .and_then(|reference| reference.cell)
+                let Some(far) = far else {
+                    continue;
+                };
+                let Some(far_cell) = world.reference(far).and_then(|reference| reference.cell)
                 else {
                     continue;
                 };
@@ -263,6 +264,8 @@ impl PlayerNode {
                 }
                 row.set("file", i64::from(id.file));
                 row.set("object", i64::from(id.object));
+                row.set("far_file", i64::from(far.file));
+                row.set("far_object", i64::from(far.object));
                 row.set(
                     "position",
                     Vector3::new(position[0], position[1], position[2]),
