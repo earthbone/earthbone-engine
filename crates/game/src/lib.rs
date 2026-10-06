@@ -1465,6 +1465,9 @@ impl Game {
         {
             let mut world = self.world.borrow_mut();
             world.menu_mode = menu_mode;
+            if menu_mode || !world.debug_ai_enabled {
+                world.ai.idle_frame();
+            }
             world.frame_rate.record_frame(real_seconds);
         }
         let mut game_hours = 0.0;
@@ -1540,9 +1543,13 @@ impl Game {
         }
         if !menu_mode {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
-            let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
+            let greetings = crate::ai::measure_phase(
+                &mut self.world.borrow_mut(),
+                crate::ai::metrics::Phase::ForceGreetEvaluation,
+                crate::ai::force_greet_ready,
+            );
             for (speaker, listener, topic) in greetings {
-                if self.begin_dialogue(speaker, listener).is_err() {
+                if self.begin_npc_dialogue(speaker, listener).is_err() {
                     continue;
                 }
                 crate::ai::force_greet_started(&mut self.world.borrow_mut(), speaker);
@@ -1555,7 +1562,7 @@ impl Game {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
             for (speaker, listener) in starts {
-                if self.begin_dialogue(speaker, listener).is_ok() {
+                if self.begin_npc_dialogue(speaker, listener).is_ok() {
                     crate::ai::dialogue_activate_started(&mut self.world.borrow_mut(), speaker);
                 }
             }

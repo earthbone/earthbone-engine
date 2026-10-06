@@ -61,6 +61,45 @@ The host check records and replays 600 steps twice, checks eleven hashes and
 complete event logs, and quits. This is a simulation correctness check.
 Rendering frame comparisons continue to use the windowed bench.gd workflow.
 
+## Permanent AI breakdown, PRF-27
+
+F5 in the walkthrough shows the always-on AI breakdown from
+`PlayerNode::ai_breakdown`, retaining the diagnostic phases formerly used only
+by the PRF-11 planning script. The headless data lives on `AiWorld` and is
+independent of optional trace/entity capture. Procedure and decision durations
+are inclusive, path latency uses wall time, process cadence and the five-second
+stuck threshold use the non-menu world clock. See [game.md](game.md) for the
+measured boundaries, bounded history and currently inactive categories.
+
+The `prf_27_` Rust tests exercise permanent phases, procedure categories,
+request slicing, expansion counts, failures, cached results, cancellations,
+re-plans, reaction pairing, stuck progress and process counts. The installed
+Bannered Mare case is gated on SKYRIM_DATA. The ignored release test
+`prf_27_retains_prf_12_accumulator_budget` applies PRF-12's existing median
+on/off threshold of 1.01 and checks identical actor positions. That calibration
+suspends system timing only. It does not isolate the new always-on AI
+measurements from a pre-change binary.
+
+The separate `prf_27_combined_measurements_stay_under_one_percent` release-probe
+comparison uses the same 1,000-actor fixture, ten warmup ticks and 240 measured
+ticks. The pre-change baseline uses `c3e2d1de` with system timing suspended.
+The current probe keeps system timing and AI measurements on. Both disable
+optional entity capture and tracing. Fifteen alternating process pairs must
+have equal final-position checksums and a median current/baseline ratio below
+1.01, fixed before the first comparison. The probe source is
+`crates/game/examples/prf_27_probe.rs`, copied into the baseline source snapshot
+before building it. Its `suspended` argument disables system timing.
+
+```text
+rtk cargo build -p soe-game --release --example prf_27_probe
+rtk cargo test -p soe-game --test it prf_27_combined_measurements_stay_under_one_percent -- --ignored --nocapture
+```
+
+The comparison takes executable paths through SOE_PRF_27_BASELINE and
+SOE_PRF_27_CURRENT. Keep both compiled probes outside Cargo's shared public
+example filename and verify that the current binary contains the new procedure
+slots. Run timing tests after all local builds and Godot checks have exited.
+
 ## Entity capture workflow, PRF-13
 
 The ignored release check `prf_13_disabled_capture_retains_prf_12_frame_budget`

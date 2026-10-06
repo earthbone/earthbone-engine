@@ -1,5 +1,23 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## AI breakdown and overlay, PRF-27
+
+`PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
+the four process levels, per-actor navigation counters and recent requests,
+reaction latencies and stuck actor FormIDs. It retains PRF-11 phase names and
+reports microseconds with counts and update intervals. Unavailable combat
+style choice, idle chatter and process scheduling have capability flags.
+No optional entity capture is required.
+
+F5 opens the existing system overlay's AI view. It displays all procedures and
+twelve decision durations, process counts and cadence, the stuck list, and up
+to three path and reaction rows. The complete tables remain available through the
+callable. F3 returns to systems, F4 returns to entity capture. The view reuses
+the existing panel and label, adding no per-reference nodes. The windowed
+`godot/prf_27_ai_overlay_test.gd` check reads the report with entity capture off,
+loads installed Bannered Mare NPCs, toggles F5, checks labels and viewport bounds,
+captures the window and quits.
+
 ## Entity host capture, PRF-13
 
 The existing system overlay uses F4 to toggle `soe_trace::Profile`, displaying

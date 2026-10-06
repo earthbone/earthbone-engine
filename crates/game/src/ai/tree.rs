@@ -6,6 +6,7 @@
 //! Random single-child execution follows the CK examples in Nexus article 2467
 //! and thread 804089. Choices use the existing saved world RNG.
 
+use super::metrics::Phase;
 use super::{conditions_hold, package, template_chain, AiState, Procedure, World};
 use crate::combat::Hand;
 use crate::package::{branch_ends, Branch, DataValue, LocationData, Package, Target};
@@ -817,6 +818,19 @@ fn use_magic(
     branch: &Branch,
     alloc: Alloc<'_>,
 ) -> Result<(), &'static str> {
+    super::measure_phase(world, Phase::UseMagic, |world| {
+        use_magic_inner(world, actor, ai, tree, branch, alloc)
+    })
+}
+
+fn use_magic_inner(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &AiState,
+    tree: &Tree,
+    branch: &Branch,
+    alloc: Alloc<'_>,
+) -> Result<(), &'static str> {
     let (owner, target) = branch
         .inputs
         .iter()
@@ -861,9 +875,8 @@ fn use_magic(
     {
         return Err("UseMagic target is not an eligible actor");
     }
-    let spell = [Hand::Right, Hand::Left]
-        .into_iter()
-        .find_map(|hand| {
+    let spell = super::measure_phase(world, Phase::SpellChoice, |world| {
+        [Hand::Right, Hand::Left].into_iter().find_map(|hand| {
             let spell = world.hand_spell(actor, hand)?;
             world
                 .spell(spell)
@@ -871,7 +884,8 @@ fn use_magic(
                 .filter(|definition| definition.data.spell_type == 0)?;
             Some(spell)
         })
-        .ok_or("UseMagic actor has no assigned castable spell")?;
+    })
+    .ok_or("UseMagic actor has no assigned castable spell")?;
     world
         .cast_charged_spell(spell, actor, actor, Some(target), alloc)
         .map_err(|_| "UseMagic assigned spell could not be cast")?;

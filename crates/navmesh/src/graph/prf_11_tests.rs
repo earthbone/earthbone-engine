@@ -207,3 +207,25 @@ fn prf_11_containment_stops_after_first_surface_in_overlapping_interiors() {
     assert!(!graph.contains_point([200.0, 200.0, 0.0]));
     assert!(!graph.contains_point([f32::NAN, 0.0, 0.0]));
 }
+
+#[test]
+fn prf_27_expansions_match_non_stale_work_and_reset_between_slices() {
+    let graph = grid(20);
+    let mut search = graph
+        .start_path_between([0.2, 0.7, 0.0], [19.8, 19.3, 0.0])
+        .unwrap();
+    loop {
+        let frame = soe_trace::WorkFrame::begin();
+        let result = search.advance(&graph, 3);
+        assert_eq!(
+            search.last_expanded() as u64,
+            frame.counts().get(soe_trace::Operation::PathNodes)
+        );
+        assert!(search.last_expanded() <= search.last_work());
+        if result.is_ready() {
+            break;
+        }
+    }
+    assert_eq!(search.advance(&graph, 1), Poll::Ready(None));
+    assert_eq!(search.last_expanded(), 0);
+}

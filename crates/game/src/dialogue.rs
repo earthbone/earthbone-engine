@@ -24,6 +24,12 @@ pub(crate) use state::{
     read_dialogue, read_dialogue_repeats, read_known_topics, write_known_topics,
 };
 
+#[derive(Clone, Copy)]
+enum Initiator {
+    Player,
+    Actor,
+}
+
 /// Conversation cursor. Records remain authoritative for text and links.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
@@ -336,6 +342,23 @@ impl Game {
     /// Invalid range settings, positions, dialogue records or conditions are
     /// reported to the tick logger without changing the greeting latch.
     pub(crate) fn update_automatic_greetings(&mut self) -> Result<(), Error> {
+        let started = std::time::Instant::now();
+        let result = self.update_automatic_greetings_inner();
+        let mut world = self.world.borrow_mut();
+        *world
+            .ai
+            .planning_phases
+            .entry("greeting_evaluation")
+            .or_default() += started.elapsed();
+        *world
+            .ai
+            .phase_calls
+            .entry("greeting_evaluation")
+            .or_default() += 1;
+        result
+    }
+
+    fn update_automatic_greetings_inner(&mut self) -> Result<(), Error> {
         let (player, range, actors, active_speaker) = {
             let mut world = self.world.borrow_mut();
             let player = world.player();
@@ -463,7 +486,7 @@ impl Game {
                 if prior.is_some() {
                     self.close_dialogue();
                 }
-                self.begin_dialogue(actor, player)?;
+                self.begin_npc_dialogue(actor, player)?;
                 self.world.borrow_mut().dialogue.greeting_actor = Some(actor);
                 match self.choose_dialogue(topic) {
                     Ok(Some(_)) => self.world.borrow_mut().dialogue.greeting_actor = None,
@@ -583,6 +606,7 @@ impl Game {
         speaker: GlobalFormId,
         listener: GlobalFormId,
     ) -> Result<Option<(GlobalFormId, u8)>, Error> {
+        let started = std::time::Instant::now();
         let prior = self.world.borrow().dialogue.session.clone();
         {
             let mut world = self.world.borrow_mut();
@@ -601,6 +625,16 @@ impl Game {
             let mut world = self.world.borrow_mut();
             world.dialogue.session = prior;
             world.dialogue.greeting_actor = None;
+            *world
+                .ai
+                .planning_phases
+                .entry("force_greet_evaluation")
+                .or_default() += started.elapsed();
+            *world
+                .ai
+                .phase_calls
+                .entry("force_greet_evaluation")
+                .or_default() += 1;
         }
         let choices = result?;
         Ok(choices.available.into_iter().find_map(|choice| {
@@ -632,7 +666,25 @@ impl Game {
         speaker: GlobalFormId,
         listener: GlobalFormId,
     ) -> Result<(), Error> {
+        self.begin_dialogue_from(speaker, listener, Initiator::Player)
+    }
+
+    pub(crate) fn begin_npc_dialogue(
+        &mut self,
+        speaker: GlobalFormId,
+        listener: GlobalFormId,
+    ) -> Result<(), Error> {
+        self.begin_dialogue_from(speaker, listener, Initiator::Actor)
+    }
+
+    fn begin_dialogue_from(
+        &mut self,
+        speaker: GlobalFormId,
+        listener: GlobalFormId,
+        initiator: Initiator,
+    ) -> Result<(), Error> {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
+        let request_started = std::time::Instant::now();
         self.bind();
         let ambient = self.ambient_dialogue();
         {
@@ -663,6 +715,13 @@ impl Game {
             self.close_dialogue();
         }
         let mut world = self.world.borrow_mut();
+        if matches!(initiator, Initiator::Player) && world.is_player(listener) {
+            world.ai.metrics.stimulus_at(
+                speaker,
+                crate::ai::metrics::Stimulus::PlayerDialogue,
+                request_started,
+            );
+        }
         world.dialogue.greeting_actor = None;
         world.dialogue.session = Some(Session {
             speaker,
@@ -672,6 +731,10 @@ impl Game {
             last_info: None,
             response_index: 0,
         });
+        world
+            .ai
+            .metrics
+            .response(speaker, crate::ai::metrics::Response::Greeting);
         Ok(())
     }
 
@@ -1232,7 +1295,7 @@ impl Game {
     ) -> Result<Option<Line>, Error> {
         let (speaker, topic) = self.scene_dialogue_action(scene_id, action_slot)?;
         let listener = self.player();
-        self.begin_dialogue(speaker, listener)?;
+        self.begin_npc_dialogue(speaker, listener)?;
         match self.choose_dialogue_topic(topic) {
             Ok(Some(line)) => Ok(Some(line)),
             Ok(None) => {
@@ -1518,5 +1581,46 @@ impl Game {
         self.vm
             .call_script(object, &fragment.script, &fragment.function, &[speaker])?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod prf_27_tests {
+    use super::*;
+
+    #[test]
+    fn prf_27_npc_dialogue_does_not_invent_a_player_stimulus() {
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        plugin.push_top(soe_esm::Record::new(Tag(*b"NPC_"), 0x800));
+        for actor in [0x14u32, 0x801] {
+            plugin.push_top(
+                soe_esm::Record::new(Tag(*b"ACHR"), actor)
+                    .sub(Tag(*b"NAME"), 0x800u32.to_le_bytes()),
+            );
+        }
+        let mut order = soe_esm::LoadOrder::new();
+        order.add("Prf27.esm", plugin).unwrap();
+        let mut game = Game::new(order);
+        let player = game.player();
+        let speaker = GlobalFormId {
+            file: 0,
+            object: 0x801,
+        };
+        game.begin_npc_dialogue(speaker, player).unwrap();
+        let kind = crate::ai::metrics::Stimulus::PlayerDialogue as usize;
+        assert!(game
+            .world()
+            .ai
+            .metrics
+            .actors
+            .get(&speaker)
+            .is_none_or(|metrics| metrics.reactions[kind].pending.is_none()
+                && metrics.reactions[kind].responses == 0));
+        game.close_dialogue();
+        game.begin_dialogue(speaker, player).unwrap();
+        assert_eq!(
+            game.world().ai.metrics.actors[&speaker].reactions[kind].responses,
+            1
+        );
     }
 }

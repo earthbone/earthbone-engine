@@ -1764,6 +1764,9 @@ mod rnd_17_enable_parent;
 #[path = "prf_12_frame.rs"]
 mod prf_12_frame;
 
+#[path = "prf_27_adversarial.rs"]
+mod prf_27_adversarial;
+
 #[path = "prf_14_work.rs"]
 mod prf_14_work;
 #[path = "prf_17_adversarial.rs"]
@@ -1787,3 +1790,6 @@ mod aud_11_audio;
 
 #[path = "aud_11_adversarial.rs"]
 mod aud_11_adversarial;
+
+#[path = "prf_27_ai.rs"]
+mod prf_27_ai;
