@@ -50,6 +50,25 @@ pub(super) struct MenuView {
 }
 
 impl PlayerNode {
+    pub(super) fn item_panel_layout(&mut self) {
+        if let Some(view) = self.menu_view.as_mut() {
+            use godot::builtin::Side;
+            view.panel
+                .set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
+            for (side, anchor) in [
+                (Side::LEFT, 0.04),
+                (Side::TOP, 0.08),
+                (Side::RIGHT, 0.96),
+                (Side::BOTTOM, 0.92),
+            ] {
+                view.panel
+                    .set_anchor_ex(side, anchor)
+                    .keep_offset(true)
+                    .done();
+            }
+        }
+    }
+
     pub(super) fn advance_ambient_dialogue(&mut self) {
         let ambient = self
             .game
@@ -547,6 +566,7 @@ impl PlayerNode {
             // CONTEXT: Focus and visibility callbacks may query the player.
             let _guard = self.base_mut();
             label.set_text(&title);
+            panel.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
             panel.show();
             close.grab_focus();
         }
