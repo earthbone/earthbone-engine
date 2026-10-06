@@ -2,9 +2,9 @@
 
 use super::*;
 
-#[path = "../sav_30_adversarial.rs"]
+#[path = "sav_30_adversarial.rs"]
 mod adversarial;
-#[path = "../sav_30_breaker_adversarial.rs"]
+#[path = "sav_30_breaker_adversarial.rs"]
 mod breaker;
 use soe_save::ChangeForm;
 
