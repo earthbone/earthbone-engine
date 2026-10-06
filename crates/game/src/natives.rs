@@ -1113,9 +1113,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     );
     method!(vm, w, "ObjectReference", "SetOpen", |world, call, me| {
         let open = call.args.first().is_none_or(Value::as_bool);
-        if let Some(r) = world.reference(me) {
-            r.opened = open;
-        }
+        world.set_reference_open(me, open);
         none()
     });
     method!(vm, w, "ObjectReference", "Lock", |world, call, me| {

@@ -563,6 +563,29 @@ impl World {
         self.refs.get(&id)
     }
 
+    /// Apply SetOpen's destination. Opening removes a door's lock, per CK SetOpen.
+    /// Missing or deleted references return false and keep their state.
+    pub fn set_reference_open(&mut self, id: GlobalFormId, opened: bool) -> bool {
+        let Some((base, deleted)) = self.reference(id).map(|state| (state.base, state.deleted))
+        else {
+            return false;
+        };
+        if deleted {
+            return false;
+        }
+        let door = base.is_some_and(|base| self.tag_of(base) == Some(T(b"DOOR")));
+        let Some(state) = self.reference(id) else {
+            return false;
+        };
+        state.opened = opened;
+        state.open_transition = None;
+        if opened && door {
+            state.locked = false;
+            state.lock_level = 0;
+        }
+        true
+    }
+
     /// Begin an opening animation for a placed door and record its open destination.
     ///
     /// Returns false when the form is missing, deleted, or is not a door.

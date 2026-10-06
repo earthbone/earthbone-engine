@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Resident static collision follows World enable state, using UESP REFR XESP.
+//! Resident static collision follows World enable and door state.
+//! Sources are UESP REFR XESP and CK SetOpen, with the HST-21 doorway check.
 //! Cached booleans record applied host state, rather than owning game state.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -52,7 +53,8 @@ impl PlayerNode {
             {
                 continue;
             }
-            let visible = world.reference_enabled(id);
+            let visible =
+                world.reference_enabled(id) && !crate::godot_physics::is_opened_door(&world, id);
             let applied = self
                 .collision_visibility
                 .get(&id)

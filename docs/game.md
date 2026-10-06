@@ -2799,6 +2799,14 @@ reference's `ONAM` marker. `ONAM` also initializes the runtime open state.
 states and their settled destination, while `World::finish_door_transition`
 clears the transition. The marker is transient, so loading a save restores the
 settled destination. Papyrus `GetOpenState` and CTDA 157 share this mapping.
+HST-21 routes Papyrus `SetOpen` through `World::set_reference_open`. It sets
+the existing open destination and clears a transition marker. Opening a door
+clears its lock and lock level, following local CK
+`SetOpen_-_ObjectReference.wikitext`. Closing does not lock it. Missing and
+deleted references return false through the World API and remain unchanged.
+The `hst_21_` native fixture checks repeated opens and closes, the default
+open argument and the lock contract. No saved fields or section table entries are added.
+
 `GetCurrentAIProcedure`, `IsContinuingPackagePCNear`, `GetVampireFeed` and
 `GetCannibal` remain unsupported with a function diagnostic because the local
 sources name them without defining query results.
