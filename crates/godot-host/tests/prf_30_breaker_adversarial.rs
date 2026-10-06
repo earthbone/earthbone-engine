@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::expect_used, clippy::panic)]
+
+use std::path::PathBuf;
+use std::process::Command;
+
+fn run_godot(script: &str) -> (bool, String) {
+    let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
+    let data = std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA is required");
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest
+        .parent()
+        .expect("crate parent")
+        .parent()
+        .expect("workspace root");
+    let project = root.join("godot");
+    let output = Command::new(godot)
+        .arg("--path")
+        .arg(&project)
+        .args(["--resolution", "640x360", "--script", script])
+        .env("SKYRIM_DATA", data)
+        .output()
+        .expect("Godot report scene should start");
+    (
+        output.status.success(),
+        format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )
+}
+
+#[test]
+fn prf_30_installed_render_report_reconciles_cells_with_godot_objects() {
+    let (success, output) = run_godot("prf_30_godot_render_report_test.gd");
+    assert!(success, "installed render report failed: {output}");
+    let report = output
+        .lines()
+        .find_map(|line| line.strip_prefix("PRF_30_RENDER_REPORT "))
+        .expect("installed report summary");
+    let report: serde_json::Value = serde_json::from_str(report).expect("valid render report JSON");
+    let cells = report["cell_instances"].as_f64().expect("cell instances");
+    let objects = report["godot_objects_in_frame"].as_f64().expect("Godot objects in frame");
+    assert_eq!(cells, objects, "cell instances do not reconcile with Godot objects: {report}");
+}
+
+#[test]
+fn prf_30_render_report_attributes_each_cull_stage_and_lod_switches() {
+    let (success, output) = run_godot("prf_30_godot_render_report_test.gd");
+    assert!(success, "installed render report failed: {output}");
+    for field in [
+        "frustum_culled",
+        "occlusion_culled",
+        "visibility_range_culled",
+        "lod_culled",
+        "unloaded_cell_culled",
+        "lod_switches_per_second",
+        "shadow_casters_per_light",
+        "materials_created_per_frame",
+        "meshes_created_per_frame",
+    ] {
+        assert!(output.contains(field), "render attribution omits {field}: {output}");
+    }
+}
+
+#[test]
+fn prf_30_report_reads_every_builtin_performance_monitor() {
+    let (success, output) = run_godot("prf_30_godot_render_report_test.gd");
+    assert!(success, "installed render report failed: {output}");
+    let report = output
+        .lines()
+        .find_map(|line| line.strip_prefix("SOE_FRAME_REPORT "))
+        .expect("exit frame report");
+    let report: serde_json::Value = serde_json::from_str(report).expect("valid frame report JSON");
+    let godot = report.get("godot").expect("Godot metrics");
+    for field in [
+        "fps",
+        "static_memory_max_bytes",
+        "message_buffer_max_bytes",
+        "resources",
+        "render_buffer_memory_bytes",
+        "physics_2d_active_objects",
+        "physics_2d_collision_pairs",
+        "physics_2d_islands",
+        "navigation_active_maps",
+        "navigation_regions",
+        "navigation_agents",
+        "navigation_links",
+        "navigation_polygons",
+        "navigation_edges",
+        "navigation_edge_merges",
+        "navigation_edge_connections",
+        "navigation_free_edges",
+        "navigation_obstacles",
+    ] {
+        assert!(godot.get(field).is_some(), "frame report omits Godot monitor {field}: {godot}");
+    }
+}
