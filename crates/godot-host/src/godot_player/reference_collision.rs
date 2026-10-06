@@ -3,16 +3,18 @@
 //! Resident static collision follows World enable state, using UESP REFR XESP.
 //! Cached booleans record applied host state, rather than owning game state.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use godot::prelude::*;
-use soe_esm::{tag, GlobalFormId};
+use soe_esm::tag;
 use soe_physics::PhysicsWorld;
 
 use super::PlayerNode;
 
 impl PlayerNode {
     pub(super) fn sync_reference_collision(&mut self) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let _phase = crate::scene_timing::Scope::new(soe_trace::System::Physics);
         let Some(space) = self.base().get_world_3d().map(|world| world.get_space()) else {
             return;
         };
@@ -31,20 +33,31 @@ impl PlayerNode {
         {
             cells.extend(source.cell_index().world_persistent_cell(world));
         }
-        let references: BTreeMap<GlobalFormId, GlobalFormId> = cells
-            .iter()
-            .flat_map(|cell| {
-                source
-                    .cell_index()
-                    .references(*cell)
-                    .iter()
-                    .map(|id| (*id, *cell))
-            })
-            .collect();
-        self.collision_visibility
-            .retain(|id, _| references.contains_key(id));
         let world = game.world();
-        for (id, cell) in references {
+        if cells != self.collision_cells || self.collision_visibility.is_empty() {
+            self.collision_cells = cells;
+            self.collision_residents = self
+                .collision_cells
+                .iter()
+                .flat_map(|cell| {
+                    source
+                        .cell_index()
+                        .references(*cell)
+                        .iter()
+                        .map(|id| (*id, *cell))
+                })
+                .collect();
+            self.collision_visibility
+                .retain(|id, _| self.collision_residents.contains_key(id));
+            self.collision_changes = soe_game::world::ReferenceChanges::default();
+            for &id in self.collision_residents.keys() {
+                self.collision_changes.watch(&world, id);
+            }
+        }
+        for id in self.collision_changes.changed(&world) {
+            let Some(&cell) = self.collision_residents.get(&id) else {
+                continue;
+            };
             if source
                 .order()
                 .winner(id)

@@ -8857,3 +8857,19 @@ The existing MUST track lookup remains available separately.
 `music_type_for_cell` resolves CELL/XCMO, regional RDMO and owning WRLD/ZNAM
 in that order, retaining an explicit null CELL music type as silence.
 No saved fields or save version change are introduced.
+
+## Reference presentation changes, PRF-34
+
+`World::reference_enabled` caches effective winning-record enable state. Its
+XESP dependency edges invalidate cached descendants when runtime reference
+state changes. The mutation accessor and internal placement, deletion,
+inventory removal and cell eviction paths notify independent `ReferenceChanges`
+observers. Each observer compares only notified reference placements, effective
+visibility, destruction models and open state. An unchanged mutable access
+produces no host update. Attaching a reference queues its initial presentation.
+The caches and observers are transient. Loading world state invalidates them
+without changing the saved reference layout.
+
+The enable rules remain those described under RND-17, from local UESP REFR
+and xEdit `wbXESP`. CK Enable and Disable pages describe children popping with
+parents. The host consumes these derived views of the shared World.

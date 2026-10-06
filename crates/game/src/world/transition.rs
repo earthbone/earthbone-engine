@@ -203,6 +203,7 @@ impl World {
             if persistent {
                 continue;
             }
+            self.invalidate_reference(id);
             self.refs.remove(&id);
             self.actors.remove(&id);
             self.actor_templates.remove(&id);
@@ -530,6 +531,7 @@ impl World {
                 _ => false,
             };
             if pristine {
+                self.invalidate_reference(id);
                 self.refs.remove(&id);
                 dropped += 1;
             } else {

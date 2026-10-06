@@ -218,6 +218,14 @@ impl World {
         let mut ids: Vec<_> = self.refs.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
+            if self
+                .refs
+                .get(&id)
+                .is_none_or(|state| state.translation.is_none())
+            {
+                continue;
+            }
+            self.invalidate_reference(id);
             let Some(state) = self.refs.get_mut(&id) else {
                 continue;
             };

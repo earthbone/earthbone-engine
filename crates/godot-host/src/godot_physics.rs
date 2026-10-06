@@ -186,6 +186,10 @@ struct MovableEntry {
 #[derive(Default)]
 pub struct CellBodies {
     entries: Vec<StaticEntry>,
+    placement_changes: soe_game::world::ReferenceChanges,
+    placement_index: HashMap<GlobalFormId, (Vec<usize>, Vec<usize>)>,
+    indexed_counts: (usize, usize),
+    collision_state_dirty: bool,
     movable: Vec<MovableEntry>,
     grabbed_reference: Option<GlobalFormId>,
     collisions_enabled: Option<bool>,
@@ -200,12 +204,15 @@ impl CellBodies {
         self.stats.shapes += other.stats.shapes;
         self.stats.triangles += other.stats.triangles;
         self.stats.skipped += other.stats.skipped;
+        self.indexed_counts = (usize::MAX, usize::MAX);
+        self.collision_state_dirty = true;
         self.entries.append(&mut other.entries);
         self.movable.append(&mut other.movable);
     }
 
     /// Release the static query bodies belonging to one reference.
     pub(crate) fn remove_reference(&mut self, reference: GlobalFormId) {
+        self.indexed_counts = (usize::MAX, usize::MAX);
         let mut server = PhysicsServer3D::singleton();
         self.entries.retain(|entry| {
             if entry.reference != Some(reference) {
@@ -246,6 +253,9 @@ impl CellBodies {
 
     /// Apply the setting to bodies added since the last collision update.
     pub fn sync_collision_state(&mut self) {
+        if !std::mem::take(&mut self.collision_state_dirty) {
+            return;
+        }
         let Some(enabled) = self.collisions_enabled else {
             return;
         };
@@ -450,7 +460,9 @@ impl CellBodies {
     /// Materializes movable references before their first visibility sync.
     pub fn ensure_references(&self, world: &mut soe_game::World) {
         for entry in &self.movable {
-            world.reference(entry.reference);
+            if world.reference_ref(entry.reference).is_none() {
+                world.reference(entry.reference);
+            }
         }
     }
 
@@ -543,6 +555,9 @@ impl CellBodies {
     /// Releases every id back to the server. A cell that unloads must call
     /// this, the server does not reclaim ids on its own.
     pub fn free(&mut self) {
+        self.placement_changes = soe_game::world::ReferenceChanges::default();
+        self.placement_index.clear();
+        self.indexed_counts = (usize::MAX, usize::MAX);
         let mut server = PhysicsServer3D::singleton();
         for entry in self.entries.drain(..) {
             if entry.body.is_valid() {
@@ -583,8 +598,43 @@ impl CellBodies {
     /// reference moved many times over many ticks never drifts. Entries
     /// [`add_statics`] created (`reference: None`) are left untouched.
     pub fn sync_placements(&mut self, world: &soe_game::World, space: Rid) {
+        let counts = (self.entries.len(), self.movable.len());
+        if self.indexed_counts != counts {
+            self.indexed_counts = counts;
+            self.collision_state_dirty = true;
+            self.placement_index.clear();
+            self.placement_changes = soe_game::world::ReferenceChanges::default();
+            for (index, entry) in self.entries.iter().enumerate() {
+                if let Some(reference) = entry.reference {
+                    self.placement_index
+                        .entry(reference)
+                        .or_default()
+                        .0
+                        .push(index);
+                    self.placement_changes.watch(world, reference);
+                }
+            }
+            for (index, entry) in self.movable.iter().enumerate() {
+                self.placement_index
+                    .entry(entry.reference)
+                    .or_default()
+                    .1
+                    .push(index);
+                self.placement_changes.watch(world, entry.reference);
+            }
+        }
+        let changed = self.placement_changes.changed(world);
+        let mut statics = Vec::new();
+        let mut movable = Vec::new();
+        for reference in changed {
+            if let Some((a, b)) = self.placement_index.get(&reference) {
+                statics.extend(a.iter().copied());
+                movable.extend(b.iter().copied());
+            }
+        }
         let mut server = PhysicsServer3D::singleton();
-        for entry in &mut self.entries {
+        for index in statics {
+            let entry = &mut self.entries[index];
             let (Some(reference), Some(original)) = (entry.reference, entry.original) else {
                 continue;
             };
@@ -598,6 +648,7 @@ impl CellBodies {
                 continue;
             }
             entry.synced = Some(key);
+            self.collision_state_dirty = true;
             if !visible {
                 server.body_set_space(entry.body, Rid::Invalid);
                 continue;
@@ -634,7 +685,8 @@ impl CellBodies {
                 }
             }
         }
-        for entry in &mut self.movable {
+        for index in movable {
+            let entry = &mut self.movable[index];
             let Some(target) = world.ref_placement(entry.reference) else {
                 continue;
             };
@@ -645,6 +697,7 @@ impl CellBodies {
                 continue;
             }
             entry.synced = Some(key);
+            self.collision_state_dirty = true;
             if visible {
                 if entry.body.is_valid() && entry.shape_scale != iso.scale {
                     server.free_rid(entry.body);
@@ -697,7 +750,7 @@ impl CellBodies {
         for entry in &mut self.movable {
             if !entry.body.is_valid()
                 || !world
-                    .reference(entry.reference)
+                    .reference_ref(entry.reference)
                     .is_some_and(|state| state.enabled && !state.deleted)
             {
                 continue;
@@ -713,6 +766,12 @@ impl CellBodies {
                     .to_skyrim();
             let rotation = skyrim_rotation(transform.basis);
             let pose = [position.x, position.y, position.z];
+            if world
+                .reference_ref(entry.reference)
+                .is_some_and(|state| state.position == pose && state.rotation == rotation)
+            {
+                continue;
+            }
             if world.set_host_ref_pose(entry.reference, pose, rotation) {
                 entry.synced = Some((true, Iso::placement(pose, rotation, entry.shape_scale)));
             }

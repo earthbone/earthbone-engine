@@ -4891,8 +4891,8 @@ reference only when World reports it enabled. It uses the normal VFS, NIF,
 material and collision paths and adds RenderingServer and PhysicsServer3D
 resources. Unloading its cell removes the deferred identity.
 
-Built geometry reads effective visibility through `ref_placement` on every
-sync. Disabling collapses batched triangles or sets a MultiMesh member's scale
+Built geometry reads effective visibility through `ref_placement` for
+notified presentation changes. Disabling collapses batched triangles or sets a MultiMesh member's scale
 to zero, and removes the reference's host collision from its physics space.
 Enabling restores those resources without reloading the cell. Player movement
 and query collision also follow effective enable state. Static movement bodies
@@ -5302,3 +5302,31 @@ updates exceeded the 2,000-microsecond budget, so the check exited one.
 The full-update timing requirement remains unmet, see [performance.md](performance.md).
 The check runs a zero-time gameplay frame after load-door transitions to settle
 pending unload before exterior walking.
+
+## Reference sync and scene phases, PRF-34
+
+The streamer indexes resident references to their geometry batches when cells
+attach or detach. Independent game observers notify rendering, movement
+collision and PhysicsServer placements of effective presentation changes.
+Idle synchronization drains empty queues. A changed merged batch rebuilds its
+members from the original upload. Deferred model references subscribe while
+hidden and build through the existing asset path when enabled. Static physics
+placements use an index. Movable bodies still poll Godot for simulated poses.
+No new reference scene nodes are allocated. Automatic gameplay uploads
+image-space presentation once per rendered frame. Manual advances retain
+immediate presentation.
+
+PRF-12's report adds reference collision sync, reference change sync, node
+transforms, mesh and material uploads, RenderingServer calls and other host
+scene work. Nested simulation scopes remain excluded. `host_scene_cpu` sums
+these host phases except RenderingServer calls. The F3 overlay reads the same
+report. The fixed PRF-34 windowed walk records every completed presentation
+frame for sixty seconds per location and checks sync maxima and scene CPU
+percentiles. Timings and acceptance results are in [performance.md](performance.md).
+
+Inspection for HST-21 found that `open_swing_door` queues its animated node for
+freeing when the reference closes and creates a new node on the next open.
+The batched door hides while open. Movement-body visibility uses effective
+enable state and does not remove a static door body solely because it opened.
+Query bodies additionally hide opened doors. Change notification retains this
+existing handoff. Door node lifetime and open-door capsule passage belong to HST-21.

@@ -581,6 +581,7 @@ impl World {
                     .unwrap_or_else(|| super::RefState::new(Some(base)));
                 let valid = state.base == Some(base) && !state.is_actor;
                 if valid {
+                    self.invalidate_reference(reference);
                     self.refs.insert(reference, state);
                     self.track_light_reference(reference);
                 }
@@ -625,6 +626,7 @@ impl World {
         alloc: Alloc<'_>,
     ) {
         if let Some(source) = addition.source {
+            self.invalidate_reference(addition.reference);
             let Some(state) = self.refs.get_mut(&addition.reference) else {
                 unreachable!("preflight loaded held reference");
             };
@@ -650,6 +652,7 @@ impl World {
                 alloc,
             );
         } else {
+            self.invalidate_reference(addition.reference);
             let Some(state) = self.refs.get_mut(&addition.reference) else {
                 unreachable!("preflight loaded reference");
             };

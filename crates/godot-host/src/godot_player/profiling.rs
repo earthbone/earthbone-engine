@@ -126,6 +126,7 @@ impl PlayerNode {
         if self.budget_frame.is_some() {
             return false;
         }
+        self.scene_budget = crate::scene_timing::snapshot();
         self.budget_frame = Some(soe_trace::FrameSnapshot::now());
         true
     }
@@ -144,6 +145,14 @@ impl PlayerNode {
         vdict! {
             "frame_ms" => sample.frame_ns as f64 / 1e6,
             "systems" => &systems,
+            "host_phases" => &{
+                let sample = crate::scene_timing::elapsed(&self.scene_budget);
+                let mut phases = VarDictionary::new();
+                for (name, slot) in crate::scene_timing::PHASES {
+                    phases.set(name, sample.milliseconds(slot));
+                }
+                phases
+            },
         }
     }
 
@@ -173,12 +182,25 @@ impl PlayerNode {
                 },
             );
         }
+        for (key, value) in
+            crate::scene_timing::report(&self.scene_history, self.host_history.last().frame_ns)
+                .iter_shared()
+        {
+            report.set(&key, &value);
+        }
         report
     }
 
     /// All session totals and worst times with rolling p50 and p99 per system.
     #[func]
     fn system_summary(&self) -> GString {
-        GString::from(self.host_history.summary_text().as_str())
+        GString::from(
+            format!(
+                "{}{}",
+                self.host_history.summary_text(),
+                crate::scene_timing::summary(&self.scene_history)
+            )
+            .as_str(),
+        )
     }
 }

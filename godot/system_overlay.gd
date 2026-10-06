@@ -61,13 +61,16 @@ func _process(delta: float) -> void:
 func refresh() -> void:
 	if not is_instance_valid(player):
 		return
-	label.add_theme_font_size_override("font_size", 9 if entities and get_viewport().get_visible_rect().size.y < 400.0 else 12)
+	var compact := get_viewport().get_visible_rect().size.y < 400.0
+	label.add_theme_font_size_override("font_size", 9 if compact else 12)
+	label.add_theme_constant_override("line_spacing", 0 if compact else 3)
 	if entities:
 		label.text = player.call("entity_profile_overlay")
 		return
 	var report: Dictionary = player.call("system_frame_breakdown")
 	var text := "F3: Engine systems, exclusive scope ms and % of wall frame\n"
 	text += "System: last ms / frame % / rolling p50 / p99 / worst ms\n"
+	text += "Host phases split render submission, scene CPU excludes server calls\n"
 	for system in report:
 		var row: Dictionary = report[system]
 		text += "%s: %.3f / %.1f%% / %.3f / %.3f / %.3f\n" % [system, row.ms, row.percent, row.p50_ms, row.p99_ms, row.worst_ms]
