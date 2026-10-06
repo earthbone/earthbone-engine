@@ -88,6 +88,15 @@ pub struct Save {
     header_len: usize,
 }
 
+/// Exact serialized change-form bytes attributed to a save plugin and record type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangeFormSize {
+    pub plugin: String,
+    pub record_type: &'static str,
+    pub count: usize,
+    pub bytes: usize,
+}
+
 impl Save {
     /// Length of the uncompressed block at the front of the file, which is the
     /// magic, the header fields and the screenshot. Every location table
@@ -418,6 +427,51 @@ impl Save {
         let mut counts: Vec<_> = counts.into_iter().collect();
         counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
         counts
+    }
+
+    /// Attribute serialized change forms to their regular or light plugin slot.
+    /// Created forms and malformed or unresolved references are reported under
+    /// explicit synthetic names so the byte totals still reconcile.
+    #[must_use]
+    pub fn change_form_sizes_by_plugin(&self) -> Vec<ChangeFormSize> {
+        use std::collections::BTreeMap;
+
+        let mut totals: BTreeMap<(String, &'static str), (usize, usize)> = BTreeMap::new();
+        for form in &self.change_forms {
+            let plugin = self
+                .resolve(form.form)
+                .and_then(|id| self.plugin_name_for_form_id(id))
+                .unwrap_or_else(|| match form.form.kind() {
+                    RefKind::Created => "<created>".to_owned(),
+                    RefKind::Invalid => "<invalid>".to_owned(),
+                    RefKind::Index => "<unresolved>".to_owned(),
+                    RefKind::Default => "<unknown-plugin>".to_owned(),
+                });
+            let mut encoded = Vec::new();
+            form.write(&mut encoded);
+            let entry = totals.entry((plugin, form.record_type())).or_default();
+            entry.0 += 1;
+            entry.1 += encoded.len();
+        }
+        totals
+            .into_iter()
+            .map(|((plugin, record_type), (count, bytes))| ChangeFormSize {
+                plugin,
+                record_type,
+                count,
+                bytes,
+            })
+            .collect()
+    }
+
+    /// Return the plugin name encoded by a resolved FormID.
+    fn plugin_name_for_form_id(&self, form_id: u32) -> Option<String> {
+        let plugin_index = if form_id >> 24 == 0xFE {
+            self.light_plugins.get(((form_id >> 12) & 0xFFF) as usize)?
+        } else {
+            self.plugins.get((form_id >> 24) as usize)?
+        };
+        Some(plugin_index.to_text())
     }
 }
 

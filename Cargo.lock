@@ -2600,6 +2600,7 @@ dependencies = [
  "soe-navmesh",
  "soe-nif",
  "soe-papyrus",
+ "soe-save",
  "soe-trace",
  "stats_alloc",
 ]

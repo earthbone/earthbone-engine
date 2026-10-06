@@ -53,7 +53,7 @@ const MASTERS: [&str; 5] = [
     "Dragonborn.esm",
 ];
 
-const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] [--max-seconds metric=value] <load-order|open-data|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|dirty|save|overhead <editor id>|trace <subcommand ...>|all>";
+const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] [--max-seconds metric=value] <load-order|open-data|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|dirty|save [file.ess]|overhead <editor id>|trace <subcommand ...>|all>";
 
 struct Options {
     gates: RefCell<Gates>,
@@ -115,7 +115,14 @@ fn main() -> ExitCode {
             _ => break,
         }
     }
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+    let data = std::env::var_os("SKYRIM_DATA").map_or_else(
+        || {
+            (args.first().is_some_and(|arg| arg == "save") && args.get(1).is_some())
+                .then(PathBuf::new)
+        },
+        |path| Some(PathBuf::from(path)),
+    );
+    let Some(data) = data else {
         eprintln!("SKYRIM_DATA is not set");
         return ExitCode::FAILURE;
     };
@@ -154,7 +161,7 @@ fn dispatch(opts: &Options, args: &[String]) -> Result<(), String> {
         Some("scripts") => scripts(opts),
         Some("navmesh") => navmesh(opts),
         Some("dirty") => dirty(opts),
-        Some("save") => save(opts),
+        Some("save") => save(opts, args.get(1).map(String::as_str)),
         Some("overhead") => overhead(opts, arg(1)?),
         Some("trace") => {
             if args.len() < 2 {
@@ -185,7 +192,7 @@ fn dispatch(opts: &Options, args: &[String]) -> Result<(), String> {
             .and_then(|()| scripts(opts))
             .and_then(|()| navmesh(opts))
             .and_then(|()| dirty(opts))
-            .and_then(|()| save(opts))
+            .and_then(|()| save(opts, None))
             .and_then(|()| overhead(opts, "WhiterunBanneredMare")),
         _ => Err(USAGE.to_string()),
     }
@@ -773,7 +780,65 @@ fn navmesh(opts: &Options) -> Result<(), String> {
     Ok(())
 }
 
-fn save(opts: &Options) -> Result<(), String> {
+fn save(opts: &Options, input: Option<&str>) -> Result<(), String> {
+    if let Some(input) = input {
+        let path = Path::new(input);
+        let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if bytes.starts_with(soe_game::save::MAGIC) {
+            let mut game = Game::new(read_order_threads(&opts.data, opts.threads)?);
+            game.load_scripts_from_data(&opts.data);
+            game.bind();
+            let (_, ()) = timed(opts, "save_load", opts.runs, || {
+                game.load_state(&bytes).map_err(|error| error.to_string())
+            })?;
+            report_count("save_file_bytes", bytes.len(), "bytes");
+            return Ok(());
+        }
+        let (_, save) = timed(opts, "save_parse", opts.runs, || {
+            soe_save::Save::parse(&bytes).map_err(|error| error.to_string())
+        })?;
+        report_count("save_file_bytes", bytes.len(), "bytes");
+        let mut global_sections = std::collections::BTreeMap::<u32, usize>::new();
+        for (index, table) in [
+            (&save.table_1, "table_1"),
+            (&save.table_2, "table_2"),
+            (&save.table_3, "table_3"),
+        ] {
+            report_count(
+                &format!("save_{table}_bytes"),
+                index.iter().map(|block| 8 + block.data.len()).sum(),
+                "bytes",
+            );
+            for block in index {
+                *global_sections.entry(block.kind).or_default() += 8 + block.data.len();
+            }
+        }
+        for (kind, size) in global_sections {
+            report_count(&format!("save_global_section_{kind}_bytes"), size, "bytes");
+        }
+        report_count("save_change_forms", save.change_forms.len(), "forms");
+        for row in save.change_form_sizes_by_plugin() {
+            println!(
+                "save_plugin_change {} {} {} {}",
+                row.plugin, row.record_type, row.count, row.bytes
+            );
+        }
+        if let Some(Ok(papyrus)) = save.papyrus() {
+            let bytes = save
+                .table_3
+                .iter()
+                .find(|block| block.kind == soe_save::table::GlobalData::PAPYRUS)
+                .map_or(0, |block| block.data.len());
+            report_count("save_papyrus_bytes", bytes, "bytes");
+            report_count("save_papyrus_scripts", papyrus.scripts.len(), "scripts");
+            report_count(
+                "save_papyrus_instances",
+                papyrus.instances.len(),
+                "instances",
+            );
+        }
+        return Ok(());
+    }
     let mut game = Game::new(read_order_threads(&opts.data, opts.threads)?);
     game.load_scripts_from_data(&opts.data);
     game.bind();
