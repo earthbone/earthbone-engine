@@ -23,6 +23,15 @@ same state hashes, inject a delay into a real VM script and check that it
 heads the script self-time diff. Other checks cover every entity kind,
 operation counts, zero baselines, removals and invalid inputs.
 
+`soe-bench frame-budget` runs a fixed PRF-16 workload with 1,000 travel and
+sandbox actors, a record-backed NAVM, ten warm-up ticks and 3,600 measured
+ticks paced over 60 seconds. It verifies movement, navigation and package
+selection for every actor. It emits one `SOE_BUDGET` JSON line containing
+full-run CPU frame and PRF-12 per-system p50, p99 and worst milliseconds,
+including idle slots. The suite runner applies the budgets in performance.md.
+Setup, pacing and reporting are outside the tick timing window. The command
+rejects arguments that could change the fixed workload.
+
 The stress runner captures a `soe_trace::WorkFrame` around each measured
 step and prints the maximum count per operation for each sample window as
 `work_peak_<operation> <count> count`. Setup, warm-up and reports are excluded.

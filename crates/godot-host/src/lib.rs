@@ -44,6 +44,7 @@ pub mod magic_menu;
 pub mod mcm_menu;
 pub mod mesh;
 pub mod nif_effect;
+pub mod nordic_theme;
 pub mod objective_map;
 pub mod quest_journal;
 pub mod race_menu;
