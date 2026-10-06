@@ -63,6 +63,7 @@ pub mod save;
 pub mod save_generations;
 pub mod services;
 pub mod shim_world;
+pub mod simulation;
 pub mod sound;
 pub mod validation_runner;
 pub mod vanilla_save;
@@ -174,6 +175,9 @@ pub struct Game {
     bound_cells: BTreeSet<GlobalFormId>,
     /// Instructions per pump round before the loop yields.
     pub budget: usize,
+    papyrus_deadline: Option<std::time::Instant>,
+    papyrus_remaining: Option<std::time::Duration>,
+    papyrus_next: Option<ThreadId>,
     budget_usage: Rc<natives::BudgetUsage>,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
@@ -277,6 +281,9 @@ impl Game {
             bound_forms: BTreeSet::new(),
             bound_cells: BTreeSet::new(),
             budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
+            papyrus_deadline: None,
+            papyrus_remaining: None,
+            papyrus_next: None,
             budget_usage,
             hash_log: None,
             oar_submods: Vec::new(),
@@ -1459,6 +1466,41 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        self.tick_systems(real_seconds, menu_mode, Some(real_seconds));
+    }
+
+    /// Advance a fixed simulation tick, with an optional accumulated AI interval.
+    /// The deadline is shared by nested script dispatch, rather than renewed per call.
+    pub fn tick_scheduled(
+        &mut self,
+        real_seconds: f64,
+        menu_mode: bool,
+        ai_seconds: Option<f64>,
+        papyrus_budget: std::time::Duration,
+    ) {
+        self.with_papyrus_budget(papyrus_budget, |game| {
+            game.tick_systems(real_seconds, menu_mode, ai_seconds);
+        });
+    }
+
+    /// Limit VM execution across all dispatches within `work`. Expired budgets
+    /// preserve queued calls and runnable stacks for a later tick. A native call
+    /// or event pump already in progress completes before the next deadline check.
+    pub fn with_papyrus_budget<R>(
+        &mut self,
+        budget: std::time::Duration,
+        work: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let previous = self.papyrus_remaining;
+        let allowance = previous.map_or(budget, |remaining| remaining.min(budget));
+        self.papyrus_remaining = Some(allowance);
+        let result = work(self);
+        let spent = allowance.saturating_sub(self.papyrus_remaining.unwrap_or_default());
+        self.papyrus_remaining = previous.map(|remaining| remaining.saturating_sub(spent));
+        result
+    }
+
+    fn tick_systems(&mut self, real_seconds: f64, menu_mode: bool, ai_seconds: Option<f64>) {
         let frame = soe_trace::FrameSnapshot::when_recording();
         let tick_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         let work_frame = soe_trace::WorkFrame::begin();
@@ -1516,13 +1558,13 @@ impl Game {
                 let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
                 w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
             }
-            if w.debug_ai_enabled {
-                w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
+            if let Some(ai_seconds) = ai_seconds.filter(|_| w.debug_ai_enabled) {
+                w.ai_tick(ai_seconds * slow_time_scale, &mut |n, c| {
                     vm.create_object_of(n, c)
                 });
             }
         }
-        if !menu_mode {
+        if !menu_mode && ai_seconds.is_some() {
             let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
             for (actor, target) in activations {
                 let accepted = self.activate(target, actor);
@@ -1542,7 +1584,7 @@ impl Game {
                 self.update_trigger_actor_position(player, cell, from, to);
             }
         }
-        if !menu_mode {
+        if !menu_mode && ai_seconds.is_some() {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             let greetings = crate::ai::measure_phase(
                 &mut self.world.borrow_mut(),
@@ -1559,7 +1601,7 @@ impl Game {
                 }
             }
         }
-        if !menu_mode {
+        if !menu_mode && ai_seconds.is_some() {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
             for (speaker, listener) in starts {
@@ -1578,8 +1620,10 @@ impl Game {
             if let Err(error) = self.update_dialogue_range() {
                 self.vm.log.push(self.vm.time(), error.to_string());
             }
-            if let Err(error) = self.update_automatic_greetings() {
-                self.vm.log.push(self.vm.time(), error.to_string());
+            if ai_seconds.is_some() {
+                if let Err(error) = self.update_automatic_greetings() {
+                    self.vm.log.push(self.vm.time(), error.to_string());
+                }
             }
         }
         self.push_tick_hash();
@@ -1819,15 +1863,40 @@ impl Game {
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
     /// queued, or `max_rounds` passes. Returns true when settled.
     pub fn run_until_idle(&mut self, max_rounds: usize) -> bool {
+        let previous = self.papyrus_deadline;
+        let started = std::time::Instant::now();
+        if previous.is_none() {
+            self.papyrus_deadline = self.papyrus_remaining.map(|remaining| started + remaining);
+        }
+        let settled = self.run_until_idle_before(max_rounds);
+        if previous.is_none() {
+            self.papyrus_remaining = self
+                .papyrus_remaining
+                .map(|remaining| remaining.saturating_sub(started.elapsed()));
+        }
+        self.papyrus_deadline = previous;
+        settled
+    }
+
+    fn run_until_idle_before(&mut self, max_rounds: usize) -> bool {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
+        if self.papyrus_budget_expired() {
+            return false;
+        }
         let loaded_cell = self.world.borrow().loaded_cell();
         if let Some(cell) = loaded_cell {
             self.bind_cell(cell);
         }
         for _ in 0..max_rounds {
+            if self.papyrus_budget_expired() {
+                return false;
+            }
             self.pump();
+            if self.papyrus_budget_expired() {
+                return false;
+            }
             self.budget_usage.vm_instruction_limit.set(self.budget);
-            let instructions = self.vm.run(self.budget);
+            let instructions = self.run_budgeted_slice();
             self.flush_papyrus_logs();
             self.world.borrow_mut().papyrus_instructions_last_slice = instructions;
             self.budget_usage.vm_instructions.set(instructions);
@@ -1839,6 +1908,19 @@ impl Game {
             }
         }
         false
+    }
+
+    fn papyrus_budget_expired(&self) -> bool {
+        self.papyrus_deadline
+            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+    }
+
+    fn run_budgeted_slice(&mut self) -> usize {
+        let Some(deadline) = self.papyrus_deadline else {
+            return self.vm.run(self.budget);
+        };
+        self.vm
+            .run_before(self.budget, deadline, &mut self.papyrus_next)
     }
 
     pub fn traces(&self) -> Vec<String> {

@@ -1,5 +1,82 @@
 # Performance
 
+## Fixed-tick budget gate, PRF-37 draft
+
+`godot/tst_18_frame_budget_test.gd` starts the PRF-12 walkthrough, warms it
+for two wall-clock seconds and samples 240 completed render frames in both
+the Bannered Mare and the Tamriel `WhiterunExterior04` cell. It then quits.
+`simulation_budget.gd` declares the limits before measurement: main-thread
+engine scope time at most 2 ms p50 and 4 ms p99, with no continuous simulation
+lag above one second. Empty samples, non-finite times and no simulation
+progress fail. Per-frame raw main, tick and worker samples and mean exclusive
+system times are written to `SOE_PRF_37_REPORT`, with an F3 capture at each location.
+
+Select the draft adapter with `SOE_THREADED_SIMULATION=1`. The host tests
+`prf_37_tst_18_rejects_main_thread_percentiles_and_simulation_lag` and
+`prf_37_installed_windowed_tst_18_gate` exercise the gate contract and
+installed-data rendering separately. Build the release extension and import
+the project before running them, as for the other host checks.
+
+The 2 ms budget applies jointly to player controller work, Jolt synchronization,
+snapshot application and the remaining instrumented PlayerNode callbacks.
+There is no separate allowance per catch-up physics callback. Simulation
+ticks and navigation-worker busy time are reported outside this total.
+Worker busy time overlaps simulation wall time. Host/GDScript work outside
+engine scopes is outside this measurement and remains visible through the
+host frame denominator. This draft measures snapshot placement, contact and
+sky presentation. The legacy gameplay presentation adapters are not part of
+the draft path's timing evidence. This is not a comparison with the user's
+interactive mod profile. The gate uses five installed masters and the fixed
+resident block, without walking across its boundary.
+
+### PRF-37 installed measurement, 2026-10-06
+
+The release extension with Godot 4.4.1, windowed software Vulkan at 640 by 360,
+passed both location gates. Neither measured window overlapped a Rust build
+or another Rust test.
+Each location supplied 240 completed render frames. Bannered Mare published
+seven contacts. The plains published two, including the player and a resident
+NPC from Tamriel's persistent cell. Both ran package evaluations.
+
+| Location | Main p50 ms | Main p99 ms | Maximum lag s | Simulation ticks during sample |
+|---|---|---|---|---|
+| Bannered Mare | 0.152 | 0.243 | 0.050 | 357 |
+| Whiterun plains | 0.214 | 0.341 | 0.140 | 890 |
+
+The shared 2 ms main-thread allowance had this measured mean cost split.
+These exclusive means add to the total mean, not to either percentile.
+
+| Main-thread engine work | Bannered Mare mean ms | Plains mean ms |
+|---|---|---|
+| Player controller and Jolt synchronization | 0.100647 | 0.116801 |
+| Input | 0.029796 | 0.047130 |
+| Snapshot rendering and process presentation | 0.012331 | 0.037016 |
+| Other covered callbacks | 0.009411 | 0.010260 |
+| Streaming | 0.000106 | 0.000074 |
+| Total | 0.152291 | 0.211281 |
+
+Simulation tick p50/p99 was 0.459/23.218 ms in Bannered Mare and
+1.972/5.729 ms on the plains. The occasional long interior tick did not
+sustain overdue simulation for one second. Mean reported navigation-worker
+busy time was 0.000315 ms and 0.000137 ms respectively. Those worker values
+are included in simulation wall time and excluded from the main total.
+
+The raw timing JSON, two F3 PNGs and process logs are under `target/prf-37-*`.
+The process exited zero and printed `WALKTHROUGH stopped`. Its logs include
+unsupported conditions and Papyrus calls against None objects. The timing
+pass does not establish gameplay fidelity. Initial gate setup was corrected
+to clear interior geometry, attach renderer residency and include the
+worldspace persistent cell before this measurement.
+
+All 20 new PRF-37 Rust checks passed: six simulation unit tests, nine game
+integration tests, two timing-total tests, one VM deadline test and two host
+checks. Both installed game cases and the windowed host case ran with
+SKYRIM_DATA. The six trace frame tests and 23 existing VM tests also passed.
+Formatting and all-target package Clippy exited zero for game, godot-host,
+papyrus and trace. Cargo reported a future Rust compatibility notice for
+`proc-macro-error2` 2.0.1. The reviewer owns the full workspace gate.
+No dependencies, saved fields or reference scene-node paths were added.
+
 ## Recorded sessions and profile differences, PRF-22
 
 Record a fixed-step workload through the PLY-01 input layer. In Rust, call
@@ -1452,14 +1529,29 @@ PRF-11 actors=7 frames=3600 seconds=60 evaluations=24900 worst_ai_us=1756.340 fa
 ### TST-18 installed gameplay frame budget
 
 `godot/tst_18_frame_budget_test.gd` follows the walkthrough's installed-data
-startup in the Bannered Mare, then starts gameplay in the WhiterunWorld
-exterior. It runs ten warm-up frames followed by 3,600 fixed 60 Hz frames in
-each location, requires NPCs and package evaluations, and checks every
-measured gameplay step against the PRF-07 p99 budget of 16.7 ms and
-worst-frame budget of 33 ms. Each sample times one fixed `PlayerNode.advance`
-call. Headless walkthrough startup skips viewport pipeline warm-up.
-Run the check after building and importing the release extension:
+startup in the Bannered Mare, then streams a three by three block around
+Tamriel's WhiterunExterior04. It starts the PRF-37 simulation in each location,
+waits for a first snapshot and warms up for two wall-clock seconds. It samples
+240 completed rendered frames per location, requires resident NPCs and package
+evaluations, and checks the main-thread engine total against 2 ms p50 and
+4 ms p99. Continuous simulation lag above one second also fails the gate.
+These limits are declared in `godot/simulation_budget.gd` before measurement.
+The synthetic `prf_37_timing_gate_test.gd` checks all three failure thresholds,
+empty samples, invalid durations and a simulation that makes no progress.
+
+The installed check uses a window, captures the F3 overlay at both locations,
+writes raw main-thread, simulation and worker samples plus mean system times
+to `SOE_PRF_37_REPORT`, and quits with a failing exit status when a bound fails.
+Simulation and worker samples are the latest published values at each render
+frame, so several frames may observe the same tick. The Rust
+`prf_37_installed_windowed_tst_18_gate` launcher retains process output and
+requires successful exit and the walkthrough shutdown marker. Build the
+release extension and import once before running:
 
 ```text
-SOE_GODOT_BIN --headless --path godot --script tst_18_frame_budget_test.gd
+rtk proxy env SOE_THREADED_SIMULATION=1 SKYRIM_DATA=<installed-data> "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script tst_18_frame_budget_test.gd
 ```
+
+This gate measures the opt-in snapshot adapter. It does not establish complete
+playable-runtime integration or include startup and cell replacement in the
+steady-frame percentile window. The draft limits are listed above.

@@ -58,6 +58,7 @@ mod race;
 mod reference_collision;
 mod saves;
 mod scripted;
+mod simulation;
 mod sky;
 mod training;
 
@@ -141,6 +142,9 @@ pub struct PlayerNode {
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    simulation: Option<soe_game::simulation::Simulation>,
+    simulation_pair: Option<Arc<soe_game::simulation::SnapshotPair>>,
+    simulation_error: String,
     player_input: soe_game::player_input::Driver,
     animation_source: Option<GlobalFormId>,
     /// The existing skinned node bound to the player's own appearance.
@@ -269,6 +273,9 @@ impl INode3D for PlayerNode {
             character: None,
             data_source: None,
             game: None,
+            simulation: None,
+            simulation_pair: None,
+            simulation_error: String::new(),
             player_input: soe_game::player_input::Driver::default(),
             animation_source: None,
             player_appearance: None,
@@ -387,6 +394,7 @@ impl INode3D for PlayerNode {
     }
 
     fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         let latency = event
             .clone()
             .try_cast::<InputEventKey>()
@@ -512,12 +520,18 @@ impl INode3D for PlayerNode {
         if self.auto_step {
             self.advance(delta);
             self.profile_applied_inputs.append(&mut self.profile_inputs);
-            self.sync_actor_bodies();
-            self.update_grab_actor();
+            if self.simulation.is_some() {
+                self.sync_simulation_bodies();
+            } else {
+                self.sync_actor_bodies();
+                self.update_grab_actor();
+            }
         }
     }
 
     fn process(&mut self, delta: f64) {
+        let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
+        self.present_simulation();
         self.last_physics_queries = soe_trace::physics_query_stats();
         soe_trace::reset_physics_queries();
         self.last_physics_steps = std::mem::take(&mut self.physics_ticks_since_process)
@@ -572,6 +586,7 @@ impl INode3D for PlayerNode {
             view.tick_presentation(delta);
         }
         drop(render_scope);
+        drop(engine_scope);
         let sample = self.host_frame.finish();
         soe_trace::Profile::systems("host", &sample);
         self.host_history.record(sample);
@@ -580,6 +595,8 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        self.simulation = None;
+        self.simulation_pair = None;
         self.remove_system_monitors();
         RenderingServer::singleton().disconnect(
             "frame_post_draw",
@@ -1026,6 +1043,10 @@ impl PlayerNode {
     }
 
     fn advance_measured(&mut self, delta: f64) {
+        if self.simulation.is_some() {
+            self.advance_simulation_controller(delta);
+            return;
+        }
         if self.player_input.pending() > 0 {
             self.step_player_input();
             return;
@@ -1259,6 +1280,9 @@ impl PlayerNode {
     /// Start the game VM using the same records and VFS as the renderer.
     #[func]
     pub fn start_gameplay(&mut self) -> bool {
+        if std::env::var("SOE_THREADED_SIMULATION").as_deref() == Ok("1") {
+            return self.start_threaded_gameplay();
+        }
         self.start_game_runtime()
     }
 
