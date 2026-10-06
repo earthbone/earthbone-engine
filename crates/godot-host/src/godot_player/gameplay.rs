@@ -113,6 +113,7 @@ impl PlayerNode {
             return false;
         };
 
+        let previous_detection = std::mem::take(&mut self.automatic_detection);
         let previous_game = self.game.replace(game);
         self.clear_player_input();
         self.melee_contact.cancel();
@@ -121,6 +122,7 @@ impl PlayerNode {
         self.footstep_cadence.reset();
         if !self.sync_game_pose() {
             self.game = previous_game;
+            self.automatic_detection = previous_detection;
             return false;
         }
 
@@ -146,6 +148,7 @@ impl PlayerNode {
                 .is_some_and(|camera| camera.is_instance_valid());
         if !attached {
             self.game = previous_game;
+            self.automatic_detection = previous_detection;
         }
         attached
     }
@@ -210,6 +213,7 @@ impl PlayerNode {
             soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
         }
         self.effect_shaders.sync(&game.world());
+        self.automatic_detection = super::detection::AutomaticDetection::default();
         self.game = Some(game);
         self.start_footstep_audio();
         self.clear_player_input();
@@ -659,6 +663,7 @@ impl PlayerNode {
             streamer.bind_mut().clear();
         }
         self.game = None;
+        self.automatic_detection = super::detection::AutomaticDetection::default();
         self.clear_player_input();
         self.data_source = None;
         self.game_streamer = None;

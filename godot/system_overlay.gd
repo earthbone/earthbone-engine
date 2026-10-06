@@ -118,6 +118,14 @@ func refresh() -> void:
 		for phase in phases:
 			var row: Dictionary = phases[phase]
 			text += "%s: %.3f / %.3f / %.3f / %.3f\n" % [phase, row.ms, row.p50_ms, row.p99_ms, row.worst_ms]
+		if system == "ai_movement" and row.has("phases"):
+			var phases: Dictionary = row.phases
+			text += "  Last simulation tick:\n"
+			for phase in ["scheduling", "actor_driver", "movement", "procedure_tree", "path_following_dispatch"]:
+				text += "  %s (inclusive): %.3f ms\n" % [phase, float(phases.get(phase + "_us", 0.0)) / 1000.0]
+			for kind in ["navigation", "movement"]:
+				text += "  %s workers: %.3f ms busy / %.3f ms caller wait / %d jobs\n" % [kind, float(phases.get(kind + "_worker_busy_us", 0.0)) / 1000.0, float(phases.get(kind + "_worker_wait_us", 0.0)) / 1000.0, int(phases.get(kind + "_worker_jobs", 0))]
+			text += "  process high/middle high/middle low/low: %d/%d/%d/%d\n" % [int(phases.get("high_actors", 0)), int(phases.get("middle_high_actors", 0)), int(phases.get("middle_low_actors", 0)), int(phases.get("low_actors", 0))]
 	label.text = text
 
 

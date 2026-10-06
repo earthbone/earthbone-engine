@@ -87,7 +87,7 @@ fn prf_35_archetype_index_rebuilds_after_load_and_removes_despelled_ids() {
 
 #[test]
 fn prf_35_translation_index_preserves_rotation_gate_and_event_order() {
-    let mut game = active_effect_game();
+    let game = active_effect_game();
     game.world_mut().reference(id(TARGET)).unwrap().rotation = [0.0; 3];
     game.world_mut().start_translation(
         id(TARGET),

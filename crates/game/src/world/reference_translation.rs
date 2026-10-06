@@ -231,6 +231,7 @@ impl World {
             let Some(mut translation) = state.translation else {
                 continue;
             };
+            self.ai.mark_nav_door(id);
             if !state.enabled || state.deleted {
                 state.translation = None;
                 self.translation_event(id, "OnTranslationFailed", alloc);

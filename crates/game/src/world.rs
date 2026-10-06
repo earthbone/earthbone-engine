@@ -378,6 +378,8 @@ pub struct ActorState {
     pub instant_spell: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
+    /// Cadence remainder persisted by the PRF-36 actor section.
+    pub process_clock: Option<crate::ai::ProcessClock>,
     /// Papyrus KeepOffsetFromActor movement request.
     pub keep_offset: Option<ActorKeepOffset>,
     /// Reference forced as this actor's landing marker.

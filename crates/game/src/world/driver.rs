@@ -10,6 +10,11 @@ use soe_esm::GlobalFormId;
 use super::{le_f32, Alloc, World, T};
 
 impl World {
+    /// Mutate an actor already selected from the loaded actor table.
+    pub(crate) fn loaded_actor_mut(&mut self, id: GlobalFormId) -> Option<&mut super::ActorState> {
+        self.actors.get_mut(&id)
+    }
+
     /// Every actor whose run-time state has been built.
     pub fn loaded_actors(&self) -> Vec<GlobalFormId> {
         let mut out: Vec<GlobalFormId> = self.actors.keys().copied().collect();
