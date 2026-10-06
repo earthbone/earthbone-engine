@@ -1751,6 +1751,10 @@ mod ui_15_gift_menu;
 mod ui_17_adversarial;
 #[path = "ui_25_initial_inventory.rs"]
 mod ui_25_initial_inventory;
+#[path = "ui_26_adversarial.rs"]
+mod ui_26_adversarial;
+#[path = "ui_26_breaker_adversarial.rs"]
+mod ui_26_breaker_adversarial;
 #[path = "vanilla_save.rs"]
 mod vanilla_save;
 #[path = "visual_effects.rs"]

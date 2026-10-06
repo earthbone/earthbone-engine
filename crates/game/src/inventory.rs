@@ -269,6 +269,22 @@ impl Bundle {
             stack.clear_extra(0x21);
         }
     }
+
+    pub(crate) fn inherit_owner(&mut self, owner: Option<GlobalFormId>) {
+        let Some(owner) = owner else { return };
+        let represented: i32 = self.stacks.iter().map(Stack::count).sum();
+        if represented < self.total {
+            self.stacks.push(Stack {
+                count: self.total - represented,
+                extras: Vec::new(),
+            });
+        }
+        for stack in &mut self.stacks {
+            if stack.extra(33).is_none() {
+                stack.set_owner(Some(owner));
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
