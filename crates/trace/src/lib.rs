@@ -42,6 +42,9 @@ pub use tracing::{debug, error, info, trace, warn};
 mod entity;
 pub use entity::{Entity, EntityScope, EntityStats, InputLatency, Profile};
 
+mod load;
+pub use load::{LoadCause, LoadEvent, LoadScope, LoadToken, LoadTrace};
+
 /// Events kept in the global list. Past this the oldest are dropped, so a
 /// runaway trace keeps the newest window.
 pub const MAX_EVENTS: usize = 1 << 22;
@@ -231,6 +234,7 @@ impl Trace {
                 None => out.push_str(",\"args\":{}}"),
             }
         }
+        load::append_chrome_events(&mut out, !events.is_empty());
         out.push_str("]}\n");
         std::fs::write(path, out)
     }
@@ -258,6 +262,7 @@ impl Trace {
                 s.payload_total
             );
         }
+        out.push_str(&LoadTrace::summary_text());
         out
     }
 }

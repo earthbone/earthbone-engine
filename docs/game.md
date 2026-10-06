@@ -8909,3 +8909,18 @@ The existing MUST track lookup remains available separately.
 `music_type_for_cell` resolves CELL/XCMO, regional RDMO and owning WRLD/ZNAM
 in that order, retaining an explicit null CELL music type as silence.
 No saved fields or save version change are introduced.
+
+## Load timing phases, PRF-29
+
+String-table loading records the language as an aggregate operation and each
+companion table's parse under its VFS path. Script loading records the aggregate
+scripts operation and each PEX parse. Placed-reference script binding records
+the reference and base form as object ownership around its CPU binding phase.
+The first shared navigation graph construction records a `navmesh_build` CPU
+phase over winning NAVM records. Subsequent graph access adds no build phase.
+
+Engine save loading records an aggregate `engine_save_load` and its parse/restore
+phase, including validation failures. `soe-trace` reports aggregate budgets and
+slowest retained cause phases. These measurements use the existing load/bind
+contracts and PRF-08 boundaries in `docs/performance.md`. They add no saved
+fields and leave world and VM layouts unchanged.

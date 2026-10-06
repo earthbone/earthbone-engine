@@ -70,7 +70,11 @@ impl TextureData {
 /// cell's stream time. Anything else decodes its top mip to RGBA8.
 fn load_texture(vfs: &Vfs, path: &str) -> Result<TextureData, DataSourceError> {
     let bytes = vfs.read(path)?;
-    let dds = Dds::parse(&bytes)?;
+    let dds = {
+        let _parse = soe_trace::LoadScope::new("texture_parse", soe_trace::LoadCause::Parse, path);
+        Dds::parse(&bytes)?
+    };
+    let _decode = soe_trace::LoadScope::new("texture_prepare", soe_trace::LoadCause::Decode, path);
     if dds.header().is_cubemap() {
         if dds.layer_count() != 6 || dds.width() != dds.height() || dds.header().depth() != 1 {
             return Err(soe_dds::Error::BadHeader(

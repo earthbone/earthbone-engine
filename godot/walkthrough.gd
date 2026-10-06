@@ -5,6 +5,7 @@ extends SceneTree
 const Warmup := preload("res://render_warmup.gd")
 const SystemOverlay := preload("res://system_overlay.gd")
 const RecordSky := preload("res://record_sky.gd")
+const LoadDiagnostics := preload("res://load_diagnostics.gd")
 
 var player: Node3D
 var system_overlay: CanvasLayer
@@ -30,6 +31,9 @@ func _start() -> void:
 	get_root().add_child(scene)
 	var streamer: Node3D = ClassDB.instantiate("CellStreamerNode")
 	scene.add_child(streamer)
+	var load_diagnostics := LoadDiagnostics.new()
+	load_diagnostics.streamer = streamer
+	get_root().add_child(load_diagnostics)
 	loading_label = Label.new()
 	loading_label.z_index = 1
 	loading_label.position = Vector2(24, 24)
