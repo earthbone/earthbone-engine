@@ -102,6 +102,7 @@ fn texture_payload_bytes(texture: &super::TextureData) -> usize {
 impl DataSource {
     /// Prepare visible geometry and matching collision for a logical destination.
     /// The exterior radius is bounded to prevent an accidental unbounded load.
+    /// A small world selects all its grid cells instead of a radius square.
     pub fn load_location(
         &self,
         cell: GlobalFormId,
@@ -136,23 +137,20 @@ impl DataSource {
                 (position[0] / CELL_UNITS).floor() as i32,
                 (position[1] / CELL_UNITS).floor() as i32,
             );
-            let select = |world| {
-                let mut cells = Vec::new();
-                for dy in -radius..=radius {
-                    for dx in -radius..=radius {
-                        let (Some(x), Some(y)) =
-                            (origin.0.checked_add(dx), origin.1.checked_add(dy))
-                        else {
-                            continue;
-                        };
-                        if let Some(id) = index.exterior_cell(world, x, y) {
-                            cells.push(ExteriorCell { x, y, id });
-                        }
-                    }
-                }
-                cells
-            };
+            let cells = self.exterior_cells_at(world, origin, radius);
             let land_parent = self.land_parent_of(world);
+            let parent_cells = land_parent
+                .map(|parent| {
+                    cells
+                        .iter()
+                        .filter_map(|cell| {
+                            index
+                                .exterior_cell(parent, cell.x, cell.y)
+                                .map(|id| ExteriorCell { id, ..*cell })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             let block = ExteriorBlock {
                 world,
                 world_editor_id: self
@@ -161,9 +159,9 @@ impl DataSource {
                     .and_then(soe_esm::Record::editor_id),
                 origin,
                 radius,
-                cells: select(world),
+                cells,
                 land_parent,
-                parent_cells: land_parent.map(select).unwrap_or_default(),
+                parent_cells,
             };
             if !block.cells.iter().any(|c| (c.x, c.y) == origin) {
                 return Err(DataSourceError::CellNotFound(format!(

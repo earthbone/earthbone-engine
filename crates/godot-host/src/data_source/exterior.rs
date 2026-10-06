@@ -14,7 +14,7 @@
 //! `docs/godot-host.md`'s exterior section (RND-15) for the case this fixes.
 
 use soe_esm::records::ltex::LandTexture;
-use soe_esm::records::{cell::Cell, land::Land, wrld::World};
+use soe_esm::records::{land::Land, wrld::World};
 use soe_esm::{tag, GlobalFormId, Record, Tag};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -178,12 +178,52 @@ fn terrain_surface_from_heights(
 }
 
 impl DataSource {
+    /// Small worlds retain every authored grid cell while the player is inside.
+    /// UESP WRLD DATA and xEdit name this flag independently of parent PNAM.
+    #[must_use]
+    pub fn is_small_world(&self, world: GlobalFormId) -> bool {
+        let Some(owner) = self.order.winner_ref(world) else {
+            return false;
+        };
+        let record = self.order.record(owner);
+        if record.tag != tag::WRLD || record.is_deleted() {
+            return false;
+        }
+        let localized = self.order.file(owner.file).plugin.header.is_localized();
+        World::from_record(record, localized)
+            .is_ok_and(|view| view.flags & soe_esm::records::wrld::flags::SMALL_WORLD != 0)
+    }
+
+    /// Select the near square, or all grid cells of a small world, in grid order.
+    pub(super) fn exterior_cells_at(
+        &self,
+        world: GlobalFormId,
+        origin: (i32, i32),
+        radius: i32,
+    ) -> Vec<ExteriorCell> {
+        let index = self.cell_index();
+        let small = self.is_small_world(world);
+        let mut cells: Vec<_> = index
+            .cells()
+            .filter_map(|(id, _)| {
+                let grid = index.grid_of(id)?;
+                (grid.world == world && (small || within_radius((grid.x, grid.y), origin, radius)))
+                    .then_some(ExteriorCell {
+                        x: grid.x,
+                        y: grid.y,
+                        id,
+                    })
+            })
+            .collect();
+        cells.sort_by_key(|cell| (cell.y, cell.x, cell.id));
+        cells
+    }
+
     /// The square of exterior cells within `radius` grid steps of the cell
-    /// named `editor_id`, in that cell's worldspace, sorted south to north
-    /// then west to east. Radius 2 is the game's `uGridsToLoad=5`. One pass
-    /// over the winning `CELL` records, which is cheap next to the reference
-    /// scan since there are about fifty thousand cells against a million
-    /// references. Fails when the editor id names no exterior cell, or when
+    /// named `editor_id`, sorted south to north then west to east. Radius 2 is the game's
+    /// `uGridsToLoad=5`. The shared CellIndex distinguishes exterior grids
+    /// from persistent cells even when a persistent CELL carries XCLC.
+    /// Fails when the editor id names no exterior cell, or when
     /// `radius` is negative. A negative radius is invalid input, and is
     /// rejected here with `DataSourceError::InvalidRadius`.
     pub fn resolve_exterior_block(
@@ -195,47 +235,37 @@ impl DataSource {
             return Err(DataSourceError::InvalidRadius(radius));
         }
         let _span = soe_trace::Span::new("host.scan_cells", "host");
-        let mut exteriors: Vec<(GlobalFormId, i32, i32, GlobalFormId)> = Vec::new();
-        let mut origin: Option<(GlobalFormId, i32, i32)> = None;
-        for (id, rec) in self.order.winners_of(tag::CELL) {
-            let Some(raw_world) = rec.placement.world else {
-                continue;
-            };
-            let Some(rref) = self.order.winner_ref(id) else {
-                continue;
-            };
-            let localized = self.order.file(rref.file).plugin.header.is_localized();
-            let Ok(view) = Cell::from_record(rec, localized) else {
-                continue;
-            };
-            let Some(grid) = view.grid else {
-                continue;
-            };
-            let world = self.order.resolve(rref.file, raw_world);
-            exteriors.push((world, grid.x, grid.y, id));
-            if view.editor_id.as_deref() == Some(editor_id) {
-                origin = Some((world, grid.x, grid.y));
-            }
-        }
-        let Some((world, ox, oy)) = origin else {
+        let index = self.cell_index();
+        let Some(origin) = self
+            .resolve_cell(editor_id)
+            .and_then(|cell| index.grid_of(cell))
+            .or_else(|| {
+                self.order.winners_of(tag::CELL).find_map(|(id, record)| {
+                    record.editor_id().filter(|name| name == editor_id)?;
+                    index.grid_of(id)
+                })
+            })
+        else {
             return Err(DataSourceError::CellNotFound(format!(
                 "{editor_id} (no exterior cell with a grid position has that editor id)"
             )));
         };
-        let in_range = |x: i32, y: i32| within_radius((x, y), (ox, oy), radius);
-        let mut cells: Vec<ExteriorCell> = exteriors
-            .iter()
-            .filter(|&&(w, x, y, _)| w == world && in_range(x, y))
-            .map(|&(_, x, y, id)| ExteriorCell { x, y, id })
+        let (world, ox, oy) = (origin.world, origin.x, origin.y);
+        let cells: Vec<_> = self
+            .exterior_cells_at(world, (ox, oy), radius)
+            .into_iter()
+            .filter(|cell| within_radius((cell.x, cell.y), (ox, oy), radius))
             .collect();
-        cells.sort_by_key(|c| (c.y, c.x));
         let land_parent = self.land_parent_of(world);
         let mut parent_cells: Vec<ExteriorCell> = land_parent
             .map(|parent| {
-                exteriors
+                cells
                     .iter()
-                    .filter(|&&(w, x, y, _)| w == parent && in_range(x, y))
-                    .map(|&(_, x, y, id)| ExteriorCell { x, y, id })
+                    .filter_map(|cell| {
+                        index
+                            .exterior_cell(parent, cell.x, cell.y)
+                            .map(|id| ExteriorCell { id, ..*cell })
+                    })
                     .collect()
             })
             .unwrap_or_default();

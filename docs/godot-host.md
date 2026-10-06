@@ -1225,6 +1225,47 @@ The Rust `rnd_19_` tests run this installed-data capture, survey WRLD flags,
 and exercise independent land/LOD inheritance, nested parents, invalid
 parents, focus movement, radius validation and immediate near handoff.
 
+## Whiterun and small worldspaces, RND-27
+
+Gameplay destination selection uses the shared CellIndex. WRLD DATA Small World
+selects every authored grid cell in that worldspace, sorted south to north then
+west to east. Destination loading adds the world's persistent cell once, separately
+from grid cells. This matters for Whiterun's persistent CELL, whose XCLC does
+not make it a grid cell. Parent LAND is requested at each selected coordinate
+when PNAM Use Land Data is set. Child LAND takes precedence as before.
+The `stream_exterior` inspection API retains its explicit radius square.
+
+PlayerNode retains a small world's complete renderer and collision resources
+while walking inside it and updates the logical focus cell without removing
+city cells. Leaving the worldspace replaces those resources. Ordinary exterior
+worlds load a 5 by 5 square, with a two-cell load and unload radius, so the
+default LOD exclusion radius no longer hides a band of cells that was never
+loaded. Tamriel's authored Whiterun LOD placements use the near renderer in
+that square and BTO object LOD beyond it. Parent terrain and object LOD continue
+to follow the independent PNAM Use LOD Data chain.
+
+Every installed grid cell is registered for `exterior_cell_batches` and
+`release_exterior_cell`, including cells installed through gameplay location
+replacement. Departed cells leave that grid lookup. Bulk geometry still uses
+RenderingServer RIDs and this change adds no reference nodes or saved state.
+
+Sources are local UESP `uesp-modfileformat/WRLD.wikitext`, xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas` WRLD DATA and PNAM definitions, and the
+existing RND-19 parent-LOD and block consumer. The renderer uses that consumer
+rather than introducing a separate city mesh loader. RND-27 fixtures cover
+complete small-world selection, persistent-cell separation, ordinary radii,
+invalid destinations and independent parent land and LOD flags. The installed
+record check surveys Whiterun's grid cells and Tamriel's city LOD placements.
+`godot/rnd_27_whiterun_capture.gd` checks gameplay residency, retained city cells
+while moving to the gate, parent LOD instances and replacement on gate crossing.
+It captures the plains from Dragonsreach with and without terrain LOD, requiring
+500 changed pixels, then the city from outside the gate against a control
+without district cells and distant objects, requiring 1,000 changed pixels
+across 120 columns. Captures and the Rust runner's log go under
+`godot/.godot/rnd_27`.
+The capture freezes gameplay and hides CanvasLayer overlays so a cold-load fade
+does not cover the world view.
+
 ## Mesh
 
 `mesh::MeshSource` is a trait shaped like the `nif` crate's neutral output: positions,
