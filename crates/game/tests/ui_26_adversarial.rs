@@ -52,7 +52,7 @@ fn select(game: &mut Game, count: i32) -> soe_game::inventory::Selection {
 
 #[test]
 fn ui_26_authored_contents_are_available_before_activation() {
-    let mut game = game(3);
+    let game = game(3);
     assert_eq!(game.world_mut().loot_state(id(CHEST)), LootState::Ready);
     let world = game.world();
     let reference = world.reference_ref(id(CHEST)).unwrap();
