@@ -16,6 +16,10 @@ mod cmb_39_breaker_adversarial;
 mod sav_13_adversarial;
 #[path = "sav_13_breaker_adversarial.rs"]
 mod sav_13_breaker_adversarial;
+#[path = "sav_30_adversarial.rs"]
+mod sav_30_adversarial;
+#[path = "sav_30_breaker_adversarial.rs"]
+mod sav_30_breaker_adversarial;
 #[path = "sav_71_breaker_adversarial.rs"]
 mod sav_71_breaker_adversarial;
 #[path = "sav_71_reset.rs"]
