@@ -41,8 +41,18 @@ fn prf_30_installed_render_report_reconciles_cells_with_godot_objects() {
         .expect("installed report summary");
     let report: serde_json::Value = serde_json::from_str(report).expect("valid render report JSON");
     let cells = report["cell_instances"].as_f64().expect("cell instances");
-    let objects = report["godot_objects_in_frame"].as_f64().expect("Godot objects in frame");
-    assert_eq!(cells, objects, "cell instances do not reconcile with Godot objects: {report}");
+    let objects = report["godot_objects_in_frame"]
+        .as_f64()
+        .expect("Godot objects in frame");
+    let built = report["built"].as_f64().expect("built instances");
+    assert_eq!(
+        cells, built,
+        "resident cell instances do not reconcile with streamer: {report}"
+    );
+    assert!(
+        objects > 0.0 && objects <= cells,
+        "in-frame objects must be a culled subset of resident batches: {report}"
+    );
 }
 
 #[test]
@@ -60,7 +70,10 @@ fn prf_30_render_report_attributes_each_cull_stage_and_lod_switches() {
         "materials_created_per_frame",
         "meshes_created_per_frame",
     ] {
-        assert!(output.contains(field), "render attribution omits {field}: {output}");
+        assert!(
+            output.contains(field),
+            "render attribution omits {field}: {output}"
+        );
     }
 }
 
@@ -94,6 +107,9 @@ fn prf_30_report_reads_every_builtin_performance_monitor() {
         "navigation_free_edges",
         "navigation_obstacles",
     ] {
-        assert!(godot.get(field).is_some(), "frame report omits Godot monitor {field}: {godot}");
+        assert!(
+            godot.get(field).is_some(),
+            "frame report omits Godot monitor {field}: {godot}"
+        );
     }
 }

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -14,8 +15,19 @@ fn bench(args: &[&str]) -> Output {
 fn prf_28_each_vanilla_process_level_executes_a_capacity_measurement() {
     for level in ["high", "middle_high", "middle_low", "low"] {
         let output = bench(&[
-            "capacity", "ai", "synthetic", "--level", level, "--start", "1", "--max", "1",
-            "--samples", "100", "--warmup", "1",
+            "capacity",
+            "ai",
+            "synthetic",
+            "--level",
+            level,
+            "--start",
+            "1",
+            "--max",
+            "1",
+            "--samples",
+            "100",
+            "--warmup",
+            "1",
         ]);
         assert!(
             output.status.success(),
@@ -31,8 +43,19 @@ fn prf_28_capacity_accepts_one_and_core_count_ai_workers() {
     for workers in [1, std::thread::available_parallelism().unwrap().get()] {
         let workers = workers.to_string();
         let output = bench(&[
-            "capacity", "ai", "synthetic", "--workers", &workers, "--start", "1", "--max", "1",
-            "--samples", "100", "--warmup", "1",
+            "capacity",
+            "ai",
+            "synthetic",
+            "--workers",
+            &workers,
+            "--start",
+            "1",
+            "--max",
+            "1",
+            "--samples",
+            "100",
+            "--warmup",
+            "1",
         ]);
         assert!(
             output.status.success(),
@@ -47,8 +70,17 @@ fn prf_28_capacity_accepts_one_and_core_count_ai_workers() {
 fn prf_28_installed_animation_executes_a_measured_capacity_rung() {
     let data = std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA is required");
     let output = bench(&[
-        "capacity", "animation", "whiterun", "--start", "1", "--max", "1", "--samples", "100",
-        "--warmup", "1",
+        "capacity",
+        "animation",
+        "whiterun",
+        "--start",
+        "1",
+        "--max",
+        "1",
+        "--samples",
+        "100",
+        "--warmup",
+        "1",
     ]);
     assert!(
         output.status.success(),

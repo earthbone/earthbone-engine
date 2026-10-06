@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::process::{Command, Output};
 

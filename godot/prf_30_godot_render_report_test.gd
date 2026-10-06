@@ -2,6 +2,18 @@ extends SceneTree
 
 const Overlay := preload("res://system_overlay.gd")
 const CELL := "WhiterunBanneredMare"
+const MONITOR_FIELDS := [
+	"fps", "process_ms", "physics_ms", "navigation_ms", "objects", "nodes", "orphan_nodes",
+	"static_memory_bytes", "static_memory_max_bytes", "message_buffer_max_bytes", "resources",
+	"objects_in_frame", "primitives_in_frame", "draw_calls_in_frame", "video_memory_bytes",
+	"texture_memory_bytes", "render_buffer_memory_bytes", "physics_2d_active_objects",
+	"physics_2d_collision_pairs", "physics_2d_islands", "physics_3d_active_objects",
+	"physics_3d_collision_pairs", "physics_3d_islands", "navigation_active_maps",
+	"navigation_regions", "navigation_agents", "navigation_links", "navigation_polygons",
+	"navigation_edges", "navigation_edge_merges", "navigation_edge_connections",
+	"navigation_free_edges", "navigation_obstacles", "audio_output_latency_ms", "pipeline_canvas",
+	"pipeline_mesh", "pipeline_surface", "pipeline_draw", "pipeline_specialization",
+]
 var failures := 0
 
 
@@ -39,7 +51,7 @@ func run() -> void:
 		await process_frame
 		await RenderingServer.frame_post_draw
 	var metrics: Dictionary = overlay.godot_metrics()
-	for name in Overlay.MONITORS:
+	for name in MONITOR_FIELDS:
 		check(metrics.has(name), "missing Performance monitor " + name)
 		check(is_finite(float(metrics.get(name, NAN))), "non-finite Performance monitor " + name)
 	for pass_name in ["visible", "shadow", "canvas"]:
@@ -63,6 +75,7 @@ func run() -> void:
 		cell_instances += int(counts.instances)
 		check(counts.draw_calls == counts.instances, "cell batch draw-call count differs from renderer instances")
 	check(cell_instances == built, "per-cell batch counts do not add up to streamed instances")
+	check(int(metrics.objects_in_frame) <= cell_instances, "Godot in-frame objects exceed resident cell batches")
 	var plugin_batches := 0
 	for plugin_name in plugins:
 		plugin_batches += int(plugins[plugin_name].instances)

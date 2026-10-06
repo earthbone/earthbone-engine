@@ -15,6 +15,7 @@ var orphan_start := -1.0
 var orphan_warning := false
 
 const MONITORS := {
+	"fps": Performance.TIME_FPS,
 	"process_ms": Performance.TIME_PROCESS,
 	"physics_ms": Performance.TIME_PHYSICS_PROCESS,
 	"navigation_ms": Performance.TIME_NAVIGATION_PROCESS,
@@ -22,14 +23,31 @@ const MONITORS := {
 	"nodes": Performance.OBJECT_NODE_COUNT,
 	"orphan_nodes": Performance.OBJECT_ORPHAN_NODE_COUNT,
 	"static_memory_bytes": Performance.MEMORY_STATIC,
+	"static_memory_max_bytes": Performance.MEMORY_STATIC_MAX,
+	"message_buffer_max_bytes": Performance.MEMORY_MESSAGE_BUFFER_MAX,
+	"resources": Performance.OBJECT_RESOURCE_COUNT,
 	"objects_in_frame": Performance.RENDER_TOTAL_OBJECTS_IN_FRAME,
 	"primitives_in_frame": Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME,
 	"draw_calls_in_frame": Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME,
 	"video_memory_bytes": Performance.RENDER_VIDEO_MEM_USED,
 	"texture_memory_bytes": Performance.RENDER_TEXTURE_MEM_USED,
+	"render_buffer_memory_bytes": Performance.RENDER_BUFFER_MEM_USED,
+	"physics_2d_active_objects": Performance.PHYSICS_2D_ACTIVE_OBJECTS,
+	"physics_2d_collision_pairs": Performance.PHYSICS_2D_COLLISION_PAIRS,
+	"physics_2d_islands": Performance.PHYSICS_2D_ISLAND_COUNT,
 	"physics_3d_active_objects": Performance.PHYSICS_3D_ACTIVE_OBJECTS,
 	"physics_3d_collision_pairs": Performance.PHYSICS_3D_COLLISION_PAIRS,
 	"physics_3d_islands": Performance.PHYSICS_3D_ISLAND_COUNT,
+	"navigation_active_maps": Performance.NAVIGATION_ACTIVE_MAPS,
+	"navigation_regions": Performance.NAVIGATION_REGION_COUNT,
+	"navigation_agents": Performance.NAVIGATION_AGENT_COUNT,
+	"navigation_links": Performance.NAVIGATION_LINK_COUNT,
+	"navigation_polygons": Performance.NAVIGATION_POLYGON_COUNT,
+	"navigation_edges": Performance.NAVIGATION_EDGE_COUNT,
+	"navigation_edge_merges": Performance.NAVIGATION_EDGE_MERGE_COUNT,
+	"navigation_edge_connections": Performance.NAVIGATION_EDGE_CONNECTION_COUNT,
+	"navigation_free_edges": Performance.NAVIGATION_EDGE_FREE_COUNT,
+	"navigation_obstacles": Performance.NAVIGATION_OBSTACLE_COUNT,
 	"audio_output_latency_ms": Performance.AUDIO_OUTPUT_LATENCY,
 	"pipeline_canvas": Performance.PIPELINE_COMPILATIONS_CANVAS,
 	"pipeline_mesh": Performance.PIPELINE_COMPILATIONS_MESH,
@@ -124,6 +142,8 @@ func refresh() -> void:
 		var row: Dictionary = report[system]
 		text += "%s: %.3f / %.1f%% / %.3f / %.3f / %.3f\n" % [system, row.ms, row.percent, row.p50_ms, row.p99_ms, row.worst_ms]
 	var godot := godot_metrics()
+	text += "Godot frame: %.1f fps, %d resources, static memory max %d, message buffer max %d, render buffers %.1f MiB\n" % [godot.fps, godot.resources, godot.static_memory_max_bytes, godot.message_buffer_max_bytes, godot.render_buffer_memory_bytes / 1048576.0]
+	text += "Physics 2D: %d objects, %d pairs, %d islands; navigation: %d maps, %d regions, %d agents, %d links, %d polygons\n" % [godot.physics_2d_active_objects, godot.physics_2d_collision_pairs, godot.physics_2d_islands, godot.navigation_active_maps, godot.navigation_regions, godot.navigation_agents, godot.navigation_links, godot.navigation_polygons]
 	text += "Godot ms: process %.3f, physics %.3f, navigation %.3f\n" % [godot.process_ms, godot.physics_ms, godot.navigation_ms]
 	text += "Godot objects: %d, nodes: %d, orphans: %d%s\n" % [godot.objects, godot.nodes, godot.orphan_nodes, " WARNING: orphan nodes grew over 10s" if orphan_warning else ""]
 	text += "Render visible/shadow/canvas objects: %d / %d / %d, draw calls: %d, primitives: %d\n" % [godot.visible.objects, godot.shadow.objects, godot.canvas.objects, godot.visible.draw_calls, godot.visible.primitives]

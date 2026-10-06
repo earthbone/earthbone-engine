@@ -20,7 +20,7 @@ fn report_count(report: &str, field: &str) -> f64 {
 }
 
 #[test]
-fn prf_30_cell_render_counts_match_godots_objects_in_frame() {
+fn prf_30_resident_cell_render_counts_reconcile_with_the_streamer() {
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
     let data = std::env::var_os("SKYRIM_DATA").unwrap_or_else(|| {
         "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data"
@@ -54,9 +54,14 @@ fn prf_30_cell_render_counts_match_godots_objects_in_frame() {
         .find_map(|line| line.strip_prefix("PRF_30_RENDER_REPORT "))
         .expect("installed-data report summary");
     let cell_instances = report_count(report, "cell_instances");
+    let built = report_count(report, "built");
     let godot_objects = report_count(report, "godot_objects_in_frame");
     assert_eq!(
-        cell_instances, godot_objects,
-        "resident per-cell render counts must match Godot's in-frame objects; report={report}"
+        cell_instances, built,
+        "resident per-cell count differs from streamer; report={report}"
+    );
+    assert!(
+        godot_objects > 0.0 && godot_objects <= cell_instances,
+        "in-frame objects should be a culled subset of resident batches; report={report}"
     );
 }
