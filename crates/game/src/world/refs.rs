@@ -556,6 +556,8 @@ impl World {
             self.refs.insert(id, st);
             self.track_light_reference(id);
         }
+        // CONTEXT: RefState exposes translation for mutation through this borrow.
+        self.translation_candidates.insert(id);
         self.refs.get_mut(&id)
     }
 

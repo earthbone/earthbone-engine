@@ -113,6 +113,7 @@ impl PlayerNode {
             .unwrap_or_default();
         vdict! {
             "ticks" => game.frame_history().frames() as i64,
+            "magic_active_effects" => world.active_effects().count() as i64,
             "seconds" => world.clock.real_seconds,
             "evaluations" => world.ai.evaluations as i64,
             "navmesh_triangles" => triangles as i64,
@@ -141,9 +142,19 @@ impl PlayerNode {
         for system in System::ALL {
             systems.set(system.name(), sample.milliseconds(system));
         }
+        let mut phases = VarDictionary::new();
+        if let Some(game) = &self.game {
+            for phase in soe_game::magic_profile::MagicPhase::ALL {
+                phases.set(
+                    phase.name(),
+                    game.magic_frame_history().last_ns(phase) as f64 / 1e6,
+                );
+            }
+        }
         vdict! {
             "frame_ms" => sample.frame_ns as f64 / 1e6,
             "systems" => &systems,
+            "magic_phases" => &phases,
         }
     }
 
@@ -179,6 +190,33 @@ impl PlayerNode {
     /// All session totals and worst times with rolling p50 and p99 per system.
     #[func]
     fn system_summary(&self) -> GString {
-        GString::from(self.host_history.summary_text().as_str())
+        let mut summary = self.host_history.summary_text();
+        if let Some(game) = &self.game {
+            summary.push_str(&game.magic_frame_history().summary_text());
+        }
+        GString::from(summary.as_str())
+    }
+
+    /// Magic tick subphases, already included in the PRF-12 magic total.
+    #[func]
+    fn magic_frame_breakdown(&self) -> VarDictionary {
+        let mut report = VarDictionary::new();
+        let Some(game) = &self.game else {
+            return report;
+        };
+        for phase in soe_game::magic_profile::MagicPhase::ALL {
+            let history = game.magic_frame_history();
+            let stats = history.statistics(phase);
+            report.set(
+                phase.name(),
+                &vdict! {
+                    "ms" => history.last_ns(phase) as f64 / 1e6,
+                    "p50_ms" => stats.p50_ns as f64 / 1e6,
+                    "p99_ms" => stats.p99_ns as f64 / 1e6,
+                    "worst_ms" => stats.worst_ns as f64 / 1e6,
+                },
+            );
+        }
+        report
     }
 }

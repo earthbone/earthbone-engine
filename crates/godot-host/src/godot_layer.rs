@@ -313,6 +313,8 @@ struct ShaderParticleInstance {
 struct RuntimeLight {
     light: Rid,
     instance: Rid,
+    transform: Transform3D,
+    fade: Option<[f32; 2]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1312,19 +1314,16 @@ impl CellStreamerNode {
     }
 
     fn sync_runtime_lights(&mut self, world: &soe_game::World, server: &mut Gd<RenderingServer>) {
-        let mut active: Vec<_> = world
-            .active_effects()
-            .filter_map(|effect| effect.summoned)
+        let active: std::collections::BTreeSet<_> = world
+            .summoned_effect_references()
             .filter(|reference| {
                 world
                     .reference_ref(*reference)
                     .and_then(|reference| reference.base)
-                    .and_then(|base| world.record(base))
-                    .is_some_and(|record| light_render_data(record).is_some())
+                    .and_then(|base| world.tag_of(base))
+                    .is_some_and(|tag| tag == soe_esm::Tag::new(b"LIGH"))
             })
             .collect();
-        active.sort_unstable();
-        let active: std::collections::HashSet<_> = active.into_iter().collect();
         self.runtime_lights.retain(|reference, light| {
             if active.contains(reference)
                 && world
@@ -1350,9 +1349,6 @@ impl CellStreamerNode {
             let Some(base) = world.reference_ref(reference).and_then(|value| value.base) else {
                 continue;
             };
-            let Some(render) = world.record(base).and_then(light_render_data) else {
-                continue;
-            };
             let position = SkyrimPos::new(
                 placement.position[0],
                 placement.position[1],
@@ -1368,12 +1364,27 @@ impl CellStreamerNode {
                 .and_then(|state| state.cell)
                 .and_then(|cell| crate::cell_lighting::cell_lighting(world.order(), cell))
                 .and_then(|lighting| lighting.distance_fade());
-            if let Some(light) = self.runtime_lights.get(&reference) {
-                server.instance_set_transform(light.instance, transform);
-                let [begin, length] = fade.unwrap_or_default();
-                server.light_set_distance_fade(light.light, fade.is_some(), begin, begin, length);
+            if let Some(light) = self.runtime_lights.get_mut(&reference) {
+                if light.transform != transform {
+                    server.instance_set_transform(light.instance, transform);
+                    light.transform = transform;
+                }
+                if light.fade != fade {
+                    let [begin, length] = fade.unwrap_or_default();
+                    server.light_set_distance_fade(
+                        light.light,
+                        fade.is_some(),
+                        begin,
+                        begin,
+                        length,
+                    );
+                    light.fade = fade;
+                }
                 continue;
             }
+            let Some(render) = world.record(base).and_then(light_render_data) else {
+                continue;
+            };
             let light = server.omni_light_create();
             let [begin, length] = fade.unwrap_or_default();
             server.light_set_distance_fade(light, fade.is_some(), begin, begin, length);
@@ -1390,8 +1401,15 @@ impl CellStreamerNode {
             let instance =
                 soe_trace::Profile::render_submission(|| server.instance_create2(light, scenario));
             server.instance_set_transform(instance, transform);
-            self.runtime_lights
-                .insert(reference, RuntimeLight { light, instance });
+            self.runtime_lights.insert(
+                reference,
+                RuntimeLight {
+                    light,
+                    instance,
+                    transform,
+                    fade,
+                },
+            );
         }
     }
 

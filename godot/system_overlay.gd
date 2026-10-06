@@ -24,6 +24,7 @@ func _ready() -> void:
 	background.content_margin_bottom = 4.0
 	panel.add_theme_stylebox_override("panel", background)
 	label = Label.new()
+	label.add_theme_constant_override("line_spacing", 0)
 	label.add_theme_font_size_override("font_size", 12)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(label)
@@ -61,7 +62,7 @@ func _process(delta: float) -> void:
 func refresh() -> void:
 	if not is_instance_valid(player):
 		return
-	label.add_theme_font_size_override("font_size", 9 if entities and get_viewport().get_visible_rect().size.y < 400.0 else 12)
+	label.add_theme_font_size_override("font_size", 9 if (entities or player.has_method("magic_frame_breakdown")) and get_viewport().get_visible_rect().size.y < 400.0 else 12)
 	if entities:
 		label.text = player.call("entity_profile_overlay")
 		return
@@ -71,6 +72,12 @@ func refresh() -> void:
 	for system in report:
 		var row: Dictionary = report[system]
 		text += "%s: %.3f / %.1f%% / %.3f / %.3f / %.3f\n" % [system, row.ms, row.percent, row.p50_ms, row.p99_ms, row.worst_ms]
+	var phases: Dictionary = player.call("magic_frame_breakdown") if player.has_method("magic_frame_breakdown") else {}
+	if not phases.is_empty():
+		text += "Magic tick phases, included above: last / p50 / p99 / worst ms\n"
+		for phase in phases:
+			var row: Dictionary = phases[phase]
+			text += "%s: %.3f / %.3f / %.3f / %.3f\n" % [phase, row.ms, row.p50_ms, row.p99_ms, row.worst_ms]
 	label.text = text
 
 

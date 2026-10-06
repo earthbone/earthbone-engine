@@ -1,5 +1,40 @@
 # soe-game: the runtime form table and the first natives
 
+## Magic tick work, PRF-35
+
+Magic ticks decode winning SPEL and MGEF records once into shared read-only
+views. Runtime MGEF overrides bypass those views. The condition-presence
+cache stores no evaluated condition result. Live conditions still run at
+each authored one-second boundary, and concentration checks each application.
+The active-effect loop reads existing target actor state without invoking
+the actor builder or scanning its spell list. Unchanged modifiers advance
+their elapsed clock and check expiry without cloning their value changes.
+Ongoing damage, taper, wards, cloaks and hazards keep their existing tick paths.
+Final partial intervals, death dispels and paused clocks retain their behavior.
+
+Effect insertion and removal maintain derived identity indexes for archetypes
+and summoned references. Slow Time, Paralysis, Detect Life and the host Grab
+Actor and light hooks use those indexes. Native-save load rebuilds them from
+the restored active-effect table. Translation ticks visit active translations
+and references borrowed for mutation since the previous tick. Completion
+removes their candidate identity. Load rebuilds candidates from saved
+translations, and direct RefState translation mutations are discovered through
+`World::reference`. These caches and indexes add no saved state.
+
+`Game::magic_frame_history` reports image-space, translation, shader-particle,
+effect-shader, visual-effect, active-effect and concentration tick phases.
+The casting and dispatch remainder includes reactive casts and phase bookkeeping.
+It uses PRF-12's exclusive magic clock and rolling 240-tick statistics.
+Paused ticks skip the seven update phases. Reactive casts still enter the
+remainder. Timing suspension also suspends phases.
+The host reports these subphases inside the existing magic system total.
+
+Sources are the repository's MAG implementations and PRF-12 clock, local
+OpenMW `apps/openmw/mwmechanics/activespells.cpp` for immutable spell-store
+views and active-application iteration, CK `TranslateTo` and `DispelAllSpells`
+for events and preserved abilities, and UESP `MGEF.wikitext` for death flags.
+OpenMW's Morrowind effect execution is not used for Skyrim archetypes.
+
 ## Entity runtime hooks, PRF-13
 
 Optional scopes attribute actor planning, package evaluation, driver movement

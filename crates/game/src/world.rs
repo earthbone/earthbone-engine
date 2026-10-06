@@ -841,6 +841,7 @@ pub struct World {
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
     refs: HashMap<GlobalFormId, RefState>,
+    translation_candidates: BTreeSet<GlobalFormId>,
     light_references: std::cell::RefCell<light_references::LightReferences>,
     /// Current occupants, derived from actor movement and XPRM placement.
     trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
@@ -1027,6 +1028,8 @@ pub struct World {
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
+    magic_definitions: std::cell::RefCell<magic::MagicDefinitions>,
+    effect_index: magic::EffectIndex,
     /// Visual effects currently attached to references. Host rendering is
     /// transient and is rebuilt from Papyrus calls after load.
     visual_effect_attachments: BTreeMap<(GlobalFormId, GlobalFormId), VisualEffectAttachment>,
@@ -1231,6 +1234,7 @@ impl World {
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),
+            translation_candidates: BTreeSet::new(),
             light_references: std::cell::RefCell::default(),
             trigger_occupants: BTreeMap::new(),
             trigger_index: None,
@@ -1350,6 +1354,8 @@ impl World {
             commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
+            magic_definitions: std::cell::RefCell::default(),
+            effect_index: magic::EffectIndex::default(),
             visual_effect_attachments: BTreeMap::new(),
             visual_effects: BTreeMap::new(),
             cloak_effects: BTreeMap::new(),

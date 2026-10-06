@@ -96,6 +96,25 @@ the existing input path and the local Godot RenderingServer signal contract.
 
 ## Per-system frame monitors, PRF-12
 
+PRF-35 adds `magic_frame_breakdown` for the Game magic tick phases and the
+casting and dispatch remainder.
+The F3 overlay displays their last, p50, p99 and worst milliseconds, and
+`system_summary` appends their session totals. They are included in the
+existing magic slot and do not increase the system total or its frame share.
+`end_budget_frame` includes their latest tick times under `magic_phases`.
+Phase percentiles cover Game ticks, while system percentiles cover host
+presentation frames. The windowed `prf_35_magic_test.gd` drives the actual
+walkthrough indoors and through the authored city gate to the Whiterun plains,
+retains 360 samples per location and checks magic below 0.2 ms p50 and 0.5 ms p99.
+The thresholds and before/after measurements are in [performance.md](performance.md).
+
+The Grab Actor hook reads indexed active applications and selects a resident
+body in stable target order. Runtime light sync reads indexed summoned
+references, decodes LIGH data when creating a light, and updates RID transforms
+and fades only when they change. Expiry and visibility still release RIDs.
+These paths add no per-reference nodes or saved fields. They reuse the shared
+MAG-35 and MAG-66 contracts and Godot RenderingServer RID APIs.
+
 PRF-16's `begin_budget_frame` and `end_budget_frame` delimit one fixed-step
 CPU window using the same exclusive PRF-12 slots. Nested begins fail, an end
 without a begin returns an empty dictionary, and successful ends return the
