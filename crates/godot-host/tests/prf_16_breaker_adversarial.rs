@@ -6,8 +6,11 @@ use std::process::Command;
 
 #[test]
 fn prf_16_walk_out_reaches_exterior_with_npc_workload() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        eprintln!("SKIP PRF-16 walk-out: SKYRIM_DATA is unset");
+        return;
+    };
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
-    let data = std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA is required");
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let result = Command::new(godot)
         .args([
