@@ -216,7 +216,7 @@ pub(super) fn navigate(
             });
             let (projected, _) = surface(&graph, sample)?;
             if distance(sample, projected) > 0.25 {
-                return Err("NAVM route contains an off-surface link".into());
+                return Err(format!("NAVM route contains an off-surface link: {sample:?} projects to {projected:?}, from {position:?} to {next_position:?}, path {:?}", path.points));
             }
         }
         {
