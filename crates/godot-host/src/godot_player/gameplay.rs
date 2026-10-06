@@ -222,6 +222,7 @@ impl PlayerNode {
 
     pub(super) fn advance_game(&mut self, delta: f64, sprinting: bool) {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let _scene = crate::scene_timing::Scope::new(soe_trace::System::Other);
         if self.game.is_none() || self.main_menu.is_active() {
             return;
         }
@@ -296,7 +297,9 @@ impl PlayerNode {
                     .emit_signal("hud_cart_mode_changed", &[Variant::from(hud_cart_mode)]);
             }
         }
-        self.refresh_image_space();
+        if !self.auto_step {
+            self.refresh_image_space();
+        }
 
         self.advance_ambient_dialogue();
         self.capture_screenshot_requests();

@@ -119,9 +119,11 @@ mod record_save;
 mod static_object_restore;
 pub use quest_restore::QuestRestoreReport;
 mod light_references;
+mod reference_changes;
 mod reference_extras;
 mod reference_restore;
 mod refs;
+pub use reference_changes::ReferenceChanges;
 mod shim_extras;
 mod spatial_restore;
 pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceRestoreReport};
@@ -841,6 +843,7 @@ pub struct World {
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
     refs: HashMap<GlobalFormId, RefState>,
+    reference_changes: std::cell::RefCell<reference_changes::State>,
     light_references: std::cell::RefCell<light_references::LightReferences>,
     /// Current occupants, derived from actor movement and XPRM placement.
     trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
@@ -1231,6 +1234,7 @@ impl World {
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),
+            reference_changes: std::cell::RefCell::default(),
             light_references: std::cell::RefCell::default(),
             trigger_occupants: BTreeMap::new(),
             trigger_index: None,

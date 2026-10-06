@@ -116,6 +116,9 @@ pub struct PlayerNode {
     last_catchup_steps: u32,
     catchup_since: Option<std::time::Instant>,
     catchup_warning_sent: bool,
+    scene_history: soe_trace::FrameHistory,
+    scene_frame: soe_trace::FrameSample,
+    scene_budget: soe_trace::FrameSample,
     budget_frame: Option<soe_trace::FrameSnapshot>,
     monitor_names: Vec<StringName>,
     /// Cell radius beyond which distant LOD replaces full resolution geometry.
@@ -136,6 +139,9 @@ pub struct PlayerNode {
     world: Option<SimpleWorld>,
     query_collision: crate::godot_physics::CellBodies,
     collision_references: HashMap<BodyId, GlobalFormId>,
+    collision_changes: soe_game::world::ReferenceChanges,
+    collision_cells: BTreeSet<GlobalFormId>,
+    collision_residents: BTreeMap<GlobalFormId, GlobalFormId>,
     collision_visibility: std::collections::BTreeMap<GlobalFormId, bool>,
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
@@ -248,6 +254,9 @@ impl INode3D for PlayerNode {
             last_catchup_steps: 0,
             catchup_since: None,
             catchup_warning_sent: false,
+            scene_history: soe_trace::FrameHistory::default(),
+            scene_frame: crate::scene_timing::snapshot(),
+            scene_budget: soe_trace::FrameSample::default(),
             budget_frame: None,
             monitor_names: Vec::new(),
             exterior_lod_full_res_radius: 1,
@@ -262,6 +271,9 @@ impl INode3D for PlayerNode {
             world: None,
             query_collision: crate::godot_physics::CellBodies::default(),
             collision_references: HashMap::new(),
+            collision_changes: soe_game::world::ReferenceChanges::default(),
+            collision_cells: BTreeSet::new(),
+            collision_residents: BTreeMap::new(),
             collision_visibility: std::collections::BTreeMap::new(),
             character: None,
             data_source: None,
@@ -527,6 +539,7 @@ impl INode3D for PlayerNode {
             self.catchup_warning_sent = false;
         }
         let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let scene_scope = crate::scene_timing::Scope::new(soe_trace::System::Other);
         if let Some(view) = self.item_card_view.as_mut() {
             view.tick(delta);
         }
@@ -556,9 +569,16 @@ impl INode3D for PlayerNode {
         if let Some(view) = self.hud_view.as_mut() {
             view.tick_presentation(delta);
         }
+        if self.auto_step {
+            self.refresh_image_space();
+        }
+        drop(scene_scope);
         drop(render_scope);
         let sample = self.host_frame.finish();
         soe_trace::Profile::systems("host", &sample);
+        self.scene_history
+            .record(crate::scene_timing::elapsed(&self.scene_frame));
+        self.scene_frame = crate::scene_timing::snapshot();
         self.host_history.record(sample);
         crate::godot_profiler::publish(&self.host_history);
         self.host_frame = soe_trace::FrameSnapshot::now();
@@ -2193,6 +2213,8 @@ impl PlayerNode {
     }
 
     fn place_camera(&mut self, feet: Vec3, height: f32) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let _phase = crate::scene_timing::Scope::new(soe_trace::System::Input);
         if self.camera.is_none() {
             return;
         }

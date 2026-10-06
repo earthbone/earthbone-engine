@@ -1795,3 +1795,9 @@ mod aud_11_adversarial;
 
 #[path = "prf_27_ai.rs"]
 mod prf_27_ai;
+
+#[path = "prf_34_adversarial.rs"]
+mod prf_34_adversarial;
+
+#[path = "prf_34_reference_changes.rs"]
+mod prf_34_reference_changes;
