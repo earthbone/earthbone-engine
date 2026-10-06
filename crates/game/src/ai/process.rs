@@ -26,7 +26,7 @@ pub enum ProcessLevel {
 }
 
 impl ProcessLevel {
-    pub(super) fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         self as usize
     }
 
@@ -48,7 +48,7 @@ pub struct ProcessClock {
 }
 
 impl ProcessClock {
-    pub(super) fn advance(
+    pub(crate) fn advance(
         state: &mut Option<Self>,
         actor: GlobalFormId,
         level: ProcessLevel,
@@ -74,19 +74,40 @@ impl ProcessClock {
     }
 }
 
-pub(super) fn level(
-    world: &World,
-    actor: GlobalFormId,
-    player: Option<([f32; 3], Option<GlobalFormId>)>,
-    spaces: &mut HashMap<GlobalFormId, Option<GlobalFormId>>,
+/// Scheduling inputs derived from the live player and cell records.
+pub(crate) struct PlayerContext {
+    pub(crate) position: [f32; 3],
+    pub(crate) cell: Option<GlobalFormId>,
+    pub(crate) space: Option<GlobalFormId>,
+}
+
+pub(crate) struct Schedule {
+    pub(crate) actors: Vec<GlobalFormId>,
+    pub(crate) updates: Vec<(GlobalFormId, f64)>,
+    pub(crate) inactive: Vec<GlobalFormId>,
+    pub(crate) counts: [usize; 4],
+    pub(crate) update_counts: [usize; 4],
+}
+
+pub(crate) fn coordinate_space(world: &World, cell: Option<GlobalFormId>) -> Option<GlobalFormId> {
+    let cell = cell?;
+    if world.cell_is_interior(cell) {
+        return None;
+    }
+    world.resolve_from(cell, world.record(cell)?.placement.world?)
+}
+
+pub(crate) fn level_from_state(
+    state: &crate::world::ActorState,
+    reference: Option<&crate::world::RefState>,
+    is_player: bool,
+    player: Option<&PlayerContext>,
+    spaces: &HashMap<GlobalFormId, Option<GlobalFormId>>,
 ) -> ProcessLevel {
-    let Some((player_position, player_cell)) = player else {
+    let Some(player) = player else {
         return ProcessLevel::High;
     };
-    let Some(state) = world.actor_ref(actor) else {
-        return ProcessLevel::Low;
-    };
-    if world.is_player(actor)
+    if is_player
         || state.in_combat
         || state.teammate
         || state.ai.scene_package.is_some()
@@ -97,25 +118,18 @@ pub(super) fn level(
     {
         return ProcessLevel::High;
     }
-    let Some(reference) = world.reference_ref(actor) else {
+    let Some(reference) = reference else {
         return ProcessLevel::Low;
     };
-    if reference.cell != player_cell {
-        let mut space = |cell: Option<GlobalFormId>| {
-            let cell = cell?;
-            *spaces.entry(cell).or_insert_with(|| {
-                if world.cell_is_interior(cell) {
-                    return None;
-                }
-                world.resolve_from(cell, world.record(cell)?.placement.world?)
-            })
-        };
-        let player_space = space(player_cell);
-        if player_space.is_none() || player_space != space(reference.cell) {
+    if reference.cell != player.cell {
+        let actor_space = reference
+            .cell
+            .and_then(|cell| spaces.get(&cell).copied().flatten());
+        if player.space.is_none() || player.space != actor_space {
             return ProcessLevel::Low;
         }
     }
-    let separation = distance(player_position, reference.position);
+    let separation = distance(player.position, reference.position);
     if separation <= 4096.0 {
         ProcessLevel::High
     } else if separation <= 8192.0 {
@@ -125,6 +139,36 @@ pub(super) fn level(
     } else {
         ProcessLevel::Low
     }
+}
+
+#[cfg(test)]
+pub(super) fn level(
+    world: &World,
+    actor: GlobalFormId,
+    player: Option<([f32; 3], Option<GlobalFormId>)>,
+    spaces: &mut HashMap<GlobalFormId, Option<GlobalFormId>>,
+) -> ProcessLevel {
+    let player = player.map(|(position, cell)| PlayerContext {
+        position,
+        cell,
+        space: coordinate_space(world, cell),
+    });
+    let Some(state) = world.actor_ref(actor) else {
+        return ProcessLevel::Low;
+    };
+    let reference = world.reference_ref(actor);
+    if let Some(cell) = reference.and_then(|reference| reference.cell) {
+        spaces
+            .entry(cell)
+            .or_insert_with(|| coordinate_space(world, Some(cell)));
+    }
+    level_from_state(
+        state,
+        reference,
+        world.is_player(actor),
+        player.as_ref(),
+        spaces,
+    )
 }
 
 pub(crate) fn write_clock(

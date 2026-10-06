@@ -8832,7 +8832,7 @@ marker selection and Turn Undead checks.
 
 Sandbox marker queries also retain their cursor and candidate FormIDs across
 frames. Each request examines at most 64 references in a tick and the frame
-shares 256 reference examinations. The scheduler rotates pending actors when
+shares 64 reference examinations. The scheduler rotates pending actors when
 the shared budget is exhausted. Pending actors hold their current step and
 consume no marker-choice RNG until the query completes. Candidate order remains
 FormID order. A changed package or search goal cancels the old query, and unloaded

@@ -735,7 +735,7 @@ impl World {
         let ids = self.cell_reference_ids(cell);
         let mut out = Vec::new();
         for id in ids {
-            let Some(base) = self.base_of(id) else {
+            let Some(base) = self.reference_base_view(id) else {
                 continue;
             };
             if self.tag_of(base) != Some(super::T(b"DOOR")) {

@@ -11,7 +11,7 @@ use std::task::Poll;
 use super::{sandbox_marker, GlobalFormId, World};
 
 const REQUEST_BUDGET: usize = 64;
-const FRAME_BUDGET: usize = 256;
+const FRAME_BUDGET: usize = 64;
 
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct Goal {
@@ -91,9 +91,6 @@ impl Planner {
             .is_some_and(|request| request.goal != goal)
         {
             self.cancel(actor);
-        }
-        if self.remaining == 0 && !self.requests.contains_key(&actor) {
-            return Poll::Pending;
         }
         let request = self.requests.entry(actor).or_insert_with(|| Request {
             goal,
