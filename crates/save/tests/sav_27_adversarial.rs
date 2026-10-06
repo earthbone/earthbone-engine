@@ -81,13 +81,13 @@ fn sav_27_cell_requires_flagged_prefix_and_suffix_fields_in_source_order() {
 }
 
 #[test]
-fn sav_27_cell_rejects_undefined_flags_and_trailing_bytes() {
-    for flag in [1 << 28, 1 << 29, 1 << 30, 1 << 4] {
-        assert!(
-            form(6, flag, vec![]).cell_change().is_err(),
-            "accepted {flag:#010x}"
-        );
+fn sav_27_cell_accepts_placeholder_markers_and_rejects_unknown_flags() {
+    for flag in [1 << 28, 1 << 29, 1 << 30] {
+        let decoded = form(6, flag, vec![]).cell_change().unwrap().unwrap();
+        assert!(decoded.exterior_short || decoded.exterior_char || decoded.detach_time);
+        assert!(decoded.data_bytes().is_empty());
     }
+    assert!(form(6, 1 << 4, vec![]).cell_change().is_err());
     assert!(form(6, 0, vec![0xaa]).cell_change().is_err());
     assert!(form(6, 4, vec![2, 0, b'x']).cell_change().is_err());
 }

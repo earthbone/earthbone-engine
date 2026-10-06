@@ -47,6 +47,7 @@ pub mod nif_effect;
 pub mod nordic_theme;
 pub mod objective_map;
 pub mod quest_journal;
+pub mod quick_loot;
 pub mod race_menu;
 pub mod ragdoll;
 pub mod save_recovery;
