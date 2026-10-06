@@ -9,8 +9,11 @@
 //! nightstands and cupboards that support placed candles.
 //! xEdit's wbRecord(DOOR) uses the generic MODL path and bit 23 marker flag too.
 //! Its NIF reader also identifies `NiObjectNET` names containing `EditorMarker`.
-//! The cell loader removes only shapes below those nodes, retaining ordinary
+//! UESP STAT also assigns bit 23 to static editor markers.
+//! The cell loader removes shapes below those nodes, retaining ordinary
 //! sibling geometry and leaving collision selection unchanged.
+
+//! UESP ACTI and xEdit's wbRecord(ACTI) use the same MODL and marker flag.
 
 use soe_esm::records::stat::Static;
 use soe_esm::{tag, Record, Tag};
@@ -23,7 +26,7 @@ pub(crate) fn is_editor_marker_name(name: &str) -> bool {
 pub(crate) fn model_for(record: &Record) -> Option<String> {
     let model = if record.tag == tag::STAT {
         Static::from_record(record).ok()?.model?
-    } else if ([Tag::new(b"FURN"), Tag::new(b"DOOR")].contains(&record.tag)
+    } else if ([Tag::new(b"ACTI"), Tag::new(b"FURN"), Tag::new(b"DOOR")].contains(&record.tag)
         && record.flags & (1 << 23) == 0)
         || record.tag == Tag::new(b"CONT")
     {
@@ -36,6 +39,24 @@ pub(crate) fn model_for(record: &Record) -> Option<String> {
         return None;
     };
     (!model.is_empty()).then_some(model)
+}
+
+/// Visual selection excludes markers without changing collision model selection.
+pub(super) fn render_model_for(record: &Record) -> Option<String> {
+    (record.flags & (1 << 23) == 0)
+        .then(|| model_for(record))
+        .flatten()
+}
+
+/// xEdit's REFR definition identifies occlusion planes and room/portal data.
+pub(super) fn is_editor_reference(record: &Record) -> bool {
+    [b"XOCP", b"XORD", b"XRMR", b"XPOD", b"XPTL"]
+        .iter()
+        .any(|tag| record.find(Tag::new(tag)).is_some())
+        || record
+            .find(Tag::new(b"XPRM"))
+            .and_then(|data| soe_esm::records::refr::Primitive::decode(data).ok())
+            .is_some_and(|primitive| primitive.kind == 3)
 }
 
 #[cfg(test)]
@@ -89,5 +110,17 @@ mod tests {
             .zsub(b"MODL", "Wall.nif")
             .sub(b"OBND", [0u8; 3]);
         assert_eq!(model_for(&malformed), None);
+    }
+}
+
+#[cfg(test)]
+mod rnd_17_tests {
+    use super::*;
+
+    #[test]
+    fn rnd_17_activator_models_render_but_editor_markers_do_not() {
+        let record = Record::new(Tag::new(b"ACTI"), 1).zsub(b"MODL", "Barricade.nif");
+        assert_eq!(model_for(&record).as_deref(), Some("Barricade.nif"));
+        assert_eq!(model_for(&record.with_flags(1 << 23)), None);
     }
 }

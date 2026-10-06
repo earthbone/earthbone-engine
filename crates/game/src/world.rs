@@ -50,6 +50,7 @@ mod calendar;
 mod combat;
 pub mod commonlib;
 mod commonlib_events;
+pub mod commonlib_magic;
 mod contact;
 mod crime;
 mod death;
@@ -58,6 +59,8 @@ mod detection;
 mod dialogue_scene_restore;
 mod doorway;
 mod driver;
+mod package_overrides;
+pub use package_overrides::PackageOverride;
 pub mod effect_shader;
 mod encounter_zones;
 mod events;
@@ -70,11 +73,14 @@ pub use game_ui::GameUiError;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
+mod item_restore;
 mod knockback;
 mod spell_hand;
 mod weapon_hands;
 pub mod weather;
 pub use inventory_restore::InventoryRestoreReport;
+mod activator_restore;
+mod book_note_key_restore;
 pub mod image_space;
 mod item_save;
 mod list_restore;
@@ -88,13 +94,18 @@ mod objects;
 mod outfits;
 mod package_navmesh_restore;
 mod performance;
+mod projectile_restore;
 pub mod shader_particles;
+pub mod sky;
 pub use npc_restore::NpcRestoreReport;
 mod record_change_restore;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
-pub use record_overrides::{BaseObjectRecordExtra, NpcRecordExtra, StaticObjectRecordExtra};
+pub use record_overrides::{
+    ActivatorRecordExtra, BaseObjectRecordExtra, BookNoteKeyRecordExtra, ItemRecordExtra,
+    NpcRecordExtra, ProjectileRecordExtra, StaticObjectRecordExtra,
+};
 pub use record_overrides::{NavmeshRecordExtra, PackRecordExtra};
 pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
 mod projectiles;
@@ -107,10 +118,12 @@ pub use story_manager::StoryError;
 mod record_save;
 mod static_object_restore;
 pub use quest_restore::QuestRestoreReport;
+mod light_references;
 mod reference_extras;
 mod reference_restore;
 mod refs;
 mod shim_extras;
+mod spatial_restore;
 pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceRestoreReport};
 pub use refs::RefPlacement;
 mod leveled_items;
@@ -191,6 +204,10 @@ pub enum DebugHostRequest {
         cell: GlobalFormId,
         latent: Option<LatentId>,
     },
+    MovePlayerToReference {
+        reference: GlobalFormId,
+        latent: LatentId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -207,6 +224,8 @@ pub struct RefState {
     pub deleted: bool,
     pub activation_blocked: bool,
     pub opened: bool,
+    /// A door animation in progress. The settled destination is in `opened`.
+    pub open_transition: Option<DoorOpenTransition>,
     pub locked: bool,
     pub lock_level: i32,
     /// Saved key and lock metadata. None keeps the authored key.
@@ -251,8 +270,27 @@ pub struct RefState {
     pub translation: Option<reference_translation::RefTranslation>,
 }
 
+/// The transitional state of an animated door reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoorOpenTransition {
+    Opening,
+    Closing,
+}
+
 impl RefState {
-    fn new(base: Option<GlobalFormId>) -> Self {
+    pub(crate) fn open_state(&self, is_door: bool) -> i32 {
+        if !is_door {
+            return 0;
+        }
+        match self.open_transition {
+            Some(DoorOpenTransition::Opening) => 2,
+            Some(DoorOpenTransition::Closing) => 4,
+            None if self.opened => 1,
+            None => 3,
+        }
+    }
+
+    pub(crate) fn new(base: Option<GlobalFormId>) -> Self {
         RefState {
             base,
             cell: None,
@@ -265,6 +303,7 @@ impl RefState {
             deleted: false,
             activation_blocked: false,
             opened: false,
+            open_transition: None,
             locked: false,
             lock_level: 0,
             lock_extra: None,
@@ -319,6 +358,8 @@ pub struct ActorState {
     pub doing_favor: bool,
     pub factions: HashMap<GlobalFormId, i32>,
     pub spells: BTreeSet<GlobalFormId>,
+    /// Forms the actor has marked in the magic favorites list.
+    pub favorites: BTreeSet<GlobalFormId>,
     /// CK knowable forms whose `Known` flag is set for the player.
     pub known_forms: BTreeSet<GlobalFormId>,
     pub equipped: BTreeSet<GlobalFormId>,
@@ -330,12 +371,21 @@ pub struct ActorState {
     /// slot may hold a value for the same hand at once.
     pub left_spell: Option<GlobalFormId>,
     pub right_spell: Option<GlobalFormId>,
+    /// Explicit spell source slots for voice and instant casting.
+    pub other_spell: Option<GlobalFormId>,
+    pub instant_spell: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
+    /// Papyrus KeepOffsetFromActor movement request.
+    pub keep_offset: Option<ActorKeepOffset>,
+    /// Reference forced as this actor's landing marker.
+    pub forced_landing_marker: Option<GlobalFormId>,
     /// SPID packages and their zero-based insertion positions in the base
     /// package list. Persisted with the actor because distribution is not
     /// rerun when SOEW restores an existing actor.
     pub package_overrides: Vec<(usize, GlobalFormId)>,
+    /// ActorUtil overrides in addition order, independent of SPID insertion.
+    pub runtime_package_overrides: Vec<PackageOverride>,
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
@@ -358,6 +408,13 @@ pub struct ActorState {
     /// re-signals it from the live graph after load, through
     /// `World::set_blocking`.
     pub blocking: bool,
+    /// Ward animation state supplied by the host. `None` means the host has
+    /// not reported a state for this actor in the current session.
+    pub ward_state: Option<u32>,
+    /// Whether the host animation graph reports an active dual cast.
+    pub dual_casting: Option<bool>,
+    /// Active shout voice variation reported by the host animation graph.
+    pub shout_variation: Option<i32>,
     pub restrained: bool,
     pub arrested: bool,
     pub attack_on_sight: bool,
@@ -433,8 +490,29 @@ pub struct ActorState {
     pub skill_experience: BTreeMap<String, f32>,
     /// Cumulative in-game days served in prison.
     pub days_in_jail: u32,
+    /// Crime faction whose jail property chest holds the player's belongings.
+    pub jail_faction: Option<GlobalFormId>,
     /// Explicit `SetHeadTracking` value. `None` keeps the engine default enabled.
     pub head_tracking: Option<bool>,
+    /// Reference attached through Papyrus `Actor.SetVehicle`.
+    pub vehicle: Option<GlobalFormId>,
+    /// Script-forced look target and whether the actor paths toward it.
+    pub forced_look_at: Option<(GlobalFormId, bool)>,
+}
+
+/// Papyrus request for an actor to maintain a body-space offset from a target.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorKeepOffset {
+    /// Actor whose body space defines the offset.
+    pub target: GlobalFormId,
+    /// X, Y and Z body-space offsets.
+    pub offset: [f32; 3],
+    /// X, Y and Z angle offsets in degrees.
+    pub angles: [f32; 3],
+    /// Distance beyond which the actor catches up at run speed.
+    pub catch_up_radius: f32,
+    /// Distance within which the actor stays still.
+    pub follow_radius: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -531,6 +609,10 @@ pub enum MenuRequest {
     Race,
     /// Open the training menu for the named actor.
     Training(GlobalFormId),
+    /// Show the named actor's barter service in the host UI.
+    Barter(GlobalFormId),
+    /// Show the named actor's inventory in the host UI.
+    ActorInventory(GlobalFormId),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -711,6 +793,29 @@ pub enum HostRequest {
     },
     CameraFirstPerson,
     CameraThirdPerson,
+    ControllerShake {
+        left_strength: f32,
+        right_strength: f32,
+        duration: f32,
+    },
+}
+
+/// Operation requested by Papyrus to load or release a spell's art resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpellArtAction {
+    /// Load art referenced by the spell for later use.
+    Preload,
+    /// Release art previously requested by `Preload`.
+    Unload,
+}
+
+/// One spell art operation awaiting the host resource provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpellArtRequest {
+    /// Spell whose art resources are requested.
+    pub spell: GlobalFormId,
+    /// Requested resource operation.
+    pub action: SpellArtAction,
 }
 
 pub struct World {
@@ -718,13 +823,17 @@ pub struct World {
     pub(crate) actor_kill_events: EventSource<ActorKill>,
     pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
+    quest_alias_candidates: std::sync::OnceLock<Option<Arc<[GlobalFormId]>>>,
     pub(crate) dialogue: crate::dialogue::State,
     pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
+    /// NPC bases warned about during this world session, excluded from saves.
+    pub(crate) duplicate_npc_perk_warnings: BTreeSet<GlobalFormId>,
     /// Source-level CommonLib event channels backed by this live world.
     pub(crate) commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    spatial_change_payloads: BTreeMap<GlobalFormId, Vec<u8>>,
     created_base_records: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
     unresolved_records:
         BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
@@ -732,6 +841,7 @@ pub struct World {
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
     refs: HashMap<GlobalFormId, RefState>,
+    light_references: std::cell::RefCell<light_references::LightReferences>,
     /// Current occupants, derived from actor movement and XPRM placement.
     trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     trigger_index: Option<BTreeMap<GlobalFormId, Vec<GlobalFormId>>>,
@@ -762,6 +872,10 @@ pub struct World {
     /// does not fire for the first cells after loading a save, which is the
     /// behaviour an empty set gives.
     streamed_cells: std::collections::HashSet<GlobalFormId>,
+    /// Instructions executed by the most recent Papyrus scheduler slice.
+    pub(crate) papyrus_instructions_last_slice: usize,
+    /// Exterior cells loaded by the most recent host streaming update.
+    pub(crate) exterior_cell_loads_last_update: usize,
     /// References whose host cell has loaded 3D. Rebuilt from cell streaming
     /// transitions and not saved, like `streamed_cells`.
     loaded_3d_references: std::collections::HashSet<GlobalFormId>,
@@ -782,6 +896,7 @@ pub struct World {
     /// Host interaction results for the current rendered frame.
     crosshair_reference: Option<GlobalFormId>,
     grabbed_reference: Option<GlobalFormId>,
+    player_first_person: bool,
     /// Save character ID used by deterministic SPID distribution rules.
     player_character_id: u64,
     /// What `PC_LEVEL_MULT` actors scale against.
@@ -794,10 +909,14 @@ pub struct World {
     rng_streams: [u64; rng::STREAM_COUNT],
     pub clock: GameClock,
     pub(crate) menu_mode: bool,
+    /// Actor pairs visible during the latest successful host perception step.
+    pub(crate) line_of_sight: BTreeSet<(GlobalFormId, GlobalFormId)>,
     pub(crate) frame_rate: performance::FrameRateState,
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
     pub host_requests: Vec<HostRequest>,
+    pub(crate) spell_art_requests: Vec<SpellArtRequest>,
+    pub(crate) preloaded_spell_art: BTreeSet<GlobalFormId>,
     /// Story Manager inputs awaiting PRG-14 node selection.
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     /// Script events submitted by Papyrus and waiting for Story Manager routing.
@@ -824,6 +943,8 @@ pub struct World {
     pub animation_completions: Vec<AnimationCompletion>,
     /// Open Papyrus user logs and the lines written to each during this run.
     pub user_logs: BTreeMap<String, Vec<String>>,
+    /// User log writes awaiting delivery to the file logger.
+    pub(crate) pending_user_log_writes: Vec<(String, String)>,
     /// One-shot requests for the host, which owns process and cell streaming.
     pub debug_host_requests: Vec<DebugHostRequest>,
     /// Enabled states for movement, fighting, camera, looking, sneaking, menu,
@@ -923,6 +1044,8 @@ pub struct World {
         BTreeMap<visual_effects::VisualEffectId, visual_effects::VisualEffectInstance>,
     pub(crate) next_visual_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
+    pub(crate) sun_gaze_modifier: Option<GlobalFormId>,
+    pub(crate) sun_gazing_last_tick: bool,
     pub(crate) weather_image_space: Option<image_space::WeatherSelection>,
     /// Active shader particle geometries derived from winning SPGD records.
     pub(crate) shader_particles: shader_particles::ShaderParticleState,
@@ -1067,9 +1190,14 @@ impl World {
     /// Construct a world with reproducible, seed-derived random streams.
     pub fn new_with_seed(order: LoadOrder, seed: u64) -> World {
         let mut world = Self::new(order);
-        world.rng = if seed == 0 { 1 } else { seed };
-        world.rng_streams = rng::derive_streams(seed);
+        world.reset_random_seed(seed);
         world
+    }
+
+    /// Reset the existing gameplay random streams for a recorded input session.
+    pub fn reset_random_seed(&mut self, seed: u64) {
+        self.rng = if seed == 0 { 1 } else { seed };
+        self.rng_streams = rng::derive_streams(seed);
     }
 
     /// Use the immutable form table already opened by the host.
@@ -1096,12 +1224,14 @@ impl World {
             critical_hit_events: EventSource::default(),
             order,
             record_overrides: BTreeMap::new(),
+            spatial_change_payloads: BTreeMap::new(),
             created_base_records: BTreeMap::new(),
             unresolved_records: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),
+            light_references: std::cell::RefCell::default(),
             trigger_occupants: BTreeMap::new(),
             trigger_index: None,
             actors: HashMap::new(),
@@ -1120,6 +1250,8 @@ impl World {
             encounter_zone_visits: BTreeMap::new(),
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
+            papyrus_instructions_last_slice: 0,
+            exterior_cell_loads_last_update: 0,
             loaded_3d_references: std::collections::HashSet::new(),
             attached_cells: std::collections::HashSet::new(),
             pending_cell_resets: std::collections::BTreeSet::new(),
@@ -1128,6 +1260,7 @@ impl World {
             player: None,
             crosshair_reference: None,
             grabbed_reference: None,
+            player_first_person: true,
             player_character_id: 0,
             player_level: 1,
             training_sessions_this_level: 0,
@@ -1137,9 +1270,12 @@ impl World {
             rng_streams: rng::derive_streams(0x9E37_79B9_7F4A_7C15),
             clock: GameClock::default(),
             menu_mode: false,
+            line_of_sight: BTreeSet::new(),
             frame_rate: performance::FrameRateState::default(),
             pending: Vec::new(),
             host_requests: Vec::new(),
+            spell_art_requests: Vec::new(),
+            preloaded_spell_art: BTreeSet::new(),
             story_manager_events: Vec::new(),
             pending_story_events: Vec::new(),
             timers: Vec::new(),
@@ -1156,6 +1292,7 @@ impl World {
             animation_host_notices: Vec::new(),
             animation_completions: Vec::new(),
             user_logs: BTreeMap::new(),
+            pending_user_log_writes: Vec::new(),
             debug_host_requests: Vec::new(),
             player_control_flags: [true; 8],
             player_control_pov_type: 0,
@@ -1206,8 +1343,10 @@ impl World {
             music_types: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
+            quest_alias_candidates: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
             known_dialogue_topics: BTreeSet::new(),
+            duplicate_npc_perk_warnings: BTreeSet::new(),
             commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
@@ -1222,6 +1361,8 @@ impl World {
             telekinesis_grab: None,
             next_visual_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
+            sun_gaze_modifier: None,
+            sun_gazing_last_tick: false,
             weather_image_space: None,
             shader_particles: shader_particles::ShaderParticleState::default(),
             effect_shaders: effect_shader::EffectShaderState::default(),
@@ -1270,6 +1411,15 @@ impl World {
     /// This method does not panic.
     pub fn take_host_requests(&mut self) -> Vec<HostRequest> {
         std::mem::take(&mut self.host_requests)
+    }
+
+    /// Take pending spell art operations in Papyrus call order.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn take_spell_art_requests(&mut self) -> Vec<SpellArtRequest> {
+        std::mem::take(&mut self.spell_art_requests)
     }
 }
 

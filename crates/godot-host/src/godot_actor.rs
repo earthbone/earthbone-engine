@@ -30,7 +30,7 @@ use soe_hkx::QsTransform;
 use crate::actor::{ActorAssets, ActorSurface};
 use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
 use crate::data_source::DataSource;
-use crate::godot_layer::array_mesh_from;
+use crate::godot_layer::actor_array_mesh_from;
 use crate::godot_ragdoll::LiveRagdoll;
 use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
 use crate::skinned::{skinning_transforms_into, Affine};
@@ -79,8 +79,9 @@ struct AppearanceBinding {
     animation_cursor: AnimationEventCursor,
 }
 
+/// A graph event derived from the bound actor's shared stagger deadline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StaggerGraphEvent {
+pub enum StaggerGraphEvent {
     Start,
     Stop,
 }
@@ -100,13 +101,28 @@ pub fn send_stagger_start(
     vm.send_event_named("staggerStart")
 }
 
+/// Tracks which stagger transition the actor graph has already received.
 #[derive(Default)]
-struct StaggerTracker {
+pub struct StaggerTracker {
     last_deadline: Option<f64>,
     active: bool,
 }
 
 impl StaggerTracker {
+    /// Read the bound actor's stagger state from the shared game world.
+    pub fn poll(
+        &mut self,
+        world: &mut soe_game::World,
+        actor: soe_esm::GlobalFormId,
+    ) -> Option<(StaggerGraphEvent, f32)> {
+        let state = world
+            .actor(actor)
+            .map(|actor| (actor.stagger_end_time, actor.stagger_magnitude));
+        let (deadline, magnitude) = state?;
+        self.observe(deadline, world.clock.real_seconds)
+            .map(|event| (event, magnitude as f32))
+    }
+
     fn observe(&mut self, deadline: Option<f64>, now: f64) -> Option<StaggerGraphEvent> {
         if self.last_deadline != deadline {
             self.last_deadline = deadline;
@@ -115,7 +131,7 @@ impl StaggerTracker {
                 return Some(StaggerGraphEvent::Start);
             }
         }
-        if self.active && deadline.is_some_and(|until| until <= now) {
+        if self.active && deadline.is_none_or(|until| until <= now) {
             self.active = false;
             return Some(StaggerGraphEvent::Stop);
         }
@@ -257,21 +273,21 @@ impl SkinnedActorNode {
         behavior: &str,
     ) -> bool {
         if self.assets.is_some() {
-            godot_error!("SkinnedActorNode: already loaded, make another node");
+            soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: already loaded, make another node");
             return false;
         }
         let mut vfs = Vfs::new();
         for name in ARCHIVES {
             let path = Path::new(data_dir).join(name);
             if let Err(e) = vfs.add_archive_path(&path) {
-                godot_error!("SkinnedActorNode: {}: {e}", path.display());
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {}: {e}", path.display());
                 return false;
             }
         }
         let mut assets = match ActorAssets::load_with_behavior(&vfs, mesh_path, behavior) {
             Ok(a) => a,
             Err(e) => {
-                godot_error!("SkinnedActorNode: {e}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
                 return false;
             }
         };
@@ -312,24 +328,25 @@ impl SkinnedActorNode {
             for i in 0..bones {
                 server.skeleton_bone_set_transform(skeleton, i as i32, Transform3D::IDENTITY);
             }
-            let mut mesh = array_mesh_from(&surface.arrays);
-            let material = crate::godot_layer::standard_material_from(
-                &surface.arrays.material,
-                &surface.textures,
-            );
+            let mut mesh = actor_array_mesh_from(&surface.arrays, &surface.expression_shapes);
+            let material =
+                crate::godot_layer::material_from(&surface.arrays.material, &surface.textures);
             mesh.surface_set_material(0, &material);
-            let instance = server.instance_create2(mesh.get_rid(), scenario);
+            let instance = soe_trace::Profile::render_submission(|| {
+                server.instance_create2(mesh.get_rid(), scenario)
+            });
             server.instance_set_transform(instance, Transform3D::IDENTITY);
             server.instance_set_visible(instance, visible_for_invisibility(self.invisible));
             server.instance_attach_skeleton(instance, skeleton);
             self.shapes.push(ShapeRids { instance, skeleton });
             self.meshes.push(mesh);
-            self.materials.push(material.upcast());
+            self.materials.push(material);
         }
     }
 
     fn update_surface_stats(&mut self) {
         self.stats.set("shapes", self.surfaces.len() as i64);
+        self.stats.set("invisible", self.invisible);
         self.stats.set("skeletons", self.surfaces.len() as i64);
         self.stats.set(
             "mesh_bones",
@@ -359,6 +376,13 @@ impl SkinnedActorNode {
             self.surfaces
                 .iter()
                 .map(|s| s.arrays.triangle_count())
+                .sum::<usize>() as i64,
+        );
+        self.stats.set(
+            "expression_shapes",
+            self.meshes
+                .iter()
+                .map(|mesh| mesh.get_blend_shape_count() as usize)
                 .sum::<usize>() as i64,
         );
     }
@@ -439,7 +463,7 @@ impl SkinnedActorNode {
             .collect();
         self.elapsed += f64::from(delta);
         if let Err(e) = to_model_space_into(&assets.skeleton, vm.pose(), &mut self.model) {
-            godot_error!("SkinnedActorNode: {e}");
+            soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
             return;
         }
         self.push_pose();
@@ -462,13 +486,26 @@ impl SkinnedActorNode {
             .as_ref()
             .map_or_else(|| self.actor_placement(), LiveRagdoll::actor_transform);
         let mut server = RenderingServer::singleton();
+        let facial_expression = self
+            .appearance
+            .as_ref()
+            .and_then(|binding| binding.world.borrow_mut().facial_expression(binding.actor));
+        let target = facial_expression.and_then(|(mood, _)| crate::facial::expression_name(mood));
         self.uploaded_skins.clear();
         for (surface, rids) in self.surfaces.iter().zip(&self.shapes) {
             server.instance_set_transform(rids.instance, placement);
+            for (index, shape) in surface.expression_shapes.iter().enumerate() {
+                let weight = if Some(shape.name.as_str()) == target {
+                    f32::from(facial_expression.map_or(0, |(_, strength)| strength)) / 100.0
+                } else {
+                    0.0
+                };
+                server.instance_set_blend_shape_weight(rids.instance, index as i32, weight);
+            }
             if let Err(e) =
                 skinning_transforms_into(&surface.map, &surface.skin, &self.model, &mut self.skins)
             {
-                godot_error!("SkinnedActorNode: {e}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
                 return;
             }
             for (i, skin) in self.skins.iter().enumerate() {
@@ -494,6 +531,15 @@ impl SkinnedActorNode {
     #[func]
     pub fn stats(&self) -> VarDictionary {
         self.stats.clone()
+    }
+
+    /// Show or hide this rig's RenderingServer instances with first-person geometry.
+    #[func]
+    pub fn set_first_person_geometry_visible(&mut self, visible: bool) {
+        let mut server = RenderingServer::singleton();
+        for shape in &self.shapes {
+            server.instance_set_visible(shape.instance, visible);
+        }
     }
 
     /// Whether the actor currently draws from animation or simulated bodies.
@@ -651,14 +697,6 @@ impl SkinnedActorNode {
 }
 
 impl SkinnedActorNode {
-    /// Show or hide this rig's RenderingServer instances with first-person geometry.
-    pub(crate) fn set_first_person_geometry_visible(&mut self, visible: bool) {
-        let mut server = RenderingServer::singleton();
-        for shape in &self.shapes {
-            server.instance_set_visible(shape.instance, visible);
-        }
-    }
-
     fn sync_invisibility(&mut self) {
         let invisible = self
             .appearance
@@ -668,6 +706,7 @@ impl SkinnedActorNode {
             return;
         }
         self.invisible = invisible;
+        self.stats.set("invisible", invisible);
         let mut server = RenderingServer::singleton();
         for shape in &self.shapes {
             server.instance_set_visible(shape.instance, visible_for_invisibility(invisible));
@@ -702,7 +741,7 @@ impl SkinnedActorNode {
                         &assets.skeleton.reference_pose,
                         &mut self.model,
                     ) {
-                        godot_error!("SkinnedActorNode ragdoll pose: {error}");
+                        soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode ragdoll pose: {error}");
                         return;
                     }
                 }
@@ -712,7 +751,10 @@ impl SkinnedActorNode {
                 let placement = self.actor_placement();
                 match LiveRagdoll::create(world.get_space(), placement, source, map, &self.model) {
                     Ok(ragdoll) => self.ragdoll = Some(ragdoll),
-                    Err(error) => godot_error!("SkinnedActorNode ragdoll: {error}"),
+                    Err(error) => {
+                        soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode ragdoll: {error}");
+                        godot_error!("SkinnedActorNode ragdoll: {error}");
+                    }
                 }
             }
             (ActorRenderMode::Animated, true) => {
@@ -730,16 +772,12 @@ impl SkinnedActorNode {
             return None;
         };
         let mut world = binding.world.borrow_mut();
-        let state = world
-            .actor(binding.actor)
-            .map(|actor| (actor.stagger_end_time, actor.stagger_magnitude));
-        let (deadline, magnitude) = state?;
         binding
             .stagger
-            .observe(deadline, world.clock.real_seconds)
-            .map(|event| {
+            .poll(&mut world, binding.actor)
+            .map(|(event, magnitude)| {
                 let direction = world.stagger_direction_value(binding.actor);
-                (event, magnitude as f32, direction)
+                (event, magnitude, direction)
             })
     }
 
@@ -838,20 +876,23 @@ impl SkinnedActorNode {
             Ok(Some(rig)) => rig,
             Ok(None) => return,
             Err(error) => {
-                godot_error!("SkinnedActorNode race rig: {error}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode race rig: {error}");
                 return;
             }
         };
         if assets.actor_race != Some(selected.race) || assets.actor_female != Some(selected.female)
         {
-            let mut next =
-                match ActorAssets::load_for_actor(&mut world.borrow_mut(), actor, source.vfs()) {
-                    Ok(assets) => assets,
-                    Err(error) => {
-                        godot_error!("SkinnedActorNode race rig: {error}");
-                        return;
-                    }
-                };
+            let mut next = match ActorAssets::load_for_actor(
+                &mut world.borrow_mut(),
+                actor,
+                source.vfs(),
+            ) {
+                Ok(assets) => assets,
+                Err(error) => {
+                    soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode race rig: {error}");
+                    return;
+                }
+            };
             let surfaces = std::mem::take(&mut next.surfaces);
             let next: &'static ActorAssets = Box::leak(Box::new(next));
             self.assets = Some(next);
@@ -866,7 +907,7 @@ impl SkinnedActorNode {
                 binding.cache = crate::actor::AppearanceCache::default();
             }
             if let Err(error) = self.replace_surfaces(surfaces) {
-                godot_error!("SkinnedActorNode race rig: {error}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode race rig: {error}");
             }
             return;
         }
@@ -882,12 +923,12 @@ impl SkinnedActorNode {
             Ok(Some(update)) => update,
             Ok(None) => return,
             Err(error) => {
-                godot_error!("SkinnedActorNode appearance: {error}");
+                soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode appearance: {error}");
                 return;
             }
         };
         if let Err(error) = self.replace_surfaces(update.surfaces) {
-            godot_error!("SkinnedActorNode appearance: {error}");
+            soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode appearance: {error}");
         }
     }
 

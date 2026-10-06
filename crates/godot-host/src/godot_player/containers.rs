@@ -3,8 +3,7 @@
 //! Container controls read the same inventory rows as the player menu and
 //! move an item through the shared game's notified transaction.
 
-use godot::classes::control::SizeFlags;
-use godot::classes::{Button, Label, ScrollContainer, VBoxContainer};
+use godot::classes::{Button, Label};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
@@ -13,6 +12,42 @@ use crate::inventory_menu::{self, Category};
 use super::PlayerNode;
 
 impl PlayerNode {
+    pub(super) fn open_barter_menu(&mut self, merchant: GlobalFormId) -> bool {
+        let title = self
+            .game
+            .as_ref()
+            .and_then(|game| game.world().name_of(merchant))
+            .map_or_else(|| "Barter".to_owned(), |name| format!("Barter: {name}"));
+        if !self.open_menu(GString::from(&title)) {
+            return false;
+        }
+        let goods = self.game.as_mut().and_then(|game| {
+            let mut factions: Vec<_> = game
+                .world()
+                .actor_ref(merchant)
+                .map(|actor| actor.factions.keys().copied().collect())
+                .unwrap_or_default();
+            factions.sort();
+            factions.into_iter().find_map(|faction| {
+                game.resolve_vendor_service(faction, merchant)
+                    .ok()
+                    .flatten()
+                    .map(|service| {
+                        if !service.available {
+                            return Vec::new();
+                        }
+                        service
+                            .merchandise
+                            .iter()
+                            .map(|(item, count)| (crate::item_menu::item(game, *item, count), 0))
+                            .collect::<Vec<_>>()
+                    })
+            })
+        });
+        let rows = goods.unwrap_or_default();
+        self.present_items("barter", &rows)
+    }
+
     pub(super) fn open_gift_menu(&mut self) -> bool {
         let Some(request) = self
             .game
@@ -43,17 +78,9 @@ impl PlayerNode {
         let Some(mut content) = self.menu_content() else {
             return false;
         };
+        let mut rows = self.item_menu_rows(&mut content, entries.first().map(|entry| entry.item));
         let base = self.base().clone();
         let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
-        }
-        let mut scroll = ScrollContainer::new_alloc();
-        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
-        let mut rows = VBoxContainer::new_alloc();
-        scroll.add_child(&rows);
-        content.add_child(&scroll);
         let action = if request.source == request.giver {
             "Give"
         } else {
@@ -66,6 +93,7 @@ impl PlayerNode {
                 i64::from(entry.item.file),
                 i64::from(entry.item.object),
             ]);
+            super::item_card::connect_preview(&base, &mut button, entry.item);
             button.connect("pressed", &callback);
             rows.add_child(&button);
         }
@@ -96,51 +124,16 @@ impl PlayerNode {
     }
 
     fn container_content(&mut self, holder: GlobalFormId, category: Category) -> bool {
-        if !self.menu.is_open() || self.container_menu.is_none() {
-            return false;
-        }
-        let Some(game) = self.game.as_ref() else {
-            return false;
-        };
-        let entries = inventory_menu::entries(game, holder, category);
-        let Some(mut content) = self.menu_content() else {
-            return false;
-        };
         self.container_menu = Some((holder, category));
-        let base = self.base().clone();
-        let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
+        if !self.present_container_items(holder) {
+            return false;
         }
-        let mut scroll = ScrollContainer::new_alloc();
-        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
-        let mut rows = VBoxContainer::new_alloc();
-        scroll.add_child(&rows);
-        content.add_child(&scroll);
-        for (index, category) in Category::ALL.into_iter().enumerate() {
-            let mut button = Button::new_alloc();
-            button.set_text(category.label());
-            let callback = base
-                .callable("container_category")
-                .bindv(&varray![index as i64]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
-        }
-        let mut heading = Label::new_alloc();
-        heading.set_text(&format!("{} ({})", category.label(), entries.len()));
-        rows.add_child(&heading);
-        for entry in entries {
-            let mut button = Button::new_alloc();
-            button.set_text(&format!("Take {} x{}", entry.name, entry.count));
-            let callback = base.callable("take_container_item").bindv(&varray![
-                i64::from(holder.file),
-                i64::from(holder.object),
-                i64::from(entry.item.file),
-                i64::from(entry.item.object),
-            ]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
+        if let Some(mut view) = self
+            .menu_content()
+            .and_then(|content| content.get_node_or_null("ItemMenu"))
+        {
+            let _guard = self.base_mut();
+            view.call("select_category", &[category.label().to_variant()]);
         }
         true
     }
@@ -148,6 +141,57 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Container identities in the current cell for host interaction tools.
+    #[func]
+    pub fn gameplay_containers(&mut self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell)) = (&mut self.game, self.loaded_cell) else {
+            return Array::new();
+        };
+        let mut world = game.world_mut();
+        let references = world.cell_references(cell);
+        let mut result = Array::new();
+        for reference in references {
+            let Some(base) = world.base_of(reference) else {
+                continue;
+            };
+            if world.tag_of(base) != Some(soe_esm::Tag(*b"CONT")) {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(reference.file));
+            row.set("object", i64::from(reference.object));
+            row.set(
+                "name",
+                world
+                    .name_of(reference)
+                    .unwrap_or_else(|| "Container".into())
+                    .as_str(),
+            );
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Activate a container through the same lock and script path as the crosshair.
+    #[func]
+    pub fn open_container_inventory(&mut self, file: i64, object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_ref(),
+        ) else {
+            return false;
+        };
+        let holder = GlobalFormId { file, object };
+        let container = {
+            let mut world = game.world_mut();
+            world
+                .base_of(holder)
+                .is_some_and(|base| world.tag_of(base) == Some(soe_esm::Tag(*b"CONT")))
+        };
+        container && self.activate_game_reference(holder) && self.container_menu.is_some()
+    }
+
     /// Transfer one selected gift stack through Game's inventory transaction.
     #[func]
     pub fn gift_menu_transfer(&mut self, file: i64, object: i64) -> bool {

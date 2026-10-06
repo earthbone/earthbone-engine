@@ -65,6 +65,12 @@ fn ai_19_alias_cycle_is_reported_without_partial_fills() {
         .sub(T(b"ALFA"), 0u32.to_le_bytes())
         .sub(T(b"ALED"), Vec::new());
     let game = game(vec![first]);
+    let original = game
+        .world_mut()
+        .quest_state(id(0x800))
+        .unwrap()
+        .aliases
+        .clone();
 
     assert_eq!(
         game.world_mut().resolve_alias_ref(id(0x800), 0),
@@ -76,6 +82,38 @@ fn ai_19_alias_cycle_is_reported_without_partial_fills() {
     );
     let mut world = game.world_mut();
     let state = world.quest_state(id(0x800)).unwrap();
-    assert_eq!(state.aliases.get(&0), Some(&None));
-    assert_eq!(state.aliases.get(&1), Some(&None));
+    assert_eq!(state.aliases, original);
+}
+
+#[test]
+fn ai_19_cleared_dependency_stays_empty_after_save_load() {
+    let records = vec![alias_record(0x800, 0, "Local", &[(b"ALFA", 1)])
+        .sub(T(b"ALST"), 1u32.to_le_bytes())
+        .zsub(T(b"ALID"), "Target")
+        .sub(T(b"FNAM"), 0u32.to_le_bytes())
+        .sub(T(b"ALFR"), 0x900u32.to_le_bytes())
+        .sub(T(b"ALED"), [])];
+    let original = game(records.clone());
+    assert_eq!(
+        original.world_mut().alias_ref(id(0x800), 0),
+        Some(id(0x900))
+    );
+    assert!(original.world_mut().force_alias(id(0x800), 0, None));
+    assert_eq!(
+        original.world_mut().resolve_alias_ref(id(0x800), 0),
+        Ok(None)
+    );
+
+    let save = original.save_state().unwrap();
+    let mut restored = game(records);
+    restored.load_state(&save).unwrap();
+    assert_eq!(restored.world_mut().alias_ref(id(0x800), 0), None);
+    assert_eq!(
+        restored.world_mut().resolve_alias_ref(id(0x800), 0),
+        Ok(None)
+    );
+    assert_eq!(
+        restored.world_mut().alias_ref(id(0x800), 1),
+        Some(id(0x900))
+    );
 }

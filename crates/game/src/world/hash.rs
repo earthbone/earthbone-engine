@@ -146,6 +146,11 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.deleted);
     h.bool(s.activation_blocked);
     h.bool(s.opened);
+    h.u8(match s.open_transition {
+        None => 0,
+        Some(super::DoorOpenTransition::Opening) => 1,
+        Some(super::DoorOpenTransition::Closing) => 2,
+    });
     h.bool(s.locked);
     h.i32(s.lock_level);
     let mut extras = soe_papyrus::vm::state::Writer::new();
@@ -412,6 +417,12 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
 }
 
 fn actor_state(h: &mut StateHasher, a: &ActorState) {
+    h.len(a.runtime_package_overrides.len());
+    for entry in &a.runtime_package_overrides {
+        form(h, entry.package);
+        h.u8(entry.priority);
+        h.bool(entry.force);
+    }
     h.len(a.values.entries.len());
     for (k, v) in &a.values.entries {
         h.str(k);
@@ -448,7 +459,19 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for e in &a.equipped {
         form(h, *e);
     }
+    opt_form(h, a.other_spell);
+    opt_form(h, a.instant_spell);
     ai_state(h, &a.ai);
+    h.bool(a.keep_offset.is_some());
+    if let Some(offset) = a.keep_offset {
+        form(h, offset.target);
+        for value in offset.offset.into_iter().chain(offset.angles) {
+            h.f32(value);
+        }
+        h.f32(offset.catch_up_radius);
+        h.f32(offset.follow_radius);
+    }
+    opt_form(h, a.forced_landing_marker);
     form_set(h, &a.perks);
     for flag in [
         a.alerted,
@@ -467,6 +490,27 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         a.allow_pc_dialogue,
     ] {
         h.bool(flag);
+    }
+    match a.ward_state {
+        None => h.u8(0),
+        Some(state) => {
+            h.u8(1);
+            h.u32(state);
+        }
+    }
+    match a.dual_casting {
+        None => h.u8(0),
+        Some(value) => {
+            h.u8(1);
+            h.bool(value);
+        }
+    }
+    match a.shout_variation {
+        None => h.u8(0),
+        Some(variation) => {
+            h.u8(1);
+            h.i32(variation);
+        }
     }
     opt_form(h, a.exclusive_branch);
     h.len(a.relationships.len());
@@ -542,6 +586,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.stagger_direction);
     h.bool(a.trespassing);
     h.u32(a.days_in_jail);
+    opt_form(h, a.jail_faction);
     h.bool(a.voice_recovery_until.is_some());
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
@@ -550,6 +595,14 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         None => h.u32(0),
         Some(false) => h.u32(1),
         Some(true) => h.u32(2),
+    }
+    opt_form(h, a.vehicle);
+    if let Some((target, pathing)) = a.forced_look_at {
+        h.bool(true);
+        form(h, target);
+        h.bool(pathing);
+    } else {
+        h.bool(false);
     }
 }
 
@@ -593,6 +646,15 @@ impl World {
         h.f64(self.clock.real_seconds);
         h.f64(self.clock.game_days);
         h.f64(self.clock.timescale);
+        let mut sky = soe_papyrus::vm::state::Writer::new();
+        super::sky::write_sky(
+            self,
+            &mut sky,
+            &mut soe_papyrus::vm::state::ArrayPool::default(),
+        );
+        if !sky.out.is_empty() {
+            h.bytes(&sky.out);
+        }
         let clock = h.finish();
 
         let mut h = StateHasher::new();
@@ -1061,6 +1123,7 @@ impl World {
         crate::world::magic::write_vampire_lord_state(self, &mut magic);
         self.write_cloaks(&mut magic);
         self.write_image_space(&mut magic);
+        self.write_sun_gaze_modifier(&mut magic);
         self.write_weather_image_space(&mut magic);
         self.write_effect_shaders(&mut magic);
         h.bytes(&magic.out);
@@ -1079,6 +1142,9 @@ impl World {
         self.write_record_overrides(&mut records);
         super::reference_restore::write_created_base_section(self, &mut records);
         h.bytes(&records.out);
+        let mut spatial = soe_papyrus::vm::state::Writer::new();
+        super::spatial_restore::write_spatial_payloads(self, &mut spatial);
+        h.bytes(&spatial.out);
         let scenes = h.finish();
 
         // These three are `BTreeMap`, already in key order, so they are walked

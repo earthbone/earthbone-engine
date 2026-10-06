@@ -321,12 +321,22 @@ caller can fetch a winning record when selected instead of building a Godot reso
 every form. `EditorDocument::override_chain` returns the selected form's versions in load
 order, with each source plugin and record and a winner flag. The final version is the winner,
 including when the selected form has only one version. This is the record-chain data for the
-conflict dock. The Godot editor's
+conflict dock. `SoeFormTable::override_chain` exposes each version's plugin name, signature,
+editor ID and winner flag to the Godot plugin. Selecting a search result fills the dock's
+override-chain tree in load-order order, including losing versions. The final row is marked as
+the winner. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
 and inspector APIs used by `godot/addons/soe_forms`. The dock passes search results as IDs
 and asks the host bridge for a `Resource` only when a result is selected. That wrapper shows
-the resolved identity, record signature, editor ID and winning plugin. It does not own or
-edit a copy of the record.
+the resolved identity, record signature, editor ID and winning plugin. The forms plugin's
+`EditorInspectorPlugin` adds a `Winning source` row for selected `SoeFormResource` objects,
+using that wrapper's `winning_plugin` property. The wrapper does not own or edit a copy of
+the record. `godot/edt_13_inspector_test.gd` selects a wrapper through Godot's editor API
+and checks that the Inspector dock displays its winning plugin name.
+Mutagen's `docs/loadorder/Winning-Overrides.md` defines the final
+load-order version as the winner. Wrye Bash's `[dev]-PBash-Patching-Procedure.md` describes
+patchers that can merge tagged fields, a separate operation from this whole-record conflict
+view. The dock does not run patchers.
 
 The navmesh document commands edit `NAVM` records already present in the active plugin.
 They add or delete triangles and move existing vertices. Each successful operation records
@@ -353,12 +363,19 @@ already owned by the active plugin, then rebuilds the winning form table. Its ed
 the prior plugin so undo restores the record pose used by the renderer and by plugin save.
 The operation rejects missing or malformed transform data and repeated `DATA` fields. It
 does not create overrides for references owned by another plugin. The Godot cell editor does
-not yet connect a transform gizmo to this operation.
+not enumerate references from its streamed cell preview. The separate selected-reference dock
+opens an `EditorDocument`, adds one proxy Node3D for the supplied FormID, and registers an
+`EditorNode3DGizmoPlugin` for that proxy. A gizmo handle commit calls the proxy adapter, which
+passes the position and rotation into this operation. The dock's undo action restores the
+document and reloads the proxy transform from the winning record. Saving writes the changed
+active plugin. Bulk cell rendering continues to use RenderingServer instances. Only the
+currently edited reference has a scene proxy.
 
 The 24-byte position and rotation layout follows `REFR`'s `wbVec3PosRot(DATA)` in local
 `TES5Edit/Core/wbDefinitionsTES5.pas`. Godot's `tutorials/plugins/editor/3d_gizmos.rst` and
-`classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values. Their
-Godot callback is not wired to this Rust operation yet.
+`classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values. The
+integration check invokes the same callback adapter used by `_commit_handle` and checks the
+record edit, undo and serialized placement through the editor document tests.
 
 `EditorDocument::stat_model_field` reads `STAT.MODL` through the typed
 `soe-esm::records::stat::Static` view and returns the value with the file name of the winning

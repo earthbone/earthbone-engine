@@ -33,6 +33,7 @@ impl World {
             ));
         }
         let previous_rng = self.rng;
+        let previous_rng_streams = self.rng_streams;
         let mut result = BTreeSet::new();
         let mut path = BTreeSet::new();
         let mut visits = MAX_VISITS;
@@ -40,6 +41,7 @@ impl World {
             Ok(()) => Ok(result),
             Err(error) => {
                 self.rng = previous_rng;
+                self.rng_streams = previous_rng_streams;
                 Err(error)
             }
         }
@@ -51,6 +53,7 @@ impl World {
         level: u32,
     ) -> Result<BTreeSet<GlobalFormId>, Error> {
         let previous_rng = self.rng;
+        let previous_rng_streams = self.rng_streams;
         let mut spells = BTreeSet::new();
         for root in roots {
             if self.tag_of(*root) == Some(T(b"LVSP")) {
@@ -58,6 +61,7 @@ impl World {
                     Ok(selected) => spells.extend(selected),
                     Err(error) => {
                         self.rng = previous_rng;
+                        self.rng_streams = previous_rng_streams;
                         return Err(error);
                     }
                 }

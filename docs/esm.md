@@ -1,5 +1,16 @@
 # soe-esm: plugin reader and form table
 
+## Record profiling ownership, PRF-13
+
+`LoadOrder::winner` and `record` add optional entity scopes around record
+retrieval. Each scope counts the lookup and reports its elapsed time under the
+resolved FormID and its defining plugin, following local Mutagen
+`docs/plugins/ModKey, FormKey, FormLink.md`. An override retains the original
+form owner's diagnostic identity. Missing lookups are counted under their
+requested identity, and created IDs use `<created>`. The existing override
+selection and record contents are unchanged. The scopes use `soe-trace` and
+add no dependency or saved data.
+
 Reads Skyrim SE plugin files (`.esm`, `.esp`, `.esl`) into a group tree of records,
 resolves FormIDs across a load order, and answers "which record wins" for any form.
 Typed views cover the initial world records, race phonemes, scoped dialogue,
@@ -57,11 +68,17 @@ does not inspect nested `VMAD` links.
 
 The operation follows local Mutagen `Plugins/FormID.cs` for the master-index
 and object-id split, and `docs/plugins/Remapping-FormLinks.md` for the rule that
-links must retain their target identity while a mod is reorganized. Spriggit's
+all matching FormLinks across records are traversed. Mutagen's Skyrim
+`Records/Common Subrecords/AVirtualMachineAdapter.cs` defines typed VMAD object
+and object-array links for both object formats. Spriggit's
 `docs/spriggit-file.md` describes stable plugin identity across text
-serialization. The Rust plugin model retains raw subrecords instead of
-Mutagen's complete typed record graph, so this implementation relocates its
-known typed links and preserves other fields unchanged.
+serialization, and its Skyrim `VirtualMachineAdapterCustomization` sorts script
+entries without changing their FormKeys. The Rust plugin model retains raw
+subrecords instead of Mutagen's complete typed record graph, so this operation
+relocates the recognized fields listed here and preserves other fields
+unchanged. `tests/fmt_15_renumber.rs` independently records VMAD object-link
+offsets in both formats and a QUST alias, then compares the entire payload
+after serialization and reload so non-link bytes must remain unchanged.
 
 Each `LoadedFile` exposes a SHA-256 fingerprint of its plugin's serialized
 definition before the load order adds engine-owned forms. It is independent of
@@ -147,6 +164,12 @@ enchantments are remapped. WEAP enchantment, impact, material, scope,
 first-person model, sound, critical effect, and template links are remapped,
 including `WNAM` and `CRDT`. Keyword lists in `KWDA` and destruction stage
 links in `DSTD` are remapped for their applicable records.
+COBJ output and workbench links, ingredient object IDs, and COED owner links
+are remapped while ingredient counts, owner rank and condition are preserved.
+CTDA comparison values are remapped only when the global comparison flag is
+set, and the reference field is remapped for Run On Reference. These layouts
+follow xEdit's `wbRecord(COBJ)`, `wbCNTONoReach`, `wbCOED` and `wbConditions`
+definitions, also used by the typed recipe and condition readers.
 The critical effect link is at offset 12 in the 20-byte layout or offset 16 in
 the 24-byte layout. Destruction stage explosion and debris links are at offsets
 8 and 12 in the 20-byte `DSTD` layout. HAZD image-space and DATA links are
@@ -281,12 +304,15 @@ truncated entries, and all five installed masters.
   `Skyrim.esm` when both `SKYRIM_DATA` and `SOE_XEDIT_DUMP` are set. The manifest is
   tab-separated: `RECORD`, signature, and hexadecimal FormID start each record.
   Following `FIELD` rows contain signature, FormID, subrecord signature, zero-based
-  repeated-field ordinal, and hexadecimal bytes. Counts, record identities, and every
-  subrecord payload are compared. Differences are printed by category and cause the
-  gated test to fail. Malformed rows also fail with their line number. xEdit's
-  `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) emits a nested display tree,
-  so the dump must be normalized into this manifest before setting the environment
-  variable. The test does not parse the display tree directly.
+  repeated-field ordinal, and hexadecimal bytes. It compares the QUST, NPC_, PACK,
+  CELL, REFR and LVLI signatures selected by the test plan, including their record
+  identities and subrecord payloads. Engine record counts retain repeated physical
+  records even when they share a FormID. Differences are printed by category and cause
+  the gated test to fail. Malformed rows also fail with their line number. xEdit's
+  `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) filters record signatures with
+  `DumpRecords` and emits a nested display tree, so the dump must be normalized into
+  this manifest before setting the environment variable. The test does not parse the
+  display tree directly.
 
 ## Scripted patch passes
 
@@ -673,6 +699,23 @@ absent. Both views are exercised by `godot-host`'s cell streaming path, not
 by a unit test added here, since this row's instructions withhold new tests
 for a later breaker and judge pass. See `docs/godot-host.md`, "Grass
 placement", for the placement algorithm and its open gaps.
+
+## Record lookup counters, PRF-14
+
+`LoadOrder::winner` charges one record retrieval attempt, including a missing
+form. A successful winner lookup does not charge again for its underlying
+record. Direct `LoadOrder::record` calls charge once. Calls are counted in the
+active `soe_trace::WorkFrame`, independent of timing tracing. The
+`prf_14_record_lookup_counts_winners_missing_forms_and_direct_reads_once`
+test checks these boundaries.
+
+## Shared logging, TOOL-06
+
+`LoadOrder::add` emits an info event with system, plugin name and record count
+through the tracing facade reexported by `soe-trace`. The caller installs the
+subscriber. [trace.md](trace.md) describes filter directives, structured
+context, rate limiting and output. Plugin records and override rules are
+unchanged by logging.
 
 ## LTEX material and the dominant LAND texture (2026-10-03)
 

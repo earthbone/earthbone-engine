@@ -1,5 +1,97 @@
 # Status, per subsystem
 
+## Checkpoint, 2026-10-06, end of backlog run round 5
+
+The lead refreshes this section after every backlog round. The table comes from
+`.soe-run-tools/status_table.py` over BACKLOG.csv. Rows merged as partial count
+as open there and name their open clause in the evidence column. Round 4 and
+round 5 ended with a full lint gate and every installed-data test passing on
+master (8ae73582).
+
+| Area | Done | Open | Blocked |
+|---|---:|---:|---:|
+| Papyrus natives (SCR) | 49 | 24 | 0 |
+| Performance (PRF) | 10 | 23 | 0 |
+| Saves (SAV) | 56 | 4 | 11 |
+| Menus and HUD (UI) | 16 | 10 | 0 |
+| Animation (ANM) | 51 | 8 | 0 |
+| Magic (MAG) | 65 | 5 | 3 |
+| CommonLib shim (SHM) | 15 | 8 | 0 |
+| Test harness (TST) | 10 | 8 | 0 |
+| Audio (AUD) | 6 | 6 | 0 |
+| AI packages, schedules, detection (AI) | 86 | 1 | 4 |
+| Godot host (HST) | 15 | 5 | 0 |
+| Progression (perks, skills, leveled lists) (PRG) | 17 | 3 | 1 |
+| Tools (TOOL) | 3 | 4 | 0 |
+| Combat (CMB) | 36 | 2 | 1 |
+| Editor (EDT) | 25 | 3 | 0 |
+| Playtest bots (PLY) | 4 | 3 | 0 |
+| File formats (FMT) | 28 | 2 | 0 |
+| Mod data (SPID, KID, BOS, OAR) (MOD) | 8 | 2 | 0 |
+| Rendering (RND) | 20 | 1 | 1 |
+| Crafting (CRF) | 8 | 0 | 0 |
+| Dialogue (DLG) | 21 | 0 | 0 |
+| Inventory (INV) | 8 | 0 | 0 |
+| **All 701 rows** | **557** | **122** | **21** |
+
+### What runs today
+
+`godot/walkthrough.gd` is the playable prototype. With `SKYRIM_DATA` set and
+the release extension built, it loads the installed plugins and archives,
+streams Whiterun's Bannered Mare and places the player there: WASD moves, the
+mouse looks, E activates, Space jumps, Ctrl sneaks, F switches the camera. The
+lead's measurements on master, release build with installed data:
+
+- Startup reaches ready in about 7 to 10 seconds. Starting the 421 startup
+  quests takes 4 ms (PRF-33, it took 15 seconds before).
+- NPC planning stays under 8 ms per frame in a 60 second Bannered Mare check,
+  worst 2.8 ms (PRF-11). Walking out of Whiterun no longer freezes: detection
+  stays under 2 ms in all but 2 of 3622 frames of the 60 second exterior walk,
+  worst 2.56 ms (PRF-31).
+- Cells build only enabled references, so Whiterun no longer shows its civil war
+  props (RND-17). Interiors take their own cell lighting and exteriors a sun
+  from the weather (RND-21), with a sky, sun and moons from WTHR and CLMT
+  (RND-18), terrain and object LOD around the player (RND-19), effect shader
+  meshes with their blend and glow (RND-22) and a fallback for collision hulls
+  Jolt rejects (PRF-32). The white boxes in Whiterun were editor markers
+  (RND-20).
+- Ambience and music play, decoded off the main thread (AUD-11, AUD-12).
+- Menus show item names and an item preview (UI-25). SkyUI's look and its SWF
+  art conversion are partial (UI-19, UI-20, UI-21 to UI-23).
+- A logging layer with verbosity and a Papyrus log exists, partial (TOOL-06,
+  TOOL-07). Each engine system's share of the frame, operation counts and
+  per-operation baselines are reported (PRF-12, PRF-14, PRF-15), and NPC
+  pathfinding runs on worker threads (PRF-17, partial).
+- The playtest bots PLY-01, PLY-02, PLY-04 and PLY-06 run, PLY-03 and PLY-05
+  are partial.
+
+See [godot-host](godot-host.md) for each feature's evidence.
+
+### What does not run yet
+
+- No vanilla save loads. Recovery refuses all 60 saves of the corpus: it
+  restores placed arrows and hazards now, but still lacks dynamic Papyrus
+  targets, duplicate item scripts, PMIS projectiles and opaque PCON data
+  (SAV-19, blocked).
+- No new game starts. The walkthrough always begins in the Bannered Mare.
+- NPCs render without skinned character materials (RND-05).
+- NPC voices do not play yet in the walkthrough (AUD-11, open clause).
+- The main quest replay bot stops on a navmesh route with an off-surface link
+  between its first two checkpoints (PLY-03).
+- 24 Papyrus native rows are open, and Papyrus runs on one thread (PRF-17).
+- The profiling rows PRF-13, PRF-16, PRF-18 to PRF-21 and PRF-23 to PRF-30, the
+  NORDIC UI theme (UI-24) and QuickLoot looting (UI-26) have drafts that have
+  not been checked yet.
+- Checks only the user can run are pending: the TOOL-04 probe capture in the
+  original game, HST-05 on a physical speaker, PRF-08 windowed cold starts and
+  a SAV-65 crafting save. The kit is in `.soe-run-tools/session/`.
+
+The sections below predate the backlog run and are no longer maintained. Where
+they disagree with BACKLOG.csv or a subsystem doc, the backlog and that doc
+are current.
+
+## Earlier status, before the backlog run
+
 The completed combat integration adds difficulty selection, weapon and armor
 templates, armor slot replacement, race-based unarmed damage and the authored
 melee contact bridge.
@@ -113,7 +205,7 @@ doc for the test commands and remaining integration limits.
 | Rendering | Batched RenderingServer instances, compressed texture upload and session cache, interior/exterior streaming, terrain geometry, skinned characters with bind-pose and partition-index fixes. | LOD consumption, terrain texture layers, water and further exterior work remain. Rendering demonstrations are not the complete game loop. |
 | Physics and input | Headless collision/controller, a Godot Jolt path, first/third-person camera and keyboard, mouse and gamepad bindings. PlayerNode has live PC-map and cell evidence. Injected device tests pass on Godot 4.4.1 and 4.7.2. | PlayerNode uses SimpleWorld. Physical controller feel is unverified. The movement launcher has no gameplay VM, door activation or footsteps. |
 | Doors | Simulation activation, cell transitions, prefetch/attach split, doorway commit and deferred unload are merged. | The host activate action only records a ray hit. It does not drive arm_doorway, commit_doorway or later unload settlement. Cold-texture fallback is unmeasured. |
-| Audio | FUZ/xWMA and open audio decoding, viseme generation, host SoundBank and conversion into Godot audio buffers. Player movement drives footsteps, and selected dialogue responses resolve voice paths and call SoundBank. | Speaker output and end-to-end dialogue playback remain unverified. Vanilla FUZ decoding requires the opt-in `xwma-ffmpeg` feature. Original LIP decoding remains incomplete. |
+| Audio | FUZ/xWMA and open audio decoding, viseme generation, host SoundBank and conversion into Godot audio buffers. Player movement drives footsteps, and selected dialogue responses resolve voice paths and call SoundBank. | Speaker output and end-to-end dialogue playback remain unverified. Original LIP decoding remains incomplete. |
 | Saves | Engine-owned world/VM save-load paths and a vanilla ESS reader, with real-save corpus results in save.md. | Reading a vanilla save is not an end-to-end resume of its gameplay and VM state. |
 | Mod data | SPID, KID and BOS game-side application, plus OAR condition and priority selection. | OAR selects supported replacement paths but does not apply them to live animation playback. Some distribution types are held but unused, level/trait-filtered rules are skipped, and chance differs from the original plugins. No real mod has validated this path yet. |
 | Determinism and testing | State hashes, repeated-seed checks, parser fuzzing and three phases of adversarial testing. | Full input record/replay, wider corpus coverage and fault cases remain. The performance-limits harness adds CPU/Godot sweeps, bounded soaks and synthetic CI checks. See performance-limits.md for executed runs and remaining integration limits. |

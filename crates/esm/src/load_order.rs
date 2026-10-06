@@ -97,6 +97,7 @@ impl LoadOrder {
     pub fn add(&mut self, name: &str, mut plugin: Plugin) -> Result<usize> {
         let _span =
             soe_trace::Span::with_payload("esm.load_order_add", "esm", plugin.records.len() as u64);
+        soe_trace::info!(target: "esm", system = "esm", plugin = name, records = plugin.records.len(), "adding plugin to load order");
         let fingerprint = plugin.fingerprint();
         // CONTEXT: xEdit Core/Hardcoded/Skyrim.esp defines this engine-owned
         // global, absent from the shipped master but present in ESS globals.
@@ -229,7 +230,20 @@ impl LoadOrder {
 
     /// The winning record, the last one in load order.
     pub fn winner(&self, id: GlobalFormId) -> Option<&Record> {
-        self.overrides(id).last().map(|r| self.record(*r))
+        let _entity = soe_trace::EntityScope::new(
+            || {
+                let plugin = self
+                    .files
+                    .get(usize::from(id.file))
+                    .map_or("<created>", |file| file.name.as_str());
+                soe_trace::Entity::new("record", id.to_string(), plugin, "lookup")
+            },
+            1,
+        );
+        soe_trace::count(soe_trace::Operation::RecordLookups, 1);
+        self.overrides(id)
+            .last()
+            .map(|r| &self.files[r.file].plugin.records[r.record])
     }
 
     pub fn winner_ref(&self, id: GlobalFormId) -> Option<RecordRef> {
@@ -237,6 +251,18 @@ impl LoadOrder {
     }
 
     pub fn record(&self, r: RecordRef) -> &Record {
+        let _entity = soe_trace::EntityScope::new(
+            || {
+                let id = self.resolve(r.file, self.files[r.file].plugin.records[r.record].form_id);
+                let plugin = self
+                    .files
+                    .get(usize::from(id.file))
+                    .map_or("<created>", |file| file.name.as_str());
+                soe_trace::Entity::new("record", id.to_string(), plugin, "lookup")
+            },
+            1,
+        );
+        soe_trace::count(soe_trace::Operation::RecordLookups, 1);
         &self.files[r.file].plugin.records[r.record]
     }
 

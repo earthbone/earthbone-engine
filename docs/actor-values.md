@@ -53,14 +53,31 @@ The existing ESM Race view was checked, but it reads FaceFX PHTN/PHWT rather
 than DATA attributes. The game view therefore adds the missing prefix only.
 
 `World::actor` seeds a spawned actor's values from the resolved stats and
-traits sources once. Manual NPC skills preserve the DNAM cache because the
-available sources do not establish whether manual values already contain race
-boosts. Fixed-level auto-calculated skills use the class weight formula with
-the resolved race boost. The resulting actor values are saved in SOEW, so
-loading an existing actor restores its initialized values without running the
-seed calculation again. `prg_09_race_skill_initialization.rs` checks cache
-preservation and reload behavior with a synthetic spawn and an installed-data
-sample. Manual-mode race bonus initialization remains pending PRG-15 evidence.
+traits sources once. Manual NPC skills use their DNAM skill and skill-offset
+values. UESP `NPC.wikitext` describes those DNAM fields, while
+`CLAS.wikitext` includes a racial bonus in the auto-calculated skill formula
+and does not define adding that bonus to manual skills. The runtime therefore
+does not add a second race bonus to manual DNAM values. Fixed-level
+auto-calculated skills use the class weight formula with the resolved race
+boost. The resulting actor values are saved in SOEW, so loading an existing
+actor restores its initialized values without running the seed calculation
+again. `prg_09_race_skill_initialization.rs` checks manual and auto-calculated
+spawns, installed manual records, and reload behavior.
+
+The 60-save corpus was checked for saved NPC_ skill overrides on manual NPCs
+with nonzero race skill boosts. None met the probe's filters, so the survey
+reports zero comparisons rather than requiring an example the corpus lacks.
+These overrides are DNAM data, not an
+individual met actor's current skill value. The save reader does not yet decode
+the remaining ACHR actor-value payload, so it cannot establish whether a
+manual skill in a live game is already racially adjusted. To settle that
+runtime observation, attach a Papyrus probe to a vanilla manual NPC with a
+nonzero RACE DATA skill boost and log `GetActorBase().GetFormID()` and
+`GetBaseActorValue("<skill>")` before skill use. Record its plugin DNAM base
+and skill offset and the RACE DATA boost from xEdit. Compare the logged value
+with DNAM plus offset and with DNAM plus offset plus race boost, then save,
+reload, and query the same actor again. The second query checks that reload
+preserves the initialized value.
 
 The store rejects non-finite inputs and overflowing components or totals
 before mutation. Resurrection clears health damage and death identity while
@@ -118,8 +135,9 @@ checked against a running vanilla game.
 
 Leveled templates now retain a selection per reference, as detailed below.
 Encounter-zone levels and zone reset are described in [game.md](game.md).
-Manual skills retain DNAM's cache until race-bonus semantics are established.
-Health, magicka and stamina follow RACE starts for a manual actor's base, and
+Manual skills use DNAM values and skill offsets without adding the race boost
+that the documented auto-calculated formula applies. Health, magicka and
+stamina follow RACE starts for a manual actor's base, and
 CLAS.wikitext's Weight Calculations for a
 fixed-level auto-calculated actor with a resolvable class and a non-zero
 weight sum. A `PC_LEVEL_MULT` actor keeps the DNAM cache for both, since this

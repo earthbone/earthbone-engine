@@ -71,6 +71,8 @@ pub struct BatchKey {
     pub has_normals: bool,
     pub has_tangents: bool,
     pub has_uvs: bool,
+    pub has_colors: bool,
+    pub effect: Option<crate::mesh::EffectKey>,
 }
 
 impl BatchKey {
@@ -95,6 +97,11 @@ impl BatchKey {
             has_normals: !surface.normals.is_empty(),
             has_tangents: !surface.tangents.is_empty(),
             has_uvs: !surface.uvs.is_empty(),
+            has_colors: !surface.colors.is_empty(),
+            effect: m
+                .effect
+                .as_ref()
+                .map(|e| e.key([m.shader_flags_1, m.shader_flags_2])),
         }
     }
 }
@@ -147,14 +154,17 @@ pub const CELL_OCCLUDER_SURFACES: usize = 4;
 
 /// Flatten the largest opaque source surfaces into one cell-local occluder
 /// mesh. MultiMesh candidates are transformed into the same Godot space as
-/// their rendered placement. Transparent and cutout surfaces cannot hide
-/// geometry behind their holes, so only fully opaque surfaces qualify.
+/// their rendered placement. Skinned surfaces move with their skeleton and
+/// cannot be stationary occluders. Transparent and cutout surfaces cannot
+/// hide geometry behind their holes, so only fully opaque static surfaces
+/// qualify.
 pub fn cell_occluder_mesh(surfaces: &[LoadedSurface]) -> (Vec<[f32; 3]>, Vec<i32>) {
     let mut candidates: Vec<(usize, usize)> = surfaces
         .iter()
         .enumerate()
         .filter(|(_, surface)| {
             surface.arrays.material.alpha == AlphaMode::Opaque
+                && !surface.arrays.is_skinned()
                 && surface.arrays.triangle_count() > 0
         })
         .map(|(index, surface)| (index, surface.arrays.triangle_count()))
@@ -260,6 +270,7 @@ fn append(batch: &mut Batch, index: usize, src: &SurfaceArrays) {
     dst.normals.extend_from_slice(&src.normals);
     dst.tangents.extend_from_slice(&src.tangents);
     dst.uvs.extend_from_slice(&src.uvs);
+    dst.colors.extend_from_slice(&src.colors);
     dst.indices
         .extend(src.indices.iter().map(|&i| i + base as i32));
     dst.bounds = merge_bounds(dst.bounds, src.bounds);

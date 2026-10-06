@@ -22,9 +22,15 @@
 //! fields a shorter format omits. A record in either shorter, documented
 //! encoding is readable, not malformed.
 //! See docs/game.md, "Ordinary perk purchases", for the sources read.
+//!
+//! NPC PRKR follows xEdit's eight-byte layout and UESP NPC's unused rank
+//! byte. Repeated resolved identities keep their first occurrence (CMB-39).
+//! xEdit marks DATA's condition-tab count as ignored metadata. UESP describes
+//! optional PRKC groups, so absent groups impose no conditions.
 
 use crate::{conditions, Game, World};
 use soe_esm::{records::gameplay::Condition, GlobalFormId, Tag};
+use soe_papyrus::{ObjectId, Value, Vm};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A failed purchase leaves perk ownership and the point balance unchanged.
@@ -119,8 +125,8 @@ impl EntryPointDispatcher {
         self.handlers.insert(entry_point, handler);
     }
 
-    /// Evaluate matching entries on the actor's owned PERK forms in load-order
-    /// and source order. Conditions are evaluated before their handlers run.
+    /// Evaluate rank-eligible entries by winning-record, ascending priority,
+    /// then source order. Conditions are evaluated before their handlers run.
     ///
     /// # Errors
     ///
@@ -147,7 +153,9 @@ impl EntryPointDispatcher {
     }
 }
 
-/// Collect eligible entry-point operations in winning-record and source order.
+/// Collect eligible entry-point operations by winning-record, ascending
+/// priority, then source order. Priority direction and cross-perk ordering
+/// have not been confirmed against the reference runtime.
 ///
 /// # Errors
 /// Malformed sections, missing tab subjects and unsupported conditions.
@@ -158,7 +166,31 @@ pub fn entry_point_invocations(
     entry_point: u8,
     context: &EntryPointContext,
 ) -> Result<Vec<EntryPointInvocation>, DispatchError> {
-    let owned = world.perks_for_actor(actor);
+    entry_point_invocations_with_conditions(world, Some(vm), None, actor, entry_point, context)
+}
+
+/// Collect eligible entries using a caller-provided view of conditional VM variables.
+pub(crate) fn entry_point_invocations_with_lookup(
+    world: &mut World,
+    actor: GlobalFormId,
+    entry_point: u8,
+    context: &EntryPointContext,
+    lookup: &dyn Fn(ObjectId, String) -> Vec<Value>,
+) -> Result<Vec<EntryPointInvocation>, DispatchError> {
+    entry_point_invocations_with_conditions(world, None, Some(lookup), actor, entry_point, context)
+}
+
+fn entry_point_invocations_with_conditions(
+    world: &mut World,
+    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
+    actor: GlobalFormId,
+    entry_point: u8,
+    context: &EntryPointContext,
+) -> Result<Vec<EntryPointInvocation>, DispatchError> {
+    let mut owned = world.perks_for_actor(actor);
+    let npc_perks = actor_npc_perks(world, actor)?;
+    owned.extend(npc_perks);
     let entries = world
         .order()
         .winners_of(Tag(*b"PERK"))
@@ -167,11 +199,16 @@ pub fn entry_point_invocations(
         .collect::<Result<Vec<_>, _>>()?;
     let mut invocations = Vec::new();
     for (perk_id, sections) in entries {
-        for section in sections {
+        let rank = actor_perk_rank(world, &owned, perk_id)?;
+        let mut matching = Vec::new();
+        for (section_index, section) in sections.into_iter().enumerate() {
             if section.entry_point != entry_point {
                 continue;
             }
-            if !entry_conditions(world, vm, perk_id, &section, context)? {
+            if u16::from(section.rank) + 1 > rank {
+                continue;
+            }
+            if !entry_conditions(world, vm, lookup, perk_id, section_index, &section, context)? {
                 continue;
             }
             let invocation = EntryPointInvocation {
@@ -183,10 +220,215 @@ pub fn entry_point_invocations(
                 data_type: section.data_type,
                 data: section.data,
             };
-            invocations.push(invocation);
+            matching.push(invocation);
         }
+        matching.sort_by_key(|invocation| invocation.priority);
+        invocations.extend(matching);
     }
     Ok(invocations)
+}
+
+fn actor_npc_perks(
+    world: &mut World,
+    actor: GlobalFormId,
+) -> Result<BTreeSet<GlobalFormId>, DispatchError> {
+    let Some(base) = world.base_of(actor) else {
+        return Ok(BTreeSet::new());
+    };
+    let Some(record) = world.record(base) else {
+        return Ok(BTreeSet::new());
+    };
+    let mut perks = BTreeSet::new();
+    let mut repeated = false;
+    for subrecord in record
+        .subrecords
+        .iter()
+        .filter(|subrecord| subrecord.tag == Tag(*b"PRKR"))
+    {
+        let Ok(bytes) = <[u8; 8]>::try_from(subrecord.data.as_slice()) else {
+            return Err(DispatchError::Malformed(base));
+        };
+        let raw_perk = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        if let Some(perk) = world.resolve_from(base, raw_perk) {
+            repeated |= !perks.insert(perk);
+        }
+    }
+    if repeated && world.duplicate_npc_perk_warnings.insert(base) {
+        soe_trace::warn!(target: "game::perks", system = "game", form_id = %base,
+            "NPC has repeated PRKR perk identities, keeping the first occurrence");
+    }
+    Ok(perks)
+}
+
+/// Apply numeric functions from ordered value-type invocations.
+///
+/// # Errors
+/// Returns an error for malformed operation data or non-finite results.
+pub(crate) fn apply_value_modifiers(
+    world: &mut World,
+    invocations: &[EntryPointInvocation],
+    mut value: f32,
+) -> Result<f32, DispatchError> {
+    for invocation in invocations {
+        let function = invocation.function;
+        let amount = match function {
+            1..=3 => {
+                if invocation.data_type != Some(1) || invocation.data.len() != 4 {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                f32::from_le_bytes(
+                    invocation
+                        .data
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                )
+            }
+            4 => {
+                if invocation.data_type != Some(2) || invocation.data.len() != 8 {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                let min = f32::from_le_bytes(
+                    invocation.data[0..4]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                let max = f32::from_le_bytes(
+                    invocation.data[4..8]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                if !min.is_finite() || !max.is_finite() {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                world.random_float(min, max)
+            }
+            5 | 12..=14 => {
+                if invocation.data_type != Some(2) || invocation.data.len() != 8 {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                let raw_index = f32::from_le_bytes(
+                    invocation.data[0..4]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                let coefficient = f32::from_le_bytes(
+                    invocation.data[4..8]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                if !raw_index.is_finite() || raw_index.fract() != 0.0 || !coefficient.is_finite() {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                let index = i32::try_from(raw_index as i64)
+                    .map_err(|_| DispatchError::Malformed(invocation.perk))?;
+                let name = crate::actor_values::actor_value_name(index)
+                    .ok_or(DispatchError::Malformed(invocation.perk))?;
+                world.actor_value(invocation.actor, name) * coefficient
+            }
+            6 | 7 => {
+                if invocation.data_type.is_some() || !invocation.data.is_empty() {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                0.0
+            }
+            _ => return Err(DispatchError::Unregistered(function)),
+        };
+        if !amount.is_finite() {
+            return Err(DispatchError::Malformed(invocation.perk));
+        }
+        value = match function {
+            1 | 12 => amount,
+            2 | 4 | 5 => value + amount,
+            3 | 13 => value * amount,
+            6 => value.abs(),
+            7 => -value.abs(),
+            14 => value * (1.0 + amount),
+            _ => value,
+        };
+        if !value.is_finite() {
+            return Err(DispatchError::Malformed(invocation.perk));
+        }
+    }
+    Ok(value)
+}
+
+fn actor_perk_rank(
+    world: &World,
+    owned: &BTreeSet<GlobalFormId>,
+    perk: GlobalFormId,
+) -> Result<u16, DispatchError> {
+    let records = world
+        .order()
+        .winners_of(Tag(*b"PERK"))
+        .filter(|(_, record)| !record.is_deleted())
+        .collect::<Vec<_>>();
+    let mut predecessors = BTreeMap::<GlobalFormId, Vec<GlobalFormId>>::new();
+    let mut successors = BTreeMap::<GlobalFormId, GlobalFormId>::new();
+    for (id, record) in &records {
+        let next_fields = record
+            .subrecords
+            .iter()
+            .filter(|sub| sub.tag == Tag(*b"NNAM"))
+            .collect::<Vec<_>>();
+        if next_fields.len() > 1 {
+            if *id == perk {
+                return Err(DispatchError::Malformed(*id));
+            }
+            continue;
+        }
+        let Some(field) = next_fields.first() else {
+            continue;
+        };
+        let Ok(bytes) = <[u8; 4]>::try_from(field.data.as_slice()) else {
+            if *id == perk {
+                return Err(DispatchError::Malformed(*id));
+            }
+            continue;
+        };
+        let raw = u32::from_le_bytes(bytes);
+        if raw == 0 {
+            continue;
+        }
+        let Some(next) = world.resolve_from(*id, raw) else {
+            if *id == perk {
+                return Err(DispatchError::Malformed(*id));
+            }
+            continue;
+        };
+        successors.insert(*id, next);
+        predecessors.entry(next).or_default().push(*id);
+    }
+
+    let mut root = perk;
+    let mut seen = BTreeSet::new();
+    while let Some(previous) = predecessors.get(&root) {
+        if previous.len() != 1 || !seen.insert(root) {
+            return Err(DispatchError::Malformed(perk));
+        }
+        root = previous[0];
+    }
+    let mut cursor = root;
+    let mut actor_rank = 0u16;
+    let mut position = 0u16;
+    seen.clear();
+    while seen.insert(cursor) {
+        position = position.saturating_add(1);
+        if owned.contains(&cursor) {
+            actor_rank = position;
+        }
+        let Some(next) = successors.get(&cursor) else {
+            break;
+        };
+        cursor = *next;
+    }
+    if seen.contains(&cursor) && successors.contains_key(&cursor) {
+        return Err(DispatchError::Malformed(perk));
+    }
+    if actor_rank == 0 {
+        return Err(DispatchError::Malformed(perk));
+    }
+    Ok(actor_rank)
 }
 
 struct EntrySection {
@@ -196,7 +438,6 @@ struct EntrySection {
     rank: u8,
     priority: u8,
     function: u8,
-    tab_count: u8,
     tabs: Vec<(u8, Vec<Condition>)>,
     data_type: Option<u8>,
     data: Vec<u8>,
@@ -231,7 +472,6 @@ fn entry_point_sections(
                         rank: sub.data[1],
                         priority: sub.data[2],
                         function: 0,
-                        tab_count: 0,
                         tabs: Vec::new(),
                         data_type: None,
                         data: Vec::new(),
@@ -245,7 +485,6 @@ fn entry_point_sections(
                     rank: sub.data[1],
                     priority: sub.data[2],
                     function: 0,
-                    tab_count: 0,
                     tabs: Vec::new(),
                     data_type: None,
                     data: Vec::new(),
@@ -265,7 +504,6 @@ fn entry_point_sections(
                 section.has_data = true;
                 section.entry_point = sub.data[0];
                 section.function = sub.data[1];
-                section.tab_count = sub.data[2];
             }
             b"PRKC" if current.is_some() => {
                 if !current.as_ref().is_some_and(|section| section.complex) {
@@ -333,14 +571,13 @@ fn finish_section(sections: &mut Vec<EntrySection>, current: &mut Option<EntrySe
 
 fn entry_conditions(
     world: &mut World,
-    vm: &soe_papyrus::Vm,
+    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     perk: GlobalFormId,
+    section_index: usize,
     section: &EntrySection,
     context: &EntryPointContext,
 ) -> Result<bool, DispatchError> {
-    if section.tabs.len() != usize::from(section.tab_count) {
-        return Err(DispatchError::Malformed(perk));
-    }
     if section.entry_point == u8::MAX {
         return Ok(false);
     }
@@ -364,9 +601,22 @@ fn entry_conditions(
             skill_use: context.skill_use,
             light_level: None,
         };
-        if !conditions::evaluate(world, vm, condition_context, conditions)
-            .map_err(|error| DispatchError::Condition(perk, error))?
-        {
+        let caller = conditions::ProfileCaller::PerkEntry {
+            entry: section.entry_point,
+            section: section_index,
+            tab: *tab,
+        };
+        let vm_lookup = |object, name: String| {
+            vm.map_or_else(Vec::new, |vm| vm.conditional_vars(object, &name))
+        };
+        let lookup = if vm.is_some() {
+            Some(&vm_lookup as &dyn Fn(ObjectId, String) -> Vec<Value>)
+        } else {
+            lookup
+        };
+        let result =
+            conditions::evaluate_for_caller(world, condition_context, conditions, lookup, caller);
+        if !result.map_err(|error| DispatchError::Condition(perk, error))? {
             return Ok(false);
         }
     }

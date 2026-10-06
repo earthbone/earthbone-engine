@@ -311,7 +311,8 @@ geometry that the existing NIF reader can parse.
 positions plus 12 for normals charged unconditionally, plus 16 for tangents,
 8 for each UV set, or one set when only the legacy `uvs` field is filled, 16
 for bone weights and 4 for bone indices when each is present, and adds 4 bytes
-an index. Colors are never charged. Added for RND-03's
+an index. Effect meshes charge 16 color bytes per vertex. Other materials omit colors.
+Added for RND-03's
 terrain LOD residency budget in `godot-host`, which needs a recorded byte
 cost per loaded block to weigh against a budget.
 
@@ -320,13 +321,10 @@ Normals are charged whether or not the shape carries them: `godot-host`'s
 whenever `generate_missing_normals` is on, its default, and a BTR shape with
 no baked normals is the ordinary case for space-saving distant LOD geometry.
 An estimate that only charged normals when present would read low against
-every such block once built. Colors are dropped instead: `godot-host`'s
-`MeshSource`, `MeshData` and `SurfaceArrays` carry no color field at all, so
-a shape's vertex colors never reach a built surface and charging for them
-would count bytes nothing allocates. It is a rough estimate for weighing a
-mesh against a residency budget, not a claim about any one renderer's exact
-buffer layout, an upload can pad, align or drop an unused attribute
-differently.
+every such block once built. Effect colors are charged because the host now
+uploads their vertex color and alpha, supplying white colors when absent.
+Other material kinds omit color uploads. This remains a rough residency
+estimate rather than a renderer's exact buffer layout.
 
 ## Particle emitters (RND-14)
 
@@ -361,3 +359,24 @@ the timeline through `ParticleEmitterNode` for a named model path.
 - Additional controllers and particle modifiers, `BSLODTriShape` levels,
   `BSDynamicTriShape` dynamic positions, and multiple UV sets beyond the first
   in the host renderer. The block layer keeps all UV sets in the neutral mesh.
+
+## Shared logging, TOOL-06
+
+`parse` emits a trace event with the input byte count and system through
+`soe-trace`. Release builds remove the event and its arguments. The caller
+installs a subscriber. Filter directives, rate limiting and output follow
+[trace.md](trace.md).
+
+## Effect material fields, RND-22
+
+Effect mesh materials expose BSEffectShaderProperty base RGB as emissive color,
+base color scale as its multiple, and base alpha as material opacity. The
+existing effect parameter block retains the same values along with falloff
+cosines, opacities, soft depth and palette path. It also carries texture clamp
+mode, whose bit 1 wraps S and bit 0 wraps T. NiAlphaProperty supplies the
+source and destination blend factors and optional alpha test independently.
+These meanings follow nifly's `src/Shaders.cpp` and `include/Shaders.hpp`,
+OpenMW's `components/nif/property.hpp`, and `nifxml/nif.xml`.
+
+`rnd_22_effect_material` tests decode an independent effect fixture and survey
+installed mist, window glow and light beam meshes through `SKYRIM_DATA`.

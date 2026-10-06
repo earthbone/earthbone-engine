@@ -40,7 +40,7 @@ pub struct Session {
 pub(crate) struct State {
     pub session: Option<Session>,
     pub said: BTreeMap<GlobalFormId, f64>,
-    /// The speaker currently being evaluated for an automatic ForceGreet.
+    /// The speaker currently being evaluated for an automatic greeting.
     /// This is an evaluation context and is not serialized.
     pub greeting_actor: Option<GlobalFormId>,
     /// INFO records selected in the current do-all cycle, keyed by DIAL.
@@ -111,6 +111,25 @@ struct Candidates {
     topic: DialogueTopic,
     quest_priority: u8,
     infos: Vec<(GlobalFormId, DialogueInfo)>,
+}
+
+// CONTEXT: xEdit DIAL category 7, subtypes 79/94 and their SNAM equivalents.
+fn is_ambient_topic(topic: &DialogueTopic) -> bool {
+    ambient_interrupt(topic).is_some()
+}
+
+fn ambient_interrupt(topic: &DialogueTopic) -> Option<u16> {
+    match (topic.category, topic.subtype) {
+        (
+            Some(7),
+            Some(TopicSubtype::Numeric(79) | TopicSubtype::Signature([b'H', b'E', b'L', b'O'])),
+        ) => Some(1),
+        (
+            Some(7),
+            Some(TopicSubtype::Numeric(94) | TopicSubtype::Signature([b'I', b'D', b'L', b'E'])),
+        ) => Some(1 << 7),
+        _ => None,
+    }
 }
 
 /// One available topic and the INFO selected by current conditions.
@@ -309,8 +328,8 @@ impl World {
 }
 
 impl Game {
-    /// Start an eligible ForceGreet topic when a driven actor enters dialogue
-    /// range. The per-Game edge latch prevents repeated selection on later ticks.
+    /// Start an eligible ForceGreet or ambient Hello/Idle topic when a loaded
+    /// actor enters dialogue range. The edge latch prevents per-frame replay.
     ///
     /// # Errors
     ///
@@ -455,9 +474,108 @@ impl Game {
                     }
                 }
             }
+        } else if self.world.borrow().dialogue.session.is_none() {
+            for actor in nearby
+                .difference(&self.greeting_range_actors)
+                .copied()
+                .collect::<Vec<_>>()
+            {
+                if let Some(topic) = self.eligible_ambient_topic(actor, player) {
+                    self.begin_dialogue(actor, player)?;
+                    self.world.borrow_mut().dialogue.greeting_actor = Some(actor);
+                    let result = self.choose_dialogue_topic(topic);
+                    self.world.borrow_mut().dialogue.greeting_actor = None;
+                    match result {
+                        Ok(Some(_)) => break,
+                        Ok(None) => self.close_dialogue(),
+                        Err(error) => {
+                            self.close_dialogue();
+                            return Err(error);
+                        }
+                    }
+                }
+            }
         }
         self.greeting_range_actors = nearby;
         Ok(())
+    }
+
+    fn eligible_ambient_topic(
+        &self,
+        speaker: GlobalFormId,
+        listener: GlobalFormId,
+    ) -> Option<GlobalFormId> {
+        let session = Session {
+            speaker,
+            listener,
+            topic: None,
+            current_info: None,
+            last_info: None,
+            response_index: 0,
+        };
+        let topics: Vec<_> = {
+            let world = self.world.borrow();
+            let interrupts = match world.current_package(speaker) {
+                Some(package) => crate::ai::package(&world, package)?.general.interrupt_flags,
+                None => u16::MAX,
+            };
+            world
+                .order()
+                .winners_of(Tag(*b"DIAL"))
+                .filter(|(_, record)| !record.is_deleted())
+                .filter_map(|(id, _)| {
+                    world
+                        .dialogue_topic(id)
+                        .ok()
+                        .filter(|topic| {
+                            ambient_interrupt(topic).is_some_and(|flag| interrupts & flag != 0)
+                        })
+                        .map(|_| id)
+                })
+                .collect()
+        };
+        let (prior_session, prior_greeting) = {
+            let mut world = self.world.borrow_mut();
+            let prior_session = world.dialogue.session.replace(session.clone());
+            let prior_greeting = world.dialogue.greeting_actor.replace(speaker);
+            (prior_session, prior_greeting)
+        };
+        let mut eligible = Vec::new();
+        for topic in topics {
+            if let Ok(candidate) = self.dialogue_candidates(topic, &session) {
+                if !candidate.infos.is_empty() {
+                    eligible.push((
+                        candidate.quest_priority,
+                        candidate.topic.priority.unwrap_or(50.0),
+                        topic,
+                    ));
+                }
+            }
+        }
+        {
+            let mut world = self.world.borrow_mut();
+            world.dialogue.session = prior_session;
+            world.dialogue.greeting_actor = prior_greeting;
+        }
+        eligible.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| b.1.total_cmp(&a.1))
+                .then(a.2.cmp(&b.2))
+        });
+        eligible.first().map(|(_, _, topic)| *topic)
+    }
+
+    /// Whether the current response belongs to a Misc Hello or Idle topic.
+    /// The host plays these without taking player input for a dialogue menu.
+    pub fn ambient_dialogue(&self) -> bool {
+        let world = self.world.borrow();
+        world
+            .dialogue
+            .session
+            .as_ref()
+            .and_then(|session| session.topic)
+            .and_then(|topic| world.dialogue_topic(topic).ok())
+            .is_some_and(|topic| is_ambient_topic(&topic))
     }
 
     fn eligible_force_greet(
@@ -514,19 +632,37 @@ impl Game {
         speaker: GlobalFormId,
         listener: GlobalFormId,
     ) -> Result<(), Error> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
         self.bind();
-        let mut world = self.world.borrow_mut();
-        if world.dialogue.session.is_some() {
-            return Err(Error::State("conversation already open"));
-        }
-        if speaker == listener
-            || world
-                .actor(speaker)
-                .is_none_or(|a| a.dead || a.in_combat || a.unconscious || !a.allow_pc_dialogue)
-            || world.actor(listener).is_none_or(|a| a.dead)
+        let ambient = self.ambient_dialogue();
         {
-            return Err(Error::State("speaker or listener unavailable"));
+            let mut world = self.world.borrow_mut();
+            if world.dialogue.session.is_some() && !ambient {
+                return Err(Error::State("conversation already open"));
+            }
+            if speaker == listener
+                || world
+                    .actor(speaker)
+                    .is_none_or(|a| a.dead || a.in_combat || a.unconscious || !a.allow_pc_dialogue)
+                || world.actor(listener).is_none_or(|a| a.dead)
+            {
+                return Err(Error::State("speaker or listener unavailable"));
+            }
         }
+        if ambient {
+            if self
+                .world
+                .borrow()
+                .dialogue
+                .session
+                .as_ref()
+                .is_some_and(|session| session.current_info.is_some())
+            {
+                self.finish_dialogue_info()?;
+            }
+            self.close_dialogue();
+        }
+        let mut world = self.world.borrow_mut();
         world.dialogue.greeting_actor = None;
         world.dialogue.session = Some(Session {
             speaker,
@@ -542,6 +678,7 @@ impl Game {
     /// Close a conversation without dispatching the active INFO end fragment.
     /// An interruption that completes the line calls `finish_dialogue_info` first.
     pub fn close_dialogue(&mut self) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
         let mut world = self.world.borrow_mut();
         let speaker = world
             .dialogue
@@ -855,7 +992,7 @@ impl Game {
             if random_group && flags & RANDOM == 0 && !refusal {
                 break;
             }
-            if Self::info_eligible(&mut world, &self.vm, session, id, &info, quest)? {
+            if Self::info_eligible(&mut world, &self.vm, session, id, &info, quest, topic)? {
                 if refusal {
                     refusals.push((id, info));
                     continue;
@@ -899,6 +1036,7 @@ impl Game {
         id: GlobalFormId,
         info: &DialogueInfo,
         quest: GlobalFormId,
+        topic: GlobalFormId,
     ) -> Result<bool, Error> {
         let flags = info.data.as_ref().map_or(0, |data| data.flags());
         if flags & (1 << 7) != 0 {
@@ -929,7 +1067,14 @@ impl Game {
             skill_use: None,
             light_level: None,
         };
-        if !conditions::evaluate(world, vm, context, &info.conditions)? {
+        let lookup = |object, name: String| vm.conditional_vars(object, &name);
+        if !conditions::evaluate_for_caller(
+            world,
+            context,
+            &info.conditions,
+            Some(&lookup),
+            conditions::ProfileCaller::DialogueTopic(topic),
+        )? {
             return Ok(false);
         }
         if flags & SPENDS_FAVOR != 0 {
@@ -948,6 +1093,7 @@ impl Game {
     ///
     /// Rejects stale choices, malformed response links and missing fragment code.
     pub fn choose_dialogue(&mut self, topic: GlobalFormId) -> Result<Option<Line>, Error> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
         let choices = self.dialogue_choices()?;
         if !choices.available.iter().any(|choice| choice.topic == topic) {
             return Err(Error::State("topic is not currently offered"));

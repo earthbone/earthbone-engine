@@ -114,7 +114,10 @@ fn the_prisoner_from_skyrim_esm() {
         let values = npc.base_values();
         eprintln!(
             "{edid} {}: level {} essential {} protected {} female {} race {:?} template {:?} flags {:#x}",
-            npc.name.as_ref().and_then(|t| t.plain().map(str::to_string)).unwrap_or_default(),
+            npc.name
+                .as_ref()
+                .and_then(|t| t.plain().map(str::to_string))
+                .unwrap_or_default(),
             npc.level_for(1),
             npc.is_essential(),
             npc.is_protected(),

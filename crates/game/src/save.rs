@@ -199,13 +199,11 @@ fn check_provenance(saved: &SaveProvenance, current: &SaveProvenance) -> Result<
             .iter()
             .map(|item| (item.name.to_ascii_lowercase(), item))
             .collect();
+        let mut missing = Vec::new();
         for (name, previous) in &saved_by_name {
             match current_by_name.get(name) {
                 None => {
-                    return Err(VmError::State(format!(
-                        "saved plugin {} is missing",
-                        previous.name
-                    )))
+                    missing.push(previous);
                 }
                 Some(now) if previous.light != now.light => {
                     return Err(VmError::State(format!(
@@ -235,6 +233,18 @@ fn check_provenance(saved: &SaveProvenance, current: &SaveProvenance) -> Result<
             return Err(VmError::State(format!(
                 "current plugin {extra} was not in the save"
             )));
+        }
+        for absent in &missing {
+            if saved_by_name.values().any(|plugin| {
+                plugin.light == absent.light
+                    && plugin.slot > absent.slot
+                    && current_by_name.contains_key(&plugin.name.to_ascii_lowercase())
+            }) {
+                return Err(VmError::State(format!(
+                    "saved plugin {} is missing before a loaded plugin",
+                    absent.name
+                )));
+            }
         }
     }
     Ok(())
@@ -485,6 +495,7 @@ impl Game {
     /// Whatever [`soe_papyrus::Vm::save_state`] returns for a thread it
     /// cannot describe (a frame with no script).
     pub fn save_state(&self) -> Result<Vec<u8>, VmError> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Save);
         let _span = soe_trace::Span::new("game.save_state", "game");
         let world_bytes = self.world.borrow().save_state();
         let vm_bytes = self.vm.save_state()?;

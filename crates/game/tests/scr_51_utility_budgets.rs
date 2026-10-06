@@ -8,40 +8,53 @@ use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
 
 fn call_global(game: &mut Game, name: &str, index: i32) -> Value {
-    let function = FunctionBuilder::new("Run", "Var")
+    call_global_args(game, name, &[Value::Int(index)])
+}
+
+fn call_global_args(game: &mut Game, name: &str, args: &[Value]) -> Value {
+    let mut function = FunctionBuilder::new("Run", "Var")
         .global()
-        .param("index", "Int")
-        .local("result", "Var")
-        .ins(
-            CallStatic,
-            vec![s("Utility"), s(name), ident("result"), ident("index")],
-        )
-        .ins(Return, vec![ident("result")])
-        .build();
+        .local("result", "Var");
+    let mut operands = vec![s("Utility"), s(name), ident("result")];
+    for index in 0..args.len() {
+        let parameter = format!("arg{index}");
+        function = function.param(&parameter, "Var");
+        operands.push(ident(&parameter));
+    }
+    function = function
+        .ins(CallStatic, operands)
+        .ins(Return, vec![ident("result")]);
     let bytes = ScriptBuilder::new("Scr51UtilityBudgetProbe", "Form")
-        .function(function)
+        .function(function.build())
         .bytes();
     game.load_script(&bytes).unwrap();
     let thread = game
         .vm
-        .call_global("Scr51UtilityBudgetProbe", "Run", &[Value::Int(index)])
+        .call_global("Scr51UtilityBudgetProbe", "Run", args)
         .unwrap();
     game.run_until_idle(8);
     game.vm.thread_result(thread).unwrap_or(Value::None)
 }
 
 #[test]
-fn scr_51_get_current_budget_returns_each_engine_limit_and_invalid_indices_return_zero() {
+fn scr_51_get_current_budget_returns_measured_usage_and_invalid_indices_return_zero() {
     let mut game = Game::new(LoadOrder::new());
 
-    assert_eq!(
-        call_global(&mut game, "GetCurrentBudget", 0),
-        Value::Int(PAPYRUS_INSTRUCTIONS_PER_SLICE as i32)
+    assert_eq!(call_global(&mut game, "GetCurrentBudget", 0), Value::Int(0));
+    let instructions = call_global(&mut game, "GetCurrentBudget", 0);
+    assert!(matches!(instructions, Value::Int(value) if value > 0));
+    assert!(
+        matches!(instructions, Value::Int(value) if value <= PAPYRUS_INSTRUCTIONS_PER_SLICE as i32)
     );
+    game.record_exterior_cell_loads(EXTERIOR_CELL_LOADS_PER_UPDATE);
     assert_eq!(
         call_global(&mut game, "GetCurrentBudget", 1),
         Value::Int(EXTERIOR_CELL_LOADS_PER_UPDATE as i32)
     );
+    assert_eq!(call_global(&mut game, "OverBudget", 0), Value::Bool(false));
+    assert_eq!(call_global(&mut game, "OverBudget", 1), Value::Bool(false));
+    game.record_exterior_cell_loads(EXTERIOR_CELL_LOADS_PER_UPDATE + 1);
+    assert_eq!(call_global(&mut game, "OverBudget", 1), Value::Bool(true));
     for index in [-1, 2, i32::MAX] {
         assert_eq!(
             call_global(&mut game, "GetCurrentBudget", index),
@@ -67,12 +80,48 @@ fn scr_51_budget_queries_are_global_read_only_and_do_not_log_call_errors() {
     let mut game = Game::new(LoadOrder::new());
     let before = game.world().state_hash();
 
-    assert_eq!(
-        call_global(&mut game, "GetCurrentBudget", 0),
-        Value::Int(PAPYRUS_INSTRUCTIONS_PER_SLICE as i32)
-    );
+    assert_eq!(call_global(&mut game, "GetCurrentBudget", 0), Value::Int(0));
     assert_eq!(call_global(&mut game, "OverBudget", 1), Value::Bool(false));
 
     assert_eq!(game.world().state_hash(), before);
     assert!(game.traces().is_empty());
+}
+
+#[test]
+fn scr_51_budget_queries_validate_arity_and_integer_indices() {
+    let mut game = Game::new(LoadOrder::new());
+
+    assert_eq!(
+        call_global_args(&mut game, "GetCurrentBudget", &[]),
+        Value::Int(0)
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetCurrentBudget expects 1 argument(s), got 0"));
+    assert_eq!(
+        call_global_args(&mut game, "GetCurrentBudget", &[Value::Bool(true)]),
+        Value::Int(0)
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetCurrentBudget expects an integer budget index"));
+
+    assert_eq!(
+        call_global_args(&mut game, "OverBudget", &[]),
+        Value::Bool(false)
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.OverBudget expects 1 argument(s), got 0"));
+    assert_eq!(
+        call_global_args(&mut game, "OverBudget", &[Value::Bool(true)]),
+        Value::Bool(false)
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.OverBudget expects an integer budget index"));
 }

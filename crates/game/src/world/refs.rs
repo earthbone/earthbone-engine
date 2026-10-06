@@ -3,6 +3,7 @@
 //! References: the run-time state of a placed object built from its `REFR`
 //! or `ACHR` record on first use, dynamic placement, the player, inventory,
 //! movement, distance and activation.
+//! Enable-parent semantics follow UESP `REFR` XESP and xEdit's `wbXESP`.
 
 use soe_esm::plugin::flags;
 use soe_esm::records::refr::Refr;
@@ -25,7 +26,81 @@ pub struct RefPlacement {
     pub visible: bool,
 }
 
+fn effective_enabled<'a>(
+    mut id: GlobalFormId,
+    record: impl Fn(GlobalFormId) -> Option<&'a soe_esm::Record>,
+    resolve: impl Fn(GlobalFormId, u32) -> Option<GlobalFormId>,
+    state: impl Fn(GlobalFormId) -> Option<(bool, bool)>,
+) -> bool {
+    let mut visited = std::collections::HashSet::new();
+    let mut opposite = false;
+    loop {
+        if !visited.insert(id) {
+            return false;
+        }
+        let live = state(id);
+        let authored = record(id);
+        if live.is_some_and(|(_, deleted)| deleted)
+            || authored.is_some_and(soe_esm::Record::is_deleted)
+        {
+            return false;
+        }
+        if let Some(parent) = authored.and_then(|record| record.find(T(b"XESP"))) {
+            let Some(raw) = le_u32(parent).filter(|raw| *raw != 0) else {
+                return false;
+            };
+            let Some(parent_flags) = parent.get(4..8).and_then(le_u32) else {
+                return false;
+            };
+            let Some(parent) = resolve(id, raw) else {
+                return false;
+            };
+            opposite ^= parent_flags & 1 != 0;
+            id = parent;
+            continue;
+        }
+        let enabled = live.map(|(enabled, _)| enabled).or_else(|| {
+            authored
+                .filter(|record| matches!(record.tag.as_bytes(), b"REFR" | b"ACHR"))
+                .map(|record| record.flags & flags::INITIALLY_DISABLED == 0)
+        });
+        return enabled.is_some_and(|enabled| enabled ^ opposite);
+    }
+}
+
 impl World {
+    /// Effective enable state, following winning XESP links and live parent state.
+    /// Missing parents and cyclic chains are hidden. A child's initial flag is
+    /// superseded by its parent, while deletion always hides the reference.
+    #[must_use]
+    pub fn reference_enabled(&self, id: GlobalFormId) -> bool {
+        effective_enabled(
+            id,
+            |id| self.record(id),
+            |id, raw| self.resolve_from(id, raw),
+            |id| {
+                self.refs
+                    .get(&id)
+                    .map(|state| (state.enabled, state.deleted))
+            },
+        )
+    }
+
+    /// Effective authored enable state for hosts preparing cells before gameplay.
+    #[must_use]
+    pub fn authored_reference_enabled(order: &soe_esm::LoadOrder, id: GlobalFormId) -> bool {
+        effective_enabled(
+            id,
+            |id| order.winner(id),
+            |id, raw| {
+                order
+                    .winner_ref(id)
+                    .map(|owner| order.resolve(owner.file, raw))
+            },
+            |_| None,
+        )
+    }
+
     /// Set whether host actor presentation should apply foot inverse kinematics.
     pub fn set_debug_foot_ik(&mut self, enabled: bool) {
         self.debug_foot_ik = enabled;
@@ -175,6 +250,14 @@ impl World {
                 }
             }
             st.inventory = self.reference_inventory(Some(id), base);
+            if st
+                .inventory
+                .iter()
+                .any(|(item, _)| self.tag_of(*item) == Some(T(b"LVLI")))
+            {
+                let level = self.encounter_level(id).ok()?;
+                st.inventory = self.resolve_inventory_lists(st.inventory, level).ok()?;
+            }
             if st.is_actor && present {
                 st.inventory = self
                     .default_outfit_inventory(id, base, &st.inventory)
@@ -269,7 +352,7 @@ impl World {
                 st.is_actor = true;
                 st
             }
-            b"PCON" | b"PARW" => {
+            b"PMIS" | b"PGRE" | b"PBEA" | b"PCON" | b"PARW" => {
                 let base = le_u32(rec.find(T(b"NAME"))?)?;
                 let mut st = RefState::new(Some(self.order.resolve(file, base)));
                 if let Some(data) = rec.find(T(b"DATA")).filter(|data| data.len() >= 24) {
@@ -298,24 +381,9 @@ impl World {
         // Base Object Swapper replaces the base of a placed reference, and a
         // reference is built here rather than at start, which is why the swap
         // is held until now. See `crate::moddata`.
-        st.base = st.base.map(|base| {
-            let location = st.location.or(st.cell);
-            if let Some(to) = self.mod_data.reference_swaps.get(&id).copied() {
-                let chance = self.mod_data.reference_swap_chances.get(&id);
-                if chance
-                    .is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location))
-                {
-                    return to;
-                }
-            }
-            let chance = self.mod_data.base_swap_chances.get(&base);
-            if chance.is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location))
-            {
-                self.mod_data.swap(base)
-            } else {
-                base
-            }
-        });
+        st.base = st
+            .base
+            .map(|base| self.swapped_reference_base(id, base, st.location.or(st.cell)));
         let properties = self
             .mod_data
             .properties
@@ -327,6 +395,27 @@ impl World {
         }
         st.item = self.loose_item(st.base, st.owner, Some(rec));
         Some(st)
+    }
+
+    fn swapped_reference_base(
+        &self,
+        id: GlobalFormId,
+        base: GlobalFormId,
+        location: Option<GlobalFormId>,
+    ) -> GlobalFormId {
+        if let Some(to) = self.mod_data.reference_swaps.get(&id).copied() {
+            let chance = self.mod_data.reference_swap_chances.get(&id);
+            if chance.is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location))
+            {
+                return to;
+            }
+        }
+        let chance = self.mod_data.base_swap_chances.get(&base);
+        if chance.is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location)) {
+            self.mod_data.swap(base)
+        } else {
+            base
+        }
     }
 
     fn apply_bos_properties(
@@ -465,6 +554,7 @@ impl World {
         if !self.refs.contains_key(&id) {
             let st = self.load_ref(id)?;
             self.refs.insert(id, st);
+            self.track_light_reference(id);
         }
         self.refs.get_mut(&id)
     }
@@ -473,23 +563,89 @@ impl World {
         self.refs.get(&id)
     }
 
-    /// The current runtime placement and visibility of a loaded reference,
-    /// for a host to compare against what it last drew or collided. `None`
-    /// only when the reference has never been instantiated, so its
-    /// record-authored placement is still current and there is nothing to
-    /// sync. A deleted reference still yields `Some`, with `visible: false`
+    /// Begin an opening animation for a placed door and record its open destination.
+    ///
+    /// Returns false when the form is missing, deleted, or is not a door.
+    pub fn begin_door_opening(&mut self, id: GlobalFormId) -> bool {
+        self.begin_door_transition(id, true)
+    }
+
+    /// Begin a closing animation for a placed door and record its closed destination.
+    ///
+    /// Returns false when the form is missing, deleted, or is not a door.
+    pub fn begin_door_closing(&mut self, id: GlobalFormId) -> bool {
+        self.begin_door_transition(id, false)
+    }
+
+    fn begin_door_transition(&mut self, id: GlobalFormId, opening: bool) -> bool {
+        let Some((base, deleted)) = self
+            .reference(id)
+            .map(|reference| (reference.base, reference.deleted))
+        else {
+            return false;
+        };
+        if deleted || base.is_none_or(|base| self.tag_of(base) != Some(T(b"DOOR"))) {
+            return false;
+        }
+        let Some(reference) = self.reference(id) else {
+            return false;
+        };
+        reference.opened = opening;
+        reference.open_transition = Some(if opening {
+            super::DoorOpenTransition::Opening
+        } else {
+            super::DoorOpenTransition::Closing
+        });
+        true
+    }
+
+    /// Finish a placed door's current opening or closing animation.
+    ///
+    /// Returns false when the form is missing or has no transition in progress.
+    pub fn finish_door_transition(&mut self, id: GlobalFormId) -> bool {
+        let Some(reference) = self.reference(id) else {
+            return false;
+        };
+        if reference.open_transition.is_none() {
+            return false;
+        }
+        reference.open_transition = None;
+        true
+    }
+
+    pub(crate) fn door_open_state(&mut self, id: GlobalFormId) -> Option<i32> {
+        let (base, deleted) = self
+            .reference(id)
+            .map(|reference| (reference.base, reference.deleted))?;
+        if deleted {
+            return None;
+        }
+        let is_door = base.is_some_and(|base| self.tag_of(base) == Some(T(b"DOOR")));
+        self.reference(id)
+            .map(|reference| reference.open_state(is_door))
+    }
+
+    /// The current runtime or authored placement and effective visibility,
+    /// for a host to compare against what it last drew or collided.
+    /// A deleted reference still yields `Some`, with `visible: false`
     /// at its last known placement, the same hide signal `Disable()` alone
     /// produces: `Delete()` sets both `deleted` and `enabled`
     /// (`crate::natives::object_reference`), and the host has no other way
     /// to learn it must stop drawing and colliding with it.
     #[must_use]
     pub fn ref_placement(&self, id: GlobalFormId) -> Option<RefPlacement> {
-        let state = self.reference_ref(id)?;
+        let authored;
+        let state = if let Some(state) = self.reference_ref(id) {
+            state
+        } else {
+            authored = self.load_ref_record(id)?;
+            &authored
+        };
         Some(RefPlacement {
             position: state.position,
             rotation: state.rotation,
             scale: state.scale,
-            visible: state.enabled && !state.deleted,
+            visible: self.reference_enabled(id),
         })
     }
 
@@ -518,6 +674,56 @@ impl World {
         state.position = position;
         state.rotation = rotation;
         true
+    }
+
+    /// Records a host-controlled actor's held or thrown pose in shared
+    /// reference state. Actor movement remains transient host physics, while
+    /// the latest placement is part of the existing reference save data.
+    pub fn set_host_actor_pose(
+        &mut self,
+        id: GlobalFormId,
+        position: [f32; 3],
+        rotation: [f32; 3],
+    ) -> bool {
+        if !position
+            .iter()
+            .chain(rotation.iter())
+            .all(|value| value.is_finite())
+        {
+            return false;
+        }
+        let Some(state) = self.reference(id) else {
+            return false;
+        };
+        if !state.is_actor || !state.enabled || state.deleted {
+            return false;
+        }
+        state.position = position;
+        state.rotation = rotation;
+        true
+    }
+
+    /// Read a live or authored base without initializing inventory or actor templates.
+    pub(crate) fn reference_base_view(&self, id: GlobalFormId) -> Option<GlobalFormId> {
+        if let Some(reference) = self.reference_ref(id) {
+            return reference.base;
+        }
+        let rref = self.order.winner_ref(id)?;
+        let record = self.order.record(rref);
+        let location = match record.tag.as_bytes() {
+            b"REFR" | b"ACHR" => record
+                .find(T(b"XLCN"))
+                .and_then(le_u32)
+                .filter(|raw| *raw != 0),
+            b"PMIS" | b"PGRE" | b"PBEA" | b"PCON" | b"PARW" => None,
+            _ => return None,
+        }
+        .or(record.placement.cell)
+        .map(|raw| self.order.resolve(rref.file, raw));
+        let base = self
+            .order
+            .resolve(rref.file, le_u32(record.find(T(b"NAME"))?)?);
+        Some(self.swapped_reference_base(id, base, location))
     }
 
     pub fn base_of(&mut self, id: GlobalFormId) -> Option<GlobalFormId> {
@@ -562,6 +768,23 @@ impl World {
             }
         }
         st.inventory = self.reference_inventory(Some(id), base);
+        if st
+            .inventory
+            .iter()
+            .any(|(item, _)| self.tag_of(*item) == Some(T(b"LVLI")))
+        {
+            match self.encounter_level_in_cell(cell).and_then(|level| {
+                self.resolve_inventory_lists(std::mem::take(&mut st.inventory), level)
+            }) {
+                Ok(inventory) => st.inventory = inventory,
+                Err(error) => {
+                    soe_trace::error!(target: "game", system = "game", form_id = %id, error = %error, "initial inventory failed");
+                    st.inventory = crate::inventory::Inventory::default();
+                    st.enabled = false;
+                    present = false;
+                }
+            }
+        }
         if st.is_actor && present {
             match self.default_outfit_inventory(id, base, &st.inventory) {
                 Ok(inventory) => st.inventory = inventory,
@@ -570,6 +793,7 @@ impl World {
         }
         st.item = self.loose_item(Some(base), None, None);
         self.refs.insert(id, st);
+        self.track_light_reference(id);
         id
     }
 
@@ -594,6 +818,21 @@ impl World {
             state.display_name = Some("Player".into());
             if let Some(base) = base {
                 state.inventory = self.base_inventory(base);
+                if state
+                    .inventory
+                    .iter()
+                    .any(|(item, _)| self.tag_of(*item) == Some(T(b"LVLI")))
+                {
+                    state.inventory = match self
+                        .resolve_inventory_lists(state.inventory, self.player_level.max(1))
+                    {
+                        Ok(inventory) => inventory,
+                        Err(error) => {
+                            soe_trace::error!(target: "game", system = "game", form_id = %id, error = %error, "initial player inventory failed");
+                            crate::inventory::Inventory::default()
+                        }
+                    };
+                }
             }
             self.refs.insert(id, state);
         }
@@ -635,6 +874,17 @@ impl World {
         count: i32,
         target: Option<GlobalFormId>,
     ) -> crate::inventory::Bundle {
+        self.remove_item_bundle_with_ownership(holder, item, count, target, true)
+    }
+
+    pub(super) fn remove_item_bundle_with_ownership(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        target: Option<GlobalFormId>,
+        keep_ownership: bool,
+    ) -> crate::inventory::Bundle {
         let moved = count
             .min(
                 self.reference(holder)
@@ -658,6 +908,9 @@ impl World {
         let mut bundle = source.inventory.take(item, moved);
         if let Some(target) = target {
             bundle.unequip();
+            if !keep_ownership {
+                bundle.clear_ownership();
+            }
             // CONTEXT: Both references and recipient capacity were checked above.
             if let Some(recipient) = self.refs.get_mut(&target) {
                 let result = recipient.inventory.receive(item, bundle.clone());
@@ -684,6 +937,7 @@ impl World {
         else {
             return false;
         };
+        let match_rotation = match_rotation && cell.is_some_and(|cell| self.cell_is_resident(cell));
         match self.reference(id) {
             Some(r) => {
                 r.position = [pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]];
@@ -715,6 +969,8 @@ impl World {
     }
 
     /// Reset a reference to its winning record state and base inventory.
+    /// Leveled inventory is selected again. Loading saved reference state retains
+    /// the selected contents until a reset explicitly rebuilds them.
     /// An optional loaded target supplies the destination position and cell.
     /// Actor faction and relationship state lives outside `RefState` and is
     /// retained, while actors are resurrected.
@@ -735,6 +991,7 @@ impl World {
         }
         let is_actor = fresh.is_actor;
         self.refs.insert(id, fresh);
+        self.track_light_reference(id);
         if is_actor {
             let _ = self.resurrect_actor(id);
         }
@@ -789,7 +1046,7 @@ impl World {
         self.break_invisibility(activator, alloc);
         let kind = base.and_then(|b| self.tag_of(b));
         let lockable = kind == Some(T(b"DOOR")) || kind == Some(T(b"CONT"));
-        let process = (!blocked || !send_event)
+        let mut process = (!blocked || !send_event)
             && (!lockable || self.unlock_with_key(target, activator, alloc));
         if process {
             match kind.map(|t| *t.as_bytes()) {
@@ -825,6 +1082,9 @@ impl World {
                 }
                 Some([b'F', b'U', b'R', b'N']) => {
                     self.activate_furniture(target, activator);
+                }
+                _ if base.is_some_and(|base| self.is_inventory_base(base)) => {
+                    process = self.add_item_notified(activator, target, 1, alloc);
                 }
                 _ => {}
             }

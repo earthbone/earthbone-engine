@@ -46,6 +46,94 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Update the shared actor state when a rider mounts or leaves a mount.
+    ///
+    /// # Errors
+    /// Returns an error if the rider or mount is not an actor, or both ids are equal.
+    pub fn set_mount_rider(
+        &mut self,
+        rider: GlobalFormId,
+        mount: GlobalFormId,
+        mounted: bool,
+    ) -> Result<(), String> {
+        if rider == mount {
+            return Err(format!("actor {rider} cannot ride itself"));
+        }
+        if self.actor(rider).is_none() {
+            return Err(format!("{rider} is not an actor"));
+        }
+        if self.actor(mount).is_none() {
+            return Err(format!("{mount} is not an actor"));
+        }
+
+        self.actor(rider)
+            .ok_or_else(|| format!("{rider} is not an actor"))?
+            .riding_mount = mounted;
+        self.actor(mount)
+            .ok_or_else(|| format!("{mount} is not an actor"))?
+            .being_ridden = mounted;
+        Ok(())
+    }
+
+    /// Set a Papyrus `KeepOffsetFromActor` request on an actor.
+    pub fn keep_actor_offset(
+        &mut self,
+        actor: GlobalFormId,
+        offset: super::ActorKeepOffset,
+    ) -> bool {
+        let valid_actor = self
+            .refs
+            .get(&actor)
+            .is_some_and(|reference| reference.is_actor)
+            && self
+                .refs
+                .get(&offset.target)
+                .is_some_and(|reference| reference.is_actor);
+        let valid_numbers = offset
+            .offset
+            .iter()
+            .chain(offset.angles.iter())
+            .all(|value| value.is_finite())
+            && offset.catch_up_radius.is_finite()
+            && offset.follow_radius.is_finite()
+            && offset.catch_up_radius >= offset.follow_radius
+            && offset.follow_radius >= 0.0;
+        if !valid_actor || !valid_numbers || self.actor(actor).is_none() {
+            return false;
+        }
+        if let Some(state) = self.actors.get_mut(&actor) {
+            state.keep_offset = Some(offset);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Clear a Papyrus `KeepOffsetFromActor` request.
+    pub fn clear_actor_offset(&mut self, actor: GlobalFormId) -> bool {
+        self.actor(actor).is_some_and(|state| {
+            state.keep_offset = None;
+            true
+        })
+    }
+
+    /// Set or clear the reference used as an actor's forced landing marker.
+    pub fn set_forced_landing_marker(
+        &mut self,
+        actor: GlobalFormId,
+        marker: Option<GlobalFormId>,
+    ) -> bool {
+        if self.actor(actor).is_none() || marker.is_some_and(|id| self.reference(id).is_none()) {
+            return false;
+        }
+        if let Some(state) = self.actors.get_mut(&actor) {
+            state.forced_landing_marker = marker;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Set the actor's head-tracking flag.
     ///
     /// # Errors
@@ -63,6 +151,108 @@ impl World {
     pub fn head_tracking(&mut self, id: GlobalFormId) -> Option<bool> {
         self.actor(id)
             .map(|actor| actor.head_tracking.unwrap_or(true))
+    }
+
+    /// Return the Papyrus sit state supported by the active furniture procedure.
+    #[must_use]
+    pub fn sit_state(&mut self, id: GlobalFormId) -> Option<i32> {
+        let actor = self.actor(id)?;
+        Some(if actor.ai.procedure == crate::ai::Procedure::Sit {
+            if actor.ai.arrived {
+                3
+            } else {
+                2
+            }
+        } else {
+            0
+        })
+    }
+
+    /// Attach an actor to a placed reference, or detach it when the target is absent or self.
+    pub fn set_actor_vehicle(
+        &mut self,
+        actor: GlobalFormId,
+        vehicle: Option<GlobalFormId>,
+    ) -> Result<(), String> {
+        if self.actor(actor).is_none() {
+            return Err(format!("{actor} is not an actor"));
+        }
+        let vehicle = vehicle.filter(|target| *target != actor);
+        if let Some(target) = vehicle {
+            if self.reference(target).is_none() {
+                return Err(format!("{target} is not a placed reference"));
+            }
+        }
+        if let Some(state) = self.actor(actor) {
+            state.vehicle = vehicle;
+        }
+        Ok(())
+    }
+
+    /// Return the reference selected by `Actor.SetVehicle`.
+    #[must_use]
+    pub fn actor_vehicle(&mut self, actor: GlobalFormId) -> Option<GlobalFormId> {
+        self.actor(actor).and_then(|state| state.vehicle)
+    }
+
+    /// Set or clear the script-forced look-at target.
+    pub fn set_actor_look_at(
+        &mut self,
+        actor: GlobalFormId,
+        target: Option<GlobalFormId>,
+        pathing: bool,
+    ) -> Result<(), String> {
+        if self.actor(actor).is_none() {
+            return Err(format!("{actor} is not an actor"));
+        }
+        if let Some(target) = target {
+            if self.reference(target).is_none() {
+                return Err(format!("{target} is not a placed reference"));
+            }
+            if let Some(state) = self.actor(actor) {
+                state.forced_look_at = Some((target, pathing));
+            }
+        } else if let Some(state) = self.actor(actor) {
+            state.forced_look_at = None;
+        }
+        Ok(())
+    }
+
+    /// Return the script-forced look-at target and pathing option.
+    #[must_use]
+    pub fn actor_look_at(&mut self, actor: GlobalFormId) -> Option<(GlobalFormId, bool)> {
+        self.actor(actor).and_then(|state| state.forced_look_at)
+    }
+
+    pub(super) fn write_scr_11(actor: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+        use super::save::write_form_id;
+        writer.bool(actor.vehicle.is_some());
+        if let Some(vehicle) = actor.vehicle {
+            write_form_id(writer, vehicle);
+        }
+        writer.bool(actor.forced_look_at.is_some());
+        if let Some((target, pathing)) = actor.forced_look_at {
+            write_form_id(writer, target);
+            writer.bool(pathing);
+        }
+    }
+
+    pub(super) fn read_scr_11(
+        actor: &mut ActorState,
+        reader: &mut super::save::FormReader<'_, '_>,
+    ) -> Result<(), soe_papyrus::VmError> {
+        use super::save::read_form_id;
+        actor.vehicle = if reader.bool()? {
+            Some(read_form_id(reader)?)
+        } else {
+            None
+        };
+        actor.forced_look_at = if reader.bool()? {
+            Some((read_form_id(reader)?, reader.bool()?))
+        } else {
+            None
+        };
+        Ok(())
     }
 
     pub(super) fn write_scr_12(actor: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
@@ -346,12 +536,21 @@ impl World {
     ///
     /// Returns false when `id` is not an actor reference.
     pub fn stop_combat_alarm(&mut self, id: GlobalFormId) -> bool {
-        let Some(actor) = self.actor(id) else {
+        if self.actor(id).is_none() {
             return false;
-        };
-        actor.in_combat = false;
-        actor.combat_target = None;
-        actor.alerted = false;
+        }
+        for actor in self.actors.values_mut() {
+            if actor.combat_target == Some(id) {
+                actor.in_combat = false;
+                actor.combat_target = None;
+                actor.alerted = false;
+            }
+        }
+        if let Some(actor) = self.actor(id) {
+            actor.in_combat = false;
+            actor.combat_target = None;
+            actor.alerted = false;
+        }
         true
     }
 
@@ -523,6 +722,54 @@ impl World {
         self.actors.get(&id)
     }
 
+    /// Return the live combat group member and distinct target counts for an actor.
+    ///
+    /// Members are combat actors connected through shared targets or direct
+    /// target relationships. An actor without a current combat target has no
+    /// group counts.
+    #[must_use]
+    pub fn combat_group_counts(&self, subject: GlobalFormId) -> Option<(usize, usize)> {
+        let actor = self.actors.get(&subject)?;
+        actor.combat_target?;
+
+        let mut members = std::collections::BTreeSet::from([subject]);
+        let mut targets = std::collections::BTreeSet::new();
+        loop {
+            let prior_len = members.len();
+            for member in &members {
+                if let Some(target) = self
+                    .actors
+                    .get(member)
+                    .and_then(|state| state.combat_target)
+                {
+                    targets.insert(target);
+                }
+            }
+            for (candidate, state) in &self.actors {
+                if state.combat_target.is_some()
+                    && (targets.contains(candidate)
+                        || state.combat_target.is_some_and(|target| {
+                            targets.contains(&target) || members.contains(&target)
+                        }))
+                {
+                    members.insert(*candidate);
+                }
+            }
+            if members.len() == prior_len {
+                break;
+            }
+        }
+        targets = members
+            .iter()
+            .filter_map(|member| {
+                self.actors
+                    .get(member)
+                    .and_then(|state| state.combat_target)
+            })
+            .collect();
+        Some((members.len(), targets.len()))
+    }
+
     /// Whether an instantiated actor is currently marked alarmed.
     ///
     /// # Errors
@@ -578,7 +825,17 @@ impl World {
         name: &str,
         delta: f32,
     ) -> Result<(), crate::actor_values::Error> {
-        self.change_actor_value(id, name, delta, crate::actor_values::Values::modify)
+        let tracks_dragon_souls =
+            name.eq_ignore_ascii_case("dragonsouls") && self.is_player_reference(id);
+        let before = tracks_dragon_souls.then(|| self.actor_value(id, name));
+        self.change_actor_value(id, name, delta, crate::actor_values::Values::modify)?;
+        if let Some(before) = before {
+            let gained = self.actor_value(id, name) - before;
+            if gained > 0.0 {
+                self.commonlib_dragon_souls_gained(gained);
+            }
+        }
+        Ok(())
     }
 
     /// Current maximum, including permanent and temporary modifiers.
@@ -616,6 +873,13 @@ impl World {
         name: &str,
         value: f32,
     ) -> Result<(), crate::actor_values::Error> {
+        if self.debug_god_mode
+            && self.player == Some(id)
+            && name.eq_ignore_ascii_case("health")
+            && value > 0.0
+        {
+            return Ok(());
+        }
         self.change_actor_value(id, name, value, crate::actor_values::Values::damage)
     }
 

@@ -24,6 +24,42 @@ struct List {
 }
 
 impl World {
+    /// Replace authored LVLI totals with concrete stacks once during reference creation.
+    /// Uses the shared resolver and retains its leaf COED metadata. Saved/restored
+    /// inventories bypass this path, and initial construction queues no item events.
+    pub(super) fn resolve_inventory_lists(
+        &mut self,
+        mut inventory: Inventory,
+        level: u32,
+    ) -> Result<Inventory, Error> {
+        let lists: Vec<_> = inventory
+            .iter()
+            .filter(|(item, _)| self.tag_of(**item) == Some(T(b"LVLI")))
+            .map(|(item, count)| (*item, count))
+            .collect();
+        let previous_rng = self.rng_streams;
+        let result = (|| {
+            for (list, count) in lists {
+                let mut selected = self.roll_leveled_inventory(list, level, count)?;
+                inventory.take(list, count);
+                let items: Vec<_> = selected
+                    .iter()
+                    .map(|(item, count)| (*item, count))
+                    .collect();
+                for (item, count) in items {
+                    inventory
+                        .receive(item, selected.take(item, count))
+                        .map_err(|error| Error::Invalid(format!("initial inventory: {error}")))?;
+                }
+            }
+            Ok(inventory)
+        })();
+        if result.is_err() {
+            self.rng_streams = previous_rng;
+        }
+        result
+    }
+
     /// Resolve LVLI quantities at a caller-supplied selection level.
     /// This does not add items or send events. Repeated calls roll again.
     ///

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! REFR/ACHR placement headers from xEdit wbDefinitionsTES5Saves.pas,
+//! REFR/ACHR and projectile placement headers from xEdit wbDefinitionsTES5Saves.pas,
 //! UESP and FallrimTools ChangeFormInitialData. Extra data, inventory and
 //! actor execution follow this header and are not consumed by this reader.
 
@@ -9,6 +9,7 @@ mod extra;
 mod fields;
 mod leveled;
 mod npc;
+mod package;
 mod player;
 pub use contents::{Inventory, InventoryEntry, ReferenceContents};
 pub use extra::{Extra, ExtraData};
@@ -100,6 +101,10 @@ pub struct Havok {
 pub struct ReferenceHeader {
     pub change_flags: u32,
     pub initial: Initial,
+    /// Whether this change-form type carries FORM, BASE and SCALE fields.
+    pub carries_reference_data: bool,
+    /// Whether this change-form type carries the generic Havok block.
+    pub carries_havok: bool,
     pub havok: Option<Havok>,
     /// xEdit calls these HasEquipData and flags1. Their consumers are separate.
     pub actor: Option<[u32; 2]>,
@@ -120,14 +125,16 @@ fn placement(r: &mut Cursor<'_>) -> Result<Placement> {
 }
 
 impl ChangeForm {
-    /// Read the placement prefix of a REFR, ACHR, PCON or PARW payload.
+    /// Read the placement prefix of a REFR, ACHR, PMIS, PGRE, PBEA or PCON payload.
     ///
     /// # Errors
     /// A malformed compressed payload, invalid identity tag, truncated prefix
     /// or a Havok count exceeding the payload. The reported remainder is not
     /// validated, decoded or implicitly considered restored.
     pub fn reference_header(&self, form_version: u8) -> Result<Option<ReferenceHeader>> {
-        if !matches!(self.type_index(), 0 | 1 | 42 | 47) {
+        // CONTEXT: xEdit omits PARW from InitialDataTypeDecider. Returning no
+        // header keeps its opaque payload out of reference restoration.
+        if !matches!(self.type_index(), 0 | 1 | 2 | 3 | 4 | 42) {
             return Ok(None);
         }
         if self.form.kind() == RefKind::Invalid {
@@ -155,7 +162,8 @@ impl ChangeForm {
         } else {
             Initial::Unchanged
         };
-        let havok = if flags & flags::HAVOK != 0 {
+        let carries_havok = true;
+        let havok = if carries_havok && flags & flags::HAVOK != 0 {
             let count = r.vsval()?;
             Some(Havok {
                 data: r.take(count.value() as usize)?.to_vec(),
@@ -169,8 +177,8 @@ impl ChangeForm {
         } else {
             None
         };
-        // xEdit models PCON and PARW with the shared initial placement data
-        // but empty subtype structs. Keep any tail opaque for these types.
+        // CONTEXT: xEdit binds PCON to initial placement data but leaves its
+        // subtype struct empty and omits PARW from InitialDataTypeDecider.
         let has_reference_data = matches!(self.type_index(), 0 | 1);
         let form_flags = if has_reference_data && flags & flags::FORM != 0 {
             Some((r.u32()?, r.u16()?))
@@ -194,6 +202,8 @@ impl ChangeForm {
         Ok(Some(ReferenceHeader {
             change_flags: flags,
             initial,
+            carries_reference_data: has_reference_data,
+            carries_havok,
             havok,
             actor,
             form_flags,
@@ -219,12 +229,18 @@ impl ReferenceHeader {
     /// An optional field disagrees with its change bit or a retained count
     /// no longer fits the edited Havok data. This does not encode the suffix.
     pub fn data_bytes(&self) -> Result<Vec<u8>> {
-        for (flag, present) in [
-            (flags::HAVOK, self.havok.is_some()),
-            (flags::FORM, self.form_flags.is_some()),
-            (flags::BASE, self.base.is_some()),
-            (flags::SCALE, self.scale.is_some()),
-        ] {
+        let mut fields = vec![];
+        if self.carries_havok {
+            fields.push((flags::HAVOK, self.havok.is_some()));
+        }
+        if self.carries_reference_data {
+            fields.extend([
+                (flags::FORM, self.form_flags.is_some()),
+                (flags::BASE, self.base.is_some()),
+                (flags::SCALE, self.scale.is_some()),
+            ]);
+        }
+        for (flag, present) in fields {
             if (self.change_flags & flag != 0) != present {
                 return Err(Error::Reference {
                     reason: "header field presence mismatch".into(),

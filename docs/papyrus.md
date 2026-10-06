@@ -1,5 +1,20 @@
 # soe-papyrus: PEX loader and virtual machine
 
+## Entity execution profiling, PRF-13
+
+With `soe_trace::Profile` enabled, executed opcodes record their declaring
+script and function, instruction counts, native calls and running time.
+Function calls count on the first executed opcode, or the implicit return
+for an empty function, independently of scheduler slices. Empty functions
+record a call and return time with zero executed opcodes. Utility wait builtins contribute native-call counts. Entering sleeping
+or latent state records a wait, and each scheduler advance charges elapsed
+real seconds to that suspended function separately from its running time.
+
+`Vm::set_script_plugin` supplies diagnostic provider metadata. Game populates
+it from winning VFS script paths. A missing provider is `<unknown>`.
+This metadata is omitted from saves and state hashes. It does not change the
+scheduler budget, wait clock domains, native return values or script lookup.
+
 Crate `crates/papyrus`. Round 1 of `ENGINE-PLAN.md`, written 2026-09-06.
 
 ## What is in it
@@ -85,9 +100,10 @@ when a runtime struct is created.
 Checked on the installed game: all 14,026 `.pex` files in `Skyrim - Misc.bsa`
 parse, 54,620 functions, zero failures, and every one loads into the VM.
 
-`tests/tst_10_champollion.rs` compares function names, parameter types and
+`tests/tst_10_champollion.rs` compares function names, parameter names and types and
 instruction counts from every PEX in that archive with Champollion's assembly
-output. Set `SKYRIM_DATA` to the game Data directory and `CHAMPOLLION` to the
+output. Labels and debug comments in the assembly do not count as instructions.
+Set `SKYRIM_DATA` to the game Data directory and `CHAMPOLLION` to the
 Champollion executable. Differences are written per script to
 `$CARGO_TARGET_DIR/tst-10-champollion-differences.txt`, or to the path in
 `SOE_TST_10_REPORT`. An empty report means the compared inventories agree.
@@ -141,7 +157,10 @@ object, `register_global(class, name, f)` for `Class.Function()`. Names are
 case-insensitive. Collision rule: first registration wins, later ones are
 recorded in `duplicates` and reported back to the caller, never silently
 replaced. A native gets the self object, the arguments, the clock, the log, and
-`defer()` to allocate a latent id.
+`defer()` to allocate a latent id. It also gets the current call stack as
+outermost-to-innermost script function names, including source lines when PEX
+debug information provides them. `Debug.TraceStack` writes those frames after
+its message.
 
 `NativeRegistry::method_bindings` and `global_bindings` return sorted,
 lowercase `(class, name)` pairs for registered bindings. The game crate uses
@@ -581,3 +600,38 @@ with the same function name cannot intercept the call. Resolution uses the
 instance's current state, then its empty state. Calls use the existing frame
 builder and scheduler. The game dialogue tests attach two colliding fragment
 names and verify that only the named script changes the owning quest.
+
+## Deterministic executed work, PRF-14
+
+Within a `soe_trace::WorkFrame`, the interpreter counts each executed opcode
+and each invoked registry native or scheduler builtin. Failed registry probes
+are excluded because no implementation runs. Utility waits and script-state
+builtins each charge one native call. Implicit returns at the end of a function
+consume scheduler budget but do not charge an executed opcode. Sleeping and
+latent threads charge no instructions until resumed. `tests/prf_14_work.rs`
+checks budget yielding, native dispatch, waits, implicit returns and a fresh
+measurement window. Counters do not enter VM saves.
+
+## Shared logging, TOOL-06
+
+`Log::push` retains the existing VM entries and forwards them through
+`soe-trace`. The `error:` and `warning:` prefixes select error and warning,
+other messages select info. VM execution errors emit error events with script
+location and thread identity while retaining their original in-memory text.
+The transient subscriber does not change the VM log's saved representation.
+The `tool_06_logging` tests check severity and VM error context. Subscriber
+filtering, counts and file output follow [trace.md](trace.md).
+
+## Vanilla Papyrus files, TOOL-07
+
+The game host writes `Logs/Script/Papyrus.0.log` and
+`Logs/Script/User/<name>.0.log` under the profile INI directory when
+`[Papyrus] bEnableLogging=1`. Each emitted line starts with the vanilla
+`[MM/DD/YYYY - H:MM:SSAM]` date and time form. Existing numbered logs shift up
+one slot when the file sink opens. `bEnableTrace` filters ordinary trace lines
+from the file, and `bLoadDebugInformation` controls source-line detail.
+`Debug.TraceStack` adds the active frames after its message. Every VM log entry
+still goes through the TOOL-06 tracing system. VM errors write a `stack:` block
+with source lines when available, otherwise `Line ?`, following
+`engine-refs/ck-wiki/Papyrus_Runtime_Errors.wikitext`. The INI key defaults
+and enabled preset follow the local Wrye Bash Skyrim debug-log presets.

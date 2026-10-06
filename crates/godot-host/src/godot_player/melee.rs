@@ -95,7 +95,7 @@ impl PlayerNode {
         match self.melee_contact.begin(game, player, hand) {
             Ok(()) => true,
             Err(error) => {
-                godot_error!("PlayerNode: {error}");
+                soe_trace::error!(target: "host::melee", system = "host::melee", actor = %player, "PlayerNode: {error}");
                 false
             }
         }
@@ -191,26 +191,39 @@ impl PlayerNode {
     /// free them.
     #[func]
     pub fn contact_actor_bodies(&self) -> Array<VarDictionary> {
-        let placements: std::collections::HashMap<GlobalFormId, [f32; 3]> = self
-            .game
-            .as_ref()
-            .map(|game| {
-                game.world_mut()
-                    .contact_actors()
-                    .into_iter()
-                    .map(|actor| (actor.actor, actor.position))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let placements: std::collections::HashMap<GlobalFormId, soe_game::world::ContactActor> =
+            self.game
+                .as_ref()
+                .map(|game| {
+                    game.world_mut()
+                        .contact_actors()
+                        .into_iter()
+                        .map(|actor| (actor.actor, actor))
+                        .collect()
+                })
+                .unwrap_or_default();
         let mut result = Array::new();
         for (body, form) in self.actor_bodies.owners() {
             let mut row = VarDictionary::new();
             row.set("file", i64::from(form.file));
             row.set("object", i64::from(form.object));
             row.set("body", *body);
-            if let Some([x, y, z]) = placements.get(form) {
-                let g = crate::units::SkyrimPos::new(*x, *y, *z).to_godot();
+            if let Some(actor) = placements.get(form) {
+                let [x, y, z] = actor.position;
+                let g = crate::units::SkyrimPos::new(x, y, z).to_godot();
                 row.set("position", Vector3::new(g.x, g.y, g.z));
+                row.set("cell", actor.cell.to_string());
+                if let Some(game) = &self.game {
+                    let world = game.world();
+                    row.set("space", world.cell_coordinate_space(actor.cell).to_string());
+                    row.set(
+                        "dead",
+                        world.actor_ref(*form).is_some_and(|actor| actor.dead),
+                    );
+                    if let Ok(settings) = world.detection_settings() {
+                        row.set("detection_range", settings.max_distance);
+                    }
+                }
             }
             result.push(&row);
         }
@@ -258,7 +271,7 @@ impl PlayerNode {
         match world.equip_hand_weapon(player, hand, item) {
             Ok(()) => true,
             Err(error) => {
-                godot_error!("PlayerNode: {error}");
+                soe_trace::error!(target: "host::melee", system = "host::melee", "PlayerNode: {error}");
                 false
             }
         }
@@ -269,6 +282,7 @@ impl PlayerNode {
     /// Route the control-map press edge into the shared player's swing latch.
     /// A held frame is ignored after the initial press.
     pub(super) fn begin_melee_swing_from_input(&mut self, pressed: bool) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Combat);
         if !pressed {
             return;
         }
@@ -277,29 +291,53 @@ impl PlayerNode {
         let Some(game) = &mut self.game else { return };
         if let Err(error) = Self::arm_melee_swing_from_input(game, &mut self.melee_contact, pressed)
         {
-            godot_error!("PlayerNode: {error}");
+            soe_trace::error!(target: "host::melee", system = "host::melee", "PlayerNode: {error}");
         }
     }
 
     /// Follow the shared World: one body per resident actor, moved to its
     /// current placement, and none for actors that left or were disabled.
     pub(super) fn sync_actor_bodies(&mut self) -> bool {
-        let Some(world) = self.base().get_world_3d() else {
-            return false;
-        };
+        self.sync_actor_bodies_and_contacts().is_some()
+    }
+
+    pub(super) fn sync_actor_bodies_and_contacts(
+        &mut self,
+    ) -> Option<Vec<soe_game::world::ContactActor>> {
+        self.sync_actor_bodies_and_contacts_with(|_, actors| actors)
+    }
+
+    pub(super) fn sync_actor_bodies_and_contacts_with(
+        &mut self,
+        select: impl FnOnce(
+            &soe_game::World,
+            Vec<soe_game::world::ContactActor>,
+        ) -> Vec<soe_game::world::ContactActor>,
+    ) -> Option<Vec<soe_game::world::ContactActor>> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Physics);
+        let world = self.base().get_world_3d()?;
         let space = world.get_space();
         if !space.is_valid() {
-            return false;
+            return None;
         }
         let Some(game) = &self.game else {
-            return false;
+            return None;
         };
         let mut shared = game.world_mut();
-        let actors = shared.contact_actors();
+        for (actor, position) in self.actor_bodies.thrown_actor_poses() {
+            let rotation = shared
+                .ref_placement(actor)
+                .map_or([0.0; 3], |placement| placement.rotation);
+            shared.set_host_actor_pose(actor, position, rotation);
+        }
+        let placements = shared.contact_actor_placements();
+        let mut actors = select(&shared, placements.clone());
+        shared.resolve_contact_actor_scales(&mut actors);
         let living: Vec<_> = actors
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|actor| {
-                shared.actor(actor.actor).is_none_or(|state| {
+                shared.actor_ref(actor.actor).is_none_or(|state| {
                     !crate::ragdoll::actor_uses_ragdoll(
                         state.dead,
                         state.unconscious,
@@ -308,8 +346,20 @@ impl PlayerNode {
                 })
             })
             .collect();
-        self.actor_bodies.sync(space, &living);
-        true
+        let eligible: Vec<_> = placements
+            .into_iter()
+            .filter(|actor| {
+                shared.actor_ref(actor.actor).is_none_or(|state| {
+                    !crate::ragdoll::actor_uses_ragdoll(
+                        state.dead,
+                        state.unconscious,
+                        state.ragdoll_forced,
+                    )
+                })
+            })
+            .collect();
+        self.actor_bodies.sync_candidates(space, &living, &eligible);
+        Some(actors)
     }
 
     /// Route one graph event through the shared contact latch. `segment`
@@ -373,7 +423,7 @@ impl PlayerNode {
             Ok(Some(_)) => true,
             Ok(None) => false,
             Err(error) => {
-                godot_error!("PlayerNode: {error}");
+                soe_trace::error!(target: "host::melee", system = "host::melee", "PlayerNode: {error}");
                 false
             }
         }

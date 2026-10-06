@@ -60,31 +60,31 @@ impl ParticleEmitterNode {
         let bytes = match std::fs::read(Path::new(&path)) {
             Ok(bytes) => bytes,
             Err(error) => {
-                godot_error!("ParticleEmitterNode: {path}: {error}");
+                soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: {path}: {error}");
                 return false;
             }
         };
         let file = match soe_nif::parse(&bytes) {
             Ok(file) => file,
             Err(error) => {
-                godot_error!("ParticleEmitterNode: {path}: {error}");
+                soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: {path}: {error}");
                 return false;
             }
         };
         let emitters = match file.particle_emitters() {
             Ok(emitters) => emitters,
             Err(error) => {
-                godot_error!("ParticleEmitterNode: {path}: {error}");
+                soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: {path}: {error}");
                 return false;
             }
         };
         let name = emitter_name.to_string();
         let Some(emitter) = emitters.into_iter().find(|e| e.name == name) else {
-            godot_error!("ParticleEmitterNode: {path}: no emitter named {name}");
+            soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: {path}: no emitter named {name}");
             return false;
         };
         let Some(scenario) = self.base().get_world_3d().map(|world| world.get_scenario()) else {
-            godot_error!("ParticleEmitterNode: add the node to a 3D world first");
+            soe_trace::error!(target: "host::particle", system = "host::particle", "ParticleEmitterNode: add the node to a 3D world first");
             return false;
         };
         self.clear();
@@ -108,7 +108,9 @@ impl ParticleEmitterNode {
         multi.set_instance_count(emitter.capacity as i32);
         multi.set_visible_instance_count(0);
         let mut server = RenderingServer::singleton();
-        let instance = server.instance_create2(multi.get_rid(), scenario);
+        let instance = soe_trace::Profile::render_submission(|| {
+            server.instance_create2(multi.get_rid(), scenario)
+        });
         server.instance_set_transform(instance, self.base().get_global_transform());
         self.timeline = Some(Timeline::new(emitter));
         self.multi = Some(multi);

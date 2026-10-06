@@ -10,9 +10,21 @@ use std::collections::BTreeMap;
 use soe_esm::{GlobalFormId, Tag};
 use soe_game::detection::{DetectionEvent, Motion, Observation};
 use soe_game::world::ContactActor;
-use soe_game::World;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
+
+#[path = "detection_lights.rs"]
+mod lights;
+#[path = "detection_spatial.rs"]
+mod spatial;
+pub use lights::{light_level, LightSamples};
+pub use spatial::{candidate_actors, observations_in_range, DetectionSpaces};
+
+#[cfg(test)]
+use lights::full_scan_light_level;
+#[cfg(test)]
+#[path = "prf_31_detection_tests.rs"]
+mod prf_31_tests;
 
 /// Make one observation for each resident ordered actor pair in one cell.
 /// Geometry and light are sampled afresh, so changing cells replaces only the
@@ -21,74 +33,10 @@ pub fn observations(
     actors: &[ContactActor],
     events: &[DetectionEvent],
     motions: &BTreeMap<GlobalFormId, Motion>,
-    mut visible: impl FnMut(&ContactActor, &ContactActor) -> bool,
-    mut light: impl FnMut(GlobalFormId, [f32; 3]) -> f32,
+    visible: impl FnMut(&ContactActor, &ContactActor) -> bool,
+    light: impl FnMut(GlobalFormId, [f32; 3]) -> f32,
 ) -> Vec<Observation> {
-    let mut out = Vec::new();
-    let mut levels = BTreeMap::new();
-    for observer in actors {
-        for target in actors {
-            if observer.actor == target.actor || observer.cell != target.cell {
-                continue;
-            }
-            let distance = length(sub(observer.position, target.position));
-            let sound = events
-                .iter()
-                .filter(|event| event.owner == target.actor && event.cell == observer.cell)
-                .max_by(|a, b| a.sound_level.total_cmp(&b.sound_level));
-            let light_level = *levels
-                .entry(target.actor)
-                .or_insert_with(|| light(target.cell, target.position));
-            out.push(Observation {
-                observer: observer.actor,
-                target: target.actor,
-                distance,
-                line_of_sight: visible(observer, target),
-                light_level,
-                motion: motions.get(&target.actor).copied().unwrap_or_default(),
-                action_sound: sound.map_or(0.0, |event| event.sound_level),
-                action_sound_distance: sound
-                    .map(|event| length(sub(observer.position, event.position))),
-                action_sound_line_of_sight: sound.map(|event| {
-                    visible(
-                        observer,
-                        &ContactActor {
-                            position: event.position,
-                            ..*target
-                        },
-                    )
-                }),
-            });
-        }
-        for event in events.iter().filter(|event| event.cell == observer.cell) {
-            if event.owner == observer.actor
-                || out
-                    .iter()
-                    .any(|o| o.observer == observer.actor && o.target == event.owner)
-            {
-                continue;
-            }
-            let source = ContactActor {
-                actor: event.owner,
-                cell: event.cell,
-                position: event.position,
-                rotation: [0.0; 3],
-                scale: 1.0,
-            };
-            out.push(Observation {
-                observer: observer.actor,
-                target: event.owner,
-                distance: length(sub(observer.position, event.position)),
-                line_of_sight: false,
-                light_level: 0.0,
-                motion: Motion::Still,
-                action_sound: event.sound_level,
-                action_sound_distance: Some(length(sub(observer.position, event.position))),
-                action_sound_line_of_sight: Some(visible(observer, &source)),
-            });
-        }
-    }
-    out
+    observations_in_range(actors, events, motions, f32::MAX, visible, light)
 }
 
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
@@ -99,121 +47,11 @@ fn length(v: [f32; 3]) -> f32 {
     v[0].hypot(v[1]).hypot(v[2])
 }
 
-/// Detection light from a cell's ambient RGB and enabled placed lights.
-/// XCLL RGB is the first three bytes, and LIGH/DATA stores radius, RGB and
-/// flags at offsets 4, 8 and 12. A missing ambient field contributes zero.
-/// This is a record-derived light estimate in the CK's 0 to 150 range.
-pub fn light_level(world: &World, cell: GlobalFormId, point: [f32; 3]) -> f32 {
-    let cell_record = world.record(cell);
-    let cell_light = cell_record.and_then(|record| record.find(T(b"XCLL")));
-    let inherited = cell_light
-        .filter(|bytes| bytes.len() >= 92)
-        .is_some_and(|bytes| {
-            u32::from_le_bytes([bytes[88], bytes[89], bytes[90], bytes[91]]) & 1 != 0
-        });
-    let template = cell_record
-        .and_then(|record| record.find(T(b"LTMP")))
-        .filter(|bytes| bytes.len() == 4)
-        .and_then(|bytes| {
-            world.resolve_from(
-                cell,
-                u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-            )
-        })
-        .and_then(|id| world.record(id))
-        .filter(|record| record.tag == T(b"LGTM"))
-        .and_then(|record| record.find(T(b"DATA")));
-    let ambient = (if inherited || cell_light.is_none() {
-        template
-    } else {
-        cell_light
-    })
-    .filter(|bytes| bytes.len() >= 3)
-    .map_or(0.0, |bytes| {
-        (f32::from(bytes[0]) + f32::from(bytes[1]) + f32::from(bytes[2])) / 3.0
-    });
-    let mut level = ambient * (100.0 / 255.0);
-    let mut references = world.order().build_cell_index().references(cell).to_vec();
-    references.extend(world.runtime_references_in_cell(cell));
-    for id in references {
-        let (base, placement, reference) = if let Some(reference) =
-            world.record(id).filter(|record| record.tag == T(b"REFR"))
-        {
-            let Some(raw_base) = reference.find(T(b"NAME")).filter(|bytes| bytes.len() == 4) else {
-                continue;
-            };
-            let raw = u32::from_le_bytes([raw_base[0], raw_base[1], raw_base[2], raw_base[3]]);
-            (
-                world.resolve_from(id, raw),
-                world.ref_placement(id),
-                Some(reference),
-            )
-        } else if let Some(runtime) = world.reference_ref(id) {
-            let placement = soe_game::world::RefPlacement {
-                position: runtime.position,
-                rotation: runtime.rotation,
-                scale: runtime.scale,
-                visible: runtime.enabled && !runtime.deleted,
-            };
-            (runtime.base, Some(placement), None)
-        } else {
-            continue;
-        };
-        let Some(base) = base else { continue };
-        let Some(base_record) = world.record(base).filter(|record| record.tag == T(b"LIGH")) else {
-            continue;
-        };
-        let Some(data) = base_record
-            .find(T(b"DATA"))
-            .filter(|bytes| bytes.len() >= 16)
-        else {
-            continue;
-        };
-        let flags = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
-        if placement.is_some_and(|p| !p.visible) || (placement.is_none() && flags & (1 << 5) != 0) {
-            continue;
-        }
-        let radius = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as f32;
-        if radius <= 0.0 {
-            continue;
-        }
-        let position = placement.map_or_else(
-            || {
-                reference?
-                    .find(T(b"DATA"))
-                    .filter(|bytes| bytes.len() >= 12)
-                    .map(|bytes| {
-                        std::array::from_fn(|i| {
-                            let start = i * 4;
-                            f32::from_le_bytes(
-                                bytes[start..start + 4].try_into().unwrap_or_default(),
-                            )
-                        })
-                    })
-            },
-            |p| Some(p.position),
-        );
-        let Some(position) = position else { continue };
-        let distance = length(sub(position, point));
-        if distance < radius {
-            let brightness = (f32::from(data[8]) + f32::from(data[9]) + f32::from(data[10])) / 3.0;
-            let sign = if flags & (1 << 2) != 0 { -1.0 } else { 1.0 };
-            let fade = base_record
-                .find(T(b"FNAM"))
-                .filter(|bytes| bytes.len() == 4)
-                .map_or(1.0, |bytes| {
-                    f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]).clamp(0.0, 10.0)
-                });
-            level += sign * brightness * fade * (100.0 / 255.0) * (1.0 - distance / radius);
-        }
-    }
-    level.clamp(0.0, 150.0)
-}
-
 #[cfg(test)]
 mod cmb_32_tests {
     use super::*;
     use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+    use soe_game::World;
 
     fn actor(file: u16, object: u32, cell: GlobalFormId) -> ContactActor {
         ContactActor {
@@ -310,12 +148,15 @@ mod cmb_32_tests {
     fn cmb_32_cell_ambient_and_placed_light_follow_records() {
         let mut plugin = Plugin::new(FileHeader::default());
         let cell = GlobalFormId { file: 0, object: 1 };
-        plugin.push_top(Record::new(T(b"CELL"), 1).sub(b"XCLL", [60, 60, 60]));
+        let mut cell_light = vec![0_u8; 92];
+        cell_light[..3].copy_from_slice(&[60, 60, 60]);
+        plugin.push_top(Record::new(T(b"CELL"), 1).sub(b"XCLL", cell_light));
         let mut data = Vec::new();
         data.extend_from_slice(&(-1_i32).to_le_bytes());
         data.extend_from_slice(&100_u32.to_le_bytes());
         data.extend_from_slice(&[255, 255, 255, 0]);
         data.extend_from_slice(&0_u32.to_le_bytes());
+        data.resize(48, 0);
         plugin.push_top(Record::new(T(b"LIGH"), 2).sub(b"DATA", data));
         let mut reference = Record::new(T(b"REFR"), 3)
             .sub(b"NAME", 2_u32.to_le_bytes())
@@ -341,7 +182,7 @@ mod cmb_32_tests {
                 .sub(b"XCLL", cell_light)
                 .sub(b"LTMP", 2_u32.to_le_bytes()),
         );
-        plugin.push_top(Record::new(T(b"LGTM"), 2).sub(b"DATA", [120, 120, 120, 0]));
+        plugin.push_top(Record::new(T(b"LGTM"), 2).sub(b"DATA", [120; 24]));
         let mut order = LoadOrder::new();
         order.add("Template.esm", plugin).unwrap();
         let world = World::new(order);

@@ -439,7 +439,10 @@ fn installed_npc_templates_initialize_at_multiple_selection_levels() {
                     .push(base);
             }
         }
-        eprintln!("level={level}, bases={}, initialized={initialized}, suppressed={suppressed}, errors={errors:?}", bases.len());
+        eprintln!(
+            "level={level}, bases={}, initialized={initialized}, suppressed={suppressed}, errors={errors:?}",
+            bases.len()
+        );
         // Threshold fixed before the first installed-data run.
         assert!(initialized > 6000, "too few actors initialized");
         assert!(errors.is_empty(), "unexpected actor source errors");

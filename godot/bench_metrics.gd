@@ -13,6 +13,8 @@ var window := 0
 var frame_ms: Array[float] = []
 var gpu_ms: Array[float] = []
 var cpu_ms: Array[float] = []
+var worst_frame := 0
+var worst_ms := -1.0
 var view: Window
 
 
@@ -38,11 +40,14 @@ static func percentile(values: Array[float], fraction: float) -> float:
 	return sorted[clampi(int(ceil(sorted.size() * fraction)) - 1, 0, sorted.size() - 1)]
 
 
-func observe(frame: float, gpu: float, cpu: float) -> void:
+func observe(frame: float, gpu: float, cpu: float, frame_number: int = -1) -> void:
 	if started == 0:
 		started = Time.get_ticks_usec()
 		window_started = started
 	frame_ms.append(frame)
+	if frame > worst_ms:
+		worst_ms = frame
+		worst_frame = frame_number if frame_number >= 0 else frame_ms.size()
 	gpu_ms.append(gpu)
 	cpu_ms.append(cpu)
 
@@ -67,6 +72,7 @@ func report(extra: Dictionary) -> Dictionary:
 		"p99_ms": percentile(frame_ms, 0.99),
 		"p999_ms": percentile(frame_ms, 0.999),
 		"worst_ms": percentile(frame_ms, 1.0),
+		"worst_frame": worst_frame,
 		"gpu_p99_ms": percentile(gpu_ms, 0.99),
 		"render_cpu_p99_ms": percentile(cpu_ms, 0.99),
 		"rss_mib": null,
@@ -96,6 +102,8 @@ func next_window() -> void:
 	frame_ms.clear()
 	gpu_ms.clear()
 	cpu_ms.clear()
+	worst_ms = -1.0
+	worst_frame = 0
 
 
 static func rendered_work(row: Dictionary) -> bool:

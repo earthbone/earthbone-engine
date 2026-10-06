@@ -5,8 +5,6 @@
 //! lets a hand selection decide which casting slot a click fills, so the
 //! two hand buttons stay visible beside the list rather than gating it.
 
-use godot::classes::control::SizeFlags;
-use godot::classes::{Button, Label, ScrollContainer, VBoxContainer};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 use soe_game::combat::Hand;
@@ -28,6 +26,29 @@ fn touch_ray(transform: Transform3D, reach: f32) -> Option<(Vector3, Vector3)> {
     Some((transform.origin, end))
 }
 
+fn grab_actor_throw_impulse(direction: Vec3) -> Option<Vector3> {
+    let length = direction.length();
+    if !length.is_finite() || length <= f32::EPSILON {
+        return None;
+    }
+    let direction = Vector3::new(direction.x, direction.z, -direction.y);
+    let impulse = direction / length * 7.0 + Vector3::UP * 1.5;
+    impulse.is_finite().then_some(impulse)
+}
+
+fn grab_actor_hold_position(eye: Vec3, direction: Vec3) -> Option<Vec3> {
+    let length = direction.length();
+    if !eye.x.is_finite()
+        || !eye.y.is_finite()
+        || !eye.z.is_finite()
+        || !length.is_finite()
+        || length <= f32::EPSILON
+    {
+        return None;
+    }
+    Some(eye + direction * (120.0 / length) - Vec3::Z * 72.0)
+}
+
 fn touch_target(hit: crate::godot_combat::ContactHit) -> Option<GlobalFormId> {
     match hit {
         crate::godot_combat::ContactHit::Actor(actor) => Some(actor),
@@ -43,13 +64,6 @@ pub(super) struct HandCastInput {
     pub was_held: bool,
     pub held: bool,
     pub pressed: bool,
-}
-
-fn hand_label(hand: Hand) -> &'static str {
-    match hand {
-        Hand::Left => "Left Hand",
-        Hand::Right => "Right Hand",
-    }
 }
 
 fn select_telekinesis_target(
@@ -78,10 +92,74 @@ fn select_telekinesis_target(
 }
 
 impl PlayerNode {
+    fn release_host_grab(&mut self, actor: GlobalFormId, direction: Vec3) {
+        let impulse = grab_actor_throw_impulse(direction).unwrap_or(Vector3::UP * 1.5);
+        self.actor_bodies.throw_grabbed_actor(actor, impulse);
+    }
+
+    /// Keep the player's active Grab Actor target at eye level, then throw it
+    /// when its effect ends or the actor leaves the resident host set.
+    pub(super) fn update_grab_actor(&mut self) {
+        let desired = self.game.as_mut().and_then(|game| {
+            let player = game.player();
+            let mut world = game.world_mut();
+            world.contact_actors().into_iter().find_map(|actor| {
+                world
+                    .grab_actor_effect_on(actor.actor)
+                    .filter(|effect| effect.caster == Some(player))
+                    .map(|effect| (effect.id, actor.actor))
+            })
+        });
+
+        if self
+            .host_grab_actor
+            .is_some_and(|(_, actor)| self.actor_bodies.body(actor).is_none())
+        {
+            self.host_grab_actor = None;
+        }
+        if self.host_grab_actor.map(|(_, actor)| actor) != desired.map(|(_, actor)| actor) {
+            if let Some((_, actor)) = self.host_grab_actor.take() {
+                self.release_host_grab(actor, self.rig.look_direction());
+            }
+            if let Some((effect, actor)) = desired {
+                if self.actor_bodies.grab_actor(actor) {
+                    self.host_grab_actor = Some((effect, actor));
+                }
+            }
+        } else if let Some((effect, actor)) = desired {
+            self.host_grab_actor = Some((effect, actor));
+        }
+
+        let Some((_, actor)) = self.host_grab_actor else {
+            return;
+        };
+        let eye = self.rig.head(self.feet(), self.capsule_height());
+        let direction = self.rig.look_direction();
+        let Some(feet) = grab_actor_hold_position(eye, direction) else {
+            self.host_grab_actor = None;
+            self.release_host_grab(actor, direction);
+            return;
+        };
+        let pose = [feet.x, feet.y, feet.z];
+        if self.actor_bodies.move_grabbed_actor(actor, pose) {
+            if let Some(game) = &mut self.game {
+                let rotation = game
+                    .world()
+                    .ref_placement(actor)
+                    .map_or([0.0; 3], |placement| placement.rotation);
+                game.world_mut().set_host_actor_pose(actor, pose, rotation);
+            }
+        } else {
+            self.host_grab_actor = None;
+            self.release_host_grab(actor, direction);
+        }
+    }
+
     /// Route an activation press to one resident movable reference while the
     /// player's active concentration effect is Telekinesis, then keep its
     /// host body at the same eye-relative position until World releases it.
     pub(super) fn update_telekinesis(&mut self, pressed: bool) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Magic);
         let player = self.game.as_mut().map(soe_game::Game::player);
         let Some(player) = player else {
             self.release_host_telekinesis();
@@ -184,7 +262,7 @@ impl PlayerNode {
         }
     }
 
-    fn release_host_telekinesis(&mut self) {
+    pub(super) fn release_host_telekinesis(&mut self) {
         if let Some(target) = self.host_telekinesis_target.take() {
             if let Some(game) = &mut self.game {
                 let world = game.shared_world();
@@ -198,11 +276,14 @@ impl PlayerNode {
             if let Some(streamer) = self.game_streamer.as_mut() {
                 streamer.bind_mut().release_telekinesis_reference(target);
             }
+        } else if let Some(streamer) = self.game_streamer.as_mut() {
+            streamer.bind_mut().release_grabbed_telekinesis_reference();
         }
         self.telekinesis_distance = None;
     }
 
     pub(super) fn route_hand_casts(&mut self, left: HandCastInput, right: HandCastInput) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Magic);
         let Some(game) = self.game.as_mut() else {
             return;
         };
@@ -210,7 +291,7 @@ impl PlayerNode {
         for (hand, input) in [(Hand::Left, left), (Hand::Right, right)] {
             if input.pressed || (input.held && !input.was_held) {
                 if let Err(error) = game.begin_hand_cast(player, hand, None) {
-                    godot_error!("PlayerNode: hand cast rejected: {error}");
+                    soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: hand cast rejected: {error}");
                 }
             }
             if !input.held && (input.was_held || input.pressed) {
@@ -220,65 +301,13 @@ impl PlayerNode {
     }
 
     fn magic_content(&mut self) -> bool {
-        if self.menu.title() != Some("Magic") {
-            return false;
-        }
-        let Some(game) = self.game.as_mut() else {
-            return false;
-        };
-        let player = game.player();
-        let entries = magic_menu::entries(game, player);
-        let Some(mut content) = self.menu_content() else {
-            return false;
-        };
-        let hand = self.magic_hand;
-        let base = self.base().clone();
-        let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
-        }
-        let mut scroll = ScrollContainer::new_alloc();
-        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
-        let mut rows = VBoxContainer::new_alloc();
-        scroll.add_child(&rows);
-        content.add_child(&scroll);
-        for (index, candidate) in HANDS.into_iter().enumerate() {
-            let mut button = Button::new_alloc();
-            let mark = if candidate == hand { " *" } else { "" };
-            button.set_text(&format!("{}{}", hand_label(candidate), mark));
-            let callback = base
-                .callable("select_magic_hand")
-                .bindv(&varray![index as i64]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
-        }
-        let mut heading = Label::new_alloc();
-        heading.set_text(&format!("Known spells ({})", entries.len()));
-        rows.add_child(&heading);
-        for entry in entries {
-            let mut button = Button::new_alloc();
-            let equipped = match (entry.left_equipped, entry.right_equipped) {
-                (true, true) => " [Left, Right]",
-                (true, false) => " [Left]",
-                (false, true) => " [Right]",
-                (false, false) => "",
-            };
-            button.set_text(&format!("{} ({} cost){}", entry.name, entry.cost, equipped));
-            let callback = base.callable("equip_magic_spell").bindv(&varray![
-                i64::from(entry.spell.file),
-                i64::from(entry.spell.object),
-            ]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
-        }
-        true
+        self.menu.title() == Some("Magic") && self.present_magic_items()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::select_telekinesis_target;
+    use super::{grab_actor_hold_position, grab_actor_throw_impulse, select_telekinesis_target};
     use soe_esm::GlobalFormId;
     use soe_physics::Vec3;
 
@@ -301,10 +330,69 @@ mod tests {
         );
         assert_eq!(target, Some((id(2), 80.0)));
     }
+
+    #[test]
+    fn mag_66_throw_impulse_follows_the_look_direction_with_upward_lift() {
+        let impulse = grab_actor_throw_impulse(Vec3::new(3.0, 0.0, 0.0)).unwrap();
+        assert!((impulse.x - 7.0).abs() < 1e-5);
+        assert!((impulse.y - 1.5).abs() < 1e-5);
+        assert_eq!(impulse.z, 0.0);
+    }
+
+    #[test]
+    fn mag_66_held_actor_stays_a_fixed_eye_relative_distance() {
+        let eye = Vec3::new(100.0, 200.0, 300.0);
+        let held = grab_actor_hold_position(eye, Vec3::new(2.0, 0.0, 0.0)).unwrap();
+        assert_eq!(held, Vec3::new(220.0, 200.0, 228.0));
+    }
+
+    #[test]
+    fn mag_66_held_actor_pose_rejects_non_finite_camera_state() {
+        assert!(grab_actor_hold_position(Vec3::ZERO, Vec3::ZERO).is_none());
+        assert!(
+            grab_actor_hold_position(Vec3::new(f32::NAN, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn mag_66_throw_impulse_rejects_degenerate_look_directions() {
+        assert!(grab_actor_throw_impulse(Vec3::ZERO).is_none());
+        assert!(grab_actor_throw_impulse(Vec3::new(f32::NAN, 0.0, 0.0)).is_none());
+    }
 }
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Cast a self-delivered spell through the shared runtime world.
+    #[func]
+    pub fn cast_spell_on_self(&mut self, spell_file: i32, spell_object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(spell_file),
+            u32::try_from(spell_object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        let spell = GlobalFormId { file, object };
+        let player = game.player();
+        let shared = game.shared_world();
+        let result = shared.borrow_mut().cast_spell(
+            spell,
+            player,
+            Some(player),
+            Some(player),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        );
+        match result {
+            Ok(effects) => !effects.is_empty(),
+            Err(error) => {
+                soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: self cast rejected: {error}");
+                false
+            }
+        }
+    }
+
     /// Cast a touch spell at the first eligible actor under the camera reticle.
     /// The ray is capped by the spell's authored SPIT reach and static bodies
     /// block actors behind them.
@@ -347,7 +435,7 @@ impl PlayerNode {
         let hit = match crate::godot_combat::first_contact(space, &owners, player, origin, end) {
             Ok(hit) => hit,
             Err(error) => {
-                godot_error!("PlayerNode: touch target query failed: {error}");
+                soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: touch target query failed: {error}");
                 return false;
             }
         };
@@ -375,17 +463,20 @@ impl PlayerNode {
         match result {
             Ok(_) => true,
             Err(error) => {
-                godot_error!("PlayerNode: touch cast rejected: {error}");
+                soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: touch cast rejected: {error}");
                 false
             }
         }
     }
 
-    fn location_target(&self) -> Option<[f32; 3]> {
+    fn location_target(&self, reach: f32) -> Option<[f32; 3]> {
+        if !reach.is_finite() || reach < 0.0 {
+            return None;
+        }
         let world = self.world.as_ref()?;
         let start = self.rig.head(self.feet(), self.capsule_height());
         let direction = self.rig.look_direction();
-        let end = start + direction * 4096.0;
+        let end = start + direction * reach;
         let hit = world.raycast(start, end)?;
         Some([hit.point.x, hit.point.y, hit.point.z])
     }
@@ -394,7 +485,7 @@ impl PlayerNode {
     /// An empty array means the camera ray did not hit loaded geometry.
     #[func]
     pub fn selected_location_position(&self) -> PackedVector3Array {
-        let Some([x, y, z]) = self.location_target() else {
+        let Some([x, y, z]) = self.location_target(4096.0) else {
             return PackedVector3Array::new();
         };
         let position = crate::units::SkyrimPos::new(x, y, z).to_godot();
@@ -406,7 +497,21 @@ impl PlayerNode {
     /// Cast a target-location spell at the live point selected by the camera ray.
     #[func]
     pub fn cast_location_spell_at_look(&mut self, spell_file: i32, spell_object: i64) -> bool {
-        let Some([x, y, z]) = self.location_target() else {
+        let (Ok(file), Ok(object)) = (u16::try_from(spell_file), u32::try_from(spell_object))
+        else {
+            return false;
+        };
+        let spell = GlobalFormId { file, object };
+        let reach = self
+            .game
+            .as_mut()
+            .and_then(|game| game.world_mut().spell(spell).ok())
+            .filter(|definition| definition.data.delivery == 4)
+            .map(|definition| definition.data.range);
+        let Some(reach) = reach else {
+            return false;
+        };
+        let Some([x, y, z]) = self.location_target(reach) else {
             return false;
         };
         self.cast_location_spell(
@@ -462,7 +567,7 @@ impl PlayerNode {
         match result {
             Ok(_) => true,
             Err(error) => {
-                godot_error!("PlayerNode: {error}");
+                soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: {error}");
                 false
             }
         }
@@ -503,7 +608,7 @@ impl PlayerNode {
                 match result {
                     Ok(_) => true,
                     Err(error) => {
-                        godot_error!("PlayerNode: {error}");
+                        soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: {error}");
                         false
                     }
                 }

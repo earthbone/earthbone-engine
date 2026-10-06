@@ -75,6 +75,15 @@ pub fn expression_name(mood: u8) -> Option<&'static str> {
     }
 }
 
+/// Whether a TRI morph name is one of the CK actor expression targets.
+#[must_use]
+pub fn expression_name_for_target(name: &str) -> Option<&'static str> {
+    EXPRESSION_TARGETS
+        .into_iter()
+        .chain(["CombatShout"])
+        .find(|target| *target == name)
+}
+
 /// Apply expression weights to existing values, preserving unrelated targets.
 pub fn apply_expression(values: &mut BTreeMap<String, f32>, mood: u8, strength: u8) {
     let Some(chosen) = expression_name(mood) else {

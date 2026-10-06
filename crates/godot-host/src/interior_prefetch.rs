@@ -130,7 +130,7 @@ impl InteriorPrefetch {
                 let source = source.speculative_view();
                 let location = source.load_location(destination, [0.0; 3], 0)?;
                 if !admitted(&location) {
-                    eprintln!(
+                    soe_trace::warn!(target: "host::interior_prefetch", system = "host::interior_prefetch",
                         "interior_prefetch: rejected {destination} payload={} primitives={}",
                         payload_bytes(&location),
                         location.collision.stats.primitives
@@ -240,6 +240,7 @@ fn payload_bytes(location: &LoadedLocation) -> usize {
                 std::mem::size_of_val(arrays.normals.as_slice()),
                 std::mem::size_of_val(arrays.tangents.as_slice()),
                 std::mem::size_of_val(arrays.uvs.as_slice()),
+                std::mem::size_of_val(arrays.colors.as_slice()),
                 std::mem::size_of_val(arrays.indices.as_slice()),
                 std::mem::size_of_val(arrays.bones.as_slice()),
                 std::mem::size_of_val(arrays.weights.as_slice()),
@@ -252,6 +253,7 @@ fn payload_bytes(location: &LoadedLocation) -> usize {
                 &surface.textures.environment,
                 &surface.textures.environment_mask,
                 &surface.textures.glow,
+                &surface.textures.greyscale,
             ]
             .into_iter()
             .flatten()
@@ -384,6 +386,7 @@ mod tests {
                     environment: None,
                     environment_mask: None,
                     glow: None,
+                    greyscale: None,
                 },
                 instance_transform: None,
                 mesh_identity: None,

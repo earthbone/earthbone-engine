@@ -8,6 +8,12 @@ const SMQN: u32 = 0x801;
 const SCEN_ACTIVE: u32 = 0x802;
 const SCEN_INACTIVE: u32 = 0x803;
 
+fn scene_runtime() -> Vec<u8> {
+    let mut data = vec![0; 25];
+    data[0] = 1;
+    data
+}
+
 fn dialogue_game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     for (tag, id) in [
@@ -60,7 +66,7 @@ fn fixture() -> Save {
     let mut scene = Vec::new();
     scene.extend(0x1234_u32.to_le_bytes());
     scene.extend(0x5678_u16.to_le_bytes());
-    scene.extend([0x10, 0x20, 0x30]);
+    scene.extend(scene_runtime());
     let mut inactive_scene = Vec::new();
     inactive_scene.extend(0x4321_u32.to_le_bytes());
     inactive_scene.extend(0x8765_u16.to_le_bytes());
@@ -100,7 +106,7 @@ fn sav_30_info_smqn_and_scen_changes_reach_independent_live_queries() {
     assert!(!world.scenes.contains(&id(0, SCEN_INACTIVE)));
     assert_eq!(
         world.restored_scene_active_data(id(0, SCEN_ACTIVE)),
-        Some(&[0x10, 0x20, 0x30][..])
+        Some(scene_runtime().as_slice())
     );
     assert_eq!(world.record(id(0, SCEN_ACTIVE)).unwrap().flags, 0x1234);
     assert_eq!(world.record(id(0, SCEN_INACTIVE)).unwrap().flags, 0x4321);
@@ -137,7 +143,7 @@ fn sav_30_restored_record_changes_survive_engine_save_load() {
     );
     assert_eq!(
         world.restored_scene_active_data(id(0, SCEN_ACTIVE)),
-        Some(&[0x10, 0x20, 0x30][..])
+        Some(scene_runtime().as_slice())
     );
     assert_eq!(
         world.restored_dialogue_form_flags(id(0, SCEN_ACTIVE)),

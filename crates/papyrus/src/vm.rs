@@ -147,10 +147,15 @@ pub struct Log {
 
 impl Log {
     pub fn push(&mut self, time: f64, message: impl Into<String>) {
-        self.entries.push(LogEntry {
-            time,
-            message: message.into(),
-        });
+        let message = message.into();
+        if message.starts_with("error:") {
+            soe_trace::error!(target: "papyrus", system = "papyrus", vm_time = time, message = %message);
+        } else if message.starts_with("warning:") {
+            soe_trace::warn!(target: "papyrus", system = "papyrus", vm_time = time, message = %message);
+        } else {
+            soe_trace::info!(target: "papyrus", system = "papyrus", vm_time = time, message = %message);
+        }
+        self.entries.push(LogEntry { time, message });
     }
     pub fn messages(&self) -> Vec<&str> {
         self.entries.iter().map(|e| e.message.as_str()).collect()
@@ -174,6 +179,8 @@ pub struct NativeCall<'a> {
     pub self_object: Option<ObjectId>,
     pub args: Vec<Value>,
     pub time: f64,
+    /// Active Papyrus call frames from outermost to innermost.
+    pub call_stack: Vec<String>,
     pub log: &'a mut Log,
     latent_counter: &'a mut u64,
     objects: &'a mut HashMap<ObjectId, GameObject>,
@@ -533,6 +540,7 @@ const SETTER_BUDGET: usize = 4096;
 pub struct Vm {
     coverage: Option<coverage::Tracker>,
     scripts: HashMap<String, Rc<LoadedScript>>,
+    script_plugins: HashMap<String, String>,
     objects: HashMap<ObjectId, GameObject>,
     next_object: u64,
     instances: Vec<Instance>,
@@ -561,6 +569,13 @@ impl Vm {
     /// Set the directory used by Papyrus script and stack profiles.
     pub fn set_profile_directory(&mut self, path: impl Into<std::path::PathBuf>) {
         self.profiling.borrow_mut().output_dir = Some(path.into());
+    }
+
+    /// Set the winning asset provider for diagnostic script attribution.
+    /// This metadata is excluded from VM saves and state hashes.
+    pub fn set_script_plugin(&mut self, script: &str, plugin: &str) {
+        self.script_plugins
+            .insert(script.to_ascii_lowercase(), plugin.to_owned());
     }
 
     // ----- loading -----
@@ -1130,7 +1145,11 @@ impl Vm {
 
     fn err(&mut self, t: usize, msg: &str) {
         let at = self.where_am_i(t);
-        self.log.push(self.time, format!("error: {msg} ({at})"));
+        soe_trace::error!(target: "papyrus", system = "papyrus", script = %at, thread = self.threads[t].id.0, message = msg);
+        self.log.entries.push(LogEntry {
+            time: self.time,
+            message: format!("error: {msg} ({at})"),
+        });
     }
 
     fn describe(&self, v: &Value) -> String {

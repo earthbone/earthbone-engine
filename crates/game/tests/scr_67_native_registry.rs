@@ -84,6 +84,7 @@ fn scr_67_object_reference_method_inventory_matches_registry() {
         "GetTriggerObjectCount",
         "GetCurrentDestructionStage",
         "GetCurrentScene",
+        "IsInDialogueWithPlayer",
         "PlayAnimationAndWait",
         "PlayGamebryoAnimation",
         "SetMotionType",
@@ -114,6 +115,31 @@ fn scr_67_object_reference_method_inventory_matches_registry() {
             "ObjectReference.{name} is registered as a global"
         );
     }
+
+    let mut expected: Vec<_> = methods
+        .iter()
+        .map(|name| ("objectreference".to_string(), name.to_ascii_lowercase()))
+        .collect();
+    expected.sort_unstable();
+    let actual: Vec<_> = game
+        .vm
+        .natives
+        .method_bindings()
+        .into_iter()
+        .filter(|(class, _)| class == "objectreference")
+        .collect();
+    assert_eq!(actual, expected, "registry-derived ObjectReference methods");
+    let globals: Vec<_> = game
+        .vm
+        .natives
+        .global_bindings()
+        .into_iter()
+        .filter(|(class, _)| class == "objectreference")
+        .collect();
+    assert!(
+        globals.is_empty(),
+        "ObjectReference CK class declares no globals"
+    );
 }
 
 #[test]
@@ -123,4 +149,26 @@ fn scr_67_music_type_bindings_are_methods_and_not_globals() {
         assert!(game.vm.natives.has_method("MusicType", name));
         assert!(!game.vm.natives.has_global("MusicType", name));
     }
+    let methods: Vec<_> = game
+        .vm
+        .natives
+        .method_bindings()
+        .into_iter()
+        .filter(|(class, _)| class == "musictype")
+        .collect();
+    assert_eq!(
+        methods,
+        [
+            ("musictype".into(), "add".into()),
+            ("musictype".into(), "remove".into())
+        ]
+    );
+    let globals: Vec<_> = game
+        .vm
+        .natives
+        .global_bindings()
+        .into_iter()
+        .filter(|(class, _)| class == "musictype")
+        .collect();
+    assert!(globals.is_empty(), "MusicType has no registered globals");
 }

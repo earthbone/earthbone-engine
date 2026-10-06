@@ -125,20 +125,58 @@ fn unchanged_reference_and_actor_prefixes_remain_distinct() {
 }
 
 #[test]
-fn sav_26_pcon_parw_decode_shared_placement_and_preserve_opaque_tail() {
+fn sav_26_pcon_decodes_placement_and_preserves_opaque_tail() {
     let mut data = vec![];
     placement(&mut data, 0x400800);
     data.extend([0xAA, 0xBB]);
-    for type_index in [42, 47] {
-        let form = change(0x400A00, false, flags::MOVE, data.clone());
-        let mut form = form;
-        form.type_field = type_index;
-        let header = form.reference_header(78).unwrap().unwrap();
-        assert!(matches!(header.initial, Initial::Moved(_)));
-        assert_eq!(header.bytes_consumed, 27);
-        assert_eq!(header.remaining_bytes, 2);
-        assert_eq!(&form.data[header.bytes_consumed..], &[0xAA, 0xBB]);
-    }
+    let mut form = change(0x400A00, false, flags::MOVE, data);
+    form.type_field = 42;
+    let header = form.reference_header(78).unwrap().unwrap();
+    assert!(matches!(header.initial, Initial::Moved(_)));
+    assert_eq!(header.bytes_consumed, 27);
+    assert_eq!(header.remaining_bytes, 2);
+    assert_eq!(&form.data[header.bytes_consumed..], &[0xAA, 0xBB]);
+}
+
+#[test]
+fn sav_70_pcon_and_parw_unmodeled_reference_flags_round_trip() {
+    let unmodeled_flags = flags::FORM | flags::BASE | flags::SCALE;
+
+    let mut pcon_data = vec![];
+    placement(&mut pcon_data, 0x400800);
+    pcon_data.extend([0xAA, 0xBB]);
+    let mut pcon = change(0x400A00, false, flags::MOVE | unmodeled_flags, pcon_data);
+    pcon.type_field = 42;
+    let pcon_header = pcon.reference_header(78).unwrap().unwrap();
+    assert!(!pcon_header.carries_reference_data);
+    assert!(pcon_header.carries_havok);
+    let pcon_prefix = pcon_header.data_bytes().unwrap();
+    assert_eq!(pcon_prefix, pcon.data[..pcon_header.bytes_consumed]);
+    assert_eq!(&pcon.data[pcon_header.bytes_consumed..], &[0xAA, 0xBB]);
+    assert_eq!(
+        pcon_header.bytes_consumed + pcon_header.remaining_bytes,
+        pcon.data.len()
+    );
+    assert_eq!(
+        [
+            pcon_prefix,
+            pcon.data[pcon_header.bytes_consumed..].to_vec()
+        ]
+        .concat(),
+        pcon.data
+    );
+
+    let mut parw = change(
+        0x400A00,
+        false,
+        flags::HAVOK | unmodeled_flags,
+        vec![0x11, 0x22, 0x33, 0x44],
+    );
+    parw.type_field = 47;
+    assert!(parw.reference_header(78).unwrap().is_none());
+    let envelope = parw.parw_change().unwrap();
+    assert_eq!(envelope.change_flags, parw.change_flags);
+    assert_eq!(envelope.data, parw.data);
 }
 
 #[test]
@@ -190,7 +228,7 @@ fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn all_external_reference_headers_reencode_and_compare_player_locations() {
+fn sav_70_all_external_reference_headers_reencode_and_compare_player_locations() {
     let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
         eprintln!("SOE_TEST_SAVES unset, skipping reference header corpus");
         return;

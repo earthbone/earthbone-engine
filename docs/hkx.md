@@ -444,6 +444,10 @@ What each node does:
   clip's synchronized time before updating its interpreter. Cancel returns
   both actor ids and makes the scene inactive. The host clears the synchronized
   time override on each interpreter when the scene ends or is cancelled.
+  `cancel_and_clear_interpreter_times` cancels the scene, clears both
+  interpreter overrides and returns both actor ids for the host to unlock.
+  Host lock release remains the caller's responsibility and is not covered by
+  this crate's tests.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
 - `hkbEvaluateExpressionModifier`: compiles its expression data at graph
@@ -680,10 +684,13 @@ A comma after a relational comparison repeats its left operand for one more
 relational comparison and combines the two results with logical AND. Thus
 `staggerMagnitude > .3 , < .7` passes strictly inside the two bounds and fails
 at either bound. `serde-hkx` declares a comma token but does not document its
-evaluation. This interpretation is exercised by a state-machine trace and by
-a gated check of the serialized troll guard in `tests/conditions.rs` and the
-`expression` unit tests. The local source establishes the token and the shipped
-expression. No capture from the original runtime was available.
+evaluation. Synthetic state-machine and expression tests cover the operator.
+The gated `tests/anm_50_adversarial.rs` check loads the shipped troll behavior,
+finds its authored transition and records the active troll machine state after
+the event at both bounds and just inside them. This exercises the decoded graph
+through the behavior interpreter, rather than substituting a synthetic graph.
+The local source establishes the token and the shipped expression. No capture
+from Skyrim's original Havok runtime was available.
 
 `DISABLE_CONDITION` bypasses a guard. `DISABLED` still disables the whole
 transition. An event guard must match its event as well as its expression.
@@ -700,6 +707,8 @@ Sources read locally before implementation:
   `hkbStringCondition.json` supply the serialized string offsets.
 - `serde-hkx/assets/classes/hkbCompiledExpressionSetToken.json` supplies the
   operator inventory and `hkReal` operand representation.
+- `hkxcmd/compat/hkbCompiledExpressionSetToken_0.h` confirms comma is a
+  compiled expression token type.
 - `serde-hkx/assets/classes/hkbStateMachineTransitionInfo.json` supplies
   the condition pointer and disable-condition flag.
 - `serde-hkx/assets/serde_hkx_schema.json` supplies the
@@ -717,16 +726,19 @@ Neither the class tables nor the editor implement expression evaluation, so
 this crate uses its own bounded scalar parser instead of adding a dependency
 on a serializer or a Qt editor. The operator inventory supplies names and
 operand data types, not runtime formulas. ANM-49 implements the listed scalar
-functions and deterministic random evaluation. Tests compare the supported
-math functions with their scalar results and replay random guards from the
-same interpreter seed. No Havok runtime capture was used and timing
-arbitration outside these guards remains separate work.
+functions and deterministic random evaluation. The ANM-49 scalar oracle test
+computes reference values separately with `f64` standard math and checks each
+function through an authored guard. Random guard replay uses two interpreters
+with the same fixed initial seed. The local references do not provide Havok
+function formulas, and no Havok runtime capture was used. Timing arbitration
+outside these guards remains separate work.
 
 `tests/conditions.rs` covers binary decoding, bool/int/real changes, false
 guards, condition-only polling, cycles, disabled conditions, malformed or
 unknown input, parent/subgraph symbol reordering, child-only properties,
 variable/property name collisions, repeated linking and property binding IDs,
-math-function guards and seeded random guard replay. Expression unit tests
+math-function guards, independent scalar references and seeded random guard
+replay. Expression unit tests
 cover precedence, short circuiting, typed storage, character properties,
 operator function results, random replay and malformed-input limits.
 
@@ -735,7 +747,9 @@ transitions. It checks every serialized expression/string condition appears
 in the decoded graph. Two draugr conditions refer to the undeclared variable
 `SpeedSampled` and stay closed, asserted as exact diagnostics. The troll guard
 containing `staggerMagnitude > .3 , < .7` now compiles under the comma rule
-described above. The initial survey guessed
+described above. The ANM-50 installed test also exercises the authored troll
+transition at both magnitude bounds in the behavior interpreter. The initial
+survey guessed
 more than 1,000 guards and failed that count check. The final coverage check
 compares serialized conditions directly instead of using that guessed count.
 
@@ -807,6 +821,36 @@ Invalid fixed bounds fail closed. Event mode ignores fixed-time fields.
 `transition_intervals` checks admission separately from start, exact boundaries,
 event windows, condition-only transitions, state reentry, wildcard reset,
 deactivation, priority protection and accepted requests outliving trigger windows.
+
+ANM-56 adds an engine expectation file and a capture-gated replay in
+`tests/anm_56.rs`. It selects the installed `1hm_behavior.hkx` machine named
+`1HM_Behavior`, preserves its transitions and descendants, sets player word
+inputs and replays the authored TOOL-04 sequence. A separate TOOL-04
+quest-stage query obtains canonical runtime form identities through Game.
+The clip library is empty,
+so clip annotations do not drive the replay. Equipment and draw calls are
+setup outside this isolated machine. The `i1HMState` observation reads
+`Interpreter::current_state` directly, rather than the unsupported
+`currentStateId` output binding. Expected states are ready 0, block 1 and
+attack 10. The sequence observes trigger event entry and exit, same-event
+initiate bounds, a delayed request at four points through 60 seconds, reset
+with a distinct delayed target and a guard changed after admission. Synthetic
+tests retain half-open fixed-time edges, zero-exit infinity, skipped windows,
+event precedence, latched admission and deactivation cancellation as the
+current engine baseline. They do not establish original-runtime parity.
+The Skyrim animation-archive survey checks 202 enabled local and wildcard
+intervals across 428 graphs for finite time bounds. The available vanilla windows do not supply a finite-time
+boundary probe. Sources are the local hkxcmd transition/interval declarations,
+CommonLib `hkbStateMachine.h`, CK graph-variable pages and the Havok declaration
+linked above, whose delay comment gives no timeout threshold. No Havok
+implementation was copied or runtime binary inspected. `SOE_PROBE_CAPTURE`
+selects a directory containing the user's `Papyrus.0.log`. With that variable
+unset, the capture comparison skips. With it set, `SKYRIM_DATA` supplies the
+installed graph and the replay checks the frozen expectation file before
+comparing the capture. ANM-56 remains partial until an original capture is
+compared and finite time edges are observed. No runtime or saved-state fields
+change. The new test dependencies are the existing soe-probe bridge and
+serde_json, with no new production dependency.
 
 ### BSTweenerModifier (ANM-38)
 
@@ -1064,10 +1108,13 @@ interpreter resolves bindings for all four fields. On an enabled modifier
 update, it copies the bound or authored `goalSpeed` to `speedOut`, then
 publishes that value through the output binding. A disabled sampler leaves its
 output variable unchanged. `state` and `direction` bindings are accepted but
-do not change this output calculation. The class layout and local editor
-source expose the fields but do not document a more detailed sampling formula.
-The `anm_36_speed_sampler` tests cover field decoding, bindings, output and
-disabled behavior. No original-runtime capture establishes further semantics.
+do not change this output calculation in this interpreter. The serde-hkx
+class declaration establishes the field types, defaults, layout and serialized
+names. The local behavior editor reads and writes those fields, but neither
+source defines their runtime semantics. `anm_36_speed_sampler` varies state and
+direction while checking the goal-speed output, and also covers field decoding,
+binding resolution and disabled behavior. No original-runtime capture
+establishes a more detailed sampling formula.
 
 ### Every-N event modifier (2026-09-28)
 
@@ -1518,3 +1565,26 @@ updates do not repeat either lifecycle edge. Synthetic `anm_33` tests cover
 the decoded children, activation, stable repeated updates and deactivation.
 The available class metadata defines layout and fields, but does not establish
 more detailed behavior from an original-runtime capture.
+
+### Transition tie probe preparation, ANM-54
+
+A state-machine binding to `currentStateId` now publishes the entered state
+ID after each graph update, including while its transition effect plays.
+The source is serde-hkx's `hkbStateMachine` declaration and the Havok
+state-machine declaration linked above. The `anm_54` tests cover this readback,
+local-before-wildcard candidate ties, equal-priority active interruption,
+authored-first same-event delayed candidates and last-request replacement in
+both delayed event orders. Those tie rules remain provisional.
+
+The installed test executes `probe/probes/anm_54.toml` through the probe's
+Papyrus runner and an unmodified vanilla `1hm_behavior.hkx` root with its
+readable clips and skeleton. The checked predictions observe `i1HMState`
+values 10 for the local/wildcard tie and 8 for equal-priority interruption.
+Both delayed cases remain in state 1 while pending. Releasing the window
+selects state 10 when `attackStart` was last and state 0 when `blockStop`
+was last. The test checks resets to state 0 between cases. The capture test
+compares these cases to `SOE_PROBE_CAPTURE/Papyrus.0.log` when both
+`SOE_PROBE_CAPTURE` and `SKYRIM_DATA` are set. Without either variable it
+skips. The probe does not import Skyrim's master-graph state, character
+inputs or contacts. No original-runtime capture has established these rules.
+See [probe.md](probe.md#transition-tie-capture-anm-54) for capture instructions.

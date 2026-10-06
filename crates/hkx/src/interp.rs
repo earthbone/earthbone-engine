@@ -313,6 +313,21 @@ impl SynchronizedClipScene {
         [self.participants[0].actor, self.participants[1].actor]
     }
 
+    /// Cancel the scene and clear its clip-time overrides from both interpreters.
+    /// The returned actor ids let the host release its corresponding locks.
+    pub fn cancel_and_clear_interpreter_times(
+        &mut self,
+        first: &mut Interpreter<'_>,
+        first_generator: NodeId,
+        second: &mut Interpreter<'_>,
+        second_generator: NodeId,
+    ) -> [u64; 2] {
+        let actors = self.cancel();
+        first.clear_synchronized_clip_time(first_generator);
+        second.clear_synchronized_clip_time(second_generator);
+        actors
+    }
+
     pub fn is_active(&self) -> bool {
         self.active
     }
@@ -577,6 +592,8 @@ enum Target {
     EventRangeInput,
     /// Which state the machine enters on activation.
     StartStateId,
+    /// Output: the current state ID, including while a transition plays.
+    MachineCurrentStateId,
     /// A transition effect's blend duration in seconds.
     Duration,
     TwistAngle,
@@ -627,13 +644,13 @@ impl Target {
     /// Output bindings write node state into the variable after the update.
     /// The rest read the variable into node state before it. The file does
     /// not say which a binding is (`hasOutputBinding` is
-    /// `SERIALIZE_IGNORED`), so the member decides: these two are node state
-    /// with no setter behind them.
+    /// `SERIALIZE_IGNORED`), so the member decides which fields publish node state.
     fn is_output(self) -> bool {
         matches!(
             self,
             Target::IsActive { .. }
                 | Target::MachineIsActive
+                | Target::MachineCurrentStateId
                 | Target::DecomposeComponent(_)
                 | Target::DampingValue
                 | Target::DampingVector
@@ -1504,6 +1521,9 @@ impl<'a> Interpreter<'a> {
                 }
                 ("isActive", None, NodeKind::StateMachine(_)) => Some(Target::MachineIsActive),
                 ("startStateId", None, NodeKind::StateMachine(_)) => Some(Target::StartStateId),
+                ("currentStateId", None, NodeKind::StateMachine(_)) => {
+                    Some(Target::MachineCurrentStateId)
+                }
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
                 ("twistAngle", None, NodeKind::TwistModifier(_)) => Some(Target::TwistAngle),
                 ("timeStep", None, NodeKind::GetTimeStepModifier { .. }) => Some(Target::TimeStep),
@@ -2115,6 +2135,15 @@ impl<'a> Interpreter<'a> {
                 self.variables
                     .set_word(b.variable, i32::from(runtime.active));
             }
+            Target::MachineCurrentStateId => {
+                if let Some(state) = self
+                    .nodes
+                    .get(b.node.0)
+                    .and_then(|runtime| runtime.current_state)
+                {
+                    self.variables.set_word(b.variable, state);
+                }
+            }
             Target::DecomposeComponent(component) => {
                 let Some(runtime) = self.nodes.get(b.node.0) else {
                     return;
@@ -2253,7 +2282,8 @@ impl<'a> Interpreter<'a> {
                 Target::DecomposeVector => rt.vector = table.quad(b.variable),
                 Target::SpeedSamplerGoalSpeed => rt.speed_sampler_goal_speed = Some(value),
                 // Output targets are skipped above. State and direction are
-                // recognized inputs but do not affect the sampled speed.
+                // recognized inputs but no local source establishes how they
+                // affect sampling, so this implementation uses goalSpeed.
                 Target::DampingKp => {
                     if let Some(state) = rt.damping.as_mut() {
                         state.kp = value;
@@ -2292,6 +2322,7 @@ impl<'a> Interpreter<'a> {
                 // Written by apply_output_bindings, skipped above.
                 Target::IsActive { .. }
                 | Target::MachineIsActive
+                | Target::MachineCurrentStateId
                 | Target::DecomposeComponent(_)
                 | Target::TimeStep
                 | Target::SpeedSamplerState
@@ -4844,7 +4875,8 @@ mod tests {
     use super::*;
 
     use crate::behavior::{
-        Binding, ExpressionData, LookAtBone, Node, VariableBindingSet, VariableValueSet,
+        BehaviorGraph, Binding, ExpressionData, LookAtBone, Node, VariableBindingSet,
+        VariableValueSet,
     };
     use crate::spline::encode;
 
@@ -4852,6 +4884,93 @@ mod tests {
         while !bytes.len().is_multiple_of(4) {
             bytes.push(0);
         }
+    }
+
+    #[test]
+    fn anm_20_cancellation_releases_host_locks_and_clears_each_interpreter_time_override() {
+        let synchronized_graph = || {
+            let clip = Node {
+                id: NodeId(0),
+                offset: 0,
+                class: "hkbClipGenerator".into(),
+                name: "paired clip".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::Clip(ClipGenerator {
+                    animation_name: "paired.hkx".into(),
+                    ..Default::default()
+                }),
+            };
+            let synchronized = Node {
+                id: NodeId(1),
+                offset: 0,
+                class: "BSSynchronizedClipGenerator".into(),
+                name: "paired scene".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::SynchronizedClip {
+                    clip_generator: Some(NodeId(0)),
+                    sync_anim_prefix: String::new(),
+                    sync_clip_ignore_mark_placement: false,
+                    get_to_mark_time: 0.0,
+                    mark_error_threshold: 0.0,
+                    lead_character: false,
+                    reorient_support_char: false,
+                    apply_motion_from_root: false,
+                    animation_binding_index: -1,
+                },
+            };
+            BehaviorGraph {
+                name: "paired scene test".into(),
+                variable_mode: 0,
+                root: Some(NodeId(1)),
+                data: BehaviorGraphData::default(),
+                nodes: vec![clip, synchronized],
+            }
+        };
+        let first_graph = synchronized_graph();
+        let second_graph = synchronized_graph();
+        let clips = ClipLibrary::default();
+        let mut first = Interpreter::new(&first_graph, &clips, Vec::new());
+        let mut second = Interpreter::new(&second_graph, &clips, Vec::new());
+        assert!(first.set_synchronized_clip_time(NodeId(1), 0.75));
+        assert!(second.set_synchronized_clip_time(NodeId(1), 0.5));
+        assert_eq!(first.nodes[0].synchronized_time, Some(0.75));
+        assert_eq!(second.nodes[0].synchronized_time, Some(0.5));
+
+        let mut scene = SynchronizedClipScene::new(
+            7,
+            vec![
+                SyncMarker {
+                    name: "start".into(),
+                    time: 0.0,
+                },
+                SyncMarker {
+                    name: "impact".into(),
+                    time: 1.0,
+                },
+            ],
+            9,
+            vec![
+                SyncMarker {
+                    name: "start".into(),
+                    time: 0.25,
+                },
+                SyncMarker {
+                    name: "impact".into(),
+                    time: 1.25,
+                },
+            ],
+            7,
+        )
+        .unwrap();
+        assert_eq!(
+            scene
+                .cancel_and_clear_interpreter_times(&mut first, NodeId(1), &mut second, NodeId(1),),
+            [7, 9]
+        );
+        assert_eq!(first.nodes[0].synchronized_time, None);
+        assert_eq!(second.nodes[0].synchronized_time, None);
     }
 
     /// One transform track at a non-reference x position. This is encoded as

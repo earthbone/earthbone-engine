@@ -130,6 +130,65 @@ fn mod_01_deterministic_actor_results_use_save_character_id() {
     );
     assert!(save_id.iter().any(|result| *result) && save_id.iter().any(|result| !*result));
 }
+
+#[test]
+fn mod_01_actor_choices_match_spid_seed_and_rng_oracle() {
+    let d = Dir::new("upstream-oracle");
+    let entry = "SeedSpell|SeedBase|NONE|NONE|NONE|1|50!";
+    fs::write(d.0.join("Seed_DISTR.ini"), format!("Spell = {entry}\n")).unwrap();
+    let character_id = 0x2A73_F01A;
+    let mut g = game(24);
+    g.world_mut().set_player_character_id(character_id);
+    g.apply_mod_data(&d.roots());
+
+    let actual: Vec<_> = (0..=24)
+        .map(|offset| {
+            let actor = id(REF + offset);
+            let runtime_id = u64::from(g.world().order().runtime_id(actor));
+            let expected = spid_oracle(entry, character_id, runtime_id, 50.0);
+            let received = g
+                .world_mut()
+                .actor(actor)
+                .unwrap()
+                .spells
+                .contains(&id(SPELL));
+            assert_eq!(
+                received, expected,
+                "actor {actor:?}, runtime ID {runtime_id:#x}"
+            );
+            received
+        })
+        .collect();
+    assert!(actual.iter().any(|choice| *choice));
+    assert!(actual.iter().any(|choice| !*choice));
+}
+
+// Independently transcribes SPID's hash_combine and CLibUtil's seeded
+// Xoshiro256** draw, then compares the actor's applied choice to that oracle.
+fn spid_oracle(entry: &str, character_id: u64, actor_id: u64, chance: f64) -> bool {
+    let line_seed = entry.bytes().fold(0xcbf2_9ce4_8422_2325, |seed, byte| {
+        (seed ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    let mut seed = line_seed;
+    for value in [character_id, actor_id] {
+        seed ^= value
+            .wrapping_add(0x9e37_79b9)
+            .wrapping_add(seed << 6)
+            .wrapping_add(seed >> 2);
+    }
+    let mut state = seed;
+    let mut words = [0_u64; 4];
+    for word in &mut words {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut value = state;
+        value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        *word = value ^ (value >> 31);
+    }
+    let result = words[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);
+    let unit = (result >> 11) as f64 / (1_u64 << 53) as f64;
+    unit * 100.0 <= chance
+}
 #[test]
 fn mod_01_deterministic_rule_keeps_base_filter_and_rejects_missing_actor() {
     let d = Dir::new("missing");

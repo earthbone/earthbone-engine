@@ -50,6 +50,99 @@ pub(super) struct MenuView {
 }
 
 impl PlayerNode {
+    pub(super) fn advance_ambient_dialogue(&mut self) {
+        let ambient = self
+            .game
+            .as_ref()
+            .is_some_and(|game| game.ambient_dialogue());
+        if !ambient {
+            if self.ambient_response.take().is_some() {
+                self.stop_dialogue_voice();
+            }
+            return;
+        }
+        let line = self
+            .game
+            .as_ref()
+            .and_then(|game| game.dialogue_line().ok().flatten());
+        if line != self.ambient_response {
+            if let Some(line) = &line {
+                self.play_dialogue_voice(line);
+            }
+            self.ambient_response = line;
+            return;
+        }
+        let playing = self.dialogue_voice_slot.is_some_and(|slot| {
+            self.sound_bank
+                .as_ref()
+                .is_some_and(|bank| bank.bind().voice_playing(slot))
+        });
+        if !playing {
+            let next = self.game.as_mut().and_then(|game| {
+                match game.advance_dialogue() {
+                    Ok(Some(line)) => Some(line),
+                    Ok(None) => { game.close_dialogue(); None }
+                    Err(error) => {
+                        soe_trace::error!(target: "host::audio", system = "host::audio", "ambient dialogue: {error}");
+                        game.close_dialogue();
+                        None
+                    }
+                }
+            });
+            if let Some(line) = &next {
+                self.play_dialogue_voice(line);
+            } else {
+                self.stop_dialogue_voice();
+            }
+            self.ambient_response = next;
+        }
+    }
+
+    pub(super) fn present_player_input_dialogue(&mut self) {
+        if self
+            .game
+            .as_ref()
+            .is_some_and(|game| game.ambient_dialogue())
+        {
+            return;
+        }
+        if self.ambient_response.take().is_some() {
+            self.stop_dialogue_voice();
+        }
+        let line = self
+            .game
+            .as_ref()
+            .and_then(|game| game.dialogue_line().ok());
+        let session = self
+            .game
+            .as_ref()
+            .is_some_and(|game| game.world().dialogue_session().is_some());
+        if !session {
+            if self.menu.title() == Some("Dialogue") {
+                self.close_menu();
+            }
+            return;
+        }
+        if !self.menu.is_open() {
+            self.open_menu("Dialogue".into());
+        }
+        if self.menu.title() != Some("Dialogue") {
+            return;
+        }
+        if let Some(Some(line)) = line {
+            self.play_dialogue_voice(&line);
+            self.dialogue_response_content(line.text.as_deref().unwrap_or(""));
+        } else {
+            self.dialogue_content();
+        }
+    }
+
+    pub(super) fn refresh_player_input_crafting(&mut self, bench: GlobalFormId) {
+        if self.crafting_bench == Some(bench) {
+            self.crafting_content(bench);
+        }
+    }
+
     pub(super) fn refresh_quest_journal(&mut self) -> bool {
         if self.menu.title() != Some("Quests") {
             return false;
@@ -163,15 +256,18 @@ impl PlayerNode {
             &mut self.dialogue_voice_slot,
             asset.as_ref(),
         );
+        if asset.is_some() && self.dialogue_voice_slot.is_none() {
+            soe_trace::error!(target: "host::audio", system = "host::audio", "dialogue voice: {}", bank.bind().last_error());
+        }
     }
 
     pub(super) fn create_menu(&mut self) {
         let mut theme = Theme::new_gd();
-        theme.set_default_font_size(22);
+        theme.set_default_font_size(16);
         theme.set_color("font_color", "Label", Color::from_rgb(0.94, 0.94, 0.96));
         let mut style = StyleBoxFlat::new_gd();
         style.set_bg_color(Color::from_rgba(0.06, 0.07, 0.09, 0.98));
-        style.set_content_margin_all(32.0);
+        style.set_content_margin_all(12.0);
         theme.set_stylebox("panel", "PanelContainer", &style);
 
         let mut canvas = CanvasLayer::new_alloc();
@@ -228,27 +324,23 @@ impl PlayerNode {
         let recipe_rows: Vec<_> = entries
             .into_iter()
             .map(|entry| {
-                let output = game
-                    .world()
-                    .name_of(entry.output)
-                    .unwrap_or_else(|| format!("{}", entry.output));
+                let output = entry.name.clone();
                 (entry, output)
             })
             .collect();
-        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+        let Some(mut content) = self
+            .menu_view
+            .as_ref()
+            .map(|view| view.content.clone().upcast::<Control>())
+        else {
             return false;
         };
+        let mut rows = self.item_menu_rows(
+            &mut content,
+            recipe_rows.first().map(|(entry, _)| entry.output),
+        );
         let base = self.base().clone();
         let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
-        }
-        let mut scroll = ScrollContainer::new_alloc();
-        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
-        let mut rows = VBoxContainer::new_alloc();
-        scroll.add_child(&rows);
-        content.add_child(&scroll);
         let mut first_available: Option<Gd<Button>> = None;
         if recipe_rows.is_empty() {
             let mut empty = Label::new_alloc();
@@ -257,7 +349,7 @@ impl PlayerNode {
         }
         for (entry, output) in recipe_rows {
             let mut button = Button::new_alloc();
-            button.set_text(&format!("{} → {} x{}", entry.name, output, entry.count));
+            button.set_text(&format!("{} x{}", output, entry.count));
             button.set_disabled(!entry.available);
             let callback = base.callable("confirm_crafting_recipe").bindv(&varray![
                 i64::from(bench.file),
@@ -265,6 +357,7 @@ impl PlayerNode {
                 i64::from(entry.recipe.file),
                 i64::from(entry.recipe.object),
             ]);
+            super::item_card::connect_preview(&base, &mut button, entry.output);
             button.connect("pressed", &callback);
             rows.add_child(&button);
             if entry.available && first_available.is_none() {
@@ -281,50 +374,15 @@ impl PlayerNode {
         if self.menu.title() != Some("Inventory") {
             return false;
         }
-        let Some(game) = self.game.as_mut() else {
+        if !self.present_inventory_items() {
             return false;
-        };
-        let player = game.player();
-        let entries = inventory_menu::entries(game, player, category);
-        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
-            return false;
-        };
-        let base = self.base().clone();
-        let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
         }
-        let mut scroll = ScrollContainer::new_alloc();
-        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
-        let mut rows = VBoxContainer::new_alloc();
-        scroll.add_child(&rows);
-        content.add_child(&scroll);
-        for (index, category) in Category::ALL.into_iter().enumerate() {
-            let mut button = Button::new_alloc();
-            button.set_text(category.label());
-            let callback = base
-                .callable("inventory_category")
-                .bindv(&varray![index as i64]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
-            if index == 0 {
-                button.grab_focus();
-            }
-        }
-        let mut heading = Label::new_alloc();
-        heading.set_text(&format!("{} ({})", category.label(), entries.len()));
-        rows.add_child(&heading);
-        for entry in entries {
-            let mut button = Button::new_alloc();
-            let equipped = if entry.equipped { " [Equipped]" } else { "" };
-            button.set_text(&format!("{} x{}{}", entry.name, entry.count, equipped));
-            let callback = base.callable("toggle_inventory_item").bindv(&varray![
-                i64::from(entry.item.file),
-                i64::from(entry.item.object),
-            ]);
-            button.connect("pressed", &callback);
-            rows.add_child(&button);
+        if let Some(mut view) = self
+            .menu_content()
+            .and_then(|content| content.get_node_or_null("ItemMenu"))
+        {
+            let _guard = self.base_mut();
+            view.call("select_category", &[category.label().to_variant()]);
         }
         true
     }
@@ -459,7 +517,9 @@ impl PlayerNode {
             return false;
         }
         self.container_menu = None;
+        self.barter_menu = None;
         self.crafting_bench = None;
+        self.item_card_view = None;
         let previous_focus = self
             .base()
             .get_viewport()
@@ -506,6 +566,7 @@ impl PlayerNode {
         if !self.menu.close() {
             return false;
         }
+        self.item_card_view = None;
         self.crafting_bench = None;
         self.lockpick_target = None;
         self.lockpick_status = None;
@@ -697,6 +758,21 @@ impl PlayerNode {
         self.refresh_quest_journal()
     }
 
+    /// Set a quest stage in the shared game state.
+    #[func]
+    pub fn set_quest_stage(&mut self, file: i64, object: i64, stage: i64) -> bool {
+        let (Ok(file), Ok(object), Ok(stage)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            u16::try_from(stage),
+        ) else {
+            return false;
+        };
+        self.game
+            .as_mut()
+            .is_some_and(|game| game.set_stage(GlobalFormId { file, object }, stage))
+    }
+
     /// Open the native map surface with markers from the shared quest state.
     #[func]
     pub fn open_objective_map(&mut self) -> bool {
@@ -773,6 +849,9 @@ impl PlayerNode {
         let listener = game.player();
         if game.begin_dialogue(speaker, listener).is_err() {
             return false;
+        }
+        if self.ambient_response.take().is_some() {
+            self.stop_dialogue_voice();
         }
         if !self.open_menu("Dialogue".into()) {
             if let Some(game) = self.game.as_mut() {

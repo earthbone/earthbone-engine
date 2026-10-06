@@ -19,6 +19,8 @@ pub mod animation_dispatch;
 pub mod audio;
 pub mod batch;
 pub mod camera;
+#[cfg(feature = "godot")]
+mod cell_lighting;
 pub mod collision;
 pub mod combat;
 pub mod crafting_menu;
@@ -35,13 +37,19 @@ pub mod image_space;
 pub mod input;
 pub mod interior_prefetch;
 pub mod inventory_menu;
+pub mod item_card;
+pub mod item_menu;
+pub mod lod_rebuild;
 pub mod magic_menu;
 pub mod mcm_menu;
 pub mod mesh;
+pub mod nif_effect;
+pub mod nordic_theme;
 pub mod objective_map;
 pub mod quest_journal;
 pub mod race_menu;
 pub mod ragdoll;
+pub mod save_recovery;
 pub mod skinned;
 pub mod streaming;
 pub mod terrain;
@@ -64,6 +72,8 @@ pub mod godot_forms;
 #[cfg(feature = "godot")]
 pub mod godot_layer;
 #[cfg(feature = "godot")]
+pub mod godot_logging;
+#[cfg(feature = "godot")]
 pub mod godot_particle;
 #[cfg(feature = "godot")]
 pub mod godot_physics;
@@ -71,6 +81,10 @@ pub mod godot_physics;
 pub mod godot_player;
 #[cfg(feature = "godot")]
 pub mod godot_ragdoll;
+#[cfg(feature = "godot")]
+pub mod godot_reference_editor;
+#[cfg(feature = "godot")]
+mod godot_sky;
 #[cfg(feature = "godot")]
 pub mod godot_tether;
 #[cfg(feature = "godot")]
@@ -83,5 +97,17 @@ mod entry {
     struct SoeHost;
 
     #[gdextension]
-    unsafe impl ExtensionLibrary for SoeHost {}
+    unsafe impl ExtensionLibrary for SoeHost {
+        fn on_stage_init(level: InitStage) {
+            if level == InitStage::Scene {
+                crate::godot_logging::install();
+            }
+        }
+
+        fn on_stage_deinit(level: InitStage) {
+            if level == InitStage::Scene {
+                crate::godot_logging::flush(true);
+            }
+        }
+    }
 }

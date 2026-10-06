@@ -18,6 +18,11 @@ fn shm_22_event_headers_match_the_rust_payload_contract() {
         "struct TESHitEvent",
         "struct TESObjectLoadedEvent",
         "struct TESQuestStageEvent",
+        "grab_release() noexcept",
+        "harvested() noexcept",
+        "hit() noexcept",
+        "object_loaded() noexcept",
+        "quest_stage() noexcept",
         "enum class HookKind",
         "request_hook",
     ] {
@@ -60,14 +65,30 @@ struct LiveState {
     void receive(const RE::TESQuestStageEvent& event) { stages[event.formID.value] = event.stage; }
 };
 
+template <class Event>
+struct Sink final : RE::EventSink<Event> {
+    LiveState& state;
+    explicit Sink(LiveState& value) : state(value) {}
+    RE::NotifyControl process(const Event& event) override {
+        state.receive(event);
+        return RE::NotifyControl::Continue;
+    }
+};
+
 int main() {
+    RE::ScriptEventSourceHolder sources;
     LiveState state;
+    sources.grab_release().add_sink(std::make_unique<Sink<RE::TESGrabReleaseEvent>>(state));
+    sources.harvested().add_sink(std::make_unique<Sink<RE::TESHarvestedEvent>>(state));
+    sources.hit().add_sink(std::make_unique<Sink<RE::TESHitEvent>>(state));
+    sources.object_loaded().add_sink(std::make_unique<Sink<RE::TESObjectLoadedEvent>>(state));
+    sources.quest_stage().add_sink(std::make_unique<Sink<RE::TESQuestStageEvent>>(state));
     state.health[0x900] = 20.0F;
-    state.receive(RE::TESGrabReleaseEvent{{0x901}, true});
-    state.receive(RE::TESHarvestedEvent{{0x902}, {0x903}});
-    state.receive(RE::TESHitEvent{{0x900}, {0x904}, {0xA00}, {0}, {1}});
-    state.receive(RE::TESObjectLoadedEvent{{0x905}, true});
-    state.receive(RE::TESQuestStageEvent{{0x906}, 40, 2});
+    sources.grab_release().send(RE::TESGrabReleaseEvent{{0x901}, true});
+    sources.harvested().send(RE::TESHarvestedEvent{{0x902}, {0x903}});
+    sources.hit().send(RE::TESHitEvent{{0x900}, {0x904}, {0xA00}, {0}, {1}});
+    sources.object_loaded().send(RE::TESObjectLoadedEvent{{0x905}, true});
+    sources.quest_stage().send(RE::TESQuestStageEvent{{0x906}, 40, 2});
     assert(state.grabbed[0x901]);
     assert(state.inventory[0x902] == 1);
     assert(state.health[0x900] == 15.0F);

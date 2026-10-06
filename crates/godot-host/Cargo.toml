@@ -44,6 +44,7 @@ float_cmp = "allow"
 format_push_string = "allow"
 used_underscore_binding = "allow"
 unused_self = "allow"
+assert_is_empty = "allow"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -54,6 +55,8 @@ default = ["godot"]
 # logic with no engine dependency, which is what the tests and the benchmark
 # exercise.
 godot = ["dep:godot"]
+# Adds the SCR-24 synthetic renderer driver used by the live Godot regression.
+scr-24-test = ["godot"]
 # Uses ffmpeg as the host's xWMA decoder instead of the default in-process
 # decoder. Kept for comparison with `soe-audio`'s native implementation.
 xwma-ffmpeg = ["soe-audio/xwma-ffmpeg"]
@@ -65,6 +68,7 @@ godot = { version = "0.5.5", features = ["api-4-4"], optional = true }
 thiserror = "2"
 soe-esm = { path = "../esm" }
 soe-game = { path = "../game" }
+soe-save = { path = "../save" }
 soe-papyrus = { path = "../papyrus" }
 soe-bsa = { path = "../bsa" }
 soe-nif = { path = "../nif" }
@@ -74,6 +78,11 @@ soe-hkx = { path = "../hkx" }
 soe-physics = { path = "../physics" }
 soe-profile = { path = "../profile" }
 soe-trace = { path = "../trace" }
+soe-swf-convert = { path = "../swf-convert" }
+serde_json = "1"
+sha2 = "0.10"
+swf = "0.3"
+rayon = "1.12"
 soe-editor = { path = "../editor" }
 
 [dev-dependencies]

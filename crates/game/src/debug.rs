@@ -100,6 +100,11 @@ struct Entry {
 /// so a command can never be added to one and forgotten in the other.
 const COMMANDS: &[Entry] = &[
     Entry {
+        name: "log",
+        args: "[SOE_LOG directives]",
+        what: "read or change per-system logging verbosity",
+    },
+    Entry {
         name: "help",
         args: "[prefix]",
         what: "list commands, filtered by prefix",
@@ -448,6 +453,15 @@ impl Console {
                 .ok_or_else(|| format!("{name}: missing argument {}", i + 1))
         };
         match name {
+            "log" => {
+                let log =
+                    soe_trace::logging::global().ok_or("logging subscriber is not installed")?;
+                if !args.is_empty() {
+                    log.set_filter(&args.join(" "))
+                        .map_err(|error| error.to_string())?;
+                }
+                Ok(Outcome::Text(log.filter()))
+            }
             "help" => Ok(Outcome::List(Console::help(args.first().unwrap_or(&"")))),
 
             // ----- selection and lookup -----
@@ -976,6 +990,32 @@ fn call_on(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_06_console_reads_reloads_and_rejects_invalid_verbosity() {
+        let directory =
+            std::env::temp_dir().join(format!("tool-06-console-{}", std::process::id()));
+        soe_trace::logging::install(&directory, |_| {}).unwrap();
+        let log = soe_trace::logging::global().unwrap();
+        log.set_filter("off").unwrap();
+        let mut game = Game::new(soe_esm::LoadOrder::new());
+        let mut console = Console::new();
+        assert_eq!(
+            console.run(&mut game, "log").unwrap(),
+            Outcome::Text("off".to_owned())
+        );
+        assert_eq!(
+            console
+                .run(&mut game, "log game::ai=debug,papyrus=trace")
+                .unwrap(),
+            Outcome::Text("game::ai=debug,papyrus=trace".to_owned())
+        );
+        assert!(console.run(&mut game, "log game=invalid").is_err());
+        assert_eq!(log.filter(), "game::ai=debug,papyrus=trace");
+        assert!(Console::help("log")[0].contains("SOE_LOG"));
+        log.set_filter("off").unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn a_target_prefix_splits_off_the_command() {

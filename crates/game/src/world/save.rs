@@ -124,7 +124,30 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
+/// Version 37 appends a named section table (`save_sections`) to the world,
+/// to every actor record and to every reference record, and is the last
+/// version this constant will ever reach: new saved state goes into a
+/// section registered in `save_section_registry`, at the level that owns
+/// it, not into a new version.
+/// Version 37 retains ACTI, TACT and DOOR saved change markers.
+/// Version 37 retains decoded item-record change fields in shared overrides.
+/// Version 37 retains BOOK, NOTE and KEYM change markers with their record overrides.
+/// Version 37 appends named section tables to world, actor and reference
+/// records. It is the last version bump. New saved state uses a section in
+/// `save_section_registry` at the level that owns it.
+/// Version 37 accompanies the provenance-aware native game save envelope.
+/// The same version carries Fallout 4 struct values in saved Papyrus state.
+/// AI-88 retains each actor's reserved furniture marker in an actor section.
 /// Version 36 retains the active phase and completed action slots for each scene.
+/// Version 37 appends named section tables to world, actor and reference
+/// records. It is the last version bump. New saved state uses a section in
+/// `save_section_registry` at the level that owns it.
+/// Version 37 also carries the provenance-aware native game save envelope and
+/// Fallout 4 struct values in saved Papyrus state. AI-88 retains each actor's
+/// reserved furniture marker in an actor section.
+/// Version 37 also retains INFO, SMQN and SCEN runtime fields, reference
+/// persistence, world record flags, pending quest lifecycle tasks and
+/// unresolved records.
 /// Version 37 appends named sections at world, actor and reference levels,
 /// after each record's saved fields. Versions before 37 have no section
 /// tables. This is the last version this constant will reach. New saved state
@@ -208,6 +231,7 @@ impl World {
     /// no record to fall back on, dynamic references included, so it is
     /// written in full.
     pub fn save_state(&self) -> Vec<u8> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Save);
         let mut pool = ArrayPool::new();
         let mut body = Writer::new();
 
@@ -1187,6 +1211,7 @@ impl World {
             learned_enchantment_effects.clone(),
         );
         let previous_weather_image_space = std::mem::take(&mut self.weather_image_space);
+        let previous_weather = std::mem::take(&mut self.weather);
         let previous_cloaks = std::mem::take(&mut self.cloak_effects);
         let previous_effect_shaders = std::mem::take(&mut self.effect_shaders);
         let fallback_player_level = player
@@ -1246,6 +1271,7 @@ impl World {
         );
         let weather_image_space =
             std::mem::replace(&mut self.weather_image_space, previous_weather_image_space);
+        let weather = std::mem::replace(&mut self.weather, previous_weather);
         let cloak_effects = std::mem::take(&mut self.cloak_effects);
         let effect_shaders = std::mem::replace(&mut self.effect_shaders, previous_effect_shaders);
         self.unresolved_records = previous_unresolved;
@@ -1474,10 +1500,12 @@ impl World {
         }
         self.image_space = image_space;
         self.weather_image_space = weather_image_space;
+        self.weather = weather;
 
         self.objects = objects;
         self.handles = handles;
         self.refs = refs;
+        *self.light_references.get_mut() = super::light_references::LightReferences::default();
         self.actors = actors;
         self.quests = quests;
         self.globals = globals;
@@ -1774,6 +1802,7 @@ fn read_ref_state_with_table(
         deleted,
         activation_blocked,
         opened,
+        open_transition: None,
         locked,
         lock_level,
         lock_extra: None,

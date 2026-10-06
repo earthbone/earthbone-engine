@@ -1,10 +1,326 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Default menu art, UI-24
+
+The UI-20 inventory, container, barter, favorites and magic menus share
+`godot/ui/theme`. Its 15 generated Godot meshes contain NORDIC UI 2.4.1's
+inventory category icons, Favorites and general magic icons, an item-card
+frame, a background and an equipped marker. Item rows reuse the corresponding
+category artwork for their ten generic item types. The favorites groups Gear,
+Aid and Magic use Lorc's Battle gear, Potion ball and Magic swirl SVGs from
+Game-icons.net under CC BY 3.0. The theme manifest names every resource.
+`godot/ui/theme/CREDITS` records the authors, links, version, dates, permission
+quote and the fallback icon licence.
+
+The local source was
+`engine-refs/mods/NORDIC-UI-2.4.1/README.lead`. The
+[NORDIC mod page](https://www.nexusmods.com/skyrimspecialedition/mods/49881)
+grants use of the author's art and asks users to check SkyUI and SkyHUD
+permissions separately. The bundle therefore contains only generated art,
+with no original mod files, archives, scripts, fonts, menu layouts, SkyHUD
+components, third-party patches or WAV sounds. The source does not establish
+the sounds' origin. The [Game-icons licence](https://game-icons.net/)
+requires attribution, supplied alongside the icons. Native theme mappings and
+Godot controls remain GPL-3.0-or-later.
+
+`nordic_theme::extract` reads the user's NORDIC install through
+`SOE_TEST_NORDIC`, SkyUI's archive through `SOE_TEST_SKYUI` and vanilla's
+`Skyrim - Interface.bsa` through `SKYRIM_DATA`. The extraction binary takes
+an empty output directory as its argument. It scans every SWF and GFX art
+definition in both reference archives, including nested sprites. A shape or
+bitmap is excluded if its tag type and payload, excluding the movie-local
+character ID, match any reference definition. A shape that depends on an
+excluded bitmap is also excluded. Duplicate art IDs and malformed envelopes
+return errors. The UI-19 converter reads an art-only reconstruction and its
+`write_art` entry point writes meshes and bitmaps without movie metadata.
+The extractor reads four NORDIC SkyUI reskins, category icons, inventorylists,
+itemcard and mapmarkerart. The bundle selects 15 of the 125 definitions that
+pass these checks. `nordic/provenance.json` names each selected source and its
+SHA-256 fingerprint. No standalone DDS or NIF is extracted.
+
+The extractor reuses Ruffle's tag length reader and the existing UI-19
+converter rather than implementing SWF geometry or resource encoding.
+`serde_json`, `sha2` and `swf` are direct host dependencies already present
+through that converter, with no new resolved packages. No saved state or
+per-reference node path is added.
+
+Converted winning install art is tried before the default theme. Category
+labels use SkyUI's `inv_*`, `cat_favorites` and `mag_all` names, checked in
+local SkyUI Community's `source/swf/skyui/icons_category_psychosteve.xml`.
+Generic spells use `mag_all`, since the item icon source has no
+`default_spell` label. Panels select the named `background` instance inside
+`ItemCard`, while markers use the `EquipIcon` symbol in inventorylists.
+Character IDs parsed from JSON are converted to integers before timeline
+lookup, following local Godot `classes/class_json.rst`'s numeric conversion
+contract. Zero-alpha helper shapes are excluded using both the multiplier
+and additive alpha terms recorded in SkyUI's icon XML. Native controls tint
+panel meshes for text contrast. These install caches remain external and
+uncommitted. NORDIC theme meshes supply missing install art.
+
+The `ui_24_` tests cover duplicate shapes and bitmaps, renumbered IDs, nested
+sprites, excluded bitmap dependencies, malformed input, art-only output,
+bundle attribution and fresh extraction of the selected resources. The real
+install case skips when any of the three data variables is unset. The
+windowed scene checks every category and item type, panels and equipped
+markers across the five UI-20 modes, with a second run for installed SkyUI
+precedence. Both runs capture the viewport and quit. Render checks cover dark
+panel contrast and visible gaps in the weapon icon silhouette.
+
+The installed-data run passes all nine UI-24 tests, including both windowed
+640 by 360 scenes on Godot 4.4.1 with llvmpipe. The selected art totals
+1,343,317 bytes of generated meshes. Captures are written under `target`.
+
+## Entity host capture, PRF-13
+
+The existing system overlay uses F4 to toggle `soe_trace::Profile`, displaying
+the top five actors, scripts, quests and plugins by self time in the preceding
+second. F3 retains its system view. Switching F4 off or leaving the player
+writes `user://soe-profile.json` and `user://soe-entities.json` for Perfetto.
+Headless startup also honors `SOE_PROFILE=1`.
+
+PlayerNode collects key-event latency tokens while profiling. A physics step
+moves control tokens into the presentation queue after application. Opening
+or closing a menu queues its token immediately. RenderingServer's
+`frame_post_draw` signal completes the presentation queue. This measures elapsed time from a key
+callback through the next applied and presented frame. It does not infer
+whether an unbound key changed a visible pixel. Audio playback scopes count
+voice and effect starts at the existing `AudioStreamPlayer3D.play` call.
+RenderingServer instance creation uses a shared submission wrapper to record
+its elapsed time and count in one output entity.
+
+The overlay reuses its panel and label and adds no per-reference nodes. No
+saved fields or dependency were added. The windowed `prf_13_` host check
+covers F4, an applied camera switch, presentation latency, an audio start,
+installed render submissions, summary JSON and an overlay capture. It uses
+the existing input path and the local Godot RenderingServer signal contract.
+
+## Per-system frame monitors, PRF-12
+
+PRF-16's `begin_budget_frame` and `end_budget_frame` delimit one fixed-step
+CPU window using the same exclusive PRF-12 slots. Nested begins fail, an end
+without a begin returns an empty dictionary, and successful ends return the
+wall milliseconds and every system's milliseconds. These temporary windows
+do not change presentation history or saved state. `budget_runtime_status`
+exposes completed Game ticks, real simulation seconds, package evaluations,
+cached navigation triangles and the current resolved worldspace editor id
+to reject stopped or misdirected runtime samples. The installed
+`prf_16_walkthrough_test.gd` extends the actual walkthrough startup with manual
+steps and captures the full CPU scenario, including authored-door activation.
+Each manual advance ticks Game once. The open-menu branch owns menu-mode
+ticks, while normal gameplay no longer ticks again through a closed MenuState.
+Headless startup skips rendering warm-up. Windowed startup retains it.
+`gameplay_doors` exposes the linked door's return position and yaw from the
+decoded XTEL transform when the return link names the original door. This
+supplies the walk approach without hard-coded placements. The source is
+local TES5Edit/Core/wbDefinitionsTES5.pas, REFR's XTEL definition. The suite
+and its fixed budgets are described in [performance.md](performance.md).
+
+PlayerNode registers one Godot Performance custom monitor per `soe-trace`
+system when it enters the tree and removes its own monitors when it leaves.
+The names are `SOE/<system>_ms`. A second player uses a category containing
+its instance ID to avoid duplicate monitor names. Values are nonnegative
+milliseconds from the latest completed presentation frame. The callbacks
+read timings without computing percentiles.
+
+The host records input callbacks, gathered controls, player physics and actor
+body sync, detection, streaming, audio work and render submission. Game scopes
+inside the host frame retain exclusive accounting. Host frames end after
+PlayerNode's process work and use elapsed wall time between these boundaries,
+including physics ticks, idle time and rendering waits. These scopes include waits inside host calls. They do not measure GPU
+execution or Godot's internal mixer/physics work.
+`system_frame_breakdown` returns last-frame milliseconds and percentages with
+rolling p50, p99 and worst. `system_summary` returns session totals, means
+and worst times with rolling percentiles for every system.
+
+The walkthrough's F3 overlay displays these values and writes
+`user://soe-systems.txt` on the player's `tree_exiting` signal, also printing
+the summary while the node remains valid. The overlay is
+one CanvasLayer with a panel and label, with no nodes per placed reference.
+`godot/prf_12_monitors_test.gd` reads every monitor in a live scene, checks
+duplicate-player ownership and removal, toggles the overlay with F3, verifies
+its labels and frame shares, and writes and reads the summary. A windowed run
+can save an overlay PNG through `SOE_PRF_12_CAPTURE`.
+
+Monitor naming, callable arguments, nonnegative values and removal follow
+local `engine-refs/godot-docs/classes/class_performance.rst`, checked against
+the [official Performance reference](https://docs.godotengine.org/en/stable/classes/class_performance.html).
+The binding uses only the Godot 4.4 API. No built-in process monitor supplies
+the frame denominator. Exit ownership follows local
+`godot-docs/classes/class_node.rst`. The fixed accumulator is described in
+[trace.md](trace.md).
+
+The HTML menu embedding research and proposed PrismaUI compatibility contract
+are in [ui-frameworks.md](ui-frameworks.md#html-menus-and-prismaui-compatibility-ui-22).
+They describe options only. No HTML renderer or PrismaUI API adapter is
+implemented in the host.
+
+## SWF menu execution research, UI-23
+
+`docs/ui-frameworks.md` records the source-level Scaleform and `GameDelegate`
+inventory, Ruffle's signature change, compatibility gaps, estimates, and
+proposed runtime rows. `ui_23_scaleform_research.rs` checks the documented tag
+and API inventory, compares per-class vanilla calls with the supplied SkyUI
+ActionScript source when it is available, and checks the proposed estimates
+and work split. This host still presents its native Godot menus. UI-19 converts
+SWF art and retains ActionScript decompilation for reference, but does not
+execute the scripts.
+
+The art converter uses Ruffle `swf` 0.3's `Reader` for typed tags. Its
+`read_tag_list` requires an End tag, while the local
+`SkyUI-Community/source/swf/skyui/icons_item_psychosteve.xml` records complete
+sprites with `hasEndTag=false`. The converter walks sprite envelopes through
+Ruffle's length reader and accepts their declared byte boundary. Static
+one-frame sprites in the same icon movie also omit ShowFrame. Their final
+display list and labels form that frame. Other frame-count mismatches, subtag
+truncation errors and nesting beyond 64 levels remain errors. Synthetic
+fixtures cover both omissions, nested sprites and partial tags.
+
+Empty-depth Modify and Replace tags leave the display list unchanged, following
+normal frame playback in Ruffle's
+[MovieClip::place_object](https://github.com/ruffle-rs/ruffle/blob/master/core/src/display_object/movie_clip.rs).
+PlaceObject2/3 payloads must be fully consumed by the typed reader. The breaker
+fixture for an unoccupied depth contains an extra payload byte and is rejected
+for that malformed envelope rather than its empty depth.
+
+## Scripted player input, PLY-01
+
+PRF-22 exposes `record_player_session(seed)`, `write_player_session(path)` and
+`replay_player_session(path)` on PlayerNode. Paths are absolute filesystem
+paths. Recording and replay use the same PLY-01 driver as headless Game.
+Set `auto_step` to false for explicit scripted stepping. Replay restores the
+Game snapshot and synchronizes the controller and cell resources, then
+`step_player_input` verifies the recorded outcome and each scheduled hash.
+`player_session_error` returns the latest divergence and `player_session_hash`
+returns the current Game and VM hash as hexadecimal text. A failed replay
+clears its pending queue and rejects further steps. Device controls outside
+the scripted input layer are not recorded by this transport.
+
+`godot/prf_22_session_test.gd` records 600 steps against the exported PLY-01
+fixture, replays the file twice, compares eleven hashes and complete event
+logs, then quits. It checks simulation and host transport without measuring
+render throughput. PRF-13 summaries also include host presentation system
+totals separately from overlapping Game tick totals. No per-reference node
+path or native save field is added.
+
+`PlayerNode.queue_player_input(dictionary)` transports commands to the shared
+`soe_game::player_input::Driver`. `step_player_input` executes one queued
+command at 1/60 second, synchronizes the controller and camera from World,
+replaces host resources after a cell change, and presents current dialogue
+choices or responses through the existing menu. `advance` also services a
+queued command before device input. Door presentation reuses the existing
+swing-door nodes.
+`player_input_log` returns the same ordered event representation as headless
+Game. `clear_player_input` clears the transient queue and log.
+
+Every dictionary has an `action` string. Reference commands use integer
+`file` and `object` fields. MoveTo uses `move_to`, a Vector3 `offset` and
+`match_rotation`. Turn uses `turn` and a Vector3 `rotation` in radians.
+Activation uses `activate`. Authored melee contacts use `attack`,
+`weapon_file`, `weapon_object` and `power`. Casting uses `cast`, `hand`
+(`left` or `right`), `held` and `has_target`, plus a reference when targeted.
+Topic choice uses `choose_topic`. `confirm_menu` names `dialogue`, `gift`
+or `craft` in `menu`. Craft names its bench as the reference and its recipe
+in `recipe_file` and `recipe_object`. `wait` advances one step. Invalid
+dictionaries do not enter the queue. Scripted steps use the Game simulation
+clock even while a dialogue menu is visible.
+
+`godot/ply_01_player_input_test.gd` loads the synthetic fixture exported by
+the game test with `SOE_PLY_01_FIXTURE`, drives the same eleven commands
+windowed, compares complete event logs including Papyrus traces, checks the
+controller pose and load-door cell replacement, and verifies a visible
+dialogue response. It captures the viewport as `window.png` in that fixture
+directory and quits with a failing status if any assertion fails.
+
+## Papyrus log profile routing, TOOL-07
+
+`DataSource` retains the resolved profile INI settings and INI directory.
+`PlayerNode` configures Game's Papyrus file sink from them before scripts start.
+When `[Papyrus] bEnableLogging=1`, the sink writes `Papyrus.0.log` and named
+user logs under `Logs/Script` in that profile directory. Disabled logging does
+not create files. The profile settings control trace lines and debug source
+detail, and existing numbered logs move up one slot on startup.
+
+## Item names and model cards, UI-25
+
+Gameplay startup and restored-generation attachment use
+`DataSource::localized_game`. It loads the profile's selected-language tables
+through the existing VFS before menu names are read. Malformed tables fail
+startup with the table path. The table parser and winning-plugin namespace
+resolution remain in ESM and Game. This fixes the host path that previously
+loaded scripts without loading localized text. Initial inventory LVLI entries
+now become concrete items in Game, so their nameless list records no longer
+reach menu rows.
+
+Inventory, container, gift and crafting menus share an item card beside a
+scrolling list. Keyboard focus and mouse hover select the card independently
+of the row's action. Crafting rows use the output item's FULL name rather than
+the usually nameless COBJ recipe. Missing or unresolved mod names display
+`Unnamed item` instead of a FormID or string-table marker.
+
+The card reads authored weight and base gold value, plus weapon/ammunition
+damage or armor rating. Weapon and armor physical fields follow their template
+chains while the child supplies its display name. Armor uses MOD2/MOD4 ground
+models according to the player's selected sex, with MOD2 as the female
+fallback. Clothing reports zero armor. Invalid numeric fields and template
+cycles return ESM errors. These are record statistics, without skill, perk,
+tempering or enchantment price adjustments.
+
+The selected NIF is built through the existing VFS, mesh and material pipeline.
+Its centered bounds fit a camera in an isolated transparent SubViewport with
+two directional lights. The model turns at 0.4 radians per second while the
+menu is open. Refresh and close free the viewport and its meshes. Empty
+categories show the unselected card. Missing models leave the item's text
+visible with a model status. Only the selected preview allocates MeshInstance3D
+nodes, one per surface. Bulk placed references keep their server-resource path.
+
+Sources read were local UESP Mod File Format/TES4 localization flags and item
+pages, xEdit `Core/wbLocalization.pas` and item definitions, SkyUI
+`src/ItemMenus/ItemCard.as`, and godotwind
+`src/tools/asset_viewer/components/preview_3d.gd`. The separate UESP String Table
+page is absent from the local dump. The existing xEdit-based ESM reader handles
+the table layout. The Godot control implementation reuses the host's renderer
+because the reference previews do not consume this engine's neutral surfaces.
+
+The `ui_25_` Rust tests cover card fields, armor and weapon templates,
+selected-sex ground models, localized overrides, startup language selection,
+malformed tables and installed container, player and merchant inventories.
+`godot/ui_25_item_card_test.gd` checks a windowed vanilla sword and armor
+preview, rendered pixels, rotation, focus/hover selection, a container transfer,
+category refresh and viewport cleanup. It writes screenshots under `target`.
+
+The installed-data survey resolved 80 inventory rows and loaded 45 ground
+models. The windowed check passed on Godot 4.4.1 with llvmpipe at 640 by 360.
+The selected iron sword used four preview mesh nodes. Its first synchronous
+model build took 1,199.392 ms during concurrent Cargo checks, including NIF,
+texture and mesh preparation. This measures menu selection latency on that
+software-rendered run.
+
+`godot/ply_04_route_test.gd` runs a JSON route through the same PlayerNode
+queue in a windowed Godot process. The route has a `start` object with a cell
+editor id and a three-number Skyrim-unit position, followed by `steps`. Each
+step has a `command` dictionary, optional frame count, and optional checkpoint
+name. MoveTo `offset` and Turn `rotation` arrays are converted to Vector3
+values. Each checkpoint saves a viewport PNG, and every step records its
+action, sampled frame count, worst wall-frame time, and capture path in
+`frame_times.json`. Route or capture failure writes a failed result and exits
+with status 1. `godot/ply_04_route.json` is a one-step installed-data smoke
+route through WhiterunBanneredMare.
+
+Set `SKYRIM_DATA` to the installed Data directory. Optionally set
+`SOE_PLY_04_ROUTE` to another route JSON file and
+`SOE_PLY_04_OUTPUT_DIR` to the capture and log directory. Run the extension
+windowed with:
+
+```text
+godot --path godot --resolution 640x360 --script ply_04_route_test.gd
+```
+
 ## Live detection observations, CMB-32
 
-PlayerNode samples each ordered pair of resident, living actors in the same
-cell after the player's pose reaches Game. Their FormIDs come from
-`World::contact_actors`. A Godot physics ray from eye to eye reports the first
+PlayerNode samples ordered pairs of resident, living actors in the same coordinate space
+within the winning `fSneakMaxDistance` after the player's pose reaches Game.
+Their FormIDs come from
+`World::contact_actor_placements`. A Godot physics ray from eye to eye reports the first
 body, including an intervening actor or static obstruction. The query uses
 the existing RID-backed actor bodies and allocates no reference nodes.
 
@@ -15,9 +331,67 @@ placement and enable state, including `PlaceAtMe` references, and bounds the
 resulting record-derived light estimate to 0 to 150. The host sends that
 value, sight, motion and queued detection sounds to
 `World::evaluate_detection` each step.
+PRF-31 builds a uniform actor grid and a separate grid of sound source
+positions each frame. A nearby event can belong to a distant actor and does
+not grant sight to its owner. Each target's light is sampled once per frame.
+`LightSamples` reads `World::light_references_in_cell` for each actor cell and
+bins current light spheres in a 1,024-unit grid. A sphere covering more than
+512 buckets uses a separate list queried at every point in that cell. All
+influencing contributions retain FormID order and the existing radius, color,
+negative-light and fade calculation. Runtime visibility overrides authored
+initial-disable flags, so Enable can turn an initially disabled light on.
+Loading reference state does not override the LIGH Off By Default flag.
+That flag still suppresses the light estimate for an enabled reference.
+Moved and spawned lights use their current shared placement.
+`PlayerNode::detection_time_usec` measures the whole update, including actor
+body synchronization, sampling and world evaluation. `detection_worldspace`
+reports the active exterior worldspace's editor ID for the walking check.
+Body synchronization and detection reuse one resident actor-placement list.
+No per-reference scene nodes are added.
+
+PRF-31 selects living actors in attached cells before resolving controller
+height. A per-frame spatial pass keeps actors within detection range of another
+actor, including NPC pairs away from the player, and observers near a queued
+sound. Sound owners retain their placement even when distant. Current effective
+enable state follows XESP parents. Detached and merely prefetched cells do not
+supply host contact placements. The selection reads current World state each
+frame, including moved and spawned references.
+Exterior actors also need an attached grid at their current position in their
+owning worldspace. Actors filed under the worldspace's persistent cell retain
+that parent FormID, while distant placements outside the host grid are excluded.
+`DetectionSpaces` shares pair neighborhoods across grid cells and the persistent
+cell of one worldspace. Interiors and distinct worldspaces remain separate.
+Light callbacks still receive each target's original cell, preserving its light
+lookup. The walk requires observations in both exterior phases. Its controlled
+sound uses `emit_detection_sound_at`, which queues a sound at one reference
+owned by a separate actor through `World::create_detection_event`.
+
+Body synchronization creates selected bodies and retains other eligible bodies
+that already exist. It writes a transform only when the feet position changed
+or a held/thrown body invalidated the last synchronized pose. Full contact
+queries still resolve every eligible controller shape. Detection shares a
+`ContactRays` object, direct space state and inverted actor-to-body exclusion
+map for its rays. Switching observers replaces the exclusion array, while
+repeated rays from the same observer reuse it. The local Godot references
+`class_physicsrayqueryparameters3d.rst` and
+`class_physicsdirectspacestate3d.rst` specify exclusion RIDs and first-hit results.
+`detection_stage_times` reports body selection/sync, light construction,
+observations and evaluation in microseconds. The outer timer also includes
+settings, event filtering and frame bookkeeping.
+
+The local CommonLibSSE-NG `include/RE/P/ProcessLists.h` distinguishes high,
+middle and low actor processes. OpenMW `mwmechanics/actors.cpp` bounds AI work
+by actor processing distance. This host instead preserves every eligible nearby
+NPC pair and CK `CreateDetectionEvent` source ownership, using the existing
+detection range and shared reference table rather than introducing another
+actor process store. This adds no dependency or saved state.
 A sound event uses its source position and owning actor FormID. Footsteps emit
 a detection sound after successful playback. World keeps the stealth pool and
 observer state across cell resource replacement.
+`PlayerNode::detection_light_references` returns enabled placed LIGH FormIDs and
+their Godot positions in the active cell for the live observation check. The
+check toggles those references through the shared World and samples the same
+actor pair to verify a placed light changes detection.
 
 The estimate does not yet select a live WTHR from climate or apply WTHR
 ambient, sunlight and image-space sunlight scale. The current sound path
@@ -25,11 +399,20 @@ covers `CreateDetectionEvent` and played player footsteps. The focused tests
 exercise record light, occlusion inputs, cross-cell identity and sound source
 ownership. The `SKYRIM_DATA` case reads a populated vanilla interior.
 
+The light reader requires the full 92-byte CELL/XCLL structure and 48-byte
+LIGH/DATA structure before using those fields. Inherited LGTM/DATA reads its
+ambient prefix from the 24-byte layout recorded in TES5Edit, including the
+legacy 24-byte template noted in `wbDefinitionsTES5.pas`. The layouts come
+from `uesp-modfileformat/CELL.wikitext`,
+`uesp-modfileformat/LIGH.wikitext`, and `TES5Edit/Core/wbDefinitionsTES5.pas`
+in the local `engine-refs` corpus.
+
 `godot/cmb_32_live_detection_test.gd` samples live resident actors in the
-Bannered Mare, adds a PhysicsServer box between the nearest pair, and checks
-that the shared detection value drops. It then emits an actor-owned sound and
-checks the value rises. The same pair's awareness is checked after an unlocked
-door changes cells. The test reports actor and ordered-pair counts, elapsed
+Bannered Mare, toggles enabled placed lights until one changes the shared
+detection value, adds a PhysicsServer box between the nearest pair and checks
+that sight lowers the value. It then emits an actor-owned sound and checks the
+value rises. The same pair's awareness is checked after an unlocked door
+changes cells. The test reports actor and ordered-pair counts, elapsed
 time for 40 sync and detection samples, time per pair sample, and scene-node
 count before and after. Actor body sync and those samples add zero scene nodes.
 Run it with installed data and the host extension loaded:
@@ -47,6 +430,11 @@ sample. The active scene had a node delta of zero through sampling and the
 door transition. This times the shared host path in that loaded scene. It
 does not estimate the memory or frame cost of a hypothetical node-per-actor
 design.
+The same check passed on Godot 4.4.1 with installed data: 7 actors and 42
+ordered pairs, visible detection 40.985, blocked detection -12.832, and heard
+detection 38.581. Forty samples took 21,529 microseconds, or 12.815
+microseconds per pair sample. Awareness for the same FormIDs remained present
+after the door changed cells, and scene-node count stayed unchanged.
 Godot's `PhysicsDirectSpaceState3D.intersect_ray` returns the first hit RID.
 The CMB-32 query maps that RID to the actor FormID or treats it as an
 obstruction. The local Creation Kit `GetLightLevel` reference gives a 0 to
@@ -59,13 +447,61 @@ outdoor WTHR lighting.
 
 ## Cell ambience, AUD-09
 
-The player owns one non-positional ambience stream through a Godot
-`AudioStreamPlayer`. On a cell change it stops the prior stream and starts the
-first eligible single-track path returned by `soe_game::ambience`, which reads
-MUST conditions and palette leaves. This uses Godot's audio server path
-documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
-crossfades, multiple regional sound descriptors and MUSC priority arbitration
-are not implemented.
+The MUST track lookup and non-positional `SoundBank::play_ambience` entry
+point remain available. `tests/aud_09_godot_ambience.rs` uses a generated WAV
+fixture to check that entry point's AudioStreamPlayer start and release in a
+windowed 640 by 360 process. PlayerNode uses the ambient SNDR descriptors
+connected by AUD-11 below.
+
+## Walkthrough audio, AUD-11
+
+When gameplay starts, `PlayerNode` attaches its `SoundBank` before selecting
+cell audio. Music follows CELL/XCMO, regional RDMO or WRLD/ZNAM through
+`soe_game::music`. A destination without a selection stops the prior music.
+Ambience follows CELL/XCAS, ASPC/SNAM/RDAT and CELL/XCLR regional descriptors
+through `soe_game::ambience` and `sound::prepare_for`. Godot non-positional
+players apply the selected descriptor's gain, pitch and ordinary loop mode.
+Cell changes stop and release those players. Envelope loop modes return an
+unsupported playback error. The older MUST ambience entry point remains
+available to callers.
+
+Nearby Misc Hello and Idle responses selected by Game play at the speaker's
+position through the existing SoundBank voice pool, without opening a menu.
+Each response starts once. When its voice ends the host advances the shared
+session, including INFO end fragments. Session interruption stops its voice.
+Voice filenames follow local Mutagen `VoiceTypeAssetLookup.GetVoiceLineFilePaths`.
+The playback and loop APIs follow local Godot AudioServer, AudioStreamPlayer3D
+and AudioStreamWAV class documentation. No new per-reference node path is added.
+Cell ambience owns one AudioStreamPlayer per selected descriptor.
+
+`SOE_AUD_11_TEST=1` runs the installed-data walkthrough with a forward walk
+for 20 seconds. The master-bus capture is drained throughout the walk and the
+log reports footsteps, ambience, music and voices that started. The check
+fails if any count is zero, movement is under 10 units or the captured peak
+is at or below -60 dB. NPC speech is selected during normal gameplay ticks.
+The windowed `aud_11_` tests launch this check and inspect its result and exit
+status. The vanilla response test resolves and decodes the selected voice
+asset independently. Checks skip when SKYRIM_DATA or SOE_GODOT_BIN is unset.
+
+### Papyrus weather image-space selection, SCR-54
+
+`Weather.SetActive` requests flow from `World` into `ImageSpaceStack` on the
+next host sync. If no explicit image-space selection is active, the stack reads
+the selected WTHR record's daytime `IMSP` slot and resolves its `IMGS` values.
+The camera renderer applies those values through Godot's `Environment` and
+`CameraAttributesPractical`. An explicit image-space selection takes
+precedence. The image-space path uses the daytime slot at all game hours.
+The RND-18 sky controller separately renders WTHR clouds, colors, ambient
+lighting and transitions through the shared World request.
+
+### Debug collision switch, SCR-21
+
+`Debug.ToggleCollisions` changes `World::debug_collisions_enabled`. The host
+applies that value to resident cell collision bodies and the player's query
+bodies by setting their physics collision layer and mask to zero while off,
+then restoring layer and mask one when on. Bodies synchronized after a switch
+receive the current setting on the next host sync. Player movement still uses
+the `soe-physics` `SimpleWorld` solver.
 
 ### Crosshair and held references, HST-18
 
@@ -78,9 +514,24 @@ Releasing Activate returns its body to rigid mode. The grabbed reference is
 cleared when the cell is replaced. These values are transient and are not
 saved.
 
+The host also sends the active first-person POV to Game each camera-control
+sync. CTDA function 391 reads this value, and function 463 compares its REFR
+parameter with the current grabbed reference.
+
 The grab path currently uses references with static collision bodies loaded
 for the active cell. Movable-reference body creation and synchronizing their
 physics pose into the shared world remain HST-12 work.
+
+### Destruction-stage models, CMB-37
+
+When a resident reference has a selected destruction-stage model in the
+shared `World`, `CellStreamerNode` hides its base geometry and loads the
+selected DMDL through the same VFS, NIF, mesh and material path as streamed
+cell geometry. The replacement uses RenderingServer instances and adds no
+reference node. Advancing to a model-less stage retains the latest selected
+DMDL through `World::destruction_model`. Clearing destruction removes the
+replacement and reveals the base model. Releasing the owning cell or clearing
+the streamer frees its replacement mesh and instance RIDs.
 
 ### Character race and sex selection, UI-07
 
@@ -117,11 +568,20 @@ morph values.
 
 `Game.PrecacheCharGen` asks the host to read model files for playable race
 head-part choices and the TRI files tagged as chargen morphs on those parts.
-The streamer retains each available path once and reports retained file count,
-NIF count, TRI count, byte total and paths missing from the active data VFS.
-`Game.PrecacheCharGenClear` drops the buffers and resets residency and byte
-counts. The asset buffers are CPU-side file data. This does not upload preview
-meshes or apply morphs to a rendered actor.
+The host processes this request before the race menu request from the same
+Papyrus call sequence. The streamer retains each available path once and
+reports retained file count, NIF count, TRI count, byte total and paths missing
+from the active data VFS. `Game.PrecacheCharGenClear` drops the buffers and
+resets residency and byte counts. The asset buffers are CPU-side file data.
+This does not upload preview meshes or apply morphs to a rendered actor.
+
+The SCR-30 cache tests check retained file and byte counts, clear every cache
+counter after a cache load, and load installed head-part models and
+morph files when `SKYRIM_DATA` is set. The training presentation test checks
+the offer values used for the trainer heading and purchase button, including
+an unavailable trainer. The camera visibility test checks the value passed to
+the rendered actor instances for first and third person. These Rust checks do
+not inspect pixels from a live player appearance.
 
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
@@ -137,8 +597,20 @@ initialization, and the resulting player actor state.
 `Game.ShowTrainingMenu(actor)` reaches the host as a typed menu request with
 the actor form. Valid trainers also reach the UI-16 presenter through its
 pending request. The host opens the training menu once and consumes the typed
-request without presenting it again. Camera-target and first-person geometry
-requests are applied through the transient camera controls.
+request without presenting it again. The menu heading and purchase label are
+built from the current offer returned by `training_menu::entry`, while an
+invalid offer displays the unavailable label. Camera-target and first-person
+geometry requests are applied through transient camera controls. The first-
+person visibility flag reaches each player appearance RenderingServer
+instance only in first-person view.
+
+Actor `ShowBarterMenu` requests open a native Control panel titled for the
+merchant and list stock from the first resolvable vendor faction. An unavailable
+service or an empty stock list displays an empty-state label. Actor
+`OpenInventory` requests open the existing container inventory panel for the
+requested actor, where the player can take items through the notified inventory
+transaction. These requests are consumed from the shared world's transient
+menu queue.
 
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
@@ -152,17 +624,35 @@ Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rus
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
 With `--no-default-features` the `godot` dependency is gone and what remains is the logic.
 
+### Shader particle geometry, SCR-46
+
+`PlayerNode` sends `World::shader_particle_layers` to `CellStreamerNode` each
+gameplay frame, centered on the player's placed reference. The streamer uses
+one `MultiMesh` RenderingServer instance for each active SPGD form, with a
+quad per particle and the record's texture when it resolves through the data
+source. Density determines the quad count at 64 per density unit, bounded to
+256, and zero density draws none. Deterministic positions fill the authored
+box and wrap downward using gravity velocity. Fade strength sets material
+opacity. Removed layers and streamer teardown free their instance RIDs.
+
+This host path is an approximate visual presentation. It does not reproduce
+engine particle randomness, rotation velocity, initial rotation, or subtexture
+animation.
+
 ### Cart and horse host tether
 
-`CellStreamerNode::tether_bodies` creates a Godot pin joint between caller-
-supplied cart and horse body RIDs and keys ownership by both resolved
-reference IDs, each encoded as `(file << 32) | object`. Creating another link
-for either endpoint first frees the old one. `untether_reference` frees links
-for explicit untethering. The player
-sync path also releases a link when either endpoint is missing or disabled,
-and `clear` or node teardown frees every remaining joint. The caller supplies
-the rigid bodies and local pivots. The host API does not infer cart bones or
-build the wheel, pole, chassis or horse rig from NIF collision data.
+`ObjectReference.TetherToHorse` queues a cart and horse FormID after applying
+the CK local offset and copying cart placement to the horse. During reference
+sync, the host retains that request until both collision bodies are resident,
+then connects them with a PhysicsServer pin joint. The pivot coordinates use
+the CK cart chassis pivot `(0, 3.5, -0.2)` and horse pivot `(0, 0, -0.5)` in
+Havok axes, mapped to Godot metres. `CellStreamerNode::tether_bodies` also
+accepts caller-supplied body RIDs and pivots for direct host use. Links are
+keyed by both resolved FormIDs. Replacing a link for either endpoint frees the
+old joint. Missing or disabled endpoints release a live link, and `clear`,
+collision-cell release or node teardown frees joints and pending pairs. The
+host does not sample the `HorseSpine2` skeleton bone, build the wheel and pole
+constraints, or reproduce the cart suspension and upright recovery action.
 
 ### Editor forms dock, EDT-02
 
@@ -171,14 +661,46 @@ and names the active plugin, then filters winning forms by an optional four-char
 signature and case-insensitive Editor ID substring. `SoeFormTable.search` returns encoded
 FormIDs only, with at most 200 results per page. Selecting a row calls `selected_form`, which
 creates one `SoeFormResource` for the inspector with its resolved FormID, signature, Editor
-ID and winning plugin. The resource is a view and does not expose record editing.
+ID and winning plugin. The same selection calls `override_chain`, which returns every record
+version with its source plugin, signature, Editor ID and winner flag. The dock displays those
+versions in its override-chain tree, with the last load-order version marked as the winner.
+The resource is a view and does not expose record editing.
 
-The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
-property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
+The dock uses Godot's `EditorPlugin` dock API. Its registered `EditorInspectorPlugin`
+recognizes `SoeFormResource` and adds a `Winning source` row from the wrapper's
+`winning_plugin` property. Local
+`engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
 `inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
-The plugin must be enabled in the Godot project's Plugins settings after building the
-extension. The dock does not implement record editing or an `EditorInspectorPlugin` custom
-field editor.
+The plugin is enabled in `godot/project.godot` and requires the built GDExtension. It displays
+record identity and winner metadata. The wrapper remains a view and does not edit records.
+Typed record editing is provided by the editor document API. The inspector addition does not
+provide a custom field editor for record editing.
+
+`crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the headless editor with a
+synthetic load order. It checks that the dock tree shows the case-insensitive `STAT`
+matches from the winning records, that searching created zero `SoeFormResource` values, and
+that selecting one row creates one resource. Run it after building the release extension
+with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner reads the editor controls without
+rendering pixels, and the plugin exits the editor when the check finishes.
+
+### Drop selected references to host collision, EDT-15
+
+`SoeFormTable.drop_selected_reference_to_ground(space, encoded_id)` casts a vertical ray
+through Godot's direct physics space at the selected REFR's horizontal position. The ray
+starts 100 Skyrim units above the reference and extends 10,000 units below it. A hit is
+converted from Godot metres and axes to Skyrim world coordinates. The editor updates only
+the reference's vertical transform value through `EditorDocument`, preserving horizontal
+position and rotation. The active-plugin edit is undoable through `SoeFormTable.undo()`.
+Malformed selections, unavailable physics spaces and rays without a hit return `false` and
+set `last_error()`. `query_ground_collision` exposes the same host query as a position
+inspection for callers that need to preview a surface hit.
+
+The ray query uses Godot's `PhysicsDirectSpaceState3D.intersect_ray` behavior described in
+local `engine-refs/godot-docs/classes/class_physicsdirectspacestate3d.rst`. REFR `DATA` is
+the six-float position and rotation layout from local xEdit's
+`TES5Edit/Core/wbDefinitionsTES5.pas` and UESP's `uesp-modfileformat/REFR.wikitext`.
+`godot/edt_15_drop_to_ground_test.gd` creates a server-side box collider and checks the
+host query hit and Skyrim-space surface height without game data.
 
 `DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
 By default the entries live under the user cache directory
@@ -243,7 +765,29 @@ units of the eye ray and within the 180-unit reach. It confirms the World grab
 before changing the host body, moves the body to a
 fixed eye-relative distance on each physics step, and releases it when World
 clears the grab. A successful grab and release queue the reference's
-`OnGrab` and `OnRelease` events.
+`OnGrab` and `OnRelease` events. Losing input focus ends both hand casts and
+immediately releases any host body held by Telekinesis.
+
+`CellStreamerNode` exposes `telekinesis_grab_reference`,
+`telekinesis_move_reference` and `telekinesis_release_reference` for host
+integration checks. The move call accepts a position in Skyrim units. The
+release call restores rigid simulation at the body's current pose.
+`godot/mag_41_telekinesis_host_test.gd` uses the Bannered Mare's installed
+movable-reference body to check host movement and resumed rigid simulation
+after the release path.
+
+### Grab Actor, MAG-66
+
+After actor bodies sync from World, `PlayerNode` finds a resident actor with a
+live Grab Actor effect cast by the player. The existing RID-backed actor
+capsule changes to kinematic mode and follows a point 1.2 metres ahead of and
+0.9 metres below the camera eye. Each held pose is written back to the actor's
+existing World reference placement. When the effect ends, the body changes to
+rigid mode and receives a forward and upward central impulse. World follows the
+rigid body's Skyrim-space position until it settles, then the body returns to
+static contact-query mode. Clearing or replacing the cell releases its bodies
+and drops any hold state. This uses the actor body's existing RID and adds no
+scene node or saved field.
 
 ### Papyrus Debug host requests, SCR-20
 
@@ -254,6 +798,22 @@ transition, and pass the new placement through `sync_game_pose` so the shared
 streamer replaces cell rendering and collision. A `CenterOnCellAndWait`
 latent id is resolved after that sync succeeds. The Game crate owns name
 resolution and rejects unknown CELL editor ids before queuing a request.
+
+### Debug reference presentation and movement, SCR-23
+
+`PlayerNode` displays each `Debug.ShowRefPosition` request as a small emissive
+sphere at that reference's current world placement. The sphere mesh and
+material are shared. The host stores one `RenderingServer` instance RID per
+requested reference and frees the instances when the player node exits.
+`Debug.PlayerMoveToAndWait` requests are applied to the shared World before
+`sync_game_pose`. The latent Papyrus call resolves with 0 after the host has
+installed the destination, or -1 if the move cannot be applied or installed.
+`Debug.SetFootIK` is retained in World, but actor rendering does not yet apply
+foot inverse kinematics.
+
+`Game.ShakeController` queues a transient controller-shake request. The
+player adapter sends its left and right strengths and duration to every
+connected joypad through Godot's `Input.start_joy_vibration`.
 
 ### Spawn Hazard prerequisites, MAG-61
 
@@ -309,15 +869,36 @@ seam a VulkanSceneGraph or other host would reuse: everything above the layer is
 world and converts each Skyrim position to Godot metres and axes. The request
 retains the winning MGEF Hit Shader FormID and active effect identity so a host
 effect renderer can identify the authored shader and remove it when the effect
-ends. This adapter returns requests only. It does not decode EFSH records or
-draw them in Godot. It creates no per-actor scene nodes. Its contract is checked by
-`mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`.
+ends. `PlayerNode` reconciles those targets each gameplay step with the existing
+RenderingServer EffectShader path. A newly detected actor starts its MGEF Hit
+Shader on that actor, and a target leaving the set stops the matching shader.
+The host requests a visual only when the resolved form is a winning `EFSH`
+record, so a missing or differently typed shader cannot become a default
+white sphere.
+The renderer reads EFSH `ICON`, color and blend settings, applies its membrane
+fade timing, and uses an authored fill texture when it resolves. It draws a
+server-side sphere instance and creates no per-actor scene nodes. It does not
+render the EFSH particle or gradient groups. The EFSH fields follow local xEdit
+`wbDefinitionsTES5.pas` and UESP `EFSH.wikitext`. The CK dump has no Detect Life
+archetype page defining additional execution semantics. The focused check
+`mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`
+also checks the start and stop requests and authored membrane settings.
 
 `facegen::build_head_part_surface` takes one already resolved head-part NIF mesh, a parsed
 `FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and
 passes the changed geometry through the same axis conversion, bounds and surface validation
 as streamed meshes. Normals are generated from the changed geometry. The caller resolves
 the NPC's `PNAM` head-part links and maps `NAM9` values to morph names.
+
+### Actor expression targets, ANM-59
+
+Animated actor head surfaces load a companion `.tri` file when its vertex count matches the
+head NIF surface. CK expression names in that file become Godot relative blend shapes
+with converted vertex and normal deltas. Each actor update reads the effective expression
+from the shared game world and sets the matching blend-shape weight to its strength divided
+by 100, clearing the other expression targets. Clearing a Papyrus override therefore lets
+the actor's current record mood drive the same head targets again. Other TRI morph names and
+head surfaces without a matching TRI remain unchanged.
 
 ## FaceGen tint textures, EDT-23
 
@@ -338,13 +919,25 @@ local reference corpus, which was unavailable from this worktree during conflict
 ### Game native presentation signals, SCR-29
 
 `PlayerNode` drains transient `GameUiRequest` values from the shared `World`
-after each gameplay tick. It emits `race_menu_requested`,
-`screen_blood_requested(value)` and `bink_requested(file_name, interruptible,
-mute_audio, mute_music, letterbox)` with the values supplied by the Papyrus
-native. A change to `World::hud_cart_mode` emits
-`hud_cart_mode_changed(enabled)`. These signals are the host presentation
-boundary. A connected UI or media presenter supplies the corresponding race
-editor, overlay and video playback.
+after each gameplay tick. It opens the native race editor for `ShowRaceMenu`,
+shows a red screen overlay for `TriggerScreenBlood`, and emits the matching
+`race_menu_requested` and `screen_blood_requested(value)` signals. Blood
+intensity is the absolute native value clamped to 100 percent, and the overlay
+lasts 450 milliseconds. The HUD shows a `CART` badge while the shared
+`World::hud_cart_mode` flag is set and emits `hud_cart_mode_changed(enabled)`
+when that value changes.
+
+`PlayBink` preserves its file name and four playback options in the host
+`bink_requested` signal. The Godot `VideoStreamPlayer` documented in local
+`engine-refs/godot-docs/classes/class_videostreamplayer.rst` supports Ogg
+Theora or a video GDExtension decoder. This host has no Bink decoder or video
+presenter, so `.bik` playback remains unsupported. The local CK
+`engine-refs/ck-wiki/Game_Script.wikitext` supplies the five Game native
+signatures and describes `PlayBink` as Bink playback.
+
+`godot/scr_29_game_ui_test.gd` checks the visible race menu and HUD presenter
+controls against installed Skyrim data. Rust host tests check cart-mode state
+and the screen blood overlay's intensity and lifetime.
 
 ## EffectShader playback, MAG-14
 
@@ -362,6 +955,38 @@ corpus includes UESP's EFSH field list and xEdit's record layout. Its CK wiki
 corpus has no EffectShader page. The synthetic tests verify request data and
 host fade/blend selection. Live rendered output has not been verified.
 
+## Papyrus visual effects, SCR-52
+
+`PlayerNode` advances active `World::visual_effect_instances` into its shared
+`CellStreamerNode`. The streamer creates one `RenderingServer` sphere instance
+per active `VisualEffect.Play` call, keys it by the game-owned call identity,
+and follows the target reference's current placement. Expiry, `Stop`, target
+disable and node clear release the render instance. If the linked EFSH record
+has an `ICON` start texture, it is loaded through the shared DDS cache. A
+shader-linked effect uses a blue tint, while an ARTO-only effect uses amber.
+This is a visible host placeholder, not the authored ARTO NIF or full EFSH
+animation. The placeholder follows RFCT attach-to-camera and inherit-rotation
+flags, and rotates toward the optional facing reference when the RFCT flag is
+set. It does not reproduce authored ARTO animation or EFSH timing.
+
+The rendering resource uses server IDs and creates no scene node per effect.
+`godot/scr_52_visual_effect_test.gd` starts an installed game, picks a winning
+RFCT with a linked art or shader, captures the scene before and after playing
+it on the player reference, verifies changed pixels and one renderer instance,
+then stops it and checks the instance is freed. Run windowed with
+`SKYRIM_DATA` and the extension loaded:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --script scr_52_visual_effect_test.gd --resolution 640x360
+```
+
+The source layouts are UESP `RFCT.wikitext`, `ARTO.wikitext` and `EFSH.wikitext`,
+and xEdit `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK corpus has no
+VisualEffect function page or shipped `VisualEffect.psc`. The existing game
+tests cover native argument handling, errors, stacking, expiry and target
+specific stop. The Godot capture verifies instance creation and release, not
+fidelity to Skyrim's complete authored effect appearance.
+
 ## Invisibility rendering, MAG-34
 
 `SkinnedActorNode` reads invisibility from the actor's shared World state and
@@ -371,8 +996,17 @@ reuse the same cached state. Animated and ragdoll poses share these mesh
 instances, so the visibility change applies in either render mode. A later
 process update restores visibility after the effect expires or breaks. The
 game tests cover detection and break actions, while host unit tests cover the
-RenderingServer visibility mapping. Live Godot coverage of actors outside
-`SkinnedActorNode` remains open.
+RenderingServer visibility mapping. `godot/mag_34_invisibility_test.gd` binds
+the player appearance, casts the installed Invisibility spell, and checks the
+host visibility state before and after expiry. Run it with `SOE_GODOT_BIN`,
+`SKYRIM_DATA`, and the built extension:
+
+```text
+"$SOE_GODOT_BIN" --path godot --script mag_34_invisibility_test.gd --resolution 640x360
+```
+
+This live check covers the supported `SkinnedActorNode` path. Other actor
+rendering paths are not implemented by the host.
 
 ## Runtime summoned lights, MAG-35
 
@@ -382,6 +1016,19 @@ winning LIGH record's 48-byte DATA, using its RGB color, radius and negative
 light flag. The light follows the runtime reference position and is freed
 when the effect reference expires, becomes hidden or the streamer is cleared.
 It adds no scene node. Other LIGH references are not uploaded by this path.
+Each positive `PlayerNode.advance` step ticks the shared `Game` before syncing
+reference changes, so timed effects expire in that host path and their light
+instances are released on the same synchronization pass.
+`CellStreamerNode.runtime_light_count` reports the currently owned light
+`PlayerNode.cast_spell_on_self` sends a self-delivered spell through the
+shared World. `mag_35_runtime_light_test.gd` casts vanilla Candlelight in a
+loaded cell. It checks that the RenderingServer instance appears and then
+disappears after the effect's authored duration. Run it with `SOE_GODOT_BIN`,
+`SKYRIM_DATA`, and the built extension:
+
+```text
+"$SOE_GODOT_BIN" --path godot --script mag_35_runtime_light_test.gd --resolution 640x360
+```
 
 Since 2026-10-03 the DATA effect flag also drives light energy each frame.
 Flicker is 0x8, Flicker Slow 0x40, Pulse 0x80 and Pulse Slow 0x100, with at
@@ -410,11 +1057,29 @@ switch, default on, and the generated normals follow it.
 ## Determinism
 
 `data_source::workers::ordered_map` returns builder results in input order for
-both sequential and threaded runs. The TST-02 test hashes those results into
-the game's per-tick `host.builders` partition, so worker output participates
-in the same divergence report as world and VM state.
+both sequential and threaded runs. TST-02 compares threaded surfaces with
+serial results for the same inputs, then hashes their arrays and bounds into
+the matching game's per-tick `host.builders` partition. Worker output
+therefore participates in the same divergence report as world and VM state.
 
 ## Streaming
+
+### Vanilla save recovery sessions, SAV-61
+
+`save_recovery::accept_vanilla_recovery_session` performs a read-only
+dependency preflight before restoring a vanilla ESS. Missing plugins, missing
+scripts and changed regular/light plugin kinds return the report and refuse
+session start. ESS provenance that is unavailable in the format remains
+reported as unknown. Unimported projectile and hazard changes, opaque PCON
+remainders and PARW payloads also refuse execution so they are not silently
+omitted. Other supported restoration errors return before a recovery
+generation is written.
+
+After restoration succeeds, the host writes a native generation to the
+caller-provided recovery store. The operation does not open or replace the
+source ESS path. It does not claim that every vanilla change-form type or
+saved Papyrus behavior can be resumed. A caller has to opt into this operation
+after reviewing its returned dependency report.
 
 ### Attaching a restored player, SAV-19
 
@@ -457,17 +1122,40 @@ Interiors appear under their own tree group. Selecting a row calls
 `CellStreamerNode::open_cell_id`, which resolves that exact cell id and draws it through
 the same `DataSource::stream_cell_id` and `CellStreamerNode::add_cell` path used by the
 host renderer. It clears the previous selection first, so the viewport contains one cell.
-The viewport camera frames the rendered bounds after selection.
+The viewport camera frames the rendered bounds after selection. The installed-data host
+check `godot/edt_03_cell_scene_test.gd` opens two populated interiors in sequence and
+checks that the second selection replaces the first cell's render instances.
 
-This milestone supplies a read-only cell tree and rendered cell preview. It does not edit
-cell records, expose reference selection, or add transform gizmos. The Godot project opens
-the cell view only after the author enters a valid `Data` directory or launches the editor
-with `SKYRIM_DATA` set.
+This milestone supplies a read-only cell tree and rendered cell preview. Reference transform
+editing is provided by the separate `addons/soe_reference_gizmo` dock described below. The
+Godot project opens the cell view only after the author enters a valid `Data` directory or
+launches the editor with `SKYRIM_DATA` set.
+
+### Selected reference transform gizmo, EDT-14
+
+The `addons/soe_reference_gizmo` editor dock opens plugin paths through
+`SoeReferenceTransformEditor`, takes a resolved `file:object` FormID, and adds one
+`SoeReferenceGizmoTarget` proxy Node3D to the edited scene. Godot's registered
+`EditorNode3DGizmoPlugin` attaches a draggable handle to that selected proxy. Its commit
+callback calls `commit_gizmo_transform`, which forwards position and rotation to
+`SoeReferenceTransformEditor::set_reference_transform` and then to
+`EditorDocument::set_reference_transform`. The record remains the source used for plugin
+output. Undo calls the document edit log and reloads the proxy pose from the winning record.
+The Save plugin button writes the active plugin. This creates one proxy node for the selected
+reference only. Ordinary cell rendering remains RID-backed.
+
+Godot's local `tutorials/plugins/editor/3d_gizmos.rst` and
+`classes/class_editornode3dgizmoplugin.rst` specify the handle callbacks and restore value
+used by this adapter. `godot/edt_14_gizmo_test.gd` exercises the gizmo callback adapter and
+proxy update in Godot. The editor crate tests verify the record operation, undo, and saved
+`REFR` placement. Reference selection from the cell tree and automatic replacement of the
+streamed cell preview after a placement edit are not implemented by this milestone.
 
 `PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
-per update. The same value is exposed to Papyrus as the `Exterior cell loads per update`
-budget category through `Utility.GetBudgetCount`, `GetBudgetName`, `GetCurrentBudget` and
-`OverBudget`.
+per update. It reports the successfully entered cell count to the shared `Game` and
+Papyrus budget usage. Papyrus reads the latest count through
+`Utility.GetCurrentBudget` and compares it with the configured cap through
+`OverBudget`. The counter resets to zero at the start of each host update.
 
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under
@@ -503,6 +1191,49 @@ requested. Each rendered block remains keyed by its worldspace and
 `clear_object_lod` to release it. BTO surfaces retain the worldspace form as
 their source identity because the merged file does not encode individual
 placed-reference identities.
+
+`terrain_lod_stats` and `object_lod_stats` report each stream's resident
+block coordinates in the `blocks` field as space-separated
+`level:x:y` entries, alongside drawn instance and triangle counts. The live
+RND-10 renderer check streams a radius-2 exterior area and real BTR and BTO
+blocks in the same scenario, then checks that the LOD block squares do not
+cover any coordinate in that near area. This exercises the handoff through
+`RenderingServer` instances without treating BTO surfaces as individual
+placed references.
+
+`PlayerNode` starts terrain and object LOD when its gameplay focus enters an
+exterior worldspace. It gets the asset folder from the winning worldspace
+record, following PNAM's Use LOD Data bit through parent worlds. Use Land
+Data does not select LOD assets. Missing parents and cycles return no LOD
+identity. xEdit `Core/wbDefinitionsTES5.pas` defines the two independent flags,
+and `Core/wbLOD.pas` supplies block alignment and settings. The NIF block
+layouts are documented by local `nifxml/nif.xml`.
+
+The default LOD radius is 16 cells. The exported full-resolution exclusion
+radius is clamped to at least the near streamer's two-cell unload radius,
+covering cells retained by hysteresis. Both radii and an approximate byte
+budget per LOD stream are exported on the player. Each player update advances
+both LOD streams at the current cell coordinate. Blocks overlapping the
+full-resolution exclusion are released immediately, ahead of near uploads,
+while distant releases retain their per-update quota. A worldspace change
+starts both streams for the destination world, and leaving exterior gameplay
+clears both streams. Residency and handoff operate on whole BTR and BTO blocks.
+`set_terrain_lod_visible` toggles resident terrain instances without changing
+near geometry or object LOD, for capture comparisons. The gate diagnostic
+returns both ends of its teleport link, allowing the check to move from
+authored references in each worldspace.
+
+`godot/rnd_19_player_lod_capture.gd` enters WhiterunWorld through the Bannered
+Mare door and looks south from the city gate toward the mountains. It captures
+the same frozen view with terrain LOD hidden and visible, requiring at least
+500 terrain-contributed pixels in the middle third of the image. Captures go
+to `godot/.godot/rnd-19-whiterun-exterior-lod.png` and its `-no-terrain.png`
+control. It crosses into Tamriel, checks a configured 12-cell LOD radius,
+moves six cells, verifies resident LOD blocks change without overlapping
+retained full cells, and returns to the interior to verify both streams clear.
+The Rust `rnd_19_` tests run this installed-data capture, survey WRLD flags,
+and exercise independent land/LOD inheritance, nested parents, invalid
+parents, focus movement, radius validation and immediate near handoff.
 
 ## Mesh
 
@@ -627,9 +1358,11 @@ focus node to the tree before the streamer node, or gate the first `process` tic
 
 ### Editor marker survey (2026-09-20)
 
-`DataSource` keeps the form-level bit 23 filter for FURN and DOOR. For models
-selected through STAT, CONT, FURN and DOOR, it also removes only TriShape and
-BSTriShape blocks reached through an `EditorMarker` node. xEdit's
+`DataSource` excludes bit 23 editor markers from visual model selection.
+For models selected through STAT, CONT, FURN and DOOR, it also removes
+TriShape and BSTriShape blocks reached through an `EditorMarker` node.
+RND-20 extends this to hidden and shaderless helper geometry, described
+below. xEdit's
 `Core/wbDataFormatNif.pas`, `TwbNifBlock.GetIsEditorMarker`, is the source: it
 defines an editor marker per named NiObjectNET block. Collision still reads the
 full model, so the visual filter does not remove physical geometry.
@@ -931,6 +1664,41 @@ and `scene_bounds` reports the merged bounds so a camera can frame the scene wit
 children. `bench.gd` and `capture.gd` use it. The unbatched mode (one instance per surface)
 stays as the benchmark's baseline, on the `batch_surfaces` export.
 
+PRF-08 attaches each bulk material to its mesh surface before creating the
+RenderingServer instance. Batched, unbatched, MultiMesh and distant LOD meshes
+use this path. A placement rebake carries the old surface material to the new
+mesh. This exposes the mesh/material combination to Godot's pipeline
+precompilation without an instance material override. `surface_material_count`
+reports how many full-resolution instances have a surface material.
+
+`godot/render_warmup.gd` renders the configured scene under a ColorRect during
+benchmark and walkthrough loading. It synchronizes submitted GPU work there
+and waits for at least three drawn frames and 500 ms without changes to any
+pipeline compilation counter. It fails after 30 seconds without settling.
+Camera, lights and materials stay active. No per-reference nodes are added.
+Loading durations, worst loading frame and pipeline counts are reported
+separately. This is a quiet-counter predicate, not an API for pending compiler
+jobs. It does not warm views or effects introduced later.
+
+The render warm-up timeout begins at the first `frame_post_draw`, so time
+before the first drawn frame does not use the 30 second settle limit. The
+successful load report records that delay as `load_first_frame_wait_ms` and
+records the subsequent pipeline settling time as `load_render_ms`.
+`godot/prf_08_test.gd` checks the timeout behavior after a 77 minute simulated
+undrawn wait and checks both report fields with a windowed renderer.
+
+Sources read for PRF-08: local `godot-docs/tutorials/performance/pipeline_compilations.rst`,
+`classes/class_renderingserver.rst` and `classes/class_projectsettings.rst`.
+Godot documents deferred compilation for instance overrides, covered rendering
+during loading, the pipeline counters and disk shader caching. The implementation
+uses these stock Godot 4.4 APIs and retains the default enabled shader cache.
+The headless `prf_08_whiterun_mesh_materials_are_bound_before_first_frame` check
+loads nine installed Whiterun cells in batched and unbatched modes and checks
+attached materials before drawing.
+It requires `SKYRIM_DATA` and a Godot executable. The deterministic GDScript
+contracts run through `prf_08_loading_reporting_and_repetition_contracts_in_stock_godot`.
+See [performance.md](performance.md#prf-08-first-use-rendering) for windowed acceptance.
+
 The `StandardMaterial3D` cache moved from a per-call local to the node. It now includes
 alpha and culling state in its key, with a separate path-keyed texture upload cache,
 so a texture uploaded for one cell serves every later cell that names it. `last_stats`
@@ -1068,8 +1836,12 @@ the rendering path on Godot's existing mesh and material servers without adding 
 `rnd_01_terrain_texture_check.rs` checks the installed Whiterun data path through the
 `LoadedSurface` texture payload. `CellStreamerNode::terrain_surfaces` exposes the uploaded
 terrain materials for `godot/rnd_01_terrain_texture_check.gd`, which checks the live
-RenderingServer instances and their albedo images. `godot/pan_capture.gd` orbits and pans that
-block through 25 shots for a quick visual sweep. Distant geometry is Bethesda's precomputed
+RenderingServer instances and albedo resources, then renders a terrain instance in the main
+viewport and checks the captured frame for visible, varied, non-white terrain pixels. The
+inspection rows include each terrain instance's bounds center so the camera can frame that
+surface without using unrelated cell geometry.
+`godot/pan_capture.gd` orbits and pans that block through 25 shots for a quick visual sweep.
+Distant geometry is Bethesda's precomputed
 LOD (the `BTO` and
 `BTR` files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing
 beyond the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among
@@ -1259,6 +2031,11 @@ and false if the graph unloads first. This bridge only drives visuals
 explicitly bound through `PlayerNode.bind_actor_appearance`. General reference
 animation graphs are not instantiated by this bridge.
 
+`PlayerNode.gameplay_animation_events` returns the source file and object IDs
+and event name for each graph event delivered to the active Game. The ANM-58
+Godot integration test emits the rig signal after binding and checks that the
+event reaches this world log.
+
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local
 `godot-docs/classes/class_renderingserver.rst`. The request bridge only covers
@@ -1366,7 +2143,7 @@ rotation twice instead of cancelling it.
 
 `tests/real_skinning.rs` asserts the first of those on every frame path, and
 the captures in `docs/images/skinned-{idle,walk}.png` are a body standing and
-walking. Materials are still unwired, so they are unlit grey.
+walking.
 
 ## Sound out (2026-09-18, branch `playback`)
 
@@ -1433,20 +2210,79 @@ would be silent, and 57 are not.
 
 `godot/dlg_11_audio_test.gd`, launched by
 `crates/godot-host/tests/dlg_11_godot_audio.rs`, opens a generated voice BSA
-through `SoundBank::open_data`. The script starts a response at the speaker
+through `SoundBank::open_data`. The fixture sets `sLanguage=ENGLISH` in
+`Skyrim_Default.ini` to select its English voice archive.
+The script creates a current `AudioListener3D`, starts a response at the speaker
 position, captures nonzero samples from Godot's master mixer, stops that
-player, starts a replacement at a second position, and captures its output.
+player through the exposed `stop_voice` method, starts a replacement at a
+second position, and captures its output.
+Capture polls for signal until the stream duration plus half a second, since
+voice assets can start with silence. The generated WAV fixture includes a
+quarter second of leading silence. The capture buffer is cleared between
+responses using Godot's `AudioEffectCapture` API, documented in local
+`engine-refs/godot-docs/classes/class_audioeffectcapture.rst`.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
-Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
-newer executable and the release extension exists at
+headless Godot process. The Rust test runs when `SOE_GODOT_BIN`
+names a Godot 4.4 or newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
+The script rejects an extension missing the voice methods before playback.
+The script exits on each checked failure and success path. Both the generated
+WAV speaker check and the installed xWMA check run headless. The Rust
+test gives each Godot child 110 seconds, kills and reaps it at the deadline,
+and includes captured standard output and error in a failure message. A
+missing completion marker fails the test. The script watchdog exits after 90
+seconds, and the headless launch also quits after 3,600 frames as a secondary
+bound.
+The script explicitly loads `soe.gdextension` when needed, so a fresh checkout
+does not require an editor import or a cached extension list. This uses
+`GDExtensionManager.load_extension` from the local
+`engine-refs/godot-docs/classes/class_gdextensionmanager.rst` reference.
 
-When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
-line. Without installed data it uses a generated WAV. The capture proves
-Godot's mixer received both voice buffers. It does not prove that a physical
-speaker or headset produced audible output. That still needs a windowed run
-with installed data and a `SoundBank` in the tree.
+`dlg_11_installed_xwma_voice_plays_in_headless_godot_mixer`, gated on
+`SKYRIM_DATA`, reads the surveyed `maleelfhaughty/voicepowers_shout01b` xWMA
+FUZ from the installed English voice archive, then runs the same mixer check
+with that voice. If that path is unavailable, the test samples up to 60 sorted
+vanilla FUZ paths and uses the first decodable xWMA voice with signal. The
+generic mixer test uses generated WAV data with 250 milliseconds of leading
+silence. Capture polls for signal through the clip duration plus one second,
+retains the 0.0001 peak threshold and clears captured samples after the
+interrupted player drains. The capture uses the ring-buffer API described in
+local `godot-docs/classes/class_audioeffectcapture.rst`. Both checks prove
+Godot's mixer received both voice buffers at the requested speaker positions.
+They do not prove that a physical speaker or headset produced audible output.
+That still needs a windowed run with installed data and a `SoundBank` in the
+tree.
+
+### Physical output check, HST-05
+
+`godot/hst_05_audio_output.gd` lists every output returned by
+`AudioServer.get_output_device_list`, selects the requested device, and plays
+the requested SoundBank effect three times. Its defaults are the system
+`Default` output and the 0.477 second vanilla footstep
+`sound/fx/fst/dirt/jumpdown/fst_dirt_jumpdown_01.wav`, read from the installed
+`Skyrim - Sounds.bsa`. Each successful start prints an `AUDIO_CHECK` line with
+the selected device, sound path and play number. A load or playback failure
+prints its reason and exits with status 1.
+
+Run the script without `--headless` while listening through the selected
+physical output. Pass a device name and sound path after `--`, or omit either
+argument to use its default:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --script hst_05_audio_output.gd -- "Default" "sound/fx/fst/dirt/jumpdown/fst_dirt_jumpdown_01.wav"
+```
+
+Record the date, selected device, sound, what the person heard and process
+exit status in [hst-05-audio-observation.md](hst-05-audio-observation.md).
+The listening field stays blank until a person reports what they heard.
+Set `SOE_HST_05_LISTENING_CHECK=1` to validate that field with
+`cargo test -p soe-godot-host --test hst_05_breaker_adversarial` after recording
+the observation. Automated gates skip that human listening check. The
+`hst_05_audio_output` integration test runs the same script with Godot's dummy
+audio driver and installed game data. It checks device listing, selected
+device reporting and all three SoundBank starts. The dummy driver does not
+establish that a physical output made the sound audible.
 Footsteps are driven by the character controller. Dialogue response audio is
 now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build
@@ -1573,6 +2409,11 @@ the player, the geometry flag controls its RenderingServer instances in first
 person. Third-person view keeps the player appearance visible. The
 `hst_17_camera_controls.rs` test exercises the state readbacks and verifies
 the third-person camera yaw and position respond to the sitting offset.
+`SkinnedActorNode.set_first_person_geometry_visible` applies the same visibility
+change to every shape instance in its rig. The windowed
+`godot/hst_17_geometry_visibility_test.gd` check loads the installed vanilla
+body, hides its shape instances, then shows them and compares rendered pixel
+counts.
 
 ### Mouse and gamepad bindings
 
@@ -1669,14 +2510,16 @@ installed-data player test successfully with 281 collision bodies and about
 90 units of movement. This confirms the automated movement check survives
 the reference/audit integration, not that the reported visual defects are fixed.
 
-## Ordered workers and data-source split (2026-09-19)
+## Ordered and persistent workers and data-source split (2026-09-19, 2026-09-29)
 
-The data source now uses one bounded scoped worker helper for master parsing,
-archive opening and mesh construction. Results are joined in input order.
-Archives still enter the VFS in load order, preserving last-archive precedence.
-Every worker is joined even if another worker panics. A failed batch returns
+The data source now uses a cached bounded Rayon pool for master parsing,
+archive opening and mesh construction. The pool is reused across batches with
+the same worker count, and changing the count replaces the cached pool.
+Indexed collection preserves input order, so archives still enter the VFS in
+load order and retain last-archive precedence. A worker panic returns
 `DataSourceError::WorkerPanicked`, rather than shortening the mesh result list
-and potentially attaching later geometry to the wrong reference.
+and potentially attaching later geometry to the wrong reference. Pool
+construction errors are returned as `DataSourceError::WorkerPoolBuild`.
 
 Texture keys use `soe_bsa::normalize`, matching the VFS's case and separator
 rules. Per-key `OnceLock` entries share successful and failed loads across
@@ -1713,6 +2556,21 @@ Glow, environment and other shader features remain unwired.
 Native boxes, spheres, capsules and convex hulls replace the former box-hull
 approximations. See [physics](physics.md) for geometry tests and measurement
 limits, and [the reference map](reference-audit.md) for future work.
+
+Convex point clouds are reduced to the boundary vertices using
+`soe_physics::hull::triangles` before `PhysicsServer3D` receives them. If that
+cannot produce a 3D hull, the host removes duplicate and non-finite points and
+submits a slightly padded bounds hull. A repaired hull reports its source mesh
+path and NIF collision node name once per process. Godot's `shape_set_data`
+returns no hull failure result, so this check prepares the point set before
+the call rather than retrying after Jolt reports an error. The PRF-32 checks a
+44-point cloud with interior points and a flat cloud, then sends both repaired
+hulls to Godot's Jolt server. Its installed-data check streams Bannered Mare
+through the host and runs `physics_test.gd`, requiring collision bodies,
+contact and no Jolt shape error.
+The installed collision helper builds and registers the release extension.
+Clippy can leave metadata at the debug library path, so existence alone does
+not establish a loadable library.
 
 ## Capacity checks
 
@@ -2043,10 +2901,23 @@ shared Game, then successful picks resume ordinary activation. The
 `hst_03_lockpick_handoff.gd` runtime test uses the synthetic
 `inventory_fixture` records to activate a keyless locked door, submit the
 record-derived successful angle, activate the unlocked door and reject a
-level 255 key-only door. Generate the fixture with
+level 255 key-only door. `ui_08_lockpicking.gd` drives the same Godot controls
+through a failed turn, checks the remaining pick in the native inventory, then
+completes a successful turn and activates the door. The fixture starts with two
+lockpicks so both outcomes run in one session. Generate the fixture with
 `cargo run -p soe-godot-host --example inventory_fixture -- /tmp/soe-hst-03
-"$SKYRIM_DATA"`, set `SOE_UI_TEST_DATA=/tmp/soe-hst-03`, then run the script
-in the disposable Godot project used for host runtime tests.
+"$SKYRIM_DATA"`, then run the script with the fixture path:
+
+```sh
+rtk env SOE_UI_TEST_DATA=/tmp/soe-hst-03 "$SOE_GODOT_BIN" --path godot --script \
+  "$PWD/crates/godot-host/tests/ui_08_lockpicking.gd" --resolution 640x360
+```
+
+The PlayerNode handoff passed on Godot 4.4.1 at 640 by 360 with llvmpipe.
+The script activated fixture reference `0:000511`, opened the lockpick panel,
+submitted angle 23.6, then activated the now-unlocked door. It also confirmed
+that key-only reference `0:000513` did not open the lockpick panel. The fixture
+used installed Skyrim assets in place and was generated under `/tmp`.
 
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
@@ -2060,16 +2931,16 @@ restrictions denied an editor socket. Direct runtime execution succeeded.
 
 ### Animated static collision, HST-01
 
-`AnimatedStaticNode` can build a trimesh collider below each generated mesh
-when `collision_enabled` is set before `load_nif`. The controller updates the
-mesh transform, and the collider remains its descendant, so Godot applies the
-same scene transform to both. `open()` resets controller time and starts its
-per-frame evaluation. The collision option defaults off. This path is for
-small animated references and does not change bulk cell batching.
-Godot's `MeshInstance3D.create_trimesh_collision` creates a `StaticBody3D`
-with a concave shape from that mesh. The controller is advanced by the host
-node's process callback, matching Godot's documented process-frame animation
-updates.
+`AnimatedStaticNode` can build an `AnimatableBody3D` with a concave trimesh
+shape below each generated mesh when `collision_enabled` is set before
+`load_nif`. The body synchronizes to physics frames, and both body and shape
+remain descendants of the animated mesh, so Godot applies the same scene
+transform to the visual and collision geometry. `open()` resets controller
+time and starts its per-frame evaluation. The collision option defaults off.
+This path is for small animated references and does not change bulk cell
+batching. Godot documents `AnimatableBody3D` for manually moved doors and its
+`sync_to_physics` property for physics-frame updates. The host advances the
+controller from its process callback.
 
 When player activation opens a non-teleport DOOR, `PlayerNode` resolves its
 winning model through the shared load order and VFS, loads the NIF bytes into
@@ -2081,17 +2952,18 @@ expose the current targets and attached-node count to host tests. Load doors
 keep the transition path and do not start a swing controller.
 
 The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
-with a rotation track, advances it, and confirms the generated static body
-follows the visual mesh transform. The player activation path loads animated
-swing-door NIFs from the VFS and starts the node after game activation.
+through the same byte loader used for VFS doors. It advances the rotation track
+and confirms the animated physics body and shape follow the visual mesh
+transform. The player activation path loads animated swing-door NIFs from the
+VFS and starts the node after game activation.
 
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.
 Exterior walking loads and unloads nearby grid cells through the budgeted
-planner when either mesh budget is set. Ordinary door activation still does
-not instantiate `AnimatedStaticNode`, so a logical open state does not swing
-the rendered door or move its collision. Portal transitions and revised AI
-remain deferred until existing Skyrim gameplay works.
+planner when either mesh budget is set. The swing-door host path applies to
+activated non-teleport doors with a supported NIF transform controller.
+Teleporting doors retain the cell transition path. Portal transitions and
+revised AI remain deferred until existing Skyrim gameplay works.
 
 ### Cold door fade fallback (2026-09-20)
 
@@ -2188,6 +3060,35 @@ brings in the selected track using the MUSC fade. Abrupt transitions skip both
 ramps. Starting another transition stops the earlier outgoing slot, so it
 cannot continue under the latest selection.
 
+`aud_05_godot_interrupted_transition_replaces_stale_player_stream` runs the
+SoundBank in Godot with three synthetic archive tracks. It checks both players
+during the first fade, verifies each configured fade changes player volume,
+then interrupts the fade and checks that the reused slot no longer has the
+first track assigned. AudioEffectCapture confirms mixer output during playback.
+
+### Asynchronous music and ambience (AUD-12)
+
+Music and ambience requests decode on a worker. The main thread creates the
+`AudioStreamWav` only after PCM is ready, then starts playback. A newer request
+invalidates an older decode result, and the current music continues playing
+until its replacement is ready. Decoded music and ambience paths share a
+cache with a 64 MiB audio-data budget. Effects and voices
+keep their existing path, which decodes synchronously.
+
+SoundBank retains decode workers and joins them before destruction, so no
+worker executes extension code after the library unloads. Finished workers
+are joined during polling. This follows the local
+`godot-docs/tutorials/performance/using_multiple_threads.rst` shutdown example.
+An accepted request can still fail during decoding, which updates `last_error`
+without incrementing the playback start count. The AUD-11 counter check waits
+for decode completion before checking missing assets and restarts.
+
+`aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes` checks
+request latency, replacement cancellation, continued current playback, cache
+reuse and the cache budget using generated WAV files. It also checks the fast
+effect and voice path. The installed PRF-12 test exercises the real walkthrough
+and checks the audio system's worst recorded frame time.
+
 Loose `.xwm` music and xWMA files in FUZ require the optional
 `xwma-ffmpeg` feature. The host does not apply the MUSC ducking amount, queue
 policy, or track cycle/order flags. It uses those records' eligible ordered
@@ -2269,12 +3170,14 @@ lookup.
 The menu remembers the voice slot returned by `SoundBank`. Starting a later
 response stops the prior dialogue slot first. Closing the dialogue menu and
 advancing past the final response also stop the tracked voice. SoundBank
-refuses to stop a slot that has since been released or reused for an effect.
+exposes `stop_voice(slot)` to Godot scripts and refuses to stop a slot that has
+since been released or reused for an effect.
 The default host build decodes vanilla xWMA in process through the audio
 crate's native WMA v2 decoder. The optional `xwma-ffmpeg` feature selects
 ffmpeg as a comparison decoder. The dialogue tests exercise response selection
 and replacement with mock output. The Godot mixer test checks speaker playback
-with a generated WAV fixture. Installed xWMA playback still needs a live run.
+with generated WAV data, and its installed-data case checks xWMA decoding
+through Godot's mixer.
 
 The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
 tracks the active dialogue slot and samples the native mouth targets against
@@ -2284,7 +3187,12 @@ in LIP target order. Stopping or finishing the voice clears the track and
 returns its weights to zero. Lines without a decodable LIP block keep the mouth
 weights empty or neutral. `tests/dlg_20_lip_playback.rs` exercises decoded
 frames through the same slot lifecycle used by SoundBank, including playback
-updates and interruption.
+updates and interruption. `tests/dlg_20_godot_lip.rs` packages a generated WAV
+and LIP block into a voice archive, then launches Godot with the extension and
+opens it through a live SoundBank. It checks that the exposed mouth weights
+match the frame selected by the player's playback position and return to zero
+when `stop_voice` interrupts playback. A nonzero player start offset makes the
+time sample deterministic in headless or windowed runs.
 
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
@@ -2478,7 +3386,8 @@ directly. Both run the segment from the node origin along its negated basis Z
 column, which is Skyrim local +Y after the axis map in `units.rs`. The length
 is `World::melee_reach` converted to metres. `sync_contact_actors` and
 `contact_actor_body` expose the store for diagnostics, `contact_actor_bodies`
-lists every body with its owner and World position in Godot space,
+lists every body with its owner and World position in Godot space, cell,
+coordinate space, dead flag and detection range,
 `last_melee_target` names the actor the last HitFrame query reached, and
 `equip_melee_weapon` gives and equips a weapon so a headless script can arm
 the player.
@@ -2609,7 +3518,10 @@ the stagger source, relative to the target's heading, wrapped into 0 to 1.
 0 means the source stands in front, so the target staggers backwards, and
 0.5 means it stands behind. This is the convention activeragdoll's
 `main.cpp` documents. A stagger with no source leaves the graph's previous
-value in place.
+value in place. `Variables::set_by_name` ignores a name the graph does not
+declare, so on the vanilla master graph, which does not expose the variable
+as the paragraph above records, the value only reaches graphs that declare
+it.
 
 The `cmb_19_` unit tests check bone assignment, frame conversion and the
 death-to-resurrection mode transition. The installed-data gated
@@ -2641,6 +3553,12 @@ uses Jolt. `SimpleWorld` has no ragdoll solver. The conversion is a host
 approximation because the CK pages do not state the force unit expected by
 the physics solver.
 
+`godot/cmb_38_ragdoll_test.gd` loads a vanilla Bannered Mare actor, explicitly
+adds its ragdoll, queues `PushActorAway` through the shared `World`, and checks
+that Jolt changes the root body's velocity. It then removes the explicit
+ragdoll and checks that the bodies are freed and animated rendering resumes.
+The host bridge calls the same `World` methods used by the Papyrus natives.
+
 Results are dictionaries with `ok`, generation and path. Generation IDs are
 strings to retain their full unsigned range. Rejected candidates carry an
 integrity, definitions or read reason. Recovery adds `state_loaded`, clears
@@ -2662,6 +3580,10 @@ and `Game.ForceThirdPerson` set the live player rig and refresh the camera.
 delay and duration, and chooses black or white from its black-fade flag.
 Negative or non-finite timing values are rejected by the Game native and
 logged. These operations run after the VM tick that enqueued them.
+Camera requests share the rig mode helper used by the camera tests. The fade
+overlay uses one presentation value for its color, opacity and visibility,
+including when a door fallback fade overlaps a Papyrus fade. Save requests use
+the same generation writer as explicit host saves.
 
 ## Native menu framework
 
@@ -2678,12 +3600,15 @@ execution is not part of this HUD.
 `ui_06_hud.rs` checks all three shared actor values, current and modified
 maximums, a changed health value and the north-to-east compass update. Cargo
 tests cover the Rust data path.
-The controls compile with gdext, but their appearance in a running Godot
-window is checked by `godot/ui_06_hud_render_test.gd`, which starts gameplay
-in the installed Bannered Mare cell and checks viewport pixels in the three
-meter labels, bars and compass after Godot processes frames. The synthetic
-Rust update test changes all three shared actor values and checks their
-updated fractions.
+The controls compile with gdext, and `godot/ui_06_hud_render_test.gd` checks
+their appearance in a running Godot window. It starts gameplay in the
+installed Bannered Mare cell, checks viewport pixels in the three meter
+labels, bars and compass, damages each player actor value through
+`PlayerNode::damage_player_actor_value`, then checks that the visible labels
+and bar fills update after Godot processes frames. The method applies damage
+to the active shared game and returns false if gameplay is not active or the
+actor value name is invalid. Synthetic Rust tests also change all three
+shared actor values and check their updated fractions.
 
 Run the host check with the release extension loaded and installed data set:
 
@@ -2710,6 +3635,11 @@ Closing frees presenter controls, clears held gameplay actions and restores
 prior focus and mouse mode. Mouse restoration waits for window focus when
 closing while unfocused. Repeated opens and closes do not add shell nodes.
 
+UI-21 documents the public API and license boundary for SKSE Menu Framework
+and dMenu style ImGui pages, and compares host rendering options. Those
+frameworks are not implemented by the native menu framework described here.
+See [ui-frameworks.md](ui-frameworks.md) for the research and proposed rows.
+
 ### MCM text and toggle rows, UI-11
 
 `mcm_menu::ConfigPage` stores text/value and toggle rows in authored order.
@@ -2724,12 +3654,15 @@ configured script form.
 The local SkyUI `SKI_ConfigBase.psc` header and source define the text/toggle
 option types, disabled and hidden flags, page-strided option IDs, 128 positions
 per page and selection event shape. Godot Controls replace its Scaleform
-presentation under the project intent. The UI-11 fixture starts a Papyrus quest
-using the `SKI_ConfigBase` lifecycle shape, then adds text and toggle rows,
-changes toggle enabled state and checks the `OnOptionSelect` callback count.
-The test uses a focused script fixture rather than executing SkyUI's complete
-source scripts. The host menu manager and Scaleform APIs remain outside this
-path.
+presentation under the project intent. The UI-11 VM fixture adds text and
+toggle rows, changes toggle enabled state and checks that one enabled selection
+delivers one `OnOptionSelect` callback. A separate source fixture reads the
+unmodified `SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` files, checking the
+text and toggle constructors, flag packing, page-strided selection callback
+and manager forwarding. Set `SOE_SKYUI_CONFIG_BASE` and
+`SOE_SKYUI_CONFIG_MANAGER` to use different source paths. The full upstream
+scripts are not compiled or executed by the Papyrus VM fixture. The host menu
+manager and Scaleform APIs remain outside this path.
 
 ### MCM slider and menu dialogs, UI-12
 
@@ -2763,19 +3696,18 @@ default colors. Its active dialog setters model `SetColorDialogStartColor` and
 an accept callback or changing the row. Disabled and hidden options reject
 these callbacks. The callback names and argument order follow the local
 SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
-`SKI_ConfigManager.psc`. `KeyConflictScanner` checks vanilla control mappings
-first, then registered mod config mappings in registration order. A vanilla
-match has an empty config name, and a mod match reports that config's name.
-`remap_key_scanned` performs this lookup before dispatching the callback. The
-manager's Scaleform-bound presenter cannot serve the chosen native Godot UI,
-so this host models the public callback contract and the manager's conflict
-lookup. Conflict maps are currently supplied to `KeyConflictScanner` by the
-caller. The host does not yet query Godot's live input map or ask registered
-Papyrus configs for `GetCustomControl`. Color dialog parameters are exposed by
-the host model. They are not yet wired to Papyrus calls to the two SkyUI setter
-functions. Synthetic tests cover callback eligibility, vanilla and mod
-conflict precedence, callback arguments, color dialog parameters, acceptance
-and cancellation without Skyrim data.
+`SKI_ConfigManager.psc`. `KeyConflictScanner::from_bindings` derives vanilla
+conflicts from the active gameplay `Bindings`, including every key in a chord
+and the keyboard, mouse and gamepad columns. `remap_key_live` checks those
+bindings first, then asks each registered MCM config to run its
+`GetCustomControl(keyCode)` method in registration order. It reports the first
+nonempty custom control with that config's `ModName`. The older scanner
+constructor and `remap_key_scanned` remain available for focused callers and
+fixtures. Color dialog parameters are exposed by the host model. They are not
+yet wired to Papyrus calls to the two SkyUI setter functions. Synthetic tests
+cover active binding discovery, registered script calls, callback eligibility,
+conflict precedence, color dialog parameters, acceptance and cancellation
+without Skyrim data.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
@@ -2802,6 +3734,17 @@ takes a Game, holder and category, allowing the container menu to reuse its
 form-backed rows without a second inventory model. Drop, use, charge, favorite
 and instance-specific actions remain outside UI-02.
 
+The item card and inventory row share this category reader, including the food
+icon. Its flag follows local xEdit `Core/wbDefinitionsTES5.pas`, and SkyUI's
+`ItemMenus/InventoryDataSetter.as` supplies the food classification behavior.
+SkyUI cache scene checks require `SOE_TEST_SKYUI` and either `SOE_FFDEC_JAR`
+or `SOE_FFDEC`. Without those inputs they report a skip. JPEXS FFDec's local
+CLI help lists `yes`, `ask` and `local` as import options. The converter uses
+`local` alone, leaving both import and prompting disabled, as confirmed by
+the bundled `CommandLineArgumentParser` and `ConsoleUrlResolver` classes.
+The archive survey checks bounded sprite definitions when Ruffle's parser
+rejects SkyUI's omitted sprite End tags.
+
 When activation opens a container, its menu presents the same category buttons
 and lists the container's positive inventory totals. The rows come from its shared
 `RefState::inventory`, including authored `CNTO` entries loaded from the xEdit
@@ -2815,11 +3758,15 @@ documents reference moves between holders. These host rows show inventory
 totals, not a separate list of loose references.
 
 The UI-15 gift presenter opens when Game has a pending `ShowGiftMenu` request.
-It lists positive inventory totals after applying the optional form or keyword
-filter. Selecting a row transfers one item through `Game::gift_menu_transfer`
+It lists positive inventory totals after applying the optional FormList's form
+and keyword matches. Stolen stacks are hidden unless the request asks to show
+them. Selecting a row transfers one item through `Game::gift_menu_transfer`
 and refreshes the rows. Closing the modal menu resolves the latent Papyrus call
 with the accumulated nonnegative gift value. Both giving and taking use the
-same source and target transaction path.
+same source and target transaction path. The `ui_15_gift_menu_lists_only_filtered_forms_and_keywords`
+test checks that a direct form match and a keyword match appear while an
+unmatched inventory item does not. A second UI-15 test checks that a stolen
+row is hidden by default and shown when requested.
 
 The `inv_04_` inventory presenter tests activate a synthetic container, check
 its listed contents, verify both rows after a successful transfer, and verify
@@ -2865,6 +3812,19 @@ Sources read for CRF-06: Godot's `godot-docs/classes/class_control.rst` for
 native Control focus and input behavior, and `skyui/src/CraftingMenu/` for the
 crafting menu's recipe list and selected-recipe confirmation flow.
 
+`PlayerNode::gameplay_creation_benches` exposes enabled creation bench
+references in the loaded logical cell for runtime tools. The CRF-06 installed
+runtime check activates these references through `activate_reference`, then
+checks the recipe Control buttons and their confirmation callback in Godot.
+With the fresh live player inventory, the test exercises the insufficient
+ingredient rejection. The Rust presenter tests cover successful transaction
+confirmation.
+It runs with `SKYRIM_DATA` and the host extension loaded:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --resolution 640x360 --script crf_06_crafting_menu_test.gd
+```
+
 `Game.ShowTrainingMenu(actor)` requests this presenter through a transient
 World request. The presenter shows the trainer's skill, current value, tier
 cap, DLG-16 price and remaining per-level sessions. The purchase button is
@@ -2884,7 +3844,9 @@ own.
 synthetic quest records, including a stage change that replaces the displayed
 objective. `godot/ui_04_quest_journal_test.gd` loads installed data, starts the
 shared Game in Bannered Mare and checks that the native menu panel and quest
-text controls are populated. Run it after building the extension and importing
+text controls are populated. It then changes MQ101 to stage 10 through the
+PlayerNode host bridge and checks that the open menu rows change on a later
+process frame. Run it after building the extension and importing
 the Godot project with
 `SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script ui_04_quest_journal_test.gd`.
 This verifies the Godot control tree and its text, without asserting a rendered
@@ -2918,14 +3880,14 @@ angle slider and Turn lock button submit attempts to `Game::attempt_lockpick`.
 A miss consumes a pick and leaves the menu available for another angle. A
 successful turn closes the menu and activates the same reference through the
 ordinary Game path. The menu is presenter state only. The
-`hst_03_lockpick_handoff.gd` test exercises this PlayerNode path against a
-synthetic keyless door and the shared Game. CK Lock and GetLockLevel pages plus
-xEdit's XLOC definition establish lock state, level bands and the key-only
-level 255 case. The angle rule is the game crate policy documented in
-[game.md](game.md#authored-locks-and-keys-2026-09-19). Synthetic `ui_08` game
-tests cover both outcomes. The Godot control interaction has been exercised
-with the successful turn. Visual presentation and minigame feel remain
-unverified.
+`hst_03_lockpick_handoff.gd` and `ui_08_lockpicking.gd` exercise this PlayerNode
+path against a synthetic keyless door and the shared Game. CK Lock and
+GetLockLevel pages plus xEdit's XLOC definition establish lock state, level
+bands and the key-only level 255 case. The angle rule follows the game crate
+policy documented in [game.md](game.md#authored-locks-and-keys-2026-09-19).
+Synthetic `ui_08` game tests cover both outcomes. The live Godot interaction
+test checks the failed and successful turns. Visual presentation and minigame
+feel remain unverified.
 
 ## Dialogue menu, DLG-10
 
@@ -3021,74 +3983,85 @@ snapshot after gameplay startup and each gameplay tick, clears it when the
 data source changes, and exposes `gameplay_effect_shaders` as a diagnostic
 array. It allocates no scene node or server resource. The host does not yet
 render EFSH authored textures, color keys or particles on reference geometry.
+An opt-in `scr-24-test` build adds a synthetic request driver to
+`CellStreamerNode`. `godot/scr_24_effect_shader_test.gd` drives the actual
+RenderingServer path and checks keyed refresh, Stop, finite expiry, clear and
+tree-exit cleanup. Build with
+`cargo build -p soe-godot-host --release --features scr-24-test`, then run
+`godot --path godot --script scr_24_effect_shader_test.gd`. The regression
+checks temporary server-instance ownership, not authored EFSH appearance.
 See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
 
-## Image-space renderer prerequisites, MAG-71
+## Image-space modifier rendering, MAG-71
 
-PlayerNode synchronizes modifier identity, age and strength plus the winning
-base IMGS for the loaded cell or selected weather. It maps authored HDR white,
-bloom scale and eye-adapt strength to camera Environment controls, cinematic
-saturation, brightness and contrast to adjustments, tint to a screen ColorRect,
-and depth strength, distance and range to CameraAttributesPractical. The
-camera Environment starts as a copy of the WorldEnvironment when one exists.
-Clearing the source removes the camera resources and tint overlay. The host's
-weather selection method accepts a WTHR editor id, two slots and a blend. An empty id
-returns to CELL/XCIM. `godot/walkthrough.gd` still supplies background and
-ambient light through its WorldEnvironment.
+PlayerNode synchronizes active modifier identity, age and strength with the
+winning base IMGS for the loaded cell or selected weather. Base IMGS values
+continue through the Environment and CameraAttributesPractical controls. The
+camera Environment starts as a copy of the WorldEnvironment when present.
+Clearing the base and modifier sources removes the camera resources. The host weather
+selection method accepts a WTHR editor id, two slots and a blend. An empty id
+returns to CELL/XCIM. `godot/walkthrough.gd` supplies the RND-18 record sky
+and interior lighting.
+The camera environment refreshes its sky and fog inputs from the current
+WorldEnvironment before applying image-space adjustments.
 
-`ImageSpaceStack::render_layers` samples the active modifiers' authored IMAD
-curves through the shared World and returns their channels beside each layer's
-active strength. The host also applies the base snapshot through Godot's
-Environment and CameraAttributes controls. `godot/walkthrough.gd` continues to
-supply background and ambient light through its WorldEnvironment.
+`ImageSpaceStack::render_layers` samples active authored IMAD curves through
+the shared World. `RenderedModifiers::from_layers` composes tint, blur radius,
+double vision, depth strength and distance, HDR scale, bloom threshold, and
+cinematic saturation, brightness and contrast using each layer's active
+strength. This is the host composition policy, since local xEdit and CommonLib
+sources do not define exact weighted stacking.
+
+`ModifierRenderer` applies tint, blur sampling, double vision, bloom threshold
+and scale, and the selected cinematic channels in
+`godot/mag_71_image_space.gdshader`. DOF
+strength, distance and range update the camera's `CameraAttributesPractical`.
+The pass is attached to the existing player CanvasLayer and hides when no
+visible color channels are active. It creates no per-reference node or server
+resource.
 
 The base reader retains all authored HNAM, CNAM, TNAM and DNAM values in its
-snapshot. The host maps the listed subset to stock Godot controls. Its
-`mag_72_...` Rust fixture checks source-derived render parameters and clearing
-when the loaded cell changes. A Godot pixel readback is not part of that test.
-MAG-71 retains animated curves, active-stack composition, all authored blur
-modes and modifier renderer cleanup. Both rows require rendered evidence.
+snapshot. The host maps the supported subset to stock Godot controls. The
+`mag_71_rendered_image_space_test.gd` pixel fixture loads the production shader
+and checks tint, blur, depth-of-field and bloom threshold against a checkerboard
+scene. The Rust test
+`mag_71_composes_authored_render_channels_with_active_stack_weights` checks
+weighted composition for synthetic curve samples. The pixel fixture still sets
+shader parameters directly, so an end-to-end rendered authored IMAD fixture
+through the active stack remains unverified. These fixtures do not claim pixel
+parity with Skyrim or implement target-based radial blur.
+
+`mag_72_windowed_fixture_reads_hdr_color_and_depth_pixels` launches Godot with
+a 640 by 360 window and captures a checkerboard SubViewport. Its Rust runner
+resolves synthetic CELL/XCIM and selected WTHR/IMSP records through World and
+ImageSpaceStack, then passes their render values to the Godot script. The script
+applies those values to Environment, CameraAttributesPractical and a tint
+overlay. It compares rendered pixels for the clear, cell, weather and
+restored-cell states, and compares depth-of-field enabled and disabled output.
 
 Sources read under `engine-refs`:
 
-- xEdit `Core/wbDefinitionsTES5.pas` and `Core/wbDefinitionsCommon.pas`, plus
-  Mutagen `Records/Major Records/ImageSpaceAdapter.xml` and `.cs`, establish
-  curve layouts and flags. CommonLibSSE-NG
-  `include/RE/T/TESImageSpaceModifier.h` and `include/RE/I/ImageSpaceData.h`
-  distinguish base HDR/color data from modifier-only effects.
-- Community Shaders `package/Shaders/ISHDR.hlsl` consumes exposure history,
-  bloom, cinematic, tint and fade inputs. `ISBlur.hlsl`, `ISDoubleVision.hlsl`
-  and `ISRadialBlur.hlsl` show separate passes and their shader parameters.
-  `src/Features/LinearLighting.cpp` reads the combined sunlight scale for
-  directional lighting. These sources show the required inputs. They do not
-  establish the complete mapping from each IMAD curve to shader constants.
-  The current HDR shader also contains explicit changes to vanilla contrast
-  and display mapping, so copying it would not prove vanilla parity.
-- Godot `classes/class_environment.rst`, `class_cameraattributes.rst`,
-  `class_cameraattributespractical.rst` and
-  `tutorials/3d/environment_and_post_processing.rst` describe color
-  adjustments, tone mapping, bloom, exposure and depth-of-field controls.
-  These are available implementation mechanisms. Their names do not prove
-  equivalent units, transfer functions or ordering to Skyrim.
-- Godot `tutorials/rendering/compositor.rst` documents custom passes with
-  RenderingDevice access in Forward+ and Mobile. Callbacks run on the render
-  thread and require synchronized state and explicit resource cleanup.
-  `tutorials/shaders/advanced_postprocessing.rst` describes depth access and
-  reconstruction. No custom compositor was installed during this audit.
+- xEdit `Core/wbDefinitionsTES5.pas` defines IMAD channel order, DNAM counts,
+  IMGS base values and depth fields. CommonLibSSE-NG
+  `include/RE/T/TESImageSpaceModifier.h` distinguishes base data, animated
+  curves and modifier-only effects.
+- Godot `classes/class_environment.rst` and
+  `classes/class_cameraattributespractical.rst` define the Environment and
+  practical depth-of-field controls used by the host. Its
+  `tutorials/shaders/screen-reading_shaders.rst` defines screen-texture access
+  for the color pass.
 
-`mag_71_host_frame_keeps_curve_samples_with_their_active_weights` checks that
-the host frame preserves the sample and the independent active weight. The
-game test `mag_71_samples_authored_color_blur_depth_and_hdr_curves` checks
-synthetic animated color, blur, depth and HDR keys.
-`mag_71_installed_imad_curves_sample_winning_records` is gated on `SKYRIM_DATA`
-and samples each winning IMAD at its active normalized age. These checks do not
-create rendered image fixtures or verify GPU resource cleanup.
+The game test `mag_71_samples_authored_color_blur_depth_and_hdr_curves` checks
+synthetic animated keys. The installed test
+`scr_33_installed_imad_lifetimes_and_curves_sample_winning_records` is gated on
+`SKYRIM_DATA` and samples winning IMAD records at their active normalized ages.
+The rendered Godot fixture uses llvmpipe. It does not measure frame time or
+verify Skyrim shader parity.
 
-The repeatable installed survey and its exact counts are recorded in
-[game.md](game.md#image-space-rendering-prerequisite-audit-mag-71). It verifies
-record layout and dependency reach. No Godot process was launched, no frame
-time was measured, and no visible image-space behavior is claimed. MAG-71's
-full rendered acceptance check remains in BACKLOG.csv.
+The installed layout survey and counts are recorded in
+[game.md](game.md#image-space-rendering-prerequisite-audit-mag-71). The pixel
+fixture uses a synthetic scene rather than a vanilla gameplay capture. Frame
+time and exact Skyrim shader parity remain unmeasured.
 
 ## Record-driven skin refresh (INV-08)
 
@@ -3200,7 +4173,15 @@ vanilla texture archives alongside its mesh and animation archives, creates a
 attaches it to the uploaded mesh surface. The installed-data check
 `rnd_05_vanilla_skinned_body_resolves_its_authored_diffuse_textures` verifies
 that the vanilla male body has authored diffuse paths and that each path
-resolves to image data. This verifies material inputs, not a rendered capture.
+resolves to image data. The windowed check
+`godot/rnd_05_vanilla_npc_material_check.gd` renders that body through
+RenderingServer, captures the 640 by 360 viewport and checks for visible
+character pixels with diffuse color variation. On Godot 4.4.1 with installed
+data, it passed with 4,874 character pixels, 3,093 colored pixels and 17
+quantized color bins. The capture was saved to
+`/tmp/rnd_05_vanilla_npc_material_check.png`. This exercises the vanilla body
+mesh and its authored skin and clothing textures, not a complete NPC head or
+full race appearance assembly.
 
 ## Nearby interior prefetch, HST-07
 
@@ -3402,13 +4383,36 @@ relative to the worldspace's anchor, including negative offsets.
 
 `TerrainLodStreamer` mirrors `streaming::CellStreamer`'s hysteresis: blocks
 between `full_res_radius` and `lod_radius` (ring distance in cells) are
-wanted, nearer or farther blocks are stale, loads and unloads are capped per
-tick and sorted nearest first or farthest first. `full_res_radius` should
-match the cell streamer's own `load_radius` so the two never disagree about
-which cells are near. One streamer covers one LOD level, a caller that wants
+wanted, nearer or farther blocks are stale, loads and distant unloads are
+capped per tick and sorted nearest first or farthest first. Near overlaps
+are released immediately. `full_res_radius` covers retained full cells,
+including the unload radius when the near streamer uses hysteresis.
+One streamer covers one LOD level, a caller that wants
 more than one level resident at once runs one streamer per level with
 disjoint radius bands, finer levels nearer the focus. Picking a level by
-distance automatically is left to that caller, unstarted here.
+distance can use `lod_rebuild::select_far_level`, which chooses the coarsest
+level whose measured projected silhouette edge error is below its pixel
+limit. The host does not yet feed rendered reference measurements into this
+selector.
+
+### Background LOD products, RND-16
+
+`lod_rebuild::LoadOrderHash` keys generated output by ordered profile plugin
+names, enabled state and slot assignment. Callers mix in
+`soe_esm::LoadOrder::fingerprint()` so edits to plugin contents also
+invalidate the cache. `LodBuildCache::request` returns a cached product when
+the key matches, shares a pending worker for the same key, or starts a worker
+for a cache miss. `GeneratedLod` carries
+object and terrain output together, and `finish` publishes only after the
+complete worker result is available. A failed worker leaves the cache
+unchanged.
+
+`silhouette_error_pixels` measures the maximum displacement of the four
+projected bounds edges in pixels. `select_far_level` chooses the coarsest
+candidate below the configured error limit and ignores non-finite
+measurements. The cache and selector are host APIs. The cell streamer does
+not yet schedule rebuilds when a profile is reloaded or apply selected levels
+to rendered references.
 
 The residency budget is recorded, not estimated ahead of the read.
 `Mesh::approx_bytes()` (new in `soe_nif`, see `docs/nif.md`) sums each
@@ -3699,10 +4703,25 @@ sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
 returns that name or an empty string when none is active. A plain return clears
 any active sequence. Starting a new game leaves the main menu state.
 
-The SCR-31 host tests call both globals through Papyrus, check their transient
-requests, and apply those requests to the same menu state used by the host.
-`QuitToMainMenu` clears a current sequence, while `StartTitleSequence`
-preserves the requested sequence name.
+The Creation Kit `engine-refs/ck-wiki/Game_Script.wikitext` says
+`QuitToMainMenu` forces the game back to the main menu and
+`StartTitleSequence` plays the specified sequence in the title menu. The
+SCR-31 host tests call both globals through Papyrus and check their transient
+requests. `QuitToMainMenu` clears a current sequence, while
+`StartTitleSequence` preserves the requested sequence name.
+
+`PlayerNode.debug_invoke_main_menu_native` invokes either of those two Game
+globals through the active VM and consumes the resulting host request. The
+host emits `title_sequence_started(name)` for the menu presenter and exposes
+the active name through `active_title_sequence`. The Godot check
+`godot/ui_18_main_menu_test.gd` starts a live runtime, verifies the title
+sequence signal and menu state, reattaches the data source, and verifies that
+quitting closes gameplay and clears the sequence. Run it with installed game
+data and the built extension:
+
+```text
+SOE_GODOT_BIN --path godot --script ui_18_main_menu_test.gd --resolution 640x360
+```
 
 Open gaps, none closed by this row:
 
@@ -3760,3 +4779,556 @@ The `PlayerNode` gameplay tick drains transient screenshot paths queued by
 `take_screenshot(path)` entry point calls the same Papyrus native and services
 its request immediately. `godot/hst_19_screenshot_capture_test.gd`
 checks that this path writes a PNG under Godot headless with installed data.
+
+## Per-cell occluders, RND-07
+
+`CellStreamerNode.cell_occluders` optionally creates one RenderingServer
+occluder mesh and instance for each streamed cell. `batch::cell_occluder_mesh`
+selects at most four nonempty opaque static surfaces by descending triangle
+count, keeps source order for equal counts, and applies a `MultiMesh` surface's
+instance transform before combining its vertices. Skinned, blend and cutout
+surfaces are excluded. Cell release and node cleanup free both occluder RIDs.
+The export defaults to off.
+
+Godot 4.4's `tutorials/3d/occlusion_culling.rst` requires a simplified
+occluder representation made from static objects. Skinned actor surfaces
+change with their skeleton, so including them in the generated stationary
+mesh would leave stale occlusion as the actor moves.
+
+The candidate is based on Godot's local `engine-refs/godot-docs` sources:
+`classes/class_arrayoccluder3d.rst` documents the procedural vertex and index
+mesh, and `tutorials/3d/occlusion_culling.rst` explains that Godot CPU
+rasterizes occluders and that scenes with few occlusion opportunities can
+lose performance.
+
+The 2026-10-02 comparison used the installed Whiterun Bannered Mare cell,
+Godot 4.4.1 Forward+, llvmpipe, a 640 by 360 window with the benchmark's fixed
+1600 by 900 render target, and three 600-frame samples per mode. Both modes
+drew 189,506 triangles with 145 RenderingServer instances. With occluders off,
+the p99 samples were 40.514, 40.018 and 44.655 ms, median 40.514 ms. With
+occluders on, they were 39.019, 41.130 and 46.134 ms, median 41.130 ms. The
+enabled median was 0.616 ms higher, so the export remains off. These results
+are specific to this scene, machine and renderer.
+
+`crates/godot-host/tests/rnd_07_adversarial.rs` checks empty and nonopaque
+input, deterministic source ordering for ties, top-four opaque selection,
+valid combined indices and transformed `MultiMesh` placement. The frame-time
+comparison was run through `godot/bench.gd`. An exterior attempt was rejected
+because its large world coordinates produced zero rendered primitives.
+
+## Restored player attachment, SAV-19
+
+`PlayerNode::attach_restored_generation` reads a verified native generation
+into a fresh `Game`, installs the restored player cell, collision and camera,
+and advances one frame before reporting success. A failed generation read
+leaves the active game untouched. The destination cell and all six pose
+components must be present and finite before the host sync starts. The Godot
+acceptance check saves a live player's generation and attaches it to a fresh
+player using the same installed cell data.
+
+## Deterministic host work, PRF-14
+
+`PlayerNode.work_counts` returns all ten operation counters from the last
+`advance`, including its nested game tick, rays, headless capsule queries and
+host render instance creation. `CellStreamerNode.begin_work_frame` and
+`end_work_frame` bracket synchronous scripted work and return the same counter
+names, including zeros. End a window before awaiting another frame.
+RenderingServer `instance_create2` calls charge one instance, including
+MultiMeshes, actor surfaces, particles, lights and occluders. Host physics ray
+calls charge one query. Counts describe engine submissions, excluding Godot's
+internal renderer and physics work. Data-source workers enter the caller's
+recorder for each ordered chunk.
+
+`godot/prf_14_work_test.gd` loads the installed Bannered Mare, compares actual
+instance creation with the streamed count and verifies empty-window reset.
+The Rust wrapper runs it in an isolated project with an explicit extension list,
+loading Cargo's current test-built library rather than a cached release build.
+It is a headless correctness check. The counter paths add no per-reference
+nodes and no saved state. The row uses the existing RenderingServer and
+PhysicsDirectSpaceState3D APIs described in the local Godot class docs.
+
+## AI planning measurement, PRF-11
+
+`PlayerNode.prepare_ai_planning_check` prepares the active world's NAVM graph
+and query caches. `ai_planning_microseconds` reports the last shared AI driver
+tick, including door refresh, package evaluation, navigation slices and movement.
+`ai_package_evaluations` reports the active world's evaluation count.
+`ai_planning_details` reports door refresh, evaluation scheduling, resumed
+navigation, actor processing, automatic evaluations, package selection and
+switching, conditions, combat flags and target checks, combat acquisition,
+procedure movement, fleeing, pursuit and path requests, plus instantiated actor
+count. Navigation details include request setup, search advancement, route
+result conversion and fallback containment, and flee search. Procedure details
+include tree entry, marker selection and Turn Undead checks. Marker details
+include cell lookup, base filtering, bed classification, reference initialization
+and resumed scans.
+Actor details also separate state checks, Calm checks and evaluation eligibility.
+Phase durations include their nested calls. For example, conditions are
+also included in package selection, and new path requests in movement.
+These measurement hooks add no actor scene nodes or saved fields.
+
+`godot/prf_11_ai_planning_check.gd` starts the installed Bannered Mare through
+the normal gameplay entry point and manually advances 3,600 frames at 60 Hz.
+It requires at least five contact actors and executed package evaluations,
+and rejects any AI driver tick above 8 ms. Graph preparation and gameplay
+startup occur before the 60 simulated seconds of measurement. The script
+frees its host nodes and quits with its check result. It skips when
+`SKYRIM_DATA` is unset.
+The result also prints the worst frame's index and inclusive phase timings.
+
+## Shared logging and controls, TOOL-06
+
+The extension installs the shared tracing subscriber at Scene initialization,
+using `SOE_LOG` and `user://logs/engine.log`. Host diagnostics use the facade
+with subsystem targets such as `host::melee` and `host::data_source`.
+`SoeLogBridge` flushes completed one-second message buckets each frame and
+queues worker events for delivery on the main thread. Errors use Godot's
+`push_error` path and warnings use `push_warning`, reaching the debugger.
+Other levels use Godot output. Every enabled level reaches size-rotated files.
+Exit-tree and extension shutdown flush the current bucket.
+
+`godot/diagnostics.gd` is an autoload with F3 verbosity controls and a backtick
+logging console. Both reload the same filter. F3 shows five seconds of recent
+messages. `log` reads the directives and `log <directives>` changes them.
+Invalid filters retain the previous setting. The panel releases the captured
+mouse while open and restores its prior mode on closure. It adds one control
+node for the host, with no node per placed reference.
+
+`SoeLogBridge::log_window` and `dump_log_window` expose inclusive logging-clock
+windows, including the current pending bucket, for hitch captures. PRF-18's
+automatic recorder is absent in this checkout. The host regression checks the
+window export directly rather than claiming automatic hitch capture.
+The `tool_06_godot_routing_and_editor_debugger` test runs a windowed scene and
+an editor scene with `SOE_GODOT_BIN`, asserting error/warning routing, output,
+file context, repeated counts, release-level elision, console reload and F3
+controls. Both scenes quit when their checks end.
+The tests build the release extension and import the project before running
+the scenes so fresh checkouts register the extension's classes.
+
+The routing source is the local Godot documentation's GlobalScope
+`push_error`, `push_warning` and `print_rich` contracts. Lifecycle callbacks
+follow local gdext `godot-core/src/init/mod.rs`. Details of the subscriber,
+retention bounds and dependencies are in [trace.md](trace.md).
+
+## Streamed reference enable state, RND-17
+
+Cell mesh and collision preparation omit references whose authored effective
+enable state is off, using the game's winning-record XESP chain query.
+When installing prepared gameplay cells, the streamer also filters surfaces
+against runtime World state. Undrawn model references retain their cell
+ownership as deferred identities. The next gameplay sync builds a deferred
+reference only when World reports it enabled. It uses the normal VFS, NIF,
+material and collision paths and adds RenderingServer and PhysicsServer3D
+resources. Unloading its cell removes the deferred identity.
+
+Built geometry reads effective visibility through `ref_placement` on every
+sync. Disabling collapses batched triangles or sets a MultiMesh member's scale
+to zero, and removes the reference's host collision from its physics space.
+Enabling restores those resources without reloading the cell. Player movement
+and query collision also follow effective enable state. Static movement bodies
+are removed on disable and rebuilt on enable, and enabled query bodies use
+the same placed colliders. The host's applied-state cache does not own enable
+state. No per-reference scene nodes are added.
+
+`rendered_reference_pose` and `render_alignment_error` inspect the uploaded
+geometry. `reference_collision_bodies` reports bodies actually attached to a
+Godot physics space on the streamer, and movement and query counts on the
+player. These diagnostics support the RND-17 acceptance script.
+
+The record rules come from local `uesp-modfileformat/REFR.wikitext` and
+xEdit's `wbXESP` in `TES5Edit/Core/wbDefinitionsTES5.pas`. The CK Enable and
+Disable ObjectReference pages describe parent children popping together.
+The host uses the game's query because it already owns runtime reference
+state and resolves winning links.
+
+The shared model selector includes non-marker ACTI bases. This lets the
+Whiterun `StockadeBarricade01Activator` use its MODL mesh and authored
+collision when its enable parent turns on. ACTI marker bases stay omitted.
+Local `uesp-modfileformat/ACTI.wikitext` and xEdit's `wbRecord(ACTI)` supply
+the generic model field and bit 23 marker rule.
+
+Streaming statistics count activator models separately from containers.
+
+The stockade barricade NIF stores every BSDamageStage as hidden. Placed-model
+preparation selects the intact range containing stage zero before filtering
+hidden subtrees. The three trailing range bytes follow local `nifxml/nif.xml`
+and `nifly/include/Nodes.hpp`, using the existing NIF header and stream reader.
+Other damage ranges remain hidden, and ordinary hidden helpers stay excluded.
+
+`rnd_17_hidden_barricade_damage_stages_build_only_intact_surfaces` exercises
+that selection through the VFS and surface builder with a synthetic NIF. The
+intact stage builds two triangles, damaged stages contribute no surfaces, and
+an ordinary hidden ancestor still hides the intact geometry.
+`rnd_17_whiterun_barricade_has_no_surface_or_collision_until_parent_enabled`
+surveys all nine disabled-parent ACTI barricades in installed WhiterunWorld.
+Each is absent from authored cell geometry and collision, then builds two
+nonempty surfaces and static collision after marker `0:0376E0` is enabled.
+The survey restores the marker's disabled state between references.
+
+With SKYRIM_DATA and SOE_GODOT_BIN set, the survey also runs
+`godot/rnd_17_enable_parent_test.gd` in a 640 by 360 window. Build the release
+extension and import the Godot project before running it. The script toggles
+the marker four times without reloading the cell, checks uploaded geometry
+alignment, host, movement and query collision, and unchanged streamer child
+count. It writes disabled and toggled captures under `target/rnd_17` and
+requires at least 100 pixels to change by more than 0.05 in one color channel
+when the marker first turns on. The script quits and the Rust test checks its
+exit status and result marker.
+
+The installed survey passed for all nine barricades. The windowed check on
+Godot 4.4.1 with software Vulkan changed 4,949 pixels on enable, measured zero
+uploaded geometry alignment error through all four toggles, and switched
+movement and query collision between one body and none. The streamer child
+count stayed unchanged and the process exited with status 0. The capture
+fixture advances 200 ms before drawing to finish the cell entry fade.
+
+## Whiterun white geometry, RND-20
+
+The pre-fix installed-data survey streams the nine grid cells around
+`WhiterunOrigin` in `WhiterunWorld` and the nine around `WhiterunExterior04`
+in `Tamriel`. Both origins are grid (4, -2). It also inspects persistent
+references placed within those blocks. Every surface lacking resolved albedo
+was logged with its reference, resolved base, EditorID, record type, model
+and complete material texture set. No named DDS path failed in this sample.
+The following is the complete base-form list from that survey. Counts are
+surfaces, so the forge appears six times for one reference. All listed
+texture sets have empty diffuse, normal, glow, environment and mask slots.
+
+| Base | EditorID | Type | Model relative to meshes/ | Surfaces |
+|---|---|---|---|---:|
+| `0:000010` | `MapMarker` | STAT | `Marker_Map.NIF` | 2 |
+| `0:00003B` | `XMarker` | STAT | `MarkerX.nif` | 73 |
+| `0:000032` | `COCMarkerHeading` | STAT | `MarkerCOCHeading.nif` | 3 |
+| `0:000034` | `XMarkerHeading` | STAT | `MarkerXHeading.nif` | 117 |
+| `0:0BF9E1` | `CraftingBlackSmithForgeWR` | FURN | `Furniture/BlacksmithForgeMarkerWR.nif` | 6 |
+| `0:09C6CE` | `CraftingSmelterMarker1` | FURN | `Furniture/SmelterMarker.nif` | 1 |
+| `0:06E9C2` | `CraftingBlacksmithSharpeningWheel` | FURN | `Furniture/Clutter/BlacksmithSharpeningWheelAnimating.nif` | 1 |
+| `0:03DE33` | `WRHallOftheDead01` | STAT | `Architecture/Whiterun/WRBuildings/WRHallOftheDead01.nif` | 1 |
+
+The STAT markers carry bit 23. The crafting models contain hidden
+bounds/trigger shapes and shaderless emitter helper shapes. They have no
+render material and are excluded from drawing. The Hall of the Dead `glow`
+shape, block 11 using BSEffectShaderProperty block 12, has an authored empty
+source texture and greyscale texture. Its blended vertex-color glow is the
+one intended textureless reference in this survey, `0:03DE34`. Water is
+also intentionally colored from WATR instead of an albedo map.
+
+The surveyed reference identities, grouped by base, are:
+
+MapMarker (`0:000010`): `0:0162CE`, `0:072879`.
+
+XMarker (`0:00003B`): `0:01F24F`, `0:02884B`, `0:029AAF`, `0:02C905`, `0:02C915`,
+`0:0370B4`, `0:0370D6`, `0:0376E0`, `0:04E4B4`, `0:05411D`, `0:05411F`, `0:054120`,
+`0:054128`, `0:054129`, `0:05412A`, `0:0559D8`, `0:0559D9`, `0:05EA41`, `0:05EA42`,
+`0:05EA43`, `0:05EA48`, `0:05EA4A`, `0:05EA55`, `0:06BBFD`, `0:06BBFF`, `0:070F35`,
+`0:072FDF`, `0:073FFB`, `0:073FFE`, `0:074311`, `0:074DED`, `0:074F31`, `0:074F32`,
+`0:074F33`, `0:074F36`, `0:077058`, `0:077059`, `0:078092`, `0:08AF2E`, `0:08CF87`,
+`0:0914DE`, `0:091915`, `0:096575`, `0:0A804F`, `0:0BBCF2`, `0:0BBCF3`, `0:0D198C`,
+`0:0DDDB3`, `0:0FC87D`, `0:0FC8AB`, `0:0FC8F1`, `0:0FC90B`, `0:0FC90C`, `0:0FC91B`,
+`0:0FE2CF`, `0:0FF21C`, `0:10372F`, `0:10483D`, `0:105571`, `0:105572`, `0:105573`,
+`0:105574`, `0:10810E`, `0:10810F`, `0:108117`, `0:1095FC`, `0:109600`, `0:10DE9E`,
+`0:10EBAE`, `0:10F64C`, `1:002F2E`, `2:00E688`, `3:018B8A`.
+
+COCMarkerHeading (`0:000032`): `0:0215D4`, `0:02FFA4`, `0:0D520D`.
+
+XMarkerHeading (`0:000034`): `0:024049`, `0:02D01C`, `0:02D82B`, `0:02D82D`, `0:02D842`,
+`0:02FFAD`, `0:039E76`, `0:039F36`, `0:039F38`, `0:04222E`, `0:04222F`, `0:04401C`,
+`0:04D0C4`, `0:04E4A6`, `0:055FAF`, `0:055FB0`, `0:055FB1`, `0:0567DB`, `0:0567DD`,
+`0:0567DE`, `0:0567DF`, `0:0567E0`, `0:0567E5`, `0:0567EA`, `0:0567F7`, `0:057FA6`,
+`0:057FA7`, `0:057FA8`, `0:057FA9`, `0:05C9EC`, `0:05C9ED`, `0:05C9EE`, `0:05C9EF`,
+`0:05C9F0`, `0:062D88`, `0:062D89`, `0:06762C`, `0:07287B`, `0:074F3A`, `0:074F3B`,
+`0:076EBE`, `0:076EE4`, `0:0847A4`, `0:0847A6`, `0:088962`, `0:088963`, `0:088964`,
+`0:08AD66`, `0:08AD67`, `0:08AD68`, `0:08AD69`, `0:08AD6E`, `0:08AD6F`, `0:08AD70`,
+`0:08AD71`, `0:0914E1`, `0:0914F2`, `0:0914F3`, `0:092A65`, `0:092A66`, `0:092B24`,
+`0:092B25`, `0:098465`, `0:09E0B5`, `0:09E0B6`, `0:09E0E0`, `0:0A202A`, `0:0A202B`,
+`0:0A202C`, `0:0A8050`, `0:0B96D7`, `0:0C07EF`, `0:0CD1A1`, `0:0CD25A`, `0:0D1986`,
+`0:0D5321`, `0:0D5322`, `0:0D5327`, `0:0D750B`, `0:0D8F0A`, `0:0DDDA6`, `0:0DF1BB`,
+`0:0E732C`, `0:0F1469`, `0:0FB8BD`, `0:0FB8BE`, `0:0FB8C0`, `0:0FF146`, `0:0FF147`,
+`0:0FF148`, `0:0FF149`, `0:0FF14A`, `0:0FF14B`, `0:0FF14C`, `0:0FF14D`, `0:0FF14E`,
+`0:0FF14F`, `0:104752`, `0:104755`, `0:104756`, `0:104757`, `0:104758`, `0:104759`,
+`0:10475A`, `0:10475B`, `0:10475C`, `0:1052F4`, `0:1052F6`, `0:105947`, `0:106CB1`,
+`0:108D8D`, `0:109826`, `0:109E3C`, `0:10DEBA`, `0:10DEBD`, `0:10DEC0`, `3:004287`.
+
+CraftingBlackSmithForgeWR (`0:0BF9E1`): `0:0C430A`.
+
+CraftingSmelterMarker1 (`0:09C6CE`): `0:10E391`.
+
+CraftingBlacksmithSharpeningWheel (`0:06E9C2`): `0:016D07`.
+
+WRHallOftheDead01 (`0:03DE33`): `0:03DE34`.
+
+Model selection rejects the editor-marker bit for every supported base
+record. REFR occlusion-plane, room and portal fields (`XOCP`, `XORD`, `XRMR`, `XPOD`,
+`XPTL`) and XPRM portal boxes exclude a reference from visual streaming. Named NIF EditorMarker
+subtrees, hidden subtrees and shaderless Skyrim geometry
+are removed before surface building. Collision continues to read the model
+through its existing selection path. No per-reference scene nodes are added.
+
+The ACTI models selected by RND-17 also expose `WRStairsStreamLACT` water
+geometry. Its `BSWaterShaderProperty` is retained as an unknown NIF block and
+has no host material binding. Visual streaming excludes that surface instead
+of drawing a default opaque white material. Its effect-shader foam remains
+visible. CELL/WATR water planes keep their existing rendering path. Binding
+NIF water shaders remains outside this correction.
+
+The expanded ACTI survey also retains reference `0:04221F`, base `0:021513`
+(`NorLever01`, `Dungeons/Nordic/Levers/RuinsLever01/NorLever01.nif`). Its
+`RuinsLever:3` shape uses a blended BSEffectShaderProperty with empty source
+and greyscale textures, flags `0x80000000` and `0x21`, and grayscale vertex
+colors. This authored detail is a second textureless exception. The NIF's
+separate named EditorMarker shape stays filtered. The strict survey verifies
+both identities and shader flags, plus the lever's vertex colors. It covers
+5,363 grid surfaces and 226 nearby persistent surfaces after the corrections.
+
+Named albedo paths that fail VFS lookup or DDS decoding resolve to a shared
+8 by 8 opaque magenta/black checker. Each failed canonical path logs once
+per DataSource, including after prepared textures are cleared. Authored
+empty texture slots stay empty. Both StandardMaterial3D and the
+shader-material path bind the checker, including if an albedo upload fails.
+`CellStreamerNode.material_albedo_stats` inspects their uploaded bindings.
+The cell loader logs any retained surface without source albedo with its
+reference, base form, EditorID, record type, model and texture set.
+
+Sources are local `uesp-modfileformat/STAT.wikitext` and `REFR.wikitext`,
+TES5Edit `Core/wbDefinitionsTES5.pas` and `Core/wbDataFormatNif.pas`, OpenMW
+`components/nif/node.hpp` and `components/nifosg/nifloader.cpp`, and
+`nifxml/nif.xml`'s NiPSysMeshEmitter definition. The existing NIF reader,
+VFS and texture cache are reused. No new parser or dependency is added.
+
+The `rnd_20_` Rust checks exercise form and reference filtering, hidden
+hierarchies, helper shapes, missing/malformed textures, path aliases,
+concurrent loads and warning deduplication across cache clears. The
+SKYRIM_DATA scene survey checks both gate blocks and nearby persistent
+geometry against the one documented glow exception. The windowed
+`godot/rnd_20_albedo_check.gd` checks production albedo bindings, standard
+and decal checker pixels, and installed gate rendering, then quits.
+
+The installed scene check passed with 5,554 surfaces across 18 grid cells
+and 126 nearby persistent surfaces. The Hall of the Dead glow was the only
+retained textureless reference. The windowed check passed on Godot 4.4.1
+with llvmpipe at 640 by 360. Each standard/decal fixture capture contained
+7,406 magenta samples and 1,224 black samples, above the predeclared
+500-sample minimum for each color. The uploaded material cache contained
+108 albedo bindings after WhiterunOrigin and 149 after WhiterunExterior04,
+with zero missing named albedo bindings and zero checker fallbacks in the
+installed blocks. The script exited with status 0. Captures stay under
+`target/rnd-20-fixture`.
+
+## Cell lighting, RND-21
+
+`CellStreamerNode.cell_lighting(editor_id)` returns render values for interior
+cells from the winning CELL record. When XCLL is present, its inheritance flags
+select ambient and directional colors, fog, directional rotation and fade,
+clip distance, fog power and maximum, and light fade distances from the
+referenced LGTM. A cell without XCLL uses its LGTM values directly. Exterior
+cells return an empty dictionary so callers do not add an interior light to
+them. LGTM DATA and DALC follow the local UESP CELL and LGTM layouts and xEdit
+XCLL definition in the engine reference corpus.
+
+The walkthrough and benchmark attach the same `record_sky.gd` controller and
+create no additional Environment or directional lights. The controller owns
+one WorldEnvironment, one weather sun, one interior directional light and six
+non-shadowing directional ambient lights. Interior ambient axes follow the
+Skyrim-to-Godot coordinate mapping. Only the interior lights are visible for
+ordinary interiors, including cells with Show Sky but without Use Sky Lighting.
+Exterior sunlight color and direction come from RND-18's current WTHR and
+clock sample. The weather sun is hidden below the horizon. Use Sky Lighting
+selects this weather lighting for an interior independently of Show Sky.
+
+SkyRecords supplies the resolved cell fields through the same CELL/LGTM
+resolver used by `cell_lighting`. LGTM's far fog color, maximum opacity and
+light fade fields start at byte 72, after its unused ambient-color block.
+Directional ambient colors come from DALC. The resolver accepts the legacy
+24-byte LGTM DATA prefix and modern 92-byte DATA, and rejects truncated
+modern data or DALC. Interior fog uses both authored colors, near and far
+distances, power and maximum opacity, with far distance bounded by a positive
+fog clip distance. Runtime point-light RIDs receive their cell's inherited
+light fade start and length converted to metres through RenderingServer.
+Invalid or empty fade ranges disable distance fading. No saved state,
+dependency or per-reference node path is added.
+
+The `rnd_21_` unit tests cover inherited and retained fields, independent
+LGTM tail offsets, legacy and malformed template sizes, and point-light fade
+conversion. `rnd_21_lighting.rs` checks both production scripts for exclusive
+controller ownership. Its installed-data windowed cases run the walkthrough
+and the interior and exterior benchmark setup, inspect the active Environment
+and every directional light, and check weather and time changes and lighting
+replacement in both directions. The walkthrough check pauses simulation
+stepping and captures eight rendered frames. It does not measure gameplay
+frame time. The benchmark check uses its production setup and warm-up, then
+quits before the timing sample.
+
+`godot/rnd_21_capture_test.gd` streams the Bannered Mare main room through the
+production controller and captures it at 640 by 360. Its stored average
+linear luminance range is 0.02 to 0.65, with fewer than one percent of pixels
+clipped in all three channels. Captures are saved under `target`.
+
+## Exterior skies and interior lighting, RND-18
+
+The walkthrough and bench attach `godot/record_sky.gd`. Its SkyRecords
+RefCounted sampler reads the gameplay PlayerNode's shared World, or owns a
+preview World for a benchmark without gameplay. The controller owns one
+WorldEnvironment, one weather sun, one interior directional light and six
+non-shadowing directional ambient lights, plus one full-screen fog mesh.
+Walkthrough and bench attach this controller without creating a second
+environment or independent cell lights. It creates no node per placed
+reference.
+
+The sky shader draws upper, lower and horizon NAM0 colors. CLMT sun and glare
+textures, moon textures selected by TNAM flags and phase length, and the
+texture named by CLMT's night NIF come through the DataSource VFS. The sun
+light follows the sampled sun direction and WTHR sunlight color. The ambient
+light uses WTHR ambient color. Cloud layers use their authored colors, alpha
+and XY velocities. Unique textures upload to an RGBA8 Texture2DArray at
+512 by 512 per layer. The shader supports 256 cloud contributions, including
+source and destination layers during interrupted weather transitions.
+
+The fog mesh reads Godot's depth buffer and blends NAM0 near and far fog
+colors across FNAM near and far distances, with its power and maximum opacity.
+Sky pixels are excluded. Environment retains the same fog inputs for camera
+image-space copies, with built-in fog disabled to avoid a second fog pass.
+Interiors use CELL/XCLL and inherited LGTM fields for ambient light,
+directional light and fog. Show Sky draws their region sky. Use Sky Lighting
+selects weather lighting independently of that background flag. Ordinary
+interiors keep a color background. Changing the bound source clears texture
+selections and cached uploads.
+
+Interior directional ambient colors use the six lights with shadows disabled.
+They are hidden for weather lighting. Interior fog clip limits the far fog
+distance, and authored light fade distances are converted from Skyrim units
+to metres before reaching the lights.
+
+The night texture reader accepts ordinary NIF texture sets, effect-shader
+source textures and SSE BSSkyShaderProperty's baseTexture. The last layout
+comes from local nifly `src/Shaders.cpp` and `src/Objects.cpp`. The NIF crate
+retains that block as opaque data, so the host reads its texture field without
+changing the parser's crate scope. Godot's local sky shader and Environment
+documentation supplies the host APIs. The near and far fog color contract
+requires the depth shader because Environment exposes one fog color.
+
+`godot/rnd_18_sky_test.gd` streams Whiterun, renders vanilla SkyrimClear at
+noon and midnight, captures both views under `target/rnd_18`, and compares the
+sky region with NAM0. Its thresholds are 0.08 per color channel and at least
+500 matching pixels. It checks sun visibility, fog distances, cloud count,
+VFS sun/moon/night textures, moon phases, a live weather transition and
+interior replacement. The SKYRIM_DATA-gated Rust runner is
+`rnd_18_installed_whiterun_noon_night_sky_capture_and_host_controls`.
+The shader-texture unit test covers an SSE block with extra data and truncation.
+The installed Bannered Mare has Show Sky set and Use Sky Lighting cleared.
+The capture checks that its region sky draws while its own ambient,
+directional and fog lighting reach the host.
+
+The capture also checks cloud velocity uniforms and compares two sky captures
+120 presentation seconds apart, requiring at least 100 pixels to change by
+more than 0.02 in one color channel. The walkthrough smoke checks that only
+one WorldEnvironment exists. The benchmark smoke runs the benchmark setup
+and rendering warmup for Whiterun, then checks that its sole environment and
+sun come from the record sky before exiting. It does not measure frame time.
+
+On Godot 4.4.1 with software Vulkan, the Whiterun capture passed with 9,938
+noon pixels and 6,663 night pixels inside that tolerance. Mean brightness in
+the sampled sky region was 0.639 at noon and 0.272 at night, exceeding the
+0.05 difference threshold. The host texture, fog, phase, transition and
+interior checks passed in the same windowed run, which exited with status 0.
+
+The radius-zero Whiterun bench used 51 renderer instances, 42 meshes and
+31,146 triangles. Its 600-frame software Vulkan sample had a 33.105 ms p99
+at the benchmark's fixed 1600 by 900 render size in a 640 by 360 window.
+It exceeded the existing 16.7 ms p99 budget and exited with status 2. This
+measurement includes the world renderer and sky together. The walkthrough
+initialized gameplay and the record sky, but its 120-frame capture did not
+finish before the supplied launcher's 300-second limit, which returned 124.
+The separate `rnd_18_walkthrough_shared_world_interior_smoke` test loads the
+walkthrough with gameplay, pauses simulation stepping, checks its shared
+World interior lighting and captures eight rendered frames. It passed and
+exited with status 0. This smoke run does not measure interactive frame time.
+
+## NIF effect materials, RND-22
+
+BSEffectShaderProperty meshes use a separate ShaderMaterial path. The host
+carries their base color, scale, falloff cosines and opacities, soft depth,
+palette path, UV transform, clamp mode, NiAlphaProperty blend factors and
+alpha test into material and batch identity. Source and palette textures use
+the shared VFS and DDS caches. Effect vertex colors and alpha reach the
+mesh upload, and memory accounting includes those arrays and palette textures.
+
+The shader uses base RGB times its scale once, multiplies texture and authored
+vertex colors, and applies base alpha, texture alpha and flagged vertex alpha.
+Falloff interpolates the two opacities with a cubic smooth step between the
+absolute view-normal cosines. Equal endpoints use a step without division.
+Palette color uses source green and multiplied base red as coordinates. Palette
+alpha uses source alpha and accumulated opacity. The palette flags control
+each lookup separately. UV scale, offset and per-axis wrapping are retained.
+Soft effects sample the host depth buffer and fade both at scene intersections
+and near the camera, using the authored depth converted to metres.
+
+Alpha mix, additive, premultiplied alpha and multiplicative factor pairs use
+Godot blend modes. Additive source-one and source-alpha pairs retain distinct
+strengths. Other factors evaluate the blend equation against Godot's opaque
+screen copy, which cannot include preceding transparent surfaces. Blended
+effects never write depth. Opaque effects honor the authored depth-write bit,
+and all effects honor depth testing, culling and the alpha-test function.
+Only soft effects declare a depth sampler, and only screen-copy blend pairs
+declare a screen sampler. Opaque effects with depth writes stay in the opaque
+pass. Depth-disabled opaque effects use alpha one in the transparent pass to
+avoid Godot 4.4's opaque depth prepass. Its Forward+ surface classification
+assigns a depth pass to every opaque material, see
+[render_forward_clustered.cpp](https://github.com/godotengine/godot/blob/4.4/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp#L3595-L3604).
+Native blend paths apply the authored lighting influence when effect lighting
+is flagged. Otherwise the output uses emission. The screen-copy fallback
+uses unlit effect color. This uses stock Godot shaders and adds no reference nodes.
+
+Sources read are nifly's effect fields, OpenMW's `components/nifosg/nifloader.cpp`,
+`files/shaders/compatibility/bs/nolighting.vert` and `lib/particle/soft.glsl`,
+Community Shaders' `package/Shaders/Effect.hlsl`, and Godot's spatial shader
+reference. OpenMW supplies falloff and soft-depth semantics but does not
+implement palette sampling in its NIF effect path. Community Shaders supplies
+the palette coordinates. The implementation translates those operations into
+Godot shader syntax instead of adding a second renderer.
+
+`model_meshes` builds model resources through the production material cache
+for inspection and capture tests. The Rust `rnd_22_` tests cover independent
+NIF/DDS fixtures, effect material and batch identity, and installed texture
+resolution. `godot/rnd_22_effect_material_test.gd` captures synthetic blend,
+falloff, palette, vertex-alpha, alpha-test and depth-intersection controls,
+then installed FXMistLow01HalfVis near Whiterun and Windhelm interior window
+glow over two backdrops. It also checks all 121 factor pairs against an opaque
+backdrop. Additional controls capture emissive multiples of 0.5 and 2 without
+scaling alpha, falloff at several viewing angles with ascending, descending
+and equal cosine endpoints, and all eight alpha-test comparisons at equality.
+A rear additive probe checks opaque depth writes against depth-disabled and
+blended controls. Soft surfaces are checked both near the camera and away from
+scene intersections. Captures are written under `godot/.godot`, outside
+tracked content. The SKYRIM_DATA-gated
+`rnd_22_installed_mist_and_window_captures_are_translucent_and_bounded` Rust
+test runs the installed captures, checks their brightness and backdrop
+transmission bounds, and requires the Godot process to exit successfully.
+
+## Detection neighborhoods, PRF-31
+
+`godot/prf_31_detection_test.gd` measures one installed Whiterun exterior
+update, then walks the player at Whiterun's gate for 30 seconds in
+WhiterunWorld and 30 seconds in Tamriel. It samples every physics frame for two 30-second wall-time phases, checks resident
+NPCs and movement in both worldspaces, and rejects every
+complete detection update over the fixed 2,000-microsecond budget. Each run
+quits after reporting its sample count, maximum and over-budget count.
+The capsule and exterior residency advance through the host physics and
+streaming paths. NPC placements are held fixed and AI planning and VM ticks
+are omitted. The timing still covers the whole gameplay detection updater.
+The CPU light and actor grids use no new dependencies. The local OpenMW
+`components/sceneutil/lightmanager.cpp` intersects light spheres with object
+bounds and limits renderer lights. `clusteredlighting.hpp` declares the
+rendering light grid. Those OSG paths do not fit this host CPU query, which
+retains every influencing light without a renderer light limit.
+CK `GetLightLevel` and `CreateDetectionEvent` supply the light range and the
+separate source/owner contract. The Rust PRF-31 tests compare indexed samples
+with a full reference scan and cover reference mutations, sound ownership,
+sparse actor neighborhoods and native-save cache reconstruction.
+
+The installed headless run completed both 30-second phases with 3,623 updates,
+9 Whiterun actors near the gate and 446 Tamriel actors. Tamriel formed 530
+nearby observations. Maximum detection time was 6,657 microseconds and 1,813
+updates exceeded the 2,000-microsecond budget, so the check exited one.
+The full-update timing requirement remains unmet, see [performance.md](performance.md).
+The check runs a zero-time gameplay frame after load-door transitions to settle
+pending unload before exterior walking.

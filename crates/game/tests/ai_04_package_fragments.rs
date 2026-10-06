@@ -174,6 +174,16 @@ fn ai_04_package_begin_change_and_end_fragments_run_once_on_their_boundaries() {
             .get_var(package_object, "PackFragments", "changeActor"),
         Some(Value::Object(actor_object))
     );
+    assert_eq!(
+        game.vm
+            .get_var(second_package_object, "PackFragments", "ends"),
+        Some(Value::Int(0))
+    );
+    assert_eq!(
+        game.vm
+            .get_var(second_package_object, "PackFragments", "changes"),
+        Some(Value::Int(0))
+    );
 
     game.world_mut().clock.game_days = 3.0 / 24.0;
     game.world_mut().actor(actor).unwrap().ai.reevaluate = true;
@@ -204,5 +214,14 @@ fn ai_04_package_begin_change_and_end_fragments_run_once_on_their_boundaries() {
         game.vm
             .get_var(second_package_object, "PackFragments", "endActor"),
         Some(Value::Object(actor_object))
+    );
+
+    game.world_mut().actor(actor).unwrap().ai.reevaluate = true;
+    game.tick(0.1);
+    assert_eq!(game.world().current_package(actor), None);
+    assert_eq!(
+        game.vm
+            .get_var(second_package_object, "PackFragments", "ends"),
+        Some(Value::Int(1))
     );
 }

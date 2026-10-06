@@ -8,8 +8,9 @@ use soe_esm::{plugin::Subrecord, GlobalFormId, Record, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
-    normalize_unresolved_id, raw_words, BaseObjectRecordExtra, DialogueRecordExtra,
-    ListRecordExtra, NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, RecordOverride,
+    normalize_unresolved_id, raw_words, ActivatorRecordExtra, BaseObjectRecordExtra,
+    BookNoteKeyRecordExtra, DialogueRecordExtra, ItemRecordExtra, ListRecordExtra,
+    NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, ProjectileRecordExtra, RecordOverride,
     StaticObjectRecordExtra, UnresolvedRecord, UnresolvedRecordId,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
@@ -176,8 +177,28 @@ impl World {
                                 | b"INFO"
                                 | b"SMQN"
                                 | b"SCEN"
+                                | b"CELL"
+                                | b"LCTN"
+                                | b"ECZN"
+                                | b"PFLA"
+                                | b"PHZD"
+                                | b"PBAR"
+                                | b"PCON"
+                                | b"PARW"
                                 | b"PACK"
                                 | b"NAVM"
+                                | b"ACTI"
+                                | b"TACT"
+                                | b"DOOR"
+                                | b"ARMO"
+                                | b"WEAP"
+                                | b"AMMO"
+                                | b"INGR"
+                                | b"ALCH"
+                                | b"ENCH"
+                                | b"BOOK"
+                                | b"NOTE"
+                                | b"KEYM"
                         )
                     }))
             {
@@ -197,6 +218,18 @@ impl World {
                                 | b"LVLN"
                                 | b"LVLI"
                                 | b"LVSP"
+                                | b"ACTI"
+                                | b"TACT"
+                                | b"DOOR"
+                                | b"ARMO"
+                                | b"WEAP"
+                                | b"AMMO"
+                                | b"INGR"
+                                | b"ALCH"
+                                | b"ENCH"
+                                | b"BOOK"
+                                | b"NOTE"
+                                | b"KEYM"
                                 | b"LIGH"
                                 | b"STAT"
                                 | b"MSTT"
@@ -213,6 +246,14 @@ impl World {
                                 | b"INFO"
                                 | b"SMQN"
                                 | b"SCEN"
+                                | b"CELL"
+                                | b"LCTN"
+                                | b"ECZN"
+                                | b"PFLA"
+                                | b"PHZD"
+                                | b"PBAR"
+                                | b"PCON"
+                                | b"PARW"
                                 | b"PACK"
                                 | b"NAVM"
                         ) && !rec.is_deleted()
@@ -262,6 +303,7 @@ impl World {
             } else {
                 None
             };
+            let projectile = None;
             let dialogue =
                 if version >= 37 && [T(b"INFO"), T(b"SMQN"), T(b"SCEN")].contains(&original.tag) {
                     let form_flags = if r.bool()? {
@@ -328,6 +370,71 @@ impl World {
             if let Some((flags, _)) = dialogue.as_ref().and_then(|extra| extra.form_flags) {
                 record.flags = flags;
             }
+            if matches!(record.tag.as_bytes(), b"CELL" | b"LCTN" | b"ECZN") {
+                if (plain_full && record.tag != T(b"CELL"))
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || list.is_some()
+                    || projectile.is_some()
+                    || dialogue.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                {
+                    return Err(bad("spatial record has unrelated override metadata"));
+                }
+                let unchanged = |candidate: &soe_esm::Record| {
+                    candidate
+                        .subrecords
+                        .iter()
+                        .filter(|sub| {
+                            record.tag != T(b"CELL")
+                                || !matches!(&sub.tag.0, b"DATA" | b"FULL" | b"XOWN")
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                if unchanged(original) != unchanged(&record) {
+                    return Err(bad("spatial override changed unrelated subrecords"));
+                }
+                if let Some((flags, _)) = pending_form_flags {
+                    record.flags = flags;
+                }
+                if links.keys().any(|raw| {
+                    !record
+                        .all(T(b"XOWN"))
+                        .any(|bytes| bytes == raw.to_le_bytes())
+                }) {
+                    return Err(bad("spatial link is not used by XOWN"));
+                }
+                let value = RecordOverride {
+                    origin,
+                    text_origin,
+                    temporary_for,
+                    record,
+                    links,
+                    plain_full,
+                    npc: NpcRecordExtra {
+                        original_race,
+                        body_tint,
+                        pending_form_flags,
+                    },
+                    list,
+                    activator: None,
+                    item: None,
+                    book_note_key: None,
+                    projectile,
+                    base_object: None,
+                    static_object: None,
+                    saved_form_flags: None,
+                    dialogue,
+                    pack: None,
+                    navmesh: None,
+                };
+                if values.insert(id, value).is_some() {
+                    return Err(bad("duplicate record override"));
+                }
+                continue;
+            }
             let present = raw_words(&record);
             if links.keys().any(|raw| !present.contains(raw)) {
                 return Err(bad("unused link token"));
@@ -377,6 +484,11 @@ impl World {
                     | b"LVLN"
                     | b"LVLI"
                     | b"LVSP"
+                    | b"PFLA"
+                    | b"PHZD"
+                    | b"PBAR"
+                    | b"PCON"
+                    | b"PARW"
                     | b"CLAS"
                     | b"FACT"
                     | b"RELA"
@@ -392,6 +504,18 @@ impl World {
                     | b"MGEF"
                     | b"PACK"
                     | b"NAVM"
+                    | b"ACTI"
+                    | b"TACT"
+                    | b"DOOR"
+                    | b"ARMO"
+                    | b"WEAP"
+                    | b"AMMO"
+                    | b"INGR"
+                    | b"ALCH"
+                    | b"ENCH"
+                    | b"BOOK"
+                    | b"NOTE"
+                    | b"KEYM"
             ) {
                 return Err(bad("missing saved dialogue record state"));
             }
@@ -511,6 +635,22 @@ impl World {
                     soe_esm::records::gameplay::MagicEffect::from_record(&record, localized)
                         .map_err(|e| VmError::State(e.to_string()))?;
                 }
+            } else if matches!(
+                &record.tag.0,
+                b"PFLA" | b"PHZD" | b"PBAR" | b"PCON" | b"PARW"
+            ) {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved projectile override"));
+                }
             } else if record.tag == T(b"PACK") || record.tag == T(b"NAVM") {
                 if temporary_for.is_some()
                     || text_origin != id
@@ -561,7 +701,6 @@ impl World {
                             && record.find(T(b"DATA")).is_some_and(|data| data.len() == 16)
                     }
                 };
-
                 if temporary_for.is_some()
                     || text_origin != id
                     || plain_full
@@ -569,10 +708,53 @@ impl World {
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
                     || list.is_some()
+                    || (record.tag == T(b"CLAS") && !links.is_empty())
                     || unchanged(original) != unchanged(&record)
                     || !data_valid
                 {
                     return Err(bad("invalid saved record change"));
+                }
+            } else if matches!(&record.tag.0, b"ACTI" | b"TACT" | b"DOOR") {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved activator override"));
+                }
+            } else if matches!(
+                &record.tag.0,
+                b"ARMO" | b"WEAP" | b"AMMO" | b"INGR" | b"ALCH" | b"ENCH"
+            ) {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved item override"));
+                }
+            } else if matches!(&record.tag.0, b"BOOK" | b"NOTE" | b"KEYM") {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved book, note or key override"));
                 }
             } else if [T(b"FLST"), T(b"LVLN"), T(b"LVLI"), T(b"LVSP")].contains(&record.tag) {
                 let tag = if record.tag == T(b"FLST") {
@@ -639,6 +821,10 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                activator: None,
+                item: None,
+                book_note_key: None,
+                projectile,
                 base_object: None,
                 static_object: None,
                 saved_form_flags: None,
@@ -992,6 +1178,289 @@ impl World {
         }
         Ok(())
     }
+}
+
+pub(super) fn write_activator_section(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter_map(|(id, value)| value.activator.map(|extra| (*id, extra)))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, extra) in entries {
+        write_form_id(w, id);
+        write_extra_flags(w, extra.form_flags);
+        w.bool(extra.value_changed);
+        w.bool(extra.full_name_changed);
+        w.bool(extra.speaker_changed);
+    }
+}
+
+pub(super) fn read_activator_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        let extra = ActivatorRecordExtra {
+            form_flags: read_extra_flags(r)?,
+            value_changed: r.bool()?,
+            full_name_changed: r.bool()?,
+            speaker_changed: r.bool()?,
+        };
+        if !seen.insert(id) {
+            return Err(bad("duplicate activator section record"));
+        }
+        let expected_flags = restored_form_flags(world, id, extra.form_flags)?;
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("activator section names a missing override"))?;
+        if !matches!(&value.record.tag.0, b"ACTI" | b"TACT" | b"DOOR")
+            || value.activator.is_some()
+            || value.item.is_some()
+            || value.book_note_key.is_some()
+        {
+            return Err(bad("activator section has mismatched record metadata"));
+        }
+        value.record.flags = expected_flags;
+        value.activator = Some(extra);
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (matches!(&value.record.tag.0, b"ACTI" | b"TACT" | b"DOOR") && value.activator.is_none())
+            || (!seen.contains(id) && value.activator.is_some())
+    }) {
+        return Err(bad("activator section is incomplete"));
+    }
+    Ok(())
+}
+
+pub(super) fn write_item_section(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter_map(|(id, value)| value.item.as_ref().map(|extra| (*id, extra)))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, extra) in entries {
+        write_form_id(w, id);
+        write_extra_flags(w, extra.form_flags);
+        w.bool(extra.value_changed);
+        w.bool(extra.full_name_changed);
+        w.bool(extra.ingredient_use_changed);
+        w.bool(extra.fullname_changed);
+        w.u32(extra.unnamed_flags);
+        w.u32(extra.other_flags);
+        w.bytes(&extra.trailing_data);
+    }
+}
+
+pub(super) fn read_item_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        let extra = ItemRecordExtra {
+            form_flags: read_extra_flags(r)?,
+            value_changed: r.bool()?,
+            full_name_changed: r.bool()?,
+            ingredient_use_changed: r.bool()?,
+            fullname_changed: r.bool()?,
+            unnamed_flags: r.u32()?,
+            other_flags: r.u32()?,
+            trailing_data: r.bytes()?.to_vec(),
+        };
+        if !seen.insert(id) {
+            return Err(bad("duplicate item section record"));
+        }
+        let expected_flags = restored_form_flags(world, id, extra.form_flags)?;
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("item section names a missing override"))?;
+        if !matches!(
+            &value.record.tag.0,
+            b"ARMO" | b"WEAP" | b"AMMO" | b"INGR" | b"ALCH" | b"ENCH"
+        ) || value.activator.is_some()
+            || value.item.is_some()
+            || value.book_note_key.is_some()
+        {
+            return Err(bad("item section has mismatched record metadata"));
+        }
+        value.record.flags = expected_flags;
+        value.item = Some(extra);
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (matches!(
+            &value.record.tag.0,
+            b"ARMO" | b"WEAP" | b"AMMO" | b"INGR" | b"ALCH" | b"ENCH"
+        ) && value.item.is_none())
+            || (!seen.contains(id) && value.item.is_some())
+    }) {
+        return Err(bad("item section is incomplete"));
+    }
+    Ok(())
+}
+
+pub(super) fn write_book_note_key_section(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter_map(|(id, value)| value.book_note_key.as_ref().map(|extra| (*id, extra)))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, extra) in entries {
+        write_form_id(w, id);
+        write_extra_flags(w, extra.form_flags);
+        w.bool(extra.value_changed);
+        w.bool(extra.full_name_changed);
+        w.bool(extra.teaches_skill);
+        w.bool(extra.read);
+        w.bytes(&extra.opaque_suffix);
+    }
+}
+
+pub(super) fn read_book_note_key_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        let extra = BookNoteKeyRecordExtra {
+            form_flags: read_extra_flags(r)?,
+            value_changed: r.bool()?,
+            full_name_changed: r.bool()?,
+            teaches_skill: r.bool()?,
+            read: r.bool()?,
+            opaque_suffix: r.bytes()?.to_vec(),
+        };
+        if !seen.insert(id) {
+            return Err(bad("duplicate book, note or key section record"));
+        }
+        let expected_flags = restored_form_flags(world, id, extra.form_flags)?;
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("book, note or key section names a missing override"))?;
+        if !matches!(&value.record.tag.0, b"BOOK" | b"NOTE" | b"KEYM")
+            || value.activator.is_some()
+            || value.item.is_some()
+            || value.book_note_key.is_some()
+        {
+            return Err(bad(
+                "book, note or key section has mismatched record metadata",
+            ));
+        }
+        value.record.flags = expected_flags;
+        value.book_note_key = Some(extra);
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (matches!(&value.record.tag.0, b"BOOK" | b"NOTE" | b"KEYM")
+            && value.book_note_key.is_none())
+            || (!seen.contains(id) && value.book_note_key.is_some())
+    }) {
+        return Err(bad("book, note or key section is incomplete"));
+    }
+    Ok(())
+}
+
+fn restored_form_flags(
+    world: &World,
+    id: GlobalFormId,
+    flags: Option<(u32, u16)>,
+) -> Result<u32, VmError> {
+    let original = world
+        .order
+        .winner(id)
+        .ok_or_else(|| bad("saved marker record is missing"))?;
+    let item_form_flags_are_metadata = matches!(&original.tag.0, b"ARMO" | b"WEAP" | b"AMMO");
+    Ok(if item_form_flags_are_metadata {
+        original.flags
+    } else {
+        original.flags ^ flags.map_or(0, |(mask, _)| mask)
+    })
+}
+
+pub(super) fn write_projectile_section(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter_map(|(id, value)| value.projectile.as_ref().map(|extra| (id, extra)))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, extra) in entries {
+        write_form_id(w, *id);
+        w.u32(extra.flags);
+        w.bytes(&extra.payload);
+    }
+}
+
+pub(super) fn read_projectile_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 10 {
+        return Err(bad("projectile section count exceeds remaining bytes"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = read_form_id(r)?;
+        let extra = ProjectileRecordExtra {
+            flags: r.u32()?,
+            payload: r.bytes()?.to_vec(),
+        };
+        if !seen.insert(id) {
+            return Err(bad("duplicate projectile section record"));
+        }
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("projectile section names a missing override"))?;
+        if !matches!(
+            &value.record.tag.0,
+            b"PFLA" | b"PHZD" | b"PBAR" | b"PCON" | b"PARW"
+        ) || value.projectile.replace(extra).is_some()
+        {
+            return Err(bad("projectile section has mismatched record metadata"));
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn write_pack_navmesh_section(

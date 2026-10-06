@@ -1,0 +1,14 @@
+{
+	"name": "bannered-mare-windowed-smoke",
+	"start": {
+		"cell": "WhiterunBanneredMare",
+		"position": [0.0, 0.0, 0.0]
+	},
+	"steps": [
+		{
+			"command": {"action": "wait"},
+			"frames": 3,
+			"checkpoint": "bannered-mare-start"
+		}
+	]
+}

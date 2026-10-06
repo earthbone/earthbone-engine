@@ -8,6 +8,7 @@ extends SceneTree
 ## rendering performance. Defaults: p99 <= 16.7 ms and worst <= 33 ms.
 ##
 ##   SKYRIM_DATA=<Data> godot --path godot --script bench.gd
+##   Add -- --cold-starts N to launch N fresh windowed processes sequentially.
 ##
 ## Frame time is the wall clock between two _process calls. The
 ## Performance.TIME_PROCESS monitor the first version printed is not a
@@ -26,11 +27,14 @@ extends SceneTree
 ##   SOE_BENCH_CAPTURE   PNG path, windowed only, saved after the warm-up
 
 const Metrics := preload("res://bench_metrics.gd")
+const Warmup := preload("res://render_warmup.gd")
+const Runs := preload("res://bench_runs.gd")
 var metrics := Metrics.new()
 var bench_cell := ""
 var bench_radius := ""
 var bench_extra: Dictionary = {}
-const WARM_UP := 10
+var run_number := 1
+var pipelines_at_measurement: Array[int] = []
 
 var frame := 0
 var last_tick := 0
@@ -42,6 +46,19 @@ var capture_path := ""
 
 
 func _initialize() -> void:
+	var repetition := Runs.configure(OS.get_cmdline_user_args())
+	if not repetition.error.is_empty():
+		printerr("RESULT: ERROR: " + repetition.error)
+		quit(1)
+		return
+	if repetition.launcher:
+		if OS.get_environment("SOE_BENCH_SOAK") == "1":
+			printerr("RESULT: ERROR: cold starts cannot be combined with a soak")
+			quit(1)
+			return
+		call_deferred("_cold_starts", repetition.runs)
+		return
+	run_number = repetition.run
 	metrics.fixed_viewport(get_root())
 	var error := metrics.configure()
 	if not error.is_empty() or DisplayServer.get_name() == "headless":
@@ -75,7 +92,12 @@ func _initialize() -> void:
 	call_deferred("_setup_scene", skyrim_data, cell, radius_text, batch, occluders)
 
 
+func _cold_starts(runs: int) -> void:
+	quit(Runs.launch(ProjectSettings.globalize_path("res://"), runs))
+
+
 func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch: bool, occluders: bool) -> void:
+	var loading_cover := Warmup.cover(get_root())
 	var scene_root := Node3D.new()
 	get_root().add_child(scene_root)
 	var streamer := ClassDB.instantiate("CellStreamerNode") as Node3D
@@ -112,6 +134,10 @@ func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch:
 		printerr("RESULT: FAIL: nothing built for %s" % label)
 		quit(1)
 		return
+	if streamer.call("surface_material_count") != built:
+		printerr("RESULT: ERROR: streamed mesh is missing a surface material")
+		quit(1)
+		return
 	var stats: Dictionary = streamer.call("last_stats")
 	if stats["meshes_failed"] > 0:
 		printerr("RESULT: ERROR: some scene meshes failed to load")
@@ -134,6 +160,28 @@ func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch:
 	Engine.max_fps = 0
 	scene_holder = scene_root
 	streamer_node = streamer
+	_setup_camera()
+	var sky := preload("res://record_sky.gd").new()
+	scene_root.add_child(sky)
+	if not sky.use_streamer(streamer, cell):
+		printerr("RESULT: FAIL: could not initialize the record sky")
+		quit(1)
+		return
+	var warmed: Dictionary = await Warmup.prepare()
+	if not warmed.error.is_empty():
+		printerr("RESULT: ERROR: " + warmed.error)
+		quit(1)
+		return
+	bench_extra.merge(warmed)
+	bench_extra["run"] = run_number
+	print("godot_load_render %s" % JSON.stringify(warmed))
+	loading_cover.queue_free()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_capture()
+	await process_frame
+	pipelines_at_measurement = Warmup.snapshot()
+	last_tick = 0
 	streamed = true
 
 
@@ -144,24 +192,13 @@ func _setup_camera() -> void:
 	var camera := Camera3D.new()
 	scene_holder.add_child(camera)
 	var centre := merged.get_center()
-	var radius: float = maxf(merged.size.length() * 0.5, 1.0)
+	var radius: float = maxf(Vector2(merged.size.x, merged.size.z).length() * 0.5, 1.0)
+	var target := Vector3(centre.x, merged.position.y + merged.size.y, centre.z)
 	camera.far = radius * 8.0 + 100.0
-	camera.position = centre + Vector3(0.0, radius * 0.6, radius * 1.4)
-	camera.look_at(centre, Vector3.UP)
+	camera.position = target + Vector3(0.0, radius * 0.6, radius * 1.4)
+	camera.look_at(target, Vector3.UP)
 	camera.make_current()
-	var light := DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-50.0, 30.0, 0.0)
-	scene_holder.add_child(light)
-	var env := WorldEnvironment.new()
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.55, 0.65, 0.8)
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.6, 0.6, 0.65)
-	environment.ambient_light_energy = 0.8
-	env.environment = environment
-	scene_holder.add_child(env)
-	print("godot_scene_extent %.1f m" % merged.size.length())
+	print("godot_scene_extent %.1f m" % (radius * 2.0))
 
 
 func _capture() -> void:
@@ -175,24 +212,27 @@ func _capture() -> void:
 func _process(_delta: float) -> bool:
 	if not streamed or done:
 		return false
-	frame += 1
-	if frame == 1:
-		_setup_camera()
-	if frame == WARM_UP:
-		_capture()
 	var now := Time.get_ticks_usec()
-	if frame <= WARM_UP:
+	if last_tick == 0:
 		last_tick = now
 		return false
+	frame += 1
 	var rid := get_root().get_viewport_rid()
-	metrics.observe((now - last_tick) / 1000.0, RenderingServer.viewport_get_measured_render_time_gpu(rid), RenderingServer.viewport_get_measured_render_time_cpu(rid))
+	metrics.observe((now - last_tick) / 1000.0, RenderingServer.viewport_get_measured_render_time_gpu(rid), RenderingServer.viewport_get_measured_render_time_cpu(rid), frame)
 	last_tick = now
 	if not metrics.ready():
 		return false
 	var reporting_started := Time.get_ticks_usec()
+	var pipeline_delta: Array[int] = []
+	var current := Warmup.snapshot()
+	for index in current.size():
+		pipeline_delta.append(current[index] - pipelines_at_measurement[index])
+	bench_extra["pipelines_during_measurement"] = Warmup.named(pipeline_delta)
 	var row := metrics.report(bench_extra)
+	pipelines_at_measurement = current
 	for key in ["p50_ms", "p99_ms", "p999_ms", "worst_ms"]:
 		print("godot_frame_%s %.3f ms" % [key.trim_suffix("_ms"), row[key]])
+	print("godot_run %d worst %.3f ms frame %d" % [run_number, row.worst_ms, row.worst_frame])
 	if not metrics.rendered_work(row):
 		printerr("RESULT: ERROR: scene produced no rendered geometry")
 		done = true

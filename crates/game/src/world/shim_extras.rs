@@ -15,6 +15,7 @@ use soe_commonlib_shim::refr::{
     ExtraLeveledItemBase, ExtraLightData, ExtraMapMarker, LinkedRefChild, MissingLinkedRefId,
     ObjectRefHandle, ReferenceExtraData as ReferenceExtraView,
 };
+use soe_esm::records::refr::Refr;
 use soe_esm::GlobalFormId;
 
 /// Borrowed reference view. Derived link arrays cannot outlive the world borrow.
@@ -44,7 +45,27 @@ impl World {
                 }
             }
         }
+        for (child, record) in self.order.winners_of(T(b"REFR")) {
+            for bytes in record.all(T(b"XLKR")) {
+                let (keyword, raw_target) = match bytes.len() {
+                    4 => (None, le_u32(bytes)?),
+                    8 => (Some(le_u32(bytes)?), le_u32(&bytes[4..])?),
+                    _ => continue,
+                };
+                if self.resolve_from(child, raw_target) == Some(reference) {
+                    let keyword = keyword
+                        .and_then(|raw| self.resolve_from(child, raw))
+                        .map(|id| FormId(self.runtime_id(id)))
+                        .unwrap_or(FormId(0));
+                    children.push(LinkedRefChild {
+                        keyword,
+                        reference: ObjectRefHandle(self.runtime_id(child)),
+                    });
+                }
+            }
+        }
         children.sort_by_key(|entry| (entry.reference.0, entry.keyword.0));
+        children.dedup_by_key(|entry| (entry.reference.0, entry.keyword.0));
         let mut missing: Vec<_> = state
             .linked
             .iter()
@@ -69,6 +90,9 @@ impl ReferenceExtraView for ReferenceExtrasView<'_> {
         let record = self.world.record(self.reference)?;
         let raw = le_u32(record.find(T(b"XLIB"))?)?;
         let id = self.world.resolve_from(self.reference, raw)?;
+        if self.world.tag_of(id)? != T(b"LVLI") {
+            return None;
+        }
         Some(ExtraLeveledItemBase {
             leveled_item: FormId(self.world.runtime_id(id)),
         })
@@ -126,50 +150,98 @@ impl ReferenceExtraData for World {
         kind: ReferenceExtraKind,
     ) -> Option<ReferenceExtra> {
         let id = self.from_runtime_id(reference.0)?;
-        let state = self.refs.get(&id)?;
         match kind {
+            ReferenceExtraKind::MissingRefIds => {
+                let record = self.record(id)?;
+                let mut parents = Vec::new();
+                for bytes in record.all(T(b"XAPR")) {
+                    if bytes.len() != 8 {
+                        return None;
+                    }
+                    let raw = le_u32(bytes)?;
+                    let activate_delay = le_f32(&bytes[4..]);
+                    let parent = self.resolve_from(id, raw)?;
+                    if !matches!(self.tag_of(parent), Some(tag) if tag == T(b"REFR") || tag == T(b"ACHR"))
+                    {
+                        return None;
+                    }
+                    if !activate_delay.is_finite() {
+                        return None;
+                    }
+                    parents.push(soe_commonlib_shim::extra_data::ActivateParentId {
+                        reference: form_id(self.runtime_id(parent)),
+                        activate_delay,
+                    });
+                }
+                (!parents.is_empty()).then_some(ReferenceExtra::MissingRefIds(parents))
+            }
+            ReferenceExtraKind::NorthRotation => {
+                let record = self.record(id)?;
+                if record.tag != T(b"CELL") {
+                    return None;
+                }
+                let flags = record.find(T(b"DATA"))?;
+                if flags.len() < 2 || u16::from_le_bytes([flags[0], flags[1]]) & 1 == 0 {
+                    return None;
+                }
+                Some(ReferenceExtra::NorthRotation(0.0))
+            }
             ReferenceExtraKind::Teleport => {
+                let state = self.refs.get(&id)?;
                 let (linked_door, destination) = state.teleport?;
+                let flags = self
+                    .record(id)
+                    .and_then(|record| Refr::from_record(record).ok())
+                    .and_then(|reference| reference.teleport)
+                    .and_then(|teleport| teleport.flags)
+                    .unwrap_or_default() as i8;
                 Some(ReferenceExtra::Teleport(DoorTeleportData {
                     linked_door: ObjectRefHandle(self.runtime_id(linked_door)),
                     position: point(destination.position),
                     rotation: point(destination.rotation),
-                    flags: 0,
+                    flags,
                 }))
             }
-            ReferenceExtraKind::OutfitItem => state.inventory.iter().find_map(|(item, _)| {
-                state.inventory.stacks(*item).iter().find_map(|stack| {
-                    let extra = stack.extra(142)?;
-                    match extra.fields.as_slice() {
-                        [Field::Form(Some(outfit))] => Some(ReferenceExtra::OutfitItem(form_id(
-                            self.runtime_id(*outfit),
-                        ))),
-                        _ => None,
-                    }
-                })
-            }),
-            ReferenceExtraKind::Poison => state.inventory.iter().find_map(|(item, _)| {
-                state.inventory.stacks(*item).iter().find_map(|stack| {
-                    let extra = stack.extra(62)?;
-                    match extra.fields.as_slice() {
-                        [Field::Form(Some(poison)), Field::Word(count)] => {
-                            Some(ReferenceExtra::Poison {
-                                poison: form_id(self.runtime_id(*poison)),
-                                count: *count,
-                            })
+            ReferenceExtraKind::OutfitItem => {
+                let state = self.refs.get(&id)?;
+                state.inventory.iter().find_map(|(item, _)| {
+                    state.inventory.stacks(*item).iter().find_map(|stack| {
+                        let extra = stack.extra(142)?;
+                        match extra.fields.as_slice() {
+                            [Field::Form(Some(outfit))] => Some(ReferenceExtra::OutfitItem(
+                                form_id(self.runtime_id(*outfit)),
+                            )),
+                            _ => None,
                         }
-                        _ => None,
-                    }
+                    })
                 })
-            }),
-            ReferenceExtraKind::MissingRefIds | ReferenceExtraKind::NorthRotation => None,
+            }
+            ReferenceExtraKind::Poison => {
+                let state = self.refs.get(&id)?;
+                state.inventory.iter().find_map(|(item, _)| {
+                    state.inventory.stacks(*item).iter().find_map(|stack| {
+                        let extra = stack.extra(62)?;
+                        match extra.fields.as_slice() {
+                            [Field::Form(Some(poison)), Field::Word(count)] => {
+                                Some(ReferenceExtra::Poison {
+                                    poison: form_id(self.runtime_id(*poison)),
+                                    count: *count,
+                                })
+                            }
+                            _ => None,
+                        }
+                    })
+                })
+            }
         }
     }
 
     fn supports_extra(&self, kind: ReferenceExtraKind) -> bool {
         matches!(
             kind,
-            ReferenceExtraKind::OutfitItem
+            ReferenceExtraKind::MissingRefIds
+                | ReferenceExtraKind::NorthRotation
+                | ReferenceExtraKind::OutfitItem
                 | ReferenceExtraKind::Poison
                 | ReferenceExtraKind::Teleport
         )
@@ -193,7 +265,8 @@ mod tests {
     use super::*;
     use crate::inventory::{Extra, Inventory, Stack};
     use crate::world::{RefState, DYNAMIC_FILE};
-    use soe_commonlib_shim::extra_data::reject_hook;
+    use soe_commonlib_shim::extra_data::{reject_hook, ActivateParentId};
+    use soe_esm::plugin::{FileHeader, Plugin, Record};
     use soe_esm::records::Transform;
     use soe_esm::{GlobalFormId, LoadOrder};
 
@@ -202,6 +275,10 @@ mod tests {
             file: DYNAMIC_FILE,
             object,
         }
+    }
+
+    fn plugin_id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
     }
 
     fn world_with_reference() -> (World, GlobalFormId) {
@@ -286,23 +363,58 @@ mod tests {
     }
 
     #[test]
-    fn shm_10_absent_runtime_fields_and_binary_hooks_are_explicit() {
-        let (world, reference) = world_with_reference();
-        for kind in [
-            ReferenceExtraKind::MissingRefIds,
-            ReferenceExtraKind::NorthRotation,
-        ] {
-            assert!(!world.supports_extra(kind));
-            assert_eq!(
-                world.extra(ObjectRefHandle(world.runtime_id(reference)), kind),
-                None
-            );
-        }
+    fn shm_10_supported_extras_and_binary_hooks_are_explicit() {
+        let (world, _reference) = world_with_reference();
+        assert!(world.supports_extra(ReferenceExtraKind::MissingRefIds));
+        assert!(world.supports_extra(ReferenceExtraKind::NorthRotation));
         assert_eq!(
             reject_hook("write_vfunc"),
             Err(soe_commonlib_shim::extra_data::UnsupportedHook {
                 name: "write_vfunc"
             })
+        );
+    }
+
+    #[test]
+    fn shm_10_missing_ref_ids_reads_resolved_live_activation_parents() {
+        let mut plugin = Plugin::new(FileHeader::default());
+        let mut xapr = 2u32.to_le_bytes().to_vec();
+        xapr.extend_from_slice(&0.25f32.to_le_bytes());
+        plugin.push_top(Record::new(T(b"REFR"), 1).sub(T(b"XAPR"), xapr));
+        plugin.push_top(Record::new(T(b"REFR"), 2));
+        let mut order = LoadOrder::new();
+        order
+            .add("SHM10.esm", plugin)
+            .expect("fixture plugin is valid");
+        let world = World::new(order);
+        let result = world.extra(
+            ObjectRefHandle(world.runtime_id(plugin_id(1))),
+            ReferenceExtraKind::MissingRefIds,
+        );
+        assert_eq!(
+            result,
+            Some(ReferenceExtra::MissingRefIds(vec![ActivateParentId {
+                reference: FormId(world.runtime_id(plugin_id(2))),
+                activate_delay: 0.25,
+            }]))
+        );
+    }
+
+    #[test]
+    fn shm_10_north_rotation_reads_interior_cell_default() {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(T(b"CELL"), 1).sub(T(b"DATA"), 1u16.to_le_bytes().to_vec()));
+        let mut order = LoadOrder::new();
+        order
+            .add("SHM10.esm", plugin)
+            .expect("fixture plugin is valid");
+        let world = World::new(order);
+        assert_eq!(
+            world.extra(
+                ObjectRefHandle(world.runtime_id(plugin_id(1))),
+                ReferenceExtraKind::NorthRotation,
+            ),
+            Some(ReferenceExtra::NorthRotation(0.0))
         );
     }
 }

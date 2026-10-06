@@ -253,8 +253,10 @@ out-of-range endpoints.
 and `A*` with an independent Dijkstra oracle over generated directed, blocked
 graphs. Each property runs 192 cases. A fixed test requires both point searches
 to prune at least 90 percent of 1,024 separated meshes. Tie handling and cache
-invalidation have explicit tests. This is a mesh-level index, not a triangle
-index or hierarchical pathfinder. See `docs/performance.md` for measurements.
+invalidation have explicit tests. PRF-14 adds a triangle-level index within
+candidate meshes, described below. PRF-11 adds frame-sliced path queries and
+prepares query caches before timed actor work. Neither change adds a
+hierarchical pathfinder. See `docs/performance.md` for measurements.
 
 ## String pulling validation
 
@@ -369,3 +371,80 @@ planned routes. Those changes must bind the footprint to the specific crossing
 link before runtime lock or door state can close that link and reopening can
 restore it. `NavGraph::door_nodes` only retains the authored association. It
 does not close a link based on runtime state.
+
+## Deterministic query work, PRF-14
+
+`locate` and `contains_point` count point queries, including invalid points.
+Every `height_at` candidate test increments the triangle count. A* counts
+non-stale queue pops, including the goal and unsuccessful search expansions.
+Invalid nodes and rejected path costs consume no expansions. The reachability
+flood also charges each expanded node. Counts are charged only inside a
+`soe_trace::WorkFrame`.
+
+Each mesh lazily builds a triangle bounds tree for point queries, using the
+existing median-split `SpatialIndex` and subtree escape traversal. Bounds
+include the barycentric tolerance used by `height_at`. All overlapping
+candidates remain available for nearest-height and stable NodeId selection.
+Blocked triangles remain indexed and are filtered by current graph state.
+The local `recastnavigation/Detour/Source/DetourNavMeshBuilder.cpp`
+`createBVTree` and `DetourNavMeshQuery.cpp` `queryPolygonsInTile` informed this
+extension of the existing tree. Detour uses quantized polygon bounds and its
+own mesh representation, so this graph retains floating triangle bounds and
+its native NAVM representation. The `prf_14_` tests compare edge and stacked
+floor queries with exhaustive selection and assert operation limits.
+
+## Frame-sliced queries, PRF-11
+
+Each mesh builds a median-split triangle bounds tree when added. `locate`
+and `contains_point` visit only triangle bounds overlapping the query XY.
+Bounds include the barycentric tolerance accepted by `height_at`. Height
+queries visit the closest Z bounds first and prune bounds farther than the
+best surface found, retaining equal-distance ties. `nearest`
+uses the same tree to prune centroid candidates. Surface height, blocked
+triangle handling and lowest NodeId tie selection retain their previous rules.
+The large-mesh regression requires at most eight tested triangles for three
+points in an 80,000-triangle grid, including an interior vertex.
+
+`start_path_between` resolves both endpoints once and returns a `PathSearch`.
+`advance(graph, node_budget)` processes at most that many heap entries,
+including stale entries. `Pending` retains the heap, scores and predecessors.
+`Ready` returns the same nodes, cost, pulled points and waypoint owners as
+`find_path_between`, which runs the same search to completion. Mutating links,
+flags, blocking, doors or obstacles cancels an unfinished search. Resume a
+search only on its original graph. `prepare_queries` builds the mesh tree and
+weak-component cache before timed actor work.
+
+The local reference is
+`recastnavigation/Detour/Source/DetourNavMeshQuery.cpp`,
+`queryPolygonsInTile`, `initSlicedFindPath` and `updateSlicedFindPath`.
+Detour uses a polygon bounds tree and retains an open list between bounded
+updates. This implementation uses the existing Rust tree and A* ordering
+because Detour's tile and polygon representation cannot query native NAVM
+links directly. No dependency was added. Graph query and funnel oracle tests
+remain applicable to the synchronous wrapper. PRF-11 tests also compare every
+path field across slices of one, three and 64 entries, and exercise index
+edge tolerance, floor selection, blocked triangles and ties.
+
+Closed door bindings have a per-triangle count. A node expansion checks that
+index instead of scanning every closed door. Opening one of several doors
+bound to a triangle leaves it blocked until all such doors open or move away.
+Rebinding a closed door transfers its count to the new triangle.
+
+Nearest-centroid lookup shares the best radius between the mesh tree and each
+triangle tree. A regression with overlapping mesh bounds limits the lookup to
+two tested triangles in an 80,002-triangle graph. Containment lookup stops at
+the first containing triangle. It still ignores surface height and includes
+blocked triangles. A 1,024-floor regression requires one triangle test.
+
+`query_revision` exposes the graph's existing mutation revision for transient
+query-result caches. Geometry, links, flags, blocking, door bindings and obstacle
+changes advance it. Compare this value only on the same graph, as with the
+revision retained by `PathSearch`. The game uses it to retry cached failures
+when navigation changes.
+
+## Shared logging, TOOL-06
+
+Path search emits a trace event with source and destination node identities
+and system through `soe-trace`. Release builds remove the event and its
+argument evaluation. Subscribers, filters, counts and output follow
+[trace.md](trace.md). The navmesh crate does not install a subscriber.

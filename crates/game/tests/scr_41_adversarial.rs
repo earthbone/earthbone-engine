@@ -83,7 +83,7 @@ fn call_with_args(game: &mut Game, target: GlobalFormId, method: &str, args: &[V
         let value_type = match value {
             Value::Bool(_) => "Bool",
             Value::Int(_) => "Int",
-            Value::Object(_) => "ObjectReference",
+            Value::None | Value::Object(_) => "ObjectReference",
             _ => panic!("unsupported SCR-38 probe argument"),
         };
         function = function.param(&name, value_type);
@@ -201,9 +201,67 @@ fn scr_41_tether_places_horse_at_cart_relative_position() {
     let mut game = game();
     game.world_mut().reference(id(TRIGGER)).unwrap().position = [10.0, 20.0, 30.0];
     let horse = Value::Object(game.object_of_form(id(ORDINARY)));
-    call_with_args(&mut game, id(TRIGGER), "TetherToHorse", &[horse]);
+    assert_eq!(
+        call_with_args(&mut game, id(TRIGGER), "TetherToHorse", &[horse]),
+        Value::None
+    );
     let horse = game.world_mut().reference(id(ORDINARY)).unwrap().position;
-    assert_eq!(horse, [10.0, -80.0, 30.0]);
+    assert_eq!(
+        horse,
+        [82.0, 320.0, 30.0],
+        "CK TetherToHorse offsets the horse by [72, 300, 0] from the cart"
+    );
+    assert!(matches!(
+        game.world_mut().take_reference_physics_requests().as_slice(),
+        [soe_game::world::ReferencePhysicsRequest::TetherToHorse { cart, horse }]
+            if *cart == id(TRIGGER) && *horse == id(ORDINARY)
+    ));
+}
+
+#[test]
+fn scr_41_tether_rotates_authored_offset_with_cart_yaw() {
+    let mut game = game();
+    {
+        let mut world = game.world_mut();
+        let cart = world.reference(id(TRIGGER)).unwrap();
+        cart.position = [10.0, 20.0, 30.0];
+        cart.rotation[2] = std::f32::consts::FRAC_PI_2;
+    }
+    let horse_arg = Value::Object(game.object_of_form(id(ORDINARY)));
+    assert_eq!(
+        call_with_args(&mut game, id(TRIGGER), "TetherToHorse", &[horse_arg]),
+        Value::None
+    );
+    let mut world = game.world_mut();
+    let horse = world.reference(id(ORDINARY)).unwrap();
+    assert!((horse.position[0] + 290.0).abs() < 0.001);
+    assert!((horse.position[1] - 92.0).abs() < 0.001);
+    assert_eq!(horse.rotation[2], std::f32::consts::FRAC_PI_2);
+}
+
+#[test]
+fn scr_41_tether_ignores_a_non_reference_argument_without_mutation() {
+    let mut game = game();
+    let before = game.world_mut().reference(id(ORDINARY)).unwrap().clone();
+    assert_eq!(
+        call_with_args(&mut game, id(TRIGGER), "TetherToHorse", &[Value::None]),
+        Value::None
+    );
+    assert_eq!(game.world_mut().reference(id(ORDINARY)).unwrap(), &before);
+    assert!(game.world().reference_physics_requests.is_empty());
+}
+
+#[test]
+fn scr_41_tether_ignores_the_cart_as_its_own_horse() {
+    let mut game = game();
+    let before = game.world_mut().reference(id(TRIGGER)).unwrap().clone();
+    let cart_arg = Value::Object(game.object_of_form(id(TRIGGER)));
+    assert_eq!(
+        call_with_args(&mut game, id(TRIGGER), "TetherToHorse", &[cart_arg]),
+        Value::None
+    );
+    assert_eq!(game.world_mut().reference(id(TRIGGER)).unwrap(), &before);
+    assert!(game.world().reference_physics_requests.is_empty());
 }
 
 #[test]
@@ -214,7 +272,7 @@ fn scr_41_interrupt_cast_clears_pending_cast_without_applying_effects() {
         .unwrap();
     assert!(game.world().pending_spell_cast(id(TRIGGER)).is_some());
 
-    call(&mut game, id(TRIGGER), "InterruptCast");
+    assert_eq!(call(&mut game, id(TRIGGER), "InterruptCast"), Value::None);
 
     assert!(game.world().pending_spell_cast(id(TRIGGER)).is_none());
     assert_eq!(game.world().active_effects().count(), 0);
@@ -227,12 +285,18 @@ fn scr_41_ragdoll_methods_set_and_clear_actor_override() {
         .world_mut()
         .place_at(id(ACTOR_BASE), id(TRIGGER), false);
 
-    call(&mut game, actor, "ForceAddRagdollToWorld");
+    assert_eq!(
+        call(&mut game, actor, "ForceAddRagdollToWorld"),
+        Value::None
+    );
     assert_eq!(
         game.world_mut().actor(actor).unwrap().ragdoll_forced,
         Some(true)
     );
-    call(&mut game, actor, "ForceRemoveRagdollFromWorld");
+    assert_eq!(
+        call(&mut game, actor, "ForceRemoveRagdollFromWorld"),
+        Value::None
+    );
     assert_eq!(
         game.world_mut().actor(actor).unwrap().ragdoll_forced,
         Some(false)

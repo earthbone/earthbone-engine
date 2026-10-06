@@ -51,7 +51,10 @@ pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;
+mod papyrus_logs;
 pub mod perks;
+pub mod play;
+pub mod player_input;
 pub mod progression;
 pub mod quest;
 pub mod race;
@@ -170,6 +173,7 @@ pub struct Game {
     bound_cells: BTreeSet<GlobalFormId>,
     /// Instructions per pump round before the loop yields.
     pub budget: usize,
+    budget_usage: Rc<natives::BudgetUsage>,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
     /// Parsed OAR submods, ordered by descending priority.
@@ -181,6 +185,10 @@ pub struct Game {
     /// Hands currently held by direct player or scripted cast input.
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
     wasm_mods: WasmMods,
+    frame_history: soe_trace::FrameHistory,
+    last_work_counts: soe_trace::WorkCounts,
+    papyrus_logs: Option<papyrus_logs::FileLogs>,
+    papyrus_log_cursor: usize,
 }
 
 /// Maximum VM instructions executed in one scheduler slice.
@@ -188,6 +196,17 @@ pub const PAPYRUS_INSTRUCTIONS_PER_SLICE: usize = 100_000;
 
 /// Maximum exterior cells the player streamer starts loading per update.
 pub const EXTERIOR_CELL_LOADS_PER_UPDATE: usize = 2;
+
+/// File logging options read from `[Papyrus]` in the active profile INI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PapyrusLogSettings {
+    /// Whether to create Papyrus and user log files.
+    pub enabled: bool,
+    /// Whether ordinary `Debug.Trace` lines reach the files.
+    pub trace_enabled: bool,
+    /// Whether source line numbers appear in stack output.
+    pub debug_information: bool,
+}
 
 impl Game {
     /// Evaluate one objective target's QSTA conditions against the current world and VM.
@@ -235,14 +254,20 @@ impl Game {
     }
 
     pub fn new(order: LoadOrder) -> Game {
+        soe_trace::Profile::from_environment();
         Self::from_shared_order(std::sync::Arc::new(order))
     }
 
     /// Use the immutable form table already opened by the host.
     pub fn from_shared_order(order: std::sync::Arc<LoadOrder>) -> Game {
+        soe_trace::Profile::from_environment();
         let world = Rc::new(RefCell::new(World::from_shared_order(order)));
         let mut vm = Vm::new();
-        let registered = natives::register(&mut vm, &world);
+        let budget_usage = Rc::new(natives::BudgetUsage::default());
+        budget_usage
+            .vm_instruction_limit
+            .set(PAPYRUS_INSTRUCTIONS_PER_SLICE);
+        let registered = natives::register_with_budget_usage(&mut vm, &world, &budget_usage);
         Game {
             vm,
             world,
@@ -251,6 +276,7 @@ impl Game {
             bound_forms: BTreeSet::new(),
             bound_cells: BTreeSet::new(),
             budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
+            budget_usage,
             hash_log: None,
             oar_submods: Vec::new(),
             mcm_registered: Vec::new(),
@@ -258,7 +284,69 @@ impl Game {
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
             wasm_mods: WasmMods::new(),
+            frame_history: soe_trace::FrameHistory::default(),
+            last_work_counts: soe_trace::WorkCounts::default(),
+            papyrus_logs: None,
+            papyrus_log_cursor: 0,
         }
+    }
+
+    /// Configure Papyrus file logs under the profile's My Games directory.
+    /// Existing numbered files are moved up when logging starts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the log directory cannot be created or rotated.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn set_papyrus_log_directory(
+        &mut self,
+        directory: impl AsRef<Path>,
+        settings: PapyrusLogSettings,
+    ) -> std::io::Result<()> {
+        if settings.enabled {
+            self.papyrus_logs = Some(papyrus_logs::FileLogs::open(
+                directory.as_ref(),
+                settings.trace_enabled,
+                settings.debug_information,
+            )?);
+        } else {
+            self.papyrus_logs = None;
+        }
+        self.papyrus_log_cursor = self.vm.log.entries.len();
+        Ok(())
+    }
+
+    /// Configure Papyrus file output from the resolved profile INI settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the log directory cannot be created or rotated.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn configure_papyrus_logs(
+        &mut self,
+        settings: &soe_profile::Settings,
+        my_games_directory: impl AsRef<Path>,
+    ) -> std::io::Result<()> {
+        self.set_papyrus_log_directory(
+            my_games_directory,
+            PapyrusLogSettings {
+                enabled: settings
+                    .get_bool("Papyrus", "bEnableLogging")
+                    .unwrap_or(false),
+                trace_enabled: settings
+                    .get_bool("Papyrus", "bEnableTrace")
+                    .unwrap_or(false),
+                debug_information: settings
+                    .get_bool("Papyrus", "bLoadDebugInformation")
+                    .unwrap_or(false),
+            },
+        )
     }
 
     /// Register natives from another provider, an extender in the PAPER
@@ -350,7 +438,42 @@ impl Game {
         for path in pex {
             match vfs.read(&path) {
                 Ok(bytes) => match self.load_script(&bytes) {
-                    Ok(()) => report.scripts_loaded += 1,
+                    Ok(()) => {
+                        report.scripts_loaded += 1;
+                        let provider = match vfs.resolve(&path) {
+                            Some(soe_bsa::Source::Archived { archive, .. }) => vfs.archives()
+                                [*archive]
+                                .path()
+                                .file_stem()
+                                .map(|stem| stem.to_string_lossy().into_owned())
+                                .unwrap_or_default(),
+                            Some(soe_bsa::Source::Loose(path)) => {
+                                format!("<loose:{}>", path.display())
+                            }
+                            None => "<unknown>".to_owned(),
+                        };
+                        let plugin = self
+                            .world
+                            .borrow()
+                            .order()
+                            .files()
+                            .iter()
+                            .find(|file| {
+                                let stem = Path::new(&file.name)
+                                    .file_stem()
+                                    .map_or("", |stem| stem.to_str().unwrap_or_default());
+                                provider.eq_ignore_ascii_case(stem)
+                                    || provider
+                                        .to_ascii_lowercase()
+                                        .starts_with(&format!("{} - ", stem.to_ascii_lowercase()))
+                            })
+                            .map_or(provider.clone(), |file| file.name.clone());
+                        if let Some(script) =
+                            Path::new(&path).file_stem().and_then(|stem| stem.to_str())
+                        {
+                            self.vm.set_script_plugin(script, &plugin);
+                        }
+                    }
                     Err(e) => report.scripts_failed.push((path, e.to_string())),
                 },
                 Err(e) => report.scripts_failed.push((path, e.to_string())),
@@ -365,6 +488,12 @@ impl Game {
 
     pub fn world_mut(&self) -> RefMut<'_, World> {
         self.world.borrow_mut()
+    }
+
+    /// Record how many exterior cells the host loaded during its latest update.
+    pub fn record_exterior_cell_loads(&mut self, count: usize) {
+        self.world.borrow_mut().exterior_cell_loads_last_update = count;
+        self.budget_usage.exterior_cell_loads.set(count);
     }
 
     /// Route an authored Story Manager event through the shared runtime.
@@ -465,6 +594,7 @@ impl Game {
         let vm = &mut self.vm;
         let completions = {
             let mut world = self.world.borrow_mut();
+            world.consume_animation_report(source, name);
             world.animation_graph_event(source, name, &mut |object, class| {
                 vm.create_object_of(object, class)
             });
@@ -926,7 +1056,6 @@ impl Game {
             }
         }
         self.run_until_idle(64);
-        self.mcm_configs();
         self.bound = Some(report.clone());
         report
     }
@@ -1329,19 +1458,36 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        let frame = soe_trace::FrameSnapshot::when_recording();
+        let tick_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
+        let work_frame = soe_trace::WorkFrame::begin();
+        soe_trace::trace!(target: "game", system = "game", real_seconds, menu_mode, "ticking runtime");
         {
             let mut world = self.world.borrow_mut();
             world.menu_mode = menu_mode;
             world.frame_rate.record_frame(real_seconds);
         }
         let mut game_hours = 0.0;
+        let player_motion = if !menu_mode && self.world.borrow().player_ai_driven {
+            let player = self.player();
+            self.world
+                .borrow()
+                .reference_ref(player)
+                .map(|reference| (player, reference.cell, reference.position))
+        } else {
+            None
+        };
         if !menu_mode {
-            self.resume_quest_lifecycle_tasks();
+            {
+                let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
+                self.resume_quest_lifecycle_tasks();
+            }
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
             let slow_time_scale = w.slow_time_scale();
             let before = w.clock.game_days;
             w.advance_clock_scaled(real_seconds, slow_time_scale);
+            let magic_scope = soe_trace::SystemScope::new(soe_trace::System::Magic);
             w.tick_image_space(real_seconds);
             w.tick_translations(real_seconds, &mut |name, class| {
                 vm.create_object_of(name, class)
@@ -1359,9 +1505,13 @@ impl Game {
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
             }
+            drop(magic_scope);
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
-            w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
+            {
+                let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
+                w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
+            }
             if w.debug_ai_enabled {
                 w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
                     vm.create_object_of(n, c)
@@ -1371,10 +1521,25 @@ impl Game {
         if !menu_mode {
             let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
             for (actor, target) in activations {
-                self.activate(target, actor);
+                let accepted = self.activate(target, actor);
+                crate::ai::finish_activate(&mut self.world.borrow_mut(), actor, accepted);
+            }
+        }
+        if let Some((player, prior_cell, from)) = player_motion {
+            let pose = self
+                .world
+                .borrow()
+                .reference_ref(player)
+                .map(|reference| (reference.cell, reference.position));
+            if let Some((cell, to)) = pose {
+                if prior_cell != cell {
+                    self.change_cell(cell);
+                }
+                self.update_trigger_actor_position(player, cell, from, to);
             }
         }
         if !menu_mode {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
             for (speaker, listener, topic) in greetings {
                 if self.begin_dialogue(speaker, listener).is_err() {
@@ -1387,6 +1552,7 @@ impl Game {
             }
         }
         if !menu_mode {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
             for (speaker, listener) in starts {
                 if self.begin_dialogue(speaker, listener).is_ok() {
@@ -1394,9 +1560,13 @@ impl Game {
                 }
             }
         }
-        self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
+        {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
+            self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
+        }
         self.run_until_idle(64);
         if !menu_mode {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             if let Err(error) = self.update_dialogue_range() {
                 self.vm.log.push(self.vm.time(), error.to_string());
             }
@@ -1405,6 +1575,26 @@ impl Game {
             }
         }
         self.push_tick_hash();
+        drop(tick_scope);
+        if let Some(frame) = frame {
+            let sample = frame.finish();
+            soe_trace::Profile::systems("game", &sample);
+            self.frame_history.record(sample);
+        }
+        self.last_work_counts = work_frame.counts();
+    }
+
+    /// Last tick's exclusive system durations and rolling 240-frame statistics.
+    /// This session data is independent of optional traces and is never saved.
+    #[must_use]
+    pub fn frame_history(&self) -> &soe_trace::FrameHistory {
+        &self.frame_history
+    }
+
+    /// Deterministic operation counts for the last game tick, excluding host work.
+    #[must_use]
+    pub fn last_work_counts(&self) -> soe_trace::WorkCounts {
+        self.last_work_counts.clone()
     }
 
     fn resume_quest_lifecycle_tasks(&mut self) {
@@ -1423,7 +1613,9 @@ impl Game {
 
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
         self.prepare_cell_events();
+        let quest_scope = soe_trace::SystemScope::new(soe_trace::System::Quests);
         self.dispatch_story_manager_events();
         let story_events = std::mem::take(&mut self.world.borrow_mut().pending_story_events);
         let mut routed = 0;
@@ -1440,6 +1632,7 @@ impl Game {
                     .push(self.vm.time(), format!("Keyword.SendStoryEvent: {error}")),
             }
         }
+        drop(quest_scope);
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
         let n = routed
             + pending
@@ -1618,15 +1811,21 @@ impl Game {
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
     /// queued, or `max_rounds` passes. Returns true when settled.
     pub fn run_until_idle(&mut self, max_rounds: usize) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
         let loaded_cell = self.world.borrow().loaded_cell();
         if let Some(cell) = loaded_cell {
             self.bind_cell(cell);
         }
         for _ in 0..max_rounds {
             self.pump();
-            self.vm.run(self.budget);
+            self.budget_usage.vm_instruction_limit.set(self.budget);
+            let instructions = self.vm.run(self.budget);
+            self.flush_papyrus_logs();
+            self.world.borrow_mut().papyrus_instructions_last_slice = instructions;
+            self.budget_usage.vm_instructions.set(instructions);
             self.world.borrow_mut().collect_effect_objects(&mut self.vm);
-            let queued = self.world.borrow().has_pending_calls();
+            let world = self.world.borrow();
+            let queued = world.has_pending_calls() || !world.completed_animation_waits.is_empty();
             if self.vm.idle() && !queued {
                 return true;
             }
@@ -1641,6 +1840,26 @@ impl Game {
             .iter()
             .map(|e| e.message.clone())
             .collect()
+    }
+
+    fn flush_papyrus_logs(&mut self) {
+        if let Some(logs) = self.papyrus_logs.as_mut() {
+            for entry in &self.vm.log.entries[self.papyrus_log_cursor..] {
+                if let Err(error) = logs.write_vm(&entry.message) {
+                    soe_trace::error!(target: "papyrus", system = "papyrus", error = %error, "failed to write Papyrus log");
+                }
+            }
+        }
+        self.papyrus_log_cursor = self.vm.log.entries.len();
+
+        let pending = std::mem::take(&mut self.world.borrow_mut().pending_user_log_writes);
+        if let Some(logs) = self.papyrus_logs.as_mut() {
+            for (name, line) in pending {
+                if let Err(error) = logs.write_user(&name, &line) {
+                    soe_trace::error!(target: "papyrus", system = "papyrus", error = %error, user_log = %name, "failed to write Papyrus user log");
+                }
+            }
+        }
     }
 }
 
@@ -1795,4 +2014,22 @@ fn find_oar_clip(directory: &Path, file_name: &std::ffi::OsStr) -> Option<PathBu
         }
     }
     None
+}
+
+impl Drop for Game {
+    fn drop(&mut self) {
+        if std::env::var("SOE_PROFILE").is_ok_and(|value| value == "1") {
+            let directory = std::env::var_os("SOE_PROFILE_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            if let Err(error) =
+                soe_trace::Profile::export_chrome_json(&directory.join("soe-profile.json"))
+                    .and_then(|()| {
+                        soe_trace::Profile::export_summary(&directory.join("soe-entities.json"))
+                    })
+            {
+                soe_trace::error!(target: "game", system = "game", error = %error, "Could not write entity profile");
+            }
+        }
+    }
 }

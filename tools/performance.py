@@ -39,7 +39,7 @@ def integer(value):
 
 def parser():
     cli = argparse.ArgumentParser(description=__doc__)
-    cli.add_argument("mode", choices=("check", "sweep", "soak"))
+    cli.add_argument("mode", choices=("check", "sweep", "soak", "final-sweep"))
     cli.add_argument("--backend", choices=("cpu", "godot"), default="cpu")
     cli.add_argument("--scenario", default="mixed")
     cli.add_argument("--binary", type=Path, default=ROOT / "target/release/soe-bench")
@@ -58,6 +58,8 @@ def parser():
     cli.add_argument("--max-video-mib", type=positive, default=4096.0)
     cli.add_argument("--max-growth-mib", type=positive, default=64.0)
     cli.add_argument("--max-backlog", type=int, default=0)
+    cli.add_argument("--max-allocations", type=integer, default=100000,
+                     help="maximum allocation calls in any measured CPU tick")
     cli.add_argument("--timeout", type=positive, default=120.0, help="per-process watchdog, excluding requested soak duration")
     cli.add_argument("--duration", type=integer, default=600, help="soak wall seconds, at most 86400")
     cli.add_argument("--out", type=Path, required=True, help="new output directory, never overwritten")
@@ -75,7 +77,8 @@ def read_samples(path):
                 value = row.get(name)
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
                     raise ValueError(f"missing or invalid {name}")
-            for name in ("backlog_peak", "rss_mib", "video_mib"):
+            for name in ("backlog_peak", "rss_mib", "video_mib", "peak_allocations",
+                         "peak_allocation_bytes"):
                 value = row.get(name)
                 if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0):
                     raise ValueError(f"invalid {name}")
@@ -97,6 +100,14 @@ def assess(samples, args):
             return ["missing backlog telemetry"], True
         if values and max(values) > limit:
             reasons.append(f"{metric}={max(values):.6f} exceeds {limit}")
+    allocation_peaks = [row["peak_allocations"] for row in samples if "peak_allocations" in row]
+    allocation_bytes = [row["peak_allocation_bytes"] for row in samples if "peak_allocation_bytes" in row]
+    if args.backend == "cpu" and len(allocation_peaks) != len(samples):
+        return ["missing allocation telemetry"], True
+    if args.backend == "cpu" and len(allocation_bytes) != len(samples):
+        return ["missing allocation byte telemetry"], True
+    if allocation_peaks and max(allocation_peaks) > args.max_allocations:
+        reasons.append(f"peak_allocations={max(allocation_peaks)} exceeds {args.max_allocations}")
     if args.backend == "godot" and any(row.get("draw_calls", 0) <= 0 or row.get("primitives", 0) <= 0 for row in samples):
         return ["scene produced no rendered work"], True
     if args.mode == "soak":
@@ -271,6 +282,44 @@ def sweep(measure, start, maximum, refine):
     return {"status": "boundary_found", "last_pass": passed, "first_breach": failed}
 
 
+def texture_capacity_sweep(measure, start, maximum, repeats, conditions):
+    """Run every configured texture rung and report the confirmed prefix."""
+    loads = []
+    load = start
+    while True:
+        status = measure(load)
+        loads.append({"load": load, "status": status})
+        if load == maximum:
+            break
+        load = min(maximum, load * 2)
+
+    capacity = 0
+    first_nonpass = None
+    for rung in loads:
+        if rung["status"] != "pass":
+            first_nonpass = rung
+            break
+        capacity = rung["load"]
+
+    if first_nonpass is None:
+        status = "limit_not_found"
+    elif first_nonpass["status"] == "error":
+        status = "error"
+    elif first_nonpass["status"] == "unstable":
+        status = "unstable"
+    else:
+        status = "boundary_found"
+
+    return {
+        "status": status,
+        "capacity_textures": capacity,
+        "capacity_definition": "highest contiguous rung where every repeat passed",
+        "first_nonpass": first_nonpass,
+        "completed_rungs": loads,
+        "conditions": {**conditions, "repeats_per_rung": repeats},
+    }
+
+
 def write_report(path, report):
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
@@ -280,6 +329,12 @@ def write_report(path, report):
 def main(argv=None):
     cli = parser()
     args = cli.parse_args(argv)
+    if args.mode == "final-sweep":
+        command = [str(ROOT / "tools/perf-budget.sh"), "--sweep", "--out", str(args.out),
+                   "--binary", str(args.binary)]
+        godot = os.environ.get("SOE_GODOT_BIN", args.godot) if args.godot == "godot" else args.godot
+        command.extend(["--godot", godot])
+        return subprocess.run(command, cwd=ROOT, check=False).returncode
     if args.scenario not in (CPU if args.backend == "cpu" else GPU):
         cli.error("scenario does not belong to the selected backend")
     if (args.mode == "sweep" and args.start > args.max_load) or max(args.start, args.max_load, args.samples, args.warmup) > 100000 or args.refine < 0 or args.max_backlog < 0 or args.duration > 86400:
@@ -320,7 +375,31 @@ def main(argv=None):
                 break
         return classify(runs)
 
-    if args.mode == "sweep":
+    if args.mode == "sweep" and args.backend == "godot" and args.scenario == "textures":
+        report["result"] = texture_capacity_sweep(
+            measure,
+            args.start,
+            args.max_load,
+            args.repeats,
+            {
+                "backend": args.backend,
+                "scenario": args.scenario,
+                "texture_size": "512x512 RGBA8 with mipmaps",
+                "resolution": "1600x900",
+                "p99_ms": args.p99_ms,
+                "worst_ms": args.worst_ms,
+                "max_rss_mib": args.max_rss_mib,
+                "max_video_mib": args.max_video_mib,
+                "vsync": "disabled",
+                "warmup_frames": 10,
+                "minimum_samples": 600,
+                "minimum_seconds": 5,
+                "start": args.start,
+                "max_load": args.max_load,
+                "seed": args.seed,
+            },
+        )
+    elif args.mode == "sweep":
         report["result"] = sweep(measure, args.start, args.max_load, args.refine)
     else:
         report["result"] = {"status": measure(args.start), "load": args.start}

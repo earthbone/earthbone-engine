@@ -23,6 +23,9 @@ cargo fmt --all --check
 step "cargo clippy --workspace --lib --bins -- -D warnings"
 cargo clippy --workspace --lib --bins -- -D warnings
 
+step "library logging facade"
+cargo clippy --workspace --lib -- -D warnings -D clippy::print_stdout -D clippy::print_stderr
+
 # Code behind an off-by-default feature never compiles in the run above, so it
 # rots unseen. The dds encode path drifted that way until 2026-09-18.
 step "cargo clippy --workspace --all-features --all-targets -- -D warnings"

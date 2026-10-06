@@ -15,10 +15,84 @@ use super::{ActorState, RefState, World};
 use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
+fn write_spatial_payloads(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::spatial_restore::write_spatial_payloads(world, writer);
+}
+
+fn read_spatial_payloads(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::spatial_restore::read_spatial_payloads(world, reader)
+}
+
+fn read_projectile_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::record_save::read_projectile_section(world, reader)
+}
+
+fn write_scr_14_actor(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.bool(actor.keep_offset.is_some());
+    if let Some(offset) = actor.keep_offset {
+        super::save::write_form_id(writer, offset.target);
+        for value in offset.offset.into_iter().chain(offset.angles) {
+            writer.f32(value);
+        }
+        writer.f32(offset.catch_up_radius);
+        writer.f32(offset.follow_radius);
+    }
+    super::save::write_opt_form_id(writer, actor.forced_landing_marker);
+}
+
+fn read_scr_14_actor(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    actor.keep_offset = if reader.bool()? {
+        let target = super::save::read_form_id(reader)?;
+        let offset = [reader.f32()?, reader.f32()?, reader.f32()?];
+        let angles = [reader.f32()?, reader.f32()?, reader.f32()?];
+        let catch_up_radius = reader.f32()?;
+        let follow_radius = reader.f32()?;
+        Some(super::ActorKeepOffset {
+            target,
+            offset,
+            angles,
+            catch_up_radius,
+            follow_radius,
+        })
+    } else {
+        None
+    };
+    actor.forced_landing_marker = super::save::read_opt_form_id(reader)?;
+    Ok(())
+}
+
+fn write_scr_15_actor(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::save::write_opt_form_id(writer, actor.other_spell);
+    super::save::write_opt_form_id(writer, actor.instant_spell);
+}
+
+fn read_scr_15_actor(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    actor.other_spell = super::save::read_opt_form_id(reader)?;
+    actor.instant_spell = super::save::read_opt_form_id(reader)?;
+    Ok(())
+}
+
 /// Sections read and written once, at the end of [`World::save_state`]
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "SAV-28", write: write_spatial_payloads, read: read_spatial_payloads },
     Section { name: "ANM-58", write: write_animation_waits, read: read_animation_waits },
     Section { name: "CRF-03", write: super::save::write_learned_enchantment_effects, read: super::save::read_learned_enchantment_effects },
     Section { name: "MAG-67", write: write_vampire_lord_state, read: read_vampire_lord_state },
@@ -35,6 +109,10 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     super::magic::SAVE_SECTION,
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
     super::story_manager::SECTION,
+    Section { name: "SAV-32", write: super::record_save::write_activator_section, read: super::record_save::read_activator_section },
+    Section { name: "SAV-34", write: super::record_save::write_item_section, read: super::record_save::read_item_section },
+    Section { name: "SAV-36", write: super::record_save::write_book_note_key_section, read: super::record_save::read_book_note_key_section },
+    Section { name: "SAV-24", write: super::record_save::write_projectile_section, read: read_projectile_section },
     Section { name: "SAV-58", write: write_empty_section, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks_section },
@@ -58,9 +136,23 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SCR-01", write: World::write_reference_events, read: World::read_reference_events },
     super::magic::GRANTED_PERK_SECTION,
     super::image_space::SECTION,
+    Section { name: "SCR-27", write: write_sun_gaze_modifier, read: read_sun_gaze_modifier },
     super::magic::TAPER_SECTION,
+    Section { name: "RND-18", write: super::sky::write_sky, read: super::sky::read_sky },
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
+
+fn write_sun_gaze_modifier(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    world.write_sun_gaze_modifier(writer);
+}
+
+fn read_sun_gaze_modifier(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    world.read_sun_gaze_modifier(reader)
+}
 
 fn read_pending_script_calls(
     world: &mut World,
@@ -130,6 +222,18 @@ fn read_scr_12(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     World::read_scr_12(actor, reader)
+}
+
+fn write_scr_11(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_scr_11(actor, writer);
+}
+
+fn read_scr_11(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_scr_11(actor, reader)
 }
 
 fn write_character_progression(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
@@ -233,6 +337,8 @@ fn read_woop_mgef_section(
 /// record.
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
+    Section { name: "SCR-14", write: write_scr_14_actor, read: read_scr_14_actor },
+    Section { name: "SCR-15", write: write_scr_15_actor, read: read_scr_15_actor },
     Section { name: "CMB-38", write: write_ragdoll_override, read: read_ragdoll_override },
     Section { name: "MAG-57", write: write_werewolf_transform, read: read_werewolf_transform },
     Section { name: "MAG-54", write: write_stagger_metadata, read: read_stagger_metadata },
@@ -255,10 +361,41 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
     Section { name: "DLG-19.actor", write: write_scene_package, read: read_scene_package },
     Section { name: "SCR-12", write: write_scr_12, read: read_scr_12 },
+    Section { name: "SCR-11", write: write_scr_11, read: read_scr_11 },
     Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
     Section { name: "AI-64", write: write_movement_flags, read: read_movement_flags },
     Section { name: "AI-15", write: write_package_tree, read: read_package_tree },
+    Section { name: "SHM-13", write: write_favorites, read: read_favorites },
+    Section { name: "PLY-06", write: super::package_overrides::write_overrides, read: super::package_overrides::read_overrides },
 ];
+
+fn write_favorites(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.len(actor.favorites.len());
+    for form in &actor.favorites {
+        super::save::write_form_id(writer, *form);
+    }
+}
+
+fn read_favorites(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 6 {
+        return Err(VmError::State(
+            "SHM-13 favorite count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut favorites = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        if !favorites.insert(super::save::read_form_id(reader)?) {
+            return Err(VmError::State("SHM-13 duplicate favorite form".into()));
+        }
+    }
+    actor.favorites = favorites;
+    Ok(())
+}
 
 fn write_stagger_metadata(
     state: &ActorState,

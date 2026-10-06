@@ -3,7 +3,7 @@
 //! DDS upload payloads and a per-source single-load cache. Uses the VFS's
 //! path normalization and Godot's complete mip-chain requirement.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -155,10 +155,34 @@ pub(super) struct TextureCache {
     failures: AtomicUsize,
     decode_ns: AtomicU64,
     missing: Mutex<Vec<String>>,
+    warned: Mutex<HashSet<String>>,
 }
 
 /// A texture read at most once, `None` after a miss or a failed read.
 type TextureSlot = Arc<OnceLock<Option<Arc<TextureData>>>>;
+
+/// Shared opaque magenta/black albedo for a named texture that failed to load.
+pub(crate) fn checker_albedo() -> Arc<TextureData> {
+    static CHECKER: OnceLock<Arc<TextureData>> = OnceLock::new();
+    Arc::clone(CHECKER.get_or_init(|| {
+        let mut rgba = Vec::with_capacity(8 * 8 * 4);
+        for y in 0..8 {
+            for x in 0..8 {
+                rgba.extend(if (x / 2 + y / 2) % 2 == 0 {
+                    [255, 0, 255, 255]
+                } else {
+                    [0, 0, 0, 255]
+                });
+            }
+        }
+        Arc::new(TextureData::Rgba8(DdsImage {
+            width: 8,
+            height: 8,
+            depth: 1,
+            rgba,
+        }))
+    }))
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct TextureCounters {
@@ -196,6 +220,16 @@ impl TextureCache {
 
     pub(super) fn resolve(&self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
         SurfaceTextures {
+            greyscale: material
+                .effect
+                .as_ref()
+                .filter(|_| {
+                    material.shader_flags_1
+                        & (soe_nif::blocks::flags1::GREYSCALE_TO_PALETTE_COLOR
+                            | soe_nif::blocks::flags1::GREYSCALE_TO_PALETTE_ALPHA)
+                        != 0
+                })
+                .and_then(|e| self.get_or_decode(vfs, &e.params.greyscale_texture)),
             environment: material
                 .environment_texture()
                 .and_then(|p| self.get_or_decode(vfs, p)),
@@ -206,7 +240,7 @@ impl TextureCache {
             diffuse: material
                 .diffuse
                 .as_deref()
-                .and_then(|p| self.get_or_decode(vfs, p)),
+                .map(|p| self.get_or_decode(vfs, p).unwrap_or_else(checker_albedo)),
             normal: material
                 .normal
                 .as_deref()
@@ -249,17 +283,29 @@ impl TextureCache {
                 Some(Arc::new(image))
             }
             Err(DataSourceError::Bsa(soe_bsa::Error::NotFound { .. })) => {
-                self.missing
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(path.to_string());
+                let mut missing = self.missing.lock().unwrap_or_else(PoisonError::into_inner);
+                if !missing.iter().any(|p| p == path) {
+                    missing.push(path.to_string());
+                }
+                self.warn_once(path, "not found in the load order VFS");
                 None
             }
             Err(e) => {
-                eprintln!("stream_cell: texture {path}: {e}");
+                self.warn_once(path, &e.to_string());
                 self.failures.fetch_add(1, Ordering::Relaxed);
                 None
             }
+        }
+    }
+
+    fn warn_once(&self, path: &str, reason: &str) {
+        if self
+            .warned
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(path.to_owned())
+        {
+            soe_trace::warn!(target: "host::textures", system = "host::textures", path, "texture {path}: {reason}");
         }
     }
 
@@ -292,9 +338,144 @@ impl TextureCache {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Barrier};
+    use std::sync::{Arc, Barrier, Mutex};
 
     use super::{BlockFormat, TextureCache, TextureData};
+
+    struct WarningCapture(Arc<Mutex<Vec<String>>>);
+
+    impl soe_trace::tracing::Subscriber for WarningCapture {
+        fn enabled(&self, _: &soe_trace::tracing::Metadata<'_>) -> bool {
+            true
+        }
+
+        fn register_callsite(
+            &self,
+            _: &'static soe_trace::tracing::Metadata<'static>,
+        ) -> soe_trace::tracing::subscriber::Interest {
+            soe_trace::tracing::subscriber::Interest::always()
+        }
+
+        fn new_span(
+            &self,
+            _: &soe_trace::tracing::span::Attributes<'_>,
+        ) -> soe_trace::tracing::span::Id {
+            soe_trace::tracing::span::Id::from_u64(1)
+        }
+
+        fn record(
+            &self,
+            _: &soe_trace::tracing::span::Id,
+            _: &soe_trace::tracing::span::Record<'_>,
+        ) {
+        }
+        fn record_follows_from(
+            &self,
+            _: &soe_trace::tracing::span::Id,
+            _: &soe_trace::tracing::span::Id,
+        ) {
+        }
+        fn enter(&self, _: &soe_trace::tracing::span::Id) {}
+        fn exit(&self, _: &soe_trace::tracing::span::Id) {}
+
+        fn event(&self, event: &soe_trace::tracing::Event<'_>) {
+            struct Fields(String);
+            impl soe_trace::tracing::field::Visit for Fields {
+                fn record_debug(
+                    &mut self,
+                    field: &soe_trace::tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
+                    if field.name() == "path" {
+                        self.0 = format!("{value:?}");
+                    }
+                }
+            }
+            if event.metadata().target() == "host::textures" {
+                let mut fields = Fields(String::new());
+                event.record(&mut fields);
+                self.0.lock().unwrap().push(fields.0);
+            }
+        }
+    }
+
+    #[test]
+    fn rnd_20_missing_albedo_warns_once_across_aliases_threads_and_cache_clears() {
+        let cache = TextureCache::default();
+        let vfs = soe_bsa::Vfs::new();
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let dispatch = soe_trace::tracing::Dispatch::new(WarningCapture(Arc::clone(&lines)));
+        // CONTEXT: Two live dispatchers make callsite registration consult both
+        // subscribers even when another test first logs without a default.
+        let _other_dispatch = soe_trace::tracing::Dispatch::new(
+            soe_trace::tracing::subscriber::NoSubscriber::default(),
+        );
+        std::thread::scope(|scope| {
+            for path in [
+                "Textures\\Missing.DDS",
+                "textures/missing.dds",
+                "/Data/textures/missing.dds",
+            ] {
+                let (cache, vfs, dispatch) = (&cache, &vfs, &dispatch);
+                scope.spawn(move || {
+                    soe_trace::tracing::dispatcher::with_default(dispatch, || {
+                        let material = crate::mesh::MaterialDesc {
+                            diffuse: Some(path.into()),
+                            ..crate::mesh::MaterialDesc::default()
+                        };
+                        let textures = cache.resolve(vfs, &material);
+                        assert!(Arc::ptr_eq(
+                            textures.diffuse.as_ref().unwrap(),
+                            &super::checker_albedo()
+                        ));
+                    });
+                });
+            }
+        });
+        cache.clear_prepared();
+        soe_trace::tracing::dispatcher::with_default(&dispatch, || {
+            cache.get_or_decode(&vfs, "textures/missing.dds");
+        });
+        let lines = lines.lock().unwrap();
+        assert_eq!(
+            lines.len(),
+            1,
+            "missing path must warn once per source lifetime"
+        );
+        assert!(lines[0].contains("textures/missing.dds"));
+        assert_eq!(cache.missing_since(0), ["textures/missing.dds"]);
+    }
+
+    #[test]
+    fn rnd_20_malformed_albedo_uses_opaque_checker_and_absent_albedo_stays_absent() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("bad.dds"), b"invalid DDS").unwrap();
+        let mut vfs = soe_bsa::Vfs::new();
+        vfs.add_loose_root(directory.path()).unwrap();
+        let cache = TextureCache::default();
+        let material = crate::mesh::MaterialDesc {
+            diffuse: Some("bad.dds".into()),
+            ..crate::mesh::MaterialDesc::default()
+        };
+        let textures = cache.resolve(&vfs, &material);
+        let TextureData::Rgba8(image) = textures.diffuse.as_deref().unwrap() else {
+            panic!("checker format");
+        };
+        assert_eq!((image.width, image.height), (8, 8));
+        assert_eq!(&image.rgba[..4], [255, 0, 255, 255]);
+        assert_eq!(&image.rgba[8..12], [0, 0, 0, 255]);
+        assert!(image
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255));
+        assert_eq!(cache.counters().failures, 1);
+        assert!(cache
+            .resolve(&vfs, &crate::mesh::MaterialDesc::default())
+            .diffuse
+            .is_none());
+    }
 
     #[test]
     fn concurrent_path_aliases_share_one_successful_load() {

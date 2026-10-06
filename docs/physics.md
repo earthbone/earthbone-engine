@@ -658,12 +658,16 @@ Jolt. `SimpleWorld` remains a headless static and character-controller solver
 and does not simulate ragdolls. The CK pages do not define impulse units or
 the area effect falloff. The game's linear area attenuation is an approximation.
 
-`godot_host::DataSource::actor_controller_shape` is the only caller, and it
-has no caller of its own yet. CMB-28, host body installation, has not
-started, so a generated capsule does not currently reach a running actor.
-Verification against a subset of installed skeletons, called for by CMB-33's
-done check, is left to the verifier and breaker that test this change, since
-this session added no new tests per its task instructions. The existing
-`controller_geometry_survey` and `character_metadata_survey` tests, both
-described above, remain the tests that exercise the source data these
-functions build from.
+The host physics server owns the Jolt ragdoll bodies and applies CMB-38 actor
+impulses. `SimpleWorld` remains limited to static geometry and its capsule
+controller. `controller_geometry_survey` and `character_metadata_survey`
+exercise the source data used to build generated controller shapes.
+
+## Deterministic query counters, PRF-14
+
+`SimpleWorld::raycast` charges one ray query, including misses and degenerate
+rays. Each capsule contact resolution and overlap query charges one shape
+query. This counts the headless controller's endpoint queries, including
+its step and floor probes, rather than claiming they are continuous sweeps.
+Counts enter the active `soe_trace::WorkFrame` and add no saved physics state.
+`tests/prf_14_work.rs` checks missed rays and capsule work in an empty world.

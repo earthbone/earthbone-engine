@@ -15,10 +15,11 @@
 //! that. So this is the collision the renderer and the player see, while
 //! [`soe_physics::SimpleWorld`] is what the simulation and the tests step.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 
 use godot::classes::physics_server_3d::{BodyMode, BodyParameter, BodyState};
-use godot::classes::PhysicsServer3D;
+use godot::classes::{PhysicsRayQueryParameters3D, PhysicsServer3D};
 use godot::prelude::*;
 
 use soe_esm::GlobalFormId;
@@ -29,6 +30,89 @@ use soe_physics::{Collider, Iso, Shape, Vec3};
 use crate::collision::PlacedCollider;
 use crate::combat::{plan_body_sync, BodySyncPlan};
 use crate::units::{direction_to_skyrim, placement_to_godot, GodotPos, SkyrimPos, METRES_PER_UNIT};
+
+/// Cast a vertical host-physics ray around a Skyrim-space reference position.
+///
+/// `above_units` and `below_units` bound the ray around the reference origin.
+/// The returned position is the first host collision point, converted back to
+/// Skyrim world units.
+///
+/// # Errors
+/// Returns an error for invalid ray bounds, a degenerate ray, or an unavailable
+/// physics space. A clear ray returns `Ok(None)`.
+pub fn ground_collision_position(
+    space: Rid,
+    position: SkyrimPos,
+    above_units: f32,
+    below_units: f32,
+) -> Result<Option<SkyrimPos>, &'static str> {
+    let (from, to) = ground_ray_endpoints(position, above_units, below_units)?;
+    let mut query = PhysicsRayQueryParameters3D::new_gd();
+    query.set_from(from);
+    query.set_to(to);
+    query.set_hit_from_inside(true);
+    let mut state = PhysicsServer3D::singleton()
+        .space_get_direct_state(space)
+        .ok_or("unavailable ground collision space")?;
+    soe_trace::count(soe_trace::Operation::Raycasts, 1);
+    let result = state.intersect_ray(&query);
+    let Some(hit) = result
+        .get("position")
+        .and_then(|value| value.try_to::<Vector3>().ok())
+    else {
+        return Ok(None);
+    };
+    Ok(Some(GodotPos::new(hit.x, hit.y, hit.z).to_skyrim()))
+}
+
+fn ground_ray_endpoints(
+    position: SkyrimPos,
+    above_units: f32,
+    below_units: f32,
+) -> Result<(Vector3, Vector3), &'static str> {
+    if !position.x.is_finite()
+        || !position.y.is_finite()
+        || !position.z.is_finite()
+        || !above_units.is_finite()
+        || !below_units.is_finite()
+        || above_units < 0.0
+        || below_units <= 0.0
+    {
+        return Err("invalid ground collision ray bounds");
+    }
+    let from = SkyrimPos::new(position.x, position.y, position.z + above_units).to_godot();
+    let to = SkyrimPos::new(position.x, position.y, position.z - below_units).to_godot();
+    let from = Vector3::new(from.x, from.y, from.z);
+    let to = Vector3::new(to.x, to.y, to.z);
+    if from == to {
+        return Err("ground collision ray is degenerate");
+    }
+    Ok((from, to))
+}
+
+#[cfg(test)]
+mod edt_15_ground_query_tests {
+    use super::{ground_ray_endpoints, SkyrimPos};
+
+    #[test]
+    fn edt_15_host_ray_runs_down_at_selected_reference_xy() {
+        let (from, to) = ground_ray_endpoints(SkyrimPos::new(70.0, 140.0, 210.0), 100.0, 500.0)
+            .expect("valid ray");
+        assert!((from.x - 70.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((from.y - 310.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((from.z + 140.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((to.x - 70.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((to.y + 290.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((to.z + 140.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn edt_15_host_ray_rejects_invalid_range_and_position() {
+        assert!(ground_ray_endpoints(SkyrimPos::new(0.0, 0.0, 0.0), 0.0, 0.0).is_err());
+        assert!(ground_ray_endpoints(SkyrimPos::new(f32::NAN, 0.0, 0.0), 1.0, 1.0).is_err());
+        assert!(ground_ray_endpoints(SkyrimPos::new(0.0, 0.0, 0.0), -1.0, 1.0).is_err());
+    }
+}
 
 /// Map valid Skyrim Havok motion types to the host body mode they require.
 pub fn motion_type_to_body_mode(motion_type: u32) -> Option<BodyMode> {
@@ -104,16 +188,98 @@ pub struct CellBodies {
     entries: Vec<StaticEntry>,
     movable: Vec<MovableEntry>,
     grabbed_reference: Option<GlobalFormId>,
+    collisions_enabled: Option<bool>,
+    applied_collision_state: HashMap<Rid, bool>,
     pub stats: GodotCollisionStats,
 }
 
 impl CellBodies {
+    /// Adopt additional placed bodies, retaining their reference sync metadata.
+    pub(crate) fn append(&mut self, mut other: Self) {
+        self.stats.bodies += other.stats.bodies;
+        self.stats.shapes += other.stats.shapes;
+        self.stats.triangles += other.stats.triangles;
+        self.stats.skipped += other.stats.skipped;
+        self.entries.append(&mut other.entries);
+        self.movable.append(&mut other.movable);
+    }
+
+    /// Release the static query bodies belonging to one reference.
+    pub(crate) fn remove_reference(&mut self, reference: GlobalFormId) {
+        let mut server = PhysicsServer3D::singleton();
+        self.entries.retain(|entry| {
+            if entry.reference != Some(reference) {
+                return true;
+            }
+            server.free_rid(entry.body);
+            self.applied_collision_state.remove(&entry.body);
+            for &shape in &entry.shapes {
+                server.free_rid(shape);
+            }
+            self.stats.bodies = self.stats.bodies.saturating_sub(1);
+            self.stats.shapes = self.stats.shapes.saturating_sub(entry.shapes.len());
+            false
+        });
+    }
+
+    /// Enable or disable host collision for every body owned by this cell.
+    /// Bodies created after this call inherit the current setting through
+    /// `sync_collision_state` on the next host sync.
+    pub fn set_collisions_enabled(&mut self, enabled: bool) {
+        if self.collisions_enabled == Some(enabled) {
+            return;
+        }
+        self.collisions_enabled = Some(enabled);
+        let mut server = PhysicsServer3D::singleton();
+        for body in self
+            .entries
+            .iter()
+            .map(|entry| entry.body)
+            .chain(self.movable.iter().map(|entry| entry.body))
+        {
+            if body.is_valid() {
+                Self::apply_collision_state(&mut server, body, enabled);
+                self.applied_collision_state.insert(body, enabled);
+            }
+        }
+    }
+
+    /// Apply the setting to bodies added since the last collision update.
+    pub fn sync_collision_state(&mut self) {
+        let Some(enabled) = self.collisions_enabled else {
+            return;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        for body in self
+            .entries
+            .iter()
+            .map(|entry| entry.body)
+            .chain(self.movable.iter().map(|entry| entry.body))
+        {
+            if body.is_valid() && self.applied_collision_state.get(&body) != Some(&enabled) {
+                Self::apply_collision_state(&mut server, body, enabled);
+                self.applied_collision_state.insert(body, enabled);
+            }
+        }
+    }
+
+    fn apply_collision_state(server: &mut Gd<PhysicsServer3D>, body: Rid, enabled: bool) {
+        server.body_set_collision_layer(body, u32::from(enabled));
+        server.body_set_collision_mask(body, u32::from(enabled));
+    }
+
     /// Find the server body carrying a placed reference.
     pub fn body_for_reference(&self, reference: GlobalFormId) -> Option<Rid> {
         self.entries
             .iter()
             .find(|entry| entry.reference == Some(reference))
             .map(|entry| entry.body)
+            .or_else(|| {
+                self.movable
+                    .iter()
+                    .find(|entry| entry.reference == reference && entry.body.is_valid())
+                    .map(|entry| entry.body)
+            })
     }
 
     /// Put a reference body into kinematic mode while the player holds it.
@@ -146,7 +312,11 @@ impl CellBodies {
     }
 
     /// Apply queued Papyrus motion and impulse operations to resident bodies.
-    pub fn apply_reference_physics_requests(&mut self, world: &mut soe_game::World) -> usize {
+    pub fn apply_reference_physics_requests(
+        &mut self,
+        world: &mut soe_game::World,
+        tethers: &mut crate::godot_tether::TetherConstraints,
+    ) -> usize {
         let requests = world.take_reference_physics_requests();
         let mut applied = 0;
         let mut server = PhysicsServer3D::singleton();
@@ -197,6 +367,34 @@ impl CellBodies {
                     );
                     applied += 1;
                 }
+                ReferencePhysicsRequest::Tether {
+                    cart,
+                    horse,
+                    cart_pivot,
+                    horse_pivot,
+                } => {
+                    let (Some(cart_body), Some(horse_body)) = (
+                        self.body_for_reference(cart),
+                        self.body_for_reference(horse),
+                    ) else {
+                        continue;
+                    };
+                    let cart_pivot = crate::units::direction_to_godot(cart_pivot);
+                    let horse_pivot = crate::units::direction_to_godot(horse_pivot);
+                    if tethers.tether(
+                        cart,
+                        horse,
+                        cart_body,
+                        horse_body,
+                        Vector3::new(cart_pivot[0], cart_pivot[1], cart_pivot[2]),
+                        Vector3::new(horse_pivot[0], horse_pivot[1], horse_pivot[2]),
+                    ) {
+                        applied += 1;
+                    }
+                }
+                request @ ReferencePhysicsRequest::TetherToHorse { .. } => {
+                    world.request_reference_physics(request);
+                }
             }
         }
         applied
@@ -216,6 +414,28 @@ impl CellBodies {
                 .map(|entry| entry.body)
                 .filter(Rid::is_valid),
         )
+    }
+
+    /// Number of this reference's bodies currently attached to a physics space.
+    pub(crate) fn active_reference_bodies(&self, reference: GlobalFormId) -> usize {
+        let server = PhysicsServer3D::singleton();
+        self.entries
+            .iter()
+            .filter(|entry| {
+                entry.reference == Some(reference)
+                    && entry.body.is_valid()
+                    && server.body_get_space(entry.body).is_valid()
+            })
+            .count()
+            + self
+                .movable
+                .iter()
+                .filter(|entry| {
+                    entry.reference == reference
+                        && entry.body.is_valid()
+                        && server.body_get_space(entry.body).is_valid()
+                })
+                .count()
     }
 
     /// Number of live movable bodies in this cell.
@@ -342,6 +562,7 @@ impl CellBodies {
         }
         self.stats = GodotCollisionStats::default();
         self.grabbed_reference = None;
+        self.applied_collision_state.clear();
     }
 
     /// Pushes a tracked reference's current placement and visibility to the
@@ -696,6 +917,21 @@ fn build_body(
 ) -> Option<(Rid, Vec<Rid>)> {
     let mut prims = Vec::new();
     flatten(&collider.shape, &collider.transform, &mut prims);
+    for prim in &mut prims {
+        let GodotPrim::Convex(points) = prim else {
+            continue;
+        };
+        let (hull, changed) = convex_hull_points(points);
+        if changed {
+            if report_repaired_hull_once(&collider.node_name) {
+                soe_trace::warn!(target: "host::physics", system = "host::physics",
+                    "repaired convex collision hull for mesh node {:?} before Jolt shape creation",
+                    collider.node_name
+                );
+            }
+            *points = hull;
+        }
+    }
     if mode == BodyMode::RIGID {
         let count = prims.len();
         prims.retain(|prim| !matches!(prim, GodotPrim::Trimesh(_)));
@@ -769,6 +1005,118 @@ fn build_body(
     }
     stats.bodies += 1;
     Some((body, shapes))
+}
+
+fn convex_hull_points(points: &[Vector3]) -> (Vec<Vector3>, bool) {
+    let origin = points.first().copied().unwrap_or(Vector3::ZERO);
+    // CONTEXT: Translating the point cloud does not change its hull, and
+    // subtracting the origin keeps the face predicates precise at world scale.
+    let source: Vec<Vec3> = points
+        .iter()
+        .map(|point| Vec3::new(point.x - origin.x, point.y - origin.y, point.z - origin.z))
+        .collect();
+    let faces = soe_physics::hull::triangles(&source);
+    if !faces.is_empty() && has_three_dimensional_extent(&source) {
+        let mut boundary = vec![false; source.len()];
+        for face in faces {
+            for index in face {
+                if let Some(on_hull) = boundary.get_mut(index as usize) {
+                    *on_hull = true;
+                }
+            }
+        }
+        let hull: Vec<Vector3> = points
+            .iter()
+            .zip(boundary)
+            .filter_map(|(point, on_hull)| on_hull.then_some(*point))
+            .collect();
+        if hull.len() >= 4 {
+            let changed = hull.len() != points.len();
+            return (hull, changed);
+        }
+    }
+
+    let mut unique = Vec::new();
+    for &point in points {
+        if point.is_finite()
+            && unique
+                .iter()
+                .all(|other: &Vector3| other.distance_to(point) > 1e-6)
+        {
+            unique.push(point);
+        }
+    }
+    if unique.len() < 4 {
+        let changed = unique.len() != points.len();
+        return (unique, changed);
+    }
+    let mut low = unique[0];
+    let mut high = unique[0];
+    for &point in &unique[1..] {
+        low = Vector3::new(low.x.min(point.x), low.y.min(point.y), low.z.min(point.z));
+        high = Vector3::new(
+            high.x.max(point.x),
+            high.y.max(point.y),
+            high.z.max(point.z),
+        );
+    }
+    let extent = (high - low).length().max(1e-3);
+    let pad = extent * 1e-5;
+    low -= Vector3::new(pad, pad, pad);
+    high += Vector3::new(pad, pad, pad);
+    let inflated = [
+        Vector3::new(low.x, low.y, low.z),
+        Vector3::new(high.x, low.y, low.z),
+        Vector3::new(low.x, high.y, low.z),
+        Vector3::new(high.x, high.y, low.z),
+        Vector3::new(low.x, low.y, high.z),
+        Vector3::new(high.x, low.y, high.z),
+        Vector3::new(low.x, high.y, high.z),
+        Vector3::new(high.x, high.y, high.z),
+    ]
+    .to_vec();
+    (inflated, true)
+}
+
+fn has_three_dimensional_extent(points: &[Vec3]) -> bool {
+    let Some(&origin) = points.first() else {
+        return false;
+    };
+    let extent = points
+        .iter()
+        .map(|point| (*point - origin).length())
+        .fold(0.0_f32, f32::max);
+    if !extent.is_finite() || extent <= 1e-6 {
+        return false;
+    }
+    let epsilon = extent * 1e-6;
+    let Some(axis) = points
+        .iter()
+        .map(|point| *point - origin)
+        .find(|axis| axis.length() > epsilon)
+    else {
+        return false;
+    };
+    let Some(normal) = points
+        .iter()
+        .map(|point| axis.cross(*point - origin))
+        .find(|normal| normal.length() > epsilon * extent)
+        .map(Vec3::normalized)
+    else {
+        return false;
+    };
+    points
+        .iter()
+        .any(|point| normal.dot(*point - origin).abs() > epsilon)
+}
+
+fn report_repaired_hull_once(source_mesh: &str) -> bool {
+    static REPORTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let mut reported = REPORTED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    reported.insert(source_mesh.to_owned())
 }
 
 /// Primitive dimensions are in metres, following PhysicsServer3D's shape data.
@@ -884,6 +1232,7 @@ struct ActorBody {
     body: Rid,
     shapes: Vec<Rid>,
     scale: f32,
+    position: Option<[f32; 3]>,
 }
 
 /// Query bodies in the controller capsule shape for the actors the shared
@@ -893,20 +1242,48 @@ struct ActorBody {
 /// frees the rest, which is how a cell change drops the leaving cell's
 /// actors.
 ///
-/// The bodies are STATIC, not KINEMATIC. Godot's Jolt backend stores a
+/// Contact bodies are STATIC, not KINEMATIC. Godot's Jolt backend stores a
 /// kinematic body's new transform and applies it with `MoveKinematic` on the
 /// next physics step, so a HitFrame query in the same tick would see the
 /// previous pose, and a body created that tick would still sit at the
-/// origin. A static body is repositioned at once. Nothing simulates against
-/// these bodies, they exist for contact queries.
+/// origin. Held actors become KINEMATIC and thrown actors become RIGID until
+/// their motion settles. Static bodies are repositioned at once.
 #[derive(Debug, Default)]
 pub struct ActorBodies {
     space: Option<Rid>,
     bodies: HashMap<GlobalFormId, ActorBody>,
     owners: HashMap<Rid, GlobalFormId>,
+    grabbed_actor: Option<GlobalFormId>,
+    thrown_actors: HashSet<GlobalFormId>,
 }
 
 impl ActorBodies {
+    /// Sync selected detection bodies while retaining existing eligible contact
+    /// bodies. Retained bodies follow moved placements without parsing height.
+    /// A full contact sync resolves their current shape before a melee query.
+    pub fn sync_candidates(
+        &mut self,
+        space: Rid,
+        candidates: &[ContactActor],
+        eligible: &[ContactActor],
+    ) -> BodySyncPlan {
+        let selected: HashSet<_> = candidates.iter().map(|actor| actor.actor).collect();
+        let mut wanted = candidates.to_vec();
+        for actor in eligible {
+            if selected.contains(&actor.actor) {
+                continue;
+            }
+            if let Some(body) = self.bodies.get(&actor.actor) {
+                wanted.push(ContactActor {
+                    scale: body.scale,
+                    ..*actor
+                });
+            }
+        }
+        wanted.sort_unstable_by_key(|actor| actor.actor);
+        self.sync(space, &wanted)
+    }
+
     /// Bring the server bodies in line with `actors`. A different `space`
     /// frees every body first, since a body belongs to one space.
     pub fn sync(&mut self, space: Rid, actors: &[ContactActor]) -> BodySyncPlan {
@@ -919,12 +1296,21 @@ impl ActorBodies {
             .iter()
             .map(|(form, body)| (*form, body.scale))
             .collect();
-        let plan = plan_body_sync(&scales, actors);
+        let mut plan = plan_body_sync(&scales, actors);
+        plan.moved.retain(|actor| {
+            self.bodies
+                .get(&actor.actor)
+                .is_none_or(|body| body.position != Some(actor.position))
+        });
         let mut server = PhysicsServer3D::singleton();
         for form in &plan.removed {
             if let Some(body) = self.bodies.remove(form) {
                 self.owners.remove(&body.body);
                 release(&mut server, body);
+            }
+            self.thrown_actors.remove(form);
+            if self.grabbed_actor == Some(*form) {
+                self.grabbed_actor = None;
             }
         }
         for actor in &plan.create {
@@ -933,8 +1319,12 @@ impl ActorBodies {
             self.bodies.insert(actor.actor, body);
         }
         for actor in &plan.moved {
-            if let Some(body) = self.bodies.get(&actor.actor) {
-                place(&mut server, body.body, actor);
+            if self.grabbed_actor != Some(actor.actor) && !self.thrown_actors.contains(&actor.actor)
+            {
+                if let Some(body) = self.bodies.get_mut(&actor.actor) {
+                    place(&mut server, body.body, actor);
+                    body.position = Some(actor.position);
+                }
             }
         }
         plan
@@ -950,6 +1340,105 @@ impl ActorBodies {
     #[must_use]
     pub fn body(&self, actor: GlobalFormId) -> Option<Rid> {
         self.bodies.get(&actor).map(|body| body.body)
+    }
+
+    /// Put one resident actor body under host control for Grab Actor.
+    pub fn grab_actor(&mut self, actor: GlobalFormId) -> bool {
+        if self.grabbed_actor.is_some() || self.thrown_actors.contains(&actor) {
+            return false;
+        }
+        let Some(body) = self.bodies.get(&actor).filter(|body| body.body.is_valid()) else {
+            return false;
+        };
+        PhysicsServer3D::singleton().body_set_mode(body.body, BodyMode::KINEMATIC);
+        if let Some(body) = self.bodies.get_mut(&actor) {
+            body.position = None;
+        }
+        self.grabbed_actor = Some(actor);
+        true
+    }
+
+    /// Move the held actor's feet to a finite Skyrim-space position.
+    pub fn move_grabbed_actor(&mut self, actor: GlobalFormId, position: [f32; 3]) -> bool {
+        if self.grabbed_actor != Some(actor) || !position.iter().all(|value| value.is_finite()) {
+            return false;
+        }
+        let Some(body) = self.bodies.get(&actor) else {
+            self.grabbed_actor = None;
+            return false;
+        };
+        let point = crate::units::SkyrimPos::new(position[0], position[1], position[2]).to_godot();
+        let transform = Transform3D::new(Basis::IDENTITY, Vector3::new(point.x, point.y, point.z));
+        PhysicsServer3D::singleton().body_set_state(
+            body.body,
+            BodyState::TRANSFORM,
+            &transform.to_variant(),
+        );
+        true
+    }
+
+    /// Release the held actor with a host-space throw impulse.
+    pub fn throw_grabbed_actor(&mut self, actor: GlobalFormId, impulse: Vector3) -> bool {
+        if self.grabbed_actor != Some(actor) || !impulse.is_finite() {
+            return false;
+        }
+        let Some(body) = self.bodies.get(&actor) else {
+            self.grabbed_actor = None;
+            return false;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        server.body_set_mode(body.body, BodyMode::RIGID);
+        server.body_apply_central_impulse(body.body, impulse);
+        self.grabbed_actor = None;
+        self.thrown_actors.insert(actor);
+        true
+    }
+
+    /// Current host poses for thrown actors, updating shared World placement
+    /// until a throw settles and its body returns to contact-only mode.
+    pub fn thrown_actor_poses(&mut self) -> Vec<(GlobalFormId, [f32; 3])> {
+        let mut server = PhysicsServer3D::singleton();
+        let mut poses = Vec::with_capacity(self.thrown_actors.len());
+        let mut settled = Vec::new();
+        for actor in &self.thrown_actors {
+            let Some(body) = self.bodies.get(actor) else {
+                settled.push(*actor);
+                continue;
+            };
+            let Ok(transform) = server
+                .body_get_state(body.body, BodyState::TRANSFORM)
+                .try_to::<Transform3D>()
+            else {
+                server.body_set_mode(body.body, BodyMode::STATIC);
+                settled.push(*actor);
+                continue;
+            };
+            if !transform.origin.is_finite() {
+                server.body_set_mode(body.body, BodyMode::STATIC);
+                settled.push(*actor);
+                continue;
+            }
+            let point = crate::units::GodotPos::new(
+                transform.origin.x,
+                transform.origin.y,
+                transform.origin.z,
+            )
+            .to_skyrim();
+            poses.push((*actor, [point.x, point.y, point.z]));
+            let velocity = server
+                .body_get_state(body.body, BodyState::LINEAR_VELOCITY)
+                .try_to::<Vector3>()
+                .unwrap_or(Vector3::ZERO);
+            if velocity.length_squared() < 0.01 {
+                server.body_set_mode(body.body, BodyMode::STATIC);
+                settled.push(*actor);
+            }
+        }
+        for actor in settled {
+            self.thrown_actors.remove(&actor);
+        }
+        poses.sort_unstable_by_key(|(actor, _)| *actor);
+        poses
     }
 
     /// Number of actor bodies held.
@@ -971,6 +1460,8 @@ impl ActorBodies {
             release(&mut server, body);
         }
         self.owners.clear();
+        self.grabbed_actor = None;
+        self.thrown_actors.clear();
         self.space = None;
     }
 }
@@ -1023,6 +1514,7 @@ fn create_actor_body(
         body,
         shapes,
         scale: actor.scale,
+        position: Some(actor.position),
     }
 }
 
@@ -1039,6 +1531,10 @@ fn godot_point(v: Vec3) -> Vector3 {
     let g = SkyrimPos::new(v.x, v.y, v.z).to_godot();
     Vector3::new(g.x, g.y, g.z)
 }
+
+#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
+#[path = "../tests/common/prf_32.rs"]
+mod prf_32_support;
 
 #[cfg(test)]
 mod tests {
@@ -1063,6 +1559,158 @@ mod tests {
 
     fn close(a: Vector3, b: Vector3) {
         assert!((a - b).length() < 1e-5, "{a:?} != {b:?}");
+    }
+
+    fn prf_32_44_point_cloud_fixture() -> Vec<Vector3> {
+        let mut points = Vec::with_capacity(44);
+        for x in [-1.0, 1.0] {
+            for y in [-1.0, 1.0] {
+                for z in [-1.0, 1.0] {
+                    points.push(Vector3::new(x, y, z));
+                }
+            }
+        }
+        for index in 0..36 {
+            let x = ((index * 17 % 31) as f32 / 30.0) * 1.4 - 0.7;
+            let y = ((index * 13 % 29) as f32 / 28.0) * 1.4 - 0.7;
+            let z = ((index * 11 % 23) as f32 / 22.0) * 1.4 - 0.7;
+            points.push(Vector3::new(x, y, z));
+        }
+        points
+    }
+
+    #[test]
+    fn prf_32_reduces_a_44_point_collision_cloud_to_its_valid_hull() {
+        let source = prf_32_44_point_cloud_fixture();
+        assert_eq!(source.len(), 44);
+        let (hull, changed) = convex_hull_points(&source);
+        assert!(changed, "interior points must be removed before Jolt");
+        assert_eq!(hull.len(), 8, "only the cube corners bound this cloud");
+    }
+
+    #[test]
+    fn prf_32_logs_each_source_mesh_only_once() {
+        let source = format!("prf-32-test-mesh-{}", std::process::id());
+        assert!(report_repaired_hull_once(&source));
+        assert!(!report_repaired_hull_once(&source));
+    }
+
+    #[test]
+    fn prf_32_inflates_a_degenerate_point_cloud_to_a_3d_hull() {
+        let source = [
+            Vector3::new(-1.0, -1.0, 0.0),
+            Vector3::new(1.0, -1.0, 0.0),
+            Vector3::new(1.0, 1.0, 0.0),
+            Vector3::new(-1.0, 1.0, 0.0),
+        ];
+        let (hull, changed) = convex_hull_points(&source);
+        assert!(changed, "a flat point cloud needs the padded fallback");
+        assert_eq!(
+            hull.len(),
+            8,
+            "the fallback submits a three-dimensional box"
+        );
+        assert!(
+            hull.iter().any(|point| point.z < 0.0) && hull.iter().any(|point| point.z > 0.0),
+            "padding supplies thickness around the original plane"
+        );
+    }
+
+    #[test]
+    fn prf_32_jolt_builds_the_repaired_hull_without_shape_errors() {
+        let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+            eprintln!("SOE_GODOT_BIN unset, skipping the Jolt hull integration check");
+            return;
+        };
+        let flat = [
+            Vector3::new(-1.0, -1.0, 0.0),
+            Vector3::new(1.0, -1.0, 0.0),
+            Vector3::new(1.0, 1.0, 0.0),
+            Vector3::new(-1.0, 1.0, 0.0),
+        ];
+        let point_sets = [
+            convex_hull_points(&prf_32_44_point_cloud_fixture()).0,
+            convex_hull_points(&flat).0,
+        ];
+        let points = point_sets
+            .iter()
+            .map(|hull| {
+                format!(
+                    "PackedVector3Array([{}])",
+                    hull.iter()
+                        .map(|point| format!("Vector3({}, {}, {})", point.x, point.y, point.z))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let script = format!(
+            r#"extends SceneTree
+func _initialize():
+	var server = PhysicsServer3D
+	var point_sets = [{points}]
+	for points in point_sets:
+		var shape = server.convex_polygon_shape_create()
+		server.shape_set_data(shape, points)
+		var data = server.shape_get_data(shape)
+		if data.size() < 4:
+			printerr("repaired convex hull was not created")
+			server.free_rid(shape)
+			quit(1)
+			return
+		server.free_rid(shape)
+	print("RESULT: PASS: prf_32 hull shapes=", point_sets.size())
+	quit(0)
+"#
+        );
+        let directory = tempfile::tempdir().expect("temporary script directory");
+        let path = directory.path().join("prf_32_jolt_hull.gd");
+        std::fs::write(&path, script).expect("write Godot hull test");
+        let project = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot");
+        let output = std::process::Command::new(godot)
+            .args(["--headless", "--path"])
+            .arg(project)
+            .arg("--script")
+            .arg(path)
+            .output()
+            .expect("Godot process starts");
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.status.success() && log.contains("RESULT: PASS: prf_32"),
+            "Godot Jolt rejected the repaired hull:\n{log}"
+        );
+        assert!(
+            !log.contains("Failed to build Jolt Physics convex polygon shape"),
+            "Godot printed a convex shape error:\n{log}"
+        );
+    }
+
+    #[test]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn prf_32_vanilla_bannered_mare_collision_builds_without_jolt_shape_errors() {
+        let Some(output) = prf_32_support::installed_collision() else {
+            return;
+        };
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.status.success()
+                && log.contains("static bodies built:")
+                && log.contains("RESULT: PASS"),
+            "Godot host did not build and use Bannered Mare collision:\n{log}"
+        );
+        assert!(
+            !log.contains("Failed to build Jolt Physics convex polygon shape"),
+            "Godot printed a convex shape error:\n{log}"
+        );
     }
 
     #[test]

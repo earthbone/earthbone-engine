@@ -15,7 +15,8 @@ impl PlayerNode {
             return;
         };
         if self.sound_bank.is_none() {
-            let bank = crate::godot_audio::SoundBank::new_alloc();
+            let mut bank = crate::godot_audio::SoundBank::new_alloc();
+            bank.set_name("SoundBank");
             self.base_mut().add_child(&bank);
             self.sound_bank = Some(bank);
         }
@@ -25,6 +26,7 @@ impl PlayerNode {
         self.footstep_cadence.reset();
         if let Some(cell) = self.loaded_cell {
             self.sync_cell_ambience(cell);
+            self.sync_cell_music(cell);
         }
     }
 
@@ -32,19 +34,84 @@ impl PlayerNode {
         let Some(bank) = &mut self.sound_bank else {
             return;
         };
-        let tracks = self
-            .game
-            .as_ref()
-            .and_then(|game| soe_game::ambience::tracks_for_cell(&mut game.world_mut(), cell).ok());
-        let track = tracks.and_then(|tracks| tracks.into_iter().next());
-        if !self.ambience_owner.set(track.as_ref()) {
+        bank.bind_mut().stop_ambience();
+        let Some(game) = &mut self.game else { return };
+        let Some(source) = &self.data_source else {
             return;
+        };
+        let order = source.shared_order();
+        let (sounds, player) = {
+            let mut world = game.world_mut();
+            let draw = world.random_float(0.0, 1.0).min(1.0 - f32::EPSILON);
+            let weather = world
+                .sky_frame(cell)
+                .ok()
+                .flatten()
+                .and_then(|sky| world.record(sky.weather))
+                .and_then(|record| record.find(soe_esm::Tag(*b"DATA")))
+                .and_then(|data| data.get(11))
+                .copied()
+                .unwrap_or(1)
+                & 15;
+            let sounds = match soe_game::ambience::descriptors_for_cell(&world, cell, weather, draw)
+            {
+                Ok(sounds) => sounds,
+                Err(error) => {
+                    soe_trace::error!(target: "host::audio", system = "host::audio", "cell ambience: {error}");
+                    return;
+                }
+            };
+            (sounds, world.player())
+        };
+        for sound in sounds {
+            let mut world = game.world_mut();
+            let draws = [
+                world.random_float(0.0, 1.0),
+                world.random_float(0.0, 1.0),
+                world.random_float(0.0, 1.0),
+            ];
+            let plan = soe_game::sound::prepare_for(
+                &order,
+                &mut world,
+                &game.vm,
+                sound,
+                player,
+                None,
+                draws,
+                &soe_game::sound::SoundSettings::default(),
+            );
+            match plan {
+                Ok(plan) => {
+                    if !bank.bind_mut().play_ambience_descriptor(&plan) {
+                        soe_trace::error!(target: "host::audio", system = "host::audio", "cell ambience {}: {}", plan.data_path, bank.bind().last_error());
+                    }
+                }
+                Err(error) => {
+                    soe_trace::debug!(target: "host::audio", system = "host::audio", "ambience descriptor {sound}: {error}");
+                }
+            }
         }
-        let mut bank = bank.bind_mut();
-        bank.stop_ambience();
-        if let Some(track) = track {
-            if !bank.play_ambience(&track.path) {
-                godot_error!("cell ambience {}: {}", track.path, bank.last_error());
+    }
+
+    pub(super) fn sync_cell_music(&mut self, cell: soe_esm::GlobalFormId) {
+        let track = self.game.as_mut().and_then(|game| {
+            let (descriptor, subject, draw) = {
+                let mut world = game.world_mut();
+                let descriptor = soe_game::ambience::music_type_for_cell(&world, cell).ok()??;
+                let subject = world.player();
+                let draw = world.random_float(0.0, 1.0);
+                (descriptor, subject, draw)
+            };
+            soe_game::music::select(game, descriptor, subject, draw).ok()
+        });
+        if let Some(bank) = self.sound_bank.as_mut() {
+            if let Some(track) = track {
+                if !bank.bind_mut().play_selected_music(&track) {
+                    soe_trace::error!(target: "host::audio", system = "host::audio",
+                        "cell music playback failed: {}", bank.bind().last_error());
+                }
+            } else {
+                bank.bind_mut().stop_music();
             }
         }
     }
@@ -55,6 +122,7 @@ impl PlayerNode {
         was_grounded: bool,
         input: &InputState,
     ) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         if self.game.is_none() || self.sound_bank.is_none() {
             return;
         }
@@ -132,7 +200,7 @@ impl PlayerNode {
             Ok(impacts) => impacts,
             Err(error) => {
                 self.footstep_errors += 1;
-                godot_error!("footstep records: {error}");
+                soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep records: {error}");
                 return;
             }
         };
@@ -165,7 +233,7 @@ impl PlayerNode {
                 Ok(plan) => plan,
                 Err(error) => {
                     self.footstep_errors += 1;
-                    godot_error!("footstep sound: {error}");
+                    soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep sound: {error}");
                     continue;
                 }
             };
@@ -182,7 +250,7 @@ impl PlayerNode {
                     game.world_mut().create_detection_event(player, player, 20);
                 } else {
                     self.footstep_errors += 1;
-                    godot_error!("footstep playback failed");
+                    soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep playback failed");
                 }
             }
         }

@@ -38,6 +38,8 @@ use soe_bsa::{Archive, Vfs};
 use soe_esm::records::cell::Cell;
 use soe_esm::records::refr::Refr;
 use soe_esm::{tag, CellIndex, GlobalFormId, LoadOrder};
+#[cfg(any(feature = "godot", test))]
+use soe_esm::{Record, Tag};
 use soe_nif::{Mat33, Mesh as NifMesh, NifFile, Transform as NifTransform, Vec3 as NifVec3};
 
 use crate::mesh::{
@@ -58,7 +60,13 @@ mod water;
 mod workers;
 
 #[cfg(test)]
+mod destruction_tests;
+#[cfg(test)]
 mod marker_survey_tests;
+#[cfg(test)]
+mod rnd_20_tests;
+#[cfg(test)]
+mod ui_25_tests;
 
 #[cfg(feature = "godot")]
 pub(crate) use chargen::ChargenCache;
@@ -67,10 +75,11 @@ pub use location::LoadedLocation;
 pub(crate) use location::PreparedCell;
 pub use lod::LoadedLodBlock;
 pub(crate) use models::{is_editor_marker_name, model_for};
+pub(crate) use textures::checker_albedo;
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
 use water::water_material_from;
-use workers::ordered_map;
+use workers::WorkerPools;
 
 /// Resolve material textures through the same VFS path as streamed meshes.
 pub(crate) fn resolve_material_textures(
@@ -108,6 +117,8 @@ pub enum DataSourceError {
     },
     #[error("{0}")]
     Esm(#[from] soe_esm::Error),
+    #[error("localized text: {0}")]
+    Localization(String),
     #[error("{0}")]
     Bsa(#[from] soe_bsa::Error),
     #[error("{0}")]
@@ -132,6 +143,8 @@ pub enum DataSourceError {
     InvalidRadius(i32),
     #[error("a data source worker panicked")]
     WorkerPanicked,
+    #[error("building a data source worker pool: {0}")]
+    WorkerPoolBuild(#[source] rayon::ThreadPoolBuildError),
     #[error("collision: {0}")]
     Collision(String),
 }
@@ -144,6 +157,7 @@ pub struct CellStats {
     pub statics_with_model: usize,
     pub furniture_with_model: usize,
     pub containers_with_model: usize,
+    pub activators_with_model: usize,
     pub doors_with_model: usize,
     /// 1 when the cell has water and its plane was built, 0 otherwise. A
     /// count rather than a bool since every other field here counts, and a
@@ -210,9 +224,9 @@ pub struct LoadedSurface {
     pub mesh_identity: Option<Arc<str>>,
 }
 
-/// A surface's 2D textures and environment cubemap, ready to upload. `None` means
-/// the material named no texture in that slot, or the read or decode
-/// failed, counted in `CellStats` either way. `Arc` because a texture shared
+/// A surface's 2D textures and environment cubemap, ready to upload. A failed
+/// named diffuse uses the checker. Other slots remain `None` when absent or
+/// unreadable, with failed reads counted in `CellStats`. `Arc` because a texture shared
 /// by many statics is read once on whichever worker thread reaches it first
 /// and cloned out of `TextureCache` cheaply for every surface that uses it.
 #[derive(Debug, Clone, Default)]
@@ -225,6 +239,7 @@ pub struct SurfaceTextures {
     /// here even though the decoded form carries one.
     pub normal: Option<Arc<TextureData>>,
     pub glow: Option<Arc<TextureData>>,
+    pub greyscale: Option<Arc<TextureData>>,
 }
 
 pub struct LoadedCell {
@@ -292,7 +307,11 @@ pub struct DataSource {
     order: std::sync::Arc<LoadOrder>,
     vfs: std::sync::Arc<Vfs>,
     threads: usize,
+    workers: WorkerPools,
     textures: TextureCache,
+    profile_settings: soe_profile::Settings,
+    profile_ini_dir: Option<PathBuf>,
+    language: String,
 }
 
 /// A winning cell record prepared for the editor's worldspace and cell tree.
@@ -348,6 +367,7 @@ fn plugin_cache_dir() -> Option<PathBuf> {
 fn parse_masters(
     data_dir: &Path,
     threads: usize,
+    workers: &WorkerPools,
     cache_dir: Option<&Path>,
 ) -> Result<Vec<soe_esm::Plugin>, DataSourceError> {
     let _span = soe_trace::Span::with_payload("host.parse_masters", "host", threads as u64);
@@ -368,7 +388,8 @@ fn parse_masters(
                 source,
             })
     };
-    ordered_map(&BASE_MASTERS, threads, |name| parse_one(name))?
+    workers
+        .ordered_map(&BASE_MASTERS, threads, |name| parse_one(name))?
         .into_iter()
         .collect()
 }
@@ -389,7 +410,11 @@ impl DataSource {
             order: std::sync::Arc::clone(&self.order),
             vfs: std::sync::Arc::clone(&self.vfs),
             threads: 1,
+            workers: self.workers.clone(),
             textures: TextureCache::default(),
+            profile_settings: self.profile_settings.clone(),
+            profile_ini_dir: self.profile_ini_dir.clone(),
+            language: self.language.clone(),
         }
     }
 
@@ -464,11 +489,12 @@ impl DataSource {
     ) -> Result<Self, DataSourceError> {
         let _span = soe_trace::Span::with_payload("host.open", "host", threads as u64);
         let threads = threads.max(1);
+        let workers = WorkerPools::default();
         let data_dir = loadout
             .data_roots
             .first()
             .ok_or_else(|| DataSourceError::DataDirectory(PathBuf::new()))?;
-        let parsed = parse_masters(data_dir, threads, cache_dir)?;
+        let parsed = parse_masters(data_dir, threads, &workers, cache_dir)?;
         let mut order = LoadOrder::new();
         for (name, plugin) in BASE_MASTERS.iter().zip(parsed) {
             order
@@ -483,7 +509,7 @@ impl DataSource {
         {
             let _archives = soe_trace::Span::new("host.index_archives", "host");
             let paths = archive_paths(loadout, false)?;
-            for archive in ordered_map(&paths, threads, |path| Archive::open(path))? {
+            for archive in workers.ordered_map(&paths, threads, |path| Archive::open(path))? {
                 vfs.add_archive(archive?);
             }
             for root in &loadout.data_roots {
@@ -494,7 +520,15 @@ impl DataSource {
             order: std::sync::Arc::new(order),
             vfs: std::sync::Arc::new(vfs),
             threads,
+            workers,
             textures: TextureCache::default(),
+            profile_settings: loadout.settings.clone(),
+            profile_ini_dir: loadout.ini_dir.clone(),
+            language: loadout
+                .settings
+                .get("General", "sLanguage")
+                .unwrap_or("english")
+                .to_ascii_lowercase(),
         })
     }
 
@@ -507,6 +541,35 @@ impl DataSource {
     /// The archive and loose file view, same reason.
     pub(crate) fn vfs(&self) -> &Vfs {
         &self.vfs
+    }
+
+    /// Create the menu and gameplay world with the profile's localized tables.
+    ///
+    /// # Errors
+    /// Reports unreadable or malformed selected-language string tables.
+    pub fn localized_game(&self) -> Result<soe_game::Game, DataSourceError> {
+        let game = soe_game::Game::from_shared_order(self.shared_order());
+        game.world_mut()
+            .load_localized_strings(&self.vfs, &self.language)
+            .map_err(|error| DataSourceError::Localization(error.to_string()))?;
+        Ok(game)
+    }
+
+    /// Build an inventory ground model at the origin through the world mesh pipeline.
+    ///
+    /// # Errors
+    /// Reports missing assets, malformed NIFs, or invalid surfaces.
+    #[cfg(any(feature = "godot", test))]
+    pub(crate) fn item_preview_surfaces(
+        &self,
+        model: &str,
+    ) -> Result<Vec<(SurfaceArrays, SurfaceTextures)>, DataSourceError> {
+        let reference = Refr::from_record(
+            &Record::new(tag::REFR, 0).sub(Tag::new(b"NAME"), 0_u32.to_le_bytes()),
+        )?;
+        let LoadedStatic::Surfaces { built, .. } =
+            self.load_static_surfaces(model, &reference, false)?;
+        Ok(built)
     }
 
     /// The cell index built at open, for callers that walk cells by grid
@@ -564,11 +627,55 @@ impl DataSource {
         self.order.clone()
     }
 
+    /// Resolved profile settings and INI directory for runtime diagnostics.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn profile_papyrus_logs(&self) -> (&soe_profile::Settings, Option<&Path>) {
+        (&self.profile_settings, self.profile_ini_dir.as_deref())
+    }
+
     /// The winning `CELL` record whose editor id matches, preferring an
     /// interior cell when both an interior and an exterior one share a name.
     #[must_use]
     pub fn resolve_cell(&self, editor_id: &str) -> Option<GlobalFormId> {
         self.cell_index().cell_by_editor_id(editor_id)
+    }
+
+    /// Render lighting for a cell, with CELL XCLL values inherited from LTMP.
+    #[cfg(feature = "godot")]
+    #[must_use]
+    pub(crate) fn cell_lighting(&self, editor_id: &str) -> Option<godot::prelude::VarDictionary> {
+        let id = self.resolve_cell(editor_id)?;
+        crate::cell_lighting::dictionary(&self.order, id)
+    }
+
+    /// The worldspace and editor id whose terrain and object LOD assets back
+    /// the requested worldspace, following PNAM's Use LOD Data bit.
+    /// xEdit's wbDefinitionsTES5.pas defines this separately from Use Land Data.
+    #[must_use]
+    pub fn lod_worldspace(&self, world: GlobalFormId) -> Option<(GlobalFormId, String)> {
+        let mut lod_world = world;
+        let mut visited = std::collections::HashSet::new();
+        loop {
+            if !visited.insert(lod_world) {
+                return None;
+            }
+            let owner = self.order.winner_ref(lod_world)?;
+            let record = self.order.record(owner);
+            let localized = self.order.file(owner.file).plugin.header.is_localized();
+            let view = soe_esm::records::wrld::World::from_record(record, localized).ok()?;
+            if view.parent_flags.is_none_or(|flags| flags & 0x0002 == 0) {
+                break;
+            }
+            lod_world = self.order.resolve(owner.file, view.parent?);
+        }
+        let editor_id = self
+            .order
+            .winner(lod_world)
+            .and_then(|record| record.editor_id())?;
+        Some((lod_world, editor_id))
     }
 
     /// The first interior cell, by form id, whose reference count exceeds
@@ -599,6 +706,9 @@ impl DataSource {
     /// sequential path. Defaults to the machine's parallelism.
     pub fn set_threads(&mut self, threads: usize) {
         self.threads = threads.max(1);
+        if self.threads == 1 {
+            self.workers.clear();
+        }
     }
 
     /// Drop prepared texture entries so the next stream measures cold cache work.
@@ -640,17 +750,24 @@ impl DataSource {
                 if rec.tag != tag::REFR {
                     continue;
                 }
+                if models::is_editor_reference(rec) {
+                    continue;
+                }
                 let Ok(refr) = Refr::from_record(rec) else {
                     continue;
                 };
                 let _reference = soe_trace::Span::new("host.reference", "host");
                 stats.references += 1;
 
+                if !soe_game::World::authored_reference_enabled(&self.order, id) {
+                    continue;
+                }
+
                 let base_id = self.order.resolve(rref.file, refr.base);
                 let Some(base_rec) = self.order.winner(base_id) else {
                     continue;
                 };
-                let Some(model) = model_for(base_rec) else {
+                let Some(model) = models::render_model_for(base_rec) else {
                     continue;
                 };
                 if base_rec.tag == tag::STAT {
@@ -659,6 +776,8 @@ impl DataSource {
                     stats.furniture_with_model += 1;
                 } else if base_rec.tag == soe_esm::Tag::new(b"DOOR") {
                     stats.doors_with_model += 1;
+                } else if base_rec.tag == soe_esm::Tag::new(b"ACTI") {
+                    stats.activators_with_model += 1;
                 } else {
                     stats.containers_with_model += 1;
                 }
@@ -695,6 +814,22 @@ impl DataSource {
                     let placement = placement_iso(refr);
                     let identity_base = instance_transform.is_some().then(|| model.to_lowercase());
                     for (shape_index, (arrays, textures)) in built.into_iter().enumerate() {
+                        if textures
+                            .diffuse
+                            .as_ref()
+                            .is_none_or(|texture| Arc::ptr_eq(texture, &checker_albedo()))
+                        {
+                            if let Some(owner) = self.order.winner_ref(*reference) {
+                                let base = self.order.resolve(owner.file, refr.base);
+                                if let Some(record) = self.order.winner(base) {
+                                    soe_trace::warn!(target: "host::materials", system = "host::materials",
+                                        reference = %reference, base = %base,
+                                        editor_id = ?record.editor_id(), record_type = %record.tag,
+                                        model, shape_index, texture_set = ?arrays.material,
+                                        "surface has no source albedo");
+                                }
+                            }
+                        }
                         stats.triangles += arrays.triangle_count();
                         texture_sets.insert((
                             arrays.material.diffuse.as_deref().map(soe_bsa::normalize),
@@ -724,7 +859,7 @@ impl DataSource {
                     }
                 }
                 Err(e) => {
-                    eprintln!("stream_cell: {model}: {e}");
+                    soe_trace::warn!(target: "host::data_source", system = "host::data_source", "stream_cell: {model}: {e}");
                     stats.meshes_failed += 1;
                 }
             }
@@ -740,6 +875,72 @@ impl DataSource {
             stats.triangles += water.arrays.triangle_count();
             surfaces.push(water);
         }
+        Ok(LoadedCell { stats, surfaces })
+    }
+
+    /// Builds one newly enabled reference without reloading its resident cell.
+    ///
+    /// # Errors
+    /// Propagates missing records and model decoding failures.
+    pub fn stream_reference(&self, reference: GlobalFormId) -> Result<LoadedCell, DataSourceError> {
+        let winner = self
+            .order
+            .winner_ref(reference)
+            .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
+        let refr = Refr::from_record(self.order.record(winner))?;
+        let base = self
+            .order
+            .winner(self.order.resolve(winner.file, refr.base))
+            .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
+        let Some(model) = models::render_model_for(base) else {
+            return Ok(LoadedCell {
+                stats: CellStats::default(),
+                surfaces: Vec::new(),
+            });
+        };
+        self.stream_destruction_model(reference, &model)
+    }
+
+    /// Builds the selected destruction-stage model for one placed reference
+    /// through the same VFS and NIF path as its base model.
+    pub fn stream_destruction_model(
+        &self,
+        reference: GlobalFormId,
+        model: &str,
+    ) -> Result<LoadedCell, DataSourceError> {
+        let winner = self
+            .order
+            .winner_ref(reference)
+            .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
+        let refr = Refr::from_record(self.order.record(winner))?;
+        let loaded = self.load_static_surfaces(model, &refr, false)?;
+        let LoadedStatic::Surfaces {
+            built,
+            marker_shapes_filtered,
+            marker_only,
+            ..
+        } = loaded;
+        let mut stats = CellStats {
+            references: 1,
+            meshes_parsed: 1,
+            editor_markers_filtered: marker_shapes_filtered,
+            editor_marker_only_models: usize::from(marker_only),
+            ..CellStats::default()
+        };
+        let surfaces = built
+            .into_iter()
+            .map(|(arrays, textures)| {
+                stats.triangles += arrays.triangle_count();
+                LoadedSurface {
+                    reference,
+                    arrays,
+                    textures,
+                    placement: placement_iso(&refr),
+                    instance_transform: None,
+                    mesh_identity: None,
+                }
+            })
+            .collect();
         Ok(LoadedCell { stats, surfaces })
     }
 
@@ -816,14 +1017,15 @@ impl DataSource {
         model_counts: &HashMap<String, usize>,
     ) -> Result<Vec<BuiltStatic>, DataSourceError> {
         let _span = soe_trace::Span::with_payload("host.build_all", "host", work.len() as u64);
-        ordered_map(work, self.threads, |(model, refr, _)| {
-            let instancing = model_counts
-                .get(&model.to_lowercase())
-                .copied()
-                .unwrap_or(0)
-                >= crate::batch::INSTANCE_MIN_PLACEMENTS;
-            self.load_static_surfaces(model, refr, instancing)
-        })
+        self.workers
+            .ordered_map(work, self.threads, |(model, refr, _)| {
+                let instancing = model_counts
+                    .get(&model.to_lowercase())
+                    .copied()
+                    .unwrap_or(0)
+                    >= crate::batch::INSTANCE_MIN_PLACEMENTS;
+                self.load_static_surfaces(model, refr, instancing)
+            })
     }
 
     /// Reads and builds every shape of `model` at `refr`'s placement.
@@ -840,12 +1042,15 @@ impl DataSource {
         let bytes = self.vfs.read(&path)?;
         let file = placed_model(&bytes)?;
         let marker_blocks = editor_marker_shape_blocks(&file);
+        let nonvisual_blocks = nonvisual_shape_indices(&file.blocks);
         let mut meshes = file.meshes()?;
         let marker_shapes_filtered = meshes
             .iter()
             .filter(|mesh| marker_blocks.contains(&mesh.block))
             .count();
-        meshes.retain(|mesh| !marker_blocks.contains(&mesh.block));
+        meshes.retain(|mesh| {
+            !marker_blocks.contains(&mesh.block) && !nonvisual_blocks.contains(&mesh.block)
+        });
         let marker_only = marker_shapes_filtered > 0 && meshes.is_empty();
         let refr_transform = placement_transform(refr);
         let mut out = Vec::with_capacity(meshes.len());
@@ -967,6 +1172,33 @@ fn editor_marker_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usi
     marked
 }
 
+/// OpenMW's NiAVObject::Flag_Hidden excludes bounds and trigger meshes.
+/// Shaderless Skyrim shapes are emitter/helper geometry. NIF water shaders
+/// have no host material binding, so they must not become opaque white meshes.
+fn nonvisual_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usize> {
+    use soe_nif::blocks::Block;
+    let unsupported = |shader: soe_nif::BlockRef| {
+        shader.get().is_none()
+            || matches!(
+                shader.get().and_then(|index| blocks.get(index)),
+                Some(Block::Unknown { type_name, .. }) if type_name == "BSWaterShaderProperty"
+            )
+    };
+    let mut hidden = HashSet::new();
+    for (index, block) in blocks.iter().enumerate() {
+        let (av, unsupported_shader) = match block {
+            Block::Node(node) => (&node.av, false),
+            Block::TriShape(shape) => (&shape.av, unsupported(shape.shader)),
+            Block::BsTriShape(shape) => (&shape.av, unsupported(shape.shader)),
+            _ => continue,
+        };
+        if av.flags & 1 != 0 || unsupported_shader {
+            mark_descendant_shapes(blocks, index, &mut hidden);
+        }
+    }
+    hidden
+}
+
 fn mark_descendant_shapes(
     blocks: &[soe_nif::blocks::Block],
     index: usize,
@@ -997,6 +1229,29 @@ fn mark_descendant_shapes(
 pub(crate) fn placed_model(bytes: &[u8]) -> Result<soe_nif::NifFile, DataSourceError> {
     use soe_nif::blocks::Block;
     let mut file = soe_nif::parse(bytes)?;
+    // CONTEXT: nif.xml and nifly append Min, Max, Current to BSDamageStage.
+    // Select the intact range before ordinary hidden-subtree filtering.
+    if file
+        .header
+        .block_types
+        .iter()
+        .any(|kind| kind == "BSDamageStage")
+    {
+        let mut stream = soe_nif::stream::Stream::new(bytes);
+        soe_nif::header::read_header(&mut stream)?;
+        for (index, size) in file.header.block_sizes.iter().enumerate() {
+            let data = stream.take(*size as usize)?;
+            if file.header.block_type(index) == "BSDamageStage" {
+                if let Some(Block::Node(node)) = file.blocks.get_mut(index) {
+                    if data.get(data.len().saturating_sub(3)) == Some(&0) {
+                        node.av.flags &= !1;
+                    } else {
+                        node.av.flags |= 1;
+                    }
+                }
+            }
+        }
+    }
     // nifly reads Matrix3 directly into rows and applies row-dot-vector.
     // Our raw reader follows nif.xml's column naming, so transpose each local
     // scene rotation before composition. Translation and scale stay authored.
@@ -1100,6 +1355,13 @@ pub(crate) fn mesh_data_from(shape: &NifMesh, combined: &NifTransform) -> MeshDa
         normals,
         tangents,
         uvs,
+        colors: shape.material.effect.as_ref().map(|_| {
+            if shape.colors.is_empty() {
+                vec![[1.0; 4]; shape.positions.len()]
+            } else {
+                shape.colors.clone()
+            }
+        }),
         indices: shape.indices.clone(),
         bone_indices,
         bone_weights,
@@ -1136,6 +1398,13 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         alpha,
         double_sided: m.double_sided,
         water: None,
+        effect: m.effect.as_ref().map(|params| crate::mesh::EffectMaterial {
+            params: params.clone(),
+            blend: m.blend,
+            alpha_test: m.alpha_test,
+            uv_offset: m.uv_offset,
+            uv_scale: m.uv_scale,
+        }),
     }
 }
 
@@ -1191,6 +1460,7 @@ fn water_plane_mesh(
         tangents: None,
         uvs,
         indices: vec![0, 1, 3, 0, 3, 2],
+        colors: None,
         bone_indices: None,
         bone_weights: None,
         material: MaterialDesc {
@@ -1221,3 +1491,9 @@ mod marker_shape_tests;
 
 #[cfg(test)]
 mod animated_static_mesh_tests;
+
+#[cfg(test)]
+mod rnd_17_tests;
+
+#[cfg(test)]
+mod rnd_22_tests;

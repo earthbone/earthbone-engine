@@ -63,7 +63,7 @@ fn context(actor: GlobalFormId) -> EntryPointContext {
 }
 
 #[test]
-fn prg_08_maximum_authored_rank_remains_unsigned_and_one_based() {
+fn prg_08_maximum_authored_rank_is_above_the_owned_rank() {
     let mut game = game_with(vec![record(u8::MAX)]);
     let actor = game.world_mut().player();
     let mut dispatcher = EntryPointDispatcher::default();
@@ -71,9 +71,9 @@ fn prg_08_maximum_authored_rank_remains_unsigned_and_one_based() {
 
     assert_eq!(
         dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)),
-        Ok(1)
+        Ok(0)
     );
-    assert_eq!(game.world_mut().actor_value(actor, "health"), 256.0);
+    assert_eq!(game.world_mut().actor_value(actor, "health"), 100.0);
 }
 
 #[test]

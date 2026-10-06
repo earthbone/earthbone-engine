@@ -15,7 +15,8 @@
 //! another package replaces it. `Follow` tracks a resolved target, stopping
 //! within its authored follow radius and running beyond its catch-up radius.
 //! `Orbit` circles a resolved package location at its authored height and
-//! stays between its inner and outer radii on the navmesh.
+//! stays between its inner and outer radii on the navmesh, checking both its
+//! arc and each direct movement segment at intervals no longer than 0.05 units.
 //! `Activate` walks to its resolved target and activates it once through the
 //! game's shared activation path.
 //! `DialogueActivate` starts a conversation with its resolved actor target
@@ -38,7 +39,7 @@
 //! the subset fails its condition and is counted in
 //! [`AiWorld::unsupported_functions`] so a live run can say what is missing.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use soe_esm::records::navm::NavMesh;
 use soe_esm::{GlobalFormId, Tag};
@@ -56,8 +57,11 @@ use crate::vmad::Vmad;
 use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader};
 use crate::world::{Alloc, Handle, Pending, World};
 
+mod markers;
+mod navigation;
 mod patrol;
 mod tree;
+pub use navigation::PlanningWorkers;
 pub use patrol::PatrolState;
 pub use tree::TreeState;
 
@@ -74,6 +78,7 @@ pub use soe_physics::{FAST_WALK_SPEED, JOG_SPEED, RUN_SPEED, WALK_SPEED};
 const ARRIVAL_DISTANCE: f32 = 4.0;
 /// Real seconds between two evaluations of an actor that has a package.
 const EVALUATION_INTERVAL: f64 = 1.0;
+const FRAME_EVALUATION_BUDGET: usize = 4;
 /// A sandbox with no radius wanders this far around its center.
 const DEFAULT_SANDBOX_RADIUS: f32 = 512.0;
 /// Combat movement stops within this distance of the selected target.
@@ -180,14 +185,23 @@ pub struct AiState {
     pub completed: BTreeMap<GlobalFormId, u32>,
 }
 
-/// Per-world caches the driver builds on first use. Nothing here is saved,
-/// all of it comes back from the load order.
+/// Per-world record caches and transient planning requests. Nothing here is saved.
 #[derive(Default)]
 pub struct AiWorld {
     nav: Option<NavGraph>,
+    nav_doors: BTreeMap<u64, Option<NavDoor>>,
+    planner: navigation::Planner,
+    markers: markers::Planner,
+    /// Time spent in automatic package evaluation during the most recent tick.
+    pub evaluation_time: std::time::Duration,
+    /// Wall-clock duration of the most recent AI driver tick, including door refresh and query slices.
+    pub planning_time: std::time::Duration,
+    /// Door refresh duration within the most recent AI driver tick.
+    pub door_refresh_time: std::time::Duration,
+    /// Inclusive phase durations within the most recent AI tick. Nested phases overlap.
+    pub planning_phases: BTreeMap<&'static str, std::time::Duration>,
     /// The cell each navmesh of `nav` sits in, by mesh index.
     nav_cells: Vec<Option<GlobalFormId>>,
-    cell_refs: Option<HashMap<GlobalFormId, Vec<GlobalFormId>>>,
     /// Condition functions met during evaluation that have no
     /// implementation, with how often.
     pub unsupported_functions: BTreeMap<u16, usize>,
@@ -195,7 +209,30 @@ pub struct AiWorld {
     pub evaluations: usize,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+struct NavDoor {
+    position: [f32; 3],
+    opened: bool,
+}
+
 impl AiWorld {
+    /// Set the pool size for resumed navigation searches. Pending work is retained.
+    ///
+    /// # Errors
+    /// Returns Rayon's error if the worker pool cannot be created. The old pool
+    /// remains active on failure.
+    pub fn set_planning_workers(
+        &mut self,
+        workers: std::num::NonZeroUsize,
+    ) -> Result<(), rayon::ThreadPoolBuildError> {
+        self.planner.set_workers(workers)
+    }
+
+    /// Measurements for resumed navigation jobs in the last AI tick.
+    pub fn planning_workers(&self) -> &PlanningWorkers {
+        &self.planner.workers
+    }
+
     pub fn nav_graph(&self) -> Option<&NavGraph> {
         self.nav.as_ref()
     }
@@ -378,6 +415,26 @@ pub(crate) fn activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalForm
         .collect()
 }
 
+/// Advance an Activate branch after its one shared gameplay attempt.
+pub(crate) fn finish_activate(world: &mut World, actor: GlobalFormId, accepted: bool) {
+    let Some(mut ai) = world
+        .actor(actor)
+        .map(|state| std::mem::take(&mut state.ai))
+    else {
+        return;
+    };
+    if ai.procedure == Procedure::Activate {
+        if accepted {
+            tree::succeeded(world, &mut ai);
+        } else {
+            ai.procedure = Procedure::Unsupported("Activate rejected".into());
+        }
+    }
+    if let Some(state) = world.actor(actor) {
+        state.ai = ai;
+    }
+}
+
 /// DialogueActivate actors that are inside the configured dialogue range.
 pub(crate) fn dialogue_activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalFormId)> {
     if world.dialogue.session.is_some() {
@@ -526,7 +583,37 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
 /// The first candidate whose schedule and conditions hold. A running
 /// `Must Complete` package that still holds keeps its place.
 pub fn select(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
+    let _entity =
+        soe_trace::EntityScope::new(|| world.profile_entity("actor", actor, "planning"), 1);
+    measure_phase(world, "package_selection", |world| {
+        select_inner(world, actor)
+    })
+}
+
+fn select_inner(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
     world.ai.evaluations += 1;
+    let override_entry = world
+        .actor(actor)?
+        .runtime_package_overrides
+        .iter()
+        .max_by_key(|entry| entry.priority)
+        .copied();
+    if let Some(entry) = override_entry {
+        if let Some(p) = package(world, entry.package) {
+            let quest = p
+                .owner_quest
+                .and_then(|raw| world.resolve_from(entry.package, raw));
+            if entry.force
+                || (schedule_allows_calendar(&p.schedule, &world.clock, world.calendar())
+                    && conditions_hold(world, actor, entry.package, quest, &p.conditions))
+            {
+                return Some(Candidate {
+                    package: entry.package,
+                    alias: None,
+                });
+            }
+        }
+    }
     if let Some(package) = world.actor(actor)?.ai.scene_package {
         return Some(Candidate {
             package,
@@ -647,6 +734,18 @@ pub fn conditions_hold(
     quest: Option<GlobalFormId>,
     conditions: &[Condition],
 ) -> bool {
+    measure_phase(world, "conditions", |world| {
+        conditions_hold_inner(world, subject, package_id, quest, conditions)
+    })
+}
+
+fn conditions_hold_inner(
+    world: &mut World,
+    subject: GlobalFormId,
+    package_id: GlobalFormId,
+    quest: Option<GlobalFormId>,
+    conditions: &[Condition],
+) -> bool {
     let mut i = 0;
     while i < conditions.len() {
         let mut any = false;
@@ -674,6 +773,11 @@ fn condition_holds(
     quest: Option<GlobalFormId>,
     c: &Condition,
 ) -> bool {
+    let _entity = soe_trace::EntityScope::new(
+        || world.profile_entity("condition", package_id, "packages"),
+        1,
+    );
+    soe_trace::count(soe_trace::Operation::Conditions, 1);
     let target = match c.run_on {
         0 => Some(subject),
         2 => world.resolve_from(package_id, c.reference),
@@ -842,19 +946,7 @@ fn function_value(
             if c.param1 != 0 || c.param2 != 0 {
                 return None;
             }
-            let (base, opened) = world
-                .reference(subject)
-                .filter(|reference| !reference.deleted)
-                .map(|reference| (reference.base, reference.opened))?;
-            if base.is_some_and(|base| world.tag_of(base) == Some(T(b"DOOR"))) {
-                if opened {
-                    1.0
-                } else {
-                    3.0
-                }
-            } else {
-                0.0
-            }
+            world.door_open_state(subject)? as f32
         }
         203 => {
             if c.param1 != 0 || c.param2 != 0 {
@@ -914,6 +1006,11 @@ fn function_value(
 /// `OnPackageEnd`, `OnPackageChange` and `OnPackageStart` for the actor's
 /// scripts. Returns the package now running.
 pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Option<GlobalFormId> {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
+    let _entity = soe_trace::EntityScope::new(
+        || world.profile_entity("actor", actor, "package_evaluation"),
+        1,
+    );
     let chosen = select(world, actor);
     switch_to(world, actor, chosen, alloc)
 }
@@ -951,6 +1048,17 @@ fn switch_to(
     chosen: Option<Candidate>,
     alloc: Alloc<'_>,
 ) -> Option<GlobalFormId> {
+    measure_phase(world, "package_switch", |world| {
+        switch_to_inner(world, actor, chosen, alloc)
+    })
+}
+
+fn switch_to_inner(
+    world: &mut World,
+    actor: GlobalFormId,
+    chosen: Option<Candidate>,
+    alloc: Alloc<'_>,
+) -> Option<GlobalFormId> {
     let now = world.clock.real_seconds;
     let current = world.actor(actor)?.ai.package;
     if let Some(a) = world.actor(actor) {
@@ -965,6 +1073,8 @@ fn switch_to(
             unlock_cell_doors(world, actor, alloc);
         }
     }
+    world.ai.planner.cancel(actor);
+    world.ai.markers.cancel(actor);
     let object = world.object_of(Handle::Form(actor), alloc);
     if let Some(old) = current {
         let old_value = world.form_value(Some(old), alloc);
@@ -1045,6 +1155,7 @@ fn switch_to(
     }
     let running = ai.package;
     if let Some(a) = world.actor(actor) {
+        a.flying = ai.procedure == Procedure::Hover;
         a.ai = ai;
     }
     running
@@ -1375,12 +1486,19 @@ fn begin_procedure(
             ai.center_cell = place.and_then(|place| place.cell).or(cell);
         }
         Procedure::Sit => {
-            let furniture = place.and_then(|p| p.reference).filter(|reference| {
-                world
-                    .base_of(*reference)
-                    .and_then(|base| world.tag_of(base))
-                    == Some(T(b"FURN"))
-            });
+            let furniture = place
+                .and_then(|p| p.reference)
+                .or_else(|| {
+                    tree::activate_target(world, ai).and_then(|(owner, target)| {
+                        resolve_follow_target(world, actor, ai, (owner, target))
+                    })
+                })
+                .filter(|reference| {
+                    world
+                        .base_of(*reference)
+                        .and_then(|base| world.tag_of(base))
+                        == Some(T(b"FURN"))
+                });
             if let Some(furniture) = furniture
                 .filter(|furniture| world.reserve_furniture_marker(*furniture, actor).is_some())
             {
@@ -1415,9 +1533,20 @@ fn find_reference(
 ) -> Option<GlobalFormId> {
     use crate::package::Target;
 
-    let (base, object_type) = match target {
-        Target::ObjectId(raw) => (Some(world.resolve_from(owner, raw)?), None),
-        Target::ObjectType(kind @ 1..=15) => (None, Some(kind)),
+    let actor_ai = world.actor(actor)?.ai.clone();
+    let (reference_target, base, object_type) = match target {
+        Target::Reference(_) | Target::LinkedReference(_) | Target::Alias(_) | Target::Itself => (
+            Some(resolve_follow_target(
+                world,
+                actor,
+                &actor_ai,
+                (owner, target),
+            )?),
+            None,
+            None,
+        ),
+        Target::ObjectId(raw) => (None, Some(world.resolve_from(owner, raw)?), None),
+        Target::ObjectType(kind @ 1..=15) => (None, None, Some(kind)),
         _ => return None,
     };
     let actor_cell = world.reference(actor)?.cell;
@@ -1442,7 +1571,8 @@ fn find_reference(
                 return None;
             }
             let candidate_base = world.base_of(reference)?;
-            let matches = base.is_some_and(|base| base == candidate_base)
+            let matches = reference_target.is_some_and(|target| target == reference)
+                || base.is_some_and(|base| base == candidate_base)
                 || object_type
                     .is_some_and(|kind| matches_package_object_type(world, candidate_base, kind));
             if !matches || radius.is_some_and(|radius| distance(center, position) > radius) {
@@ -1458,11 +1588,11 @@ fn find_reference(
         .map(|(_, reference)| reference)
 }
 
-fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> bool {
+pub(super) fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> bool {
     let tag = world.tag_of(base);
     let expected = match kind {
         1 => T(b"ACTI"),
-        2 => T(b"ARMO"),
+        2 | 16 | 17 => T(b"ARMO"),
         3 => T(b"BOOK"),
         4 => T(b"CONT"),
         5 => T(b"DOOR"),
@@ -1470,11 +1600,14 @@ fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> 
         7 => T(b"LIGH"),
         8 => T(b"MISC"),
         9 => T(b"FLOR"),
-        10 => T(b"FURN"),
-        11 => T(b"WEAP"),
+        10 | 26 | 27 => T(b"FURN"),
+        11 | 18..=20 => T(b"WEAP"),
         12 => T(b"AMMO"),
         13 => T(b"KEYM"),
         14 | 15 => T(b"ALCH"),
+        21..=24 => T(b"SPEL"),
+        25 => T(b"NPC_"),
+        28 => T(b"SHOU"),
         _ => return false,
     };
     if tag != Some(expected) {
@@ -1488,6 +1621,65 @@ fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> 
             .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
             .is_some_and(|bytes| u32::from_le_bytes(bytes) & 2 != 0);
         return food == (kind == 15);
+    }
+    if kind == 16 {
+        let armor_type = world
+            .record(base)
+            .and_then(|record| {
+                record
+                    .find(T(b"BOD2"))
+                    .and_then(|data| data.get(4..8))
+                    .or_else(|| record.find(T(b"BODT")).and_then(|data| data.get(8..12)))
+            })
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map(u32::from_le_bytes);
+        return armor_type.is_some_and(|armor_type| armor_type == 0 || armor_type == 1);
+    }
+    if (18..=20).contains(&kind) {
+        let weapon_type = world
+            .record(base)
+            .and_then(|record| record.find(T(b"DNAM")))
+            .and_then(|data| data.first().copied());
+        return weapon_type.is_some_and(|weapon_type| match kind {
+            18 => weapon_type == 0,
+            19 => (1..=6).contains(&weapon_type),
+            20 => weapon_type == 7 || weapon_type == 9,
+            _ => false,
+        });
+    }
+    if (21..=24).contains(&kind) {
+        let delivery = world
+            .record(base)
+            .and_then(|record| record.find(T(b"SPIT")))
+            .and_then(|data| data.get(20..24))
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map(u32::from_le_bytes);
+        return delivery.is_some_and(|delivery| match kind {
+            21 => true,
+            22 => delivery == 2,
+            23 => delivery == 1,
+            24 => delivery == 0,
+            _ => false,
+        });
+    }
+    if kind == 25 {
+        return true;
+    }
+    if kind == 26 || kind == 27 {
+        let animation = world
+            .record(base)
+            .into_iter()
+            .flat_map(|record| record.all(T(b"FNPR")))
+            .filter_map(|data| data.get(..2))
+            .filter_map(|bytes| <[u8; 2]>::try_from(bytes).ok())
+            .map(u16::from_le_bytes);
+        return animation.into_iter().any(|animation| {
+            if kind == 26 {
+                animation == 2
+            } else {
+                animation == 1
+            }
+        });
     }
     true
 }
@@ -1651,7 +1843,7 @@ pub fn resolve_location(
 }
 
 fn is_bed(world: &mut World, r: GlobalFormId) -> bool {
-    let Some(base) = world.base_of(r) else {
+    let Some(base) = world.reference_base_view(r) else {
         return false;
     };
     if world.tag_of(base) != Some(T(b"FURN")) {
@@ -1681,34 +1873,45 @@ fn nearest_bed(world: &mut World, cell: GlobalFormId, near: [f32; 3]) -> Option<
     best.map(|(_, r)| r)
 }
 
-/// Idle markers and furniture (beds excluded) within `radius` of `center`
-/// in `cell`.
+/// Whether a placed reference is sandbox furniture or an idle marker in range.
+fn sandbox_marker(
+    world: &mut World,
+    reference: GlobalFormId,
+    center: [f32; 3],
+    radius: f32,
+) -> bool {
+    let Some(base) = measure_phase(world, "marker_base", |world| {
+        world.reference_base_view(reference)
+    }) else {
+        return false;
+    };
+    let tag = world.tag_of(base);
+    if tag != Some(T(b"IDLM")) && tag != Some(T(b"FURN")) {
+        return false;
+    }
+    if tag == Some(T(b"FURN"))
+        && measure_phase(world, "marker_bed", |world| is_bed(world, reference))
+    {
+        return false;
+    }
+    measure_phase(world, "marker_reference", |world| {
+        world
+            .reference(reference)
+            .is_some_and(|state| distance(state.position, center) <= radius)
+    })
+}
+
+#[cfg(test)]
 fn sandbox_markers(
     world: &mut World,
     cell: GlobalFormId,
     center: [f32; 3],
     radius: f32,
 ) -> Vec<GlobalFormId> {
-    let mut out = Vec::new();
-    for r in references_in_cell(world, cell) {
-        let Some(base) = world.base_of(r) else {
-            continue;
-        };
-        let tag = world.tag_of(base);
-        if tag != Some(T(b"IDLM")) && tag != Some(T(b"FURN")) {
-            continue;
-        }
-        if tag == Some(T(b"FURN")) && is_bed(world, r) {
-            continue;
-        }
-        let Some(p) = world.reference(r).map(|s| s.position) else {
-            continue;
-        };
-        if distance(p, center) <= radius {
-            out.push(r);
-        }
-    }
-    out
+    references_in_cell(world, cell)
+        .into_iter()
+        .filter(|reference| sandbox_marker(world, *reference, center, radius))
+        .collect()
 }
 
 /// Idle markers in the package location that no other actor's active
@@ -1720,11 +1923,23 @@ fn idle_markers(
     center: [f32; 3],
     radius: f32,
 ) -> Vec<GlobalFormId> {
+    measure_phase(world, "idle_markers", |world| {
+        idle_markers_inner(world, actor, cell, center, radius)
+    })
+}
+
+fn idle_markers_inner(
+    world: &mut World,
+    actor: GlobalFormId,
+    cell: GlobalFormId,
+    center: [f32; 3],
+    radius: f32,
+) -> Vec<GlobalFormId> {
     let refs = references_in_cell(world, cell);
     let mut eligible = Vec::new();
     for reference in refs.iter().copied() {
         if world
-            .base_of(reference)
+            .reference_base_view(reference)
             .is_none_or(|base| world.tag_of(base) != Some(T(b"IDLM")))
         {
             continue;
@@ -1739,7 +1954,7 @@ fn idle_markers(
         }
         let reserved = refs.iter().copied().any(|other| {
             other != actor
-                && world.actor(other).is_some_and(|state| {
+                && world.actor_ref(other).is_some_and(|state| {
                     matches!(state.ai.procedure, Procedure::UseIdleMarker { marker: Some(held) } if held == reference)
                 })
         });
@@ -1750,38 +1965,45 @@ fn idle_markers(
     eligible
 }
 
+/// The first valid authored idle animation event on an IDLM base, in IDLA order.
+fn idle_marker_animation(world: &mut World, marker: GlobalFormId) -> Option<String> {
+    let base = world.base_of(marker)?;
+    let record = world
+        .record(base)
+        .filter(|record| record.tag == T(b"IDLM"))?;
+    record.subrecords.iter().find_map(|subrecord| {
+        if subrecord.tag != T(b"IDLA") {
+            return None;
+        }
+        let raw = form_id(&subrecord.data)?;
+        let idle = world.resolve_from(base, raw)?;
+        if world.tag_of(idle) != Some(T(b"IDLE")) || world.record(idle)?.is_deleted() {
+            return None;
+        }
+        let event = world
+            .record(idle)?
+            .find(T(b"ENAM"))
+            .map(crate::quest::zstring)?;
+        (!event.is_empty()).then_some(event)
+    })
+}
+
 /// Every placed reference and actor in a cell, from an index built once
 /// over the load order.
 pub fn references_in_cell(world: &mut World, cell: GlobalFormId) -> Vec<GlobalFormId> {
-    if world.ai.cell_refs.is_none() {
-        let _span = soe_trace::Span::new("ai.cell_index", "game");
-        let mut index: HashMap<GlobalFormId, Vec<GlobalFormId>> = HashMap::new();
-        let order = world.order();
-        for tag in [T(b"REFR"), T(b"ACHR")] {
-            for (id, _) in order.winners_of(tag) {
-                let Some(rref) = order.winner_ref(id) else {
-                    continue;
-                };
-                let rec = order.record(rref);
-                let Some(raw_cell) = rec.placement.cell else {
-                    continue;
-                };
-                let cell = order.resolve(rref.file, raw_cell);
-                index.entry(cell).or_default().push(id);
-            }
-        }
-        for refs in index.values_mut() {
-            refs.sort();
-        }
-        world.ai.cell_refs = Some(index);
-    }
-    world
-        .ai
-        .cell_refs
-        .as_ref()
-        .and_then(|i| i.get(&cell))
-        .cloned()
-        .unwrap_or_default()
+    measure_phase(world, "cell_references", |world| {
+        soe_trace::trace!(target: "game::ai", system = "game::ai", form_id = %cell, "reading cell references");
+        soe_trace::debug!(target: "game::ai", system = "game::ai", form_id = %cell, "reading cell reference index");
+        soe_trace::debug!(target: "game::ai", system = "game::ai", form_id = %cell, "querying cell reference index");
+        let mut references = world.cell_references(cell);
+        references.retain(|id| {
+            world
+                .tag_of(*id)
+                .is_some_and(|tag| tag == T(b"REFR") || tag == T(b"ACHR"))
+        });
+        references.sort_unstable();
+        references
+    })
 }
 
 /// The navmesh graph over every winning `NAVM`, built on first use.
@@ -1828,6 +2050,7 @@ pub fn remove_nav_obstacle(world: &mut World, id: ObstacleId) -> bool {
 }
 
 fn invalidate_actor_paths(world: &mut World) {
+    world.ai.planner.clear();
     for actor in world.loaded_actors() {
         if let Some(state) = world.actor(actor) {
             state.ai.path.clear();
@@ -1863,23 +2086,29 @@ fn ensure_nav_graph(world: &mut World) {
         }
         let (graph, _) = b.build();
         let mut graph = graph;
-        let door_keys: Vec<_> = graph.door_keys().collect();
+        let mut door_keys: Vec<_> = graph.door_keys().collect();
+        door_keys.sort_unstable();
+        let mut doors = BTreeMap::new();
         for key in door_keys {
             let door = GlobalFormId {
                 file: (key >> 32) as u16,
                 object: key as u32,
             };
-            let Some((position, opened)) = world
-                .reference(door)
-                .map(|reference| (reference.position, reference.opened))
-            else {
+            let state = world.reference(door).map(|reference| NavDoor {
+                position: reference.position,
+                opened: reference.opened,
+            });
+            doors.insert(key, state);
+            let Some(NavDoor { position, opened }) = state else {
                 continue;
             };
             if graph.bind_door_footprint(key, position) {
                 graph.set_door_open(key, opened);
             }
         }
+        graph.prepare_queries();
         world.ai.nav = Some(graph);
+        world.ai.nav_doors = doors;
         world.ai.nav_cells = cells;
     }
 }
@@ -1888,24 +2117,25 @@ fn ensure_nav_graph(world: &mut World) {
 /// change invalidates cached actor routes so the next movement step replans.
 fn refresh_nav_doors(world: &mut World) {
     ensure_nav_graph(world);
-    let Some(graph) = world.ai.nav.as_ref() else {
-        return;
-    };
-    let door_keys: Vec<_> = graph.door_keys().collect();
+    let mut doors = std::mem::take(&mut world.ai.nav_doors);
     let mut door_changes = Vec::new();
-    for key in door_keys {
+    for (&key, previous) in &mut doors {
         let door = GlobalFormId {
             file: (key >> 32) as u16,
             object: key as u32,
         };
-        let Some((position, opened)) = world
-            .reference(door)
-            .map(|reference| (reference.position, reference.opened))
-        else {
-            continue;
-        };
-        door_changes.push((key, position, opened));
+        let state = world.reference(door).map(|reference| NavDoor {
+            position: reference.position,
+            opened: reference.opened,
+        });
+        if state != *previous {
+            *previous = state;
+            if let Some(NavDoor { position, opened }) = state {
+                door_changes.push((key, position, opened));
+            }
+        }
     }
+    world.ai.nav_doors = doors;
     let Some(graph) = world.ai.nav.as_mut() else {
         return;
     };
@@ -1918,6 +2148,7 @@ fn refresh_nav_doors(world: &mut World) {
                 binding_changed | open_state_changed | state_changed
             });
     if state_changed {
+        world.ai.planner.clear();
         for actor in world.loaded_actors() {
             if let Some(state) = world.actor(actor) {
                 state.ai.path.clear();
@@ -1931,105 +2162,264 @@ fn refresh_nav_doors(world: &mut World) {
 
 /// Advance every loaded actor: evaluate when due, then move.
 pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
     let _span = soe_trace::Span::new("ai.tick", "game");
+    let started = std::time::Instant::now();
+    world.ai.planning_phases.clear();
+    world.ai.planner.phases.clear();
+    world.ai.planner.workers = PlanningWorkers::default();
     refresh_nav_doors(world);
-    let now = world.clock.real_seconds;
-    for actor in world.loaded_actors() {
-        if world.is_player(actor) {
-            continue;
-        }
-        if world.actor_is_paralyzed(actor) {
-            continue;
-        }
-        let Some((dead, unconscious)) = world.actor(actor).map(|a| (a.dead, a.unconscious)) else {
-            continue;
-        };
-        if dead || unconscious {
-            continue;
-        }
-        let ignore_combat = ignores_combat(world, actor);
-        if ignore_combat {
-            clear_combat_engagement(world, actor);
-        }
-        if world.is_calmed(actor) && world.actor_value(actor, "aggression") < 1.0 {
-            clear_combat_engagement(world, actor);
-        }
-        let turn_undead_threat = world.turn_undead_threat(actor);
-        if world.is_fleeing(actor) || turn_undead_threat.is_some() {
-            if let Some(state) = world.actor(actor) {
-                state.in_combat = false;
-                state.combat_target = None;
-                state.ai.reevaluate = true;
-                state.ai.path.clear();
-                state.ai.path_cells.clear();
-                state.ai.destination = None;
-                state.ai.arrived = false;
-            }
-            if let Some(threat) = turn_undead_threat {
-                flee_turn_undead(world, actor, threat, dt as f32);
-            } else if let Some(source) = world.flee_source(actor) {
-                flee_from(world, actor, source, dt as f32);
-            }
-            continue;
-        }
-        let mut active_target = combat_target(world, actor);
-        if active_target.is_some_and(|target| !target_in_guard_area(world, actor, target)) {
-            clear_combat_engagement(world, actor);
-            active_target = None;
-        }
-        let fleeing = world
-            .actor(actor)
-            .is_some_and(|state| state.ai.procedure == Procedure::Flee);
-        if active_target.is_none() && !fleeing {
-            let due = world.actor(actor).is_some_and(|state| {
-                state.ai.package.is_none()
+    world.ai.door_refresh_time = started.elapsed();
+    let scheduling_started = std::time::Instant::now();
+    let mut actors = world.loaded_actors();
+    actors.sort_unstable();
+    world.ai.planner.retain_actors(&actors);
+    let mut due: Vec<_> = actors
+        .iter()
+        .filter_map(|actor| {
+            let state = world.actor_ref(*actor)?;
+            if (world.is_player(*actor) && !world.player_ai_driven)
+                || state.dead
+                || state.unconscious
+                || world.actor_is_paralyzed(*actor)
+                || ((world.ai.planner.waiting(*actor) || world.ai.markers.waiting(*actor))
+                    && !state.ai.reevaluate)
+                || !(state.ai.package.is_none()
                     || state.ai.reevaluate
-                    || now - state.ai.last_evaluation >= EVALUATION_INTERVAL
-            });
-            if due {
-                evaluate(world, actor, alloc);
+                    || world.clock.real_seconds - state.ai.last_evaluation >= EVALUATION_INTERVAL)
+            {
+                return None;
             }
-        }
-        if active_target.is_some() && !ignores_combat(world, actor) && !fleeing {
-            let due = world.actor(actor).is_some_and(|a| {
-                a.ai.package.is_none()
-                    || a.ai.reevaluate
-                    || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
-            });
-            if due {
-                evaluate(world, actor, alloc);
+            Some((!state.ai.reevaluate, state.ai.last_evaluation, *actor))
+        })
+        .collect();
+    due.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.total_cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+    let mut evaluations: BTreeSet<_> = due
+        .into_iter()
+        .take(FRAME_EVALUATION_BUDGET)
+        .map(|(_, _, actor)| actor)
+        .collect();
+    world
+        .ai
+        .planning_phases
+        .insert("scheduling", scheduling_started.elapsed());
+    world.ai.evaluation_time = std::time::Duration::ZERO;
+    let navigation_started = std::time::Instant::now();
+    if let Some(graph) = &world.ai.nav {
+        let mut planner = std::mem::take(&mut world.ai.planner);
+        planner.begin_frame_attributed(graph, &world.ai.nav_cells, |actor| {
+            world.profile_entity("actor", actor, "planning")
+        });
+        world.ai.planner = planner;
+    }
+    world
+        .ai
+        .planning_phases
+        .insert("navigation_resume", navigation_started.elapsed());
+    measure_phase(world, "marker_resume", |world| {
+        let mut markers = std::mem::take(&mut world.ai.markers);
+        markers.begin_frame(world, &actors);
+        world.ai.markers = markers;
+    });
+    let now = world.clock.real_seconds;
+    for actor in actors {
+        let _entity =
+            soe_trace::EntityScope::new(|| world.profile_entity("actor", actor, "movement"), 1);
+        measure_phase(world, "actor_driver", |world| {
+            if world.is_player(actor) && !world.player_ai_driven {
+                return;
             }
-            if !ignores_combat(world, actor)
-                && world
-                    .actor(actor)
-                    .is_none_or(|state| state.ai.procedure != Procedure::Flee)
-                && combat_target(world, actor).is_some()
+            let Some((dead, unconscious)) = measure_phase(world, "actor_state", |world| {
+                if world.actor_is_paralyzed(actor) {
+                    return None;
+                }
+                let state = world.actor(actor)?;
+                state.flying =
+                    !state.dead && !state.unconscious && state.ai.procedure == Procedure::Hover;
+                Some((state.dead, state.unconscious))
+            }) else {
+                return;
+            };
+            if dead || unconscious {
+                world.ai.planner.cancel(actor);
+                world.ai.markers.cancel(actor);
+                return;
+            }
+            if world.actor(actor).is_some_and(|state| state.ai.reevaluate)
+                && !world.is_fleeing(actor)
+                && measure_phase(world, "turn_undead_check", |world| {
+                    world.turn_undead_threat(actor)
+                })
+                .is_none()
+            {
+                world.ai.planner.cancel(actor);
+                world.ai.markers.cancel(actor);
+            }
+            if let Some(position) = world.reference(actor).map(|reference| reference.position) {
+                if world.ai.planner.moved(actor, position) {
+                    world.ai.planner.cancel(actor);
+                    world.ai.markers.cancel(actor);
+                }
+            }
+            if world.ai.planner.waiting(actor) || world.ai.markers.waiting(actor) {
+                return;
+            }
+            let ignore_combat = ignores_combat(world, actor);
+            if ignore_combat {
+                clear_combat_engagement(world, actor);
+            }
+            if measure_phase(world, "calm_check", |world| {
+                world.is_calmed(actor) && world.actor_value(actor, "aggression") < 1.0
+            }) {
+                clear_combat_engagement(world, actor);
+            }
+            let turn_undead_threat = measure_phase(world, "turn_undead_check", |world| {
+                world.turn_undead_threat(actor)
+            });
+            if world.is_fleeing(actor) || turn_undead_threat.is_some() {
+                if let Some(state) = world.actor(actor) {
+                    state.in_combat = false;
+                    state.combat_target = None;
+                    state.ai.reevaluate = true;
+                    state.ai.path.clear();
+                    state.ai.path_cells.clear();
+                    state.ai.destination = None;
+                    state.ai.arrived = false;
+                }
+                if let Some(threat) = turn_undead_threat {
+                    flee_turn_undead(world, actor, threat, dt as f32);
+                } else if let Some(source) = world.flee_source(actor) {
+                    flee_from(world, actor, source, dt as f32);
+                }
+                return;
+            }
+            let mut active_target = combat_target(world, actor);
+            if active_target.is_some_and(|target| !target_in_guard_area(world, actor, target)) {
+                clear_combat_engagement(world, actor);
+                active_target = None;
+            }
+            let fleeing = world
+                .actor(actor)
+                .is_some_and(|state| state.ai.procedure == Procedure::Flee);
+            if active_target.is_none() && !fleeing {
+                let due = measure_phase(world, "evaluation_due", |world| {
+                    world.actor(actor).is_some_and(|state| {
+                        state.ai.package.is_none()
+                            || state.ai.reevaluate
+                            || now - state.ai.last_evaluation >= EVALUATION_INTERVAL
+                    })
+                });
+                if due {
+                    evaluate_on_frame(world, actor, alloc, &mut evaluations);
+                }
+            }
+            if active_target.is_some() && !ignores_combat(world, actor) && !fleeing {
+                let due = measure_phase(world, "evaluation_due", |world| {
+                    world.actor(actor).is_some_and(|a| {
+                        a.ai.package.is_none()
+                            || a.ai.reevaluate
+                            || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+                    })
+                });
+                if due {
+                    evaluate_on_frame(world, actor, alloc, &mut evaluations);
+                }
+                if !ignores_combat(world, actor)
+                    && world
+                        .actor(actor)
+                        .is_none_or(|state| state.ai.procedure != Procedure::Flee)
+                    && combat_target(world, actor).is_some()
+                {
+                    pursue_combat_target(world, actor, dt as f32);
+                    return;
+                }
+            } else if !ignore_combat
+                && !ignores_combat(world, actor)
+                && !fleeing
+                && acquire_combat_target(world, actor)
             {
                 pursue_combat_target(world, actor, dt as f32);
-                continue;
+                return;
             }
-        } else if !ignore_combat
-            && !ignores_combat(world, actor)
-            && !fleeing
-            && acquire_combat_target(world, actor)
-        {
-            pursue_combat_target(world, actor, dt as f32);
-            continue;
-        }
-        let due = world.actor(actor).is_some_and(|a| {
-            a.ai.package.is_none()
-                || a.ai.reevaluate
-                || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+            let due = measure_phase(world, "evaluation_due", |world| {
+                world.actor(actor).is_some_and(|a| {
+                    a.ai.package.is_none()
+                        || a.ai.reevaluate
+                        || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+                })
+            });
+            if due {
+                evaluate_on_frame(world, actor, &mut *alloc, &mut evaluations);
+            }
+            step(world, actor, dt as f32, &mut *alloc);
+            let completed = world.actor_ref(actor).and_then(|state| {
+                state
+                    .ai
+                    .tree
+                    .as_ref()
+                    .filter(|tree| tree.finished)
+                    .and(state.ai.package)
+            });
+            if let Some(package) = completed {
+                world.remove_package_override(actor, package);
+            }
         });
-        if due {
-            evaluate(world, actor, &mut *alloc);
-        }
-        step(world, actor, dt as f32, &mut *alloc);
     }
+    world.ai.planning_phases.extend(
+        world
+            .ai
+            .planner
+            .phases
+            .iter()
+            .map(|(phase, time)| (*phase, *time)),
+    );
+    world.ai.planning_time = started.elapsed();
+}
+
+pub(super) fn measure_phase<R>(
+    world: &mut World,
+    phase: &'static str,
+    work: impl FnOnce(&mut World) -> R,
+) -> R {
+    let started = std::time::Instant::now();
+    let result = work(world);
+    *world.ai.planning_phases.entry(phase).or_default() += started.elapsed();
+    result
+}
+
+fn evaluate_on_frame(
+    world: &mut World,
+    actor: GlobalFormId,
+    alloc: Alloc<'_>,
+    scheduled: &mut BTreeSet<GlobalFormId>,
+) {
+    if !scheduled.remove(&actor) {
+        return;
+    }
+    let started = std::time::Instant::now();
+    evaluate(world, actor, alloc);
+    world.ai.evaluation_time += started.elapsed();
+}
+
+/// End a route-owned package through the ordinary boundary event path.
+pub(crate) fn stop_player_package(world: &mut World, alloc: Alloc<'_>) {
+    let player = world.player();
+    switch_to(world, player, None, alloc);
 }
 
 /// Move away from a live hostile effect source along the vanilla navmesh.
 fn flee_from(world: &mut World, actor: GlobalFormId, source: GlobalFormId, dt: f32) {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
+    measure_phase(world, "flee_movement", |world| {
+        flee_from_inner(world, actor, source, dt);
+    });
+}
+
+fn flee_from_inner(world: &mut World, actor: GlobalFormId, source: GlobalFormId, dt: f32) {
     let Some((position, cell)) = world
         .reference(actor)
         .map(|reference| (reference.position, reference.cell))
@@ -2049,7 +2439,7 @@ fn flee_from(world: &mut World, actor: GlobalFormId, source: GlobalFormId, dt: f
         return;
     }
     let destination = std::array::from_fn(|axis| position[axis] + offset[axis] / length * 512.0);
-    let Some((path, cells)) = plan_combat(world, position, destination, cell) else {
+    let Some((path, cells)) = plan_combat(world, actor, position, destination, cell) else {
         return;
     };
     let speed = movement_speed(world, actor, speed::RUN);
@@ -2085,6 +2475,13 @@ fn flee_from(world: &mut World, actor: GlobalFormId, source: GlobalFormId, dt: f
 
 /// Run away from the caster while a Turn Undead application is active.
 fn flee_turn_undead(world: &mut World, actor: GlobalFormId, threat: GlobalFormId, dt: f32) {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
+    measure_phase(world, "turn_undead_movement", |world| {
+        flee_turn_undead_inner(world, actor, threat, dt);
+    });
+}
+
+fn flee_turn_undead_inner(world: &mut World, actor: GlobalFormId, threat: GlobalFormId, dt: f32) {
     let Some((mut position, mut cell)) = world
         .reference(actor)
         .map(|reference| (reference.position, reference.cell))
@@ -2108,7 +2505,9 @@ fn flee_turn_undead(world: &mut World, actor: GlobalFormId, threat: GlobalFormId
         }
     }
     let destination = std::array::from_fn(|axis| position[axis] + direction[axis] * 512.0);
-    let (path, cells) = plan(world, position, destination, cell);
+    let Some((path, cells)) = plan(world, actor, position, destination, cell) else {
+        return;
+    };
     let speed = movement_speed(world, actor, speed::RUN);
     let mut budget = speed * dt.max(0.0);
     for (index, next) in path.iter().enumerate() {
@@ -2139,6 +2538,12 @@ fn flee_turn_undead(world: &mut World, actor: GlobalFormId, threat: GlobalFormId
 }
 
 fn ignores_combat(world: &mut World, actor: GlobalFormId) -> bool {
+    measure_phase(world, "combat_flags", |world| {
+        ignores_combat_inner(world, actor)
+    })
+}
+
+fn ignores_combat_inner(world: &mut World, actor: GlobalFormId) -> bool {
     world
         .actor(actor)
         .and_then(|state| state.ai.package)
@@ -2163,6 +2568,12 @@ fn clear_combat_engagement(world: &mut World, actor: GlobalFormId) {
 
 /// Drop dead or missing targets, otherwise return the current target.
 fn combat_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId> {
+    measure_phase(world, "combat_target", |world| {
+        combat_target_inner(world, actor)
+    })
+}
+
+fn combat_target_inner(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId> {
     let target = world
         .actor(actor)
         .filter(|state| state.in_combat)
@@ -2198,6 +2609,12 @@ fn target_in_guard_area(world: &mut World, actor: GlobalFormId, target: GlobalFo
 
 /// Acquire the nearest detected target for an aggressive actor.
 fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
+    measure_phase(world, "combat_acquisition", |world| {
+        acquire_combat_target_inner(world, actor)
+    })
+}
+
+fn acquire_combat_target_inner(world: &mut World, actor: GlobalFormId) -> bool {
     if world
         .actor(actor)
         .is_none_or(|state| state.dead || state.unconscious)
@@ -2211,21 +2628,32 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
     if ignores_combat(world, actor) {
         return false;
     }
+    let _system = soe_trace::SystemScope::new(soe_trace::System::Combat);
     let Some(from) = world.reference(actor).map(|reference| reference.position) else {
         return false;
     };
     let frenzied = world.is_frenzied(actor);
-    let mut candidates = world.loaded_actors();
-    candidates.sort();
+    let candidates: Vec<_> = world
+        .detection
+        .pools
+        .iter()
+        .filter(|(_, pool)| {
+            pool.observers.get(&actor).is_some_and(|awareness| {
+                awareness.level == crate::detection::DetectionLevel::Combat
+            })
+        })
+        .map(|(target, _)| *target)
+        .filter(|target| world.actor_ref(*target).is_some())
+        .collect();
     let mut best: Option<(GlobalFormId, f32)> = None;
     for target in candidates {
         if target == actor
-            || world
-                .actor(target)
-                .is_none_or(|state| state.dead || state.unconscious || state.teammate && !frenzied)
             || !world.awareness(actor, target).is_some_and(|awareness| {
                 awareness.level == crate::detection::DetectionLevel::Combat
             })
+            || world
+                .actor(target)
+                .is_none_or(|state| state.dead || state.unconscious || state.teammate && !frenzied)
         {
             continue;
         }
@@ -2278,6 +2706,13 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
 
 /// Advance an engaged actor along the shared vanilla NAVM graph.
 fn pursue_combat_target(world: &mut World, actor: GlobalFormId, dt: f32) {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::Combat);
+    measure_phase(world, "combat_movement", |world| {
+        pursue_combat_target_inner(world, actor, dt);
+    });
+}
+
+fn pursue_combat_target_inner(world: &mut World, actor: GlobalFormId, dt: f32) {
     let Some(target) = combat_target(world, actor) else {
         return;
     };
@@ -2318,7 +2753,8 @@ fn pursue_combat_target(world: &mut World, actor: GlobalFormId, dt: f32) {
         .is_none_or(|old| distance(old, destination) > COMBAT_ARRIVAL_DISTANCE)
         || ai.path.is_empty()
     {
-        let Some((path, cells)) = plan_combat(world, position, destination, target_cell) else {
+        let Some((path, cells)) = plan_combat(world, actor, position, destination, target_cell)
+        else {
             if let Some(state) = world.actor(actor) {
                 state.ai = ai;
             }
@@ -2370,71 +2806,36 @@ fn pursue_combat_target(world: &mut World, actor: GlobalFormId, dt: f32) {
 /// Plan combat movement only when the vanilla navmesh contains a route.
 fn plan_combat(
     world: &mut World,
+    actor: GlobalFormId,
     from: [f32; 3],
     to: [f32; 3],
     to_cell: Option<GlobalFormId>,
 ) -> Option<PlannedPath> {
-    refresh_nav_doors(world);
-    let path = world.ai.nav.as_ref()?.find_path_between(from, to)?;
-    let cells = path
-        .point_nodes
-        .iter()
-        .skip(1)
-        .map(|node| {
-            world
-                .ai
-                .nav_cells
-                .get(node.mesh as usize)
-                .copied()
-                .flatten()
-                .or(to_cell)
-        })
-        .collect();
-    Some((path.points[1..].to_vec(), cells))
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
+    match navigation::request(
+        world,
+        actor,
+        from,
+        navigation::Goal::Point {
+            to,
+            cell: to_cell,
+            fallback: false,
+        },
+    ) {
+        std::task::Poll::Ready(path) => path.map(|(_, path)| path),
+        std::task::Poll::Pending => None,
+    }
 }
 
 /// Choose a reachable navmesh point that increases distance from the threat.
 fn plan_flee(
     world: &mut World,
+    actor: GlobalFormId,
     from: [f32; 3],
     threat: [f32; 3],
-) -> Option<([f32; 3], PlannedPath)> {
-    ensure_nav_graph(world);
-    let graph = world.ai.nav.as_ref()?;
-    let start = graph.locate(from).or_else(|| graph.nearest(from))?;
-    let start_distance = distance(from, threat);
-    let mut candidates: Vec<_> = graph
-        .reachable(start)
-        .into_iter()
-        .filter(|node| !graph.triangle(*node).blocked)
-        .map(|node| (node, graph.centroid(node)))
-        .filter(|(_, point)| distance(*point, threat) > start_distance + f32::EPSILON)
-        .collect();
-    candidates.sort_by(|(a_node, a), (b_node, b)| {
-        distance(*b, threat)
-            .total_cmp(&distance(*a, threat))
-            .then_with(|| a_node.cmp(b_node))
-    });
-    for (_node, destination) in candidates {
-        let Some(path) = graph.find_path_between(from, destination) else {
-            continue;
-        };
-        let cells = path
-            .point_nodes
-            .iter()
-            .skip(1)
-            .map(|point| {
-                world
-                    .ai
-                    .nav_cells
-                    .get(point.mesh as usize)
-                    .copied()
-                    .flatten()
-            })
-            .collect();
-        return Some((destination, (path.points[1..].to_vec(), cells)));
-    }
-    None
+) -> std::task::Poll<Option<([f32; 3], PlannedPath)>> {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
+    navigation::request(world, actor, from, navigation::Goal::Flee { threat })
 }
 
 fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -2446,27 +2847,25 @@ fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// line that ends in `to_cell`.
 fn plan(
     world: &mut World,
+    actor: GlobalFormId,
     from: [f32; 3],
     to: [f32; 3],
     to_cell: Option<GlobalFormId>,
-) -> PlannedPath {
-    refresh_nav_doors(world);
-    let (Some(graph), nav_cells) = (world.ai.nav.as_ref(), &world.ai.nav_cells) else {
-        return (vec![to], vec![to_cell]);
-    };
-    if let Some(path) = graph.find_path_between(from, to) {
-        let cells: Vec<Option<GlobalFormId>> = path
-            .point_nodes
-            .iter()
-            .skip(1)
-            .map(|node| nav_cells.get(node.mesh as usize).copied().flatten())
-            .collect();
-        return (path.points[1..].to_vec(), cells);
+) -> Option<PlannedPath> {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
+    match navigation::request(
+        world,
+        actor,
+        from,
+        navigation::Goal::Point {
+            to,
+            cell: to_cell,
+            fallback: true,
+        },
+    ) {
+        std::task::Poll::Ready(path) => path.map(|(_, path)| path),
+        std::task::Poll::Pending => None,
     }
-    if graph.contains_point(from) && graph.contains_point(to) {
-        return (Vec::new(), Vec::new());
-    }
-    (vec![to], vec![to_cell])
 }
 
 pub(crate) fn path_points(world: &mut World, from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
@@ -2477,17 +2876,30 @@ pub(crate) fn path_points(world: &mut World, from: [f32; 3], to: [f32; 3]) -> Ve
 }
 
 fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
+    let _entity = soe_trace::EntityScope::new(
+        || world.profile_entity("actor", actor, "procedure_movement"),
+        1,
+    );
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
+    measure_phase(world, "movement", |world| {
+        step_inner(world, actor, dt, alloc);
+    });
+}
+
+fn step_inner(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     let Some((position, cell)) = world.reference(actor).map(|r| (r.position, r.cell)) else {
         return;
     };
     let Some(mut ai) = world.actor(actor).map(|a| std::mem::take(&mut a.ai)) else {
         return;
     };
-    if ai.tree.is_none() && ai.package.is_some() {
-        tree::start(world, actor, &mut ai, &mut *alloc);
-    } else {
-        tree::enter(world, actor, &mut ai, &mut *alloc);
-    }
+    measure_phase(world, "procedure_tree", |world| {
+        if ai.tree.is_none() && ai.package.is_some() {
+            tree::start(world, actor, &mut ai, &mut *alloc);
+        } else {
+            tree::enter(world, actor, &mut ai, &mut *alloc);
+        }
+    });
     if ai.procedure == Procedure::UseWeapon && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         let target = world.actor(actor).and_then(|state| state.combat_target);
         let weapon = world
@@ -2550,7 +2962,14 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
                     distance(destination, threat) <= distance(from, threat) + f32::EPSILON
                 });
             if needs_route {
-                if let Some((destination, (path, cells))) = plan_flee(world, from, threat) {
+                let result = plan_flee(world, actor, from, threat);
+                if result.is_pending() {
+                    if let Some(state) = world.actor(actor) {
+                        state.ai = ai;
+                    }
+                    return;
+                }
+                if let std::task::Poll::Ready(Some((destination, (path, cells)))) = result {
                     ai.destination = Some(destination);
                     ai.path = path;
                     ai.path_cells = cells;
@@ -2582,6 +3001,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     if matches!(ai.procedure, Procedure::Orbit { .. }) {
         orbit(world, actor, &mut ai, position, dt);
         if let Some(a) = world.actor(actor) {
+            a.flying = ai.procedure == Procedure::Hover;
             a.ai = ai;
         }
         return;
@@ -2667,11 +3087,27 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     }
     if !ai.arrived && ai.destination.is_none() && ai.procedure == Procedure::Sandbox {
         let center = ai.center.unwrap_or(position);
-        let markers = ai
-            .center_cell
-            .or(cell)
-            .map(|c| sandbox_markers(world, c, center, ai.radius))
-            .unwrap_or_default();
+        let result = ai.center_cell.or(cell).map_or_else(
+            || std::task::Poll::Ready(Vec::new()),
+            |cell| {
+                markers::request(
+                    world,
+                    actor,
+                    markers::Goal {
+                        package: ai.package,
+                        cell,
+                        center,
+                        radius: ai.radius,
+                    },
+                )
+            },
+        );
+        let std::task::Poll::Ready(markers) = result else {
+            if let Some(state) = world.actor(actor) {
+                state.ai = ai;
+            }
+            return;
+        };
         let target = if markers.is_empty() {
             let angle =
                 world.random_float_for(crate::world::RngStream::Ai, 0.0, std::f32::consts::TAU);
@@ -2729,7 +3165,12 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     }
     if let (false, Some(dest)) = (ai.arrived, ai.destination) {
         if ai.path.is_empty() {
-            let (path, cells) = plan(world, position, dest, ai.center_cell);
+            let Some((path, cells)) = plan(world, actor, position, dest, ai.center_cell) else {
+                if let Some(state) = world.actor(actor) {
+                    state.ai = ai;
+                }
+                return;
+            };
             ai.path = path;
             ai.path_cells = cells;
         }
@@ -2800,6 +3241,16 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
                 r.cell = new_cell;
             }
         }
+        if ai.arrived {
+            if let Procedure::UseIdleMarker {
+                marker: Some(marker),
+            } = &ai.procedure
+            {
+                if let Some(animation) = idle_marker_animation(world, *marker) {
+                    world.request_animation(actor, &animation);
+                }
+            }
+        }
     }
     if ai.procedure == Procedure::Patrol {
         patrol::tick(world, actor, &mut ai, alloc);
@@ -2809,6 +3260,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
         tree::succeeded(world, &mut ai);
     }
     if let Some(a) = world.actor(actor) {
+        a.flying = ai.procedure == Procedure::Hover;
         a.ai = ai;
     }
 }
@@ -2966,10 +3418,15 @@ fn orbit(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f3
             center[2],
         ];
         ensure_nav_graph(world);
+        let route = plan_combat(world, actor, position, destination, ai.center_cell);
+        if world.ai.planner.waiting(actor) {
+            return;
+        }
         let Some(graph) = world.ai.nav.as_ref() else {
             return;
         };
-        if graph.find_path_between(position, destination).is_none()
+        if route.is_none()
+            || !orbit_segment_on_navmesh(graph, position, destination)
             || !orbit_arc_valid(graph, center, radius, angle, next_angle, inner, outer)
         {
             continue;
@@ -3000,8 +3457,10 @@ fn orbit_arc_valid(
     inner: f32,
     outer: f32,
 ) -> bool {
-    (0..=8).all(|step| {
-        let t = step as f32 / 8.0;
+    let arc_length = radius * (end_angle - start_angle).abs();
+    let steps = orbit_sample_count(arc_length);
+    (0..=steps).all(|step| {
+        let t = step as f32 / steps as f32;
         let angle = start_angle + (end_angle - start_angle) * t;
         let point = [
             center[0] + radius * angle.cos(),
@@ -3011,6 +3470,23 @@ fn orbit_arc_valid(
         let radius = (point[0] - center[0]).hypot(point[1] - center[1]);
         (inner - 0.01..=outer + 0.01).contains(&radius) && graph.locate(point).is_some()
     })
+}
+
+fn orbit_segment_on_navmesh(graph: &NavGraph, from: [f32; 3], to: [f32; 3]) -> bool {
+    let length = distance(from, to);
+    if !length.is_finite() {
+        return false;
+    }
+    let steps = orbit_sample_count(length);
+    (0..=steps).all(|step| {
+        let t = step as f32 / steps as f32;
+        let point = std::array::from_fn(|axis| from[axis] + (to[axis] - from[axis]) * t);
+        graph.locate(point).is_some()
+    })
+}
+
+fn orbit_sample_count(length: f32) -> usize {
+    (length / 0.05).ceil().max(1.0) as usize
 }
 
 // ----- save and load -----
@@ -3479,6 +3955,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ai_25_orbit_step_rejects_nav_gap_with_reachable_detour() {
+        let mut graph = NavGraph::new();
+        let mut vertices = Vec::new();
+        for y in 0..=3 {
+            for x in 0..=3 {
+                vertices.push([x as f32 * 100.0, y as f32 * 100.0, 0.0]);
+            }
+        }
+        let mut triangles = Vec::new();
+        for y in 0..3 {
+            for x in 0..3 {
+                if x == 1 && y == 1 {
+                    continue;
+                }
+                let bottom_left = y * 4 + x;
+                let bottom_right = bottom_left + 1;
+                let top_left = bottom_left + 4;
+                let top_right = top_left + 1;
+                triangles.push([bottom_left, bottom_right, top_right]);
+                triangles.push([bottom_left, top_right, top_left]);
+            }
+        }
+        graph.add_mesh_with_adjacency(vertices, &triangles);
+
+        let from = [50.0, 50.0, 0.0];
+        let to = [250.0, 250.0, 0.0];
+        assert!(graph.find_path_between(from, to).is_some());
+        assert!(!orbit_segment_on_navmesh(&graph, from, to));
+    }
+
+    #[test]
+    fn ai_25_orbit_segment_rejects_a_gap_narrower_than_old_sample_spacing() {
+        let mut graph = NavGraph::new();
+        let vertices = vec![
+            [0.0, 0.0, 0.0],
+            [0.45, 0.0, 0.0],
+            [0.45, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.55, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.55, 1.0, 0.0],
+        ];
+        let triangles = [[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]];
+        graph.add_mesh_with_adjacency(vertices, &triangles);
+
+        let from = [0.2, 0.5, 0.0];
+        let to = [0.8, 0.5, 0.0];
+        for point in [from, [0.4, 0.5, 0.0], [0.6, 0.5, 0.0], to] {
+            assert!(graph.locate(point).is_some());
+        }
+        assert!(!orbit_segment_on_navmesh(&graph, from, to));
+    }
+
+    #[test]
     fn planned_cells_follow_portal_ownership_including_gap_departures() {
         for gap in [false, true] {
             let mut graph = NavGraph::new();
@@ -3510,10 +4041,21 @@ mod tests {
                 })
                 .collect();
             let mut world = World::new(soe_esm::LoadOrder::new());
+            graph.prepare_queries();
             world.ai.nav = Some(graph);
             world.ai.nav_cells = cells.clone();
             let end = [if gap { 390.0 } else { 290.0 }, 25.0, 0.0];
-            let (points, owners) = plan(&mut world, [10.0, 25.0, 0.0], end, cells[2]);
+            let (points, owners) = plan(
+                &mut world,
+                GlobalFormId {
+                    file: 0,
+                    object: 14,
+                },
+                [10.0, 25.0, 0.0],
+                end,
+                cells[2],
+            )
+            .unwrap();
             assert_eq!(points.len(), owners.len());
             let first = points
                 .iter()

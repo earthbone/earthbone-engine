@@ -5,11 +5,15 @@
 //! manual. The Python runner owns process isolation, budgets and refinement.
 
 mod fixtures;
+mod frame_budget;
+
+pub(super) use frame_budget::run as run_frame_budget;
 
 use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
+use crate::allocations;
 use soe_esm::{GlobalFormId, LoadOrder};
 use soe_game::Game;
 use soe_godot_host::mesh::{build_surface, MeshData, MeshOptions, SurfaceArrays};
@@ -176,15 +180,41 @@ impl Workload {
             return Err("stress VM logged errors".into());
         }
         let world = self.game.world();
-        for &actor in &self.actors {
+        let mut selected_actors = 0;
+        for (index, &actor) in self.actors.iter().enumerate() {
             let reference = world
                 .reference_ref(actor)
                 .ok_or("stress actor disappeared")?;
-            if reference.position[0] <= 10.0 || !reference.position.iter().all(|x| x.is_finite()) {
+            if !reference.position.iter().all(|x| x.is_finite()) {
+                return Err(format!("actor {actor} has a non-finite position"));
+            }
+            let state = world
+                .actor_ref(actor)
+                .ok_or("stress actor state disappeared")?;
+            if state.ai.procedure == soe_game::ai::Procedure::None {
+                continue;
+            }
+            selected_actors += 1;
+            let expected_procedure = if index % 2 == 0 {
+                soe_game::ai::Procedure::Travel
+            } else {
+                soe_game::ai::Procedure::Sandbox
+            };
+            if state.ai.procedure != expected_procedure {
                 return Err(format!(
-                    "actor {actor} did not move along its travel package"
+                    "actor {actor} selected {:?}, expected {:?}",
+                    state.ai.procedure, expected_procedure
                 ));
             }
+            if index % 2 == 0 && reference.position[0] <= 10.0 {
+                return Err(format!("travel actor {actor} did not advance"));
+            }
+            if index % 2 == 1 && state.ai.destination.is_none() && !state.ai.arrived {
+                return Err(format!("sandbox actor {actor} has no active destination"));
+            }
+        }
+        if !self.actors.is_empty() && selected_actors == 0 {
+            return Err("stress actors did not select any packages".into());
         }
         if self.cells.len() != self.streamer.resident_count() || self.cells.len() > 49 {
             return Err("streaming residency escaped its bounded ring".into());
@@ -236,9 +266,24 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         let mut samples = Vec::with_capacity(config.samples);
         let mut backlog_peak = workload.game.vm.live_threads();
         let mut telemetry_ms = 0.0;
+        let mut peak_allocations = 0;
+        let mut peak_allocation_bytes = 0;
+        let mut peak_work = soe_trace::WorkCounts::default();
         for _ in 0..config.samples {
+            let work_frame = soe_trace::WorkFrame::begin();
+            let allocation_sample = allocations::begin_sample();
             let tick = Instant::now();
-            workload.step(&config)?;
+            let step_result = workload.step(&config);
+            let counts = work_frame.counts();
+            for operation in soe_trace::Operation::ALL {
+                let at = operation as usize;
+                peak_work.0[at] = peak_work.0[at].max(counts.0[at]);
+            }
+            drop(work_frame);
+            let allocation_peak = allocations::end_sample(&allocation_sample);
+            peak_allocations = peak_allocations.max(allocation_peak.calls);
+            peak_allocation_bytes = peak_allocation_bytes.max(allocation_peak.bytes);
+            step_result?;
             samples.push(tick.elapsed().as_secs_f64() * 1000.0);
             let probe = Instant::now();
             backlog_peak = backlog_peak.max(workload.game.vm.live_threads());
@@ -255,11 +300,18 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         let completed = workload.verify()?;
         samples.sort_by(f64::total_cmp);
         let rss = rss_mib().map_or_else(|| "null".into(), |v| format!("{v:.6}"));
-        println!("SOE_SAMPLE {{\"window\":{window},\"load\":{},\"samples\":{},\"ticks\":{},\"elapsed_s\":{:.6},\"setup_ms\":{setup_ms:.6},\"p50_ms\":{:.6},\"p99_ms\":{:.6},\"p999_ms\":{:.6},\"worst_ms\":{:.6},\"backlog\":{},\"backlog_peak\":{backlog_peak},\"completed\":{completed},\"actors\":{},\"resident_cells\":{},\"work_units\":{},\"rss_mib\":{rss},\"telemetry_ms\":{telemetry_ms:.6}}}",
+        println!("SOE_SAMPLE {{\"window\":{window},\"load\":{},\"samples\":{},\"ticks\":{},\"elapsed_s\":{:.6},\"setup_ms\":{setup_ms:.6},\"p50_ms\":{:.6},\"p99_ms\":{:.6},\"p999_ms\":{:.6},\"worst_ms\":{:.6},\"backlog\":{},\"backlog_peak\":{backlog_peak},\"completed\":{completed},\"actors\":{},\"resident_cells\":{},\"work_units\":{},\"peak_allocations\":{peak_allocations},\"peak_allocation_bytes\":{peak_allocation_bytes},\"rss_mib\":{rss},\"telemetry_ms\":{telemetry_ms:.6}}}",
             config.load, samples.len(), workload.tick, started.elapsed().as_secs_f64(),
             percentile(&samples, 50, 100), percentile(&samples, 99, 100), percentile(&samples, 999, 1000),
             samples[samples.len()-1], workload.game.vm.live_threads(), workload.actors.len(), workload.cells.len(), workload.work);
         window += 1;
+        for operation in soe_trace::Operation::ALL {
+            println!(
+                "work_peak_{} {} count",
+                operation.name(),
+                peak_work.get(operation)
+            );
+        }
         if config.seconds == 0 || started.elapsed().as_secs() >= config.seconds {
             break;
         }
@@ -286,6 +338,46 @@ mod tests {
         assert_eq!(workload.game.vm.live_threads(), 0);
         assert!(workload.work > 0);
         assert!(workload.cells.len() >= 25);
+    }
+
+    #[test]
+    fn prf_14_thousand_actor_stress_world_has_bounded_work_each_tick() {
+        let config = config("actors", 1_000);
+        let mut workload = Workload::new(&config).unwrap();
+        for _ in 0..config.warmup {
+            workload.step(&config).unwrap();
+        }
+        let limits = soe_trace::WorkCounts([8_000, 16_000, 4_000, 0, 0, 0, 0, 0, 200_000, 0]);
+        for _ in 0..120 {
+            let frame = soe_trace::WorkFrame::begin();
+            workload.step(&config).unwrap();
+            let counts = frame.counts();
+            assert_eq!(counts, workload.game.last_work_counts());
+            assert_eq!(counts.check(&limits), Ok(()), "{counts:?}");
+        }
+        workload.verify().unwrap();
+        assert_eq!(workload.actors.len(), 1_000);
+        assert!(workload.actors.iter().all(|actor| workload
+            .game
+            .world()
+            .actor_ref(*actor)
+            .is_some()));
+    }
+
+    #[test]
+    fn prf_14_mixed_stress_counts_scripts_and_navigation_without_timing() {
+        let config = config("mixed", 16);
+        let mut workload = Workload::new(&config).unwrap();
+        let limits = soe_trace::WorkCounts([128, 256, 8_192, 544, 0, 0, 0, 0, 10_000, 0]);
+        for _ in 0..5 {
+            let frame = soe_trace::WorkFrame::begin();
+            workload.step(&config).unwrap();
+            let counts = frame.counts();
+            assert_eq!(counts.check(&limits), Ok(()), "{counts:?}");
+            assert_eq!(counts.get(soe_trace::Operation::PapyrusInstructions), 544);
+            assert!(counts.get(soe_trace::Operation::PathNodes) >= 2_048);
+        }
+        assert_eq!(workload.verify().unwrap(), 80);
     }
 
     #[test]
@@ -324,5 +416,32 @@ mod tests {
                 Config::parse(&args.into_iter().map(str::to_string).collect::<Vec<_>>()).is_err()
             );
         }
+    }
+
+    #[test]
+    #[ignore = "requires an optimized build and an idle machine, see docs/performance-limits.md"]
+    fn prf_07_thousand_travel_and_sandbox_actors_meet_frame_and_memory_budgets() {
+        let config = config("actors", 1_000);
+        let mut workload = Workload::new(&config).unwrap();
+        for _ in 0..config.warmup {
+            workload.step(&config).unwrap();
+        }
+
+        let mut samples = Vec::with_capacity(config.samples);
+        for _ in 0..config.samples {
+            let started = Instant::now();
+            workload.step(&config).unwrap();
+            samples.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        workload.verify().unwrap();
+
+        samples.sort_by(f64::total_cmp);
+        let p99 = percentile(&samples, 99, 100);
+        let worst = samples[samples.len() - 1];
+        let rss = rss_mib().expect("Linux process RSS is available for this check");
+        assert!(p99 <= 16.7, "p99 {p99:.3} ms exceeds 16.7 ms");
+        assert!(worst <= 33.0, "worst {worst:.3} ms exceeds 33 ms");
+        assert!(rss < 2_048.0, "RSS {rss:.1} MiB exceeds 2,048 MiB");
+        assert_eq!(workload.actors.len(), 1_000);
     }
 }

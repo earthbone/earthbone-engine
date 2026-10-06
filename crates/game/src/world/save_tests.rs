@@ -424,10 +424,10 @@ fn remove_actor_sections(bytes: &mut Vec<u8>, actor: &ActorState) {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, plus the record metadata byte from version 35.
+/// that version 33 added, plus version 35 list metadata.
+/// Each is set to a unique sentinel so its serialized
+/// bytes can be located exactly, then cut back out.
 /// The AI state added after version 33 is stored in a named actor section.
-/// Each removed field is set to a unique sentinel so its serialized bytes
-/// can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
@@ -590,7 +590,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .windows(records.out.len())
         .position(|window| window == records.out)
         .expect("record override is serialized");
-    // CONTEXT: Version 23 predates list metadata. Remove its list marker.
+    // CONTEXT: Version 23 predates list and projectile fields. Remove its list marker.
     bytes.remove(at + 39);
     // Drop the world section table for the legacy fixture.
     bytes.truncate(bytes.len() - world_sections.out.len());

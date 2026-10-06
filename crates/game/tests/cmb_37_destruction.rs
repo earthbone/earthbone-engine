@@ -66,7 +66,8 @@ fn cmb_37_damage_crosses_thresholds_emits_events_and_selects_stage_models() {
     assert!(matches!(
         game.world().pending.last(),
         Some(Pending::Event { name, args, .. })
-            if name == "OnDestructionStageChanged" && args == &[soe_papyrus::Value::Int(0)]
+            if name == "OnDestructionStageChanged"
+                && args == &[soe_papyrus::Value::Int(-1), soe_papyrus::Value::Int(0)]
     ));
 
     deal(&mut game, reference, 50.0);
@@ -99,7 +100,8 @@ fn cmb_37_clear_destruction_restores_health_stage_model_and_enable_state() {
     assert!(!game.world().pending.iter().any(|pending| matches!(
         pending,
         Pending::Event { name, args, .. }
-            if name == "OnDestructionStageChanged" && args == &[soe_papyrus::Value::Int(-1)]
+            if name == "OnDestructionStageChanged"
+                && args == &[soe_papyrus::Value::Int(1), soe_papyrus::Value::Int(-1)]
     )));
 }
 
@@ -170,7 +172,12 @@ fn cmb_37_vanilla_destructible_accepts_damage_and_saves_its_stage() {
     assert!(
         model.is_some(),
         "vanilla base {base} selected no stage model, indices={model_indices:?}, model_count={model_count}, layout={:?}",
-        record.subrecords.iter().filter(|sub| sub.tag == T(b"DSTD") || sub.tag == T(b"DMDL") || sub.tag == T(b"DSTF")).map(|sub| (sub.tag, sub.data.clone())).collect::<Vec<_>>()
+        record
+            .subrecords
+            .iter()
+            .filter(|sub| sub.tag == T(b"DSTD") || sub.tag == T(b"DMDL") || sub.tag == T(b"DSTF"))
+            .map(|sub| (sub.tag, sub.data.clone()))
+            .collect::<Vec<_>>()
     );
     drop(world);
     let save = game.world().save_state();

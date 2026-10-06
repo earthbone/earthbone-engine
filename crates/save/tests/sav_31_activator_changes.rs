@@ -110,6 +110,13 @@ fn sav_31_preserves_unnamed_flags_and_rejects_truncated_or_trailing_payloads() {
     }
     let door = change(15, 0, vec![]).activator_change().unwrap().unwrap();
     assert!(door.change_flags("ACTI").is_ok());
+    for kind in [10, 15] {
+        let form = change(kind, 1 << 23, vec![]);
+        let typed = form.activator_change().unwrap().unwrap();
+        assert!(!typed.speaker_changed);
+        assert_eq!(typed.other_flags, 1 << 23);
+        assert_eq!(typed.change_flags(form.record_type()).unwrap(), 1 << 23);
+    }
     assert!(ActivatorChange {
         speaker_changed: true,
         ..door

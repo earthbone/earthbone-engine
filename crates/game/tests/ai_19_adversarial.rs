@@ -48,6 +48,8 @@ fn ai_19_external_dependency_cycle_reports_cycle_without_partial_alias_writes() 
     let first = alias_record(0x800, 0, &[(b"ALEQ", 0x801), (b"ALEA", 1)]);
     let second = alias_record(0x801, 1, &[(b"ALEQ", 0x800), (b"ALEA", 0)]);
     let game = game(vec![first, second]);
+    let originals = [id(0x800), id(0x801)]
+        .map(|quest| game.world_mut().quest_state(quest).unwrap().aliases.clone());
     assert_eq!(
         game.world_mut().resolve_alias_ref(id(0x800), 0),
         Err(AliasResolutionError::Cycle(vec![
@@ -57,14 +59,8 @@ fn ai_19_external_dependency_cycle_reports_cycle_without_partial_alias_writes() 
         ]))
     );
     let mut world = game.world_mut();
-    assert_eq!(
-        world.quest_state(id(0x800)).unwrap().aliases.get(&0),
-        Some(&None)
-    );
-    assert_eq!(
-        world.quest_state(id(0x801)).unwrap().aliases.get(&1),
-        Some(&None)
-    );
+    assert_eq!(world.quest_state(id(0x800)).unwrap().aliases, originals[0]);
+    assert_eq!(world.quest_state(id(0x801)).unwrap().aliases, originals[1]);
 }
 
 #[test]

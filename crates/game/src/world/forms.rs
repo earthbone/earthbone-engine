@@ -42,6 +42,34 @@ pub(super) fn add_saved_form_list_entries(
 }
 
 impl World {
+    /// Add `amount` to this faction's reaction toward `other`.
+    ///
+    /// An absent relation starts at neutral. The reverse direction is not
+    /// changed.
+    ///
+    /// # Errors
+    /// This operation has no error cases.
+    ///
+    /// # Panics
+    /// This operation does not panic.
+    pub fn mod_faction_reaction(
+        &mut self,
+        faction: GlobalFormId,
+        other: GlobalFormId,
+        amount: i32,
+    ) {
+        if let Some(state) = self.faction(faction) {
+            let reaction = state
+                .reactions
+                .get(&other)
+                .copied()
+                .unwrap_or(super::reaction::NEUTRAL);
+            state
+                .reactions
+                .insert(other, reaction.saturating_add(amount));
+        }
+    }
+
     /// Authored relationship ranks attached to one actor base.
     pub fn authored_relationship_ranks(&self, actor: GlobalFormId) -> Vec<i32> {
         self.order
@@ -631,8 +659,7 @@ impl World {
 
     pub fn cell_state(&mut self, id: GlobalFormId) -> Option<&mut CellState> {
         if !self.cells.contains_key(&id) {
-            let rref = self.order.winner_ref(id)?;
-            let rec = self.order.record(rref);
+            let rec = self.record(id)?;
             if rec.tag != T(b"CELL") {
                 return None;
             }
@@ -640,7 +667,7 @@ impl World {
                 .find(T(b"XOWN"))
                 .and_then(le_u32)
                 .filter(|o| *o != 0)
-                .map(|o| self.order.resolve(rref.file, o));
+                .and_then(|raw| self.resolve_from(id, raw));
             self.cells.insert(
                 id,
                 CellState {

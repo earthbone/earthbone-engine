@@ -27,6 +27,38 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved ACTI, TACT and DOOR fields without serialized subrecord values.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActivatorRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub speaker_changed: bool,
+}
+
+/// Saved item fields retained for ARMO, WEAP, AMMO, INGR, ALCH and ENCH.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ItemRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub ingredient_use_changed: bool,
+    pub fullname_changed: bool,
+    pub unnamed_flags: u32,
+    pub other_flags: u32,
+    pub trailing_data: Vec<u8>,
+}
+
+/// Saved BOOK, NOTE or KEYM fields without plugin-subrecord equivalents.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BookNoteKeyRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub teaches_skill: bool,
+    pub read: bool,
+    pub opaque_suffix: Vec<u8>,
+}
 /// Saved fields decoded from base-object, WOOP and MGEF change forms.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BaseObjectRecordExtra {
@@ -47,6 +79,13 @@ pub struct StaticObjectRecordExtra {
     pub opaque_suffix: Vec<u8>,
 }
 
+/// Shared change flags and the source-opaque saved payload for a projectile.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProjectileRecordExtra {
+    pub flags: u32,
+    pub payload: Vec<u8>,
+}
+
 /// Saved runtime fields whose owning record has no plugin-subrecord equivalent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DialogueRecordExtra {
@@ -56,7 +95,6 @@ pub struct DialogueRecordExtra {
     pub scene_active: Option<bool>,
     pub scene_active_data: Option<Vec<u8>>,
 }
-
 /// Saved change markers that have no plugin-subrecord representation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PackRecordExtra {
@@ -105,6 +143,10 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub activator: Option<ActivatorRecordExtra>,
+    pub item: Option<ItemRecordExtra>,
+    pub book_note_key: Option<BookNoteKeyRecordExtra>,
+    pub projectile: Option<ProjectileRecordExtra>,
     pub base_object: Option<BaseObjectRecordExtra>,
     pub static_object: Option<StaticObjectRecordExtra>,
     pub saved_form_flags: Option<(u32, u16)>,
@@ -135,6 +177,10 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            activator: None,
+            item: None,
+            book_note_key: None,
+            projectile: None,
             base_object: None,
             static_object: None,
             saved_form_flags: None,
@@ -224,6 +270,23 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    pub fn restored_item_extra(&self, id: GlobalFormId) -> Option<&ItemRecordExtra> {
+        self.record_overrides.get(&id)?.item.as_ref()
+    }
+
+    pub fn restored_book_note_key_extra(
+        &self,
+        id: GlobalFormId,
+    ) -> Option<&BookNoteKeyRecordExtra> {
+        self.record_overrides.get(&id)?.book_note_key.as_ref()
+    }
+
+    /// Return saved projectile change data attached to the live record.
+    #[must_use]
+    pub fn restored_projectile_extra(&self, id: GlobalFormId) -> Option<&ProjectileRecordExtra> {
+        self.record_overrides.get(&id)?.projectile.as_ref()
     }
 
     /// Saved change fields for a restored CONT, MISC or FURN record.

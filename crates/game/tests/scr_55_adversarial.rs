@@ -83,7 +83,10 @@ fn actorbase_alias_audit_covers_registered_bindings_and_assigns_gaps() {
     assert!(audit.contains("ReferenceAlias_Script.wikitext"));
     assert!(audit.contains("SCR-18"));
     assert!(audit.contains("SCR-59"));
-    assert!(audit.contains("SCR-68 owns both gaps"));
+    assert!(audit.contains("Required aliases retain their target and emit a trace diagnostic"));
+    assert!(audit.contains(
+        "Optional aliases are cleared, then the held actor's package stack is reevaluated"
+    ));
     let backlog = include_str!("../../../BACKLOG.csv");
     for row in ["SCR-18", "SCR-59", "SCR-68"] {
         assert!(

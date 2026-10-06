@@ -11,7 +11,7 @@ const fn id(object: u32) -> GlobalFormId {
 #[test]
 fn visual_effect_nonfinite_facing_and_duration_are_rejected_without_partial_instances() {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag::new(b"RFCT"), 1));
+    plugin.push_top(Record::new(Tag::new(b"RFCT"), 1).sub(Tag::new(b"DATA"), [0; 12]));
     plugin.push_top(Record::new(Tag::new(b"STAT"), 2));
     plugin.push_top(Record::new(Tag::new(b"REFR"), 3).sub(Tag::new(b"NAME"), 2_u32.to_le_bytes()));
     let mut order = LoadOrder::new();

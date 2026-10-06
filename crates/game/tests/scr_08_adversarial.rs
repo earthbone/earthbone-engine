@@ -30,6 +30,7 @@ fn game() -> Game {
         Stats::default(),
     ));
     plugin.push_top(Record::new(Tag(*b"ACHR"), ACTOR).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x802).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Scr08Breaker.esm", plugin).unwrap();
     Game::new(order)
@@ -108,5 +109,74 @@ fn scr_08_bleeding_out_is_distinct_from_dead_or_ordinary_unconscious_state() {
     assert_eq!(
         actor_bool(&mut game, "IsBleedingOut", &[]),
         Value::Bool(true)
+    );
+}
+
+#[test]
+fn scr_08_running_query_reads_movement_state() {
+    let mut game = game();
+    let actor = id(ACTOR);
+    assert_eq!(actor_bool(&mut game, "IsRunning", &[]), Value::Bool(false));
+    game.world_mut().actor(actor).unwrap().running = true;
+    assert_eq!(actor_bool(&mut game, "IsRunning", &[]), Value::Bool(true));
+    game.world_mut().actor(actor).unwrap().running = false;
+    assert_eq!(actor_bool(&mut game, "IsRunning", &[]), Value::Bool(false));
+}
+
+#[test]
+fn scr_08_sprinting_query_reads_movement_state() {
+    let mut game = game();
+    let actor = id(ACTOR);
+    assert_eq!(
+        actor_bool(&mut game, "IsSprinting", &[]),
+        Value::Bool(false)
+    );
+    game.world_mut().actor(actor).unwrap().sprinting = true;
+    assert_eq!(actor_bool(&mut game, "IsSprinting", &[]), Value::Bool(true));
+    game.world_mut().actor(actor).unwrap().sprinting = false;
+    assert_eq!(
+        actor_bool(&mut game, "IsSprinting", &[]),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn scr_08_hostility_query_uses_actor_argument_and_active_combat_target() {
+    let mut game = game();
+    let actor = id(ACTOR);
+    let target = id(0x802);
+    game.world_mut().actor(target);
+    let target_object = Value::Object(game.object_of_form(target));
+
+    assert_eq!(
+        actor_bool(
+            &mut game,
+            "IsHostileToActor",
+            std::slice::from_ref(&target_object)
+        ),
+        Value::Bool(false)
+    );
+    {
+        let mut world = game.world_mut();
+        let state = world.actor(actor).unwrap();
+        state.in_combat = true;
+        state.combat_target = Some(target);
+    }
+    assert_eq!(
+        actor_bool(
+            &mut game,
+            "IsHostileToActor",
+            std::slice::from_ref(&target_object)
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        actor_bool(&mut game, "IsHostileToActor", &[Value::Int(0)]),
+        Value::Bool(false)
+    );
+    game.world_mut().actor(actor).unwrap().in_combat = false;
+    assert_eq!(
+        actor_bool(&mut game, "IsHostileToActor", &[target_object]),
+        Value::Bool(false)
     );
 }

@@ -37,7 +37,7 @@
 //! and the tests pin the choice rather than claim it is vanilla.
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Reader, Writer};
 use soe_papyrus::{ObjectId, VmError};
 
 use super::save::{read_form_id, write_form_id, FormReader};
@@ -58,6 +58,62 @@ pub struct CellTransition {
 }
 
 impl World {
+    pub(crate) fn record_session_residency(&self) -> Vec<u8> {
+        let mut writer = Writer::new();
+        for set in [
+            &self.streamed_cells,
+            &self.loaded_3d_references,
+            &self.attached_cells,
+        ] {
+            let mut ids: Vec<_> = set.iter().copied().collect();
+            ids.sort_unstable();
+            writer.len(ids.len());
+            for id in ids {
+                writer.u16(id.file);
+                writer.u32(id.object);
+            }
+        }
+        writer.bool(self.pending_unload.is_some());
+        if let Some(id) = self.pending_unload {
+            writer.u16(id.file);
+            writer.u32(id.object);
+        }
+        writer.out
+    }
+
+    pub(crate) fn restore_session_residency(&mut self, bytes: &[u8]) -> Result<(), VmError> {
+        let mut reader = Reader::new(bytes);
+        let mut sets = Vec::new();
+        for _ in 0..3 {
+            let mut ids = std::collections::HashSet::new();
+            for _ in 0..reader.len()? {
+                let id = GlobalFormId {
+                    file: reader.u16()?,
+                    object: reader.u32()?,
+                };
+                if !ids.insert(id) {
+                    return Err(VmError::State("duplicate session residency id".into()));
+                }
+            }
+            sets.push(ids);
+        }
+        let pending_unload = if reader.bool()? {
+            Some(GlobalFormId {
+                file: reader.u16()?,
+                object: reader.u32()?,
+            })
+        } else {
+            None
+        };
+        reader.expect_end()?;
+        let mut sets = sets.into_iter();
+        self.streamed_cells = sets.next().unwrap_or_default();
+        self.loaded_3d_references = sets.next().unwrap_or_default();
+        self.attached_cells = sets.next().unwrap_or_default();
+        self.pending_unload = pending_unload;
+        Ok(())
+    }
+
     /// Whether the cell currently has streamed host resources.
     #[must_use]
     pub fn cell_is_attached(&self, cell: GlobalFormId) -> bool {
@@ -287,6 +343,9 @@ impl World {
         }
         let mut loaded = 0;
         for cell in unique {
+            if self.attached_cells.contains(&cell) {
+                continue;
+            }
             let cold = !self.cell_is_resident(cell);
             loaded += self.prefetch_cell(cell);
             self.mark_cell_3d_loaded(cell);
@@ -357,6 +416,8 @@ impl World {
             return 0;
         }
         let built = self.prefetch_cell(cell);
+        crate::ai::nav_graph(self);
+        self.mark_cell_3d_loaded(cell);
         self.reset_cell_on_load(cell);
         self.attached_cells.insert(cell);
         self.loaded_cell = Some(cell);
@@ -383,15 +444,22 @@ impl World {
             }
         }
         self.streamed_cells.insert(cell);
+        let _ = self.light_references_in_cell(cell);
         built
     }
 
     fn mark_cell_3d_loaded(&mut self, cell: GlobalFormId) {
         for id in self.cell_reference_ids(cell) {
-            if self.refs.contains_key(&id) {
-                self.loaded_3d_references.insert(id);
+            if self
+                .refs
+                .get(&id)
+                .is_some_and(|reference| reference.enabled)
+                && self.loaded_3d_references.insert(id)
+            {
+                self.commonlib_object_loaded(id, true);
             }
         }
+        self.commonlib_cell_fully_loaded(cell);
     }
 
     /// Whether the cell's 3D is in memory, which is what decides
@@ -421,9 +489,7 @@ impl World {
     /// resident. Disabled references have no loaded 3D.
     #[must_use]
     pub fn is_reference_3d_loaded(&self, id: GlobalFormId) -> bool {
-        self.refs
-            .get(&id)
-            .is_some_and(|reference| reference.enabled && self.loaded_3d_references.contains(&id))
+        self.reference_enabled(id) && self.loaded_3d_references.contains(&id)
     }
 
     /// Drop what `cell` owns and nothing else. Returns the count dropped and
@@ -434,7 +500,9 @@ impl World {
         // The 3D goes here, so the next entry owes `OnCellLoad` again.
         self.streamed_cells.remove(&cell);
         for id in self.cell_reference_ids(cell) {
-            self.loaded_3d_references.remove(&id);
+            if self.loaded_3d_references.remove(&id) {
+                self.commonlib_object_loaded(id, false);
+            }
         }
         let ids = self.cell_temporary_ids(cell);
         let (mut dropped, mut kept) = (0, 0);
@@ -545,6 +613,7 @@ impl World {
         }
         if let Some(new) = to {
             out.loaded = self.load_cell(new);
+            self.mark_cell_3d_loaded(new);
             self.attached_cells.insert(new);
             let arriving = self.scripted_in_cell(new);
             // `OnCellAttach` before `OnCellLoad` is the one ordering the wiki

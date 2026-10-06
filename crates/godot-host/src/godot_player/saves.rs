@@ -2,10 +2,24 @@
 
 //! Native generation entry points on the host's shared Game.
 
-use super::{godot_error, PlayerNode};
+use super::PlayerNode;
 use godot::classes::ProjectSettings;
 use godot::prelude::*;
-use soe_game::save_generations::{Error, GenerationStore, RejectedGeneration, RejectionReason};
+use soe_game::save_generations::{
+    Error, GenerationStore, GenerationWrite, RejectedGeneration, RejectionReason,
+};
+
+fn requested_save_uri(automatic: bool) -> String {
+    let kind = if automatic { "automatic" } else { "manual" };
+    format!("user://saves/{kind}")
+}
+
+fn write_generation(
+    game: &mut soe_game::Game,
+    store: &GenerationStore,
+) -> Result<GenerationWrite, Error> {
+    game.write_generation(store)
+}
 
 fn store(directory: &GString, retained: i64) -> Result<GenerationStore, String> {
     let retained =
@@ -57,13 +71,13 @@ fn failed_save(error: &Error) -> VarDictionary {
 impl PlayerNode {
     pub(super) fn write_requested_save(&mut self, automatic: bool) {
         let kind = if automatic { "automatic" } else { "manual" };
-        let directory_path = format!("user://saves/{kind}");
+        let directory_path = requested_save_uri(automatic);
         let directory = GString::from(directory_path.as_str());
         let path = ProjectSettings::singleton()
             .globalize_path(&directory)
             .to_string();
         if let Err(error) = std::fs::create_dir_all(&path) {
-            godot_error!("PlayerNode: could not create {kind} save directory: {error}");
+            soe_trace::error!(target: "host::saves", system = "host::saves", "PlayerNode: could not create {kind} save directory: {error}");
             return;
         }
         let result = self.save_game_generation(directory, 3);
@@ -76,7 +90,7 @@ impl PlayerNode {
                 .get("error")
                 .and_then(|value| value.try_to::<GString>().ok())
                 .unwrap_or_else(|| "unknown save error".into());
-            godot_error!("PlayerNode: {kind} save request failed: {error}");
+            soe_trace::error!(target: "host::saves", system = "host::saves", "PlayerNode: {kind} save request failed: {error}");
         }
     }
 
@@ -99,7 +113,7 @@ impl PlayerNode {
             player.position = [feet.x, feet.y, feet.z];
             player.rotation = rotation;
         }
-        match game.write_generation(&store) {
+        match write_generation(game, &store) {
             Ok(report) => {
                 let mut result = VarDictionary::new();
                 result.set("ok", true);
@@ -150,5 +164,86 @@ impl PlayerNode {
             );
         }
         result
+    }
+
+    /// Atomically load a verified native generation into a fresh Game, then
+    /// install its player cell and camera before replacing the active Game.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn attach_restored_generation(
+        &mut self,
+        directory: GString,
+        retained: i64,
+    ) -> VarDictionary {
+        let store = match store(&directory, retained) {
+            Ok(store) => store,
+            Err(error) => return failed(&error),
+        };
+        let Some(source) = &self.data_source else {
+            return failed("game data has not been loaded");
+        };
+        if self.game_streamer.is_none() {
+            return failed("cell streamer data has not been shared");
+        }
+
+        let mut game = match source.localized_game() {
+            Ok(game) => game,
+            Err(error) => return failed(&error.to_string()),
+        };
+        let scripts = game.load_scripts_from_vfs(source.vfs());
+        if !scripts.scripts_failed.is_empty() {
+            return failed(&format!(
+                "could not load {} saved Papyrus definitions",
+                scripts.scripts_failed.len()
+            ));
+        }
+        let selected = match game.recover_generation(&store) {
+            Ok(selected) => selected,
+            Err(error) => return failed_save(&error),
+        };
+        if !self.attach_restored_game(game) {
+            return failed("restored game host resources could not be installed");
+        }
+
+        let mut result = VarDictionary::new();
+        result.set("ok", true);
+        result.set("state_loaded", true);
+        result.set("generation", selected.generation.to_string().as_str());
+        result.set("path", selected.path.to_string_lossy().as_ref());
+        result.set("rejected", &rejected(&selected.rejected));
+        result
+    }
+}
+
+#[cfg(test)]
+mod scr_28_tests {
+    use super::*;
+    use soe_esm::LoadOrder;
+
+    #[test]
+    fn scr_28_save_requests_write_generations_to_distinct_manual_and_auto_stores() {
+        let directory = tempfile::tempdir().unwrap();
+        let manual_path = directory.path().join("manual");
+        let automatic_path = directory.path().join("automatic");
+        let manual_uri = requested_save_uri(false);
+        let automatic_uri = requested_save_uri(true);
+        assert_eq!(manual_uri, "user://saves/manual");
+        assert_eq!(automatic_uri, "user://saves/automatic");
+        std::fs::create_dir_all(&manual_path).unwrap();
+        std::fs::create_dir_all(&automatic_path).unwrap();
+
+        let mut game = soe_game::Game::new(LoadOrder::new());
+        let manual =
+            write_generation(&mut game, &GenerationStore::new(&manual_path, 3).unwrap()).unwrap();
+        let automatic = write_generation(
+            &mut game,
+            &GenerationStore::new(&automatic_path, 3).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manual.generation, 1);
+        assert_eq!(automatic.generation, 1);
+        assert!(manual.path.is_file());
+        assert!(automatic.path.is_file());
+        assert_ne!(manual.path.parent(), automatic.path.parent());
     }
 }

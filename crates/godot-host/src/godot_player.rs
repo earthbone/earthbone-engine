@@ -22,11 +22,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use godot::builtin::Rid;
 use godot::classes::control::{LayoutPreset, MouseFilter};
 use godot::classes::{
     Camera3D, CanvasLayer, ColorRect, Engine, INode3D, Input, InputEventJoypadButton,
     InputEventJoypadMotion, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap,
-    Node3D,
+    Node3D, RenderingServer, SphereMesh, StandardMaterial3D,
 };
 use godot::global::{JoyAxis, JoyButton, Key, MouseButton};
 use godot::prelude::*;
@@ -45,12 +46,18 @@ mod exterior;
 mod footsteps;
 mod gameplay;
 mod hud;
+mod item_card;
+mod items;
 mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
+mod profiling;
 mod race;
+mod reference_collision;
 mod saves;
+mod scripted;
+mod sky;
 mod training;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
@@ -98,20 +105,42 @@ pub struct PlayerNode {
     /// Maximum exterior vertex and index bytes uploaded by one walking tick.
     #[export]
     exterior_byte_budget: i64,
+    host_frame: soe_trace::FrameSnapshot,
+    profile_inputs: Vec<soe_trace::InputLatency>,
+    profile_applied_inputs: Vec<soe_trace::InputLatency>,
+    host_history: soe_trace::FrameHistory,
+    budget_frame: Option<soe_trace::FrameSnapshot>,
+    monitor_names: Vec<StringName>,
+    /// Cell radius beyond which distant LOD replaces full resolution geometry.
+    #[export]
+    exterior_lod_full_res_radius: i32,
+    /// Cell radius out to which terrain and object LOD are streamed.
+    #[export]
+    exterior_lod_radius: i32,
+    /// Approximate resident mesh byte budget for each LOD stream. Zero is unlimited.
+    #[export]
+    exterior_lod_byte_budget: i64,
     rig: CameraRig,
     motion: CameraMotion,
+    detection_time_usec: i64,
+    detection_stage_usec: [i64; 4],
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
     query_collision: crate::godot_physics::CellBodies,
     collision_references: HashMap<BodyId, GlobalFormId>,
+    collision_visibility: std::collections::BTreeMap<GlobalFormId, bool>,
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    player_input: soe_game::player_input::Driver,
     animation_source: Option<GlobalFormId>,
     /// The existing skinned node bound to the player's own appearance.
     player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
+    debug_ref_markers: BTreeMap<GlobalFormId, Rid>,
+    debug_ref_marker_mesh: Option<Gd<SphereMesh>>,
+    debug_ref_marker_material: Option<Gd<StandardMaterial3D>>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
     aimed_projectile_contacts: crate::combat::AimedProjectileContacts,
@@ -123,22 +152,25 @@ pub struct PlayerNode {
     last_melee_obstruction: Option<Rid>,
     image_space: crate::image_space::ImageSpaceStack,
     image_space_renderer: crate::image_space::renderer::BaseRenderer,
+    image_space_modifier_renderer: crate::image_space::renderer::ModifierRenderer,
     image_space_tint: Option<ImageSpaceTintView>,
     presented_hud_cart_mode: bool,
     effect_shaders: crate::effect_shader::EffectShaderStack,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     dialogue_voice_slot: Option<i32>,
+    ambient_response: Option<soe_game::dialogue::Line>,
     footstep_cadence: crate::audio::FootstepCadence,
-    ambience_owner: crate::audio::AmbienceOwner,
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
     swing_doors: HashMap<GlobalFormId, Gd<crate::godot_animated_static::AnimatedStaticNode>>,
     loaded_cell: Option<GlobalFormId>,
+    last_work_counts: soe_trace::WorkCounts,
     door_fade: DoorFade,
     game_fade: GameFade,
     door_fade_view: Option<DoorFadeView>,
     hud_view: Option<hud::HudView>,
+    item_card_view: Option<item_card::ItemCardView>,
     exterior: Option<exterior::ExteriorRuntime>,
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
@@ -157,6 +189,8 @@ pub struct PlayerNode {
     /// Distance from the eye to the host body held by Telekinesis.
     telekinesis_distance: Option<f32>,
     host_telekinesis_target: Option<GlobalFormId>,
+    /// The live Grab Actor effect and actor currently driven by the host.
+    host_grab_actor: Option<(soe_game::world::magic::EffectId, GlobalFormId)>,
     pending_lockpick: Option<GlobalFormId>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
@@ -170,10 +204,12 @@ pub struct PlayerNode {
     race_choice: Option<(GlobalFormId, bool)>,
     appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
+    interface_cache: Option<String>,
     quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
     objective_map_snapshot: Option<Vec<crate::objective_map::Marker>>,
     mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
+    barter_menu: Option<(GlobalFormId, GlobalFormId)>,
     crafting_bench: Option<GlobalFormId>,
     lockpick_target: Option<GlobalFormId>,
     lockpick_angle: f32,
@@ -191,19 +227,35 @@ impl INode3D for PlayerNode {
             gamepad_look_speed: 800.0,
             exterior_triangle_budget: 0,
             exterior_byte_budget: 0,
+            host_frame: soe_trace::FrameSnapshot::now(),
+            profile_inputs: Vec::new(),
+            profile_applied_inputs: Vec::new(),
+            host_history: soe_trace::FrameHistory::default(),
+            budget_frame: None,
+            monitor_names: Vec::new(),
+            exterior_lod_full_res_radius: 1,
+            exterior_lod_radius: 16,
+            exterior_lod_byte_budget: 0,
             rig: CameraRig::default(),
+            detection_time_usec: 0,
+            detection_stage_usec: [0; 4],
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
             driver: Driver::new(),
             world: None,
             query_collision: crate::godot_physics::CellBodies::default(),
             collision_references: HashMap::new(),
+            collision_visibility: std::collections::BTreeMap::new(),
             character: None,
             data_source: None,
             game: None,
+            player_input: soe_game::player_input::Driver::default(),
             animation_source: None,
             player_appearance: None,
             pending_debug_latents: Vec::new(),
+            debug_ref_markers: BTreeMap::new(),
+            debug_ref_marker_mesh: None,
+            debug_ref_marker_material: None,
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
             aimed_projectile_contacts: crate::combat::AimedProjectileContacts::default(),
@@ -212,18 +264,21 @@ impl INode3D for PlayerNode {
             last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
             image_space_renderer: crate::image_space::renderer::BaseRenderer::default(),
+            image_space_modifier_renderer: crate::image_space::renderer::ModifierRenderer::default(
+            ),
             image_space_tint: None,
             presented_hud_cart_mode: false,
             effect_shaders: crate::effect_shader::EffectShaderStack::default(),
             sound_bank: None,
             dialogue_voice_slot: None,
+            ambient_response: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
-            ambience_owner: crate::audio::AmbienceOwner::default(),
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
             swing_doors: HashMap::new(),
             loaded_cell: None,
+            last_work_counts: soe_trace::WorkCounts::default(),
             door_fade: DoorFade::default(),
             game_fade: GameFade::default(),
             door_fade_view: None,
@@ -240,6 +295,7 @@ impl INode3D for PlayerNode {
             grabbed_host: None,
             telekinesis_distance: None,
             host_telekinesis_target: None,
+            host_grab_actor: None,
             pending_lockpick: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
@@ -253,20 +309,29 @@ impl INode3D for PlayerNode {
             race_choice: None,
             appearance_choice: None,
             menu_view: None,
+            interface_cache: None,
             quest_journal_snapshot: None,
             objective_map_snapshot: None,
             mcm_config: None,
             container_menu: None,
+            barter_menu: None,
             crafting_bench: None,
             lockpick_target: None,
             lockpick_angle: 0.0,
             lockpick_status: None,
             restore_mouse_on_focus: None,
             hud_view: None,
+            item_card_view: None,
         }
     }
 
     fn ready(&mut self) {
+        soe_trace::Profile::from_environment();
+        self.register_system_monitors();
+        RenderingServer::singleton().connect(
+            "frame_post_draw",
+            &self.base().callable("profile_frame_presented"),
+        );
         if let Some(mut window) = self.base().get_window() {
             window.connect("focus_exited", &self.base().callable("input_focus_lost"));
             window.connect("focus_entered", &self.base().callable("input_focus_gained"));
@@ -288,6 +353,7 @@ impl INode3D for PlayerNode {
     }
 
     fn unhandled_input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         if !self.input_focused || self.menu.is_open() {
             return;
         }
@@ -299,6 +365,24 @@ impl INode3D for PlayerNode {
     }
 
     fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        let latency = event
+            .clone()
+            .try_cast::<InputEventKey>()
+            .ok()
+            .and_then(|key| {
+                soe_trace::Profile::input(|| {
+                    format!(
+                        "key_{}_{}",
+                        key.get_keycode().ord(),
+                        if key.is_pressed() {
+                            "pressed"
+                        } else {
+                            "released"
+                        }
+                    )
+                })
+            });
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         if !self.input_focused {
             return;
         }
@@ -312,6 +396,9 @@ impl INode3D for PlayerNode {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
                 }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
+                }
                 return;
             }
             if key.get_keycode() == Key::M
@@ -322,6 +409,9 @@ impl INode3D for PlayerNode {
             {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
+                }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
                 }
                 return;
             }
@@ -334,6 +424,9 @@ impl INode3D for PlayerNode {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
                 }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
+                }
                 return;
             }
             if key.get_keycode() == Key::ESCAPE && key.is_pressed() && !key.is_echo() {
@@ -345,11 +438,17 @@ impl INode3D for PlayerNode {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
                 }
+                if let Some(latency) = latency {
+                    self.profile_applied_inputs.push(latency);
+                }
                 return;
             }
         }
         if self.menu.is_open() {
             return;
+        }
+        if let Some(latency) = latency {
+            self.profile_inputs.push(latency);
         }
         if let Ok(key) = event.clone().try_cast::<InputEventKey>() {
             self.devices.key(
@@ -383,11 +482,17 @@ impl INode3D for PlayerNode {
     fn physics_process(&mut self, delta: f64) {
         if self.auto_step {
             self.advance(delta);
+            self.profile_applied_inputs.append(&mut self.profile_inputs);
             self.sync_actor_bodies();
+            self.update_grab_actor();
         }
     }
 
     fn process(&mut self, delta: f64) {
+        let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
+        if let Some(view) = self.item_card_view.as_mut() {
+            view.tick(delta);
+        }
         if self.menu.title() == Some("Quests") {
             self.refresh_quest_journal();
         }
@@ -406,13 +511,33 @@ impl INode3D for PlayerNode {
         if let Some(game) = self.game.as_mut() {
             if let Some(view) = self.hud_view.as_mut() {
                 view.refresh(game, self.rig.yaw());
+                view.set_cart_mode(game.world().hud_cart_mode);
             }
         } else if let Some(view) = self.hud_view.as_mut() {
             view.hide();
         }
+        if let Some(view) = self.hud_view.as_mut() {
+            view.tick_presentation(delta);
+        }
+        drop(render_scope);
+        let sample = self.host_frame.finish();
+        soe_trace::Profile::systems("host", &sample);
+        self.host_history.record(sample);
+        self.host_frame = soe_trace::FrameSnapshot::now();
     }
 
     fn exit_tree(&mut self) {
+        self.remove_system_monitors();
+        RenderingServer::singleton().disconnect(
+            "frame_post_draw",
+            &self.base().callable("profile_frame_presented"),
+        );
+        let mut server = RenderingServer::singleton();
+        for (_, rid) in std::mem::take(&mut self.debug_ref_markers) {
+            server.free_rid(rid);
+        }
+        self.debug_ref_marker_mesh = None;
+        self.debug_ref_marker_material = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.query_collision.free();
         self.actor_bodies.free();
@@ -477,6 +602,7 @@ impl PlayerNode {
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
         }
+        self.release_host_telekinesis();
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
         self.action_latches.clear();
@@ -523,6 +649,13 @@ impl PlayerNode {
             .map_or_else(GString::new, GString::from)
     }
 
+    /// Invoke a main-menu Game native for host integration checks.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_main_menu_native(&mut self, name: GString, sequence: GString) -> bool {
+        self.invoke_main_menu_native_for_check(&name, &sequence)
+    }
+
     /// Connect an already loaded character rig to this gameplay world's live
     /// skin and equipment records. Reuses the existing character node.
     #[func]
@@ -557,18 +690,101 @@ impl PlayerNode {
                 );
                 if is_player {
                     visual.bind_mut().set_first_person_geometry_visible(
-                        self.rig.mode != CameraMode::First
-                            || self.camera_state.first_person_geometry_visible(),
+                        self.camera_state
+                            .rendered_first_person_geometry_visible(self.rig.mode),
                     );
                     self.player_appearance = Some(visual);
                 }
                 true
             }
             Err(error) => {
-                godot_error!("PlayerNode actor appearance: {error}");
+                soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode actor appearance: {error}");
                 false
             }
         }
+    }
+
+    /// Queue the same source-to-actor impulse used by ObjectReference.PushActorAway.
+    ///
+    /// Returns false if the game, either form ID, or the world request is invalid.
+    #[func]
+    pub fn push_actor_away(
+        &mut self,
+        source_file: i32,
+        source_object: i64,
+        target_file: i32,
+        target_object: i64,
+        force: f32,
+    ) -> bool {
+        let (Some(game), Ok(source_file), Ok(source_object), Ok(target_file), Ok(target_object)) = (
+            self.game.as_mut(),
+            u16::try_from(source_file),
+            u32::try_from(source_object),
+            u16::try_from(target_file),
+            u32::try_from(target_object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .push_actor_away(
+                soe_esm::GlobalFormId {
+                    file: source_file,
+                    object: source_object,
+                },
+                soe_esm::GlobalFormId {
+                    file: target_file,
+                    object: target_object,
+                },
+                force,
+            )
+            .is_ok()
+    }
+
+    /// Queue the same area impulse used by ObjectReference.KnockAreaEffect.
+    ///
+    /// Returns false if the game, source form ID, or world request is invalid.
+    #[func]
+    pub fn knock_area_effect(
+        &mut self,
+        source_file: i32,
+        source_object: i64,
+        magnitude: f32,
+        radius: f32,
+    ) -> bool {
+        let (Some(game), Ok(source_file), Ok(source_object)) = (
+            self.game.as_mut(),
+            u16::try_from(source_file),
+            u32::try_from(source_object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .knock_area_effect(
+                soe_esm::GlobalFormId {
+                    file: source_file,
+                    object: source_object,
+                },
+                magnitude,
+                radius,
+            )
+            .is_ok()
+    }
+
+    /// Set an actor's explicit CMB-38 ragdoll mode in the shared world.
+    ///
+    /// Returns false if the game, form ID, or actor is invalid.
+    #[func]
+    pub fn force_actor_ragdoll(&mut self, file: i32, object: i64, enabled: bool) -> bool {
+        let (Some(game), Ok(file), Ok(object)) = (
+            self.game.as_mut(),
+            u16::try_from(file),
+            u32::try_from(object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .force_ragdoll(soe_esm::GlobalFormId { file, object }, enabled)
+            .is_ok()
     }
 
     /// Forward one authored behavior event from the bound actor rig.
@@ -606,6 +822,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn load_data(&mut self, path: GString) -> bool {
+        self.clear_player_input();
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
@@ -614,6 +831,7 @@ impl PlayerNode {
                 if self.base().is_node_ready() {
                     self.register_actions();
                 }
+                self.interface_cache = None;
                 self.data_source = Some(Arc::new(source));
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
@@ -624,7 +842,7 @@ impl PlayerNode {
                 true
             }
             Err(e) => {
-                godot_error!("PlayerNode::load_data: {e}");
+                soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::load_data: {e}");
                 self.data_source = None;
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
@@ -650,8 +868,10 @@ impl PlayerNode {
             self.register_actions();
         }
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
+        self.interface_cache = None;
         self.data_source = Some(source);
         self.game = None;
+        self.clear_player_input();
         self.image_space = crate::image_space::ImageSpaceStack::default();
         self.refresh_image_space();
         self.effect_shaders = crate::effect_shader::EffectShaderStack::default();
@@ -681,17 +901,17 @@ impl PlayerNode {
     pub fn enter_cell(&mut self, editor_id: GString, x: f32, y: f32, z: f32) -> i32 {
         self.clear_swing_doors();
         let Some(source) = self.data_source.as_ref() else {
-            godot_error!("PlayerNode::enter_cell: load_data was not called");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: load_data was not called");
             return -1;
         };
         let Some(cell_id) = source.resolve_cell(&editor_id.to_string()) else {
-            godot_error!("PlayerNode::enter_cell: no cell named {editor_id}");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: no cell named {editor_id}");
             return -1;
         };
         let collision = match source.collide_cell_id(cell_id) {
             Ok(c) => c,
             Err(e) => {
-                godot_error!("PlayerNode::enter_cell: {e}");
+                soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: {e}");
                 return -1;
             }
         };
@@ -714,6 +934,7 @@ impl PlayerNode {
         self.melee_bodies.clear();
         self.exterior = None;
         self.collision_references = collision.references;
+        self.collision_visibility.clear();
         self.last_activate_hit = false;
         self.last_activate_reference = None;
         self.grabbed_host = None;
@@ -730,6 +951,24 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        self.detection_time_usec = -1;
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Other);
+        let frame = soe_trace::WorkFrame::begin();
+        self.advance_measured(delta);
+        self.last_work_counts = frame.counts();
+    }
+
+    /// Operation counts from the last advance, including game and host queries.
+    #[func]
+    pub fn work_counts(&self) -> VarDictionary {
+        crate::godot_layer::work_dictionary(&self.last_work_counts)
+    }
+
+    fn advance_measured(&mut self, delta: f64) {
+        if self.player_input.pending() > 0 {
+            self.step_player_input();
+            return;
+        }
         if !self.menu.is_open()
             && self
                 .game
@@ -760,8 +999,10 @@ impl PlayerNode {
         let (dx, dy) = std::mem::take(&mut self.pending_look);
         self.rig.look(dx, dy);
 
+        let input_scope = soe_trace::SystemScope::new(soe_trace::System::Input);
         let previous_held = self.held_actions.clone();
         let input = self.gather();
+        drop(input_scope);
         self.route_hand_casts(
             magic::HandCastInput {
                 was_held: previous_held.contains(&Action::LeftAttackBlock),
@@ -789,6 +1030,7 @@ impl PlayerNode {
             game.world().actor_is_paralyzed(player)
         });
 
+        let physics_scope = soe_trace::SystemScope::new(soe_trace::System::Physics);
         if let (Some(world), Some(id)) = (self.world.as_mut(), self.character) {
             world.set_crouch(id, intent.crouch);
             let (direction, speed, jump) = player_locomotion(intent, paralyzed);
@@ -799,6 +1041,7 @@ impl PlayerNode {
             world.step(delta as f32);
         }
 
+        drop(physics_scope);
         self.advance_footsteps(before, was_grounded, &input);
 
         let crosshair_hit = self.activate_ray();
@@ -958,6 +1201,67 @@ impl PlayerNode {
         self.start_game_runtime()
     }
 
+    /// Build navigation caches before a PRF-11 timed gameplay sample.
+    #[func]
+    pub fn prepare_ai_planning_check(&mut self) -> bool {
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        soe_game::ai::nav_graph(&mut game.world_mut());
+        true
+    }
+
+    /// Last AI driver tick in microseconds, including door refresh and navigation slices.
+    #[func]
+    pub fn ai_planning_microseconds(&self) -> f64 {
+        self.game.as_ref().map_or(0.0, |game| {
+            game.world().ai.planning_time.as_secs_f64() * 1_000_000.0
+        })
+    }
+
+    /// Inclusive AI phase timings and instantiated actor count for planning diagnostics.
+    #[func]
+    pub fn ai_planning_details(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        if let Some(game) = &self.game {
+            let world = game.world();
+            result.set(
+                "door_refresh_us",
+                world.ai.door_refresh_time.as_secs_f64() * 1_000_000.0,
+            );
+            result.set(
+                "evaluation_us",
+                world.ai.evaluation_time.as_secs_f64() * 1_000_000.0,
+            );
+            for (phase, duration) in &world.ai.planning_phases {
+                result.set(format!("{phase}_us"), duration.as_secs_f64() * 1_000_000.0);
+            }
+            result.set("instantiated_actors", world.loaded_actors().len() as i64);
+        }
+        result
+    }
+
+    /// Package evaluations performed by the active gameplay world.
+    #[func]
+    pub fn ai_package_evaluations(&self) -> i64 {
+        self.game
+            .as_ref()
+            .map_or(0, |game| game.world().ai.evaluations as i64)
+    }
+
+    /// Apply actor-value damage to the player through the active shared game.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn damage_player_actor_value(&mut self, name: GString, amount: f32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        game.world_mut()
+            .damage_actor_value(player, &name.to_string(), amount)
+            .is_ok()
+    }
+
     /// Read one reference's current simulated placement in Skyrim units.
     #[func]
     pub fn gameplay_reference_pose(&self, file: i32, object: i64) -> VarDictionary {
@@ -984,6 +1288,28 @@ impl PlayerNode {
         result
     }
 
+    /// Count this reference's movement and Godot query collision bodies.
+    #[func]
+    pub fn reference_collision_bodies(&self, file: i32, object: i64) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return result;
+        };
+        let reference = GlobalFormId { file, object };
+        result.set(
+            "movement",
+            self.collision_references
+                .values()
+                .filter(|id| **id == reference)
+                .count() as i64,
+        );
+        result.set(
+            "query",
+            self.query_collision.active_reference_bodies(reference) as i64,
+        );
+        result
+    }
+
     /// Set a reference's enabled state through the shared World.
     #[func]
     pub fn set_reference_enabled(&mut self, file: i32, object: i64, enabled: bool) -> bool {
@@ -1001,7 +1327,7 @@ impl PlayerNode {
         if reference.deleted {
             return false;
         }
-        reference.enabled = enabled;
+        world.set_reference_enabled(GlobalFormId { file, object }, enabled);
         true
     }
 
@@ -1036,7 +1362,7 @@ impl PlayerNode {
             "TakeScreenshot",
             &[soe_papyrus::Value::string(&path.to_string())],
         ) {
-            godot_error!("PlayerNode: Debug.TakeScreenshot failed: {error}");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: Debug.TakeScreenshot failed: {error}");
             return false;
         }
         game.run_until_idle(64);
@@ -1088,13 +1414,13 @@ impl PlayerNode {
             })
         };
         if let Err(error) = game.world_mut().select_weather_image_space(selection) {
-            godot_error!("PlayerNode: {error}");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: {error}");
             return false;
         }
         let result = self.image_space.sync(&game.world());
         self.refresh_image_space();
         if let Err(error) = result {
-            godot_error!("PlayerNode: {error}");
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: {error}");
             return false;
         }
         true
@@ -1117,11 +1443,123 @@ impl PlayerNode {
         result
     }
 
+    /// Winning RFCT records with a resolved art object or effect shader.
+    #[func]
+    pub fn gameplay_visual_effect_forms(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        let Some(game) = &self.game else {
+            return result;
+        };
+        for (id, _) in game.world().order().winners_of(soe_esm::Tag::new(b"RFCT")) {
+            let Some(data) = game.world().visual_effect_data(id) else {
+                continue;
+            };
+            if data.art.is_none() && data.shader.is_none() {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i32::from(id.file));
+            row.set("object", i64::from(id.object));
+            row.set("art", data.art.is_some());
+            row.set("shader", data.shader.is_some());
+            row.set("flags", i64::from(data.flags));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Start an RFCT effect through the shared game's World API.
+    #[func]
+    pub fn gameplay_play_visual_effect(
+        &mut self,
+        effect_file: i32,
+        effect_object: i64,
+        target_file: i32,
+        target_object: i64,
+        duration: f64,
+    ) -> bool {
+        let (Ok(effect_file), Ok(effect_object), Ok(target_file), Ok(target_object)) = (
+            u16::try_from(effect_file),
+            u32::try_from(effect_object),
+            u16::try_from(target_file),
+            u32::try_from(target_object),
+        ) else {
+            return false;
+        };
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        game.world_mut()
+            .play_visual_effect(
+                GlobalFormId {
+                    file: effect_file,
+                    object: effect_object,
+                },
+                GlobalFormId {
+                    file: target_file,
+                    object: target_object,
+                },
+                duration,
+                None,
+            )
+            .is_ok()
+    }
+
+    /// Stop RFCT instances for the exact effect and target pair.
+    #[func]
+    pub fn gameplay_stop_visual_effect(
+        &mut self,
+        effect_file: i32,
+        effect_object: i64,
+        target_file: i32,
+        target_object: i64,
+    ) -> i64 {
+        let (Ok(effect_file), Ok(effect_object), Ok(target_file), Ok(target_object)) = (
+            u16::try_from(effect_file),
+            u32::try_from(effect_object),
+            u16::try_from(target_file),
+            u32::try_from(target_object),
+        ) else {
+            return -1;
+        };
+        let Some(game) = self.game.as_mut() else {
+            return -1;
+        };
+        game.world_mut()
+            .stop_visual_effect(
+                GlobalFormId {
+                    file: effect_file,
+                    object: effect_object,
+                },
+                GlobalFormId {
+                    file: target_file,
+                    object: target_object,
+                },
+            )
+            .map_or(-1, |count| i64::try_from(count).unwrap_or(i64::MAX))
+    }
+
     /// Logical cell currently represented by the host.
     #[func]
     pub fn gameplay_cell(&self) -> GString {
         self.loaded_cell
             .map_or_else(GString::new, |id| GString::from(&id.to_string()))
+    }
+
+    /// Animation graph events that reached the active Game, for host diagnostics.
+    #[func]
+    pub fn gameplay_animation_events(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        if let Some(game) = &self.game {
+            for (source, name) in &game.world().animation_events {
+                let mut row = VarDictionary::new();
+                row.set("source_file", i64::from(source.file));
+                row.set("source_object", i64::from(source.object));
+                row.set("name", &GString::from(name));
+                result.push(&row);
+            }
+        }
+        result
     }
 
     /// Resident exterior cells and their physics handles for integration diagnostics.
@@ -1174,7 +1612,56 @@ impl PlayerNode {
             row.set("object", i64::from(id.object));
             row.set("far_file", i64::from(far.file));
             row.set("far_object", i64::from(far.object));
+            if let Some(name) = world
+                .reference(far)
+                .and_then(|reference| reference.cell)
+                .and_then(|cell| self.data_source.as_ref()?.exterior_world(cell))
+                .and_then(|worldspace| world.record(worldspace)?.editor_id())
+            {
+                row.set("far_worldspace", &GString::from(&name));
+            }
             row.set("locked", world.reference(id).is_none_or(|r| r.locked));
+            if let Some((return_door, landing)) = world.reference(far).and_then(|r| r.teleport) {
+                if return_door == id {
+                    row.set(
+                        "return_position",
+                        Vector3::new(
+                            landing.position[0],
+                            landing.position[1],
+                            landing.position[2],
+                        ),
+                    );
+                    row.set("return_yaw", landing.rotation[2]);
+                }
+            }
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Creation benches in the current logical cell, for gameplay tools.
+    #[func]
+    pub fn gameplay_creation_benches(&mut self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell)) = (&mut self.game, self.loaded_cell) else {
+            return Array::new();
+        };
+        let mut references = game.world_mut().cell_references(cell);
+        references.sort_unstable();
+        let mut result = Array::new();
+        for id in references {
+            if !crate::crafting_menu::is_creation_bench(game, id) {
+                continue;
+            }
+            let active = game
+                .world_mut()
+                .reference(id)
+                .is_some_and(|reference| reference.enabled && !reference.deleted);
+            if !active {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
             result.push(&row);
         }
         result
@@ -1334,6 +1821,7 @@ fn player_locomotion(intent: crate::input::Intent, paralyzed: bool) -> (Vec3, f3
 
 impl PlayerNode {
     fn look_stick(&mut self, delta: f64) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         let (x, y) = self.devices.look(&self.bindings);
         let scale = self.gamepad_look_speed * delta as f32;
         self.rig.look(x * scale, y * scale);
@@ -1364,7 +1852,7 @@ impl PlayerNode {
                 bindings.apply_control_map(&ControlMap::parse(&text));
             }
             Err(e) => {
-                godot_warn!("PlayerNode: no control map read ({e}), using the defaults");
+                soe_trace::warn!(target: "host::player", system = "host::player", "PlayerNode: no control map read ({e}), using the defaults");
             }
         }
         self.bindings = bindings;
@@ -1408,7 +1896,7 @@ impl PlayerNode {
             for chord in &binding.0 {
                 let Some(last) = chord.0.last() else { continue };
                 let Some(code) = godot_key_for(*last) else {
-                    godot_warn!(
+                    soe_trace::warn!(target: "host::player", system = "host::player",
                         "PlayerNode: {} binds {last:#x}, which has no Godot key",
                         action.event_name()
                     );
@@ -1452,6 +1940,7 @@ impl PlayerNode {
 
     /// Read full chords from device state and consume each press once.
     fn gather(&mut self) -> InputState {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         if !self.input_focused {
             return InputState::default();
         }
@@ -1553,6 +2042,7 @@ impl PlayerNode {
         overlay.set_mouse_filter(MouseFilter::IGNORE);
         overlay.hide();
         canvas.add_child(&overlay);
+        self.image_space_modifier_renderer.attach(&mut canvas);
         self.base_mut().add_child(&canvas);
         overlay.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
         self.image_space_tint = Some(ImageSpaceTintView { overlay });
@@ -1563,9 +2053,21 @@ impl PlayerNode {
             .image_space
             .base()
             .map(crate::image_space::RenderedBase::from);
+        let modifiers = self
+            .game
+            .as_ref()
+            .and_then(|game| {
+                self.image_space
+                    .render_layers(&game.world())
+                    .ok()
+                    .map(|layers| crate::image_space::RenderedModifiers::from_layers(&layers))
+            })
+            .unwrap_or_default();
         if let Some(camera) = &mut self.camera {
-            self.image_space_renderer.apply(camera, rendered.as_ref());
+            self.image_space_renderer
+                .apply(camera, rendered.as_ref(), &modifiers);
         }
+        self.image_space_modifier_renderer.apply(&modifiers);
         if let Some(tint) = &mut self.image_space_tint {
             if let Some(values) = rendered.filter(|values| values.tint[0] > 0.0) {
                 tint.overlay.set_color(Color::from_rgba(
@@ -1595,18 +2097,13 @@ impl PlayerNode {
     }
 
     fn refresh_door_fade(&mut self) {
-        let door_opacity = self.door_fade.opacity();
-        let game_opacity = self.game_fade.opacity();
-        let (opacity, black) = if game_opacity > door_opacity {
-            (game_opacity, self.game_fade.is_black())
-        } else {
-            (door_opacity, true)
-        };
+        let presentation =
+            crate::door_fade::fade_overlay_presentation(&self.door_fade, &self.game_fade);
         if let Some(view) = &mut self.door_fade_view {
-            let channel = if black { 0.0 } else { 1.0 };
+            let [red, green, blue, alpha] = presentation.rgba;
             view.overlay
-                .set_color(Color::from_rgba(channel, channel, channel, opacity));
-            view.overlay.set_visible(opacity > 0.0);
+                .set_color(Color::from_rgba(red, green, blue, alpha));
+            view.overlay.set_visible(presentation.visible);
         }
     }
 

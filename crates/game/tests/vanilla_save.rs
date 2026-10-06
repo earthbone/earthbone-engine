@@ -11,10 +11,16 @@ mod reference_extras;
 mod npcs;
 
 #[path = "vanilla_save/references.rs"]
-mod references;
+pub(crate) mod references;
 
 #[path = "vanilla_save/projectiles.rs"]
 mod projectiles;
+
+#[path = "sav_26_adversarial.rs"]
+mod sav_26_adversarial;
+
+#[path = "sav_26_breaker_adversarial.rs"]
+mod sav_26_breaker_adversarial;
 
 #[path = "vanilla_save/inventory.rs"]
 mod inventory;
@@ -45,6 +51,18 @@ use crate::common::legacy;
 
 use crate::common::installed;
 
+#[path = "vanilla_save/activators.rs"]
+mod activators;
+
+#[path = "vanilla_save/item_changes.rs"]
+mod item_changes;
+
+#[path = "vanilla_save/sav_34.rs"]
+mod sav_34;
+
+#[path = "vanilla_save/sav_36_book_note_key.rs"]
+mod sav_36_book_note_key;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -67,11 +85,11 @@ use soe_save::{
     Compression, GlobalData, GlobalVariable, GlobalVariables, Header, RefId, Save, WString,
 };
 
-fn id(file: u16, object: u32) -> GlobalFormId {
+pub(crate) fn id(file: u16, object: u32) -> GlobalFormId {
     GlobalFormId { file, object }
 }
 
-fn reference(raw: u32) -> RefId {
+pub(crate) fn reference(raw: u32) -> RefId {
     RefId::from_bytes([(raw >> 16) as u8, (raw >> 8) as u8, raw as u8])
 }
 

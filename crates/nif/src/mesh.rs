@@ -74,10 +74,9 @@ impl Mesh {
     /// normals buffer from a shape with none, the ordinary case for a
     /// space-saving distant LOD mesh, and a residency estimate taken before
     /// that generation must not read low against what actually gets
-    /// uploaded. Vertex colors are never charged: nothing downstream of
-    /// this struct keeps a color buffer past the decoded shape (the host's
-    /// mesh source and built surface carry no color field), so counting
-    /// them would charge for bytes nothing ever allocates. Close enough to
+    /// uploaded. Effect meshes charge a four-channel color buffer, including
+    /// the white default when the shape has no colors. Other material kinds
+    /// do not upload colors through the host. Close enough to
     /// weigh a mesh against a residency budget, not a byte-exact account of
     /// any one renderer's buffer layout.
     pub fn approx_bytes(&self) -> u64 {
@@ -85,6 +84,7 @@ impl Mesh {
             + 12 // normals, present or generated downstream
             + if self.tangents.is_empty() { 0 } else { 16 }
             + self.uv_sets.len().max(usize::from(!self.uvs.is_empty())) as u64 * 8
+            + if self.material.effect.is_some() { 16 } else { 0 }
             + if self.bone_weights.is_empty() { 0 } else { 16 }
             + if self.bone_indices.is_empty() { 0 } else { 4 };
         self.positions.len() as u64 * per_vertex + self.indices.len() as u64 * 4
@@ -135,6 +135,8 @@ pub struct AlphaTest {
 /// Effect shader parameters, present when `kind` is `Effect`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EffectParams {
+    /// Bit 1 wraps S and bit 0 wraps T, following nifly and OpenMW.
+    pub clamp_mode: u8,
     pub source_texture: String,
     pub greyscale_texture: String,
     pub base_color: [f32; 4],
@@ -294,12 +296,16 @@ impl Material {
     fn from_effect(p: &EffectShader) -> Material {
         let mut m = Material {
             kind: MaterialKind::Effect,
+            emissive_color: [p.base_color[0], p.base_color[1], p.base_color[2]],
+            emissive_multiple: p.base_color_scale,
+            alpha: p.base_color[3],
             textures: vec![p.source_texture.clone()],
             flags1: p.flags1,
             flags2: p.flags2,
             uv_offset: p.uv_offset,
             uv_scale: p.uv_scale,
             effect: Some(EffectParams {
+                clamp_mode: p.clamp_mode,
                 source_texture: p.source_texture.clone(),
                 greyscale_texture: p.greyscale_texture.clone(),
                 base_color: p.base_color,

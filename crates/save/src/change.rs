@@ -105,7 +105,6 @@ impl ChangeForm {
             payload: self.payload()?.into_owned(),
         }))
     }
-
     /// Return the known PCON change-form envelope without interpreting its
     /// source-opaque payload.
     pub fn pcon_change(&self) -> Option<PconChange> {
@@ -407,7 +406,8 @@ impl ChangeForm {
     /// # Errors
     /// Rejects truncated form flags and trailing payload bytes.
     pub fn activator_change(&self) -> Result<Option<ActivatorChange>> {
-        let source_flags = match self.record_type() {
+        let record_type = self.record_type();
+        let source_flags = match record_type {
             "ACTI" | "DOOR" => 0b111,
             "TACT" => 0x0080_0007,
             _ => return Ok(None),
@@ -420,7 +420,7 @@ impl ChangeForm {
             form_flags,
             value_changed: self.change_flags & 2 != 0,
             full_name_changed: self.change_flags & 4 != 0,
-            speaker_changed: self.record_type() == "TACT" && self.change_flags & (1 << 23) != 0,
+            speaker_changed: record_type == "TACT" && self.change_flags & (1 << 23) != 0,
             other_flags: self.change_flags & !source_flags,
         }))
     }
@@ -1290,7 +1290,7 @@ mod sav_25_projectile_truncation_tests {
             form.write(&mut bytes);
 
             for end in 0..bytes.len() {
-                let mut cursor = Cursor::new(&bytes[..end], "truncated projectile change form");
+                let mut cursor = Cursor::new(&bytes[..end], "truncated change form");
                 assert!(
                     ChangeForm::read(&mut cursor).is_err(),
                     "kind {kind}, end {end}"

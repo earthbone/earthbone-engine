@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-use godot::classes::{INode3D, MeshInstance3D, Node3D};
+use godot::classes::{AnimatableBody3D, CollisionShape3D, INode3D, MeshInstance3D, Node3D};
 use godot::prelude::*;
 
 use crate::animated_static::{self, AnimatedController};
@@ -100,21 +100,21 @@ impl AnimatedStaticNode {
     #[func]
     pub fn load_nif(&mut self, nif_path: GString, node_name: GString) -> bool {
         if self.controller.is_some() {
-            godot_error!("AnimatedStaticNode: already loaded, make another node");
+            soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: already loaded, make another node");
             return false;
         }
         let path = nif_path.to_string();
         let bytes = match std::fs::read(Path::new(&path)) {
             Ok(b) => b,
             Err(e) => {
-                godot_error!("AnimatedStaticNode: {path}: {e}");
+                soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: {path}: {e}");
                 return false;
             }
         };
         let file = match soe_nif::parse(&bytes) {
             Ok(f) => f,
             Err(e) => {
-                godot_error!("AnimatedStaticNode: {path}: {e}");
+                soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: {path}: {e}");
                 return false;
             }
         };
@@ -125,20 +125,20 @@ impl AnimatedStaticNode {
             animated_static::find_node(&file, &name)
         };
         let Some(node) = node else {
-            godot_error!("AnimatedStaticNode: no node named {name} in {path}");
+            soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: no node named {name} in {path}");
             return false;
         };
         let controller = match animated_static::resolve_controller(&file, node) {
             Ok(c) => c,
             Err(e) => {
-                godot_error!("AnimatedStaticNode: {name}: {e}");
+                soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: {name}: {e}");
                 return false;
             }
         };
         let meshes = match soe_nif::mesh::meshes_under_children(&file, node) {
             Ok(m) => m,
             Err(e) => {
-                godot_error!("AnimatedStaticNode: {name}: {e}");
+                soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: {name}: {e}");
                 return false;
             }
         };
@@ -152,7 +152,7 @@ impl AnimatedStaticNode {
                 Ok(s) => s,
                 Err(e) => {
                     let mesh_name = &mesh.name;
-                    godot_error!("AnimatedStaticNode: {name}: {mesh_name}: {e}");
+                    soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: {name}: {mesh_name}: {e}");
                     continue;
                 }
             };
@@ -161,7 +161,14 @@ impl AnimatedStaticNode {
             instance.set_mesh(&array_mesh);
             self.base_mut().add_child(&instance);
             if self.collision_enabled {
-                instance.create_trimesh_collision();
+                if let Some(shape) = array_mesh.create_trimesh_shape() {
+                    let mut body = AnimatableBody3D::new_alloc();
+                    body.set_sync_to_physics(true);
+                    let mut collision = CollisionShape3D::new_alloc();
+                    collision.set_shape(&shape);
+                    body.add_child(&collision);
+                    instance.add_child(&body);
+                }
             }
             self.children.push(instance);
         }
@@ -176,32 +183,32 @@ impl AnimatedStaticNode {
     #[func]
     pub fn load_nif_bytes(&mut self, bytes: PackedByteArray) -> bool {
         if self.controller.is_some() {
-            godot_error!("AnimatedStaticNode: already loaded, make another node");
+            soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: already loaded, make another node");
             return false;
         }
         let raw: Vec<u8> = bytes.as_slice().to_vec();
         let file = match soe_nif::parse(&raw) {
             Ok(file) => file,
             Err(error) => {
-                godot_error!("AnimatedStaticNode: NIF bytes: {error}");
+                soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: NIF bytes: {error}");
                 return false;
             }
         };
         let Some(node) = animated_static::find_animated_node(&file) else {
-            godot_error!("AnimatedStaticNode: NIF has no supported transform controller");
+            soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: NIF has no supported transform controller");
             return false;
         };
         let controller = match animated_static::resolve_controller(&file, node) {
             Ok(controller) => controller,
             Err(error) => {
-                godot_error!("AnimatedStaticNode: controller: {error}");
+                soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: controller: {error}");
                 return false;
             }
         };
         let meshes = match soe_nif::mesh::meshes_under_children(&file, node) {
             Ok(meshes) => meshes,
             Err(error) => {
-                godot_error!("AnimatedStaticNode: controller meshes: {error}");
+                soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: controller meshes: {error}");
                 return false;
             }
         };
@@ -215,12 +222,19 @@ impl AnimatedStaticNode {
             instance.set_mesh(&array_mesh);
             self.base_mut().add_child(&instance);
             if self.collision_enabled {
-                instance.create_trimesh_collision();
+                if let Some(shape) = array_mesh.create_trimesh_shape() {
+                    let mut body = AnimatableBody3D::new_alloc();
+                    body.set_sync_to_physics(true);
+                    let mut collision = CollisionShape3D::new_alloc();
+                    collision.set_shape(&shape);
+                    body.add_child(&collision);
+                    instance.add_child(&body);
+                }
             }
             self.children.push(instance);
         }
         if self.children.is_empty() {
-            godot_error!("AnimatedStaticNode: controller has no renderable meshes");
+            soe_trace::error!(target: "host::animated_static", system = "host::animated_static", "AnimatedStaticNode: controller has no renderable meshes");
             return false;
         }
         self.controller = Some(controller);

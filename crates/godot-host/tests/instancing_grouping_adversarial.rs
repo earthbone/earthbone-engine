@@ -488,6 +488,7 @@ fn rock_geometry(tris: usize) -> SurfaceArrays {
         tangents: None,
         uvs: Some(uvs),
         indices,
+        colors: None,
         bone_indices: None,
         bone_weights: None,
         material: MaterialDesc {

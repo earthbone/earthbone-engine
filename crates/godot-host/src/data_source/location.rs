@@ -47,6 +47,14 @@ impl PreparedCell {
                 (0, material.normal.as_deref(), textures.normal.as_deref()),
                 (0, material.glow_texture(), textures.glow.as_deref()),
                 (
+                    0,
+                    material
+                        .effect
+                        .as_ref()
+                        .map(|e| e.params.greyscale_texture.as_str()),
+                    textures.greyscale.as_deref(),
+                ),
+                (
                     1,
                     material.environment_texture(),
                     textures.environment.as_deref(),
@@ -215,7 +223,7 @@ impl DataSource {
     }
 
     /// Worldspace ownership comes from the winning CELL's own file namespace.
-    #[cfg(feature = "godot")]
+    #[cfg(any(feature = "godot", test))]
     pub(crate) fn exterior_world(&self, cell: GlobalFormId) -> Option<GlobalFormId> {
         if self.cell_index().is_interior(cell) {
             return None;
@@ -349,6 +357,7 @@ mod hst_08_tests {
                 normals: Vec::new(),
                 tangents: Vec::new(),
                 uvs: Vec::new(),
+                colors: Vec::new(),
                 indices: vec![0, 1, 2],
                 bones: Vec::new(),
                 weights: Vec::new(),
@@ -412,7 +421,7 @@ mod hst_08_tests {
             },
             |_| cost,
         );
-        assert!(deferred.load.is_empty());
+        assert_eq!(deferred.load.len(), 0);
         let selected = streamer.update_with_budget(
             focus,
             StreamBudget {

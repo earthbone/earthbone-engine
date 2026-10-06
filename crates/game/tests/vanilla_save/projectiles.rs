@@ -1,8 +1,94 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! PCON and PARW restore their shared saved placement into the reference table.
+//! SAV-24 saved projectile envelopes reach runtime queries and engine saves.
+//! PCON restores its xEdit-defined saved placement into the reference table.
 
 use super::*;
+
+fn projectile_fixture_order() -> LoadOrder {
+    let mut plugin = Plugin::new(FileHeader::default());
+    for (object, tag) in [(0x800, *b"PFLA"), (0x801, *b"PHZD"), (0x802, *b"PBAR")] {
+        plugin
+            .push_top(Record::new(Tag(tag), object).sub(Tag(*b"DATA"), [1_u8, 2, 3, object as u8]));
+    }
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    order
+}
+
+fn sav_24_projectile_save() -> Save {
+    let mut saved = save();
+    saved.plugins.truncate(1);
+    saved.light_plugins.clear();
+    saved.change_forms = [
+        (0x800, 5, 0x8000_0001, vec![0x11, 0x12]),
+        (0x801, 40, 0x4000_0002, vec![0x21, 0x22, 0x23]),
+        (0x802, 41, 0x2000_0004, vec![0x31]),
+    ]
+    .into_iter()
+    .map(|(object, kind, change_flags, data)| soe_save::ChangeForm {
+        form: reference(0x400000 | object),
+        change_flags,
+        type_field: kind,
+        version: 78,
+        uncompressed_len: 0,
+        data,
+    })
+    .collect();
+    saved
+}
+
+#[test]
+fn sav_24_projectile_change_envelopes_reach_live_queries_and_engine_reload() {
+    let order = Arc::new(projectile_fixture_order());
+    let mut world = World::from_shared_order(order.clone());
+    assert_eq!(
+        world
+            .restore_vanilla_projectiles(&sav_24_projectile_save())
+            .unwrap(),
+        3
+    );
+    for (object, flags, payload) in [
+        (0x800, 0x8000_0001, [0x11, 0x12].as_slice()),
+        (0x801, 0x4000_0002, [0x21, 0x22, 0x23].as_slice()),
+        (0x802, 0x2000_0004, [0x31].as_slice()),
+    ] {
+        let id = id(0, object);
+        let extra = world.restored_projectile_extra(id).unwrap();
+        assert_eq!(extra.flags, flags);
+        assert_eq!(extra.payload, payload);
+        assert_eq!(
+            world.record(id).unwrap().find(Tag(*b"DATA")),
+            Some(&[1, 2, 3, object as u8][..])
+        );
+    }
+
+    let bytes = world.save_state();
+    let mut loaded = World::from_shared_order(order);
+    loaded.load_state(&bytes).unwrap();
+    assert_eq!(loaded.save_state(), bytes);
+    for object in 0x800..=0x802 {
+        assert_eq!(
+            loaded.restored_projectile_extra(id(0, object)),
+            world.restored_projectile_extra(id(0, object))
+        );
+    }
+}
+
+#[test]
+fn sav_24_bad_late_projectile_change_leaves_all_live_forms_unchanged() {
+    let mut world = World::new(projectile_fixture_order());
+    let before = world.save_state();
+    let mut saved = sav_24_projectile_save();
+    saved.change_forms[2].form = reference(0x400999);
+    assert!(world.restore_vanilla_projectiles(&saved).is_err());
+    assert_eq!(world.save_state(), before);
+    for object in 0x800..=0x802 {
+        assert!(world.restored_projectile_extra(id(0, object)).is_none());
+    }
+}
+
+use soe_game::world::ProjectileRecordExtra;
 use soe_save::{reference::flags as change_flags, ChangeForm};
 
 fn moved_projectile(raw: u32, type_index: u8, position: [f32; 3]) -> ChangeForm {
@@ -21,31 +107,101 @@ fn moved_projectile(raw: u32, type_index: u8, position: [f32; 3]) -> ChangeForm 
     }
 }
 
-fn projectile_save() -> Save {
+fn sav_26_projectile_save() -> Save {
     let mut save = references::fixture();
     save.change_forms
         .push(moved_projectile(0x400A02, 42, [11.0, 12.0, 13.0]));
-    save.change_forms
-        .push(moved_projectile(0x400A03, 47, [21.0, 22.0, 23.0]));
+    save
+}
+
+fn sav_26_projectile_envelopes() -> Save {
+    let mut save = references::fixture();
+    save.change_forms.extend([
+        ChangeForm {
+            form: reference(0x400A02),
+            change_flags: 0x1234_5678,
+            type_field: 42,
+            version: 78,
+            uncompressed_len: 0,
+            data: vec![0xA1, 0xA2, 0xA3],
+        },
+        ChangeForm {
+            form: reference(0x400A03),
+            change_flags: 0x8765_4321,
+            type_field: 47,
+            version: 78,
+            uncompressed_len: 0,
+            data: vec![0xB1, 0xB2, 0xB3, 0xB4],
+        },
+    ]);
     save
 }
 
 #[test]
-fn sav_26_pcon_parw_changes_restore_runtime_placement_and_survive_engine_save_load() {
+fn sav_26_pcon_parw_envelopes_reach_runtime_queries_and_engine_reload() {
+    let order = Arc::new(references::fixture_order());
+    let mut world = World::from_shared_order(order.clone());
+
+    assert_eq!(
+        world
+            .restore_vanilla_projectiles(&sav_26_projectile_envelopes())
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        world.restored_projectile_extra(id(0, 0xA02)),
+        Some(&ProjectileRecordExtra {
+            flags: 0x1234_5678,
+            payload: vec![0xA1, 0xA2, 0xA3],
+        })
+    );
+    assert_eq!(
+        world.restored_projectile_extra(id(0, 0xA03)),
+        Some(&ProjectileRecordExtra {
+            flags: 0x8765_4321,
+            payload: vec![0xB1, 0xB2, 0xB3, 0xB4],
+        })
+    );
+
+    let bytes = world.save_state();
+    let mut loaded = World::from_shared_order(order);
+    loaded.load_state(&bytes).unwrap();
+    assert_eq!(
+        loaded.restored_projectile_extra(id(0, 0xA02)),
+        world.restored_projectile_extra(id(0, 0xA02))
+    );
+    assert_eq!(
+        loaded.restored_projectile_extra(id(0, 0xA03)),
+        world.restored_projectile_extra(id(0, 0xA03))
+    );
+}
+
+#[test]
+fn sav_26_late_unresolved_parw_keeps_pcon_and_parw_updates_atomic() {
+    let mut save = sav_26_projectile_envelopes();
+    save.change_forms.last_mut().unwrap().form = reference(0x400FFF);
+    let mut world = World::new(references::fixture_order());
+    let before = world.save_state();
+
+    assert!(world.restore_vanilla_projectiles(&save).is_err());
+    assert_eq!(world.save_state(), before);
+    assert!(world.restored_projectile_extra(id(0, 0xA02)).is_none());
+    assert!(world.restored_projectile_extra(id(0, 0xA03)).is_none());
+}
+
+#[test]
+fn sav_26_pcon_placement_restores_runtime_and_survives_engine_save_load() {
     let mut world = World::new(references::fixture_order());
     let report = world
-        .restore_vanilla_reference_placements(&projectile_save())
+        .restore_vanilla_reference_placements(&sav_26_projectile_save())
         .unwrap();
 
-    assert_eq!(report.references, 5);
+    assert_eq!(report.references, 4);
     assert_eq!(
         world.reference_ref(id(0, 0xA02)).unwrap().position,
         [11.0, 12.0, 13.0]
     );
-    assert_eq!(
-        world.reference_ref(id(0, 0xA03)).unwrap().position,
-        [21.0, 22.0, 23.0]
-    );
+    assert!(world.reference_ref(id(0, 0xA03)).is_none());
     assert_eq!(
         world.reference(id(0, 0xA02)).unwrap().base,
         Some(id(0, 0x900))
@@ -63,10 +219,6 @@ fn sav_26_pcon_parw_changes_restore_runtime_placement_and_survive_engine_save_lo
         [11.0, 12.0, 13.0]
     );
     assert_eq!(
-        restored.reference_ref(id(0, 0xA03)).unwrap().position,
-        [21.0, 22.0, 23.0]
-    );
-    assert_eq!(
         restored.reference(id(0, 0xA02)).unwrap().base,
         Some(id(0, 0x900))
     );
@@ -78,7 +230,7 @@ fn sav_26_pcon_parw_changes_restore_runtime_placement_and_survive_engine_save_lo
 
 #[test]
 fn sav_26_duplicate_projectile_change_is_atomic() {
-    let mut save = projectile_save();
+    let mut save = sav_26_projectile_save();
     save.change_forms
         .push(moved_projectile(0x400A02, 42, [31.0, 32.0, 33.0]));
     let mut world = World::new(references::fixture_order());

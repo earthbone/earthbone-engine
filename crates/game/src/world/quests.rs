@@ -2,8 +2,11 @@
 
 //! Quests: the run-time state built from a `QUST` record on first use,
 //! start and stop, stages with their fragments, objectives and aliases.
+//! Alias fields follow xEdit wbDefinitionsTES5.pas and UESP QUST. Search
+//! candidates are derived from the immutable load order, never from cached fills.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use soe_commonlib_shim::events::{EventSink, QuestStartStopEvent};
 use soe_esm::GlobalFormId;
@@ -34,6 +37,7 @@ impl World {
         let aliases = def
             .aliases
             .iter()
+            .filter(|a| a.fill.is_none() || a.forced_ref.is_some())
             .map(|a| {
                 let target = if a.location { None } else { a.forced_ref };
                 (a.id, target.map(|raw| self.order.resolve(rref.file, raw)))
@@ -146,22 +150,32 @@ impl World {
     /// `Quest.Start`: true when the quest was not running. Delivers `OnInit`
     /// to the quest's scripts, then sets the start-up stage.
     pub fn start_quest(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
+        let _start = soe_trace::Span::new("game.start_quest", "game");
+        let state = soe_trace::Span::new("game.quest_start_state", "game");
+        let _entity = soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "start"), 1);
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
         if self.quest_state(id).is_none_or(|quest| quest.running) {
             return false;
         }
         let original_aliases = self.quest_state(id).map(|quest| quest.aliases.clone());
+        drop(state);
+        let reference_aliases = soe_trace::Span::new("game.quest_reference_aliases", "game");
         if !self.fill_reference_aliases(id) {
             if let (Some(quest), Some(aliases)) = (self.quests.get_mut(&id), original_aliases) {
                 quest.aliases = aliases;
             }
             return false;
         }
+        drop(reference_aliases);
+        let location_aliases = soe_trace::Span::new("game.quest_location_aliases", "game");
         if !self.fill_specific_location_aliases(id) {
             if let (Some(quest), Some(aliases)) = (self.quests.get_mut(&id), original_aliases) {
                 quest.aliases = aliases;
             }
             return false;
         }
+        drop(location_aliases);
+        let events = soe_trace::Span::new("game.quest_start_events", "game");
         let Some(q) = self.quest_state(id) else {
             return false;
         };
@@ -194,10 +208,32 @@ impl World {
             }
         }
         self.send_quest_start_stop(id, true);
+        drop(events);
+        let _stage = soe_trace::Span::new("game.quest_start_stage", "game");
         if let Some(stage) = startup {
             self.set_stage(id, stage, alloc);
         }
         true
+    }
+
+    fn quest_alias_candidates(&self) -> Option<Arc<[GlobalFormId]>> {
+        self.quest_alias_candidates
+            .get_or_init(|| {
+                let _build = soe_trace::Span::new("game.quest_alias_candidates", "game");
+                // CONTEXT: winners are unique and sorted across both tags. Keep
+                // the overflow result instead of retaining a partial search set.
+                let candidates: Vec<_> = self
+                    .order
+                    .winners()
+                    .filter_map(|(form, rref)| {
+                        let tag = self.order.record(rref).tag;
+                        (tag == Tag::new(b"ACHR") || tag == Tag::new(b"REFR")).then_some(form)
+                    })
+                    .take(MAX_ALIAS_SEARCH_CANDIDATES + 1)
+                    .collect();
+                (candidates.len() <= MAX_ALIAS_SEARCH_CANDIDATES).then(|| Arc::from(candidates))
+            })
+            .clone()
     }
 
     /// Fill reference aliases with one unambiguous, condition-matching placed reference.
@@ -205,58 +241,83 @@ impl World {
     /// The search is capped across winning `ACHR` and `REFR` records. If the
     /// cap is exceeded, the result is incomplete and no searched alias is filled.
     fn fill_reference_aliases(&mut self, id: GlobalFormId) -> bool {
+        let _entity =
+            soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "alias_fills"), 1);
         let Some(state) = self.quest_state(id) else {
             return false;
         };
         let aliases: Vec<_> = state.def.aliases.clone();
-        let mut candidates: Vec<_> = [Tag::new(b"ACHR"), Tag::new(b"REFR")]
-            .into_iter()
-            .flat_map(|tag| self.order.winners_of(tag).map(|(form, _)| form))
-            .collect();
-        candidates.sort_unstable();
-        candidates.dedup();
-        if candidates.len() > MAX_ALIAS_SEARCH_CANDIDATES {
-            return aliases
-                .iter()
-                .filter(|alias| {
-                    !alias.location
-                        && !alias.creates_reference
-                        && !alias.match_conditions.is_empty()
-                        && alias.forced_ref.is_none()
-                })
-                .all(|alias| alias.flags & alias_flags::OPTIONAL != 0);
+        let mut searched = aliases
+            .iter()
+            .filter(|alias| {
+                !alias.location
+                    && !alias.creates_reference
+                    && alias.forced_ref.is_none()
+                    && !alias.match_conditions.is_empty()
+            })
+            .peekable();
+        if searched.peek().is_none() {
+            return true;
         }
+        let Some(candidates) = self.quest_alias_candidates() else {
+            return searched.all(|alias| alias.flags & alias_flags::OPTIONAL != 0);
+        };
 
+        let player = self.player();
+        let player_position = self
+            .reference(player)
+            .map(|reference| reference.position)
+            .unwrap_or([0.0; 3]);
         let mut pending = Vec::new();
-        for alias in aliases.iter().filter(|alias| {
-            !alias.location
-                && !alias.creates_reference
-                && alias.forced_ref.is_none()
-                && !alias.match_conditions.is_empty()
-        }) {
-            if alias.flags & alias_flags::CLOSEST != 0 {
+        for alias in searched {
+            if alias.flags & alias_flags::CLOSEST != 0
+                && alias.flags & alias_flags::IN_LOADED_AREA == 0
+            {
                 if alias.flags & alias_flags::OPTIONAL == 0 {
                     return false;
                 }
                 continue;
             }
-            let matching: Vec<_> = candidates
-                .iter()
-                .copied()
-                .filter(|candidate| {
-                    self.alias_candidate_allowed(alias.flags, *candidate)
-                        && self.alias_conditions_match(id, *candidate, &alias.match_conditions)
-                        && !aliases.iter().any(|other| {
-                            other.id != alias.id
-                                && (self.alias_ref(id, other.id) == Some(*candidate)
-                                    || pending.contains(&(other.id, *candidate)))
-                                && (alias.flags & alias_flags::ALLOW_REUSE_IN_QUEST == 0
-                                    || other.flags & alias_flags::RESERVES_REFERENCE != 0
-                                        && alias.flags & alias_flags::ALLOW_RESERVED == 0)
-                        })
-                })
-                .collect();
-            let [candidate] = matching.as_slice() else {
+            let mut matching = Vec::new();
+            for candidate in candidates.iter().copied() {
+                if !self.alias_candidate_allowed(alias.flags, candidate)
+                    || !self.alias_conditions_match(id, candidate, &alias.match_conditions)
+                    || aliases.iter().any(|other| {
+                        other.id != alias.id
+                            && (self.alias_ref(id, other.id) == Some(candidate)
+                                || pending.contains(&(other.id, candidate)))
+                            && (alias.flags & alias_flags::ALLOW_REUSE_IN_QUEST == 0
+                                || other.flags & alias_flags::RESERVES_REFERENCE != 0
+                                    && alias.flags & alias_flags::ALLOW_RESERVED == 0)
+                    })
+                {
+                    continue;
+                }
+                let distance = self
+                    .reference(candidate)
+                    .map_or(f32::INFINITY, |reference| {
+                        reference
+                            .position
+                            .iter()
+                            .zip(player_position)
+                            .map(|(position, origin)| (position - origin).powi(2))
+                            .sum::<f32>()
+                    });
+                matching.push((candidate, distance));
+            }
+            let candidate = if alias.flags & alias_flags::CLOSEST != 0 {
+                matching.sort_by(|(left_id, left_distance), (right_id, right_distance)| {
+                    left_distance
+                        .total_cmp(right_distance)
+                        .then_with(|| left_id.cmp(right_id))
+                });
+                matching.first().map(|(candidate, _)| candidate)
+            } else if matching.len() == 1 {
+                matching.first().map(|(candidate, _)| candidate)
+            } else {
+                None
+            };
+            let Some(candidate) = candidate else {
                 if alias.flags & alias_flags::OPTIONAL == 0 {
                     return false;
                 }
@@ -274,6 +335,8 @@ impl World {
 
     /// Fill location aliases whose QUST record names a specific `LCTN` in `ALFL`.
     fn fill_specific_location_aliases(&mut self, id: GlobalFormId) -> bool {
+        let _entity =
+            soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "alias_fills"), 1);
         let Some(quest_ref) = self.order.winner_ref(id) else {
             return false;
         };
@@ -376,6 +439,8 @@ impl World {
     }
 
     pub fn stop_quest(&mut self, id: GlobalFormId) -> bool {
+        let _entity = soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "stop"), 1);
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
         let stopped = match self.quest_state(id) {
             Some(q) if q.running => {
                 q.running = false;
@@ -395,6 +460,9 @@ impl World {
     /// applies the log entry flags, and queues the stage fragment. Returns
     /// false for a stage the quest does not define.
     pub fn set_stage(&mut self, id: GlobalFormId, stage: u16, alloc: Alloc<'_>) -> bool {
+        let _entity =
+            soe_trace::EntityScope::new(|| self.profile_entity("quest", id, "stage_changes"), 1);
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
         let Some(q) = self.quest_state(id) else {
             return false;
         };
@@ -459,6 +527,7 @@ impl World {
         if (was_running || started) && !is_running {
             self.send_quest_start_stop(id, false);
         }
+        self.commonlib_quest_stage(id, stage);
         true
     }
 
@@ -469,6 +538,15 @@ impl World {
     }
 
     pub fn alias_ref(&mut self, quest: GlobalFormId, alias: u32) -> Option<GlobalFormId> {
+        if self
+            .quest_state(quest)
+            .is_some_and(|state| state.aliases.contains_key(&alias))
+        {
+            return self
+                .quest_state(quest)
+                .and_then(|state| state.aliases.get(&alias).copied())
+                .flatten();
+        }
         self.resolve_alias_ref(quest, alias).ok().flatten()
     }
 
@@ -495,17 +573,15 @@ impl World {
             return Err(AliasResolutionError::Cycle(cycle));
         }
         let Some((fill, current_target)) = self.quest_state(quest).and_then(|state| {
-            state.def.alias(alias).map(|definition| {
-                (
-                    definition.fill,
-                    state.aliases.get(&alias).copied().flatten(),
-                )
-            })
+            state
+                .def
+                .alias(alias)
+                .map(|definition| (definition.fill, state.aliases.get(&alias).copied()))
         }) else {
             return Ok(None);
         };
         if let Some(target) = current_target {
-            return Ok(Some(target));
+            return Ok(target);
         }
         path.push(node);
         let result = match fill {
@@ -521,7 +597,7 @@ impl World {
                 let target_quest = self.order.resolve(rref.file, raw_quest);
                 self.resolve_alias_ref_inner(target_quest, target, path)?
             }
-            None => current_target,
+            None => None,
         };
         path.pop();
         Ok(result)
@@ -540,6 +616,8 @@ impl World {
         alias: u32,
         target: Option<GlobalFormId>,
     ) -> bool {
+        let _entity =
+            soe_trace::EntityScope::new(|| self.profile_entity("quest", quest, "alias_fills"), 1);
         match self.quest_state(quest) {
             Some(q) if q.def.alias(alias).is_some() => {
                 q.aliases.insert(alias, target);
@@ -547,5 +625,33 @@ impl World {
             }
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod prf_33_tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    #[test]
+    fn prf_33_candidate_cache_is_derived_and_adds_no_saved_state() {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"REFR"), 0x800));
+        let mut order = LoadOrder::new();
+        order.add("PRF33.esp", plugin).unwrap();
+        let world = World::new(order);
+        let saved = world.save_state();
+        let hash = world.state_hash();
+        assert_eq!(world.quest_alias_candidates().unwrap().len(), 1);
+        assert_eq!(
+            world.save_state(),
+            saved,
+            "candidate identities are not saved fields"
+        );
+        assert_eq!(
+            world.state_hash(),
+            hash,
+            "building an input index must not mutate game state"
+        );
     }
 }

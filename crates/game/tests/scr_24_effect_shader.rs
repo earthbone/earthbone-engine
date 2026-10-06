@@ -256,12 +256,9 @@ fn scr_24_dynamic_target_round_trips_into_a_fresh_world() {
 #[test]
 fn scr_24_absent_section_defaults_playback_and_stops_old_host_effects() {
     let mut saved = game().world().save_state();
-    let first_section = b"\x06ANM-58";
-    let count_offset = saved
-        .windows(first_section.len())
-        .position(|bytes| bytes == first_section)
-        .unwrap()
-        - 2;
+    let mut without_sections = saved.clone();
+    crate::common::legacy::strip_world_sections(&mut without_sections);
+    let count_offset = without_sections.len();
     let count = u16::from_le_bytes(saved[count_offset..count_offset + 2].try_into().unwrap());
     let marker = b"\x06SCR-24";
     let section_offset = saved
