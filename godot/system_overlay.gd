@@ -3,6 +3,7 @@ extends CanvasLayer
 ## PRF-12 presentation of Rust's fixed system slots. Monitor callbacks and
 ## units follow Godot's Performance documentation. Sampling reads completed
 ## frames and never uses Performance.TIME_PROCESS as a frame denominator.
+const TransitionMetrics := preload("res://transition_metrics.gd")
 
 var player: Node3D
 var panel: PanelContainer
@@ -12,6 +13,7 @@ var entities := false
 var ai := false
 var frame_samples: Array[float] = []
 const FRAME_SAMPLE_LIMIT := 240
+var transition_metrics := TransitionMetrics.new()
 
 
 func _ready() -> void:
@@ -37,6 +39,7 @@ func _ready() -> void:
 		entities = player.call("entity_profiling_enabled")
 		panel.visible = entities
 		player.tree_exiting.connect(_write_on_player_exit)
+		player.transition_requested.connect(_transition_requested)
 
 
 func _input(event: InputEvent) -> void:
@@ -191,7 +194,24 @@ func write_summary() -> Error:
 	return file.get_error()
 
 
+func write_transition_summary() -> Error:
+	var summary: String = transition_metrics.summary_text()
+	print(summary)
+	var file := FileAccess.open("user://soe-transitions.txt", FileAccess.WRITE)
+	if file == null:
+		return FileAccess.get_open_error()
+	file.store_string(summary)
+	return file.get_error()
+
+
+func _transition_requested(kind: String, name: String) -> void:
+	transition_metrics.request(kind, name)
+
+
 func _write_on_player_exit() -> void:
 	var error := write_summary()
 	if error != OK:
 		printerr("Could not write system summary: ", error_string(error))
+	error = write_transition_summary()
+	if error != OK:
+		printerr("Could not write transition summary: ", error_string(error))

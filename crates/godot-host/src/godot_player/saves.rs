@@ -71,6 +71,18 @@ fn failed_save(error: &Error) -> VarDictionary {
 impl PlayerNode {
     pub(super) fn write_requested_save(&mut self, automatic: bool) {
         let kind = if automatic { "automatic" } else { "manual" };
+        let transition = if automatic {
+            "automatic_save"
+        } else {
+            "quick_save"
+        };
+        self.base_mut().emit_signal(
+            "transition_requested",
+            &[
+                Variant::from(transition),
+                Variant::from("native_generation"),
+            ],
+        );
         let directory_path = requested_save_uri(automatic);
         let directory = GString::from(directory_path.as_str());
         let path = ProjectSettings::singleton()
@@ -99,6 +111,10 @@ impl PlayerNode {
     #[func]
     #[allow(clippy::needless_pass_by_value)]
     pub fn save_game_generation(&mut self, directory: GString, retained: i64) -> VarDictionary {
+        self.base_mut().emit_signal(
+            "transition_requested",
+            &[Variant::from("save"), Variant::from("native_generation")],
+        );
         let store = match store(&directory, retained) {
             Ok(store) => store,
             Err(error) => return failed(&error),
@@ -132,6 +148,13 @@ impl PlayerNode {
     #[func]
     #[allow(clippy::needless_pass_by_value)]
     pub fn recover_game_generation(&mut self, directory: GString, retained: i64) -> VarDictionary {
+        self.base_mut().emit_signal(
+            "transition_requested",
+            &[
+                Variant::from("quick_load"),
+                Variant::from("native_generation"),
+            ],
+        );
         let store = match store(&directory, retained) {
             Ok(store) => store,
             Err(error) => return failed(&error),
@@ -175,6 +198,13 @@ impl PlayerNode {
         directory: GString,
         retained: i64,
     ) -> VarDictionary {
+        self.base_mut().emit_signal(
+            "transition_requested",
+            &[
+                Variant::from("full_load"),
+                Variant::from("native_generation"),
+            ],
+        );
         let store = match store(&directory, retained) {
             Ok(store) => store,
             Err(error) => return failed(&error),

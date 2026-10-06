@@ -139,6 +139,21 @@ Capacity sweeps, enforced frame budgets and sustained workload checks are
 documented in [performance-limits.md](performance-limits.md). Historical
 measurements below remain tied to their recorded revisions.
 
+## Menu and save transitions, PRF-26
+
+The walkthrough records modal-menu open and close requests, dialogue and
+load-door activation, native generation saves, quick saves, native quick-load
+recovery and full generation loads through the first
+`RenderingServer.frame_post_draw`. Its exit summary is written to
+`user://soe-transitions.txt` with p50 and worst milliseconds. The windowed
+`godot/prf_26_menu_transitions_test.gd` exercises the named menu shells and a
+500-row list workload, with per-menu list construction, filtering and sorting
+times. The rows are synthetic labels, not timings of each record-backed
+presenter. Door and dialogue timings end at first draw, rather than measuring
+the first resumed control callback. Fast travel has no host transition entry
+point in this checkout. PRF-16 has no transition budgets until the remaining
+paths and native presenter measurements are implemented.
+
 ## Per-system frames, PRF-12
 
 `soe-trace` records fixed-slot exclusive system time with optional Chrome
