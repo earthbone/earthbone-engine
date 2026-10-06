@@ -268,9 +268,10 @@ sequence. No original capture has been compared, so ANM-56 remains partial.
 23, actor FormID, stable display name, running package FormID, cell FormID and
 furniture reference FormID. Missing package, cell or furniture values are
 `null`. `ScheduleTable::new` accepts only complete 24-hour tables with one row
-per actor and hour. `parse_schedule_log` reads `SOESCHEDULE ` JSON rows from a
-Papyrus log and accepts incomplete captures so the comparison can report
-missing actor-hour rows. Duplicate rows, invalid hours and changing actor
+per actor and hour. `parse_schedule_log` reads JSON rows prefixed with
+`SOESCHEDULE` and a space from a Papyrus log and accepts incomplete captures
+so the comparison can report missing actor-hour rows. Duplicate rows, invalid
+hours and changing actor
 names are rejected. `ScheduleTable::differences` reports each changed field
 and each missing or extra actor-hour separately.
 
