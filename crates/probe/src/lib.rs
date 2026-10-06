@@ -6,10 +6,12 @@
 mod animation;
 mod compare;
 mod runner;
+mod schedule;
 mod sequence;
 
 pub use compare::{compare, parse_log, run, run_installed, Comparison, Difference, Observation};
 pub use runner::{build, plugin, script};
+pub use schedule::{parse_schedule_log, ScheduleDifference, ScheduleRow, ScheduleTable};
 pub use sequence::{AnimationGraph, Form, FormKind, Menu, Probe, Step, Tolerances};
 
 /// The bundled quest-stage and real-wait sequence.

@@ -262,6 +262,23 @@ the state readback. The capture compares Papyrus's graph variable instead.
 Finite fixed-time boundaries and graph-unload reset are not exercised by this
 sequence. No original capture has been compared, so ANM-56 remains partial.
 
+## Schedule tables
+
+`ScheduleRow` stores one actor at one game-hour boundary: hour from 0 through
+23, actor FormID, stable display name, running package FormID, cell FormID and
+furniture reference FormID. Missing package, cell or furniture values are
+`null`. `ScheduleTable::new` accepts only complete 24-hour tables with one row
+per actor and hour. `parse_schedule_log` reads `SOESCHEDULE ` JSON rows from a
+Papyrus log and accepts incomplete captures so the comparison can report
+missing actor-hour rows. Duplicate rows, invalid hours and changing actor
+names are rejected. `ScheduleTable::differences` reports each changed field
+and each missing or extra actor-hour separately.
+
+Schedule rows use stable FormIDs, not load-order runtime slots, so captures
+from Skyrim and the engine can be compared when they use the same declared
+load order. The table API handles captured rows; it does not enumerate actors
+or generate the Papyrus schedule recorder.
+
 ## Sources and validation
 
 Read before implementation:
@@ -388,3 +405,5 @@ finishes in about one second of gameplay. The current command set does not
 roll LVSP records in Skyrim, so this capture does not establish the original
 runtime's selected spells. `tests/prg_21_capture.rs` compares a saved
 `Papyrus.0.log` when `SOE_PROBE_CAPTURE` names its directory.
+`tests/ply_07_schedule.rs` covers complete 24-hour tables, named actor identity,
+row-level differences, partial log parsing and the installed Eorlund record.
