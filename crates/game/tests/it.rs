@@ -12,6 +12,8 @@ mod prf_36_ai;
 
 #[path = "prf_36_adversarial.rs"]
 mod prf_36_adversarial;
+#[path = "prf_36_breaker_adversarial.rs"]
+mod prf_36_breaker_adversarial;
 
 #[path = "aud_11_breaker_adversarial.rs"]
 mod aud_11_breaker_adversarial;
@@ -1804,10 +1806,14 @@ mod prf_27_ai;
 
 #[path = "prf_34_adversarial.rs"]
 mod prf_34_adversarial;
+#[path = "prf_34_breaker_adversarial.rs"]
+mod prf_34_breaker_adversarial;
 
 #[path = "prf_34_reference_changes.rs"]
 mod prf_34_reference_changes;
 #[path = "prf_35_adversarial.rs"]
 mod prf_35_adversarial;
+#[path = "prf_35_breaker_adversarial.rs"]
+mod prf_35_breaker_adversarial;
 #[path = "prf_35_magic.rs"]
 mod prf_35_magic;

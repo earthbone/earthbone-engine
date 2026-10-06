@@ -97,6 +97,14 @@ func refresh() -> void:
 	for system in report:
 		var row: Dictionary = report[system]
 		text += "%s: %.3f / %.1f%% / %.3f / %.3f / %.3f\n" % [system, row.ms, row.percent, row.p50_ms, row.p99_ms, row.worst_ms]
+		if system == "ai_movement" and row.has("phases"):
+			var ai_phases: Dictionary = row.phases
+			text += "  Last simulation tick:\n"
+			for phase in ["scheduling", "actor_driver", "movement", "procedure_tree", "path_following_dispatch"]:
+				text += "  %s (inclusive): %.3f ms\n" % [phase, float(ai_phases.get(phase + "_us", 0.0)) / 1000.0]
+			for kind in ["navigation", "movement"]:
+				text += "  %s workers: %.3f ms busy / %.3f ms caller wait / %d jobs\n" % [kind, float(ai_phases.get(kind + "_worker_busy_us", 0.0)) / 1000.0, float(ai_phases.get(kind + "_worker_wait_us", 0.0)) / 1000.0, int(ai_phases.get(kind + "_worker_jobs", 0))]
+			text += "  process high/middle high/middle low/low: %d/%d/%d/%d\n" % [int(ai_phases.get("high_actors", 0)), int(ai_phases.get("middle_high_actors", 0)), int(ai_phases.get("middle_low_actors", 0)), int(ai_phases.get("low_actors", 0))]
 	text += "PRF-24 runtime metrics (cumulative unless gauge):\n"
 	for name: String in runtime:
 		text += "%s: %d\n" % [name, runtime[name]]
@@ -112,20 +120,12 @@ func refresh() -> void:
 			total_count += query_row.count
 			total_ms += query_row.ms
 		text += "  %s: %d / %.3f ms\n" % [kind, total_count, total_ms]
-	var phases: Dictionary = player.call("magic_frame_breakdown") if player.has_method("magic_frame_breakdown") else {}
-	if not phases.is_empty():
+	var magic_phases: Dictionary = player.call("magic_frame_breakdown") if player.has_method("magic_frame_breakdown") else {}
+	if not magic_phases.is_empty():
 		text += "Magic tick phases, included above: last / p50 / p99 / worst ms\n"
-		for phase in phases:
-			var row: Dictionary = phases[phase]
+		for phase in magic_phases:
+			var row: Dictionary = magic_phases[phase]
 			text += "%s: %.3f / %.3f / %.3f / %.3f\n" % [phase, row.ms, row.p50_ms, row.p99_ms, row.worst_ms]
-		if system == "ai_movement" and row.has("phases"):
-			var phases: Dictionary = row.phases
-			text += "  Last simulation tick:\n"
-			for phase in ["scheduling", "actor_driver", "movement", "procedure_tree", "path_following_dispatch"]:
-				text += "  %s (inclusive): %.3f ms\n" % [phase, float(phases.get(phase + "_us", 0.0)) / 1000.0]
-			for kind in ["navigation", "movement"]:
-				text += "  %s workers: %.3f ms busy / %.3f ms caller wait / %d jobs\n" % [kind, float(phases.get(kind + "_worker_busy_us", 0.0)) / 1000.0, float(phases.get(kind + "_worker_wait_us", 0.0)) / 1000.0, int(phases.get(kind + "_worker_jobs", 0))]
-			text += "  process high/middle high/middle low/low: %d/%d/%d/%d\n" % [int(phases.get("high_actors", 0)), int(phases.get("middle_high_actors", 0)), int(phases.get("middle_low_actors", 0)), int(phases.get("low_actors", 0))]
 	label.text = text
 
 

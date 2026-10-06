@@ -21,7 +21,10 @@ fn world(parent_flags: u32) -> World {
         Record::new(tag::REFR, 0x901)
             .sub(b"NAME", 0x800_u32.to_le_bytes())
             .sub(b"DATA", [0; 24])
-            .sub(b"XESP", [0x900_u32.to_le_bytes(), parent_flags.to_le_bytes()].concat()),
+            .sub(
+                b"XESP",
+                [0x900_u32.to_le_bytes(), parent_flags.to_le_bytes()].concat(),
+            ),
     );
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();
@@ -56,7 +59,10 @@ fn missing_parent_stays_hidden_after_cache_and_parent_mutation() {
         Record::new(tag::REFR, 0x901)
             .sub(b"NAME", 0x800_u32.to_le_bytes())
             .sub(b"DATA", [0; 24])
-            .sub(b"XESP", [0x999_u32.to_le_bytes(), 0_u32.to_le_bytes()].concat()),
+            .sub(
+                b"XESP",
+                [0x999_u32.to_le_bytes(), 0_u32.to_le_bytes()].concat(),
+            ),
     );
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();

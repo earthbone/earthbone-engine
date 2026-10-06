@@ -172,6 +172,27 @@ measure GPU execution. Details and source paths are in
 [trace.md](trace.md), [game.md](game.md) and [godot-host.md](godot-host.md).
 Percentiles are computed when queried, outside the simulation tick.
 
+## Reference synchronization timing, PRF-34, 2026-10-06
+
+The original Whiterun plains F3 capture on `8ae73582` recorded
+`host_render_submission` at 121.7 ms p50, 355.4 ms p99 and 370 ms worst.
+The capture attributed five of ten stack samples to reference collision
+synchronization and two to reference change synchronization, but did not
+separate their phase times. After the PRF-34 changes, the breaker walk ran
+for 60 seconds in Bannered Mare and on the Whiterun plains with release
+Godot 4.4.1 at 640 by 360 on llvmpipe software Vulkan.
+
+| Location | Collision sync p50 / max ms | Change sync p50 / max ms | Host scene CPU p50 / p99 ms |
+|---|---:|---:|---:|
+| Bannered Mare | 0.054 / 1.296 | 0.033 / 0.362 | 0.324 / 1.424 |
+| Whiterun plains | 0.559 / 2.460 | 0.212 / 1.226 | 1.142 / 3.326 |
+
+`godot/prf_34_walk_test.gd` reports per-frame phase samples and applies the
+0.2 ms sync maximum and 0.5 ms p50, 1 ms p99 host scene CPU limits. The run
+failed 257 checks. This records the after measurement and the remaining
+budget miss. The headless reference cache tests prove idle queries perform
+zero record lookups, but they do not replace the installed windowed timing.
+
 ## Magic tick work, PRF-35, 2026-10-06
 
 The user's original Whiterun plains F3 capture on `8ae73582` recorded magic
@@ -220,6 +241,13 @@ after building the release extension and importing the project:
 rtk proxy env SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" cargo test -p soe-game --test it prf_35_installed_windowed_magic_budget -- --nocapture
 ```
 
+The completed 2026-10-06 after run on Godot 4.4.1 and llvmpipe software
+Vulkan measured 360 samples per location. Bannered Mare magic was 0.021 ms
+p50 and 0.056 ms p99. Whiterun plains magic was 0.030 ms p50 and 0.063 ms
+p99. The check passed both locations and the vanilla Candlelight light
+creation, reuse and expiry checks. These fixed-step samples follow a
+different workload from the original automatic-physics F3 capture.
+
 ## Process cadence and waypoint timing, PRF-36
 
 The driver reports inclusive scheduling, actor processing, procedure-tree,
@@ -264,6 +292,17 @@ the launcher's 300-second limit terminated it before the plains completed.
 Empty paths still dispatched waypoint jobs in that intermediate extension.
 The driver now skips those jobs. No dependency or per-reference scene node
 was added.
+
+The completed 2026-10-06 Godot 4.4.1 llvmpipe run measured the fixed 3,600
+step checks at 0.218/0.612 ms combined AI p50/p99 in Bannered Mare and
+0.085/0.436 ms on the plains. Driver worst was 5.046 ms in Bannered Mare
+and 0.842 ms on the plains. The retained PRF-11 60-second Bannered Mare
+check passed with 5.598 ms worst AI time. The ordinary-input 60-second
+plains walk only completed 30.27 simulation seconds across 227 presentation
+frames because Godot reached eight physics catch-up ticks per frame. Its
+combined AI was 1.145 ms p50 and 2.568 ms p99, above the 0.6 and 1.2 ms
+limits. The PRF-36 host test therefore failed its live-walk checks. Fixed-step
+success does not establish the live presentation budget.
 
 ## Music decode frame cost, AUD-12, 2026-10-05
 
