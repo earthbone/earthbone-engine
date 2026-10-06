@@ -325,6 +325,9 @@ impl INode3D for PlayerNode {
 
     fn ready(&mut self) {
         soe_trace::Profile::from_environment();
+        let directory =
+            godot::classes::ProjectSettings::singleton().globalize_path("user://hitches");
+        soe_trace::Trace::set_hitch_directory(std::path::Path::new(&directory.to_string()));
         self.register_system_monitors();
         RenderingServer::singleton().connect(
             "frame_post_draw",
@@ -525,6 +528,9 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        if let Err(error) = soe_trace::Trace::wait_for_hitch_exports() {
+            godot_error!("hitch export: {error}");
+        }
         self.remove_system_monitors();
         RenderingServer::singleton().disconnect(
             "frame_post_draw",

@@ -97,7 +97,9 @@ impl Clock {
         if !self.suspended.get() {
             if let (Some(system), Some(since)) = (self.system.get(), self.since.get()) {
                 let total = &self.totals[system as usize];
-                total.set(total.get().saturating_add(nanos(now.duration_since(since))));
+                let duration_ns = nanos(now.duration_since(since));
+                total.set(total.get().saturating_add(duration_ns));
+                crate::hitch::span(system, since, duration_ns, now);
             }
         }
         self.since.set(Some(now));
@@ -112,9 +114,14 @@ fn nanos(duration: Duration) -> u64 {
     u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
+pub(crate) fn timing_suspended() -> bool {
+    CLOCK.with(|clock| clock.suspended.get())
+}
+
 /// Charges a scope to one system, excluding nested scopes in other systems.
 /// Nested scopes in the same system perform no clock reads. Timings are
-/// independent of the optional event trace and never allocate or lock.
+/// independent of the optional event trace. After flight recorder initialization
+/// they never allocate or lock.
 pub struct SystemScope {
     previous: ScopeState,
     _thread: PhantomData<Rc<()>>,
@@ -270,6 +277,7 @@ pub struct FrameHistory {
 
 impl Default for FrameHistory {
     fn default() -> Self {
+        crate::hitch::prepare();
         Self {
             frames: Box::new(std::array::from_fn(|_| FrameSample::default())),
             next: 0,
@@ -282,8 +290,9 @@ impl Default for FrameHistory {
 }
 
 impl FrameHistory {
-    /// Append one completed frame in constant time.
+    /// Append a completed frame and advance its hitch capture, if pending.
     pub fn record(&mut self, sample: FrameSample) {
+        crate::hitch::frame(sample.frame_ns);
         for system in System::ALL {
             let index = system as usize;
             self.total_ns[index] = self.total_ns[index].saturating_add(sample.system_ns[index]);

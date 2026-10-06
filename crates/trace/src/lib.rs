@@ -3,7 +3,8 @@
 
 //! Scoped timing spans. A [`Span`] records its name, category, thread,
 //! start and duration into the global event list when tracing is enabled,
-//! and costs one relaxed atomic load when it is not. [`Trace::export_chrome_json`]
+//! while the bounded hitch recorder retains spans with optional tracing off.
+//! [`Trace::export_chrome_json`]
 //! writes the Chrome trace event format that Perfetto and `chrome://tracing`
 //! open, [`Trace::summary`] folds the events per name into count, total,
 //! mean, p50, p95 and max.
@@ -27,6 +28,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 mod frame;
+mod hitch;
 pub use frame::{
     with_timing_suspended, FrameHistory, FrameSample, FrameSnapshot, System, SystemScope,
     SystemStats, FRAME_HISTORY, SYSTEM_COUNT,
@@ -90,6 +92,7 @@ fn thread_id() -> u64 {
 /// A timed scope. Dropping it records the event.
 pub struct Span {
     start: Option<(Instant, Cow<'static, str>, &'static str, Option<u64>)>,
+    detailed: bool,
 }
 
 impl Span {
@@ -99,11 +102,12 @@ impl Span {
     }
 
     /// A span whose name is built at run time, `Class.Function` for a
-    /// native call. The string is only built when tracing is on.
+    /// native call. With optional tracing off, the hitch recorder uses the
+    /// category as its name and does not build the string.
     #[must_use]
     pub fn dynamic(name: impl FnOnce() -> String, category: &'static str) -> Span {
         if !Trace::enabled() {
-            return Span { start: None };
+            return Self::build(Cow::Borrowed(category), category, None);
         }
         Self::build(Cow::Owned(name()), category, None)
     }
@@ -114,12 +118,17 @@ impl Span {
     }
 
     fn build(name: Cow<'static, str>, category: &'static str, payload: Option<u64>) -> Span {
-        if !Trace::enabled() {
-            return Span { start: None };
+        let detailed = Trace::enabled();
+        if !detailed && frame::timing_suspended() {
+            return Span {
+                start: None,
+                detailed,
+            };
         }
         let _ = epoch();
         Span {
             start: Some((Instant::now(), name, category, payload)),
+            detailed,
         }
     }
 
@@ -145,7 +154,12 @@ impl Drop for Span {
             duration_ns: end.duration_since(start).as_nanos() as u64,
             payload,
         };
-        record(event);
+        if self.detailed {
+            record(event.clone());
+        }
+        if !frame::timing_suspended() {
+            hitch::named_span(event, start, end);
+        }
     }
 }
 
@@ -167,6 +181,28 @@ pub struct NameStats {
 pub struct Trace;
 
 impl Trace {
+    /// Override the calling thread's hitch directory, for host user-data paths.
+    pub fn set_hitch_directory(path: &std::path::Path) {
+        hitch::set_directory(path);
+    }
+
+    /// Set a positive hitch threshold. The default is twice the 16.7 ms budget.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error for a zero threshold.
+    pub fn set_hitch_threshold(threshold: std::time::Duration) -> std::io::Result<()> {
+        hitch::set_threshold(threshold)
+    }
+
+    /// Join completed hitch exports before a headless run or host exits.
+    /// A capture still awaiting its one-second tail remains pending.
+    ///
+    /// # Errors
+    /// Returns the export's I/O error or an error if its writer panicked.
+    pub fn wait_for_hitch_exports() -> std::io::Result<()> {
+        hitch::wait_for_exports()
+    }
+
     pub fn enable() {
         ENABLED.store(true, Ordering::Relaxed);
     }
@@ -325,7 +361,7 @@ mod tests {
     static LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn spans_record_when_enabled_and_cost_nothing_when_not() {
+    fn spans_only_enter_optional_event_list_when_enabled() {
         let _guard = LOCK.lock().unwrap();
         Trace::disable();
         Trace::clear();

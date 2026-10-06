@@ -24,6 +24,24 @@ covers F4, an applied camera switch, presentation latency, an audio start,
 installed render submissions, summary JSON and an overlay capture. It uses
 the existing input path and the local Godot RenderingServer signal contract.
 
+## Hitch dumps, PRF-18
+
+PlayerNode resolves `user://hitches` through Godot's ProjectSettings when it
+enters the tree. Both its presentation frames and nested game tick frames
+feed `soe-trace`'s always-on flight recorder. A frame above 33.4 ms captures
+the preceding five seconds plus one second afterward. A background writer
+emits Chrome trace JSON and a one-line summary naming the slowest
+spans. Dumps have a ten-second cooldown. Leaving the tree joins submitted
+writes and reports errors. Pending captures need their one-second tail to
+complete before exit. This adds no per-reference nodes or saved state.
+
+The local Godot `classes/class_projectsettings.rst` documents the user path
+resolution. `godot/prf_18_hitches_test.gd` lets startup's dump cooldown pass,
+forces an 80 ms pause, parses the dump with Godot's JSON parser, checks prior
+frames, tail, counters and summary, then frees its node and quits. It runs
+both headless and windowed, without game records. Recorder details and the
+headless Rust output path are in [trace.md](trace.md).
+
 ## Per-system frame monitors, PRF-12
 
 PlayerNode registers one Godot Performance custom monitor per `soe-trace`

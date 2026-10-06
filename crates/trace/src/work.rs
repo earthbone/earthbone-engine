@@ -123,7 +123,7 @@ impl WorkRecorder {
         ACTIVE.with(|active| active.borrow().clone())
     }
 
-    fn snapshot(&self) -> WorkCounts {
+    pub(crate) fn snapshot(&self) -> WorkCounts {
         WorkCounts(std::array::from_fn(|i| self.0[i].load(Ordering::Relaxed)))
     }
 
