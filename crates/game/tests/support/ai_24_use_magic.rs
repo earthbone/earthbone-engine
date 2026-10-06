@@ -183,3 +183,12 @@ fn ai_24_use_magic_rejects_an_unusable_assigned_spell_without_spending_magicka()
     assert_eq!(game.world_mut().actor_value(id(TARGET), "health"), 100.0);
     assert_eq!(game.world_mut().actor_value(id(CASTER), "magicka"), 20.0);
 }
+
+#[test]
+fn prf_27_spell_choice_timing_wraps_an_actual_usemagic_cast() {
+    let mut game = fixture(0, 0);
+    game.tick(0.1);
+    assert_eq!(game.world_mut().actor_value(id(TARGET), "health"), 105.0);
+    assert!(game.world().ai.planning_phases["spell_choice"] > std::time::Duration::ZERO);
+    assert!(game.world().ai.planning_phases["procedure.UseMagic"] > std::time::Duration::ZERO);
+}

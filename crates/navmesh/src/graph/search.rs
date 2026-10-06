@@ -23,6 +23,7 @@ pub struct PathSearch {
     came: HashMap<NodeId, (NodeId, usize)>,
     finished: bool,
     last_work: usize,
+    last_expanded: usize,
 }
 
 impl PathSearch {
@@ -52,12 +53,18 @@ impl PathSearch {
             came: HashMap::new(),
             finished: false,
             last_work: 0,
+            last_expanded: 0,
         }
     }
 
     /// Heap entries processed by the last slice, including stale entries.
     pub fn last_work(&self) -> usize {
         self.last_work
+    }
+
+    /// Non-stale nodes expanded by the last slice, including the goal.
+    pub fn last_expanded(&self) -> usize {
+        self.last_expanded
     }
 
     /// Process at most `node_budget` heap entries and retain unfinished work.
@@ -72,6 +79,7 @@ impl PathSearch {
     pub fn advance(&mut self, graph: &NavGraph, node_budget: usize) -> Poll<Option<Path>> {
         let _span = soe_trace::Span::new("navmesh.find_path", "navmesh");
         self.last_work = 0;
+        self.last_expanded = 0;
         if self.finished || self.revision != graph.revision {
             self.finished = true;
             return Poll::Ready(None);
@@ -88,6 +96,7 @@ impl PathSearch {
             if queued > self.g[&node] {
                 continue;
             }
+            self.last_expanded += 1;
             soe_trace::count(soe_trace::Operation::PathNodes, 1);
             if node == self.to {
                 self.finished = true;

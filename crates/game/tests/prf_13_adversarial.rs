@@ -127,6 +127,24 @@ fn prf_13_synthetic_actor_script_and_quest_identities_are_distinct() {
     if isolated("prf_13_synthetic_actor_script_and_quest_identities_are_distinct") {
         return;
     }
+    if !std::env::var("SOE_PRF_13_CHILD").is_ok_and(|value| value == "1") {
+        let name = crate::common::child_test_name(
+            module_path!(),
+            "prf_13_synthetic_actor_script_and_quest_identities_are_distinct",
+        );
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name, "--nocapture"])
+            .env("SOE_PRF_13_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let _guard = PROFILE_LOCK.lock().unwrap();
     Profile::disable();
     Profile::clear();

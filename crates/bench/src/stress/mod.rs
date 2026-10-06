@@ -4,7 +4,7 @@
 //! separate resource observations follow engine-refs/godotwind's benchmarking
 //! manual. The Python runner owns process isolation, budgets and refinement.
 
-mod fixtures;
+pub(super) mod fixtures;
 
 use std::collections::HashMap;
 use std::hint::black_box;

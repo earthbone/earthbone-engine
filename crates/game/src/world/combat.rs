@@ -687,6 +687,11 @@ impl World {
         } else {
             Vec::new()
         };
+        if self.is_player(hit.attacker) {
+            self.ai
+                .metrics
+                .stimulus(hit.target, crate::ai::metrics::Stimulus::PlayerAttack);
+        }
         let aggressor = self.form_value(Some(hit.attacker), alloc);
         let source = self.form_value(Some(hit.weapon), alloc);
         let args = vec![

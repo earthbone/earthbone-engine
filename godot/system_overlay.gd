@@ -9,6 +9,7 @@ var panel: PanelContainer
 var label: Label
 var elapsed := 0.0
 var entities := false
+var ai := false
 
 
 func _ready() -> void:
@@ -37,7 +38,13 @@ func _ready() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.keycode == KEY_F5 and event.pressed and not event.echo:
+		ai = not ai
+		panel.visible = true
+		refresh()
+		get_viewport().set_input_as_handled()
 	if event is InputEventKey and event.keycode == KEY_F4 and event.pressed and not event.echo:
+		ai = false
 		entities = not entities
 		player.call("set_entity_profiling", entities)
 		panel.visible = true
@@ -46,6 +53,7 @@ func _input(event: InputEvent) -> void:
 			player.call("write_entity_profile", ProjectSettings.globalize_path("user://"))
 		get_viewport().set_input_as_handled()
 	if event is InputEventKey and event.keycode == KEY_F3 and event.pressed and not event.echo:
+		ai = false
 		panel.visible = not panel.visible
 		refresh()
 		get_viewport().set_input_as_handled()
@@ -62,6 +70,12 @@ func refresh() -> void:
 	if not is_instance_valid(player):
 		return
 	label.add_theme_font_size_override("font_size", 9 if entities and get_viewport().get_visible_rect().size.y < 400.0 else 12)
+	label.add_theme_constant_override("line_spacing", 3)
+	if ai:
+		label.add_theme_font_size_override("font_size", 9)
+		label.add_theme_constant_override("line_spacing", -3)
+		label.text = ai_text(player.call("ai_breakdown"))
+		return
 	if entities:
 		label.text = player.call("entity_profile_overlay")
 		return
@@ -72,6 +86,51 @@ func refresh() -> void:
 		var row: Dictionary = report[system]
 		text += "%s: %.3f / %.1f%% / %.3f / %.3f / %.3f\n" % [system, row.ms, row.percent, row.p50_ms, row.p99_ms, row.worst_ms]
 	label.text = text
+
+
+func ai_text(report: Dictionary) -> String:
+	var text := "F5: AI inclusive us, nested phases overlap\n"
+	for level in report.levels:
+		var row: Dictionary = report.levels[level]
+		text += "%s: %d actors, %d updates, %.1f us, interval %.3f s\n" % [level, row.actors, row.updates, row.us, row.interval_seconds]
+	text += "Procedures: "
+	var index := 0
+	for procedure in report.procedures:
+		text += "%s %.1f | " % [procedure, report.procedures[procedure].us]
+		index += 1
+		if index % 4 == 0:
+			text += "\n"
+	text += "\nDecisions: "
+	index = 0
+	for phase in ["package_selection", "schedule_evaluation", "combat_target", "combat_acquisition", "combat_style_choice", "spell_choice", "weapon_choice", "greeting_evaluation", "force_greet_evaluation", "idle_chatter_evaluation", "sandbox_markers", "steering"]:
+		text += "%s %.1f | " % [phase, report.phases[phase].us]
+		index += 1
+		if index % 3 == 0:
+			text += "\n"
+	text += "\nSTUCK (5 s): " + ", ".join(report.stuck) + "\n"
+	text += "Paths: actor requests/s replans/s expanded length latency(us) failures\n"
+	index = 0
+	for actor in report.paths:
+		var row: Dictionary = report.paths[actor]
+		var last: Dictionary = row.samples.back() if not row.samples.is_empty() else {"length": 0.0, "latency_us": 0.0}
+		text += "%s %d %d %d %.1f %.1f %d\n" % [actor, row.requests_per_second, row.replans_per_second, row.nodes_expanded, last.length, last.latency_us, row.failures]
+		index += 1
+		if index >= 3:
+			break
+	text += "Reactions: actor stimulus response latency(us)\n"
+	index = 0
+	for actor in report.reactions:
+		for stimulus in report.reactions[actor]:
+			var row: Dictionary = report.reactions[actor][stimulus]
+			if row.responses > 0 or row.pending:
+				text += "%s %s %s %.1f\n" % [actor, stimulus, "pending" if row.pending else row.response, row.last_us]
+				index += 1
+				if index >= 3:
+					break
+		if index >= 3:
+			break
+	text += "Inactive: middle/low scheduler, combat style choice, idle chatter"
+	return text
 
 
 func write_summary() -> Error:

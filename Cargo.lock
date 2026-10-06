@@ -2597,6 +2597,7 @@ dependencies = [
  "soe-esm",
  "soe-game",
  "soe-godot-host",
+ "soe-hkx",
  "soe-navmesh",
  "soe-nif",
  "soe-papyrus",

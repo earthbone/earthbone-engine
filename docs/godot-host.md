@@ -1,5 +1,23 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## AI breakdown and overlay, PRF-27
+
+`PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
+the four process levels, per-actor navigation counters and recent requests,
+reaction latencies and stuck actor FormIDs. It retains PRF-11 phase names and
+reports microseconds with counts and update intervals. Unavailable combat
+style choice, idle chatter and process scheduling have capability flags.
+No optional entity capture is required.
+
+F5 opens the existing system overlay's AI view. It displays all procedures and
+twelve decision durations, process counts and cadence, the stuck list, and up
+to three path and reaction rows. The complete tables remain available through the
+callable. F3 returns to systems, F4 returns to entity capture. The view reuses
+the existing panel and label, adding no per-reference nodes. The windowed
+`godot/prf_27_ai_overlay_test.gd` check reads the report with entity capture off,
+loads installed Bannered Mare NPCs, toggles F5, checks labels and viewport bounds,
+captures the window and quits.
+
 ## Entity host capture, PRF-13
 
 The existing system overlay uses F4 to toggle `soe_trace::Profile`, displaying
@@ -5213,3 +5231,41 @@ updates exceeded the 2,000-microsecond budget, so the check exited one.
 The full-update timing requirement remains unmet, see [performance.md](performance.md).
 The check runs a zero-time gameplay frame after load-door transitions to settle
 pending unload before exterior walking.
+
+## PRF-28 light capacity probe
+
+`godot/capacity_lights.gd` measures a baseline and a doubling ladder of
+RenderingServer omni-light RIDs. `SOE_CAPACITY_LIGHTS` selects `dynamic` or
+`shadow`, `SOE_CAPACITY_WORLD` selects `synthetic` or `whiterun`.
+`SOE_CAPACITY_START` and `SOE_CAPACITY_MAX` default to 1 and 256. Whiterun
+loads the installed radius-one WhiterunOrigin exterior through
+CellStreamerNode. The synthetic scene uses a lit plane and 64 shadow-casting
+boxes. Whiterun adds the 64 calibration boxes to its real streamed geometry,
+without the plane. Its camera and light grid use the upper end of the vertical
+bounds because buried geometry extends the minimum far below the city.
+Each Whiterun sample requires more triangles than the calibration boxes alone.
+A bounding camera keeps the light grid in view.
+
+Lights move vertically each measured frame. Both geometry and lights use
+RIDs, with zero nodes per light. The probe verifies that light pixels differ
+from the baseline. Shadow rungs also disable shadows temporarily after the
+measurement and check that the rendered image changes. The script owns and
+frees each light and instance RID, clears the streamer and quits at the end.
+
+The viewport renders at 1600 by 900, independently of the window size.
+Warm-up uses the existing render pipeline helper. Each rung measures at least
+600 frames and five seconds with the bench.gd wall-frame, GPU and render CPU
+contract. SOE_BENCH_P99_MS and SOE_BENCH_WORST_MS retain the existing defaults
+of 16.7 and 33 ms. Reports include the baseline result, renderer, adapter,
+scene counts and zero per-light nodes. `CAPACITY_RESULT` distinguishes the
+first breach from a limit not reached. A measured boundary exits zero,
+an invalid measurement exits nonzero. This is a throughput probe, not a
+passing-frame gate.
+
+The probe requires Forward+ and bounds its requested maximum by the project's
+clustered-element limit. Its 4096-pixel positional shadow atlas has four
+quadrants of 256 maps. These settings are reported with every sample.
+The headless `prf_28_capacity_test.gd` checks only ladder arithmetic.
+Sources are local Godot RenderingServer, Viewport, light/shadow and pipeline
+references, plus godotwind's benchmark manual. Stock Godot supplies the
+renderer. No second rendering dependency or new reference-node path is added.
