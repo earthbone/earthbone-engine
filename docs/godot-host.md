@@ -1536,13 +1536,39 @@ full gate passed 1,197 top-level Rust tests and eleven Python tests, with
 all optional tools present. The determinism tests also run three child
 process checks, which are excluded from that top-level count.
 
+## Tree materials and texture paths, RND-31
+
+The NIF mesh material reader normalizes texture-set and effect-shader paths
+before the host resolves them. It lowercases and changes backslashes to
+forward slashes, discards any build or data prefix before the first
+`textures/` component, and prepends `textures/` when that component is absent.
+Texture misses keep the checker fallback. The first warning for each
+mesh-and-texture pair names both paths.
+
+Materials carrying `SLSF2_Tree_Anim` use a shader material that samples the
+authored diffuse and normal textures. Its vertex stage uses the red vertex
+color as the sway weight. Its fragment stage applies `NiAlphaProperty` cutout
+thresholds, and its culling mode follows the material's double-sided flag.
+Other tree material fields continue through the ordinary NIF material path.
+Placed `TREE` records resolve their `MODL` path through the same cell model
+pipeline used by static references.
+
+The installed RND-31 survey scans NIFs visible through the install's BSA
+archives and loose data directory, checks normalized referenced paths against
+that view, reports references unavailable in that view, and verifies named
+tree roots and animated cutout, two-sided surfaces across the mesh corpus. It
+also checks that rooted animated tree surfaces and the Tundra Driftwood tree
+have resolved diffuse and normal maps. The NIF normalization follows nifly's
+`TrimTexturePaths` and its path-trimming test. Nifly's
+`Nodes.hpp` names the tree node classes. OpenMW's local NIF loader was checked
+for scene handling but does not supply Skyrim tree shader semantics.
+
 ## Materials (2026-09-17)
 
 `soe-dds` is now a `godot-host` dependency. `data_source.rs` resolves each surface's
-`MaterialDesc` into decoded textures. A NIF material's `diffuse` and `normal` fields already
-carry the full `textures\...` path (checked against the `nif` crate's own fixtures), so no
-prefix is added, only `soe_bsa`'s normal casing and separator handling, which `Vfs::read`
-already does internally. The read goes through the same `Vfs` the meshes use, so a loose file
+`MaterialDesc` into decoded textures. NIF material `diffuse` and `normal` fields carry
+normalized `textures/...` paths. `Vfs::read` handles case and separator normalization as
+well. The read goes through the same `Vfs` the meshes use, so a loose file
 in the `Data` folder overrides an archive's copy of the same texture. `load_texture` reads the
 bytes and decodes the top mip with `soe_dds::Dds::parse` and `.decode(0, 0)` to an RGBA8
 `Image`. `MaterialCache`, built once per `stream_cell_id` call and keyed on the lowercased
