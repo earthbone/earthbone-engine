@@ -94,6 +94,8 @@ fn prf_29_unwind_restores_ownership_and_failed_phase_is_retained() {
 
 #[test]
 fn prf_29_budget_log_and_dump_name_the_same_slowest_asset_and_cause() {
+    let (subscriber, logs) = soe_trace::logging::subscriber("load=info", None, |_| {}).unwrap();
+    let _subscriber = soe_trace::tracing::subscriber::set_default(subscriber);
     let operation = LoadScope::operation("prf_29_budget", "cell:budget", Duration::ZERO);
     let id = operation.id();
     {
@@ -111,6 +113,10 @@ fn prf_29_budget_log_and_dump_name_the_same_slowest_asset_and_cause() {
         "{report}"
     );
     assert!(Trace::summary_text().contains(&report));
+    let logged = logs.window(0, u64::MAX);
+    assert!(logged
+        .iter()
+        .any(|line| { line.target == "load" && line.fields.get("message") == Some(&report) }));
     let path = std::env::temp_dir().join(format!("soe-prf-29-{}.json", std::process::id()));
     Trace::export_chrome_json(&path).unwrap();
     let text = std::fs::read_to_string(&path).unwrap();

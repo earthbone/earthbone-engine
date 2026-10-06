@@ -179,6 +179,13 @@ objects and are reported separately. The installed-data
 `godot/prf_30_godot_render_report_test.gd` checks these counts against the
 streamer's created batch count and checks monitor, viewport and report fields.
 
+The report retains unmeasured render fields as `null`, with reasons in
+`render_attribution.unavailable`. These include per-stage culling, unloaded
+references, LOD switches, per-light shadow casters and per-frame material and
+mesh creation. The overlay names those unavailable fields. A null value does
+not mean zero. Resident batches and aggregate viewport figures do not supply
+these measurements, and PRF-30 remains open for their instrumentation.
+
 Monitor naming, callable arguments, nonnegative values and removal follow
 local `engine-refs/godot-docs/classes/class_performance.rst`, checked against
 the [official Performance reference](https://docs.godotengine.org/en/stable/classes/class_performance.html).

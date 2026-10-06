@@ -172,7 +172,7 @@ to chunk entry. It includes scheduling delay before a chunk starts.
 The cause vocabulary is `io_wait`, `parse`, `decode`, `cpu_build`, `gpu_upload`,
 `shader_compile`, `pipeline_compile` and `worker_queue`. Aggregate operations
 carry explicit budgets. On completion, root operations and over-budget nested
-operations print their duration, budget and largest exclusive cause phase,
+operations log their duration, budget and largest exclusive cause phase,
 including its asset and owning object. Unclassified work reports `unattributed`.
 Worker phase durations overlap the caller's wall interval and are not frame
 shares or critical-path measurements.

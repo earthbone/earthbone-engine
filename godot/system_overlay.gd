@@ -14,6 +14,18 @@ var orphan_elapsed := 0.0
 var orphan_start := -1.0
 var orphan_warning := false
 
+const UNMEASURED_RENDER_METRICS := {
+	"frustum_culled": "Godot does not expose per-stage cull counts",
+	"occlusion_culled": "Godot does not expose per-stage cull counts",
+	"visibility_range_culled": "Godot does not expose per-stage cull counts",
+	"lod_culled": "Godot does not expose per-stage cull counts",
+	"unloaded_cell_culled": "Unloaded references are not counted",
+	"lod_switches_per_second": "LOD transitions are not instrumented",
+	"shadow_casters_per_light": "Per-light caster counts are not instrumented",
+	"materials_created_per_frame": "Material creation is not counted per frame",
+	"meshes_created_per_frame": "Mesh creation is not counted per frame",
+}
+
 const MONITORS := {
 	"fps": Performance.TIME_FPS,
 	"process_ms": Performance.TIME_PROCESS,
@@ -152,6 +164,8 @@ func refresh() -> void:
 		for name in godot.render_attribution.get(kind, {}):
 			var counts: Dictionary = godot.render_attribution[kind][name]
 			text += "%s %s: %d instances / %d draw calls / %d primitives\n" % [kind, name, counts.instances, counts.draw_calls, counts.primitives]
+	if not godot.render_attribution.unavailable.is_empty():
+		text += "Render attribution unavailable: " + ", ".join(godot.render_attribution.unavailable.keys()) + "\n"
 	label.text = text
 
 
@@ -220,7 +234,14 @@ func godot_metrics() -> Dictionary:
 	values["render_gpu_ms"] = server.viewport_get_measured_render_time_gpu(rid)
 	values["frame_setup_cpu_ms"] = server.get_frame_setup_time_cpu()
 	values["orphan_growth_warning"] = orphan_warning
-	values["render_attribution"] = _render_attribution(get_tree().root)
+	var attribution := _render_attribution(get_tree().root)
+	var unavailable := {}
+	for name in UNMEASURED_RENDER_METRICS:
+		if not attribution.has(name):
+			attribution[name] = null
+			unavailable[name] = UNMEASURED_RENDER_METRICS[name]
+	attribution["unavailable"] = unavailable
+	values["render_attribution"] = attribution
 	return values
 
 

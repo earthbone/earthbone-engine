@@ -59,6 +59,12 @@ fn prf_30_installed_render_report_reconciles_cells_with_godot_objects() {
 fn prf_30_render_report_attributes_each_cull_stage_and_lod_switches() {
     let (success, output) = run_godot("prf_30_godot_render_report_test.gd");
     assert!(success, "installed render report failed: {output}");
+    let report = output
+        .lines()
+        .find_map(|line| line.strip_prefix("SOE_FRAME_REPORT "))
+        .expect("exit frame report");
+    let report: serde_json::Value = serde_json::from_str(report).expect("valid frame report JSON");
+    let attribution = &report["godot"]["render_attribution"];
     for field in [
         "frustum_culled",
         "occlusion_culled",
@@ -70,10 +76,25 @@ fn prf_30_render_report_attributes_each_cull_stage_and_lod_switches() {
         "materials_created_per_frame",
         "meshes_created_per_frame",
     ] {
-        assert!(
-            output.contains(field),
-            "render attribution omits {field}: {output}"
-        );
+        let value = attribution
+            .get(field)
+            .unwrap_or_else(|| panic!("render attribution omits {field}: {report}"));
+        if value.is_null() {
+            assert!(
+                attribution["unavailable"][field]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty()),
+                "unmeasured {field} lacks an availability reason: {report}"
+            );
+        } else {
+            assert!(
+                !attribution["unavailable"]
+                    .as_object()
+                    .expect("availability reasons")
+                    .contains_key(field),
+                "measured {field} is also marked unavailable: {report}"
+            );
+        }
     }
 }
 

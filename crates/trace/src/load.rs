@@ -239,7 +239,7 @@ impl Drop for LoadScope {
             events.push_back(event.clone());
         }
         if event.budget_ns.is_some() && (event.parent.is_none() || over_budget(&event)) {
-            eprintln!("{}", LoadTrace::operation_report(&event));
+            crate::info!(target: "load", system = "load", "{}", LoadTrace::operation_report(&event));
         }
     }
 }
