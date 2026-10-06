@@ -27,9 +27,9 @@ Combat style choice has no executing subsystem and reports zero with an
 explicit host capability flag.
 
 Navigation records each new request once. Request-to-ready wall time includes
-waiting between slices. Expanded nodes exclude stale A* heap entries, include
+waiting between slices. Expanded nodes exclude stale `A*` heap entries, include
 the goal and include unique walkable nodes in flee floods. Route length is the
-pulled polyline in game units, rather than A* cost. An absent native route is a
+pulled polyline in game units, rather than `A*` cost. An absent native route is a
 failure even when the existing off-mesh straight-line fallback is returned.
 Cached failures are not new requests. Cancellation is separate from failure,
 and subsequent new requests by the same actor count as re-plans. Session totals

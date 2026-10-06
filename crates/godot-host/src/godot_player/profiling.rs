@@ -291,6 +291,7 @@ impl PlayerNode {
     }
 
     /// Last presentation frame's physics steps, catch-up and timed queries.
+    /// Unmeasured controller, body and shape-build fields return nil.
     #[func]
     fn physics_frame_breakdown(&self) -> VarDictionary {
         let mut queries = VarDictionary::new();
@@ -318,6 +319,13 @@ impl PlayerNode {
             "active_bodies" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::PHYSICS_3D_ACTIVE_OBJECTS) as i64,
             "collision_pairs" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::PHYSICS_3D_COLLISION_PAIRS) as i64,
             "islands" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::PHYSICS_3D_ISLAND_COUNT) as i64,
+            "player_controller_us" => &Variant::nil(),
+            "npc_controller_us" => &Variant::nil(),
+            "ragdoll_bodies" => &Variant::nil(),
+            "ragdoll_us" => &Variant::nil(),
+            "dropped_item_bodies" => &Variant::nil(),
+            "dropped_item_us" => &Variant::nil(),
+            "collision_shape_build_us" => &Variant::nil(),
         };
         report.set("queries", &queries);
         report

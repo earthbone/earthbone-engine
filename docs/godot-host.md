@@ -203,7 +203,11 @@ The query timing covers wrapped host calls only. Godot's physics-frame monitor
 reports the last physics-step duration. The report does not split Jolt
 integration time among player, NPC, ragdoll or dropped-item bodies.
 Collision-shape build timing is
-not yet part of this breakdown.
+not yet measured. The breakdown retains `player_controller_us`,
+`npc_controller_us`, `ragdoll_bodies`, `ragdoll_us`, `dropped_item_bodies`,
+`dropped_item_us` and `collision_shape_build_us` as nil until their measurements
+are available. A nil value indicates an unavailable measurement, while a
+numeric zero indicates measured work with no elapsed time or bodies.
 `godot/prf_25_physics_test.gd` runs three rigid capsule bodies and 100 direct
 space rays per physics callback and checks the report's values and categories.
 
