@@ -1787,3 +1787,6 @@ mod aud_11_audio;
 
 #[path = "aud_11_adversarial.rs"]
 mod aud_11_adversarial;
+
+#[path = "scr_75_global_property.rs"]
+mod scr_75_global_property;
