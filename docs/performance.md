@@ -1530,3 +1530,16 @@ Run the check after building and importing the release extension:
 ```text
 SOE_GODOT_BIN --headless --path godot --script tst_18_frame_budget_test.gd
 ```
+
+The exterior soak found one frame of 123 to 217 ms. A story event rebuilt the
+node list by walking every winning record in the load order, about 20 ms per
+event, and a burst of events in one frame cost 150 to 260 ms. The parsed nodes
+depend only on the load order, so `World` now builds them on the first event
+and reuses them (`story_nodes` in `crates/game/src/world/story_manager.rs`).
+After the change the exterior soak has no frame over 33 ms on the installed
+data. The interior soak still misses the limit by 0.3 to 26 ms on one to
+three frames per run, on a different frame each run, while the host load
+average is 6 to 15 on 24 threads. SOE systems sum to about 4 ms of a 21 to 24
+ms interior frame, so that residue is renderer and scheduler time and not an
+engine system. Re-run the interior on an idle machine before reading it as a
+regression.
