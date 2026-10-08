@@ -22,45 +22,101 @@ pub struct ReferenceChanges {
 impl ReferenceChanges {
     /// Subscribe once to a resident reference, including its enable parents.
     pub fn watch(&mut self, world: &World, id: GlobalFormId) {
-        if !self.watched.insert(id) {
-            return;
+        if self.watch_quiet(world, id).is_some() {
+            self.queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(id);
         }
-        let _ = world.reference_enabled(id);
+    }
+
+    /// Subscribe like [`Self::watch`] without queueing the initial state, for a
+    /// host that already built that state. Returns the effective enable state
+    /// when this call subscribed, and `None` when the reference was already
+    /// watched. A later change queues the reference as usual.
+    pub fn watch_quiet(&mut self, world: &World, id: GlobalFormId) -> Option<bool> {
+        if !self.watched.insert(id) {
+            return None;
+        }
+        let enabled = world.reference_enabled(id);
         let mut state = world.reference_changes.borrow_mut();
         let observers = state.observers.entry(id).or_default();
         observers.retain(|observer| observer.strong_count() != 0);
-        observers.push(Arc::downgrade(&self.queue));
-        drop(state);
-        self.queue
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(id);
+        let mine = Arc::downgrade(&self.queue);
+        if !observers.iter().any(|observer| observer.ptr_eq(&mine)) {
+            observers.push(mine);
+        }
+        Some(enabled)
+    }
+
+    /// Whether the reference is subscribed.
+    #[must_use]
+    pub fn is_watched(&self, id: GlobalFormId) -> bool {
+        self.watched.contains(&id)
+    }
+
+    /// Stop reporting a reference that left residency. A later `watch` queues
+    /// its state again.
+    pub fn unwatch(&mut self, id: GlobalFormId) {
+        if self.watched.remove(&id) {
+            self.applied.remove(&id);
+            self.queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&id);
+        }
     }
 
     /// Return only attached references whose effective presentation changed.
     pub fn changed(&mut self, world: &World) -> Vec<GlobalFormId> {
-        let dirty = std::mem::take(
-            &mut *self
+        self.changed_until(world, None)
+    }
+
+    /// Like [`Self::changed`], but stops reading the queue once `budget` has
+    /// passed, after at least one reference. The rest stay queued for the next
+    /// call, so a burst of changes spreads over several frames.
+    pub fn changed_within(
+        &mut self,
+        world: &World,
+        budget: std::time::Duration,
+    ) -> Vec<GlobalFormId> {
+        self.changed_until(world, Some((std::time::Instant::now(), budget)))
+    }
+
+    fn changed_until(
+        &mut self,
+        world: &World,
+        limit: Option<(std::time::Instant, std::time::Duration)>,
+    ) -> Vec<GlobalFormId> {
+        let mut changed = Vec::new();
+        let mut first = true;
+        loop {
+            if !first && limit.is_some_and(|(start, budget)| start.elapsed() >= budget) {
+                break;
+            }
+            first = false;
+            let Some(id) = self
                 .queue
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        );
-        dirty
-            .into_iter()
-            .filter(|id| {
-                let current = (
-                    world.ref_placement(*id),
-                    world.destruction_model(*id),
-                    world.reference_ref(*id).is_some_and(|state| state.opened),
-                );
-                if self.applied.get(id) == Some(&current) {
-                    false
-                } else {
-                    self.applied.insert(*id, current);
-                    true
-                }
-            })
-            .collect()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .pop_first()
+            else {
+                break;
+            };
+            if !self.watched.contains(&id) {
+                continue;
+            }
+            let current = (
+                world.ref_placement(id),
+                world.destruction_model(id),
+                world.reference_ref(id).is_some_and(|state| state.opened),
+            );
+            if self.applied.get(&id) != Some(&current) {
+                self.applied.insert(id, current);
+                changed.push(id);
+            }
+        }
+        changed
     }
 }
 

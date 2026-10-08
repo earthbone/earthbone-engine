@@ -1357,9 +1357,12 @@ impl CellStreamerNode {
             return;
         }
         self.reference_index_dirty = false;
-        self.reference_changes = soe_game::world::ReferenceChanges::default();
+        // CONTEXT: Watches survive a rebuild. Resetting them re-resolved the enable
+        // state of every resident reference each time a cell streamed in, which
+        // was the largest single cost of a streaming frame. Only references that
+        // are new to the index are watched, and ones that left it are released.
+        let previous = std::mem::take(&mut self.resident_references);
         self.reference_index.clear();
-        self.resident_references.clear();
         for (instance_index, instance) in self.instances.iter().enumerate() {
             let references: Vec<_> = match &instance.table {
                 BatchTable::Triangles(members) => {
@@ -1373,11 +1376,22 @@ impl CellStreamerNode {
                     .or_default()
                     .push((instance_index, member_index));
                 self.resident_references.insert(reference, instance.cell);
-                self.reference_changes.watch(world, reference);
+                if !self.reference_changes.is_watched(reference) {
+                    self.reference_changes.watch(world, reference);
+                }
             }
         }
         for &reference in self.deferred_references.keys() {
-            self.reference_changes.watch(world, reference);
+            if !self.reference_changes.is_watched(reference) {
+                self.reference_changes.watch(world, reference);
+            }
+        }
+        for reference in previous.keys() {
+            if !self.resident_references.contains_key(reference)
+                && !self.deferred_references.contains_key(reference)
+            {
+                self.reference_changes.unwatch(*reference);
+            }
         }
         self.ref_cache
             .retain(|reference, _| self.reference_index.contains_key(reference));

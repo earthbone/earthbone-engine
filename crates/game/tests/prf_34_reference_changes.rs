@@ -247,3 +247,48 @@ fn prf_34_door_open_close_and_disable_notify_both_consumers() {
     assert_eq!(collision.changed(&world), vec![id(0x903)]);
     assert!(!world.reference_enabled(id(0x903)));
 }
+
+#[test]
+fn prf_34_unwatched_references_stay_quiet_and_watching_again_reports_them_once() {
+    let mut world = world();
+    let mut changes = attach(&world);
+    changes.unwatch(id(0x900));
+    world.set_reference_enabled(id(0x900), true);
+    // The unwatched parent is silent, its watched children still report.
+    assert_eq!(changes.changed(&world), vec![id(0x901), id(0x902)]);
+    changes.watch(&world, id(0x900));
+    changes.watch(&world, id(0x900));
+    assert_eq!(changes.changed(&world), vec![id(0x900)]);
+    world.set_reference_enabled(id(0x900), false);
+    assert_eq!(
+        changes.changed(&world),
+        vec![id(0x900), id(0x901), id(0x902)]
+    );
+}
+
+#[test]
+fn prf_34_quiet_watch_reports_the_enable_state_and_only_later_changes() {
+    let mut world = world();
+    let mut changes = ReferenceChanges::default();
+    assert_eq!(changes.watch_quiet(&world, id(0x900)), Some(false));
+    assert_eq!(changes.watch_quiet(&world, id(0x901)), Some(false));
+    assert_eq!(changes.watch_quiet(&world, id(0x903)), Some(true));
+    assert_eq!(changes.watch_quiet(&world, id(0x903)), None);
+    assert!(changes.changed(&world).is_empty());
+    world.set_reference_enabled(id(0x900), true);
+    assert_eq!(changes.changed(&world), vec![id(0x900), id(0x901)]);
+}
+
+#[test]
+fn prf_34_budgeted_changes_leave_the_rest_queued_for_the_next_call() {
+    let mut world = world();
+    let mut changes = attach(&world);
+    world.set_reference_enabled(id(0x900), true);
+    let first = changes.changed_within(&world, std::time::Duration::ZERO);
+    assert_eq!(first, vec![id(0x900)]);
+    let rest = changes.changed_within(&world, std::time::Duration::from_secs(60));
+    assert_eq!(rest, vec![id(0x901), id(0x902)]);
+    assert!(changes
+        .changed_within(&world, std::time::Duration::ZERO)
+        .is_empty());
+}

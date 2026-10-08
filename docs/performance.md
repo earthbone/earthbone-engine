@@ -29,6 +29,17 @@ the draft path's timing evidence. This is not a comparison with the user's
 interactive mod profile. The gate uses five installed masters and the fixed
 resident block, without walking across its boundary.
 
+### PRF-37 open gap, round 7 check
+
+The threaded simulation is opt-in through `SOE_THREADED_SIMULATION=1`. The
+default `start_gameplay` path, which is the one the user plays, still runs the
+game inline in `physics_process` with Godot's catch-up ticks, so a slow frame is
+followed by up to eight physics callbacks and the spiral the row describes is
+still live there. The TST-18 gate above passes only on the draft path. The
+default path is neither restructured nor measured by it, so the 2 ms main-thread
+clause cannot be read as the only open piece of PRF-37. Moving the default path
+onto the worker and measuring it with ordinary input are both still missing.
+
 ### PRF-37 installed measurement, 2026-10-06
 
 The release extension with Godot 4.4.1, windowed software Vulkan at 640 by 360,
@@ -265,10 +276,41 @@ Godot 4.4.1 at 640 by 360 on llvmpipe software Vulkan.
 | Whiterun plains | 0.559 / 2.460 | 0.212 / 1.226 | 1.142 / 3.326 |
 
 `godot/prf_34_walk_test.gd` reports per-frame phase samples and applies the
-0.2 ms sync maximum and 0.5 ms p50, 1 ms p99 host scene CPU limits. The run
-failed 257 checks. This records the after measurement and the remaining
-budget miss. The headless reference cache tests prove idle queries perform
-zero record lookups, but they do not replace the installed windowed timing.
+0.2 ms sync maximum and 0.5 ms p50, 1 ms p99 host scene CPU limits. It runs
+windowed against installed data and no cargo test starts it, so the gate does not
+cover it.
+
+Before the round 7 fixes the script reported 271 failed checks. Whiterun plains
+had reference_collision_sync worst 1.07 ms, reference_change_sync worst 0.457 ms
+and host_scene_cpu p50 0.613 ms, p99 1.363 ms. The causes were three passes
+that touched every body each time a few bodies changed:
+
+- The reference to bodies lookup was rebuilt from scratch inside the timed
+  sync. It is now rebuilt once where `collision_references` is replaced.
+- `sync_collision_state` rescanned every static and movable body whenever the
+  list grew. Bodies only join at the end, so it now resumes from a cursor and
+  visits only the new ones. A removal or rebuilt body restarts the pass.
+  Both passes stop on a 12 microsecond budget and resume next frame.
+- The placement index and collision state passes read the clock every 16 items,
+  which let a cold run of 16 overshoot. They now read it every 4.
+
+After these, three consecutive windowed runs of the script on this machine
+reported failures=1, 0 and 1. The two failing runs missed one check each, the
+reference_collision_sync worst frame on Whiterun plains at 0.20 to 0.22 ms. The
+passing run had a worst of 0.17 ms. p50 and p99 of both sync functions and of
+host_scene_cpu pass in all runs (reference_collision_sync p50 0.009 ms on the
+Bannered Mare, reference_change_sync worst 0.09 ms, host_scene_cpu p50 0.20 ms,
+p99 0.34 ms). Checkpoint timing inside the sync located the outlier frames in a
+single `watch` resolving an enable state for a cold reference, which costs about
+140 microseconds once and cannot be sliced further without deferring the
+reference's first collision.
+
+PRF-34 is partial. The timed clause is met on p50 and p99 and on one of three
+runs for the worst frame. What is missing is a worst frame under 0.2 ms on every
+run, which needs the first enable state lookup of a newly resident reference
+moved off the frame that streams its cell, or a longer-lived cache of that state.
+The 14 `game it prf_34` tests prove idle queries perform zero record lookups and
+pass, but they do not replace the installed windowed timing.
 
 ## Magic tick work, PRF-35, 2026-10-06
 
@@ -278,7 +320,9 @@ here compare `0cfd0df3` with this PRF-35 change on the same fixed route.
 They use the release extension, installed Skyrim data and windowed Godot
 4.4.1 at 640 by 360 on the private software Vulkan display. They measure
 one simulation tick per windowed sample, rather than the user's original
-session with automatic physics catch-up. Those two workloads have different
+session with automatic physics catch-up. The result is a fixed-route measurement only. It
+does not show the cost under the eight catch-up ticks per frame of the default
+path (see PRF-37). Those two workloads have different
 timing distributions.
 
 `godot/prf_35_magic_test.gd` starts the actual walkthrough in the Bannered
@@ -388,6 +432,18 @@ catch-up ticks per frame) measured 0.709 ms p50 and 1.474 ms p99 combined AI,
 still above the 0.6 and 1.2 ms limits. The fixed-step checks pass, so the
 live clause stays open until a hardware-rendered session of the user's own
 shows whether the catch-up ticks per frame drop below eight.
+
+Round 7 check, 2026-10-08. The reviewer's windowed run of
+`cargo test -p soe-godot-host --test prf_36_ai_budget` on installed data failed
+the live plains clause with 209 presentation frames, 0.690 ms p50, 2.140 ms p99
+and 8.0 simulation ticks per frame, while the fixed-step checks passed (Bannered
+Mare 0.177 ms p50 and 1.231 ms p99, plains 0.068 ms p50 and 0.317 ms p99). A
+rerun on this machine afterwards passed: live plains 236 frames, 0.172 ms p50,
+0.442 ms p99 and 2.0 ticks per frame. The two runs differ in how many catch-up
+ticks Godot ran per frame, 8 against 2, and the budget tracks that count. The
+live clause therefore passes or fails with host load, which is the PRF-37
+catch-up spiral on the default path, so PRF-36 is partial until PRF-37 removes
+the dependence. It is not a fixed-step cost problem.
 
 ## Music decode frame cost, AUD-12, 2026-10-05
 

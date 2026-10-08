@@ -11,6 +11,7 @@ use soe_physics::{BodyId, PhysicsWorld};
 use crate::streaming::{CellCoord, CellStreamer, StreamBudget, StreamConfig, StreamCost};
 use crate::units::SkyrimPos;
 
+use super::reference_collision::{track_collision_body, untrack_collision_body};
 use super::PlayerNode;
 
 pub(super) struct ExteriorRuntime {
@@ -180,7 +181,12 @@ impl PlayerNode {
             let mut bodies = Vec::new();
             for placed in cell.colliders.iter().filter(|p| p.collider.is_static()) {
                 let body = physics.add_static(&placed.collider);
-                self.collision_references.insert(body, placed.reference);
+                track_collision_body(
+                    &mut self.collision_references,
+                    &mut self.collision_bodies,
+                    body,
+                    placed.reference,
+                );
                 bodies.push(body);
             }
             exterior.cells.insert(cell.id, bodies);
@@ -189,7 +195,11 @@ impl PlayerNode {
             if let Some(bodies) = exterior.cells.remove(id) {
                 for body in bodies {
                     physics.remove(body);
-                    self.collision_references.remove(&body);
+                    untrack_collision_body(
+                        &mut self.collision_references,
+                        &mut self.collision_bodies,
+                        body,
+                    );
                 }
             }
         }

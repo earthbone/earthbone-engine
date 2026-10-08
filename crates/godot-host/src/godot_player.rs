@@ -116,6 +116,10 @@ pub struct PlayerNode {
     physics_advances_since_process: u32,
     last_physics_steps: u32,
     last_catchup_steps: u32,
+    /// Set by automatic physics ticks, cleared by the one sync per frame in `process`.
+    reference_sync_pending: bool,
+    /// Godot's `max_physics_steps_per_frame` before gameplay lowered it.
+    prior_max_physics_steps: Option<i32>,
     catchup_since: Option<std::time::Instant>,
     catchup_warning_sent: bool,
     scene_history: soe_trace::FrameHistory,
@@ -143,10 +147,19 @@ pub struct PlayerNode {
     world: Option<SimpleWorld>,
     query_collision: crate::godot_physics::CellBodies,
     collision_references: HashMap<BodyId, GlobalFormId>,
+    /// Reverse of `collision_references`, so one reference finds its bodies at once.
+    collision_bodies: HashMap<GlobalFormId, Vec<BodyId>>,
     collision_changes: soe_game::world::ReferenceChanges,
     collision_cells: BTreeSet<GlobalFormId>,
     collision_residents: BTreeMap<GlobalFormId, GlobalFormId>,
     collision_visibility: std::collections::BTreeMap<GlobalFormId, bool>,
+    /// Set when the collision world is replaced, so the next sync restarts tracking.
+    collision_reset: bool,
+    collision_pending_cells: std::collections::VecDeque<GlobalFormId>,
+    collision_removing: std::collections::VecDeque<(GlobalFormId, usize)>,
+    collision_expand_offset: usize,
+    collision_pending_watch: std::collections::VecDeque<GlobalFormId>,
+    collision_backlog: BTreeSet<GlobalFormId>,
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
@@ -261,6 +274,8 @@ impl INode3D for PlayerNode {
             physics_advances_since_process: 0,
             last_physics_steps: 0,
             last_catchup_steps: 0,
+            reference_sync_pending: false,
+            prior_max_physics_steps: None,
             catchup_since: None,
             catchup_warning_sent: false,
             scene_history: soe_trace::FrameHistory::default(),
@@ -282,10 +297,17 @@ impl INode3D for PlayerNode {
             world: None,
             query_collision: crate::godot_physics::CellBodies::default(),
             collision_references: HashMap::new(),
+            collision_bodies: HashMap::new(),
             collision_changes: soe_game::world::ReferenceChanges::default(),
             collision_cells: BTreeSet::new(),
             collision_residents: BTreeMap::new(),
             collision_visibility: std::collections::BTreeMap::new(),
+            collision_reset: true,
+            collision_pending_cells: std::collections::VecDeque::new(),
+            collision_removing: std::collections::VecDeque::new(),
+            collision_expand_offset: 0,
+            collision_pending_watch: std::collections::VecDeque::new(),
+            collision_backlog: BTreeSet::new(),
             character: None,
             data_source: None,
             game: None,
@@ -554,6 +576,7 @@ impl INode3D for PlayerNode {
     fn process(&mut self, delta: f64) {
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         self.present_simulation();
+        self.flush_reference_sync();
         self.last_physics_queries = soe_trace::physics_query_stats();
         soe_trace::reset_physics_queries();
         self.last_physics_steps = std::mem::take(&mut self.physics_ticks_since_process)
@@ -625,6 +648,7 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        self.restore_catchup_cap();
         self.simulation = None;
         self.simulation_pair = None;
         self.remove_system_monitors();
@@ -1040,7 +1064,9 @@ impl PlayerNode {
         self.melee_bodies.clear();
         self.exterior = None;
         self.collision_references = collision.references;
+        self.rebuild_collision_bodies();
         self.collision_visibility.clear();
+        self.collision_reset = true;
         self.last_activate_hit = false;
         self.last_activate_reference = None;
         self.grabbed_host = None;
