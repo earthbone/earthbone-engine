@@ -433,7 +433,7 @@ fn scripts() -> Vec<Vec<u8>> {
     vec![watch, effect]
 }
 
-fn game() -> Game {
+pub(super) fn game() -> Game {
     let bytes = test_plugin().to_bytes();
     let plugin = Plugin::parse(&bytes).unwrap();
     let mut order = LoadOrder::new();
@@ -464,7 +464,7 @@ fn type_of(v: &Value) -> &'static str {
 
 /// Call `name` on `target` through a one-off script, the way a vanilla
 /// script's `CallMethod` would, and hand back the result.
-fn call(game: &mut Game, target: &Value, name: &str, args: &[Value]) -> Value {
+pub(super) fn call(game: &mut Game, target: &Value, name: &str, args: &[Value]) -> Value {
     let n = PROBES.fetch_add(1, Ordering::SeqCst);
     let script = format!("DlcProbe{n}");
     let mut fun = FunctionBuilder::new("Run", "Var")
@@ -513,12 +513,12 @@ fn call_global(game: &mut Game, class: &str, name: &str, args: &[Value]) -> Valu
     game.vm.thread_result(thread).unwrap_or(Value::None)
 }
 
-fn obj(game: &mut Game, edid: &str) -> Value {
+pub(super) fn obj(game: &mut Game, edid: &str) -> Value {
     let id = game.form(edid).unwrap_or_else(|| panic!("no form {edid}"));
     Value::Object(game.object_of_form(id))
 }
 
-fn form(game: &Game, edid: &str) -> soe_esm::GlobalFormId {
+pub(super) fn form(game: &Game, edid: &str) -> soe_esm::GlobalFormId {
     game.form(edid).unwrap_or_else(|| panic!("no form {edid}"))
 }
 
