@@ -11,6 +11,12 @@ use soe_navmesh::{vanilla::Builder, NavGraph, NodeId};
 use super::{append_log, resolve, tick, Destination, Report, STEP_SECONDS};
 use crate::Game;
 
+/// How far outside a triangle a route sample may fall in plan view. A route
+/// that hugs a boundary edge rounds off the edge by f32 noise, about 0.015
+/// units in cell 0x984A, more than the barycentric slack of the
+/// NAVM point query allows on a triangle of that size.
+const EDGE_SLACK: f32 = 0.05;
+
 pub(super) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     a.into_iter()
         .zip(b)
@@ -120,6 +126,55 @@ fn surface(graph: &NavGraph, point: [f32; 3]) -> Result<([f32; 3], NodeId), Stri
     Ok(([point[0], point[1], z], node))
 }
 
+/// Height of the corridor surface under `point`, from the path's own
+/// triangles. A route segment that hugs a boundary edge rounds off the edge by
+/// f32 noise, so containment allows `EDGE_SLACK` in plan view. Steep cliff
+/// triangles are legal NAVM surface, so no height gap to the global nearest
+/// triangle is required, only that the point stays over the corridor.
+fn corridor_height(graph: &NavGraph, nodes: &[NodeId], point: [f32; 3]) -> Option<f32> {
+    let mut best: Option<f32> = None;
+    for node in nodes {
+        let mesh = graph.mesh(node.mesh);
+        let triangle = graph.triangle(*node);
+        let [a, b, c] = triangle
+            .vertices
+            .map(|vertex| mesh.vertices[vertex as usize]);
+        let edge = |p: [f32; 3], q: [f32; 3]| {
+            let length = (f64::from(q[0] - p[0])).hypot(f64::from(q[1] - p[1]));
+            let cross = f64::from(q[0] - p[0]) * f64::from(point[1] - p[1])
+                - f64::from(q[1] - p[1]) * f64::from(point[0] - p[0]);
+            if length > 0.0 {
+                cross / length
+            } else {
+                0.0
+            }
+        };
+        let sides = [edge(a, b), edge(b, c), edge(c, a)];
+        let slack = f64::from(EDGE_SLACK);
+        let inside =
+            sides.iter().all(|side| *side >= -slack) || sides.iter().all(|side| *side <= slack);
+        if !inside {
+            continue;
+        }
+        let ab: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
+        let ac: [f32; 3] = std::array::from_fn(|i| c[i] - a[i]);
+        let normal = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ];
+        let z = if normal[2].abs() > 1e-6 {
+            a[2] - (normal[0] * (point[0] - a[0]) + normal[1] * (point[1] - a[1])) / normal[2]
+        } else {
+            point[2]
+        };
+        if z.is_finite() && best.is_none_or(|old| (z - point[2]).abs() < (old - point[2]).abs()) {
+            best = Some(z);
+        }
+    }
+    best
+}
+
 pub(super) fn navigate(
     game: &mut Game,
     destination: &Destination,
@@ -210,14 +265,21 @@ pub(super) fn navigate(
                 break;
             }
         }
+        // A funnel segment is straight in plan view and can cut across
+        // triangles at different slopes, so its interpolated height differs
+        // from the mesh. Every sample must lie over a triangle of the path
+        // corridor (a gap, a closed door or a layered mesh fails here) and the
+        // player is placed on the mesh height.
         for fraction in [0.25, 0.5, 0.75, 1.0] {
-            let sample = std::array::from_fn(|axis| {
+            let sample: [f32; 3] = std::array::from_fn(|axis| {
                 position[axis] + (next_position[axis] - position[axis]) * fraction
             });
-            let (projected, _) = surface(&graph, sample)?;
-            if distance(sample, projected) > 0.25 {
-                return Err(format!("NAVM route contains an off-surface link: {sample:?} projects to {projected:?}, from {position:?} to {next_position:?}, path {:?}", path.points));
+            if corridor_height(&graph, &path.nodes, sample).is_none() {
+                return Err(format!("NAVM route contains an off-surface link: {sample:?} is outside the path corridor, from {position:?} to {next_position:?}, path {:?}", path.points));
             }
+        }
+        if let Some(z) = corridor_height(&graph, &path.nodes, next_position) {
+            next_position[2] = z;
         }
         {
             let mut world = game.world_mut();
