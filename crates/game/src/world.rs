@@ -363,6 +363,8 @@ pub struct ActorState {
     /// CK knowable forms whose `Known` flag is set for the player.
     pub known_forms: BTreeSet<GlobalFormId>,
     pub equipped: BTreeSet<GlobalFormId>,
+    /// Equipment forms that Papyrus `EquipItem` marked as protected from removal.
+    pub prevent_equipment_removal: BTreeSet<GlobalFormId>,
     /// Explicit weapon slots. The equipment set retains armor and spell membership.
     pub left_weapon: Option<GlobalFormId>,
     pub right_weapon: Option<GlobalFormId>,
