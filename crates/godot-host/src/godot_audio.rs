@@ -218,6 +218,7 @@ impl INode3D for SoundBank {
 
     fn process(&mut self, _delta: f64) {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
+        soe_trace::metric_set(soe_trace::Metric::AudioVoices, self.pool.busy() as u64);
         // A player that has stopped hands its slot back. Polling rather than
         // wiring the `finished` signal keeps the release in one place and
         // costs one bool per slot per frame.
@@ -593,9 +594,14 @@ impl SoundBank {
         #[cfg(not(feature = "xwma-ffmpeg"))]
         let source = SoundSource::new(vfs).with_wma_decoder(&wma);
 
+        let decode_started = std::time::Instant::now();
         let sound = source
             .read(data_path)
             .map_err(|error| format!("{data_path}: {error}"))?;
+        soe_trace::metric_add(
+            soe_trace::Metric::AudioDecodeNs,
+            decode_started.elapsed().as_nanos() as u64,
+        );
         if sound.pcm.is_empty() {
             return Err(format!("{data_path}: decoded to no samples"));
         }

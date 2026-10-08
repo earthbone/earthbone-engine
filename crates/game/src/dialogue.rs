@@ -528,6 +528,27 @@ impl Game {
         speaker: GlobalFormId,
         listener: GlobalFormId,
     ) -> Option<GlobalFormId> {
+        let started = std::time::Instant::now();
+        let result = self.eligible_ambient_topic_inner(speaker, listener);
+        let mut world = self.world.borrow_mut();
+        *world
+            .ai
+            .planning_phases
+            .entry("idle_chatter_evaluation")
+            .or_default() += started.elapsed();
+        *world
+            .ai
+            .phase_calls
+            .entry("idle_chatter_evaluation")
+            .or_default() += 1;
+        result
+    }
+
+    fn eligible_ambient_topic_inner(
+        &self,
+        speaker: GlobalFormId,
+        listener: GlobalFormId,
+    ) -> Option<GlobalFormId> {
         let session = Session {
             speaker,
             listener,
@@ -1587,6 +1608,25 @@ impl Game {
 #[cfg(test)]
 mod prf_27_tests {
     use super::*;
+
+    #[test]
+    fn prf_27_ambient_idle_chatter_evaluation_has_its_own_phase() {
+        let game = Game::new(soe_esm::LoadOrder::new());
+        let speaker = GlobalFormId {
+            file: 0,
+            object: 0x801,
+        };
+        let listener = GlobalFormId {
+            file: 0,
+            object: 0x14,
+        };
+
+        assert_eq!(game.eligible_ambient_topic(speaker, listener), None);
+        assert_eq!(game.world().ai.phase_calls["idle_chatter_evaluation"], 1);
+        assert!(
+            game.world().ai.planning_phases["idle_chatter_evaluation"] > std::time::Duration::ZERO
+        );
+    }
 
     #[test]
     fn prf_27_npc_dialogue_does_not_invent_a_player_stimulus() {

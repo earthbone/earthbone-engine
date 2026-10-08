@@ -46,13 +46,14 @@ mod exterior;
 mod footsteps;
 mod gameplay;
 mod hud;
-mod item_card;
+pub(super) mod item_card;
 mod items;
 mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
 mod profiling;
+mod quick_loot;
 mod race;
 mod reference_collision;
 mod saves;
@@ -109,6 +110,13 @@ pub struct PlayerNode {
     profile_inputs: Vec<soe_trace::InputLatency>,
     profile_applied_inputs: Vec<soe_trace::InputLatency>,
     host_history: soe_trace::FrameHistory,
+    last_physics_queries: soe_trace::PhysicsQueryStats,
+    physics_ticks_since_process: u32,
+    physics_advances_since_process: u32,
+    last_physics_steps: u32,
+    last_catchup_steps: u32,
+    catchup_since: Option<std::time::Instant>,
+    catchup_warning_sent: bool,
     budget_frame: Option<soe_trace::FrameSnapshot>,
     monitor_names: Vec<StringName>,
     /// Cell radius beyond which distant LOD replaces full resolution geometry.
@@ -171,6 +179,8 @@ pub struct PlayerNode {
     door_fade_view: Option<DoorFadeView>,
     hud_view: Option<hud::HudView>,
     item_card_view: Option<item_card::ItemCardView>,
+    quick_loot: crate::quick_loot::QuickLoot,
+    quick_loot_view: Option<crate::quick_loot::QuickLootView>,
     exterior: Option<exterior::ExteriorRuntime>,
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
@@ -231,6 +241,16 @@ impl INode3D for PlayerNode {
             profile_inputs: Vec::new(),
             profile_applied_inputs: Vec::new(),
             host_history: soe_trace::FrameHistory::default(),
+            last_physics_queries: soe_trace::PhysicsQueryStats {
+                counts: [[0; soe_trace::SYSTEM_COUNT]; 3],
+                elapsed_ns: [[0; soe_trace::SYSTEM_COUNT]; 3],
+            },
+            physics_ticks_since_process: 0,
+            physics_advances_since_process: 0,
+            last_physics_steps: 0,
+            last_catchup_steps: 0,
+            catchup_since: None,
+            catchup_warning_sent: false,
             budget_frame: None,
             monitor_names: Vec::new(),
             exterior_lod_full_res_radius: 1,
@@ -322,6 +342,8 @@ impl INode3D for PlayerNode {
             restore_mouse_on_focus: None,
             hud_view: None,
             item_card_view: None,
+            quick_loot: crate::quick_loot::QuickLoot::default(),
+            quick_loot_view: None,
         }
     }
 
@@ -384,6 +406,12 @@ impl INode3D for PlayerNode {
             });
         let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         if !self.input_focused {
+            return;
+        }
+        if self.quick_loot_input(&event) {
+            if let Some(mut viewport) = self.base().get_viewport() {
+                viewport.set_input_as_handled();
+            }
             return;
         }
         if let Ok(key) = event.clone().try_cast::<InputEventKey>() {
@@ -480,6 +508,7 @@ impl INode3D for PlayerNode {
     }
 
     fn physics_process(&mut self, delta: f64) {
+        self.physics_ticks_since_process = self.physics_ticks_since_process.saturating_add(1);
         if self.auto_step {
             self.advance(delta);
             self.profile_applied_inputs.append(&mut self.profile_inputs);
@@ -489,8 +518,31 @@ impl INode3D for PlayerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        self.last_physics_queries = soe_trace::physics_query_stats();
+        soe_trace::reset_physics_queries();
+        self.last_physics_steps = std::mem::take(&mut self.physics_ticks_since_process)
+            .max(std::mem::take(&mut self.physics_advances_since_process));
+        self.last_catchup_steps = self.last_physics_steps.saturating_sub(1);
+        if self.last_catchup_steps > 0 {
+            let since = self
+                .catchup_since
+                .get_or_insert_with(std::time::Instant::now);
+            if !self.catchup_warning_sent && since.elapsed() >= std::time::Duration::from_secs(1) {
+                godot::global::godot_warn!(
+                    "Physics catch-up steps repeated for at least one second"
+                );
+                self.catchup_warning_sent = true;
+            }
+        } else {
+            self.catchup_since = None;
+            self.catchup_warning_sent = false;
+        }
         let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         if let Some(view) = self.item_card_view.as_mut() {
+            view.tick(delta);
+        }
+        self.update_quick_loot();
+        if let Some(view) = self.quick_loot_view.as_mut() {
             view.tick(delta);
         }
         if self.menu.title() == Some("Quests") {
@@ -523,6 +575,7 @@ impl INode3D for PlayerNode {
         let sample = self.host_frame.finish();
         soe_trace::Profile::systems("host", &sample);
         self.host_history.record(sample);
+        crate::godot_profiler::publish(&self.host_history);
         self.host_frame = soe_trace::FrameSnapshot::now();
     }
 
@@ -543,6 +596,8 @@ impl INode3D for PlayerNode {
         self.actor_bodies.free();
 
         self.close_menu();
+        self.quick_loot.close();
+        self.quick_loot_view = None;
         self.menu_view = None;
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
@@ -571,6 +626,10 @@ impl PlayerNode {
     /// Emitted after closing and releasing owned content controls.
     #[signal]
     fn menu_closed();
+
+    /// Emitted before a visible transition starts so presentation can time its first drawn frame.
+    #[signal]
+    fn transition_requested(kind: GString, name: GString);
 
     /// A Game native changed the HUD cart-mode flag.
     #[signal]
@@ -952,9 +1011,11 @@ impl PlayerNode {
     #[func]
     pub fn advance(&mut self, delta: f64) {
         self.detection_time_usec = -1;
+        self.physics_advances_since_process = self.physics_advances_since_process.saturating_add(1);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Other);
         let frame = soe_trace::WorkFrame::begin();
         self.advance_measured(delta);
+        self.last_physics_queries = soe_trace::physics_query_stats();
         self.last_work_counts = frame.counts();
     }
 

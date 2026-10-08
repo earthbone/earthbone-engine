@@ -857,9 +857,35 @@ impl World {
     ) -> i32 {
         let bundle =
             self.remove_item_bundle_with_ownership(holder, item, count, target, keep_ownership);
+        self.notify_item_bundle(holder, item, target, &bundle, alloc)
+    }
+
+    pub(crate) fn notify_item_bundle(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        target: Option<GlobalFormId>,
+        bundle: &Bundle,
+        alloc: Alloc<'_>,
+    ) -> i32 {
         let moved = bundle.count();
         if moved == 0 {
             return 0;
+        }
+        if self
+            .reference(holder)
+            .is_some_and(|reference| reference.inventory.count(item) == 0)
+        {
+            if let Some(actor) = self.actor(holder) {
+                actor.equipped.remove(&item);
+                actor.prevent_equipment_removal.remove(&item);
+                if actor.left_weapon == Some(item) {
+                    actor.left_weapon = None;
+                }
+                if actor.right_weapon == Some(item) {
+                    actor.right_weapon = None;
+                }
+            }
         }
         let mut plain = moved;
         for stack in bundle.stacks() {

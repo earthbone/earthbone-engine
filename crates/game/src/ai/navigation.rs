@@ -240,6 +240,9 @@ impl Planner {
             let first = pending
                 .partition_point(|(actor, _)| self.next_actor.is_some_and(|next| **actor < next));
             pending.rotate_left(first);
+            if pending.is_empty() {
+                return;
+            }
             let entities = soe_trace::Profile::enabled().then(|| {
                 pending
                     .iter()

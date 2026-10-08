@@ -39,6 +39,8 @@ func prf_27_windowed_ai_breakdown_and_overlay() -> void:
 		check(report.procedures.has(procedure), "missing procedure " + procedure)
 	for phase in ["package_selection", "schedule_evaluation", "combat_target", "combat_style_choice", "spell_choice", "weapon_choice", "greeting_evaluation", "force_greet_evaluation", "idle_chatter_evaluation", "sandbox_markers", "steering"]:
 		check(report.phases.has(phase), "missing phase " + phase)
+	check(report.capabilities.idle_chatter, "idle chatter evaluator marked unavailable")
+	check(not report.capabilities.combat_style_choice, "unsupported combat style marked available")
 	for level in ["high", "middle_high", "middle_low", "low"]:
 		check(report.levels.has(level), "missing process level " + level)
 	check(not player.call("entity_profiling_enabled"), "breakdown enabled optional capture")

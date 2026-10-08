@@ -3,6 +3,7 @@ extends CanvasLayer
 ## PRF-12 presentation of Rust's fixed system slots. Monitor callbacks and
 ## units follow Godot's Performance documentation. Sampling reads completed
 ## frames and never uses Performance.TIME_PROCESS as a frame denominator.
+const TransitionMetrics := preload("res://transition_metrics.gd")
 
 var player: Node3D
 var panel: PanelContainer
@@ -67,6 +68,9 @@ const MONITORS := {
 	"pipeline_draw": Performance.PIPELINE_COMPILATIONS_DRAW,
 	"pipeline_specialization": Performance.PIPELINE_COMPILATIONS_SPECIALIZATION,
 }
+var frame_samples: Array[float] = []
+const FRAME_SAMPLE_LIMIT := 240
+var transition_metrics := TransitionMetrics.new()
 
 
 func _ready() -> void:
@@ -93,6 +97,7 @@ func _ready() -> void:
 		entities = player.call("entity_profiling_enabled")
 		panel.visible = entities
 		player.tree_exiting.connect(_write_on_player_exit)
+		player.transition_requested.connect(_transition_requested)
 
 
 func _input(event: InputEvent) -> void:
@@ -123,6 +128,9 @@ func _process(delta: float) -> void:
 		var current := float(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
 		_sample_orphan_count(current)
 		orphan_elapsed = 0.0
+	frame_samples.append(delta * 1000.0)
+	if frame_samples.size() > FRAME_SAMPLE_LIMIT:
+		frame_samples.pop_front()
 	elapsed += delta
 	if panel.visible and elapsed >= 0.25:
 		elapsed = 0.0
@@ -148,6 +156,7 @@ func refresh() -> void:
 		label.text = player.call("entity_profile_overlay")
 		return
 	var report: Dictionary = player.call("system_frame_breakdown")
+	var runtime: Dictionary = player.call("performance_metrics")
 	var text := "F3: Engine systems, exclusive scope ms and % of wall frame\n"
 	text += "System: last ms / frame % / rolling p50 / p99 / worst ms\n"
 	for system in report:
@@ -166,6 +175,21 @@ func refresh() -> void:
 			text += "%s %s: %d instances / %d draw calls / %d primitives\n" % [kind, name, counts.instances, counts.draw_calls, counts.primitives]
 	if not godot.render_attribution.unavailable.is_empty():
 		text += "Render attribution unavailable: " + ", ".join(godot.render_attribution.unavailable.keys()) + "\n"
+	text += "PRF-24 runtime metrics (cumulative unless gauge):\n"
+	for name: String in runtime:
+		text += "%s: %d\n" % [name, runtime[name]]
+	var pacing := frame_pacing()
+	text += "frame_ms stddev %.3f / p50 %.3f / p99 %.3f / worst %.3f\n" % [pacing.stddev_ms, pacing.p50_ms, pacing.p99_ms, pacing.worst_ms]
+	var physics: Dictionary = player.call("physics_frame_breakdown")
+	text += "Physics detail: %d steps, %d catch-up, %.3f ms per Jolt step, %d active bodies, %d pairs, %d islands\n" % [physics.steps, physics.catchup_steps, physics.jolt_step_ms, physics.active_bodies, physics.collision_pairs, physics.islands]
+	for kind in physics.queries:
+		var total_count := 0
+		var total_ms := 0.0
+		for system in physics.queries[kind]:
+			var query_row: Dictionary = physics.queries[kind][system]
+			total_count += query_row.count
+			total_ms += query_row.ms
+		text += "  %s: %d / %.3f ms\n" % [kind, total_count, total_ms]
 	label.text = text
 
 
@@ -255,12 +279,33 @@ func _render_attribution(node: Node) -> Dictionary:
 	return {}
 
 
+func frame_pacing() -> Dictionary:
+	var sorted := frame_samples.duplicate()
+	sorted.sort()
+	if sorted.is_empty():
+		return {"stddev_ms": 0.0, "p50_ms": 0.0, "p99_ms": 0.0, "worst_ms": 0.0}
+	var mean := 0.0
+	for sample in sorted:
+		mean += sample
+	mean /= sorted.size()
+	var variance := 0.0
+	for sample in sorted:
+		variance += pow(sample - mean, 2.0)
+	variance /= sorted.size()
+	return {
+		"stddev_ms": sqrt(variance),
+		"p50_ms": sorted[int((sorted.size() - 1) * 0.50)],
+		"p99_ms": sorted[int((sorted.size() - 1) * 0.99)],
+		"worst_ms": sorted[-1],
+	}
+
+
 func write_summary() -> Error:
 	if not is_instance_valid(player):
 		return ERR_UNAVAILABLE
 	if not player.call("write_entity_profile", ProjectSettings.globalize_path("user://")):
 		return ERR_CANT_CREATE
-	var summary := JSON.stringify({"systems": player.call("system_summary"), "godot": godot_metrics()})
+	var summary := JSON.stringify({"systems": player.call("system_summary"), "godot": godot_metrics(), "runtime_metrics": player.call("performance_metrics"), "frame_pacing": frame_pacing()})
 	print("SOE_FRAME_REPORT " + summary)
 	var file := FileAccess.open("user://soe-systems.txt", FileAccess.WRITE)
 	if file == null:
@@ -274,7 +319,24 @@ func _exit_tree() -> void:
 		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), false)
 
 
+func write_transition_summary() -> Error:
+	var summary: String = transition_metrics.summary_text()
+	print(summary)
+	var file := FileAccess.open("user://soe-transitions.txt", FileAccess.WRITE)
+	if file == null:
+		return FileAccess.get_open_error()
+	file.store_string(summary)
+	return file.get_error()
+
+
+func _transition_requested(kind: String, name: String) -> void:
+	transition_metrics.request(kind, name)
+
+
 func _write_on_player_exit() -> void:
 	var error := write_summary()
 	if error != OK:
 		printerr("Could not write system summary: ", error_string(error))
+	error = write_transition_summary()
+	if error != OK:
+		printerr("Could not write transition summary: ", error_string(error))

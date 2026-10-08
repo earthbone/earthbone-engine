@@ -6,7 +6,7 @@
 use godot::classes::Performance;
 use godot::prelude::*;
 use soe_game::ai::metrics::{ProcessLevel, Stimulus, DECISION_PHASES, PROCEDURE_PHASES};
-use soe_trace::System;
+use soe_trace::{Metric, System};
 
 use super::PlayerNode;
 
@@ -269,7 +269,7 @@ impl PlayerNode {
         vdict! {
             "phases" => &phases, "procedures" => &procedures, "levels" => &levels,
             "paths" => &paths, "reactions" => &reactions, "stuck" => &stuck,
-            "capabilities" => &vdict! { "process_scheduler" => false, "combat_style_choice" => false, "idle_chatter" => false },
+            "capabilities" => &vdict! { "process_scheduler" => false, "combat_style_choice" => false, "idle_chatter" => true },
         }
     }
 
@@ -284,5 +284,57 @@ impl PlayerNode {
             )
             .as_str(),
         )
+    }
+
+    /// Cumulative counters, gauges and latest values for the PRF-24 report.
+    #[func]
+    fn performance_metrics(&self) -> VarDictionary {
+        let values = soe_trace::metric_snapshot();
+        let mut report = VarDictionary::new();
+        for (index, metric) in Metric::ALL.into_iter().enumerate() {
+            report.set(metric.name(), values[index] as i64);
+        }
+        report
+    }
+
+    /// Last presentation frame's physics steps, catch-up and timed queries.
+    /// Unmeasured controller, body and shape-build fields return nil.
+    #[func]
+    fn physics_frame_breakdown(&self) -> VarDictionary {
+        let mut queries = VarDictionary::new();
+        for (name, kind) in [
+            ("raycast", soe_trace::PhysicsQueryKind::Raycast),
+            ("shape_cast", soe_trace::PhysicsQueryKind::ShapeCast),
+            ("overlap", soe_trace::PhysicsQueryKind::Overlap),
+        ] {
+            let mut by_system = VarDictionary::new();
+            for system in System::ALL {
+                by_system.set(
+                    system.name(),
+                    &vdict! {
+                        "count" => self.last_physics_queries.count(kind, system) as i64,
+                        "ms" => self.last_physics_queries.elapsed_ns(kind, system) as f64 / 1e6,
+                    },
+                );
+            }
+            queries.set(name, &by_system);
+        }
+        let mut report = vdict! {
+            "steps" => self.last_physics_steps.max(self.physics_advances_since_process) as i64,
+            "catchup_steps" => self.last_catchup_steps as i64,
+            "jolt_step_ms" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::TIME_PHYSICS_PROCESS) * 1000.0,
+            "active_bodies" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::PHYSICS_3D_ACTIVE_OBJECTS) as i64,
+            "collision_pairs" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::PHYSICS_3D_COLLISION_PAIRS) as i64,
+            "islands" => godot::classes::Performance::singleton().get_monitor(godot::classes::performance::Monitor::PHYSICS_3D_ISLAND_COUNT) as i64,
+            "player_controller_us" => &Variant::nil(),
+            "npc_controller_us" => &Variant::nil(),
+            "ragdoll_bodies" => &Variant::nil(),
+            "ragdoll_us" => &Variant::nil(),
+            "dropped_item_bodies" => &Variant::nil(),
+            "dropped_item_us" => &Variant::nil(),
+            "collision_shape_build_us" => &Variant::nil(),
+        };
+        report.set("queries", &queries);
+        report
     }
 }

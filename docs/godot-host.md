@@ -5,8 +5,9 @@
 `PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
 the four process levels, per-actor navigation counters and recent requests,
 reaction latencies and stuck actor FormIDs. It retains PRF-11 phase names and
-reports microseconds with counts and update intervals. Unavailable combat
-style choice, idle chatter and process scheduling have capability flags.
+reports microseconds with counts and update intervals. Idle chatter topic
+selection has its own measured phase. Unavailable combat style choice and
+process scheduling have capability flags.
 No optional entity capture is required.
 
 F5 opens the existing system overlay's AI view. It displays all procedures and
@@ -112,6 +113,38 @@ covers F4, an applied camera switch, presentation latency, an audio start,
 installed render submissions, summary JSON and an overlay capture. It uses
 the existing input path and the local Godot RenderingServer signal contract.
 
+## PRF-24 runtime metric publication
+
+`PlayerNode::performance_metrics` returns the stable `soe-trace` metric names
+and values for the overlay and exit summary. `SoundBank` updates the active
+voice gauge each process frame and adds time spent decoding uncached sounds.
+This does not measure event-to-first-sample latency or the Godot output
+latency. Animation evaluation phases are not connected to a live actor
+animator in this host, so their snapshot values remain zero. Path-cache
+measurements remain zero because no path cache exists.
+
+## Transition timing, PRF-26
+
+`PlayerNode` emits `transition_requested(kind, name)` before opening or closing
+the modal menu shell, dialogue activation, a load-door activation, and native
+generation save, quick-save, quick-load and full-load work. The walkthrough's
+system overlay waits for `RenderingServer.frame_post_draw` for each request,
+then records the elapsed wall time under that transition key. On player exit it
+prints and writes `user://soe-transitions.txt` with the sample count, p50 and
+worst time. These measurements include requested synchronous work and end
+after the resulting frame is drawn. Load-door timing does not include a separate
+measurement of the first input callback after resource replacement.
+The completion boundary follows local
+`engine-refs/godot-docs/classes/class_renderingserver.rst`, which defines
+`frame_post_draw` as emitted after all Viewports finish updating.
+
+`godot/prf_26_menu_transitions_test.gd` opens and closes the named modal menu
+shells in a windowed run and builds 500 label rows in each. It times its list
+construction, string filtering and sorting operations by menu and item count.
+The list workload is a synthetic scene check. It does not time each native
+presenter's record-backed list construction. Fast travel has no host transition
+entry point in this checkout, and its timing is not reported.
+
 ## Per-system frame monitors, PRF-12
 
 PRF-16's `begin_budget_frame` and `end_budget_frame` delimit one fixed-step
@@ -186,6 +219,25 @@ mesh creation. The overlay names those unavailable fields. A null value does
 not mean zero. Resident batches and aggregate viewport figures do not supply
 these measurements, and PRF-30 remains open for their instrumentation.
 
+The physics row also exposes `physics_frame_breakdown`. It reports the number
+of physics callbacks since the last presentation process callback, inferred
+catch-up steps, Godot's physics-step duration and PHYSICS_3D active body,
+collision pair and island monitors. Wrapped query counts and elapsed time are
+grouped by their active `soe-trace` system. The current host adapters wrap
+raycasts. Shape-cast and overlap categories have no instrumented host callers.
+Catch-up lasting at least one second emits one warning per continuous streak.
+The query timing covers wrapped host calls only. Godot's physics-frame monitor
+reports the last physics-step duration. The report does not split Jolt
+integration time among player, NPC, ragdoll or dropped-item bodies.
+Collision-shape build timing is
+not yet measured. The breakdown retains `player_controller_us`,
+`npc_controller_us`, `ragdoll_bodies`, `ragdoll_us`, `dropped_item_bodies`,
+`dropped_item_us` and `collision_shape_build_us` as nil until their measurements
+are available. A nil value indicates an unavailable measurement, while a
+numeric zero indicates measured work with no elapsed time or bodies.
+`godot/prf_25_physics_test.gd` runs three rigid capsule bodies and 100 direct
+space rays per physics callback and checks the report's values and categories.
+
 Monitor naming, callable arguments, nonnegative values and removal follow
 local `engine-refs/godot-docs/classes/class_performance.rst`, checked against
 the [official Performance reference](https://docs.godotengine.org/en/stable/classes/class_performance.html).
@@ -226,6 +278,19 @@ normal frame playback in Ruffle's
 PlaceObject2/3 payloads must be fully consumed by the typed reader. The breaker
 fixture for an unoccupied depth contains an extra payload byte and is rejected
 for that malformed envelope rather than its empty depth.
+
+## Engine system profiler, PRF-23
+
+The host registers a Godot `EngineProfiler` named `soe_systems` at the Scene
+initialization stage and unregisters it when the extension shuts down. When
+Godot's debugger enables it, PlayerNode sends each completed presentation
+frame as seconds for the frame followed by name and seconds pairs for all
+fourteen engine systems. `EngineProfiler` receives these payloads through
+Godot's `EngineDebugger.profiler_add_frame_data` API. The adapter and payload
+use the local Godot 4.4 `class_engineprofiler.rst` and
+`class_enginedebugger.rst` contracts. The editor acceptance script verifies
+that the extension registered the profiler. It does not inspect the editor's
+Profiler tab display.
 
 ## Scripted player input, PLY-01
 
@@ -339,6 +404,33 @@ The selected iron sword used four preview mesh nodes. Its first synchronous
 model build took 1,199.392 ms during concurrent Cargo checks, including NIF,
 texture and mesh preparation. This measures menu selection latency on that
 software-rendered run.
+
+## QuickLoot containers and corpses, UI-26
+
+The host observes the shared crosshair reference and shows an unpaused compact
+list beside it for eligible unlocked containers and dead actors. It hides the
+list during modal menus, grabs, disabled presentation and invalid targets.
+Up and Down select rows, E takes one, T takes all, R cycles the sort, Tab or
+Enter opens the full container menu, and Escape closes the list. The card uses
+the same record-backed model preview as UI-25. Rows show category glyphs and
+an ownership marker. Empty and locked targets have separate states.
+
+Game performs each take against the shared inventory and preserves owner extra
+data. API `ModifyInventory` rows can add valid named display entries, following
+the contract in QuickLootIE `include/QuickLootAPI.h`. Such presentation-only
+rows cannot bypass Game's inventory selection validation during a take.
+`soe-commonlib-shim::quick_loot` implements the source-level MIT header surface
+without importing GPL code. The host behavior follows QuickLootIE
+`src/LootMenu.cpp`, `src/LootMenuManager.cpp`, `src/LootMenu.Sorting.cpp`,
+`src/Items/ItemStack.cpp` and `include/QuickLootAPI.h`. The GPL-3.0-or-later
+notice and its modding exception remain with the host implementation.
+
+`ui_26_adversarial.rs` checks shared inventory transfers, stolen owner data,
+empty and locked states, event cancellation and API-added rows.
+`godot/ui_26_quick_loot_test.gd` checks the installed-data host scene, take,
+take-all, empty presentation, owned-row marker, item card and full-container
+handoff. This does not verify a live original-game probe, physical speaker or
+human window observation.
 
 `godot/ply_04_route_test.gd` runs a JSON route through the same PlayerNode
 queue in a windowed Godot process. The route has a `start` object with a cell
@@ -4341,6 +4433,29 @@ count, built and source triangle counts and the NIF mesh byte estimate used
 by the same residency budget as BTO blocks. The generated result is held in
 memory and is not serialized to a BTO file. Skyrim tree billboard generation
 and atlas baking are not part of this path.
+
+## LOD rebuild support, RND-16
+
+`lod_rebuild::LoadOrderHash` hashes ordered plugin names, enabled flags and
+resolved slots. `LodBuildCache` stores completed values in memory by that
+hash. A cache miss starts the supplied builder on a worker thread, and
+`LodBuildRequest::finish` publishes its complete result under the key. A
+builder can return object and terrain products together. This helper is not
+connected to `DataSource::open_loadout`, the object or terrain generators, or
+the Godot streamer, and its cache is not persisted between processes.
+
+`silhouette_error_pixels` measures the maximum edge displacement between two
+axis-aligned projected bounds. `select_far_level` chooses the coarsest level
+whose caller-supplied projected error is within its pixel limit. These helpers
+do not project meshes or measure their rendered silhouettes. The streamer
+still uses one configured level, and generated terrain LOD is not implemented
+here. Automatic load-order monitoring, terrain generation, runtime far-level
+switching and a rendered under-one-pixel silhouette survey remain unverified.
+
+The named DynDOLOD and xLODGen documentation was not present in the local
+reference corpus. The available Wrye Bash distant-LOD note explicitly covers
+Oblivion, so its format claims are not used for Skyrim. Object LOD generation
+continues to follow the local TES5Edit `Core/wbLOD.pas` source described above.
 
 ## Distant-terrain LOD residency, RND-03
 

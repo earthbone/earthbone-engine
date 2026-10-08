@@ -312,6 +312,21 @@ Capacity sweeps, enforced frame budgets and sustained workload checks are
 documented in [performance-limits.md](performance-limits.md). Historical
 measurements below remain tied to their recorded revisions.
 
+## Menu and save transitions, PRF-26
+
+The walkthrough records modal-menu open and close requests, dialogue and
+load-door activation, native generation saves, quick saves, native quick-load
+recovery and full generation loads through the first
+`RenderingServer.frame_post_draw`. Its exit summary is written to
+`user://soe-transitions.txt` with p50 and worst milliseconds. The windowed
+`godot/prf_26_menu_transitions_test.gd` exercises the named menu shells and a
+500-row list workload, with per-menu list construction, filtering and sorting
+times. The rows are synthetic labels, not timings of each record-backed
+presenter. Door and dialogue timings end at first draw, rather than measuring
+the first resumed control callback. Fast travel has no host transition entry
+point in this checkout. PRF-16 has no transition budgets until the remaining
+paths and native presenter measurements are implemented.
+
 ## Per-system frames, PRF-12
 
 `soe-trace` records fixed-slot exclusive system time with optional Chrome
@@ -343,6 +358,46 @@ also checks synthetic music and ambience requests return under 2 ms, discard a
 superseded result, preserve playing music until replacement, reuse cached paths
 and keep cache accounting within 64 MiB.
 
+## Runtime metrics, PRF-24
+
+The F3 overlay and `user://soe-systems.txt` append a PRF-24 report. The
+report includes stable fields for AI detection checks and pairs, line-of-sight
+raycasts, path-cache hits and misses, physics bodies and contacts, audio voice
+count and decode time, audio latency categories, animation phases and event
+timing, and input-to-screen latency. The overlay also samples presentation
+frame deltas in a 240-frame ring and reports standard deviation, p50, p99 and
+worst. These frame values describe intervals between Godot overlay callbacks.
+
+At this checkpoint, only detection observations, active sound voices,
+uncached audio decode time, and presentation frame pacing have live producers.
+Detection observations carry a caller-supplied visibility result and do not
+perform a raycast. There is no path cache or live behavior-graph actor
+evaluator. Physics contact counts, audio event-to-first-sample and output
+latency, animation phase timings and gameplay annotation drift, and
+input-to-screen latency remain zero pending instrumentation at those sites.
+The field presence is a report contract, not evidence those systems have been
+measured. `prf_24_metrics_report_overlay_and_summary` checks the field set,
+frame statistics, overlay and written summary.
+
+The metric set and rolling report shape follow the local
+`engine-refs/godotwind/src/core/world/performance_profiler.gd` and
+`src/tools/performance_report_contract.gd`. The engine uses atomic Rust
+metrics for simulation and audio-host values, rather than copying the
+godotwind dynamic GDScript counters.
+
+## Physics frame details, PRF-25
+
+The F3 overlay includes physics callback count, inferred catch-up callbacks,
+Godot's `TIME_PHYSICS_PROCESS` per-step time and PHYSICS_3D active-object, collision-pair
+and island monitors. A continuous catch-up streak lasting one second logs one
+warning. Wrapped host raycasts report elapsed call time and count under the
+active system. The report reserves shape-cast and overlap categories, but no
+host caller currently records those kinds. `TIME_PHYSICS_PROCESS` reports the
+last physics-step time and does not split Jolt integration among
+body classes. Per-player/NPC controller time, ragdoll and dropped-item body
+time/count, and cell-load collision-shape build time are not yet reported.
+The synthetic report scene is `godot/prf_25_physics_test.gd`.
+
 Run the declared overhead gate, which alternates recorded and suspended
 eight-tick batches in one warmed 1,000-actor travel/sandbox world, then
 asserts the median paired on/off ratio is below 1.01. A second world replays
@@ -358,6 +413,34 @@ release extension build and import, run the live monitor and overlay check:
 
 ```text
 rtk proxy "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_12_monitors_test.gd
+```
+
+## Tracy and editor profiling, PRF-23
+
+The optional `soe-trace/tracy` feature streams `Span` scopes to a running Tracy
+viewer, plots the ten `WorkCounts` metrics, and marks completed system frames.
+It is disabled by default. The client captures on demand and advertises only
+on the local host. Inspect its dependency tree with:
+
+```text
+rtk cargo tree -p soe-trace --features tracy
+```
+
+Build the Godot extension with `cargo build -p soe-godot-host --release
+--features tracy` to enable Tracy in a host run.
+
+The Godot extension registers an `EngineProfiler` named `soe_systems`.
+When enabled by the editor debugger, it receives a frame duration and
+fourteen system duration pairs in seconds for every PlayerNode presentation
+frame. The current editor script verifies registration. It does not verify
+that Godot displays the custom values in its built-in Profiler tab.
+The feature adapter test is
+`prf_23_tracy_adapter_exports_scopes_counters_and_frame_marks`. After building
+the release extension and importing the project, run the editor registration
+check:
+
+```text
+rtk proxy "$SOE_GODOT_BIN" --editor --path godot --script prf_23_profiler_test.gd
 ```
 
 ## Fixed installed-data CPU suite, PRF-16
