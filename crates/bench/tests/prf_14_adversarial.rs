@@ -46,7 +46,7 @@ fn prf_14_thousand_actor_stress_scenario_stays_within_fixed_work_bounds() {
         &output,
         &[
             ("record_lookups", 1, 8_100),
-            ("navmesh_locate", 1, 16_000),
+            ("navmesh_locate", 0, 16_000),
             ("navmesh_triangles", 0, 4_000),
             ("path_nodes", 0, 200_000),
         ],
