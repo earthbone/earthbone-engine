@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Opaque projectile payloads must not be accepted as disposable state.
+//! Transient projectile forms are counted and left out of recovery.
 
 use std::{fs, path::PathBuf};
 
@@ -149,41 +149,47 @@ fn game_with_skyrim() -> Game {
     Game::new(order)
 }
 
-fn opaque_projectile_bytes_are_refused(type_field: u8, expected: &str) {
+fn transient_projectile_is_counted_and_left_out(type_field: u8, kind: &str) {
     let directory = Directory::new();
     let store = directory.store();
     let save = recoverable_save(type_field);
     let before = save.write().unwrap();
     let mut game = game_with_skyrim();
-    let snapshot = game.save_state().unwrap();
 
-    let error =
+    let accepted =
         soe_godot_host::save_recovery::accept_vanilla_recovery_session(&mut game, &save, &store)
-            .expect_err("opaque projectile payload must not be silently dropped");
+            .expect("a transient projectile must not block recovery");
 
-    assert!(error.to_string().contains(expected), "{error}");
-    assert_eq!(game.save_state().unwrap(), snapshot);
-    assert_eq!(save.write().unwrap(), before);
-    assert_eq!(
-        fs::read_dir(directory.0.join("recovery")).unwrap().count(),
-        0
-    );
+    assert_eq!(accepted.skipped_transient.len(), 1, "{accepted:?}");
+    assert_eq!(accepted.skipped_transient.get(kind), Some(&1));
+    assert_eq!(save.write().unwrap(), before, "source save changed");
 }
 
+// CONTEXT: These three tests used to assert refusal. A refusal stopped every
+// real save that had an arrow, hazard or missile in flight, so the SAV-19 done
+// check could never reach host attachment. The omission is now counted and
+// logged, the source ESS keeps the payload, and PBEA, PFLA and PBAR still
+// refuse (see sav_61_adversarial).
 #[test]
-fn sav_19_opaque_grenade_projectile_payload_is_not_silently_discarded() {
+fn sav_19_grenade_projectile_is_counted_and_left_out() {
     // UESP/FallrimTools type 3 is PGRE. xEdit declares no decoded PGRE payload.
-    opaque_projectile_bytes_are_refused(3, "PGRE");
+    transient_projectile_is_counted_and_left_out(3, "PGRE");
 }
 
 #[test]
-fn sav_19_opaque_hazard_payload_is_not_silently_discarded() {
+fn sav_19_hazard_is_counted_and_left_out() {
     // UESP/FallrimTools type 40 is PHZD. xEdit declares no decoded PHZD payload.
-    opaque_projectile_bytes_are_refused(40, "PHZD");
+    transient_projectile_is_counted_and_left_out(40, "PHZD");
 }
 
 #[test]
-fn sav_19_opaque_arrow_payload_is_not_silently_discarded() {
+fn sav_19_arrow_is_counted_and_left_out() {
     // UESP/FallrimTools type 47 is PARW. xEdit declares no decoded PARW payload.
-    opaque_projectile_bytes_are_refused(47, "PARW");
+    transient_projectile_is_counted_and_left_out(47, "PARW");
+}
+
+#[test]
+fn sav_19_missile_is_counted_and_left_out() {
+    // UESP/FallrimTools type 2 is PMIS. xEdit declares no decoded PMIS payload.
+    transient_projectile_is_counted_and_left_out(2, "PMIS");
 }
