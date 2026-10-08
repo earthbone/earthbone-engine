@@ -619,12 +619,32 @@ and a `.txt` summary next to it), `all`. Each measurement prints as
 `soe-bench save <file.ess>` instead parses one existing Special Edition save
 and reports parse timing, file and global-table sizes, Papyrus block size and
 counts, and exact change-form bytes by plugin and record type. The plugin
-rows include created, invalid and unresolved form buckets. Papyrus script
-providers are not stored in ESS, so this report does not guess their plugin
-owners. A native SOEG file argument reports full load timing and file size.
+rows include created, invalid and unresolved form buckets. Plugin names can
+hold spaces, so a plugin is always the last field of a row.
+
+- `save_section <name> <bytes>` and `save_section_time <name> <ns>` for
+  `container` (the uncompressed header block, whose time includes inflating
+  the body), `plugin_info`, `location_table`, `form_id_array`,
+  `visited_worldspaces`, `table_1`, `table_2`, `change_forms` and `table_3`,
+  plus `papyrus_decode` and `papyrus_attribution` times. The body sections
+  tile the body, so `save_section_bytes` equals the body length and
+  `save_section_unaccounted_bytes` is 0. `save_section_load_ns` is the sum of
+  the section times. Times are from the last of the `--runs` parses.
+- `save_plugin_load <forms> <ns> <plugin>` is the decode time of each change
+  form, summed by the plugin of the form. `save_plugin_load_ns` is their sum.
+  `save_plugin_section <section> <entries> <bytes> <plugin>` splits
+  `change_forms` and `form_id_array` by plugin.
+- `save_papyrus_script <script> <instances> <bytes> <plugin>` is the variable
+  data of a script's instances, grouped by the plugin of the form each instance
+  runs on. An ESS does not record which plugin ships a script, so the owner is
+  the plugin of the form it is attached to. `save_papyrus_script_plugin
+  <instances> <bytes> <plugin>` totals the same rows, `save_papyrus_script_bytes`
+  is the grand total and `save_papyrus_unattributed_bytes` is the rest of the
+  value data, which is reference and array data.
+
+A native SOEG file argument reports full load timing and file size.
 With no file argument, `save` retains the generated native-world save and load
-measurement. Named SOEW sections and per-script byte attribution are not
-reported yet.
+measurement.
 
 ```text
 SKYRIM_DATA="<Data>" godot --path godot --script bench.gd

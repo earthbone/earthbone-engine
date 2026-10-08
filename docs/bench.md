@@ -3,12 +3,12 @@
 Commands, scenarios and timing budgets are documented in
 [performance.md](performance.md) and [performance-limits.md](performance-limits.md).
 
-PRF-21 remains open. Its six acceptance checks for section sizes and timings,
-plugin timings and Papyrus script attribution are ignored until those report
-fields are implemented. They retain their assertions and run with
-`cargo test -p soe-bench --test prf_21_adversarial --test prf_21_breaker_adversarial -- --ignored`
-when `SOE_TEST_SAVES` names the external save corpus. Active checks cover the
-supported CLI sizes, parse timing and exact change-form attribution.
+PRF-21 is covered by `soe-bench save <file.ess>` and the checks in
+`crates/bench/tests/prf_21_adversarial.rs`,
+`crates/bench/tests/prf_21_breaker_adversarial.rs` and
+`crates/save/tests/prf_21_change_form_attribution.rs`. They run when
+`SOE_TEST_SAVES` names the external save corpus and skip cleanly without it.
+The row formats are described in [performance.md](performance.md).
 
 `soe-bench profile-diff before.json after.json` reads two PRF-13 Chrome
 counter summaries without requiring installed data. It groups entity phases,

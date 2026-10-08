@@ -143,7 +143,6 @@ fn prf_21_save_command_reports_supported_sizes_and_parse_timing() {
 }
 
 #[test]
-#[ignore = "PRF-21 is open: named section sizes are not implemented, see docs/performance.md"]
 fn prf_21_save_command_reports_each_named_section_size() {
     if report().is_none() {
         return;
@@ -162,7 +161,6 @@ fn prf_21_save_command_reports_each_named_section_size() {
 }
 
 #[test]
-#[ignore = "PRF-21 is open: per-section load timings are not implemented, see docs/performance.md"]
 fn prf_21_save_command_reports_load_time_per_section() {
     if report().is_none() {
         return;
@@ -176,7 +174,6 @@ fn prf_21_save_command_reports_load_time_per_section() {
 }
 
 #[test]
-#[ignore = "PRF-21 is open: per-plugin section sizes are not implemented, see docs/performance.md"]
 fn prf_21_save_command_reports_plugin_sizes() {
     if report().is_none() {
         return;
@@ -190,7 +187,6 @@ fn prf_21_save_command_reports_plugin_sizes() {
 }
 
 #[test]
-#[ignore = "PRF-21 is open: per-plugin load timings are not implemented, see docs/performance.md"]
 fn prf_21_save_command_reports_load_time_per_plugin() {
     if report().is_none() {
         return;
@@ -204,7 +200,6 @@ fn prf_21_save_command_reports_load_time_per_plugin() {
 }
 
 #[test]
-#[ignore = "PRF-21 is open: Papyrus script attribution is not implemented, see docs/performance.md"]
 fn prf_21_save_command_attributes_papyrus_bytes_to_script_and_plugin() {
     if report().is_none() {
         return;
