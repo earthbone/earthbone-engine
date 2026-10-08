@@ -740,18 +740,19 @@ impl NavGraph {
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_nearest(point, |mi, radius| {
                 let mesh = &self.meshes[mi];
-                for ti in 0..mesh.triangles.len() {
-                    let node = NodeId::new(mi as u32, ti as u32);
-                    tested(node);
-                    if self.node_blocked(node) {
-                        continue;
-                    }
-                    let candidate = (distance(mesh.centroid(ti as u32), point), node);
-                    if best.is_none_or(|old| candidate < old) {
-                        *radius = candidate.0;
-                        best = Some(candidate);
-                    }
-                }
+                mesh.spatial
+                    .visit_nearest_with_radius(point, radius, |ti, triangle_radius| {
+                        let node = NodeId::new(mi as u32, ti as u32);
+                        tested(node);
+                        if self.node_blocked(node) {
+                            return;
+                        }
+                        let candidate = (distance(mesh.centroid(ti as u32), point), node);
+                        if best.is_none_or(|old| candidate < old) {
+                            *triangle_radius = candidate.0;
+                            best = Some(candidate);
+                        }
+                    });
             });
         best.map(|(_, n)| n)
     }
