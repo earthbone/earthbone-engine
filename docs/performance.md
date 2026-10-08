@@ -381,6 +381,14 @@ combined AI was 1.145 ms p50 and 2.568 ms p99, above the 0.6 and 1.2 ms
 limits. The PRF-36 host test therefore failed its live-walk checks. Fixed-step
 success does not establish the live presentation budget.
 
+After the PRF-11 steering scope was no longer measured twice and the per-actor
+evaluation gate stopped re-checking actors that already hold a package, the
+same ordinary-input plains walk (227 frames, 30.27 simulation seconds, eight
+catch-up ticks per frame) measured 0.709 ms p50 and 1.474 ms p99 combined AI,
+still above the 0.6 and 1.2 ms limits. The fixed-step checks pass, so the
+live clause stays open until a hardware-rendered session of the user's own
+shows whether the catch-up ticks per frame drop below eight.
+
 ## Music decode frame cost, AUD-12, 2026-10-05
 
 The installed PRF-12 walkthrough previously recorded 6,740.54 ms in the audio
