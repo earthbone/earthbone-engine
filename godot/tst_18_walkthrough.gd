@@ -139,5 +139,8 @@ func _finish(now: int) -> void:
 	var passed: bool = active and violations == 0 and row.p99_ms <= P99_MS and row.worst_ms <= WORST_MS
 	if not active:
 		printerr("TST-18 FAIL: NPC packages or navigation were inactive")
+	# CONTEXT: The per-frame print above stops at three, so the totals go here.
+	if not passed:
+		printerr("TST-18 FAIL: %s over_budget_frames=%d p99_ms=%.3f (limit %.1f) worst_ms=%.3f (limit %.1f) samples=%d" % [startup_cell, violations, row.p99_ms, P99_MS, row.worst_ms, WORST_MS, samples.size()])
 	print("RESULT: PASS" if passed else "RESULT: FAIL")
 	quit(0 if passed else 2)

@@ -355,11 +355,12 @@ impl World {
             return Ok(None);
         }
         let index = self.order.build_cell_index();
+        // CONTEXT: The frame calls this every tick, so the persistent-cell
+        // owner comes from the index and not from a walk over every winner.
         let mut world = index.grid_of(cell).map(|g| g.world).or_else(|| {
-            self.order
-                .winners_of(Tag(*b"WRLD"))
-                .find(|(id, _)| index.world_persistent_cell(*id) == Some(cell))
-                .map(|(id, _)| id)
+            index
+                .persistent_cell_world(cell)
+                .filter(|id| self.order.winner(*id).is_some_and(|r| r.tag == Tag(*b"WRLD")))
         });
         if let Some(region) = self.sky_link(cell, *b"XCCM")? {
             self.sky_record(region, *b"REGN")?;
