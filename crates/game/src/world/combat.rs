@@ -133,13 +133,27 @@ impl World {
     /// Missing actors or references.
     pub fn unequip_item(&mut self, actor: GlobalFormId, item: GlobalFormId) -> Result<(), Error> {
         self.actor(actor).ok_or(Error::Actor(actor))?;
+        if self
+            .actor_ref(actor)
+            .is_some_and(|state| state.prevent_equipment_removal.contains(&item))
+        {
+            return Ok(());
+        }
+        self.force_unequip_item(actor, item)
+    }
+
+    /// Unequip an item even when EquipItem marked it as protected.
+    pub fn force_unequip_item(
+        &mut self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+    ) -> Result<(), Error> {
+        self.actor(actor).ok_or(Error::Actor(actor))?;
         let reference = self.reference(actor).ok_or(Error::Actor(actor))?;
         reference.inventory.unequip(item);
-        self.actors
-            .get_mut(&actor)
-            .ok_or(Error::Actor(actor))?
-            .equipped
-            .remove(&item);
+        let state = self.actors.get_mut(&actor).ok_or(Error::Actor(actor))?;
+        state.equipped.remove(&item);
+        state.prevent_equipment_removal.remove(&item);
         Ok(())
     }
 
@@ -170,6 +184,12 @@ impl World {
         } else {
             Vec::new()
         };
+        if conflicts.iter().any(|equipped| {
+            self.actor_ref(actor)
+                .is_some_and(|state| state.prevent_equipment_removal.contains(equipped))
+        }) {
+            return Ok(());
+        }
         let reference = self.reference(actor).ok_or(Error::Actor(actor))?;
         if reference.inventory.count(item) == 0 {
             reference.inventory.add(item, 1)?;
@@ -687,6 +707,11 @@ impl World {
         } else {
             Vec::new()
         };
+        if self.is_player(hit.attacker) {
+            self.ai
+                .metrics
+                .stimulus(hit.target, crate::ai::metrics::Stimulus::PlayerAttack);
+        }
         let aggressor = self.form_value(Some(hit.attacker), alloc);
         let source = self.form_value(Some(hit.weapon), alloc);
         let args = vec![

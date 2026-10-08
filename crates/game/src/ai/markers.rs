@@ -3,6 +3,8 @@
 //! Frame-sliced sandbox candidate queries, using Detour's retained sliced-work
 //! contract over the existing winning cell-reference index. Matches remain FormIDs.
 
+use super::metrics::Phase;
+
 use std::collections::BTreeMap;
 use std::task::Poll;
 
@@ -96,7 +98,7 @@ impl Planner {
         let request = self.requests.entry(actor).or_insert_with(|| Request {
             goal,
             offsets: [0; 3],
-            total: super::measure_phase(world, "cell_references", |world| {
+            total: super::measure_phase(world, Phase::CellReferences, |world| {
                 let index = world.order().build_cell_index();
                 index.references(goal.cell).len() + index.deleted_references(goal.cell).len()
             }),
@@ -124,7 +126,7 @@ impl Planner {
 
 impl Request {
     fn advance(&mut self, world: &mut World, budget: usize) -> usize {
-        let references = super::measure_phase(world, "cell_references", |world| {
+        let references = super::measure_phase(world, Phase::CellReferences, |world| {
             let index = world.order().build_cell_index();
             let slices = [
                 index.persistent_references(self.goal.cell),
@@ -166,7 +168,7 @@ pub(super) fn request(
     actor: GlobalFormId,
     goal: Goal,
 ) -> Poll<Vec<GlobalFormId>> {
-    super::measure_phase(world, "sandbox_markers", |world| {
+    super::measure_phase(world, Phase::SandboxMarkers, |world| {
         let mut planner = std::mem::take(&mut world.ai.markers);
         let result = planner.request(world, actor, goal);
         world.ai.markers = planner;

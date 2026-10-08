@@ -108,6 +108,74 @@ impl Clock {
 
 thread_local! {
     static CLOCK: Clock = const { Clock::new() };
+    static PHYSICS_QUERIES: Cell<PhysicsQueryStats> = const { Cell::new(PhysicsQueryStats::zeroed()) };
+}
+
+/// Query categories exposed by the host physics breakdown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
+pub enum PhysicsQueryKind {
+    Raycast,
+    ShapeCast,
+    Overlap,
+}
+
+/// Per-kind query count and elapsed nanoseconds, charged to the active system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhysicsQueryStats {
+    pub counts: [[u64; SYSTEM_COUNT]; 3],
+    pub elapsed_ns: [[u64; SYSTEM_COUNT]; 3],
+}
+
+impl PhysicsQueryStats {
+    const fn zeroed() -> Self {
+        Self {
+            counts: [[0; SYSTEM_COUNT]; 3],
+            elapsed_ns: [[0; SYSTEM_COUNT]; 3],
+        }
+    }
+
+    /// Number of queries for one kind and requesting system.
+    #[must_use]
+    pub const fn count(self, kind: PhysicsQueryKind, system: System) -> u64 {
+        self.counts[kind as usize][system as usize]
+    }
+
+    /// Total query time in nanoseconds for one kind and requesting system.
+    #[must_use]
+    pub const fn elapsed_ns(self, kind: PhysicsQueryKind, system: System) -> u64 {
+        self.elapsed_ns[kind as usize][system as usize]
+    }
+}
+
+/// Clear query totals at a frame boundary.
+pub fn reset_physics_queries() {
+    PHYSICS_QUERIES.with(|stats| stats.set(PhysicsQueryStats::zeroed()));
+}
+
+/// Snapshot query totals collected on this thread since the last reset.
+#[must_use]
+pub fn physics_query_stats() -> PhysicsQueryStats {
+    PHYSICS_QUERIES.with(Cell::get)
+}
+
+/// Time one host physics query and charge it to the system that requested it.
+pub fn measure_physics_query<T>(kind: PhysicsQueryKind, query: impl FnOnce() -> T) -> T {
+    let system = CLOCK
+        .with(|clock| clock.system.get())
+        .unwrap_or(System::Other);
+    let started = Instant::now();
+    let result = query();
+    let elapsed = nanos(started.elapsed());
+    PHYSICS_QUERIES.with(|cell| {
+        let mut stats = cell.get();
+        stats.counts[kind as usize][system as usize] =
+            stats.counts[kind as usize][system as usize].saturating_add(1);
+        stats.elapsed_ns[kind as usize][system as usize] =
+            stats.elapsed_ns[kind as usize][system as usize].saturating_add(elapsed);
+        cell.set(stats);
+    });
+    result
 }
 
 fn nanos(duration: Duration) -> u64 {
@@ -309,6 +377,7 @@ impl FrameHistory {
     /// Append a completed frame and advance its hitch capture, if pending.
     pub fn record(&mut self, sample: FrameSample) {
         crate::hitch::frame(sample.frame_ns);
+        crate::Trace::frame_mark();
         for system in System::ALL {
             let index = system as usize;
             self.total_ns[index] = self.total_ns[index].saturating_add(sample.system_ns[index]);
@@ -449,5 +518,26 @@ mod tests {
         assert_eq!(history.frames(), 480);
         assert_eq!(history.statistics(System::Save), SystemStats::default());
         assert!(history.summary_text().contains("0.000240"));
+    }
+
+    #[test]
+    fn prf_25_physics_queries_count_time_and_charge_the_requesting_system() {
+        reset_physics_queries();
+        let _scope = SystemScope::new(System::Combat);
+        measure_physics_query(PhysicsQueryKind::Raycast, || std::hint::black_box(1));
+        measure_physics_query(PhysicsQueryKind::ShapeCast, || std::hint::black_box(2));
+        measure_physics_query(PhysicsQueryKind::Overlap, || std::hint::black_box(3));
+        let stats = physics_query_stats();
+        for kind in [
+            PhysicsQueryKind::Raycast,
+            PhysicsQueryKind::ShapeCast,
+            PhysicsQueryKind::Overlap,
+        ] {
+            assert_eq!(stats.count(kind, System::Combat), 1);
+            assert_eq!(stats.count(kind, System::Other), 0);
+        }
+        assert_eq!(stats.counts[0].iter().sum::<u64>(), 1);
+        assert_eq!(stats.counts[1].iter().sum::<u64>(), 1);
+        assert_eq!(stats.counts[2].iter().sum::<u64>(), 1);
     }
 }

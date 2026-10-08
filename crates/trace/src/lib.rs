@@ -30,8 +30,9 @@ use std::time::Instant;
 mod frame;
 mod hitch;
 pub use frame::{
-    with_timing_suspended, FrameHistory, FrameSample, FrameSnapshot, System, SystemScope,
-    SystemStats, FRAME_HISTORY, SYSTEM_COUNT,
+    measure_physics_query, physics_query_stats, reset_physics_queries, with_timing_suspended,
+    FrameHistory, FrameSample, FrameSnapshot, PhysicsQueryKind, PhysicsQueryStats, System,
+    SystemScope, SystemStats, FRAME_HISTORY, SYSTEM_COUNT,
 };
 
 mod memory;
@@ -52,6 +53,9 @@ pub use tracing::{debug, error, info, trace, warn};
 mod entity;
 pub use entity::{Entity, EntityScope, EntityStats, InputLatency, Profile};
 
+mod metrics;
+pub use metrics::{metric_add, metric_set, metric_snapshot, Metric, METRIC_COUNT};
+
 /// Events kept in the global list. Past this the oldest are dropped, so a
 /// runaway trace keeps the newest window.
 pub const MAX_EVENTS: usize = 1 << 22;
@@ -60,6 +64,21 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 static NEXT_THREAD: AtomicU64 = AtomicU64::new(1);
 static EPOCH: OnceLock<Instant> = OnceLock::new();
 static EVENTS: Mutex<Vec<Event>> = Mutex::new(Vec::new());
+
+#[cfg(all(test, feature = "tracy"))]
+static TRACY_BEGIN_COUNT: AtomicU64 = AtomicU64::new(0);
+#[cfg(all(test, feature = "tracy"))]
+static TRACY_END_COUNT: AtomicU64 = AtomicU64::new(0);
+#[cfg(all(test, feature = "tracy"))]
+static TRACY_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+#[cfg(all(test, feature = "tracy"))]
+static TRACY_PLOT_COUNT: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "tracy")]
+fn tracy_client() -> &'static tracy_client::Client {
+    static CLIENT: OnceLock<tracy_client::Client> = OnceLock::new();
+    CLIENT.get_or_init(tracy_client::Client::start)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Event {
@@ -101,6 +120,8 @@ fn thread_id() -> u64 {
 pub struct Span {
     start: Option<(Instant, Cow<'static, str>, &'static str, Option<u64>)>,
     detailed: bool,
+    #[cfg(feature = "tracy")]
+    tracy: Option<tracy_client::Span>,
 }
 
 impl Span {
@@ -114,6 +135,7 @@ impl Span {
     /// category as its name and does not build the string.
     #[must_use]
     pub fn dynamic(name: impl FnOnce() -> String, category: &'static str) -> Span {
+        #[cfg(not(feature = "tracy"))]
         if !Trace::enabled() {
             return Self::build(Cow::Borrowed(category), category, None);
         }
@@ -126,17 +148,32 @@ impl Span {
     }
 
     fn build(name: Cow<'static, str>, category: &'static str, payload: Option<u64>) -> Span {
+        #[cfg(feature = "tracy")]
+        let tracy =
+            Some(
+                tracy_client()
+                    .clone()
+                    .span_alloc(Some(&name), category, "soe-trace", 0, 0),
+            );
+        #[cfg(all(test, feature = "tracy"))]
+        if tracy.is_some() {
+            TRACY_BEGIN_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
         let detailed = Trace::enabled();
         if !detailed && frame::timing_suspended() {
             return Span {
                 start: None,
                 detailed,
+                #[cfg(feature = "tracy")]
+                tracy,
             };
         }
         let _ = epoch();
         Span {
             start: Some((Instant::now(), name, category, payload)),
             detailed,
+            #[cfg(feature = "tracy")]
+            tracy,
         }
     }
 
@@ -150,6 +187,11 @@ impl Span {
 
 impl Drop for Span {
     fn drop(&mut self) {
+        #[cfg(feature = "tracy")]
+        if self.tracy.take().is_some() {
+            #[cfg(test)]
+            TRACY_END_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
         let Some((start, name, category, payload)) = self.start.take() else {
             return;
         };
@@ -240,6 +282,26 @@ impl Trace {
         }
     }
 
+    /// Mark the end of a continuous application frame in Tracy when enabled.
+    pub fn frame_mark() {
+        #[cfg(feature = "tracy")]
+        tracy_client().frame_mark();
+        #[cfg(all(test, feature = "tracy"))]
+        TRACY_FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Plot the completed deterministic operation counts in Tracy when enabled.
+    pub fn plot_work_counts(counts: &WorkCounts) {
+        #[cfg(feature = "tracy")]
+        for operation in Operation::ALL {
+            tracy_client().plot(work_plot_name(operation), counts.get(operation) as f64);
+            #[cfg(test)]
+            TRACY_PLOT_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
+        #[cfg(not(feature = "tracy"))]
+        let _ = counts;
+    }
+
     /// Every recorded event, in start order.
     #[must_use]
     pub fn events() -> Vec<Event> {
@@ -308,6 +370,23 @@ impl Trace {
             );
         }
         out
+    }
+}
+
+#[cfg(feature = "tracy")]
+fn work_plot_name(operation: Operation) -> tracy_client::PlotName {
+    use tracy_client::plot_name;
+    match operation {
+        Operation::NavmeshLocate => plot_name!("soe.work.navmesh_locate"),
+        Operation::NavmeshTriangles => plot_name!("soe.work.navmesh_triangles"),
+        Operation::PathNodes => plot_name!("soe.work.path_nodes"),
+        Operation::PapyrusInstructions => plot_name!("soe.work.papyrus_instructions"),
+        Operation::NativeCalls => plot_name!("soe.work.native_calls"),
+        Operation::Conditions => plot_name!("soe.work.conditions"),
+        Operation::Raycasts => plot_name!("soe.work.raycasts"),
+        Operation::ShapeCasts => plot_name!("soe.work.shape_casts"),
+        Operation::RecordLookups => plot_name!("soe.work.record_lookups"),
+        Operation::RenderInstances => plot_name!("soe.work.render_instances"),
     }
 }
 
@@ -450,5 +529,31 @@ mod tests {
         assert!(Trace::summary_text().contains("slow"));
         std::fs::remove_dir_all(&dir).ok();
         Trace::clear();
+    }
+
+    #[cfg(feature = "tracy")]
+    #[test]
+    fn prf_23_tracy_adapter_exports_scopes_counters_and_frame_marks() {
+        let before_begin = TRACY_BEGIN_COUNT.load(Ordering::Relaxed);
+        let before_end = TRACY_END_COUNT.load(Ordering::Relaxed);
+        let before_frames = TRACY_FRAME_COUNT.load(Ordering::Relaxed);
+        let before_plots = TRACY_PLOT_COUNT.load(Ordering::Relaxed);
+        {
+            let span = Span::new("prf_23.adapter", "test");
+            assert!(span.tracy.is_some());
+            assert_eq!(TRACY_BEGIN_COUNT.load(Ordering::Relaxed), before_begin + 1);
+            assert_eq!(TRACY_END_COUNT.load(Ordering::Relaxed), before_end);
+            let dynamic = Span::dynamic(|| "prf_23.DynamicNative".to_owned(), "native");
+            assert!(dynamic.tracy.is_some());
+            assert_eq!(TRACY_BEGIN_COUNT.load(Ordering::Relaxed), before_begin + 2);
+        }
+        assert_eq!(TRACY_END_COUNT.load(Ordering::Relaxed), before_end + 2);
+        let frame = WorkFrame::begin();
+        count(Operation::NativeCalls, 3);
+        drop(frame);
+        assert_eq!(TRACY_PLOT_COUNT.load(Ordering::Relaxed), before_plots + 10);
+        let mut history = FrameHistory::default();
+        history.record(FrameSample::default());
+        assert_eq!(TRACY_FRAME_COUNT.load(Ordering::Relaxed), before_frames + 1);
     }
 }

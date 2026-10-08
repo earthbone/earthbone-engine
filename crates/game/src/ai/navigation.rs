@@ -5,6 +5,8 @@
 //! Rayon executes disjoint pending requests over the immutable graph, as recorded
 //! in docs/threading.md. Budget reservation and result application stay ordered.
 
+use super::metrics::Phase;
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BinaryHeap, HashSet};
 use std::task::Poll;
@@ -100,10 +102,16 @@ struct Request {
     work: Work,
     result: Poll<ResultPath>,
     frame: u64,
+    started: std::time::Instant,
+    expanded: u64,
+    failed: bool,
+    reported: bool,
+    replan: bool,
 }
 
 pub(super) struct Planner {
     requests: BTreeMap<GlobalFormId, Request>,
+    pub(super) metrics: BTreeMap<GlobalFormId, super::metrics::PathMetrics>,
     frame: u64,
     remaining: usize,
     pub(super) last_work: usize,
@@ -117,6 +125,7 @@ impl Default for Planner {
     fn default() -> Self {
         Self {
             requests: BTreeMap::new(),
+            metrics: BTreeMap::new(),
             frame: 0,
             remaining: FRAME_NODE_BUDGET,
             last_work: 0,
@@ -142,16 +151,43 @@ impl Planner {
     }
 
     pub(super) fn clear(&mut self) {
-        self.requests.clear();
+        let actors: Vec<_> = self.requests.keys().copied().collect();
+        for actor in actors {
+            self.cancel(actor);
+        }
     }
 
     pub(super) fn retain_actors(&mut self, actors: &[GlobalFormId]) {
         self.requests
             .retain(|actor, _| actors.binary_search(actor).is_ok());
+        let mut index = 0;
+        self.metrics.retain(|actor, _| {
+            while actors.get(index).is_some_and(|loaded| loaded < actor) {
+                index += 1;
+            }
+            actors.get(index) == Some(actor)
+        });
     }
 
     pub(super) fn cancel(&mut self, actor: GlobalFormId) {
-        self.requests.remove(&actor);
+        if let Some(request) = self.requests.remove(&actor) {
+            if !request.reported {
+                self.metrics
+                    .entry(actor)
+                    .or_default()
+                    .finished(request.sample(true));
+            }
+        }
+    }
+
+    fn track_ready(&mut self, actor: GlobalFormId) {
+        if let Some(request) = self.requests.get_mut(&actor) {
+            if request.result.is_ready() && !request.reported {
+                let sample = request.sample(false);
+                request.reported = true;
+                self.metrics.entry(actor).or_default().finished(sample);
+            }
+        }
     }
 
     pub(super) fn moved(&self, actor: GlobalFormId, position: [f32; 3]) -> bool {
@@ -185,8 +221,15 @@ impl Planner {
         self.last_work = 0;
         self.phases.clear();
         self.workers = PlanningWorkers::default();
-        self.requests
-            .retain(|_, request| request.revision == graph.query_revision());
+        let invalid: Vec<_> = self
+            .requests
+            .iter()
+            .filter(|(_, request)| request.revision != graph.query_revision())
+            .map(|(actor, _)| *actor)
+            .collect();
+        for actor in invalid {
+            self.cancel(actor);
+        }
         let mut pending: Vec<_> = self
             .requests
             .iter_mut()
@@ -261,6 +304,11 @@ impl Planner {
             }
             offset += count;
         }
+        drop(pending);
+        let actors: Vec<_> = self.requests.keys().copied().collect();
+        for actor in actors {
+            self.track_ready(actor);
+        }
     }
 
     fn request(
@@ -274,10 +322,15 @@ impl Planner {
         if self.requests.get(&actor).is_some_and(|r| {
             r.from != from || r.goal != goal || r.revision != graph.query_revision()
         }) {
-            self.requests.remove(&actor);
+            self.cancel(actor);
         }
         let setup_started = std::time::Instant::now();
         let request = self.requests.entry(actor).or_insert_with(|| {
+            let replan = self
+                .metrics
+                .entry(actor)
+                .or_default()
+                .started(setup_started);
             let work = match goal {
                 Goal::Point { to, .. } => Work::Route(graph.start_path_between(from, to)),
                 Goal::Flee { .. } => {
@@ -299,6 +352,11 @@ impl Planner {
                 work,
                 result: Poll::Pending,
                 frame: self.frame.wrapping_sub(1),
+                started: setup_started,
+                expanded: 0,
+                failed: false,
+                reported: false,
+                replan,
             }
         });
         *self.phases.entry("request_setup").or_default() += setup_started.elapsed();
@@ -313,6 +371,10 @@ impl Planner {
             self.last_work += used;
             request.frame = self.frame;
         }
+        self.track_ready(actor);
+        let Some(request) = self.requests.get_mut(&actor) else {
+            return Poll::Ready(None);
+        };
         if matches!(&request.result, Poll::Ready(None))
             || matches!(&request.result, Poll::Ready(Some((_, (path, _)))) if path.is_empty())
         {
@@ -349,6 +411,31 @@ fn planned(
 }
 
 impl Request {
+    fn sample(&self, cancelled: bool) -> super::metrics::PathSample {
+        let mut previous = self.from;
+        let length = if let Poll::Ready(Some((_, (points, _)))) = &self.result {
+            points
+                .iter()
+                .map(|point| {
+                    let length = distance(previous, *point);
+                    previous = *point;
+                    length
+                })
+                .sum()
+        } else {
+            0.0
+        };
+        super::metrics::PathSample {
+            started: self.started,
+            ready: std::time::Instant::now(),
+            expanded: self.expanded,
+            length,
+            failed: self.failed,
+            cancelled,
+            replan: self.replan,
+        }
+    }
+
     fn advance(
         &mut self,
         graph: &NavGraph,
@@ -368,12 +455,14 @@ impl Request {
                 let (result, used) = if let Some(search) = search {
                     let started = std::time::Instant::now();
                     let result = search.advance(graph, budget);
+                    self.expanded += search.last_expanded() as u64;
                     *phases.entry("search_advance").or_default() += started.elapsed();
                     (result, search.last_work())
                 } else {
                     (Poll::Ready(None), 1)
                 };
                 if let Poll::Ready(path) = result {
+                    self.failed = path.is_none();
                     let started = std::time::Instant::now();
                     let path = path
                         .map(|path| planned(path, cells, if fallback { None } else { cell }))
@@ -404,6 +493,7 @@ impl Request {
                             if !flee.seen.insert(node) || !graph.is_walkable(node) {
                                 continue;
                             }
+                            self.expanded += 1;
                             let point = graph.centroid(node);
                             let d = distance(point, threat);
                             if d > distance(self.from, threat) + f32::EPSILON {
@@ -417,6 +507,7 @@ impl Request {
                     }
                     if let Some(search) = &mut flee.search {
                         let result = search.advance(graph, budget - used);
+                        self.expanded += search.last_expanded() as u64;
                         used += search.last_work();
                         match result {
                             Poll::Pending => break,
@@ -434,6 +525,7 @@ impl Request {
                         flee.destination = graph.centroid(candidate.node);
                         flee.search = graph.start_path_between(self.from, flee.destination);
                     } else {
+                        self.failed = true;
                         self.result = Poll::Ready(None);
                         break;
                     }
@@ -451,7 +543,7 @@ pub(super) fn request(
     from: [f32; 3],
     goal: Goal,
 ) -> Poll<ResultPath> {
-    super::measure_phase(world, "path_requests", |world| {
+    super::measure_phase(world, Phase::PathRequests, |world| {
         super::ensure_nav_graph(world);
         let Some(graph) = &world.ai.nav else {
             return Poll::Ready(None);
@@ -1143,5 +1235,95 @@ mod tests {
                 (vec![[10.0, 400.0, 0.0]], vec![None])
             )))
         );
+    }
+    #[test]
+    fn prf_27_sliced_path_reports_ready_latency_expansions_and_polyline_length() {
+        let graph = strip();
+        let from = [10.0, 25.0, 0.0];
+        let mut planner = Planner::default();
+        assert!(planner
+            .request(&graph, &[None], actor(1), from, goal())
+            .is_pending());
+        planner.requests.get_mut(&actor(1)).unwrap().started -=
+            std::time::Duration::from_millis(20);
+        for _ in 0..100 {
+            planner.begin_frame_attributed(&graph, &[None], profile_actor);
+            if !planner.waiting(actor(1)) {
+                break;
+            }
+        }
+        let metric = &planner.metrics[&actor(1)];
+        assert_eq!(
+            metric.completed, 1,
+            "completion is reported before the actor consumes the path"
+        );
+        let sample = metric.samples.back().unwrap();
+        assert!(
+            sample.ready.duration_since(sample.started) >= std::time::Duration::from_millis(20)
+        );
+        assert!(
+            sample.expanded > REQUEST_NODE_BUDGET as u64,
+            "all slices contribute"
+        );
+        assert!(
+            (sample.length - 19980.0).abs() < 0.01,
+            "pulled route length {:?}",
+            sample.length
+        );
+        assert!(!sample.failed);
+        assert!(!sample.cancelled);
+        assert_eq!(metric.rates(std::time::Instant::now()), (1, 0));
+        assert!(planner
+            .request(&graph, &[None], actor(1), from, goal())
+            .is_ready());
+        assert_eq!(planner.metrics[&actor(1)].completed, 1);
+        assert!(planner
+            .request(&graph, &[None], actor(1), from, goal())
+            .is_pending());
+        assert_eq!(
+            planner.metrics[&actor(1)].rates(std::time::Instant::now()),
+            (2, 1)
+        );
+        planner.cancel(actor(1));
+        assert_eq!(planner.metrics[&actor(1)].cancellations, 1);
+    }
+
+    #[test]
+    fn prf_27_failed_cached_routes_and_replans_are_counted_once() {
+        let mut graph = strip();
+        graph.add_mesh_with_adjacency(
+            vec![[0.0, 200.0, 0.0], [100.0, 200.0, 0.0], [0.0, 300.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        let from = [10.0, 25.0, 0.0];
+        let goal = Goal::Point {
+            to: [10.0, 210.0, 0.0],
+            cell: None,
+            fallback: true,
+        };
+        let mut planner = Planner::default();
+        for _ in 0..5 {
+            assert!(planner
+                .request(&graph, &[None; 2], actor(1), from, goal)
+                .is_ready());
+        }
+        let metric = &planner.metrics[&actor(1)];
+        assert_eq!(metric.requests, 1);
+        assert_eq!(
+            metric.failures, 1,
+            "an empty on-mesh fallback is a failed route"
+        );
+        assert_eq!(metric.samples.len(), 1);
+        assert_eq!(metric.samples[0].length, 0.0);
+        planner.cancel(actor(1));
+        assert!(planner
+            .request(&graph, &[None; 2], actor(1), from, goal)
+            .is_ready());
+        assert_eq!(planner.metrics[&actor(1)].failures, 2);
+        assert_eq!(planner.metrics[&actor(1)].replans, 1);
+        let later = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        assert_eq!(planner.metrics[&actor(1)].rates(later), (0, 0));
+        planner.retain_actors(&[]);
+        assert!(planner.metrics.is_empty());
     }
 }

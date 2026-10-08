@@ -1,5 +1,59 @@
 # soe-game: the runtime form table and the first natives
 
+## AI measurements, PRF-27
+
+`AiWorld::metrics` counts each NPC driver visit, including early returns, and
+records its inclusive time and mean interval on the non-menu real-seconds
+clock. The four slots follow local CommonLibSSE-NG `AIProcess.h` PROCESS_TYPE
+and `ProcessLists.h` actor arrays. The current driver visits every instantiated
+NPC at high process each tick. Middle high, middle low and low remain empty.
+These headers name process levels but do not supply scheduling intervals, so
+this instrumentation does not introduce a distance-based scheduler.
+
+Procedure phases cover every current `Procedure` variant. Unsupported
+UseItemAt requests have a separate category. Immediate UseMagic branches are
+timed around their actual cast path. Package selection, schedule windows,
+combat target selection, assigned-hand spell and weapon selection, automatic
+and assigned force greets, sandbox marker/furniture searches and steering
+have named timings. Ambient idle chatter topic scans and candidate checks have
+their own phase within automatic greeting evaluation. Durations are inclusive
+and can overlap. Per-procedure
+movement time includes state lookup and procedure-tree entry, sharing the
+existing movement clock pair. Activation and immediate casts have separate
+timings. Driver phase accumulation uses enum slots and publishes the named
+table once per tick. Actor cadence and progress share one metrics lookup.
+Menu and disabled-AI frames clear frame timings and process counts.
+Combat style choice has no executing subsystem and reports zero with an
+explicit host capability flag.
+
+Navigation records each new request once. Request-to-ready wall time includes
+waiting between slices. Expanded nodes exclude stale `A*` heap entries, include
+the goal and include unique walkable nodes in flee floods. Route length is the
+pulled polyline in game units, rather than `A*` cost. An absent native route is a
+failure even when the existing off-mesh straight-line fallback is returned.
+Cached failures are not new requests. Cancellation is separate from failure,
+and subsequent new requests by the same actor count as re-plans. Session totals
+and recent completed/cancelled samples are per actor. The preceding wall-clock
+second supplies request and re-plan counts, retaining at most 4096 entries of
+each kind per actor. Unloading removes actor measurements.
+
+Accepted detection transitions against the player, player melee contacts,
+witnessed player crimes and successful player dialogue requests start reaction
+measurements. Actual combat acquisition or StartCombat, assault alarms and
+opened conversations finish compatible stimuli. Repeated outstanding stimuli
+retain the earliest timestamp. Rejected requests and eligibility probes produce
+no response sample. A stimulus without an implemented response remains pending.
+These hooks cover the existing entry points, without creating a new response.
+Automatic greetings, package actions and scene conversations use the NPC
+entry point, so they do not invent a player-dialogue stimulus.
+
+A non-arrived actor with a remaining path is stuck after five non-menu seconds
+without decreasing its remaining polyline length by more than 0.01 game units.
+Backtracking does not reset the timer. Progress, arrival, inactive actors and a
+changed destination clear it. Metrics are transient, add no save sections and
+never supply gameplay decisions. The engine-owned timing and progress contract
+is PRF-27, rather than a vanilla saved-layout claim.
+
 ## Entity runtime hooks, PRF-13
 
 Optional scopes attribute actor planning, package evaluation, driver movement
@@ -27,6 +81,15 @@ current directory when unset. Write failures are reported. This process-wide
 capture is independent of world state and adds no saved sections. The
 `prf_13_` integration tests exercise two actors, two scripts, one quest, all
 five predicate categories and installed master record ownership.
+
+## PRF-24 observation counters
+
+Successful `World::evaluate_detection` batches add their observation count to
+`detection_checks` and their actor-to-actor observation count to
+`detection_pairs` in the shared transient `soe-trace` metric snapshot. The
+observation contains a caller-supplied line-of-sight result. It does not cast a
+ray, and the metric snapshot keeps `line_of_sight_raycasts` at zero until a
+host raycast is connected to this path.
 
 ## Per-system frame timing, PRF-12
 
@@ -1488,7 +1551,7 @@ restraint, and active magic. The concrete contract differences found were:
 | Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | HasLOS accepts finite positions for references in the same cell. PathToReference returns true only for a valid speed and an already reached target. | SCR-10. |
 | Actor.IsFlying | Reports the actor's flight state. | Reads live movement flight flags or the Hover package procedure. | SCR-10. |
 | Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | GetSleepState maps the sleep procedure and sleeping flag to 0, 2 or 3. | SCR-10 and SCR-11. |
-| Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | Both arguments are ignored. No lock or message state is represented. | SCR-74 owns the lock and message behavior. |
+| Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | The actor retains protected equipped forms, rejects replacement and direct unequip for them, and queues an `Equipped <name>` notification unless silent. `UnequipAll` and `RemoveAllItems` clear the protection. Actor protection survives save/load in the `SCR-74` actor section. | The local CK `EquipItem` and `UnequipItem` pages specify the replacement, removal, and bulk-removal rules. |
 
 `Actor.GetActorValueMax` and its `GetAVMax` alias include current modifiers.
 The value path reads the shared actor-value components. `Actor.StartSneaking`
@@ -3466,6 +3529,8 @@ changed definitions keep saved VM state suspended.
 SOEW versions 21 and later retain each driven actor's package procedure
 cursor, including the owning procedure tree, branch index and active or
 finished state. Loading an engine save lets the driver continue that branch.
+The `sav_13_engine_save_resumes_saved_sequence_procedure_without_restart`
+test checks package identity, cursor restoration and continued movement.
 Vanilla ESS package state is not connected to this cursor: named Sequence and
 Stacked procedure payloads are not decoded, so a saved actor cannot yet resume
 its vanilla procedure.
@@ -3665,6 +3730,7 @@ stacked package frames use actor sections. MAG-64 pending reference bindings use
 after AI-16 script calls, to preserve their combined queue order. The source
 for this engine-owned layout is the frozen repository writer, rather than
 the external vanilla ESS references.
+SCR-74 prevented equipment removal is stored in an actor section.
 
 Legacy test fixtures measure trailing cuts with `version_tail_len` or
 `truncate_to_version` in `tests/common/save_tail.rs`, using a fresh world and

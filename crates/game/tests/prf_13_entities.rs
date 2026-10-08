@@ -35,7 +35,7 @@ fn prf_13_headless_environment_writes_a_session_on_game_drop() {
     }
     let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../target")
-        .join(format!("prf-13-headless-{}", std::process::id()));
+        .join(format!("prf-13-headless-entities-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([

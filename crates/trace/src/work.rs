@@ -177,6 +177,7 @@ impl WorkFrame {
 
 impl Drop for WorkFrame {
     fn drop(&mut self) {
+        crate::Trace::plot_work_counts(&self.counts());
         ACTIVE.with(|active| active.replace(self.previous.take()));
     }
 }

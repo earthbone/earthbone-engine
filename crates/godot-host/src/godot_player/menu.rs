@@ -516,6 +516,11 @@ impl PlayerNode {
         if !self.menu.open(&title.to_string()) {
             return false;
         }
+        self.hide_quick_loot();
+        self.base_mut().emit_signal(
+            "transition_requested",
+            &[Variant::from("menu_open"), Variant::from(title.clone())],
+        );
         self.container_menu = None;
         self.barter_menu = None;
         self.crafting_bench = None;
@@ -554,6 +559,12 @@ impl PlayerNode {
     /// Close once, discard queued gameplay presses, and restore focus and mouse mode.
     #[func]
     pub fn close_menu(&mut self) -> bool {
+        if let Some(title) = self.menu.title().map(str::to_owned) {
+            self.base_mut().emit_signal(
+                "transition_requested",
+                &[Variant::from("menu_close"), Variant::from(title.as_str())],
+            );
+        }
         let closing_dialogue = self.menu.title() == Some("Dialogue");
         let closing_gift = self
             .menu
@@ -843,6 +854,13 @@ impl PlayerNode {
             return false;
         }
         let speaker = GlobalFormId { file, object };
+        self.base_mut().emit_signal(
+            "transition_requested",
+            &[
+                Variant::from("dialogue_activation"),
+                Variant::from("topics"),
+            ],
+        );
         let Some(game) = self.game.as_mut() else {
             return false;
         };

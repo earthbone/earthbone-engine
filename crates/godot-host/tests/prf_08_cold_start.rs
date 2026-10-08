@@ -50,6 +50,7 @@ fn prf_08_loading_reporting_and_repetition_contracts_in_stock_godot() {
         "prf_08_test.gd",
         "bench.gd",
         "system_overlay.gd",
+        "transition_metrics.gd",
         "walkthrough.gd",
         "record_sky.gd",
         "record_sky.gdshader",

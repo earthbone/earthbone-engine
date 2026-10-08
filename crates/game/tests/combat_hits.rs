@@ -1436,3 +1436,21 @@ fn cmb_05_block_reduction_uses_record_backed_multipliers_and_survives_save_load(
     close(reblocked.block_reduction, 0.48);
     close(reblocked.health_damage, 7.8);
 }
+
+#[test]
+fn prf_27_accepted_player_attack_starts_latency_and_rejected_hit_does_not() {
+    let mut game = fixture(Vec::new());
+    let kind = soe_game::ai::metrics::Stimulus::PlayerAttack as usize;
+    let mut invalid = hit(0x14, 0x901);
+    invalid.weapon = id(0xFFFF);
+    assert!(game.melee_hit(invalid).is_err());
+    assert!(!game.world().ai.metrics.actors.contains_key(&id(0x901)));
+    game.melee_hit(hit(0x14, 0x901)).unwrap();
+    let world = game.world();
+    let metric = &world.ai.metrics.actors[&id(0x901)].reactions[kind];
+    assert!(metric.pending.is_some());
+    assert_eq!(
+        metric.responses, 0,
+        "a contact is not a combat-start response"
+    );
+}

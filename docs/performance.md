@@ -61,6 +61,45 @@ The host check records and replays 600 steps twice, checks eleven hashes and
 complete event logs, and quits. This is a simulation correctness check.
 Rendering frame comparisons continue to use the windowed bench.gd workflow.
 
+## Permanent AI breakdown, PRF-27
+
+F6 in the walkthrough shows the always-on AI breakdown from
+`PlayerNode::ai_breakdown`, retaining the diagnostic phases formerly used only
+by the PRF-11 planning script. The headless data lives on `AiWorld` and is
+independent of optional trace/entity capture. Procedure and decision durations
+are inclusive, path latency uses wall time, process cadence and the five-second
+stuck threshold use the non-menu world clock. See [game.md](game.md) for the
+measured boundaries, bounded history and currently inactive categories.
+
+The `prf_27_` Rust tests exercise permanent phases, procedure categories,
+request slicing, expansion counts, failures, cached results, cancellations,
+re-plans, reaction pairing, stuck progress and process counts. The installed
+Bannered Mare case is gated on SKYRIM_DATA. The ignored release test
+`prf_27_retains_prf_12_accumulator_budget` applies PRF-12's existing median
+on/off threshold of 1.01 and checks identical actor positions. That calibration
+suspends system timing only. It does not isolate the new always-on AI
+measurements from a pre-change binary.
+
+The separate `prf_27_combined_measurements_stay_under_one_percent` release-probe
+comparison uses the same 1,000-actor fixture, ten warmup ticks and 240 measured
+ticks. The pre-change baseline uses `c3e2d1de` with system timing suspended.
+The current probe keeps system timing and AI measurements on. Both disable
+optional entity capture and tracing. Fifteen alternating process pairs must
+have equal final-position checksums and a median current/baseline ratio below
+1.01, fixed before the first comparison. The probe source is
+`crates/game/examples/prf_27_probe.rs`, copied into the baseline source snapshot
+before building it. Its `suspended` argument disables system timing.
+
+```text
+rtk cargo build -p soe-game --release --example prf_27_probe
+rtk cargo test -p soe-game --test it prf_27_combined_measurements_stay_under_one_percent -- --ignored --nocapture
+```
+
+The comparison takes executable paths through SOE_PRF_27_BASELINE and
+SOE_PRF_27_CURRENT. Keep both compiled probes outside Cargo's shared public
+example filename and verify that the current binary contains the new procedure
+slots. Run timing tests after all local builds and Godot checks have exited.
+
 ## Entity capture workflow, PRF-13
 
 The ignored release check `prf_13_disabled_capture_retains_prf_12_frame_budget`
@@ -100,6 +139,21 @@ Capacity sweeps, enforced frame budgets and sustained workload checks are
 documented in [performance-limits.md](performance-limits.md). Historical
 measurements below remain tied to their recorded revisions.
 
+## Menu and save transitions, PRF-26
+
+The walkthrough records modal-menu open and close requests, dialogue and
+load-door activation, native generation saves, quick saves, native quick-load
+recovery and full generation loads through the first
+`RenderingServer.frame_post_draw`. Its exit summary is written to
+`user://soe-transitions.txt` with p50 and worst milliseconds. The windowed
+`godot/prf_26_menu_transitions_test.gd` exercises the named menu shells and a
+500-row list workload, with per-menu list construction, filtering and sorting
+times. The rows are synthetic labels, not timings of each record-backed
+presenter. Door and dialogue timings end at first draw, rather than measuring
+the first resumed control callback. Fast travel has no host transition entry
+point in this checkout. PRF-16 has no transition budgets until the remaining
+paths and native presenter measurements are implemented.
+
 ## Per-system frames, PRF-12
 
 PRF-20 cell cost reports, texture inventories, plugin record bodies and counting
@@ -137,6 +191,46 @@ distribution across repeated launches. `aud_12_music_and_ambience_requests_do_no
 also checks synthetic music and ambience requests return under 2 ms, discard a
 superseded result, preserve playing music until replacement, reuse cached paths
 and keep cache accounting within 64 MiB.
+
+## Runtime metrics, PRF-24
+
+The F3 overlay and `user://soe-systems.txt` append a PRF-24 report. The
+report includes stable fields for AI detection checks and pairs, line-of-sight
+raycasts, path-cache hits and misses, physics bodies and contacts, audio voice
+count and decode time, audio latency categories, animation phases and event
+timing, and input-to-screen latency. The overlay also samples presentation
+frame deltas in a 240-frame ring and reports standard deviation, p50, p99 and
+worst. These frame values describe intervals between Godot overlay callbacks.
+
+At this checkpoint, only detection observations, active sound voices,
+uncached audio decode time, and presentation frame pacing have live producers.
+Detection observations carry a caller-supplied visibility result and do not
+perform a raycast. There is no path cache or live behavior-graph actor
+evaluator. Physics contact counts, audio event-to-first-sample and output
+latency, animation phase timings and gameplay annotation drift, and
+input-to-screen latency remain zero pending instrumentation at those sites.
+The field presence is a report contract, not evidence those systems have been
+measured. `prf_24_metrics_report_overlay_and_summary` checks the field set,
+frame statistics, overlay and written summary.
+
+The metric set and rolling report shape follow the local
+`engine-refs/godotwind/src/core/world/performance_profiler.gd` and
+`src/tools/performance_report_contract.gd`. The engine uses atomic Rust
+metrics for simulation and audio-host values, rather than copying the
+godotwind dynamic GDScript counters.
+
+## Physics frame details, PRF-25
+
+The F3 overlay includes physics callback count, inferred catch-up callbacks,
+Godot's `TIME_PHYSICS_PROCESS` per-step time and PHYSICS_3D active-object, collision-pair
+and island monitors. A continuous catch-up streak lasting one second logs one
+warning. Wrapped host raycasts report elapsed call time and count under the
+active system. The report reserves shape-cast and overlap categories, but no
+host caller currently records those kinds. `TIME_PHYSICS_PROCESS` reports the
+last physics-step time and does not split Jolt integration among
+body classes. Per-player/NPC controller time, ragdoll and dropped-item body
+time/count, and cell-load collision-shape build time are not yet reported.
+The synthetic report scene is `godot/prf_25_physics_test.gd`.
 
 Run the declared overhead gate, which alternates recorded and suspended
 eight-tick batches in one warmed 1,000-actor travel/sandbox world, then
@@ -199,6 +293,34 @@ Both dumps retained the five-second preceding window and one-second tail,
 contained counter events, matched the slowest-span summary and reported zero
 overwritten events. Both processes exited zero. These are recorder
 correctness checks.
+
+## Tracy and editor profiling, PRF-23
+
+The optional `soe-trace/tracy` feature streams `Span` scopes to a running Tracy
+viewer, plots the ten `WorkCounts` metrics, and marks completed system frames.
+It is disabled by default. The client captures on demand and advertises only
+on the local host. Inspect its dependency tree with:
+
+```text
+rtk cargo tree -p soe-trace --features tracy
+```
+
+Build the Godot extension with `cargo build -p soe-godot-host --release
+--features tracy` to enable Tracy in a host run.
+
+The Godot extension registers an `EngineProfiler` named `soe_systems`.
+When enabled by the editor debugger, it receives a frame duration and
+fourteen system duration pairs in seconds for every PlayerNode presentation
+frame. The current editor script verifies registration. It does not verify
+that Godot displays the custom values in its built-in Profiler tab.
+The feature adapter test is
+`prf_23_tracy_adapter_exports_scopes_counters_and_frame_marks`. After building
+the release extension and importing the project, run the editor registration
+check:
+
+```text
+rtk proxy "$SOE_GODOT_BIN" --editor --path godot --script prf_23_profiler_test.gd
+```
 
 ## Fixed installed-data CPU suite, PRF-16
 
