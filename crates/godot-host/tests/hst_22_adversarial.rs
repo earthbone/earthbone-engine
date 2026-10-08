@@ -41,13 +41,10 @@ fn hst_22_ck_motion_overrides_keep_dynamic_codes_simulated() {
 
 #[test]
 fn hst_22_installed_tankard_hold_collision_drop_and_tap_scenario() {
-    let data = std::env::var_os("SKYRIM_DATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(
-                "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
-            )
-        });
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("SKYRIM_DATA unset, skipping HST-22 installed scenario");
+        return;
+    };
     assert!(
         data.is_dir(),
         "installed Skyrim data is required: {}",

@@ -11,9 +11,10 @@ use soe_godot_host::data_source::DataSource;
 
 #[test]
 fn hst_22_installed_tankard_carries_collides_drops_and_activates_on_tap() {
-    let data = std::env::var_os("SKYRIM_DATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data"));
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("SKYRIM_DATA unset, skipping HST-22 installed breaker scenario");
+        return;
+    };
     assert!(
         data.is_dir(),
         "installed Skyrim data is required: {}",
