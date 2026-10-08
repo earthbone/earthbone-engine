@@ -12,8 +12,20 @@ use std::time::Instant;
 
 impl Vm {
     pub(super) fn step_thread(&mut self, t: usize, slice: usize) -> usize {
+        self.step_thread_before(t, slice, None)
+    }
+
+    pub(super) fn step_thread_before(
+        &mut self,
+        t: usize,
+        slice: usize,
+        deadline: Option<Instant>,
+    ) -> usize {
         let mut n = 0;
         while n < slice && self.threads[t].state == ThreadState::Runnable {
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                break;
+            }
             let Some(frame) = self.threads[t].frames.last_mut() else {
                 self.threads[t].state = ThreadState::Done;
                 break;

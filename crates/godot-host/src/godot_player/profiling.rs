@@ -206,6 +206,18 @@ impl PlayerNode {
         {
             report.set(&key, &value);
         }
+        let total = self.host_history.engine_statistics();
+        let last = self.host_history.last();
+        report.set(
+            "main_thread_engine",
+            &vdict! {
+                "ms" => last.engine_ns() as f64 / 1e6,
+                "percent" => last.engine_ns() as f64 * 100.0 / last.frame_ns.max(1) as f64,
+                "p50_ms" => total.p50_ns as f64 / 1e6,
+                "p99_ms" => total.p99_ns as f64 / 1e6,
+                "worst_ms" => total.worst_ns as f64 / 1e6,
+            },
+        );
         report
     }
 
@@ -312,6 +324,16 @@ impl PlayerNode {
         summary.push_str(&crate::scene_timing::summary(&self.scene_history));
         if let Some(game) = &self.game {
             summary.push_str(&game.magic_frame_history().summary_text());
+        }
+        if let Some(pair) = &self.simulation_pair {
+            use std::fmt::Write as _;
+            let _ = writeln!(
+                summary,
+                "simulation_tick_ms {:.6} worker_ms {:.6} behind_seconds {:.6}",
+                pair.current.systems.frame_ns as f64 / 1e6,
+                pair.current.worker_time.as_secs_f64() * 1000.0,
+                pair.lag(std::time::Instant::now()).as_secs_f64()
+            );
         }
         GString::from(summary.as_str())
     }

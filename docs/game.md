@@ -1,5 +1,49 @@
 # soe-game: the runtime form table and the first natives
 
+## Fixed simulation owner, PRF-37 draft
+
+`simulation::Simulation` constructs Game and its native closures on one named
+thread. A 60 Hz fixed clock drives world ticks independently of render
+callbacks. `Config` defaults AI and script dispatch to 20 Hz. Fractional
+cadence retains phase and accumulated elapsed time, including rates that do
+not divide 60. Magic, timers and VM wait clocks advance on every fixed tick.
+Menu commands pause world time and AI while menu wait clocks continue.
+AI activation and greeting decisions follow the AI cadence. The existing
+actor driver supplies its current process policy, without a second actor store.
+
+Snapshots contain loaded actor placements, contact presentations, sky state,
+package evaluation counts and tick/worker timings. Consecutive immutable
+snapshots are published together with a nonblocking mutex exchange. A retained
+reader cannot be overwritten. Contention keeps the previously published pair.
+Interpolation clamps between those consecutive placements and wraps angles
+through their shortest difference. Visibility changes use the current value.
+The snapshot is presentation data, never an authoritative copy of World.
+
+A bounded queue accepts 64 ordered commands and reports rejection when full.
+The player pose mailbox coalesces finite poses without blocking. Poses apply
+only in the current loaded cell. Initialization failures and panics have a
+separate error channel. Shutdown wakes and joins the thread before releasing
+its state. Lag combines overdue completion time with age since publication,
+so a stalled publisher cannot continue reporting a healthy simulation.
+
+`tick_scheduled` shares a Papyrus execution allowance across all dispatches
+within a tick. The default worker allowance is 1.2 ms. AI and magic execution
+do not spend it. Event pumps and natives already executing finish before the
+next check. Exhaustion retains queued events and runnable stacks. The VM's
+deadline runner checks between opcodes and retains a round-robin continuation.
+The allowance, continuation cursor, worker and snapshots are transient and
+add no saved fields or sections. Ordinary `tick` retains its existing
+instruction-budget API.
+
+The source boundary is local `godot-docs/tutorials/performance/thread_safe_apis.rst`
+and `tutorials/scripting/idle_and_physics_processing.rst`. Papyrus budget
+evidence is recorded in [threading.md](threading.md), including CommonLibSSE-NG
+`include/RE/V/VirtualMachine.h` and the CK INI setting. The local CK dump does
+not contain that INI page and a direct fetch returned HTTP 403. The fixed-rate
+scheduler and snapshot exchange implement engine policy. They do not reproduce
+vanilla tasklet locking. PRF-34 reference observers, PRF-35 magic caches and
+PRF-36 process clocks remain their separate draft implementations.
+
 ## AI measurements, PRF-27
 
 `AiWorld::metrics` counts each NPC driver visit, including early returns, and

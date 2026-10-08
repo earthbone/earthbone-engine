@@ -14,6 +14,7 @@ var ai := false
 var frame_samples: Array[float] = []
 const FRAME_SAMPLE_LIMIT := 240
 var transition_metrics := TransitionMetrics.new()
+var last_simulation := {}
 
 
 func _ready() -> void:
@@ -70,9 +71,11 @@ func _process(delta: float) -> void:
 	if frame_samples.size() > FRAME_SAMPLE_LIMIT:
 		frame_samples.pop_front()
 	elapsed += delta
-	if panel.visible and elapsed >= 0.25:
+	if elapsed >= 0.25:
 		elapsed = 0.0
-		refresh()
+		_capture_simulation()
+		if panel.visible:
+			refresh()
 
 
 func refresh() -> void:
@@ -92,9 +95,16 @@ func refresh() -> void:
 	var report: Dictionary = player.call("system_frame_breakdown")
 	var runtime: Dictionary = player.call("performance_metrics")
 	var text := "F3: Engine systems, exclusive scope ms and % of wall frame\n"
+	var total: Dictionary = report.main_thread_engine
+	text += "Main engine: %.3f ms / p50 %.3f / p99 %.3f / worst %.3f\n" % [total.ms, total.p50_ms, total.p99_ms, total.worst_ms]
+	var simulation := _capture_simulation()
+	if simulation.ready:
+		text += "Simulation: %.3f ms / workers %.3f ms / lag %.3f s\n" % [simulation.tick_ms, simulation.worker_ms, simulation.behind_seconds]
 	text += "System: last ms / frame % / rolling p50 / p99 / worst ms\n"
 	text += "Host phases split render submission, scene CPU excludes server calls\n"
 	for system in report:
+		if system == "main_thread_engine":
+			continue
 		var row: Dictionary = report[system]
 		text += "%s: %.3f / %.1f%% / %.3f / %.3f / %.3f\n" % [system, row.ms, row.percent, row.p50_ms, row.p99_ms, row.worst_ms]
 		if system == "ai_movement" and row.has("phases"):
@@ -195,6 +205,13 @@ func frame_pacing() -> Dictionary:
 	}
 
 
+func _capture_simulation() -> Dictionary:
+	var status: Dictionary = player.call("simulation_status")
+	if status.ready:
+		last_simulation = status
+	return status
+
+
 func write_summary() -> Error:
 	if not is_instance_valid(player):
 		return ERR_UNAVAILABLE
@@ -202,6 +219,10 @@ func write_summary() -> Error:
 		return ERR_CANT_CREATE
 	var summary: String = player.call("system_summary")
 	summary += "\nPRF-24 runtime metrics: " + JSON.stringify(player.call("performance_metrics"))
+	var simulation := _capture_simulation()
+	if not simulation.ready and not last_simulation.is_empty():
+		simulation = last_simulation
+	summary += "\nPRF-37 simulation: " + JSON.stringify(simulation)
 	summary += "\nPRF-24 frame pacing: " + JSON.stringify(frame_pacing()) + "\n"
 	print(summary)
 	var file := FileAccess.open("user://soe-systems.txt", FileAccess.WRITE)

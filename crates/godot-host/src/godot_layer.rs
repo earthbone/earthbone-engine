@@ -1383,6 +1383,87 @@ impl CellStreamerNode {
             .retain(|reference, _| self.reference_index.contains_key(reference));
     }
 
+    /// Capture plain cell IDs for worker initialization, in stable FormID order.
+    pub(crate) fn simulation_resident_cells(&self) -> Vec<GlobalFormId> {
+        self.exterior_cells
+            .values()
+            .copied()
+            .chain(self.instances.iter().map(|instance| instance.cell))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    /// Apply worker-derived actor placements without reading or mutating World.
+    pub(crate) fn sync_snapshot_placements(
+        &mut self,
+        placements: &std::collections::BTreeMap<GlobalFormId, soe_game::world::RefPlacement>,
+    ) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let mut changed = std::collections::BTreeSet::new();
+        for (id, placement) in placements {
+            let key = (
+                placement.visible,
+                Iso::placement(placement.position, placement.rotation, placement.scale),
+                None,
+            );
+            if self.ref_cache.get(id) != Some(&key) {
+                self.ref_cache.insert(*id, key);
+                changed.insert(*id);
+            }
+        }
+        if changed.is_empty() {
+            return;
+        }
+        let mut server = RenderingServer::singleton();
+        for instance in &mut self.instances {
+            match (&instance.table, &mut instance.mesh) {
+                (BatchTable::Instances(members), InstanceMesh::Multi(multi)) => {
+                    for (index, id) in members
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, id)| changed.contains(id))
+                    {
+                        let Some(placement) = placements.get(id) else {
+                            continue;
+                        };
+                        let iso =
+                            Iso::placement(placement.position, placement.rotation, placement.scale);
+                        let scale = if placement.visible {
+                            placement.scale
+                        } else {
+                            0.0
+                        };
+                        let transform =
+                            placement_to_godot(iso.rotation.rows, placement.position, scale);
+                        multi.set_instance_transform(index as i32, transform3d_from(transform));
+                    }
+                }
+                (BatchTable::Triangles(members), InstanceMesh::Array(mesh)) => {
+                    if !members
+                        .iter()
+                        .any(|member| changed.contains(&member.reference))
+                    {
+                        continue;
+                    }
+                    let mut patched = instance.arrays.clone();
+                    for member in members {
+                        if let Some((visible, iso, _)) = self.ref_cache.get(&member.reference) {
+                            apply_member_patch(&mut patched, member, *visible, iso);
+                        }
+                    }
+                    let mut replacement = array_mesh_from(&patched);
+                    if let Some(material) = mesh.surface_get_material(0) {
+                        replacement.surface_set_material(0, &material);
+                    }
+                    server.instance_set_base(instance.rid, replacement.get_rid());
+                    *mesh = replacement;
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn tether_endpoints(&self) -> Vec<GlobalFormId> {
         self.tethers.endpoints()
     }

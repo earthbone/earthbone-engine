@@ -1829,3 +1829,5 @@ mod prf_35_adversarial;
 mod prf_35_breaker_adversarial;
 #[path = "prf_35_magic.rs"]
 mod prf_35_magic;
+#[path = "prf_37_simulation.rs"]
+mod prf_37_simulation;

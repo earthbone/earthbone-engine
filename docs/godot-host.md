@@ -1,5 +1,52 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Snapshot adapter, PRF-37 draft
+
+`PlayerNode::start_threaded_gameplay` starts a worker-owned Game using the
+streamer's immutable records and VFS. It rejects an already active legacy
+Game. `SOE_THREADED_SIMULATION=1` selects this adapter through `start_gameplay`.
+The normal entry point otherwise retains the existing direct Game adapters.
+Startup script loading, quest initialization, cell binding and navigation
+graph construction happen on the simulation thread. Initialization attaches
+the plain resident cell IDs captured from the renderer in FormID order,
+including the exterior worldspace persistent cell. This follows the existing
+`reference_collision.rs` identity source. Contacts still require an attached
+exterior grid, so persistent identity does not place every exterior actor.
+Subsequent exterior walking residency changes are outside this draft adapter.
+
+In this adapter, physics callbacks step player input and the character
+controller, send a coalesced pose and synchronize Jolt actor bodies from
+the latest snapshot. They do not advance Game. Process callbacks poll an
+immutable snapshot pair and interpolate actor transforms. The streamer applies
+them to existing MultiMesh and array-mesh resources without reading World.
+Existing actor body synchronization uses snapshot contact shapes. SkyRecords
+reads the published sky rather than constructing a gameplay World on the
+main thread. No per-reference nodes or runtime dependencies are added.
+
+`simulation_status` reports readiness, initialization errors, tick count,
+actor count, package evaluations, tick wall time, PRF-17 search-worker busy
+time and continuous lag. `simulation_activate` queues a game activation.
+The adapter presents actor transforms, contact bodies and sky state. It does
+not consume the legacy menu, save, transition, detection, audio, animation,
+runtime light or effect presentation adapters. `stop_threaded_gameplay` joins
+the worker before host resources are replaced. This opt-in path is an
+integration draft rather than the normal playable host path.
+
+The local Godot thread-safety documentation requires active scene-tree work
+to stay on the main thread, and server threading requires explicit settings.
+This adapter sends no Godot handles to its worker. Loading/decoding and
+navigation retain the existing PRF-17 and AUD-12 paths. The snapshot transform
+adapter scans resident batches to locate changed actors, without evaluating
+enable chains. PRF-34's reference observer remains a separate draft.
+
+PRF-12's report and F3 overlay append a `main_thread_engine` total computed
+from each completed frame's exclusive system scopes. Player input and process
+callbacks have covering scopes, so controller catch-up work contributes to
+the same render-frame total. Unscoped host idle/render waits and other-thread
+work are excluded. The overlay and exit summary list simulation tick and
+search-worker busy time separately. Tick time already includes waiting for
+navigation workers, so the worker number must not be added to it.
+
 ## AI breakdown and overlay, PRF-27
 
 `PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
