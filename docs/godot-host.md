@@ -1221,21 +1221,42 @@ At least 100 sampled pixels must differ from the background by 0.05 in RGB
 distance. The script writes `target/sav_19/frame.png` and quits. Recovery
 refusals and host output remain in the survey and `target/sav_19/host.log`.
 
-The 2026-10-05 survey attempted all 60 external saves and accepted none. After
-transient filtering and quest alias object mapping, restoration reported 36
-saves with missing dynamic Papyrus targets, 14 with duplicate
-`DLC1DawnguardItemScript` bindings and one with a duplicate
-`briarheartIngredientScript` binding. Eight saves refused
-PMIS state and one refused opaque PCON state. The missing dynamic targets had
-object IDs 2950, 3794, 3911 and 4449. Among the 19 Clean Saves, six reported
-missing targets, ten the Dawnguard script collision, one the ingredient script
-collision, one PMIS and one PCON. The survey retains every per-save reason in
-`target/sav_19/survey.json` and verifies rollback and source-byte preservation.
-These are the first reported failures, so later restore passes remain untested
-for refused saves. No Clean Save reached host attachment or capture. The
-separate windowed native-generation attachment regression passed on Godot
-4.4.1 and exited zero. It does not establish vanilla-save attachment. SAV-19's
-vanilla frame check remains failing.
+The 2026-10-08 survey attempted all 60 external saves and accepted 57,
+including 18 of the 19 Clean Saves. Three refused. One Clean Save
+(After The Throat of the World) carries an opaque PCON change form, which still
+refuses by policy. Saves 40 and 41 of the Dawnguard and Dragonborn set refuse
+because the saved body of `DLC2dunBookLevel4Bend.OnTriggerEnter` differs from
+the loaded PEX, the next thing to diagnose by dumping the first differing
+instruction as was done for the other mismatches.
+
+Getting from none to 57 took these restore changes, each tied to a reader:
+
+- PMIS, PARW, PHZD and PGRE changes are left out with per-type counts in
+  `skipped_transient`, and the source ESS keeps them.
+- A Papyrus instance on a created form with no change form restores as a
+  standalone object (FallrimTools reports these as scripts some mods create),
+  and further instances of one script on one form, saved once per
+  item stack, each get their own object.
+- A frame with a Null owner is a global function frame, so it runs on no
+  object.
+- A suspended caller whose pointer names the call instruction itself, as a
+  frame blocked in `Utility.Wait` is saved, resumes after that call.
+- The frame's event field is the function name, and it is looked up through
+  the script's parents.
+- Saved code compares names without case and a string operand stands for an
+  identifier, because the ESS string table folds case. A native frame names its
+  arguments `param1`, `param2` by position. A handler that changed state is
+  matched against the same-named function of any state.
+- A FACT change form carries a 20 byte `CRVA` plugin struct as well as the 16
+  byte counter form.
+- The player's cell comes from the saved `coorX` and `coorY` when present.
+
+The survey keeps every per-save reason in `target/sav_19/survey.json` and
+verifies rollback and source-byte preservation. The vanilla attachment test
+`sav_19_vanilla_attach` passed on the 2026-10-08 run, 850 s, with the
+extension built from this branch and imported on Godot 4.4.1. It captured the
+verified frame for a Clean Save at its saved cell, pose and camera. The play
+session check by the user remains open.
 
 `CellStreamer::update(focus)` returns a `StreamPlan`: cells to load, nearest first, and cells
 to unload, farthest first. The load square is `load_radius` cells each side of the focus cell

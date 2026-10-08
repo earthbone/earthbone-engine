@@ -130,6 +130,7 @@ fn cell(
     report: &mut ReferenceRestoreReport,
     parent: Option<GlobalFormId>,
     position: [f32; 3],
+    saved_coordinates: Option<[i32; 2]>,
 ) -> Result<Option<GlobalFormId>, RestoreError> {
     let Some(parent) = parent else {
         return Ok(None);
@@ -146,7 +147,12 @@ fn cell(
             }) {
                 return Err(invalid(parent, "position exceeds the cell grid"));
             }
-            let coordinates = [grid[0].floor() as i32, grid[1].floor() as i32];
+            // SOURCE: UESP Player_Location. The saved coorX and coorY name
+            // the cell the game had the player in, which can trail the
+            // position by a cell while the player is moving, so they win over
+            // the cell computed from the position when the save has them.
+            let coordinates =
+                saved_coordinates.unwrap_or([grid[0].floor() as i32, grid[1].floor() as i32]);
             let cell = world.order.build_cell_index().exterior_cell(
                 parent,
                 coordinates[0],
@@ -197,6 +203,7 @@ fn apply_header(
             report,
             mapping.reference(placement.cell_or_world)?,
             placement.position,
+            None,
         )?;
     }
     let created_base = match header.initial {
@@ -399,6 +406,7 @@ impl World {
             &mut report,
             mapping.reference(location.cell_or_world)?,
             location.position,
+            Some(location.coordinates),
         )?;
         let player_cell = state.cell;
         if player_cell.is_some() {

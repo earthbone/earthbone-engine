@@ -441,6 +441,7 @@ impl crate::Game {
                     })?;
             reference_types.insert(reference.id, kind.to_owned());
         }
+        let mut shared_handles = std::collections::BTreeSet::new();
         let mut unbound_instances = BTreeMap::new();
         for instance in papyrus
             .instances
@@ -471,6 +472,26 @@ impl crate::Game {
                 let form = mapping
                     .reference(instance.form)?
                     .ok_or(RestoreError::Reference(instance.form.raw()))?;
+                if !world.exists(form) && form.file == DYNAMIC_FILE {
+                    // SOURCE: FallrimTools ScriptInstance.getInfo reports an
+                    // instance on a created form with no change form as one
+                    // "some mods create deliberately". Vanilla item scripts
+                    // such as the wandering event letters do the same, since
+                    // their held item is not a placed reference. Nothing in
+                    // the world owns it, so it gets a standalone object that
+                    // keeps its saved variables, as for a RefID of -1.
+                    let script = papyrus.string(instance.script).ok_or_else(|| {
+                        RestoreError::PapyrusExecution(format!(
+                            "invalid script name for saved instance {:#x}",
+                            instance.id
+                        ))
+                    })?;
+                    let object = self
+                        .vm
+                        .create_object_of(&format!("saved instance {:#x}", instance.id), script);
+                    insert_papyrus_object(&mut objects, instance.id, Some(object))?;
+                    continue;
+                }
                 if !world.exists(form) {
                     return Err(RestoreError::PapyrusTarget {
                         instance: instance.id,
@@ -523,9 +544,21 @@ impl crate::Game {
                 } else {
                     crate::Handle::Form(form)
                 };
-                let object = world.object_of(handle, &mut |name, class| {
-                    self.vm.create_object_of(name, class)
-                });
+                // SOURCE: UESP Papyrus ScriptInstance and FallrimTools show
+                // several instances of one script on the same form, told apart
+                // by the numeric field. Item scripts such as
+                // DLC1DawnguardItemScript are saved once per stack. The world
+                // owns one object per handle, so the first instance takes it
+                // and each further one becomes a standalone object that keeps
+                // its saved variables.
+                let object = if shared_handles.insert((format!("{handle:?}"), script.to_owned())) {
+                    world.object_of(handle, &mut |name, class| {
+                        self.vm.create_object_of(name, class)
+                    })
+                } else {
+                    self.vm
+                        .create_object_of(&format!("saved instance {:#x}", instance.id), script)
+                };
                 insert_papyrus_object(&mut objects, instance.id, Some(object))?;
             }
         }
@@ -745,6 +778,42 @@ mod sav_04_tests {
             })),
             None
         );
+    }
+
+    #[test]
+    fn sav_19_instance_on_a_created_form_without_a_change_form_becomes_standalone() {
+        let mut game = game();
+        game.load_script(
+            &ScriptBuilder::new("BoundScript", "")
+                .auto_state("Saved")
+                .bytes(),
+        )
+        .expect("saved script loads");
+        let save = papyrus_save(0x800, 0, [0x80, 0, 1]);
+        let imported = game
+            .restore_vanilla_papyrus(&save)
+            .expect("a created form nobody owns still restores its instance");
+        assert_eq!(imported.instances.len(), 1);
+    }
+
+    #[test]
+    fn sav_19_repeated_instances_of_one_script_on_one_form_all_restore() {
+        let mut game = game();
+        game.load_script(
+            &ScriptBuilder::new("BoundScript", "")
+                .auto_state("Saved")
+                .bytes(),
+        )
+        .expect("saved script loads");
+        let mut save = fixture_save(0x800);
+        save.table_3 = vec![GlobalData {
+            kind: GlobalData::PAPYRUS,
+            data: papyrus_instances_bytes(&[(41, 0, 1, [0, 0, 1]), (42, 0, 2, [0, 0, 1])]),
+        }];
+        let imported = game
+            .restore_vanilla_papyrus(&save)
+            .expect("item scripts saved once per stack restore");
+        assert_eq!(imported.instances.len(), 2);
     }
 
     #[test]
