@@ -52,6 +52,18 @@ impl World {
         Ok(())
     }
 
+    /// `Weather.ReleaseOverride`: the sky stops holding an overriding weather.
+    /// A request made without the override flag is not an override and stays.
+    pub fn release_weather_override(&mut self) {
+        if self
+            .weather
+            .request
+            .is_some_and(|request| request.override_weather)
+        {
+            self.weather.request = None;
+        }
+    }
+
     /// Return the latest weather request for the host sky implementation.
     #[must_use]
     pub fn weather_request(&self) -> Option<WeatherRequest> {

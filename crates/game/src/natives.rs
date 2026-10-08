@@ -2720,6 +2720,33 @@ fn alias(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+    // The TryTo convenience functions of ReferenceAlias.psc: act on the filled
+    // reference and return whether the alias held one.
+    for (name, enabled) in [
+        ("TryToEnable", true),
+        ("TryToEnableNoWait", true),
+        ("TryToDisable", false),
+        ("TryToDisableNoWait", false),
+    ] {
+        alias_method_on!(
+            vm,
+            w,
+            "ReferenceAlias",
+            name,
+            |world, call, quest, alias| {
+                match world
+                    .alias_ref(quest, alias)
+                    .filter(|target| world.is_reference(*target))
+                {
+                    Some(target) => {
+                        world.set_reference_enabled(target, enabled);
+                        b(true)
+                    }
+                    None => b(false),
+                }
+            }
+        );
+    }
     // A location alias holds a form the same way a reference alias does.
     alias_method_on!(
         vm,
@@ -4658,6 +4685,10 @@ fn weapon(vm: &mut Vm, w: &Shared) {
 
 /// Weather requests are retained by the world for the host sky implementation.
 fn weather(vm: &mut Vm, w: &Shared) {
+    global!(vm, w, "Weather", "ReleaseOverride", |world, _call| {
+        world.release_weather_override();
+        none()
+    });
     method!(vm, w, "Weather", "SetActive", |world, call, me| {
         let override_weather = match call.args.first() {
             None => false,

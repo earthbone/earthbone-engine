@@ -27,15 +27,18 @@ fn scr_73_weapon_and_weather_inventory_is_explicit_about_unimplemented_weather_c
         [("weapon", "fire"), ("weather", "setactive")]
             .map(|(class, name)| (class.to_owned(), name.to_owned()))
     );
-    assert!(
-        globals.is_empty(),
-        "unexpected Weapon or Weather globals: {globals:?}"
+    // ReleaseOverride is bound for the PLY-03 main quest replay, whose MQ101
+    // fragments call it. The remaining Weather calls belong to SCR-54.
+    assert_eq!(
+        globals,
+        [("weather".to_owned(), "releaseoverride".to_owned())],
+        "unexpected Weapon or Weather globals"
     );
 
     assert!(game.vm.natives.has_method("Weapon", "Fire"));
     assert!(game.vm.natives.has_method("Weather", "SetActive"));
+    assert!(game.vm.natives.has_global("Weather", "ReleaseOverride"));
     for (class, name, global) in [
-        ("Weather", "ReleaseOverride", true),
         ("Weather", "ForceActive", false),
         ("Weather", "FindWeather", true),
         ("Weather", "GetCurrentWeather", true),

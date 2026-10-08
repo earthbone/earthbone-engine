@@ -70,6 +70,10 @@ const REFERENCE_ALIAS_METHODS: &[&str] = &[
     "forcerefifempty",
     "removeallinventoryeventfilters",
     "removeinventoryeventfilter",
+    "trytodisable",
+    "trytodisablenowait",
+    "trytoenable",
+    "trytoenablenowait",
 ];
 
 fn sorted_bindings(class: &str, names: &[&str]) -> Vec<(String, String)> {

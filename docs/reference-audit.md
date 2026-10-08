@@ -269,9 +269,13 @@ There is no signature or method/global discrepancy for either registered
 binding. The PSC comments state that Fire uses a source and optional ammo,
 while SetActive sets the active sky weather.
 
-The Weather PSC also declares eight natives absent from the registry:
+`Weather.ReleaseOverride` is bound since the PLY-03 main quest replay, whose
+MQ101 fragments call it. It drops a retained weather request that was made
+with the override flag and keeps one made without it.
+
+The Weather PSC also declares seven natives absent from the registry:
 instance methods `ForceActive` and `GetClassification`, and globals
-`ReleaseOverride`, `FindWeather`, `GetCurrentWeather`, `GetOutgoingWeather`,
+`FindWeather`, `GetCurrentWeather`, `GetOutgoingWeather`,
 `GetCurrentWeatherTransition` and `GetSkyMode`. SCR-54 owns adding these
 bindings with weather-system behavior. SCR-53 owns replacing the quiet
 `Weapon.Fire` stub with weapon-system behavior. The audit does not claim that

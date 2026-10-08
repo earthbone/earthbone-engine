@@ -31,7 +31,6 @@ fn scr_73_weather_vanilla_natives_missing_from_registry_are_assigned() {
     game.bind();
 
     let missing = [
-        ("Weather", "ReleaseOverride", true),
         ("Weather", "ForceActive", false),
         ("Weather", "FindWeather", true),
         ("Weather", "GetClassification", false),
