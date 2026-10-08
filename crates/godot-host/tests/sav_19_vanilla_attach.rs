@@ -52,6 +52,7 @@ fn sav_19_vanilla_atomic_import_attaches_saved_cell_pose_camera_and_verified_fra
     let mut selected = None;
     let mut selected_interior = false;
     let mut clean_successes = 0;
+    let mut accepted_total = 0;
     for path in &paths {
         game.load_state(&pristine).unwrap();
         let original = fs::read(path).unwrap();
@@ -93,6 +94,7 @@ fn sav_19_vanilla_atomic_import_attaches_saved_cell_pose_camera_and_verified_fra
                     .unwrap()
                     .starts_with("Clean Saves");
                 clean_successes += usize::from(clean);
+                accepted_total += 1;
                 let interior = source.cell_index().is_interior(expected_cell);
                 survey.push(json!({"save": name, "ok": true}));
                 if clean && (selected.is_none() || (interior && !selected_interior)) {
@@ -134,6 +136,16 @@ fn sav_19_vanilla_atomic_import_attaches_saved_cell_pose_camera_and_verified_fra
         clean_successes > 0,
         "no Clean Save recovered, see target/sav_19/survey.json"
     );
+    // The supplied corpus has 60 saves. 57 import, 18 of them Clean Saves, and
+    // the three refusals are named in docs/godot-host.md. A smaller corpus
+    // only has to satisfy the check above.
+    if paths.len() == 60 {
+        assert!(
+            accepted_total >= 57 && clean_successes >= 18,
+            "imported {accepted_total} of 60 saves ({clean_successes} Clean Saves), \
+             expected at least 57 and 18, see target/sav_19/survey.json"
+        );
+    }
     let (directory, expected) = selected.unwrap();
     let expected_path = output_dir.join("expected.json");
     fs::write(
