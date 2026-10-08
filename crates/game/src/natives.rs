@@ -2160,9 +2160,14 @@ fn actor(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "EquipItem", |world, call, me| {
         if let Some(item) = world.form_arg(&call.arg(0)) {
+            let prevent_removal = call.arg(1).as_bool();
+            let silent = call.arg(2).as_bool();
             if world.item_count(me, item) == 0 {
                 world.add_item(me, item, 1);
             }
+            let was_equipped = world
+                .actor(me)
+                .is_some_and(|actor| actor.equipped.contains(&item));
             if world
                 .tag_of(item)
                 .is_some_and(|tag| tag.as_bytes() == b"ALCH")
@@ -2174,6 +2179,19 @@ fn actor(vm: &mut Vm, w: &Shared) {
             } else if let Err(error) = world.equip_item_with_effects(me, item, alloc!(call)) {
                 call.log
                     .push(call.time, format!("Actor.EquipItem: {error}"));
+            } else {
+                if prevent_removal {
+                    if let Some(actor) = world.actor(me) {
+                        actor.prevent_equipment_removal.insert(item);
+                    }
+                }
+                if !silent && !was_equipped {
+                    let name = world
+                        .name_of(item)
+                        .or_else(|| world.editor_id(item))
+                        .unwrap_or_else(|| item.to_string());
+                    world.notifications.push(format!("Equipped {name}"));
+                }
             }
         }
         none()
@@ -4702,7 +4720,7 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
             .map(|reference| reference.inventory.iter().map(|(item, _)| *item).collect())
             .unwrap_or_default();
         for item in items {
-            if let Err(error) = world.unequip_item(me, item) {
+            if let Err(error) = world.force_unequip_item(me, item) {
                 call.log
                     .push(call.time, format!("Actor.UnequipAll: {error}"));
                 return none();
@@ -4715,6 +4733,7 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
             actor.left_spell = None;
             actor.right_spell = None;
             actor.equipped_shout = None;
+            actor.prevent_equipment_removal.clear();
         }
         none()
     });
