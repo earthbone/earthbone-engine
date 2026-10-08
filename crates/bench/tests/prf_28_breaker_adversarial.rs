@@ -40,7 +40,7 @@ fn prf_28_each_vanilla_process_level_executes_a_capacity_measurement() {
 }
 
 #[test]
-#[ignore = "needs PRF-17 worker pool: workers other than 1 are rejected until it lands"]
+#[ignore = "needs PRF-37: the PRF-17 worker pool it builds is absent, so workers other than 1 are rejected"]
 fn prf_28_capacity_accepts_one_and_core_count_ai_workers() {
     for workers in [1, std::thread::available_parallelism().unwrap().get()] {
         let workers = workers.to_string();

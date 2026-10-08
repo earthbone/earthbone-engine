@@ -219,6 +219,19 @@ mesh creation. The overlay names those unavailable fields. A null value does
 not mean zero. Resident batches and aggregate viewport figures do not supply
 these measurements, and PRF-30 remains open for their instrumentation.
 
+PRF-30 is partial. The Godot monitors, the per-viewport render info with CPU
+and GPU render time, the orphan growth warning and the per-cell and per-plugin
+resident batch totals are measured. Still missing: frustum, occlusion,
+visibility range, LOD and unloaded cell cull counters per stage, the LOD
+switch rate, shadow casters per light, and material and mesh creation counts
+per frame. The installed-data test accepts a null with a reason for those
+fields, so it does not measure them. The test also cannot reconcile per-cell
+counts with Godot's objects in frame, because the cell figures are resident
+batch totals and the in-frame figure excludes culled batches. It checks only
+that the in-frame count is positive and not above the resident total. Exact
+reconciliation needs per-batch in-frame membership, which needs the cull stage
+counters above.
+
 The physics row also exposes `physics_frame_breakdown`. It reports the number
 of physics callbacks since the last presentation process callback, inferred
 catch-up steps, Godot's physics-step duration and PHYSICS_3D active body,
@@ -5533,6 +5546,14 @@ responsible asset report unavailable. The local Godot pipeline guide and
 counters. The public stock Godot API supplies counts rather than compiler
 durations or identities. These observations do not establish that compilation
 caused a hitch. Specialization remains separate from draw-time compilation.
+
+PRF-29 is partial. Startup, geometry, collision, upload, worker queue and save
+phases carry cause classes and budgets. Still missing: compiler duration and
+the responsible asset for shader and pipeline compiles (Godot exposes counters
+only), the PRF-18 dump (this checkout has no recorder, so breaches are named in
+the log and in the `load_timing_dump`, Chrome trace and `user://soe-loads`
+files instead), PRF-20's per-asset cell split, PRF-21's per-plugin save split,
+and GPU execution time (upload records submission time only).
 
 `prf_29_loads` Rust tests exercise plugin cold/cache paths, archive and loose
 reads, engine-save failures, and installed startup, Whiterun geometry, collision

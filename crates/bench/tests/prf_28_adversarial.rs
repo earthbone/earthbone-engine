@@ -45,7 +45,7 @@ fn prf_28_measures_each_vanilla_process_level() {
 }
 
 #[test]
-#[ignore = "needs PRF-17 worker pool: workers other than 1 are rejected until it lands"]
+#[ignore = "needs PRF-37: the PRF-17 worker pool it builds is absent, so workers other than 1 are rejected"]
 fn prf_28_measures_ai_with_all_available_workers() {
     let workers = std::thread::available_parallelism().unwrap().get();
     let worker_arg = workers.to_string();
