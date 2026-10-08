@@ -1537,9 +1537,38 @@ event, and a burst of events in one frame cost 150 to 260 ms. The parsed nodes
 depend only on the load order, so `World` now builds them on the first event
 and reuses them (`story_nodes` in `crates/game/src/world/story_manager.rs`).
 After the change the exterior soak has no frame over 33 ms on the installed
-data. The interior soak still misses the limit by 0.3 to 26 ms on one to
-three frames per run, on a different frame each run, while the host load
-average is 6 to 15 on 24 threads. SOE systems sum to about 4 ms of a 21 to 24
-ms interior frame, so that residue is renderer and scheduler time and not an
-engine system. Re-run the interior on an idle machine before reading it as a
-regression.
+data.
+
+The interior soak then failed far more often than the three frames the
+script prints (it prints only the first three breaches). Two runs on a lightly
+loaded host reported over_budget_frames 57 and 83 over about 2,600 samples,
+p99 35.0 and 39.2 ms, worst 48.4 and 81.3 ms, a median frame of about 21 ms
+and about 45 fps against about 145 fps in the exterior. The FAIL line now
+prints over_budget_frames, p99, worst and the sample count. SOE systems summed
+to only about 4 ms of that frame, and the interior was three times slower per
+frame than the exterior under the same renderer, so the renderer was not the
+cause. The single frame worst values in the systems table (dialogue,
+audio, host render submission, Papyrus VM) come from startup and settle
+frames, not the measured window. A frame profile of the interior walkthrough
+found `World::sky_frame`: for an interior cell it walked every winning WRLD
+record and asked the cell index for the persistent cell of each, once per
+tick, costing 16.9 ms per call. `CellIndex::persistent_cell_world` now keeps
+the reverse map, so the owner is one hash lookup. After that change the
+interior walkthrough has over_budget_frames 0, p99 9.1 ms and worst 15.6 ms
+over 8,691 samples, and the exterior p99 8.3 ms and worst 14.9 ms over 8,695.
+
+The interior log carries repeated Papyrus errors, `cannot call IsInFaction()
+on a None object` from `DialogueSwapGovernmentAliasesScript.TestForSwap`
+line 66. The log reports each distinct error once with a count (about 100
+lines per run), so printing is not a per-frame cost, and the fixed run meets
+the budget with them still present. The None actor in that alias is a
+separate defect and is not part of the frame budget.
+
+The pre-PRF-11 comparison was run with the linear scan in
+`NavGraph::nearest` restored: the exterior walkthrough fails
+(over_budget_frames 123, p99 88.7 ms, worst 98.1 ms), and so does the
+thousand-actor runner test. Navigation work in the warm 600-tick PRF-14 window
+is no longer asserted because the fixture setup now performs it, so
+navigation is covered by the cold-start tests
+(`tst_18_cold_actor_packages_bound_lookup_on_overlapping_navmesh_floors` and
+`tst_18_prf_07_runner_asserts_thousand_actor_p99_and_worst_limits`).
