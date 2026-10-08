@@ -2267,7 +2267,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 || world.actor_is_paralyzed(*actor)
                 || ((world.ai.planner.waiting(*actor) || world.ai.markers.waiting(*actor))
                     && !state.ai.reevaluate)
-                || !(state.ai.last_evaluation == 0.0
+                || !(state.ai.package.is_none() && state.ai.last_evaluation == 0.0
                     || state.ai.reevaluate
                     || world.clock.real_seconds - state.ai.last_evaluation >= EVALUATION_INTERVAL)
             {
@@ -2393,8 +2393,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             if active_target.is_none() && !fleeing {
                 let due = measure_phase(world, Phase::EvaluationDue, |world| {
                     world.actor_ref(actor).is_some_and(|state| {
-                        state.ai.package.is_none()
-                            || state.ai.last_evaluation == 0.0
+                        state.ai.package.is_none() && state.ai.last_evaluation == 0.0
                             || state.ai.reevaluate
                             || now - state.ai.last_evaluation >= EVALUATION_INTERVAL
                     })
@@ -2406,8 +2405,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             if active_target.is_some() && !ignores_combat(world, actor) && !fleeing {
                 let due = measure_phase(world, Phase::EvaluationDue, |world| {
                     world.actor_ref(actor).is_some_and(|a| {
-                        a.ai.package.is_none()
-                            || a.ai.last_evaluation == 0.0
+                        a.ai.package.is_none() && a.ai.last_evaluation == 0.0
                             || a.ai.reevaluate
                             || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
                     })
@@ -2434,8 +2432,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             }
             let due = measure_phase(world, Phase::EvaluationDue, |world| {
                 world.actor_ref(actor).is_some_and(|a| {
-                    a.ai.package.is_none()
-                        || a.ai.last_evaluation == 0.0
+                    a.ai.package.is_none() && a.ai.last_evaluation == 0.0
                         || a.ai.reevaluate
                         || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
                 })
@@ -3346,9 +3343,7 @@ fn step_procedure(
         let (pos, new_cell) = if ai.path.is_empty() {
             (position, cell)
         } else {
-            measure_phase(world, Phase::Steering, |world| {
-                world.ai.planner.follow(&mut ai, position, cell, dt, entity)
-            })
+            world.ai.planner.follow(&mut ai, position, cell, dt, entity)
         };
         if ai.path.is_empty() && distance(pos, dest) <= ARRIVAL_DISTANCE {
             ai.arrived = true;

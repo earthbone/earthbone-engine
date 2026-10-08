@@ -20,6 +20,9 @@ impl World {
             .player
             .filter(|id| self.actors.contains_key(id))
             .and_then(|id| self.refs.get(&id))
+            // CONTEXT: A player outside every cell gives no basis to demote
+            // actors, so the whole table stays at the high level.
+            .filter(|reference| reference.cell.is_some())
             .map(|reference| PlayerContext {
                 position: reference.position,
                 cell: reference.cell,

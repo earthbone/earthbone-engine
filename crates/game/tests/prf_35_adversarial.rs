@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "support/magic_adversarial.rs"]
-mod support;
+use crate::support::magic_adversarial as support;
 
 use soe_game::magic_profile::MagicPhase;
 use soe_game::world::{Pending, TranslationPath};
