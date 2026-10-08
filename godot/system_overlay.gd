@@ -47,12 +47,12 @@ func _ready() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.keycode == KEY_F6 and event.pressed and not event.echo:
+	if event is InputEventKey and event.keycode == KEY_F5 and event.pressed and not event.echo:
 		ai = not ai
 		panel.visible = true
 		refresh()
 		get_viewport().set_input_as_handled()
-	if event is InputEventKey and event.keycode == KEY_F5 and event.pressed and not event.echo:
+	if event is InputEventKey and event.keycode == KEY_F4 and event.pressed and not event.echo:
 		ai = false
 		entities = not entities
 		player.call("set_entity_profiling", entities)
@@ -66,7 +66,7 @@ func _input(event: InputEvent) -> void:
 		panel.visible = not panel.visible
 		refresh()
 		get_viewport().set_input_as_handled()
-	elif event is InputEventKey and event.keycode == KEY_F4 and event.pressed and not event.echo:
+	elif event is InputEventKey and event.keycode == KEY_F7 and event.pressed and not event.echo:
 		ai = false
 		plugin_view = not plugin_view
 		panel.show()
@@ -120,7 +120,7 @@ func refresh() -> void:
 			total_ms += query_row.ms
 		text += "  %s: %d / %.3f ms\n" % [kind, total_count, total_ms]
 	var health: Dictionary = player.call("papyrus_health")
-	var health_display := "Papyrus health, F4: %s\n" % ("per plugin" if plugin_view else "per script")
+	var health_display := "Papyrus health, F7: %s\n" % ("per plugin" if plugin_view else "per script")
 	health_display += health_text("Total", health.total)
 	if plugin_view:
 		for plugin in health.plugins:
@@ -143,7 +143,7 @@ func health_text(name: String, health: Dictionary) -> String:
 
 
 func ai_text(report: Dictionary) -> String:
-	var text := "F6: AI inclusive us, nested phases overlap\n"
+	var text := "F5: AI inclusive us, nested phases overlap\n"
 	for level in report.levels:
 		var row: Dictionary = report.levels[level]
 		text += "%s: %d actors, %d updates, %.1f us, interval %.3f s\n" % [level, row.actors, row.updates, row.us, row.interval_seconds]

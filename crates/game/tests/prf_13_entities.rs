@@ -419,3 +419,46 @@ fn prf_13_overrides_keep_defining_plugin_attribution() {
     assert_eq!(stats.calls, 2);
     assert_eq!(stats.work.get(Operation::RecordLookups), 2);
 }
+
+/// Runs `godot/prf_13_entities_test.gd` in a window against the built extension.
+/// A key remap in the system overlay that skips this script now fails here.
+/// Gated on SKYRIM_DATA and a display, like the other installed host checks.
+#[test]
+fn prf_13_windowed_host_overlay_script_passes_with_synthetic_audio_fixture() {
+    if std::env::var_os("SKYRIM_DATA").is_none() {
+        return;
+    }
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+        return;
+    };
+    if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        return;
+    }
+    let project = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot");
+    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(format!("prf-13-window-{}", std::process::id()));
+    let fixture = scratch.join("fixture");
+    crate::ply_01_player_input::export_window_fixture(&fixture);
+    let output = std::process::Command::new(godot)
+        .arg("--path")
+        .arg(&project)
+        .args([
+            "--resolution",
+            "640x360",
+            "--script",
+            "prf_13_entities_test.gd",
+        ])
+        .env("SOE_PRF_13_FIXTURE", &fixture)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    std::fs::remove_dir_all(&scratch).unwrap();
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(
+        stdout.contains("prf_13_f4_input_presentation_and_session_export: PASS"),
+        "{stdout}\n{stderr}"
+    );
+    assert!(!stderr.contains("SCRIPT ERROR"), "{stderr}");
+}

@@ -63,7 +63,7 @@ Rendering frame comparisons continue to use the windowed bench.gd workflow.
 
 ## Permanent AI breakdown, PRF-27
 
-F6 in the walkthrough shows the always-on AI breakdown from
+F5 in the walkthrough shows the always-on AI breakdown from
 `PlayerNode::ai_breakdown`, retaining the diagnostic phases formerly used only
 by the PRF-11 planning script. The headless data lives on `AiWorld` and is
 independent of optional trace/entity capture. Procedure and decision durations
@@ -111,7 +111,7 @@ timing suspended. The current probe keeps system timing on and entity capture
 off. Fifteen alternating pairs must have equal checksums and a median ratio
 below 1.01. The existing PRF-12 calibration also runs in that test.
 
-Press F5 in the walkthrough to enable entity capture and its rolling rankings.
+Press F4 in the walkthrough to enable entity capture and its rolling rankings.
 Press it again to finish capture and write `user://soe-profile.json` and
 `user://soe-entities.json`. Player exit also writes both reports. F3 continues
 to show system frame timings. Headless Game runs accept `SOE_PROFILE=1` and
@@ -277,6 +277,10 @@ without installed game records:
 ```text
 rtk proxy "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_18_hitches_test.gd
 ```
+
+`crates/godot-host/tests/prf_18_hitches_host.rs` runs the same script headless
+in an isolated project when SKYRIM_DATA and SOE_GODOT_BIN are set, so a stale
+script fails `cargo test` instead of only a hand run.
 
 ### PRF-18 validation, 2026-10-05
 

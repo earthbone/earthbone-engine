@@ -55,11 +55,11 @@ func prf_27_windowed_ai_breakdown_and_overlay() -> void:
 	overlay.player = player
 	root.add_child(overlay)
 	var event := InputEventKey.new()
-	event.keycode = KEY_F6
+	event.keycode = KEY_F5
 	event.pressed = true
 	Input.parse_input_event(event)
 	Input.flush_buffered_events()
-	check(overlay.panel.visible, "F6 did not show overlay")
+	check(overlay.panel.visible, "F5 did not show overlay")
 	check(overlay.label.text.contains("STUCK (5 s):"), "stuck section missing")
 	check(overlay.label.text.contains("Travel") and overlay.label.text.contains("middle_low"), "AI breakdown labels missing")
 	if DisplayServer.get_name() != "headless":

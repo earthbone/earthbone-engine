@@ -10,13 +10,13 @@ selection has its own measured phase. Unavailable combat style choice and
 process scheduling have capability flags.
 No optional entity capture is required.
 
-F6 opens the existing system overlay's AI view. It displays all procedures and
+F5 opens the existing system overlay's AI view. It displays all procedures and
 twelve decision durations, process counts and cadence, the stuck list, and up
 to three path and reaction rows. The complete tables remain available through the
-callable. F3 returns to systems, F5 returns to entity capture. The view reuses
+callable. F3 returns to systems, F4 returns to entity capture. The view reuses
 the existing panel and label, adding no per-reference nodes. The windowed
 `godot/prf_27_ai_overlay_test.gd` check reads the report with entity capture off,
-loads installed Bannered Mare NPCs, toggles F6, checks labels and viewport bounds,
+loads installed Bannered Mare NPCs, toggles F5, checks labels and viewport bounds,
 captures the window and quits.
 
 ## Default menu art, UI-24
@@ -91,9 +91,9 @@ The installed-data run passes all nine UI-24 tests, including both windowed
 
 ## Entity host capture, PRF-13
 
-The existing system overlay uses F5 to toggle `soe_trace::Profile`, displaying
+The existing system overlay uses F4 to toggle `soe_trace::Profile`, displaying
 the top five actors, scripts, quests and plugins by self time in the preceding
-second. F3 retains its system view. Switching F5 off or leaving the player
+second. F3 retains its system view. Switching F4 off or leaving the player
 writes `user://soe-profile.json` and `user://soe-entities.json` for Perfetto.
 Headless startup also honors `SOE_PROFILE=1`.
 
@@ -112,6 +112,10 @@ saved fields or dependency were added. The windowed `prf_13_` host check
 covers F4, an applied camera switch, presentation latency, an audio start,
 installed render submissions, summary JSON and an overlay capture. It uses
 the existing input path and the local Godot RenderingServer signal contract.
+`prf_13_windowed_host_overlay_script_passes_with_synthetic_audio_fixture` in
+`crates/game/tests/prf_13_entities.rs` runs the script in a window against the
+built extension with SKYRIM_DATA, SOE_GODOT_BIN and a display set, so an overlay
+key remap that leaves the script behind fails `cargo test`.
 
 ## Hitch dumps, PRF-18
 
@@ -130,6 +134,8 @@ forces an 80 ms pause, parses the dump with Godot's JSON parser, checks prior
 frames, tail, counters and summary, then frees its node and quits. It runs
 both headless and windowed, without game records. Recorder details and the
 headless Rust output path are in [trace.md](trace.md).
+`crates/godot-host/tests/prf_18_hitches_host.rs` runs the script headless in
+an isolated project under the same gating.
 
 ## Cell loading and memory attribution, PRF-20
 
@@ -5498,11 +5504,11 @@ pending unload before exterior walking.
 health rows as dictionaries. An absent game returns zero totals and empty
 rows. The F3 system overlay shows backlog and age, four timer counts, suspended
 stacks, waiting stack seconds, running CPU milliseconds and event queues with
-session peaks per second. F4 switches between per-script and per-plugin rows.
+session peaks per second. F7 switches between per-script and per-plugin rows.
 A scroll container keeps long reports inside the viewport. The adapter adds
 no per-reference nodes.
 
-`godot/prf_19_health_test.gd` checks the adapter, F3 and F4 views and installed
+`godot/prf_19_health_test.gd` checks the adapter, F3 and F7 views and installed
 script rows when `SKYRIM_DATA` is set. `SOE_PRF_19_CAPTURE` selects a PNG path
 for a windowed capture. The script frees its nodes and quits with the result.
 The host dictionary and UI calls use the existing Godot 4.4 API path.

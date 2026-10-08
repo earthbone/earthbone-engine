@@ -59,9 +59,9 @@ func prf_19_host_health_and_plugin_overlay() -> void:
 	check(overlay.label.text.contains("backlog") and overlay.label.text.contains("Waiting") and overlay.label.text.contains("Updates repeat/single"), "health fields are absent")
 	for script in report.scripts:
 		check(overlay.label.text.contains(script), "script row is absent")
-	press(KEY_F4)
-	check(overlay.plugin_view, "F4 did not select plugin view")
-	check(not overlay.entities, "F4 unexpectedly enabled entity profiling")
+	press(KEY_F7)
+	check(overlay.plugin_view, "F7 did not select plugin view")
+	check(not overlay.entities, "F7 unexpectedly enabled entity profiling")
 	for plugin in report.plugins:
 		check(overlay.label.text.contains(plugin), "plugin row is absent")
 	var capture := OS.get_environment("SOE_PRF_19_CAPTURE")
