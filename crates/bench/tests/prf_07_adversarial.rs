@@ -9,7 +9,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn optimized_binary() -> PathBuf {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let build = Command::new("cargo")
+    // Cargo names itself in CARGO for the tests it runs. Using that path keeps
+    // the nested build on the toolchain of the outer run and out of any PATH
+    // wrapper that serializes builds, which a test holding a slot would wait on.
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let build = Command::new(cargo)
         .current_dir(root)
         .args([
             "build",
