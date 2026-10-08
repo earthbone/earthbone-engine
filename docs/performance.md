@@ -234,6 +234,13 @@ be measured through an executing engine path. The probes reject those modes.
 GPU actor capacity and runtime application of GMST/INI caps also remain
 unimplemented. The measured rungs are not installed as runtime limits.
 
+The two breaker tests that need the missing pieces are marked `#[ignore]` with the
+reason: `prf_28_measures_each_vanilla_process_level` and
+`prf_28_each_vanilla_process_level_executes_a_capacity_measurement` wait for
+PRF-37, `prf_28_measures_ai_with_all_available_workers` and
+`prf_28_capacity_accepts_one_and_core_count_ai_workers` wait for the PRF-17
+worker pool. Run them with `--include-ignored` once those rows land.
+
 ## Permanent AI breakdown, PRF-27
 
 F5 in the walkthrough shows the always-on AI breakdown from
