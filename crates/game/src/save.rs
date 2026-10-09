@@ -519,6 +519,13 @@ impl Game {
     /// A wrong magic or version, a truncated stream, or anything
     /// `World::load_state` or `Vm::load_state` reject.
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), VmError> {
+        let _load = soe_trace::LoadScope::operation(
+            "engine_save_load",
+            "SOES",
+            std::time::Duration::from_millis(33),
+        );
+        let _parse =
+            soe_trace::LoadScope::new("engine_save_restore", soe_trace::LoadCause::Parse, "SOES");
         let _span = soe_trace::Span::with_payload("game.load_state", "game", bytes.len() as u64);
         match self.validate_saved_state(bytes) {
             Ok(())

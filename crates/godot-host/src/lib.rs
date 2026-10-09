@@ -20,6 +20,8 @@ pub mod audio;
 pub mod batch;
 pub mod camera;
 #[cfg(feature = "godot")]
+mod carry;
+#[cfg(feature = "godot")]
 mod cell_lighting;
 pub mod collision;
 pub mod combat;
@@ -116,3 +118,6 @@ mod entry {
         }
     }
 }
+
+#[cfg(feature = "godot")]
+mod scene_timing;

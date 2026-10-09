@@ -117,6 +117,7 @@ impl World {
             if persistent || self.encounter_zone(id).ok().flatten() != Some(zone) {
                 continue;
             }
+            self.invalidate_reference(id);
             self.refs.remove(&id);
             self.actors.remove(&id);
             self.actor_templates.remove(&id);

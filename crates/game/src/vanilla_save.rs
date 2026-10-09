@@ -441,6 +441,7 @@ impl crate::Game {
                     })?;
             reference_types.insert(reference.id, kind.to_owned());
         }
+        let mut shared_handles = std::collections::BTreeSet::new();
         let mut unbound_instances = BTreeMap::new();
         for instance in papyrus
             .instances
@@ -471,15 +472,93 @@ impl crate::Game {
                 let form = mapping
                     .reference(instance.form)?
                     .ok_or(RestoreError::Reference(instance.form.raw()))?;
+                if !world.exists(form) && form.file == DYNAMIC_FILE {
+                    // SOURCE: FallrimTools ScriptInstance.getInfo reports an
+                    // instance on a created form with no change form as one
+                    // "some mods create deliberately". Vanilla item scripts
+                    // such as the wandering event letters do the same, since
+                    // their held item is not a placed reference. Nothing in
+                    // the world owns it, so it gets a standalone object that
+                    // keeps its saved variables, as for a RefID of -1.
+                    let script = papyrus.string(instance.script).ok_or_else(|| {
+                        RestoreError::PapyrusExecution(format!(
+                            "invalid script name for saved instance {:#x}",
+                            instance.id
+                        ))
+                    })?;
+                    let object = self
+                        .vm
+                        .create_object_of(&format!("saved instance {:#x}", instance.id), script);
+                    insert_papyrus_object(&mut objects, instance.id, Some(object))?;
+                    continue;
+                }
                 if !world.exists(form) {
                     return Err(RestoreError::PapyrusTarget {
                         instance: instance.id,
                         form,
                     });
                 }
-                let object = world.object_of(crate::Handle::Form(form), &mut |name, class| {
-                    self.vm.create_object_of(name, class)
+                let script = papyrus.string(instance.script).ok_or_else(|| {
+                    RestoreError::PapyrusExecution(format!(
+                        "invalid script name for saved instance {:#x}",
+                        instance.id
+                    ))
+                })?;
+                let chain = self.vm.native_chain(script);
+                let alias_class = chain.iter().any(|name| {
+                    matches!(name.as_str(), "alias" | "referencealias" | "locationalias")
                 });
+                let handle = if alias_class {
+                    // SOURCE: UESP Papyrus ScriptInstance combines the two
+                    // numeric fields. Alias handles use their owning quest RefID.
+                    let component = i32::from(instance.unknown_2bits & 3) * 1000
+                        + i32::from(instance.unknown as i16);
+                    let alias = u32::try_from(component).map_err(|_| {
+                        RestoreError::PapyrusExecution(format!(
+                            "saved instance {:#x} has negative alias component {component}",
+                            instance.id
+                        ))
+                    })?;
+                    let definition = world
+                        .quest_state(form)
+                        .and_then(|quest| quest.def.alias(alias));
+                    let Some(definition) = definition else {
+                        return Err(RestoreError::PapyrusExecution(format!(
+                            "saved instance {:#x} targets missing alias {alias} in {form}",
+                            instance.id
+                        )));
+                    };
+                    if (chain.iter().any(|name| name == "referencealias") && definition.location)
+                        || (chain.iter().any(|name| name == "locationalias")
+                            && !definition.location)
+                    {
+                        return Err(RestoreError::PapyrusExecution(format!(
+                            "saved instance {:#x} alias kind differs from {script}",
+                            instance.id
+                        )));
+                    }
+                    crate::Handle::Alias {
+                        quest: form,
+                        id: alias,
+                    }
+                } else {
+                    crate::Handle::Form(form)
+                };
+                // SOURCE: UESP Papyrus ScriptInstance and FallrimTools show
+                // several instances of one script on the same form, told apart
+                // by the numeric field. Item scripts such as
+                // DLC1DawnguardItemScript are saved once per stack. The world
+                // owns one object per handle, so the first instance takes it
+                // and each further one becomes a standalone object that keeps
+                // its saved variables.
+                let object = if shared_handles.insert((format!("{handle:?}"), script.to_owned())) {
+                    world.object_of(handle, &mut |name, class| {
+                        self.vm.create_object_of(name, class)
+                    })
+                } else {
+                    self.vm
+                        .create_object_of(&format!("saved instance {:#x}", instance.id), script)
+                };
                 insert_papyrus_object(&mut objects, instance.id, Some(object))?;
             }
         }
@@ -603,6 +682,10 @@ mod sav_04_tests {
     }
 
     fn papyrus_bytes(bound_unknown: u16, reference: [u8; 3]) -> Vec<u8> {
+        papyrus_instances_bytes(&[(41, 0, bound_unknown, reference)])
+    }
+
+    fn papyrus_instances_bytes(instances: &[(u64, u16, u16, [u8; 3])]) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&2_u16.to_le_bytes());
         bytes.extend_from_slice(&3_u32.to_le_bytes());
@@ -613,23 +696,27 @@ mod sav_04_tests {
         bytes.extend_from_slice(&0_u32.to_le_bytes());
         bytes.extend_from_slice(&1_u32.to_le_bytes());
         bytes.extend_from_slice(&0_u32.to_le_bytes());
-        bytes.extend_from_slice(&1_u32.to_le_bytes());
-        bytes.extend_from_slice(&41_u64.to_le_bytes());
-        bytes.extend_from_slice(&0_u32.to_le_bytes());
-        bytes.extend_from_slice(&0_u16.to_le_bytes());
-        bytes.extend_from_slice(&bound_unknown.to_le_bytes());
-        bytes.extend_from_slice(&reference);
-        bytes.push(0);
+        bytes.extend_from_slice(&(instances.len() as u32).to_le_bytes());
+        for &(id, upper, unknown, reference) in instances {
+            bytes.extend_from_slice(&id.to_le_bytes());
+            bytes.extend_from_slice(&0_u32.to_le_bytes());
+            bytes.extend_from_slice(&upper.to_le_bytes());
+            bytes.extend_from_slice(&unknown.to_le_bytes());
+            bytes.extend_from_slice(&reference);
+            bytes.push(0);
+        }
         for _ in 0..2 {
             bytes.extend_from_slice(&0_u32.to_le_bytes());
         }
         bytes.extend_from_slice(&0_u32.to_le_bytes());
         bytes.extend_from_slice(&0_u32.to_le_bytes());
-        bytes.extend_from_slice(&41_u64.to_le_bytes());
-        bytes.push(0);
-        bytes.extend_from_slice(&2_u32.to_le_bytes());
-        bytes.extend_from_slice(&0_u32.to_le_bytes());
-        bytes.extend_from_slice(&0_u32.to_le_bytes());
+        for &(id, _, _, _) in instances {
+            bytes.extend_from_slice(&id.to_le_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&2_u32.to_le_bytes());
+            bytes.extend_from_slice(&0_u32.to_le_bytes());
+            bytes.extend_from_slice(&0_u32.to_le_bytes());
+        }
         for _ in 0..6 {
             bytes.extend_from_slice(&0_u32.to_le_bytes());
         }
@@ -694,6 +781,42 @@ mod sav_04_tests {
     }
 
     #[test]
+    fn sav_19_instance_on_a_created_form_without_a_change_form_becomes_standalone() {
+        let mut game = game();
+        game.load_script(
+            &ScriptBuilder::new("BoundScript", "")
+                .auto_state("Saved")
+                .bytes(),
+        )
+        .expect("saved script loads");
+        let save = papyrus_save(0x800, 0, [0x80, 0, 1]);
+        let imported = game
+            .restore_vanilla_papyrus(&save)
+            .expect("a created form nobody owns still restores its instance");
+        assert_eq!(imported.instances.len(), 1);
+    }
+
+    #[test]
+    fn sav_19_repeated_instances_of_one_script_on_one_form_all_restore() {
+        let mut game = game();
+        game.load_script(
+            &ScriptBuilder::new("BoundScript", "")
+                .auto_state("Saved")
+                .bytes(),
+        )
+        .expect("saved script loads");
+        let mut save = fixture_save(0x800);
+        save.table_3 = vec![GlobalData {
+            kind: GlobalData::PAPYRUS,
+            data: papyrus_instances_bytes(&[(41, 0, 1, [0, 0, 1]), (42, 0, 2, [0, 0, 1])]),
+        }];
+        let imported = game
+            .restore_vanilla_papyrus(&save)
+            .expect("item scripts saved once per stack restore");
+        assert_eq!(imported.instances.len(), 2);
+    }
+
+    #[test]
     fn sav_04_ignores_refid_for_unbound_instances() {
         let mut game = game();
         game.load_script(
@@ -713,6 +836,108 @@ mod sav_04_tests {
                 object: 0x800
             })),
             None
+        );
+    }
+
+    fn alias_game() -> crate::Game {
+        let mut plugin = Plugin::new(FileHeader::default());
+        let quest = crate::quest::with_alias(Record::new(Tag(*b"QUST"), 0x800), 2, "First", None);
+        let quest = crate::quest::with_alias(quest, 1002, "Second", None);
+        plugin.push_top(crate::quest::with_alias(quest, 998, "Signed", None));
+        let mut order = LoadOrder::new();
+        order.add("Skyrim.esm", plugin).unwrap();
+        let mut game = crate::Game::new(order);
+        game.load_script(&ScriptBuilder::new("Alias", "").bytes())
+            .unwrap();
+        game.load_script(&ScriptBuilder::new("ReferenceAlias", "Alias").bytes())
+            .unwrap();
+        game.load_script(
+            &ScriptBuilder::new("BoundScript", "ReferenceAlias")
+                .auto_state("Saved")
+                .bytes(),
+        )
+        .unwrap();
+        game
+    }
+
+    #[test]
+    fn sav_19_saved_aliases_bind_distinct_quest_alias_handles() {
+        let mut game = alias_game();
+        let mut save = fixture_save(0x800);
+        save.table_3 = vec![GlobalData {
+            kind: GlobalData::PAPYRUS,
+            data: papyrus_instances_bytes(&[(41, 0, 2, [0, 0, 1]), (42, 1, 2, [0, 0, 1])]),
+        }];
+        let restored = game.restore_vanilla_papyrus(&save).unwrap();
+        for (saved, alias) in [(41, 2), (42, 1002)] {
+            assert_eq!(
+                game.world().handle_of(restored.objects[&saved].unwrap()),
+                Some(crate::Handle::Alias {
+                    quest: GlobalFormId {
+                        file: 0,
+                        object: 0x800
+                    },
+                    id: alias
+                })
+            );
+        }
+        assert_ne!(restored.objects[&41], restored.objects[&42]);
+    }
+
+    #[test]
+    fn sav_19_missing_saved_alias_is_rejected_before_binding_it() {
+        let mut game = alias_game();
+        let error = game
+            .restore_vanilla_papyrus(&papyrus_save(0x800, 3, [0, 0, 1]))
+            .unwrap_err();
+        assert!(error.to_string().contains("missing alias 3"));
+        assert!(game
+            .world()
+            .object_id(crate::Handle::Alias {
+                quest: GlobalFormId {
+                    file: 0,
+                    object: 0x800
+                },
+                id: 3
+            })
+            .is_none());
+    }
+
+    #[test]
+    fn sav_19_saved_alias_kind_must_match_the_quest_definition() {
+        let mut game = alias_game();
+        game.load_script(&ScriptBuilder::new("LocationAlias", "Alias").bytes())
+            .unwrap();
+        game.load_script(
+            &ScriptBuilder::new("BoundScript", "LocationAlias")
+                .auto_state("Saved")
+                .bytes(),
+        )
+        .unwrap();
+        let error = game
+            .restore_vanilla_papyrus(&papyrus_save(0x800, 2, [0, 0, 1]))
+            .unwrap_err();
+        assert!(error.to_string().contains("alias kind differs"));
+    }
+
+    #[test]
+    fn sav_19_alias_component_uses_the_signed_low_word() {
+        let mut game = alias_game();
+        let mut save = fixture_save(0x800);
+        save.table_3 = vec![GlobalData {
+            kind: GlobalData::PAPYRUS,
+            data: papyrus_instances_bytes(&[(41, 1, u16::MAX - 1, [0, 0, 1])]),
+        }];
+        let restored = game.restore_vanilla_papyrus(&save).unwrap();
+        assert_eq!(
+            game.world().handle_of(restored.objects[&41].unwrap()),
+            Some(crate::Handle::Alias {
+                quest: GlobalFormId {
+                    file: 0,
+                    object: 0x800
+                },
+                id: 998
+            })
         );
     }
 }

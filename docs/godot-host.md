@@ -1,5 +1,52 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Snapshot adapter, PRF-37 draft
+
+`PlayerNode::start_threaded_gameplay` starts a worker-owned Game using the
+streamer's immutable records and VFS. It rejects an already active legacy
+Game. `SOE_THREADED_SIMULATION=1` selects this adapter through `start_gameplay`.
+The normal entry point otherwise retains the existing direct Game adapters.
+Startup script loading, quest initialization, cell binding and navigation
+graph construction happen on the simulation thread. Initialization attaches
+the plain resident cell IDs captured from the renderer in FormID order,
+including the exterior worldspace persistent cell. This follows the existing
+`reference_collision.rs` identity source. Contacts still require an attached
+exterior grid, so persistent identity does not place every exterior actor.
+Subsequent exterior walking residency changes are outside this draft adapter.
+
+In this adapter, physics callbacks step player input and the character
+controller, send a coalesced pose and synchronize Jolt actor bodies from
+the latest snapshot. They do not advance Game. Process callbacks poll an
+immutable snapshot pair and interpolate actor transforms. The streamer applies
+them to existing MultiMesh and array-mesh resources without reading World.
+Existing actor body synchronization uses snapshot contact shapes. SkyRecords
+reads the published sky rather than constructing a gameplay World on the
+main thread. No per-reference nodes or runtime dependencies are added.
+
+`simulation_status` reports readiness, initialization errors, tick count,
+actor count, package evaluations, tick wall time, PRF-17 search-worker busy
+time and continuous lag. `simulation_activate` queues a game activation.
+The adapter presents actor transforms, contact bodies and sky state. It does
+not consume the legacy menu, save, transition, detection, audio, animation,
+runtime light or effect presentation adapters. `stop_threaded_gameplay` joins
+the worker before host resources are replaced. This opt-in path is an
+integration draft rather than the normal playable host path.
+
+The local Godot thread-safety documentation requires active scene-tree work
+to stay on the main thread, and server threading requires explicit settings.
+This adapter sends no Godot handles to its worker. Loading/decoding and
+navigation retain the existing PRF-17 and AUD-12 paths. The snapshot transform
+adapter scans resident batches to locate changed actors, without evaluating
+enable chains. PRF-34's reference observer remains a separate draft.
+
+PRF-12's report and F3 overlay append a `main_thread_engine` total computed
+from each completed frame's exclusive system scopes. Player input and process
+callbacks have covering scopes, so controller catch-up work contributes to
+the same render-frame total. Unscoped host idle/render waits and other-thread
+work are excluded. The overlay and exit summary list simulation tick and
+search-worker busy time separately. Tick time already includes waiting for
+navigation workers, so the worker number must not be added to it.
+
 ## AI breakdown and overlay, PRF-27
 
 `PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
@@ -18,6 +65,40 @@ the existing panel and label, adding no per-reference nodes. The windowed
 `godot/prf_27_ai_overlay_test.gd` check reads the report with entity capture off,
 loads installed Bannered Mare NPCs, toggles F5, checks labels and viewport bounds,
 captures the window and quits.
+
+## AI phase reporting, PRF-36
+
+`PlayerNode::ai_planning_details` reports inclusive driver phase timings,
+actor counts and updates for high, middle-high, middle-low and low processing,
+and separate navigation and waypoint worker job counts, busy times and caller
+waits. The `ai_movement` row in `system_frame_breakdown` includes that phase
+dictionary. F3 displays scheduling, actor processing, procedure preparation,
+waypoint dispatch and worker costs below the exclusive system totals. Nested
+phase timings describe the last simulation tick and overlap. Worker busy time is not added to main-thread system
+time. Caller dispatch and join waits remain charged to AI.
+
+Automatic physics catch-up accumulates detection elapsed time and the latest
+player motion, then samples once in the next presentation's first physics
+callback. Queries stay on the physics thread and observations use the current
+record-backed poses. Queued sound events remain in World until sampled. Manual
+`advance` still samples each call. Manual advances, native generation writes
+and session recording boundaries flush pending observations. Successful game
+replacement, recovery and replay clear the old batch. A failed restored-game
+attachment retains it. This host query batch is transient. Saved detection
+values remain in World. No scene node is added.
+
+`godot/prf_36_ai_budget_test.gd` uses the windowed walkthrough startup, exits
+through its interior door and Whiterun gate, then walks on the Tamriel plains.
+It samples 3,600 fixed steps per location through PRF-12, checks that packages
+were evaluated, and checks combined plains AI below 0.6 ms p50 and 1.2 ms p99.
+The complete driver must also stay below 8 ms. The host integration test runs
+this script and the existing PRF-11 Bannered Mare script and collects both
+process exit statuses, including after a failed budget. Logs are retained under
+`target`. Fixed samples yield to rendering every 60 steps. A second plains
+check injects ordinary walking input for 60 wall seconds with automatic
+simulation enabled and applies the same limits to F3 presentation frames.
+Both scripts quit when their checks end. Build and
+import the release extension before running the installed host test.
 
 ## Default menu art, UI-24
 
@@ -147,6 +228,25 @@ entry point in this checkout, and its timing is not reported.
 
 ## Per-system frame monitors, PRF-12
 
+PRF-35 adds `magic_frame_breakdown` for the Game magic tick phases and the
+casting and dispatch remainder.
+The F3 overlay displays their last, p50, p99 and worst milliseconds, and
+`system_summary` appends their session totals. They are included in the
+existing magic slot and do not increase the system total or its frame share.
+`end_budget_frame` includes their latest tick times under `magic_phases`.
+Phase percentiles cover Game ticks, while system percentiles cover host
+presentation frames. The windowed `prf_35_magic_test.gd` drives the actual
+walkthrough indoors and through the authored city gate to the Whiterun plains,
+retains 360 samples per location and checks magic below 0.2 ms p50 and 0.5 ms p99.
+The thresholds and before/after measurements are in [performance.md](performance.md).
+
+The Grab Actor hook reads indexed active applications and selects a resident
+body in stable target order. Runtime light sync reads indexed summoned
+references, decodes LIGH data when creating a light, and updates RID transforms
+and fades only when they change. Expiry and visibility still release RIDs.
+These paths add no per-reference nodes or saved fields. They reuse the shared
+MAG-35 and MAG-66 contracts and Godot RenderingServer RID APIs.
+
 PRF-16's `begin_budget_frame` and `end_budget_frame` delimit one fixed-step
 CPU window using the same exclusive PRF-12 slots. Nested begins fail, an end
 without a begin returns an empty dictionary, and successful ends return the
@@ -191,6 +291,46 @@ one CanvasLayer with a panel and label, with no nodes per placed reference.
 duplicate-player ownership and removal, toggles the overlay with F3, verifies
 its labels and frame shares, and writes and reads the summary. A windowed run
 can save an overlay PNG through `SOE_PRF_12_CAPTURE`.
+
+The same overlay and exit report include Godot's process, physics and
+navigation times, object and node counts, orphan nodes, static memory,
+rendered object/primitive/draw-call counts, video and texture memory, 3D
+physics counts, audio output latency and pipeline compilation counters. The
+root viewport reports visible, shadow and canvas objects, draw calls and
+primitives plus measured render CPU and GPU milliseconds. The overlay checks
+orphan node counts every ten seconds and flags an increase. Render timing is
+enabled for the overlay's viewport while it is in the tree.
+
+`CellStreamerNode.render_attribution` groups its live batch RIDs by loaded
+cell and derives source-plugin membership from each batch's reference table.
+Cell values count the cell's batch RIDs, one draw call per batch and the
+uploaded triangle count, with MultiMesh triangle counts multiplied by
+placement count. A plugin is counted once for each batch containing one of
+its references, so merged batches can appear under more than one plugin. These
+are resident batch totals. Godot's per-frame viewport counts exclude culled
+objects and are reported separately. The installed-data
+`godot/prf_30_godot_render_report_test.gd` checks these counts against the
+streamer's created batch count and checks monitor, viewport and report fields.
+
+The report retains unmeasured render fields as `null`, with reasons in
+`render_attribution.unavailable`. These include per-stage culling, unloaded
+references, LOD switches, per-light shadow casters and per-frame material and
+mesh creation. The overlay names those unavailable fields. A null value does
+not mean zero. Resident batches and aggregate viewport figures do not supply
+these measurements, and PRF-30 remains open for their instrumentation.
+
+PRF-30 is partial. The Godot monitors, the per-viewport render info with CPU
+and GPU render time, the orphan growth warning and the per-cell and per-plugin
+resident batch totals are measured. Still missing: frustum, occlusion,
+visibility range, LOD and unloaded cell cull counters per stage, the LOD
+switch rate, shadow casters per light, and material and mesh creation counts
+per frame. The installed-data test accepts a null with a reason for those
+fields, so it does not measure them. The test also cannot reconcile per-cell
+counts with Godot's objects in frame, because the cell figures are resident
+batch totals and the in-frame figure excludes culled batches. It checks only
+that the in-frame count is positive and not above the resident total. Exact
+reconciliation needs per-batch in-frame membership, which needs the cull stage
+counters above.
 
 The physics row also exposes `physics_frame_breakdown`. It reports the number
 of physics callbacks since the last presentation process callback, inferred
@@ -440,7 +580,8 @@ negative and off-by-default flags with FNAM fade. It samples current reference
 placement and enable state, including `PlaceAtMe` references, and bounds the
 resulting record-derived light estimate to 0 to 150. The host sends that
 value, sight, motion and queued detection sounds to
-`World::evaluate_detection` each step.
+`World::evaluate_detection` after each manual step, or once after automatic
+physics catch-up as described in PRF-36 above.
 PRF-31 builds a uniform actor grid and a separate grid of sound source
 positions each frame. A nearby event can belong to a distant actor and does
 not grant sight to its owner. Each target's light is sampled once per frame.
@@ -616,21 +757,64 @@ the `soe-physics` `SimpleWorld` solver.
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each
-advance and stores the hit reference in the shared game world. The Game
-Papyrus globals `GetCurrentCrosshairRef` and `GetPlayerGrabbedRef` return those
-current host values. Holding the mapped Activate input converts a hit
-reference's collision body to kinematic mode and moves it with the look ray.
-Releasing Activate returns its body to rigid mode. The grabbed reference is
-cleared when the cell is replaced. These values are transient and are not
-saved.
+advance and stores the first hit reference in the shared game world. The ray
+uses the host physics space, including resident rigid clutter and static
+obstructions. Game Papyrus globals `GetCurrentCrosshairRef` and
+`GetPlayerGrabbedRef` return those current host values. HST-22 supplies the
+held-Activate path below. The grabbed reference is cleared when the cell is
+replaced. These values are transient and are not saved.
 
 The host also sends the active first-person POV to Game each camera-control
 sync. CTDA function 391 reads this value, and function 463 compares its REFR
 parameter with the current grabbed reference.
 
-The grab path currently uses references with static collision bodies loaded
-for the active cell. Movable-reference body creation and synchronizing their
-physics pose into the shared world remain HST-12 work.
+### Carrying loose objects, HST-22
+
+A mapped Activate press captures the reference under the crosshair. A release
+before 0.35 seconds performs ordinary activation through Game, including item
+pickup and object use. A hold reaching that threshold on the same reference
+starts carrying only if its resident body is rigid. Fixed and keyframed
+collision remains static, and a Papyrus motion override that makes a movable
+body static or kinematic prevents carrying it. A completed hold does not
+activate on release. Telekinesis retains its separate input path.
+
+The carry target stays at the captured eye-ray distance in front of the
+camera. The body remains rigid with its existing collision layer, mask,
+gravity and velocity. Each fixed step applies a central impulse from a damped
+spring between the hit anchor and that target. The spring uses acceleration
+100 times displacement minus 20 times velocity, compensates the body's current
+host gravity, bounds acceleration to 80 metres per second squared and bounds
+its impulse timestep to 1/30 second. Release stops applying impulses and keeps
+the body's linear and angular momentum. Jolt continues to resolve collisions
+while held and after the drop. Simulated poses reach the existing World
+reference fields and the renderer through HST-12's sync path.
+
+Successful grabs and releases queue `OnGrab()` and `OnRelease()` on the
+reference with no arguments. Focus loss, an open menu, disabled activation
+controls, removal of the body, a cell replacement and player exit clear the
+hold. `carry_status` exposes the shared crosshair and grabbed identities for
+host diagnostics. No saved field, dependency or per-reference node is added.
+
+Sources read were local `nifxml/nif.xml`'s `hkMotionType`, CK
+`SetMotionType_-_ObjectReference.wikitext`, `OnGrab_-_ObjectReference.wikitext`
+and `OnRelease_-_ObjectReference.wikitext`, Godot's PhysicsServer3D and direct
+body-state class references, and godotwind's
+`src/core/interaction/carry_controller.gd`. The NIF decoder and resident
+body builder already supply dynamic clutter. Godotwind uses node wrappers
+and a velocity drive. This host uses its existing RIDs and a spring impulse
+so contacts remain solver-controlled. The named CK Controls and UESP Skyrim
+Controls pages are absent from the local corpus, and their web endpoints
+refused retrieval. The task's held-Activate and release contract supplies the
+input behavior.
+
+The `hst_22_` tests cover tap and hold timing, interrupted or changed aim,
+spring forces and invalid inputs, fixed-container use, zero-argument reference
+events, dynamic versus static collision, and an installed Bannered Mare tankard. The windowed
+scene uses the mapped E input, checks collision against a server obstacle,
+carries the tankard two metres, releases with momentum, checks table or floor
+contact and settling, compares World and rendering poses, checks focus-loss
+release, then taps to pick up the dropped item. It captures
+`target/hst-22-carry.png`, writes `target/hst-22-scene.log` and quits.
 
 ### Destruction-stage models, CMB-37
 
@@ -1170,9 +1354,15 @@ therefore participates in the same divergence report as world and VM state.
 dependency preflight before restoring a vanilla ESS. Missing plugins, missing
 scripts and changed regular/light plugin kinds return the report and refuse
 session start. ESS provenance that is unavailable in the format remains
-reported as unknown. Unimported projectile and hazard changes, opaque PCON
-remainders and PARW payloads also refuse execution so they are not silently
-omitted. Other supported restoration errors return before a recovery
+reported as unknown. Unimported PMIS, PBEA, PFLA and PBAR changes and
+opaque PCON remainders also refuse execution. PARW placed arrows, PHZD placed
+hazards and PGRE grenade projectiles are classified as transient for
+accepted recovery. They are filtered from a private copy of the import input,
+omitted, with per-type counts returned in `AcceptedVanillaSession.skipped_transient`
+and logged after the generation is written. This policy does not restore
+unexpired arrows, grenade projectiles or active hazards. Their payloads remain
+in the original ESS. Dependency checks still inspect the complete source save.
+Other supported restoration errors return before a recovery
 generation is written.
 
 After restoration succeeds, the host writes a native generation to the
@@ -1193,11 +1383,64 @@ character, cell and camera remain attached. The caller should retain its active
 
 The UESP `Player_Location.wikitext` describes a world or cell, exterior cell
 coordinates and a position. FallrimTools' ESS player-location handling keeps
-that data separate from the player's ACHR change form. The game crate in this
-worktree does not expose the SAV-09 atomic world and VM restoration entry point,
-so no vanilla-save import currently calls this host adapter. The host check is
-therefore limited to the adapter's restored-pose validation. An end-to-end
-vanilla import, attached cell and advanced frame still require SAV-09.
+that data separate from the player's ACHR change form. xEdit's
+`wbDefinitionsTES5Saves.pas` leaves PHZD, PGRE and PARW subtype payloads empty,
+and FallrimTools falls back to opaque bytes for these types. Recovery uses the
+transient policy above rather than deriving an undocumented lifetime reader.
+CommonLib's `GrenadeProjectile.h` supplies the PGRE projectile identity, and
+`Projectile.h` separates its living time from reference placement.
+No new parser, dependency or per-reference scene node is added.
+
+`sav_19_vanilla_atomic_import_attaches_saved_cell_pose_camera_and_verified_frame`
+is gated on `SKYRIM_DATA` and `SOE_TEST_SAVES`. It attempts recovery across the
+external save corpus and writes each result to `target/sav_19/survey.json`.
+Refused imports must preserve the prior game snapshot. Every source ESS is
+checked for unchanged bytes. At least one Clean Save must recover. Its player
+cell, position and rotation are compared with ESS player-location and ACHR data.
+The test passes the resulting native generation to
+`godot/sav_19_vanilla_attach_test.gd` when `SOE_GODOT_BIN` is set. That windowed
+check uses `attach_restored_generation`, verifies the saved pose and current
+camera, checks that the game clock advanced, and captures a 640 by 360 frame.
+At least 100 sampled pixels must differ from the background by 0.05 in RGB
+distance. The script writes `target/sav_19/frame.png` and quits. Recovery
+refusals and host output remain in the survey and `target/sav_19/host.log`.
+
+The 2026-10-08 survey attempted all 60 external saves and accepted 57,
+including 18 of the 19 Clean Saves. Three refused. One Clean Save
+(After The Throat of the World) carries an opaque PCON change form, which still
+refuses by policy. Saves 40 and 41 of the Dawnguard and Dragonborn set refuse
+because the saved body of `DLC2dunBookLevel4Bend.OnTriggerEnter` differs from
+the loaded PEX, the next thing to diagnose by dumping the first differing
+instruction as was done for the other mismatches.
+
+Getting from none to 57 took these restore changes, each tied to a reader:
+
+- PMIS, PARW, PHZD and PGRE changes are left out with per-type counts in
+  `skipped_transient`, and the source ESS keeps them.
+- A Papyrus instance on a created form with no change form restores as a
+  standalone object (FallrimTools reports these as scripts some mods create),
+  and further instances of one script on one form, saved once per
+  item stack, each get their own object.
+- A frame with a Null owner is a global function frame, so it runs on no
+  object.
+- A suspended caller whose pointer names the call instruction itself, as a
+  frame blocked in `Utility.Wait` is saved, resumes after that call.
+- The frame's event field is the function name, and it is looked up through
+  the script's parents.
+- Saved code compares names without case and a string operand stands for an
+  identifier, because the ESS string table folds case. A native frame names its
+  arguments `param1`, `param2` by position. A handler that changed state is
+  matched against the same-named function of any state.
+- A FACT change form carries a 20 byte `CRVA` plugin struct as well as the 16
+  byte counter form.
+- The player's cell comes from the saved `coorX` and `coorY` when present.
+
+The survey keeps every per-save reason in `target/sav_19/survey.json` and
+verifies rollback and source-byte preservation. The vanilla attachment test
+`sav_19_vanilla_attach` passed on the 2026-10-08 run, 850 s, with the
+extension built from this branch and imported on Godot 4.4.1. It captured the
+verified frame for a Clean Save at its saved cell, pose and camera. The play
+session check by the user remains open.
 
 `CellStreamer::update(focus)` returns a `StreamPlan`: cells to load, nearest first, and cells
 to unload, farthest first. The load square is `load_radius` cells each side of the focus cell
@@ -5024,8 +5267,8 @@ reference only when World reports it enabled. It uses the normal VFS, NIF,
 material and collision paths and adds RenderingServer and PhysicsServer3D
 resources. Unloading its cell removes the deferred identity.
 
-Built geometry reads effective visibility through `ref_placement` on every
-sync. Disabling collapses batched triangles or sets a MultiMesh member's scale
+Built geometry reads effective visibility through `ref_placement` for
+notified presentation changes. Disabling collapses batched triangles or sets a MultiMesh member's scale
 to zero, and removes the reference's host collision from its physics space.
 Enabling restores those resources without reloading the cell. Player movement
 and query collision also follow effective enable state. Static movement bodies
@@ -5435,3 +5678,288 @@ updates exceeded the 2,000-microsecond budget, so the check exited one.
 The full-update timing requirement remains unmet, see [performance.md](performance.md).
 The check runs a zero-time gameplay frame after load-door transitions to settle
 pending unload before exterior walking.
+
+## Placed model coverage and reference accounting, RND-32
+
+The shared render and collision model selector accepts TREE, FLOR, LIGH,
+MSTT, SCOL, TACT, MISC, WEAP, BOOK, INGR, ALCH, KEYM, SLGM, AMMO, SCRL and
+APPA through MODL, alongside STAT, ACTI, FURN, DOOR, CONT and GRAS. ARMO
+uses its male MOD2 ground model, falling back to female MOD4 when MOD2 is
+absent or empty. ARMO MODL contains armor-addon FormIDs and is never decoded
+as a filename. Cell preparation, deferred reference preparation and collision
+selection use this shared selector. New types do not increment the old
+container-only statistic.
+
+Vanilla tundra shrub NIFs include export paths such as
+`skyrimhd\\build\\pc\\data\\textures\\plants\\TundraShrub01.dds`.
+Texture lookup folds repeated separators and trims prefixes at a complete
+`textures` directory component before consulting the existing VFS. Canonical
+and export-prefixed aliases share one texture-cache slot, and loose-file
+precedence remains the VFS's responsibility. Material descriptions retain
+their authored paths.
+
+The path rule follows local `nifly/src/NifFile.cpp`, `TrimTexturePaths`, and
+OpenMW `components/misc/resourcehelpers.cpp`, `findDirectory` and
+`correctResourcePath`. Nifly mutates C++ NIF objects and OpenMW also supplies
+Morrowind extension fallbacks. This host only needs the directory trimming
+and separator folding in its existing read-only DDS cache. Synthetic RND-32
+tests check path boundaries and shared cache payloads. The installed census
+also rejects checker albedo on named TREE and FLOR texture fields.
+
+The sources are local `TES5Edit/Core/wbDefinitionsTES5.pas`, each named
+record's `wbGenericModel`, ARMO world models, Is Marker flags and `wbXESP`,
+plus `uesp-modfileformat/REFR.wikitext`. The generic ESM string decoder and
+existing VFS, NIF, mesh and bhk readers supply the implementation. These
+changes add no dependency, saved field or per-reference scene node.
+
+Bit 23 suppresses rendering only for STAT, ACTI, FURN and DOOR, whose xEdit
+definitions assign Is Marker to that bit. Existing NIF EditorMarker subtree
+filtering retains ordinary sibling geometry. Occlusion-plane, room, portal
+and plane-primitive references are also excluded from deferred rendering,
+matching the cell preparation path. Collision retains its existing marker
+selection rules.
+
+`CellStats::reference_counts` counts every indexed placement by its winning
+base signature, including actors and deleted winners. Built counts unique
+FormIDs with returned geometry, rather than NIF shapes, triangles or batches.
+The disjoint skip categories are Initially Disabled, XESP parent, runtime
+Disable, editor markers and named other reasons. NIFs containing only filtered
+marker geometry count as markers. Missing records, absent models, malformed
+references, deleted winners, empty non-marker geometry, deferred references
+and mesh failures have explicit other reasons. LAND and generated water are
+outside this placed-reference accounting.
+
+`DataSource::reference_counts` can audit prepared surfaces against a live
+World. A live Disable that changes the authored result is counted separately,
+including a Disable of a parent. An enabled reference awaiting preparation
+counts as deferred. The streamer repeats the audit against the gameplay World
+when installing a cell and exposes totals by signature in
+`last_stats().reference_counts`. The CPU loader emits per-cell counts under
+the `host::references` debug target. The audit does not instantiate references
+or retain authoritative enable state.
+
+Enable checks reuse RND-17's winning-record chain. An enabled parent overrides
+a child's Initially Disabled flag, the opposite-state flag inverts the parent
+and parents outside the resident cells still resolve through the load order.
+The synthetic `rnd_32_` tests exercise those cases, runtime Disable, both
+render build paths and solid bhk collision for each added type. Their bhk
+fixture follows local `nifxml/nif.xml` and the existing physics synthetic
+writer. Marker, model-less, deleted and failed-model outcomes are also tested.
+
+The installed `rnd_32_installed_cells_account_for_every_placed_reference`
+test streams the Bannered Mare and three Tamriel plains cells. It checks every
+winning REFR enable result against an independent flags/XESP traversal and
+asserts that returned model-bearing reference geometry equals placed models
+minus markers and truly disabled references. Every other indexed placement
+must have a counted reason. The survey writes its counts and plant placements
+to `target/rnd_32_whiterun.json`. The windowed
+`godot/rnd_32_references_test.gd` verifies uploaded TREE and FLOR identities
+and captures their placements under `target/rnd_32` at 640 by 360.
+
+### Installed cell census, 2026-10-06
+
+The census uses Skyrim.esm, Update.esm, Dawnguard.esm, HearthFires.esm and
+Dragonborn.esm. Runtime Disable is zero in these fresh authored preparations.
+Every row sums to placed = built + initial + XESP + runtime + markers + other.
+Model-bearing REFRs satisfy built = placed models minus markers minus truly
+disabled references. NPC_ uses actor presentation, IDLM is an idle marker,
+SOUN is an audio source and model-less LIGH references provide lighting.
+The model-less ACTI bases carry no MODL geometry. They remain identified in
+the census rather than being counted as failed meshes.
+
+#### WhiterunBanneredMare, 0:01605E
+
+| Base | Placed | Built | Initial | XESP | Runtime | Markers | Other |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| ACTI | 3 | 1 | 1 | 0 | 0 | 0 | 1 no placed model |
+| ALCH | 107 | 106 | 1 | 0 | 0 | 0 | - |
+| ARMO | 1 | 1 | 0 | 0 | 0 | 0 | - |
+| BOOK | 3 | 3 | 0 | 0 | 0 | 0 | - |
+| CONT | 40 | 40 | 0 | 0 | 0 | 0 | - |
+| DOOR | 6 | 6 | 0 | 0 | 0 | 0 | - |
+| FLOR | 18 | 18 | 0 | 0 | 0 | 0 | - |
+| FURN | 31 | 29 | 0 | 0 | 0 | 2 | - |
+| IDLM | 12 | 0 | 0 | 0 | 0 | 0 | 12 no placed model |
+| INGR | 2 | 2 | 0 | 0 | 0 | 0 | - |
+| LIGH | 18 | 0 | 0 | 0 | 0 | 0 | 18 no placed model |
+| MISC | 124 | 124 | 0 | 0 | 0 | 0 | - |
+| MSTT | 4 | 4 | 0 | 0 | 0 | 0 | - |
+| NPC_ | 7 | 0 | 1 | 0 | 0 | 0 | 6 actor presentation |
+| SOUN | 1 | 0 | 0 | 0 | 0 | 0 | 1 no placed model |
+| STAT | 319 | 302 | 0 | 0 | 0 | 17 | - |
+| WEAP | 1 | 1 | 0 | 0 | 0 | 0 | - |
+| Total | 697 | 637 | 3 | 0 | 0 | 19 | 38 |
+
+#### WhiterunExterior04, 0:0095FC
+
+| Base | Placed | Built | Initial | XESP | Runtime | Markers | Other |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| ACTI | 14 | 0 | 6 | 7 | 0 | 1 | - |
+| HAZD | 2 | 0 | 0 | 2 | 0 | 0 | - |
+| LIGH | 3 | 0 | 0 | 0 | 0 | 0 | 3 no placed model |
+| MSTT | 17 | 12 | 0 | 3 | 0 | 2 | - |
+| NPC_ | 14 | 0 | 14 | 0 | 0 | 0 | - |
+| SOUN | 2 | 0 | 0 | 0 | 0 | 0 | 2 no placed model |
+| STAT | 130 | 90 | 0 | 6 | 0 | 34 | - |
+| TREE | 27 | 27 | 0 | 0 | 0 | 0 | - |
+| Total | 209 | 129 | 20 | 18 | 0 | 37 | 5 |
+
+#### WhiterunExterior13, 0:0095FD
+
+| Base | Placed | Built | Initial | XESP | Runtime | Markers | Other |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| ACTI | 6 | 0 | 3 | 3 | 0 | 0 | - |
+| HAZD | 4 | 0 | 0 | 4 | 0 | 0 | - |
+| LIGH | 1 | 0 | 0 | 0 | 0 | 0 | 1 no placed model |
+| MSTT | 13 | 10 | 0 | 2 | 0 | 1 | - |
+| NPC_ | 18 | 0 | 18 | 0 | 0 | 0 | - |
+| SOUN | 2 | 0 | 0 | 0 | 0 | 0 | 2 no placed model |
+| STAT | 52 | 34 | 0 | 4 | 0 | 14 | - |
+| TREE | 32 | 32 | 0 | 0 | 0 | 0 | - |
+| Total | 128 | 76 | 21 | 13 | 0 | 15 | 3 |
+
+#### WhiterunExterior17, 0:009639
+
+| Base | Placed | Built | Initial | XESP | Runtime | Markers | Other |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| ACTI | 2 | 0 | 0 | 0 | 0 | 0 | 2 no placed model |
+| FLOR | 2 | 2 | 0 | 0 | 0 | 0 | - |
+| MSTT | 3 | 3 | 0 | 0 | 0 | 0 | - |
+| SOUN | 1 | 0 | 0 | 0 | 0 | 0 | 1 no placed model |
+| STAT | 60 | 57 | 0 | 0 | 0 | 3 | - |
+| TREE | 72 | 72 | 0 | 0 | 0 | 0 | - |
+| Total | 140 | 134 | 0 | 0 | 0 | 3 | 3 |
+
+Every selected model parsed, with zero mesh failures. The three chimney-smoke
+placements in Exterior04 and Exterior13 have no mesh geometry after their
+EditorMarker shape is removed. They count as marker-only models, alongside
+the Exterior04 catapult-impact marker. This census measures placed mesh
+coverage and does not claim smoke-particle rendering.
+
+The Godot 4.4.1 software Vulkan check passed and exited with status 0. All 133
+TREE and FLOR reference identities had uploaded geometry, and the host's
+per-kind built counts matched the CPU census for each of the three plains
+cells. The streamer child count did not change, and no plains material bound
+the checker albedo. The tree and flora captures contain 160,648 and 153,433
+scene pixels respectively, above the 100-pixel
+threshold fixed before the run. Captures remain under `target/rnd_32`, outside
+the source tree. The installed Rust test launches this check when
+SOE_GODOT_BIN is also set, after writing the manifest. Build the release
+extension and import the Godot project before running that test.
+
+Validation passed eight RND-32 Rust tests, eight model-selection tests, seven
+texture-cache tests and two RND-17 cell preparation regressions. These groups
+overlap where new tests belong to an existing module. Formatting and
+`cargo clippy -p soe-godot-host --all-targets -- -D warnings` also passed.
+
+## PRF-28 light capacity probe
+
+`godot/capacity_lights.gd` measures a baseline and a doubling ladder of
+RenderingServer omni-light RIDs. `SOE_CAPACITY_LIGHTS` selects `dynamic` or
+`shadow`, `SOE_CAPACITY_WORLD` selects `synthetic` or `whiterun`.
+`SOE_CAPACITY_START` and `SOE_CAPACITY_MAX` default to 1 and 256. Whiterun
+loads the installed radius-one WhiterunOrigin exterior through
+CellStreamerNode. The synthetic scene uses a lit plane and 64 shadow-casting
+boxes. Whiterun adds the 64 calibration boxes to its real streamed geometry,
+without the plane. Its camera and light grid use the upper end of the vertical
+bounds because buried geometry extends the minimum far below the city.
+Each Whiterun sample requires more triangles than the calibration boxes alone.
+A bounding camera keeps the light grid in view.
+
+Lights move vertically each measured frame. Both geometry and lights use
+RIDs, with zero nodes per light. The probe verifies that light pixels differ
+from the baseline. Shadow rungs also disable shadows temporarily after the
+measurement and check that the rendered image changes. The script owns and
+frees each light and instance RID, clears the streamer and quits at the end.
+
+The viewport renders at 1600 by 900, independently of the window size.
+Warm-up uses the existing render pipeline helper. Each rung measures at least
+600 frames and five seconds with the bench.gd wall-frame, GPU and render CPU
+contract. SOE_BENCH_P99_MS and SOE_BENCH_WORST_MS retain the existing defaults
+of 16.7 and 33 ms. Reports include the baseline result, renderer, adapter,
+scene counts and zero per-light nodes. `CAPACITY_RESULT` distinguishes the
+first breach from a limit not reached. A measured boundary exits zero,
+an invalid measurement exits nonzero. This is a throughput probe, not a
+passing-frame gate.
+
+The probe requires Forward+ and bounds its requested maximum by the project's
+clustered-element limit. Its 4096-pixel positional shadow atlas has four
+quadrants of 256 maps. These settings are reported with every sample.
+The headless `prf_28_capacity_test.gd` checks only ladder arithmetic.
+Sources are local Godot RenderingServer, Viewport, light/shadow and pipeline
+references, plus godotwind's benchmark manual. Stock Godot supplies the
+renderer. No second rendering dependency or new reference-node path is added.
+
+## Load timing phases, PRF-29
+
+DataSource startup records an 18-second diagnostic budget. Cell geometry,
+collision, upload, localization, scripts and save operations use 33-millisecond
+diagnostic budgets. These thresholds report breaches rather than enforcing
+loading deadlines. The report names the largest exclusive retained cause
+phase and its asset. Worker queue phases measure submission to chunk entry.
+Worker results retain load ownership alongside the existing work recorder.
+
+Static loading carries the resolved base form and model path as owning object.
+It separates VFS reads, placed-model parse, CPU surface construction and
+texture parse/preparation. Collision loading separates model parse from shape
+construction. Actor assets record skeleton and behavior parsing, CPU mesh
+construction and actor/base ownership for record-selected rigs. Server mesh,
+MultiMesh and cached texture creation record upload submission time, including
+waits inside those host calls, rather than GPU execution time.
+
+`CellStreamerNode.load_timing_dump` returns the retained phase table and budget
+reports. `write_load_trace` writes ordinary spans and load phases as a Chrome
+trace. PlayerNode's session summary also includes load phases. The walkthrough
+adds one `load_diagnostics.gd` control node, independent of reference count.
+It observes the five pipeline-source counters after drawn frames and writes
+`user://soe-loads.txt` and `user://soe-loads.json` on exit. The text dump combines
+Rust load phases with compilation observations and current counters.
+
+Each compilation observation reports counter deltas, a drawn-frame interval
+and whether that interval exceeds 33 milliseconds. Compiler duration and
+responsible asset report unavailable. The local Godot pipeline guide and
+`godotwind/src/core/diagnostics/pipeline_compile_monitor.gd` define these source
+counters. The public stock Godot API supplies counts rather than compiler
+durations or identities. These observations do not establish that compilation
+caused a hitch. Specialization remains separate from draw-time compilation.
+
+PRF-29 is partial. Startup, geometry, collision, upload, worker queue and save
+phases carry cause classes and budgets. Still missing: compiler duration and
+the responsible asset for shader and pipeline compiles (Godot exposes counters
+only), the PRF-18 dump (this checkout has no recorder, so breaches are named in
+the log and in the `load_timing_dump`, Chrome trace and `user://soe-loads`
+files instead), PRF-20's per-asset cell split, PRF-21's per-plugin save split,
+and GPU execution time (upload records submission time only).
+
+`prf_29_loads` Rust tests exercise plugin cold/cache paths, archive and loose
+reads, engine-save failures, and installed startup, Whiterun geometry, collision
+and navigation causes. `godot/prf_29_loads_test.gd` checks windowed startup,
+Whiterun uploads, pipeline observations and both dump formats, then quits.
+
+## Reference sync and scene phases, PRF-34
+
+The streamer indexes resident references to their geometry batches when cells
+attach or detach. Independent game observers notify rendering, movement
+collision and PhysicsServer placements of effective presentation changes.
+Idle synchronization drains empty queues. A changed merged batch rebuilds its
+members from the original upload. Deferred model references subscribe while
+hidden and build through the existing asset path when enabled. Static physics
+placements use an index. Movable bodies still poll Godot for simulated poses.
+No new reference scene nodes are allocated. Automatic gameplay uploads
+image-space presentation once per rendered frame. Manual advances retain
+immediate presentation.
+
+PRF-12's report adds reference collision sync, reference change sync, node
+transforms, mesh and material uploads, RenderingServer calls and other host
+scene work. Nested simulation scopes remain excluded. `host_scene_cpu` sums
+these host phases except RenderingServer calls. The F3 overlay reads the same
+report. The fixed PRF-34 windowed walk records every completed presentation
+frame for sixty seconds per location and checks sync maxima and scene CPU
+percentiles. Timings and acceptance results are in [performance.md](performance.md).
+
+Inspection for HST-21 found that `open_swing_door` queues its animated node for
+freeing when the reference closes and creates a new node on the next open.
+The batched door hides while open. Movement-body visibility uses effective
+enable state and does not remove a static door body solely because it opened.
+Query bodies additionally hide opened doors. Change notification retains this
+existing handoff. Door node lifetime and open-door capsule passage belong to HST-21.

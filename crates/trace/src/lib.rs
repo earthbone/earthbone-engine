@@ -43,6 +43,9 @@ pub use tracing::{debug, error, info, trace, warn};
 mod entity;
 pub use entity::{Entity, EntityScope, EntityStats, InputLatency, Profile};
 
+mod load;
+pub use load::{LoadCause, LoadEvent, LoadScope, LoadToken, LoadTrace};
+
 mod metrics;
 pub use metrics::{metric_add, metric_set, metric_snapshot, Metric, METRIC_COUNT};
 
@@ -295,6 +298,7 @@ impl Trace {
                 None => out.push_str(",\"args\":{}}"),
             }
         }
+        load::append_chrome_events(&mut out, !events.is_empty());
         out.push_str("]}\n");
         std::fs::write(path, out)
     }
@@ -322,6 +326,7 @@ impl Trace {
                 s.payload_total
             );
         }
+        out.push_str(&LoadTrace::summary_text());
         out
     }
 }

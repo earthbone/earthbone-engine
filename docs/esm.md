@@ -716,3 +716,14 @@ through the tracing facade reexported by `soe-trace`. The caller installs the
 subscriber. [trace.md](trace.md) describes filter directives, structured
 context, rate limiting and output. Plugin records and override rules are
 unchanged by logging.
+
+## Load timing phases, PRF-29
+
+`read_plugin` measures file I/O separately from plugin parsing, with the source
+path on each phase. `read_plugin_cached` measures cache reads and cache decode
+separately. A rejected cache records the attempted decode and then the source
+read and parse. `LoadOrder::add` records form-table CPU construction under the
+plugin name. These always-on `soe-trace` load phases are independent of the
+optional span switch and do not change parsing, cache identity or form state.
+The boundaries follow this crate's existing parser and parsed-cache API and
+`docs/performance.md`'s parsed plugin cache measurements.

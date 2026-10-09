@@ -40,6 +40,7 @@ use crate::door_fade::{DoorFade, GameFade};
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
+mod carry;
 mod containers;
 mod detection;
 mod exterior;
@@ -58,6 +59,7 @@ mod race;
 mod reference_collision;
 mod saves;
 mod scripted;
+mod simulation;
 mod sky;
 mod training;
 
@@ -65,13 +67,6 @@ mod training;
 /// vanilla reach is about this, and it is a setting rather than a constant so
 /// a later pass can read `fActivatePickLength` from the INI.
 const ACTIVATE_REACH: f32 = 180.0;
-
-fn crosshair_reference(
-    hit: Option<soe_physics::world::RayHit>,
-    references: &HashMap<BodyId, GlobalFormId>,
-) -> Option<GlobalFormId> {
-    hit.and_then(|hit| references.get(&hit.body).copied())
-}
 
 struct DoorFadeView {
     overlay: Gd<ColorRect>,
@@ -115,8 +110,15 @@ pub struct PlayerNode {
     physics_advances_since_process: u32,
     last_physics_steps: u32,
     last_catchup_steps: u32,
+    /// Set by automatic physics ticks, cleared by the one sync per frame in `process`.
+    reference_sync_pending: bool,
+    /// Godot's `max_physics_steps_per_frame` before gameplay lowered it.
+    prior_max_physics_steps: Option<i32>,
     catchup_since: Option<std::time::Instant>,
     catchup_warning_sent: bool,
+    scene_history: soe_trace::FrameHistory,
+    scene_frame: soe_trace::FrameSample,
+    scene_budget: soe_trace::FrameSample,
     budget_frame: Option<soe_trace::FrameSnapshot>,
     monitor_names: Vec<StringName>,
     /// Cell radius beyond which distant LOD replaces full resolution geometry.
@@ -132,15 +134,32 @@ pub struct PlayerNode {
     motion: CameraMotion,
     detection_time_usec: i64,
     detection_stage_usec: [i64; 4],
+    automatic_detection: detection::AutomaticDetection,
+    automatic_physics_step: bool,
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
     query_collision: crate::godot_physics::CellBodies,
     collision_references: HashMap<BodyId, GlobalFormId>,
+    /// Reverse of `collision_references`, so one reference finds its bodies at once.
+    collision_bodies: HashMap<GlobalFormId, Vec<BodyId>>,
+    collision_changes: soe_game::world::ReferenceChanges,
+    collision_cells: BTreeSet<GlobalFormId>,
+    collision_residents: BTreeMap<GlobalFormId, GlobalFormId>,
     collision_visibility: std::collections::BTreeMap<GlobalFormId, bool>,
+    /// Set when the collision world is replaced, so the next sync restarts tracking.
+    collision_reset: bool,
+    collision_pending_cells: std::collections::VecDeque<GlobalFormId>,
+    collision_removing: std::collections::VecDeque<(GlobalFormId, usize)>,
+    collision_expand_offset: usize,
+    collision_pending_watch: std::collections::VecDeque<GlobalFormId>,
+    collision_backlog: BTreeSet<GlobalFormId>,
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    simulation: Option<soe_game::simulation::Simulation>,
+    simulation_pair: Option<Arc<soe_game::simulation::SnapshotPair>>,
+    simulation_error: String,
     player_input: soe_game::player_input::Driver,
     animation_source: Option<GlobalFormId>,
     /// The existing skinned node bound to the player's own appearance.
@@ -195,7 +214,8 @@ pub struct PlayerNode {
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
     last_activate_reference: Option<GlobalFormId>,
-    grabbed_host: Option<(GlobalFormId, Vec3)>,
+    grabbed_host: Option<carry::HeldReference>,
+    activate_hold: crate::carry::ActivateHold,
     /// Distance from the eye to the host body held by Telekinesis.
     telekinesis_distance: Option<f32>,
     host_telekinesis_target: Option<GlobalFormId>,
@@ -249,8 +269,13 @@ impl INode3D for PlayerNode {
             physics_advances_since_process: 0,
             last_physics_steps: 0,
             last_catchup_steps: 0,
+            reference_sync_pending: false,
+            prior_max_physics_steps: None,
             catchup_since: None,
             catchup_warning_sent: false,
+            scene_history: soe_trace::FrameHistory::default(),
+            scene_frame: crate::scene_timing::snapshot(),
+            scene_budget: soe_trace::FrameSample::default(),
             budget_frame: None,
             monitor_names: Vec::new(),
             exterior_lod_full_res_radius: 1,
@@ -259,16 +284,31 @@ impl INode3D for PlayerNode {
             rig: CameraRig::default(),
             detection_time_usec: 0,
             detection_stage_usec: [0; 4],
+            automatic_detection: detection::AutomaticDetection::default(),
+            automatic_physics_step: false,
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
             driver: Driver::new(),
             world: None,
             query_collision: crate::godot_physics::CellBodies::default(),
             collision_references: HashMap::new(),
+            collision_bodies: HashMap::new(),
+            collision_changes: soe_game::world::ReferenceChanges::default(),
+            collision_cells: BTreeSet::new(),
+            collision_residents: BTreeMap::new(),
             collision_visibility: std::collections::BTreeMap::new(),
+            collision_reset: true,
+            collision_pending_cells: std::collections::VecDeque::new(),
+            collision_removing: std::collections::VecDeque::new(),
+            collision_expand_offset: 0,
+            collision_pending_watch: std::collections::VecDeque::new(),
+            collision_backlog: BTreeSet::new(),
             character: None,
             data_source: None,
             game: None,
+            simulation: None,
+            simulation_pair: None,
+            simulation_error: String::new(),
             player_input: soe_game::player_input::Driver::default(),
             animation_source: None,
             player_appearance: None,
@@ -313,6 +353,7 @@ impl INode3D for PlayerNode {
             last_activate_hit: false,
             last_activate_reference: None,
             grabbed_host: None,
+            activate_hold: crate::carry::ActivateHold::default(),
             telekinesis_distance: None,
             host_telekinesis_target: None,
             host_grab_actor: None,
@@ -387,6 +428,7 @@ impl INode3D for PlayerNode {
     }
 
     fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         let latency = event
             .clone()
             .try_cast::<InputEventKey>()
@@ -510,14 +552,27 @@ impl INode3D for PlayerNode {
     fn physics_process(&mut self, delta: f64) {
         self.physics_ticks_since_process = self.physics_ticks_since_process.saturating_add(1);
         if self.auto_step {
+            let frame = Engine::singleton().get_process_frames();
+            if let Some((elapsed, motion)) = self.automatic_detection.before_step(frame) {
+                self.advance_detection(elapsed, motion);
+            }
+            self.automatic_physics_step = true;
             self.advance(delta);
+            self.automatic_physics_step = false;
             self.profile_applied_inputs.append(&mut self.profile_inputs);
-            self.sync_actor_bodies();
-            self.update_grab_actor();
+            if self.simulation.is_some() {
+                self.sync_simulation_bodies();
+            } else {
+                self.sync_actor_bodies();
+                self.update_grab_actor();
+            }
         }
     }
 
     fn process(&mut self, delta: f64) {
+        let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
+        self.present_simulation();
+        self.flush_reference_sync();
         self.last_physics_queries = soe_trace::physics_query_stats();
         soe_trace::reset_physics_queries();
         self.last_physics_steps = std::mem::take(&mut self.physics_ticks_since_process)
@@ -538,6 +593,7 @@ impl INode3D for PlayerNode {
             self.catchup_warning_sent = false;
         }
         let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let scene_scope = crate::scene_timing::Scope::new(soe_trace::System::Other);
         if let Some(view) = self.item_card_view.as_mut() {
             view.tick(delta);
         }
@@ -571,15 +627,27 @@ impl INode3D for PlayerNode {
         if let Some(view) = self.hud_view.as_mut() {
             view.tick_presentation(delta);
         }
+        if self.auto_step {
+            self.refresh_image_space();
+        }
+        drop(scene_scope);
         drop(render_scope);
+        drop(engine_scope);
         let sample = self.host_frame.finish();
         soe_trace::Profile::systems("host", &sample);
+        self.scene_history
+            .record(crate::scene_timing::elapsed(&self.scene_frame));
+        self.scene_frame = crate::scene_timing::snapshot();
         self.host_history.record(sample);
         crate::godot_profiler::publish(&self.host_history);
         self.host_frame = soe_trace::FrameSnapshot::now();
     }
 
     fn exit_tree(&mut self) {
+        self.release_carry();
+        self.restore_catchup_cap();
+        self.simulation = None;
+        self.simulation_pair = None;
         self.remove_system_monitors();
         RenderingServer::singleton().disconnect(
             "frame_post_draw",
@@ -661,6 +729,7 @@ impl PlayerNode {
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
         }
+        self.release_carry();
         self.release_host_telekinesis();
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
@@ -993,10 +1062,12 @@ impl PlayerNode {
         self.melee_bodies.clear();
         self.exterior = None;
         self.collision_references = collision.references;
+        self.rebuild_collision_bodies();
         self.collision_visibility.clear();
+        self.collision_reset = true;
         self.last_activate_hit = false;
         self.last_activate_reference = None;
-        self.grabbed_host = None;
+        self.release_carry();
         if let Some(game) = &mut self.game {
             game.world_mut().set_grabbed_reference(None);
             game.world_mut().set_crosshair_reference(None);
@@ -1010,7 +1081,10 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
-        self.detection_time_usec = -1;
+        if !self.automatic_physics_step {
+            self.flush_automatic_detection();
+            self.detection_time_usec = -1;
+        }
         self.physics_advances_since_process = self.physics_advances_since_process.saturating_add(1);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Other);
         let frame = soe_trace::WorkFrame::begin();
@@ -1026,6 +1100,10 @@ impl PlayerNode {
     }
 
     fn advance_measured(&mut self, delta: f64) {
+        if self.simulation.is_some() {
+            self.advance_simulation_controller(delta);
+            return;
+        }
         if self.player_input.pending() > 0 {
             self.step_player_input();
             return;
@@ -1039,6 +1117,7 @@ impl PlayerNode {
             self.open_gift_menu();
         }
         if self.menu.is_open() {
+            self.release_carry();
             if let Some(game) = &mut self.game {
                 self.menu.tick(game, delta);
             }
@@ -1076,7 +1155,9 @@ impl PlayerNode {
                 pressed: input.right_attack_pressed,
             },
         );
-        self.update_telekinesis(input.activate_pressed);
+        if self.grabbed_host.is_none() {
+            self.update_telekinesis(input.activate_pressed);
+        }
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
@@ -1105,67 +1186,7 @@ impl PlayerNode {
         drop(physics_scope);
         self.advance_footsteps(before, was_grounded, &input);
 
-        let crosshair_hit = self.activate_ray();
-        let crosshair_reference = crosshair_reference(crosshair_hit, &self.collision_references);
-        if let Some(game) = &mut self.game {
-            game.world_mut()
-                .set_crosshair_reference(crosshair_reference);
-        }
-        let activate_held = self.held_actions.contains(&Action::Activate);
-        if input.activate_pressed && self.grabbed_host.is_none() {
-            if let (Some(reference), Some(hit)) = (crosshair_reference, crosshair_hit) {
-                if self.query_collision.set_held(reference, true) {
-                    self.grabbed_host = Some((reference, hit.point));
-                    if let Some(game) = &mut self.game {
-                        game.world_mut().set_grabbed_reference(Some(reference));
-                        let player = game.player();
-                        let grabber = game.object_of_form(player);
-                        game.send_event(
-                            reference,
-                            "OnGrab",
-                            &[soe_papyrus::Value::Object(grabber)],
-                        );
-                    }
-                }
-            }
-        }
-        if let Some((reference, origin_hit)) = self.grabbed_host {
-            if activate_held {
-                let eye = self.rig.head(self.feet(), self.capsule_height());
-                let direction = self.rig.look_direction();
-                let reach = ACTIVATE_REACH * 0.55;
-                let target = Vec3::new(
-                    eye.x + direction.x * reach,
-                    eye.y + direction.y * reach,
-                    eye.z + direction.z * reach,
-                );
-                let offset = Vector3::new(
-                    (target.x - origin_hit.x) * crate::units::METRES_PER_UNIT,
-                    (target.z - origin_hit.z) * crate::units::METRES_PER_UNIT,
-                    -(target.y - origin_hit.y) * crate::units::METRES_PER_UNIT,
-                );
-                self.query_collision.move_held(reference, offset);
-            } else {
-                self.query_collision.set_held(reference, false);
-                self.grabbed_host = None;
-                if let Some(game) = &mut self.game {
-                    game.world_mut().set_grabbed_reference(None);
-                    let player = game.player();
-                    let releaser = game.object_of_form(player);
-                    game.send_event(
-                        reference,
-                        "OnRelease",
-                        &[soe_papyrus::Value::Object(releaser)],
-                    );
-                }
-            }
-        }
-        self.last_activate_hit = input.activate_pressed && crosshair_hit.is_some();
-        self.last_activate_reference = if input.activate_pressed {
-            crosshair_reference
-        } else {
-            None
-        };
+        self.update_carry_input(&input, delta);
 
         self.advance_game(delta, intent.sprinting);
         let player_motion = if input.is_moving() {
@@ -1177,7 +1198,11 @@ impl PlayerNode {
         } else {
             soe_game::detection::Motion::Still
         };
-        self.advance_detection(delta, player_motion);
+        if self.automatic_physics_step {
+            self.automatic_detection.push(delta, player_motion);
+        } else {
+            self.advance_detection(delta, player_motion);
+        }
         self.advance_door_fade(delta);
 
         self.motion.step(self.feet(), self.capsule_height());
@@ -1259,6 +1284,9 @@ impl PlayerNode {
     /// Start the game VM using the same records and VFS as the renderer.
     #[func]
     pub fn start_gameplay(&mut self) -> bool {
+        if std::env::var("SOE_THREADED_SIMULATION").as_deref() == Ok("1") {
+            return self.start_threaded_gameplay();
+        }
         self.start_game_runtime()
     }
 
@@ -1286,6 +1314,7 @@ impl PlayerNode {
         let mut result = VarDictionary::new();
         if let Some(game) = &self.game {
             let world = game.world();
+            result.set("door_checks", world.ai.door_checks as i64);
             result.set(
                 "door_refresh_us",
                 world.ai.door_refresh_time.as_secs_f64() * 1_000_000.0,
@@ -1298,6 +1327,38 @@ impl PlayerNode {
                 result.set(format!("{phase}_us"), duration.as_secs_f64() * 1_000_000.0);
             }
             result.set("instantiated_actors", world.loaded_actors().len() as i64);
+            for (prefix, workers) in [
+                ("navigation_worker", world.ai.planning_workers()),
+                ("movement_worker", world.ai.movement_workers()),
+            ] {
+                result.set(format!("{prefix}_jobs"), workers.jobs as i64);
+                result.set(
+                    format!("{prefix}_wait_us"),
+                    workers.main_thread_wait.as_secs_f64() * 1e6,
+                );
+                result.set(
+                    format!("{prefix}_busy_us"),
+                    workers
+                        .busy
+                        .iter()
+                        .map(std::time::Duration::as_secs_f64)
+                        .sum::<f64>()
+                        * 1e6,
+                );
+            }
+            for (index, name) in ["high", "middle_high", "middle_low", "low"]
+                .into_iter()
+                .enumerate()
+            {
+                result.set(
+                    format!("{name}_actors"),
+                    world.ai.process_counts[index] as i64,
+                );
+                result.set(
+                    format!("{name}_updates"),
+                    world.ai.process_updates[index] as i64,
+                );
+            }
         }
         result
     }
@@ -2065,19 +2126,6 @@ impl PlayerNode {
         state
     }
 
-    /// Cast from the eye along the look direction, the way activating works.
-    fn activate_ray(&self) -> Option<soe_physics::world::RayHit> {
-        let world = self.world.as_ref()?;
-        let head = self.rig.head(self.feet(), self.capsule_height());
-        let dir = self.rig.look_direction();
-        let to = Vec3::new(
-            head.x + dir.x * ACTIVATE_REACH,
-            head.y + dir.y * ACTIVATE_REACH,
-            head.z + dir.z * ACTIVATE_REACH,
-        );
-        world.raycast(head, to)
-    }
-
     fn create_door_fade(&mut self) {
         let mut canvas = CanvasLayer::new_alloc();
         canvas.set_name("DoorFadeLayer");
@@ -2210,6 +2258,8 @@ impl PlayerNode {
     }
 
     fn place_camera(&mut self, feet: Vec3, height: f32) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let _phase = crate::scene_timing::Scope::new(soe_trace::System::Input);
         if self.camera.is_none() {
             return;
         }
@@ -2315,29 +2365,5 @@ mod mag_42_tests {
             player_locomotion(intent, false),
             (intent.direction, intent.speed, intent.jump)
         );
-    }
-}
-
-#[cfg(test)]
-mod hst_18_tests {
-    use super::*;
-
-    #[test]
-    fn hst_18_crosshair_reports_hit_reference_and_clears_on_miss() {
-        let body = BodyId(4);
-        let reference = GlobalFormId {
-            file: 2,
-            object: 0x123,
-        };
-        let references = HashMap::from([(body, reference)]);
-        let hit = soe_physics::world::RayHit {
-            body,
-            material: None,
-            point: Vec3::ZERO,
-            normal: Vec3::Z,
-            fraction: 0.5,
-        };
-        assert_eq!(crosshair_reference(Some(hit), &references), Some(reference));
-        assert_eq!(crosshair_reference(None, &references), None);
     }
 }
