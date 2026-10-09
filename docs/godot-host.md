@@ -1335,6 +1335,22 @@ corpus includes UESP's EFSH field list and xEdit's record layout. Its CK wiki
 corpus has no EffectShader page. The synthetic tests verify request data and
 host fade/blend selection. Live rendered output has not been verified.
 
+## Spell art preload, SCR-47
+
+The player drains `Spell.Preload` and `Spell.Unload` requests from `World` on
+its presentation update and passes them to the shared cell streamer. Preload
+walks a spell's ordered effects, reads each winning MGEF DATA record, and finds
+the casting art, hit art, projectile and explosion forms. Their `MODL` paths
+are loaded through the game's VFS and the existing NIF mesh and material
+pipeline. The streamer retains each generated mesh per spell. Its material
+owns the decoded textures for the same lifetime. Unload drops that spell's
+retained meshes and their materials. Repeated preload requests do not create
+duplicate retained entries.
+
+The linked MGEF fields use offsets from the local UESP `MGEF.wikitext` DATA
+layout. `godot/scr_47_spell_art_host_test.gd` calls the shipped Flames spell's
+Papyrus methods and checks that the host retains then releases model meshes.
+
 ## Papyrus visual effects, SCR-52
 
 `PlayerNode` advances active `World::visual_effect_instances` into its shared

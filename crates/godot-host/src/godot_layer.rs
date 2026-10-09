@@ -52,6 +52,51 @@ fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
     (object <= 0x00ff_ffff).then_some(GlobalFormId { file, object })
 }
 
+/// Find model paths attached to the MGEF art, projectile and explosion records
+/// used by a spell. The field offsets follow the local UESP MGEF DATA layout.
+fn spell_art_model_paths(world: &soe_game::World, spell: GlobalFormId) -> Vec<String> {
+    let Ok(spell_view) = world.spell(spell) else {
+        return Vec::new();
+    };
+    let mut paths = std::collections::BTreeSet::new();
+    for effect in spell_view.effects {
+        let Some(effect_id) = world.resolve_from(spell, effect.base_effect) else {
+            continue;
+        };
+        let Some(effect_record) = world.record(effect_id) else {
+            continue;
+        };
+        let Some(data) = effect_record.find(soe_esm::Tag::new(b"DATA")) else {
+            continue;
+        };
+        for offset in [0x48, 0x4c, 0x5c, 0x60] {
+            let Some(raw) = data.get(offset..offset + 4) else {
+                continue;
+            };
+            let Ok(raw) = <[u8; 4]>::try_from(raw) else {
+                continue;
+            };
+            let raw = u32::from_le_bytes(raw);
+            let Some(art_id) = world.resolve_from(effect_id, raw) else {
+                continue;
+            };
+            let Some(art_record) = world.record(art_id) else {
+                continue;
+            };
+            let Some(model) = art_record.find(soe_esm::Tag::new(b"MODL")) else {
+                continue;
+            };
+            let model = model.strip_suffix(&[0]).unwrap_or(model);
+            if let Ok(model) = std::str::from_utf8(model) {
+                if !model.is_empty() {
+                    paths.insert(model.to_owned());
+                }
+            }
+        }
+    }
+    paths.into_iter().collect()
+}
+
 fn script_reference(file: i32, object: i64) -> Option<GlobalFormId> {
     Some(GlobalFormId {
         file: u16::try_from(file).ok()?,
@@ -135,6 +180,8 @@ pub struct CellStreamerNode {
     /// RFCT visuals keyed by the game-owned Play call identity.
     visual_effects:
         std::collections::BTreeMap<soe_game::world::VisualEffectId, RuntimeVisualEffect>,
+    /// Spell model resources retained until the matching Papyrus Unload.
+    spell_art: std::collections::BTreeMap<GlobalFormId, SpellArtResources>,
     /// Active SPGD layers, each rendered as one server-side MultiMesh.
     shader_particles: std::collections::BTreeMap<GlobalFormId, ShaderParticleInstance>,
     /// Point lights for active magic effects that placed LIGH references.
@@ -319,6 +366,11 @@ struct RuntimeLight {
     fade: Option<[f32; 2]>,
 }
 
+/// Mesh resources retained for a Papyrus Spell.Preload request.
+struct SpellArtResources {
+    meshes: Vec<Gd<ArrayMesh>>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct LightRenderData {
     radius: f32,
@@ -383,6 +435,33 @@ mod mag_35_tests {
 
         let zero = Record::new(Tag::new(b"LIGH"), 0x802).sub(Tag::new(b"DATA"), vec![0; 48]);
         assert!(light_render_data(&zero).is_none());
+    }
+}
+
+#[cfg(test)]
+mod scr_47_tests {
+    use super::spell_art_model_paths;
+    use crate::data_source::DataSource;
+    use std::path::Path;
+
+    #[test]
+    fn scr_47_vanilla_flames_resolves_preload_models() {
+        let Ok(data) = std::env::var("SKYRIM_DATA") else {
+            eprintln!("SKIP: SCR-47 vanilla records require SKYRIM_DATA");
+            return;
+        };
+        let source = DataSource::open(Path::new(&data)).expect("open installed game data");
+        let game = source
+            .localized_game()
+            .expect("load installed game records");
+        let world = game.world();
+        let flames = world.form("Flames").expect("find vanilla Flames spell");
+        let models = spell_art_model_paths(&world, flames);
+        assert!(
+            !models.is_empty(),
+            "Flames had no linked MGEF art models: {:?}",
+            world.spell(flames).expect("parse Flames").effects
+        );
     }
 }
 
@@ -552,6 +631,7 @@ impl INode3D for CellStreamerNode {
             effect_shaders: std::collections::HashMap::new(),
             detect_life_shaders: std::collections::BTreeSet::new(),
             visual_effects: std::collections::BTreeMap::new(),
+            spell_art: std::collections::BTreeMap::new(),
             shader_particles: std::collections::BTreeMap::new(),
             runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
@@ -630,6 +710,59 @@ impl INode3D for CellStreamerNode {
 }
 
 impl CellStreamerNode {
+    /// Apply Papyrus spell-art requests using the same VFS and mesh pipeline
+    /// as streamed world models. The retained ArrayMesh references pin both
+    /// their mesh data and material textures until Unload drops the entry.
+    pub fn sync_spell_art_requests(
+        &mut self,
+        world: &soe_game::World,
+        requests: Vec<soe_game::world::SpellArtRequest>,
+    ) {
+        for request in requests {
+            match request.action {
+                soe_game::world::SpellArtAction::Preload => {
+                    if self.spell_art.contains_key(&request.spell) {
+                        continue;
+                    }
+                    let Some(source) = self.data_source.as_ref() else {
+                        godot_error!("Spell.Preload: game data source is not loaded");
+                        continue;
+                    };
+                    let mut meshes = Vec::new();
+                    for model in spell_art_model_paths(world, request.spell) {
+                        let surfaces = match source.item_preview_surfaces(&model) {
+                            Ok(surfaces) => surfaces,
+                            Err(error) => {
+                                godot_error!("Spell.Preload: failed to load {model}: {error}");
+                                continue;
+                            }
+                        };
+                        for (arrays, textures) in surfaces {
+                            let mut mesh = array_mesh_from(&arrays);
+                            let material = material_from(&arrays.material, &textures);
+                            mesh.surface_set_material(0, &material);
+                            meshes.push(mesh);
+                        }
+                    }
+                    self.spell_art
+                        .insert(request.spell, SpellArtResources { meshes });
+                }
+                soe_game::world::SpellArtAction::Unload => {
+                    self.spell_art.remove(&request.spell);
+                }
+            }
+        }
+    }
+
+    /// Number of retained spell-art meshes, exposed for host integration checks.
+    fn retained_spell_art_mesh_count(&self) -> i32 {
+        self.spell_art
+            .values()
+            .map(|resources| resources.meshes.len())
+            .sum::<usize>()
+            .min(i32::MAX as usize) as i32
+    }
+
     fn sync_destruction_models(
         &mut self,
         world: &soe_game::World,
@@ -1712,6 +1845,12 @@ mod mag_14_tests {
 
 #[godot_api]
 impl CellStreamerNode {
+    /// Number of retained spell-art meshes.
+    #[func]
+    pub fn retained_spell_art_mesh_count_for_check(&self) -> i32 {
+        self.retained_spell_art_mesh_count()
+    }
+
     /// Return the winning cell's authored XCLL and inherited LTMP lighting.
     #[allow(clippy::needless_pass_by_value)]
     #[func]

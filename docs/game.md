@@ -419,7 +419,12 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
 - `Spell.Preload` and `Spell.Unload` validate the winning SPEL record and queue
   typed spell art requests on `World`. `take_spell_art_requests` drains them in
   Papyrus call order. `Unload` queues only when this world previously received
-  `Preload` for that spell. The Godot host does not consume these requests yet.
+  `Preload` for that spell. The Godot host loads models and material textures
+  referenced by each spell effect's MGEF casting art, hit art, projectile and
+  explosion records, then releases the retained meshes on `Unload`. The MGEF
+  DATA field locations follow local UESP `MGEF.wikitext`. The local vanilla
+  `Spell.psc` documents these as art-resource operations and warns against
+  misuse.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
@@ -2126,10 +2131,10 @@ Creation Engine frame capture or memory budgets.
   `FunctionsDump.txt` entry for `MusicType`.
 
 - `Spell.Preload` and `Spell.Unload` validate the receiver through the winning
-  SPEL reader and queue typed art requests. The Godot host does not consume
-  these requests yet, so art is not loaded or released. The shipped `Spell.psc`
-  describes these as art-resource operations and warns against misuse. A host
-  art resource provider remains a prerequisite for the observable effects.
+  SPEL reader and queue typed art requests. The Godot host consumes them through
+  the loaded VFS and retains mesh resources for linked MGEF art, projectile and
+  explosion models until `Unload`. The shipped `Spell.psc` describes these as
+  art-resource operations and warns against misuse.
 - `VisualEffect.Play` adds a transient effect instance for the RFCT form and
   placed target. Calls stack, negative durations remain until stopped, and a
   finite duration expires on an unpaused game tick. The optional facing
