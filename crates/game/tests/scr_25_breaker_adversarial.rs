@@ -86,3 +86,30 @@ fn scr_25_jail_default_arguments_remove_inventory_and_request_real_jail() {
     assert_eq!(game.world_mut().item_count(player, gold), 0);
     assert!(errors(&game).is_empty(), "{:?}", errors(&game));
 }
+
+#[test]
+fn scr_25_jail_false_real_jail_option_keeps_player_in_current_cell() {
+    let mut game = game();
+    let guards = obj(&mut game, "GuardsFaction");
+    let faction = game.form("GuardsFaction").expect("fixture faction");
+    let player = game.world_mut().player();
+    let original_cell = game.world().loaded_cell();
+    game.world_mut()
+        .faction(faction)
+        .unwrap()
+        .crime_gold_nonviolent = 1;
+
+    call(
+        &mut game,
+        &guards,
+        "SendPlayerToJail",
+        &[Value::Bool(false), Value::Bool(false)],
+    );
+
+    assert_eq!(game.world().loaded_cell(), original_cell);
+    assert_eq!(
+        game.world().reference_ref(player).unwrap().cell,
+        original_cell
+    );
+    assert!(errors(&game).is_empty(), "{:?}", errors(&game));
+}

@@ -1368,8 +1368,11 @@ definitions follow `TES5Edit/Core/wbDefinitionsTES5.pas` and
 `Faction.SendPlayerToJail` serves the receiver faction's bounty through this
 accounting path and marks the player arrested after a positive sentence. Its
 inventory-removal option removes any inventory left with the player after
-confiscation. The real-jail option still produces a Papyrus trace because
-jail-marker travel is not implemented.
+confiscation. With the real-jail option enabled and a positive sentence, it
+moves the player to the receiver FACT's resolved `JAIL` reference and changes
+the active cell through the normal cell transition path. A missing or
+unusable marker leaves the player in place. Disabling real jail preserves the
+player's placement.
 
 **Guard arrest choices, PRG-12.** `World::arrest_options` offers payment only
 when the player has enough `Gold001`, jail for a positive bounty, and
