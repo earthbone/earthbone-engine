@@ -1685,6 +1685,8 @@ mod shm_20_extra_adversarial;
 mod shm_20_live_bindings;
 #[path = "shm_21_adversarial.rs"]
 mod shm_21_adversarial;
+#[path = "shm_21_breaker_adversarial.rs"]
+mod shm_21_breaker_adversarial;
 #[path = "shm_21_cpp_live_events.rs"]
 mod shm_21_cpp_live_events;
 #[path = "shm_21_extra_adversarial.rs"]
