@@ -1063,6 +1063,12 @@ that selecting one row creates one resource. Run it after building the release e
 with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner reads the editor controls without
 rendering pixels, and the plugin exits the editor when the check finishes.
 
+The EDT-11 editor check opens the five installed Skyrim master plugins, finds an overridden
+form, selects it through the forms dock handler, and compares the displayed chain rows with
+the opened form table. It checks source order, record type, Editor ID and the losing or winning
+marker for every version. Set `SKYRIM_DATA` and `SOE_EDT_11_RUNTIME_TEST=1` when launching
+the Godot editor. The check exits the editor after reporting its result.
+
 ### Drop selected references to host collision, EDT-15
 
 `SoeFormTable.drop_selected_reference_to_ground(space, encoded_id)` casts a vertical ray

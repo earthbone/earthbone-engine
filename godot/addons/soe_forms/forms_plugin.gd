@@ -68,6 +68,8 @@ func _enter_tree() -> void:
 	add_control_to_dock(EditorPlugin.DOCK_SLOT_LEFT_UL, dock)
 	if OS.get_environment("SOE_EDT_02_RUNTIME_TEST") == "1":
 		_run_runtime_check.call_deferred()
+	if OS.get_environment("SOE_EDT_11_RUNTIME_TEST") == "1":
+		_run_edt_11_runtime_check.call_deferred()
 
 
 func _exit_tree() -> void:
@@ -162,6 +164,41 @@ func _run_runtime_check() -> void:
 		return
 	print("EDT-02 PASS: dock filtered loaded forms and created one Resource on selection")
 	get_tree().quit(0)
+
+
+func _run_edt_11_runtime_check() -> void:
+	var data_path := OS.get_environment("SKYRIM_DATA")
+	if data_path.is_empty():
+		_finish_edt_11_runtime_check(false, "SKYRIM_DATA was not supplied")
+		return
+	var plugin_names := ["Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"]
+	var paths := PackedStringArray()
+	for plugin_name: String in plugin_names:
+		var path := data_path.path_join(plugin_name)
+		if not FileAccess.file_exists(path):
+			_finish_edt_11_runtime_check(false, "installed load-order plugin is missing: " + plugin_name)
+			return
+		paths.append(path)
+	load_order_paths.text = ";".join(paths)
+	active_plugin.text = "Dragonborn.esm"
+	if not form_table.open(paths, active_plugin.text):
+		_finish_edt_11_runtime_check(false, "installed load order did not open: " + form_table.last_error())
+		return
+	var test_script = load("res://edt_11_override_chain_test.gd")
+	var failure: String = await test_script.edt_11_live_selection(self)
+	if not failure.is_empty():
+		_finish_edt_11_runtime_check(false, failure)
+		return
+	print("EDT-11 PASS: opened installed load order and selected every conflict version in the dock")
+	get_tree().quit(0)
+
+
+func _finish_edt_11_runtime_check(passed: bool, detail: String) -> void:
+	if passed:
+		get_tree().quit(0)
+	else:
+		printerr("EDT-11 FAIL: " + detail)
+		get_tree().quit(1)
 
 
 func _finish_runtime_check(passed: bool, detail: String) -> void:
