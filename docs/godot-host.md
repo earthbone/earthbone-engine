@@ -5798,6 +5798,38 @@ tracked content. The SKYRIM_DATA-gated
 test runs the installed captures, checks their brightness and backdrop
 transmission bounds, and requires the Godot process to exit successfully.
 
+## Additive hearth flames, RND-33
+
+The source-alpha plus one effect pair uses Godot's additive blend with the
+computed texture, vertex, base and falloff opacity in `ALPHA`. The blend applies
+source alpha once, so low-alpha flame texels do not fill the effect mesh hull.
+Blended effects keep depth writes disabled. Greyscale color
+and alpha lookups retain the authored palette flags, and falloff remains part
+of the opacity calculation. For a fire NIF with an authored greyscale color
+palette, an additive effect layer without its own palette path inherits the
+first sibling color palette and enables palette-color sampling. Existing
+palette assignments remain unchanged.
+
+The installed Bannered Mare survey finds `FireplaceWood01Burning` with an
+additive greyscale-palette surface and a separate palette surface with view
+falloff. It also finds the placed `Campfire01Burning` effect, whose unpaletted
+additive layer inherits the sibling `GradFireExplosion` color palette. The
+Godot capture test streams the cell and saves a room view, then draws the first
+additive palette-color surface from the installed fireplace NIF through
+`model_meshes` and its production material cache against dark and contrasting
+backdrops. It reads that surface's installed palette texture and checks that
+visible fire pixels are brighter than black, stay within palette hues and that
+every near-transparent pixel transmits the backdrop. It checks the shader
+retains falloff and saves the isolated hearth capture under `godot/.godot`.
+
+`rnd_33_installed_bannered_mare_hearth_capture_matches_its_palette` runs the
+windowed Godot capture when `SKYRIM_DATA` and `SOE_GODOT_BIN` are set. The local
+nifly effect-property definitions and OpenMW's
+`components/nifosg/nifloader.cpp` supplied the property and blend behavior.
+Community Shaders' `package/Shaders/Effect.hlsl` confirms the palette
+coordinates already implemented in RND-22. The implementation continues to
+use Godot's stock spatial shader and blend state.
+
 ## Detection neighborhoods, PRF-31
 
 `godot/prf_31_detection_test.gd` measures one installed Whiterun exterior
