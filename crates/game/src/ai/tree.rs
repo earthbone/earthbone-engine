@@ -22,6 +22,20 @@ pub struct TreeState {
     pub finished: bool,
     pub stacked: Vec<StackedState>,
     pub stacked_completed: Vec<u32>,
+    pub simultaneous: Option<SimultaneousState>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimultaneousState {
+    pub parent: u32,
+    pub children: Vec<u32>,
+    pub completed: Vec<u32>,
+    pub wait_children: Vec<u32>,
+    pub deadline: Option<f64>,
+    pub success_deadline: Option<f64>,
+    pub success_branch: Option<u32>,
+    pub travel_child: Option<u32>,
+    pub indefinite_wait: bool,
 }
 
 /// A lower-priority child paused while an earlier Stacked child runs.
@@ -186,15 +200,21 @@ impl Tree {
         ai: &AiState,
         quest: Option<GlobalFormId>,
         alloc: Alloc<'_>,
-    ) -> Option<(f32, bool, Option<u32>, bool)> {
+    ) -> Option<SimultaneousState> {
         let mut child = parent + 1;
-        let mut duration = 0.0_f32;
-        let mut success_duration = None;
-        let mut success_branch = None;
-        let mut stop_movement = false;
-        let mut indefinite = false;
-        let mut found = false;
-        let mut waits = 0usize;
+        let mut duration: f32 = 0.0;
+        let mut success: Option<(f32, u32)> = None;
+        let mut state = SimultaneousState {
+            parent: parent as u32,
+            children: Vec::new(),
+            completed: Vec::new(),
+            wait_children: Vec::new(),
+            deadline: None,
+            success_deadline: None,
+            success_branch: None,
+            travel_child: None,
+            indefinite_wait: false,
+        };
         while child < self.ends[parent] {
             let branch = self.branches.get(child)?;
             if branch.child_count != 0 || !branch.kind.eq_ignore_ascii_case("procedure") {
@@ -203,40 +223,51 @@ impl Tree {
             if conditions_hold(world, actor, self.owner, quest, &branch.conditions) {
                 match procedure(branch) {
                     Procedure::Wait { .. } => {
-                        let (seconds, stop) = self.wait_parameters(branch)?;
+                        let (seconds, _) = self.wait_parameters(branch)?;
                         duration = duration.max(seconds);
-                        indefinite |= seconds == 0.0;
-                        waits += 1;
+                        state.children.push(child as u32);
+                        state.wait_children.push(child as u32);
+                        state.indefinite_wait |= seconds == 0.0;
                         if branch.success_completes_package && seconds > 0.0 {
-                            let replace = success_duration.is_none_or(|current| seconds < current);
+                            let replace = success.is_none_or(|(current, _)| seconds < current);
                             if replace {
-                                success_duration = Some(seconds);
-                                success_branch = Some(child as u32);
+                                success = Some((seconds, child as u32));
                             }
                         }
-                        stop_movement |= stop;
                     }
                     Procedure::UseMagic => {
                         use_magic(world, actor, ai, self, branch, alloc).ok()?;
                         if branch.success_completes_package {
-                            return Some((0.0, false, Some(child as u32), true));
+                            state.success_branch = Some(child as u32);
+                            state.children.clear();
+                            return Some(state);
+                        }
+                        state.children.push(child as u32);
+                        state.completed.push(child as u32);
+                    }
+                    Procedure::Travel => {
+                        if state.travel_child.is_some() || self.location(branch).is_none() {
+                            return None;
+                        }
+                        state.travel_child = Some(child as u32);
+                        state.children.push(child as u32);
+                        if branch.success_completes_package {
+                            state.success_branch = Some(child as u32);
                         }
                     }
                     _ => return None,
                 }
-                found = true;
             }
             child = self.ends[child];
         }
-        if let Some(seconds) = success_duration {
-            return Some((seconds, stop_movement, success_branch, false));
+        if let Some((seconds, branch)) = success {
+            state.success_deadline = Some(world.clock.real_seconds + f64::from(seconds));
+            state.success_branch = Some(branch);
         }
-        found.then_some((
-            if indefinite { 0.0 } else { duration },
-            stop_movement,
-            None,
-            waits == 0,
-        ))
+        if duration > 0.0 {
+            state.deadline = Some(world.clock.real_seconds + f64::from(duration));
+        }
+        (!state.children.is_empty() || !state.completed.is_empty()).then_some(state)
     }
 
     fn patrol_parameters(
@@ -600,6 +631,7 @@ pub(super) fn start(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
             finished: false,
             stacked: Vec::new(),
             stacked_completed: Vec::new(),
+            simultaneous: None,
         });
     enter(world, actor, ai, alloc);
 }
@@ -739,27 +771,58 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
         }
         if branch.kind.eq_ignore_ascii_case("simultaneous") && branch.procedure.is_none() {
             match tree.simultaneous_children(index, actor, world, ai, quest, alloc) {
-                Some((seconds, stop_movement, completion_branch, finished)) => {
-                    if let Some(branch) = completion_branch {
+                Some(mut simultaneous) => {
+                    if let Some(branch) = simultaneous.travel_child {
+                        state.branch = branch;
+                    } else if let Some(branch) = simultaneous.success_branch {
                         state.branch = branch;
                     }
-                    state.active = !finished;
-                    state.finished = finished;
-                    if finished {
+                    state.active = true;
+                    state.simultaneous = Some(simultaneous.clone());
+                    if simultaneous.success_branch.is_some() && simultaneous.children.is_empty() {
+                        state.finished = true;
+                        state.active = false;
                         ai.procedure = Procedure::None;
                         complete(world, ai);
-                    } else {
-                        let deadline = (seconds > 0.0)
-                            .then_some(world.clock.real_seconds + f64::from(seconds));
+                    } else if let Some(branch) = simultaneous.travel_child {
+                        let branch = &tree.branches[branch as usize];
                         super::begin_procedure(
                             world,
                             actor,
                             ai,
-                            Procedure::Wait { stop_movement },
-                            None,
+                            Procedure::Travel,
+                            tree.location(branch),
                             None,
                         );
-                        ai.wait_until = deadline;
+                        ai.wait_until = if simultaneous.indefinite_wait {
+                            None
+                        } else {
+                            simultaneous.deadline
+                        };
+                        if simultaneous
+                            .deadline
+                            .is_some_and(|deadline| deadline <= world.clock.real_seconds)
+                        {
+                            simultaneous
+                                .completed
+                                .extend(simultaneous.wait_children.iter().copied());
+                            state.simultaneous = Some(simultaneous);
+                        }
+                    } else {
+                        ai.procedure = Procedure::Wait {
+                            stop_movement: false,
+                        };
+                        ai.wait_until = if simultaneous.indefinite_wait {
+                            None
+                        } else {
+                            simultaneous.deadline
+                        };
+                        if simultaneous.deadline.is_none() && !simultaneous.indefinite_wait {
+                            state.active = false;
+                            state.finished = true;
+                            ai.procedure = Procedure::None;
+                            complete(world, ai);
+                        }
                     }
                 }
                 None => {
@@ -957,6 +1020,18 @@ pub(super) fn succeeded(world: &World, ai: &mut AiState) {
         return;
     };
     let index = state.branch as usize;
+    if let Some(mut simultaneous) = state.simultaneous.take() {
+        if simultaneous.travel_child == Some(index as u32)
+            && !simultaneous.completed.contains(&(index as u32))
+        {
+            simultaneous.completed.push(index as u32);
+        }
+        state.simultaneous = Some(simultaneous);
+        state.active = true;
+        update_simultaneous(world, ai, &tree, &mut state);
+        ai.tree = Some(state);
+        return;
+    }
     if let Some(branch) = tree.branches.get(index) {
         let mut stacked_children = Vec::new();
         let mut child = index;
@@ -1004,6 +1079,77 @@ pub(super) fn succeeded(world: &World, ai: &mut AiState) {
     ai.tree = Some(state);
     if ai.tree.as_ref().is_some_and(|s| s.finished) {
         complete(world, ai);
+    }
+}
+
+pub(super) fn tick_simultaneous(world: &World, ai: &mut AiState) {
+    let Some(mut state) = ai.tree.take() else {
+        return;
+    };
+    let Some(tree) = ai.package.and_then(|id| Tree::load(world, id)) else {
+        ai.tree = Some(state);
+        return;
+    };
+    if state.simultaneous.is_some() {
+        update_simultaneous(world, ai, &tree, &mut state);
+    }
+    if state.finished {
+        complete(world, ai);
+    }
+    ai.tree = Some(state);
+}
+
+fn update_simultaneous(world: &World, ai: &mut AiState, tree: &Tree, state: &mut TreeState) {
+    let Some(simultaneous) = state.simultaneous.as_mut() else {
+        return;
+    };
+    let now = world.clock.real_seconds;
+    if simultaneous
+        .success_deadline
+        .is_some_and(|deadline| now >= deadline)
+        || simultaneous.success_branch.is_some_and(|branch| {
+            simultaneous.success_deadline.is_none() && simultaneous.completed.contains(&branch)
+        })
+    {
+        state.branch = simultaneous.success_branch.unwrap_or(simultaneous.parent);
+        state.active = false;
+        state.finished = true;
+        state.simultaneous = None;
+        ai.procedure = Procedure::None;
+        complete(world, ai);
+        return;
+    }
+    if simultaneous
+        .deadline
+        .is_some_and(|deadline| now >= deadline)
+    {
+        simultaneous
+            .completed
+            .extend(simultaneous.wait_children.iter().copied());
+    }
+    let done = !simultaneous.indefinite_wait
+        && simultaneous
+            .children
+            .iter()
+            .all(|child| simultaneous.completed.contains(child));
+    if done {
+        let parent = simultaneous.parent as usize;
+        state.simultaneous = None;
+        state.active = false;
+        tree.after(parent, state);
+        ai.procedure = Procedure::None;
+    } else if simultaneous
+        .travel_child
+        .is_none_or(|child| simultaneous.completed.contains(&child))
+    {
+        ai.procedure = Procedure::Wait {
+            stop_movement: false,
+        };
+        ai.wait_until = if simultaneous.indefinite_wait {
+            None
+        } else {
+            simultaneous.deadline
+        };
     }
 }
 

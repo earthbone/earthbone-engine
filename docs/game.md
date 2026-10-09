@@ -3167,16 +3167,17 @@ remain readable. Saves before version 16 have no tree cursor, so their
 selected package starts its tree from the beginning on its first driver tick.
 Empty repeating branches yield each tick without running later siblings.
 
-An immediate `Simultaneous` group of condition-eligible `Wait` procedure
-children starts every timer against the same non-menu clock value. Without a
-successful child, the group completes after its longest finite timer and
-records package completion once. A finite child with `Success Completes
-Package` ends the tree when its own timer expires, even if another child has a
-longer or indefinite timer. A zero duration keeps the group active when no
-finite successful child completes the package. Changing the winning package
-clears the group cursor and deadline without recording completion. Other
-simultaneous child procedures remain unsupported until the completion policy
-in AI-87 is established from paired authored records.
+An immediate `Simultaneous` group evaluates eligible children in tree order.
+`Wait` children share one real-seconds clock and finish after the longest
+finite wait. One `Travel` child can move at the same time, and the group waits
+for both that route and its finite waits. A finite child with `Success
+Completes Package` ends the tree when its own completion condition occurs.
+For Travel, that condition is arrival at its destination.
+`UseMagic` casts once when the group starts. A zero duration keeps the group
+active unless another child completes the package. Group progress and deadlines
+are saved in the `AI-14` actor section. Changing the winning package clears
+the group without recording completion. Other simultaneous procedure kinds
+and groups with multiple Travel children remain unsupported.
 
 The layout follows local xEdit `wbRecord(PACK)`, `PRCB`, `FNAM`, and `PKC2`,
 plus the local UESP PACK page. xEdit names the PKDT interrupt override values
@@ -3430,14 +3431,15 @@ package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
 AI-14 evaluates eligible simultaneous children in tree order. Wait children
-share one real-time deadline, using the longest active Wait unless a child
-marked to complete the package supplies an earlier deadline. UseMagic children
-cast through the actor's assigned spell path while that Wait group runs. A
-UseMagic child marked to complete the package ends the group after its cast.
-Async procedure children remain unsupported.
+share the non-menu clock. One Travel child can run concurrently with those
+waits, and the group completes after both its route and waits finish. A
+successful Wait can complete the package at its own deadline. UseMagic children
+cast through the actor's assigned spell path when the group starts. Group
+progress is saved in the `AI-14` actor section. Other asynchronous procedure
+kinds and multiple Travel children remain unsupported.
 
-**Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
-the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
+**Not done.** Other simultaneous procedure kinds and multiple Travel children
+(AI-14), the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
 idles and topics, once per day for
 packages that end without arriving, `Must Complete`, interrupt flags, combat
 interrupt overrides, door unlocking flags, the `Package Data` and `Event Data`
@@ -3864,8 +3866,8 @@ use world sections. MAG-72 weather and time image-space selection and MAG-19
 active-effect taper values also use world sections. RND-18 stores weather
 requests, climate or region identity and weighted transitions in a world section. An
 absent RND-18 section restores the default weather state. Missing sections
-restore an empty selection and untapered effects. AI-64 movement flags and AI-15
-stacked package frames use actor sections. PRF-36 stores the coarse movement
+restore an empty selection and untapered effects. AI-64 movement flags, AI-14
+simultaneous children and AI-15 stacked package frames use actor sections. PRF-36 stores the coarse movement
 clock remainder and next update in an actor section. MAG-64 pending reference bindings use a world section,
 after AI-16 script calls, to preserve their combined queue order. The source
 for this engine-owned layout is the frozen repository writer, rather than
