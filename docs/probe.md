@@ -277,8 +277,19 @@ and each missing or extra actor-hour separately.
 
 Schedule rows use stable FormIDs, not load-order runtime slots, so captures
 from Skyrim and the engine can be compared when they use the same declared
-load order. The table API handles captured rows. It does not enumerate actors
-or generate the Papyrus schedule recorder.
+load order. The table API handles captured rows.
+
+`whiterun_actors` lists the unique named NPCs placed in the Whiterun cells of
+the loaded order (editor ids starting with `Whiterun`, minus Attack and Ruin
+variants), one per base record. `capture_engine_day` drives them, ticks the
+engine for 24 game hours and records each actor's running package, cell and
+held furniture marker at every hour boundary. On the installed five master
+order this is 73 actors and 1752 rows in about 55 seconds, and Eorlund
+Gray-Mane (EorlundGrayMane) changes package between hours 0, 1 and 18 in the
+Skyforge cell. `crates/probe/tests/ply_07_whiterun_day.rs` runs it when
+`SKYRIM_DATA` is set. Still missing: the Papyrus recorder that emits the
+matching `SOESCHEDULE` rows in the original runtime, so the comparison against
+Skyrim has no original table yet.
 
 ## Sources and validation
 

@@ -7,11 +7,13 @@ mod animation;
 mod compare;
 mod runner;
 mod schedule;
+mod schedule_capture;
 mod sequence;
 
 pub use compare::{compare, parse_log, run, run_installed, Comparison, Difference, Observation};
 pub use runner::{build, plugin, script};
 pub use schedule::{parse_schedule_log, ScheduleDifference, ScheduleRow, ScheduleTable};
+pub use schedule_capture::{capture_engine_day, whiterun_actors, WhiterunActor};
 pub use sequence::{AnimationGraph, Form, FormKind, Menu, Probe, Step, Tolerances};
 
 /// The bundled quest-stage and real-wait sequence.

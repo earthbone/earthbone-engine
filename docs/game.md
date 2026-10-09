@@ -563,6 +563,24 @@ It requires `SKYRIM_DATA` and `SOE_TEST_SAVES`, reads saves in place and lists
 all fields even when a route fails. It uses world-checkpoint startup and does
 not import saved VM variables, scene execution or timers.
 
+Current result on installed data (2026-10-09, head 4b90a696): this acceptance
+test and two breaker tests do not pass. `cargo test -p soe-game --test it --
+ply_` with `SKYRIM_DATA` and `SOE_TEST_SAVES` set gives 117 passed and 3 failed,
+`ply_03_main_quest_replay::ply_03_two_consecutive_main_quest_pairs_list_quest_and_inventory_differences`,
+`ply_03_breaker_adversarial_3::ply_03_replay_reaches_both_consecutive_corpus_checkpoints`
+and `ply_03_breaker_adversarial_4::ply_03_each_route_reaches_its_successor_checkpoint`.
+The remaining difference is the done set of MQ101DragonAttack (0xD0593) in the
+second pair, where the replay lacks stages 174 and 195, and the first pair
+differs in `current`, `highest` and `done` for the same quest when the route
+stops at stage 190 against the save's 192. The `Activate` step on
+`Skyrim.esm:25fae` logs `GetTriggerObjectCount called on a non-trigger` from
+the lever script on REFR 0x945B9 (MQ101CollapsingBridgeLever, base script
+TrapLever on TrapTriggerBase). The CK wiki says the call errors on a
+non-trigger, so the message matches the original, but the route's
+`expect-no-vm-error` step does not see it and the trace from this error to the
+missing stages is not done. The default gate runs with both variables unset and
+exercises none of this.
+
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
 `Quest_Script.wikitext` defines highest completed stage queries. The installed
