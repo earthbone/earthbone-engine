@@ -25,6 +25,7 @@ use crate::units::CELL_UNITS;
 /// `terrain_lod::TerrainLodStreamer::record_bytes`, so the streamer's
 /// residency budget reflects what was actually built rather than a guess
 /// made before the read.
+#[derive(Clone)]
 pub struct LoadedLodBlock {
     pub surfaces: Vec<LoadedSurface>,
     pub approx_bytes: u64,

@@ -53,10 +53,35 @@ impl LoadOrderHash {
         }
         self
     }
+
+    /// Build an identity from the resolved ESM load-order fingerprint.
+    #[must_use]
+    pub fn from_content_fingerprint(fingerprint: [u8; 32]) -> Self {
+        Self::of(&LoadOrder {
+            entries: Vec::new(),
+            problems: Vec::new(),
+        })
+        .with_content_fingerprint(fingerprint)
+    }
+
+    /// Mix a world and block identity into this load-order key.
+    #[must_use]
+    pub fn with_block(mut self, world: u32, level: i32, x: i32, y: i32) -> Self {
+        for byte in world
+            .to_le_bytes()
+            .into_iter()
+            .chain(level.to_le_bytes())
+            .chain(x.to_le_bytes())
+            .chain(y.to_le_bytes())
+        {
+            self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        self
+    }
 }
 
 /// Object and terrain output produced as one load-order snapshot.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GeneratedLod<TObject, TTerrain> {
     pub object: TObject,
     pub terrain: TTerrain,

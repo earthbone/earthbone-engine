@@ -4842,9 +4842,16 @@ unchanged.
 `silhouette_error_pixels` measures the maximum displacement of the four
 projected bounds edges in pixels. `select_far_level` chooses the coarsest
 candidate below the configured error limit and ignores non-finite
-measurements. The cache and selector are host APIs. The cell streamer does
-not yet schedule rebuilds when a profile is reloaded or apply selected levels
-to rendered references.
+measurements. `CellStreamerNode::lod_cycle` requests paired object and terrain
+products on a worker, keyed by the resolved ESM fingerprint, world and block.
+With add-on plugins loaded, both products are built from winning records. With
+only the five base masters, the node reads installed BTO and BTR output. A
+repeated request for the same block and load order reuses the completed
+product. When `load_data` replaces the source, the next LOD update releases
+resident blocks and streams them again under the new fingerprint. This path
+does not watch plugin files or reload a profile by itself. The selector is
+still not connected to rendered-reference projection, and a rendered
+under-one-pixel switch survey has not been run.
 
 The residency budget is recorded, not estimated ahead of the read.
 `Mesh::approx_bytes()` (new in `soe_nif`, see `docs/nif.md`) sums each
