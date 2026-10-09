@@ -7,6 +7,9 @@
 #[path = "vanilla_save/reference_extras.rs"]
 mod reference_extras;
 
+#[path = "sav_69_adversarial.rs"]
+mod sav_69_adversarial;
+
 #[path = "vanilla_save/npcs.rs"]
 mod npcs;
 
