@@ -216,3 +216,28 @@ fn cmb_09_unowned_outgoing_and_incoming_effects_do_not_change_damage() {
     assert!((result.weapon_damage - 15.0).abs() < 0.001);
     assert!((result.health_damage - 15.0).abs() < 0.001);
 }
+
+#[test]
+fn cmb_09_weapon_tabs_match_the_weapon_form_for_both_damage_entry_points() {
+    let attacker = id(0x900);
+    let target = id(0x901);
+    let mut game = fixture(vec![
+        conditioned_effect(0x810, 35, 2, 3.0, 1, 0xA00),
+        conditioned_effect(0x812, 36, 2, -4.0, 2, 0xA00),
+    ]);
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+    game.world_mut()
+        .actor(target)
+        .unwrap()
+        .perks
+        .insert(id(0x812));
+
+    let result = game.melee_hit(hit(attacker, target)).unwrap();
+
+    assert!((result.weapon_damage - 29.0).abs() < 0.001, "{result:?}");
+    assert!((result.health_damage - 29.0).abs() < 0.001);
+}
