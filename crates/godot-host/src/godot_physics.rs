@@ -327,6 +327,34 @@ impl CellBodies {
             })
     }
 
+    /// Count resident bodies by their live collision filters.
+    pub fn collision_filter_counts(&self) -> (usize, usize, usize, usize) {
+        let mut enabled = 0;
+        let mut disabled = 0;
+        let mut other = 0;
+        let server = PhysicsServer3D::singleton();
+        let mut count = |body: Rid| {
+            if !body.is_valid() {
+                return;
+            }
+            match (
+                server.body_get_collision_layer(body),
+                server.body_get_collision_mask(body),
+            ) {
+                (1, 1) => enabled += 1,
+                (0, 0) => disabled += 1,
+                _ => other += 1,
+            }
+        };
+        for entry in &self.entries {
+            count(entry.body);
+        }
+        for entry in &self.movable {
+            count(entry.body);
+        }
+        (enabled + disabled + other, enabled, disabled, other)
+    }
+
     /// Resolve a ray hit to its owning placed reference.
     pub(crate) fn reference_for_body(&self, body: Rid) -> Option<GlobalFormId> {
         self.entries
