@@ -39,6 +39,61 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    /// Invoke a SCR-23 Debug native for the live host integration check.
+    pub fn invoke_scr_23_debug_native(
+        &mut self,
+        name: &str,
+        argument: &str,
+        file: i32,
+        object: i64,
+    ) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let (param_type, value) = match name {
+            "SetFootIK" => ("Bool", soe_papyrus::Value::Bool(argument == "true")),
+            "ShowRefPosition" => {
+                let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+                    return false;
+                };
+                let form = soe_esm::GlobalFormId { file, object };
+                let object = game.object_of_form(form);
+                ("ObjectReference", soe_papyrus::Value::Object(object))
+            }
+            "PlayerMoveToAndWait" | "MoveToCell" => {
+                ("String", soe_papyrus::Value::string(argument))
+            }
+            _ => return false,
+        };
+        let script = format!("SoeScr23{name}");
+        let function = FunctionBuilder::new("Run", "None")
+            .global()
+            .param("argument", param_type)
+            .ins(
+                CallStatic,
+                vec![s("Debug"), s(name), ident("::nonevar"), ident("argument")],
+            )
+            .build();
+        if game
+            .load_script(
+                &ScriptBuilder::new(&script, "Form")
+                    .function(function)
+                    .bytes(),
+            )
+            .is_err()
+        {
+            return false;
+        }
+        game.vm
+            .call_global(&script, "Run", &[value])
+            .is_ok_and(|_| game.run_until_idle(64))
+    }
+
+    /// Return the number of live SCR-23 reference marker instances.
+    pub fn debug_marker_instance_count(&self) -> usize {
+        self.debug_ref_markers.len()
+    }
+
     /// Invoke either main-menu Game native for host integration checks.
     pub(super) fn invoke_main_menu_native_for_check(
         &mut self,
