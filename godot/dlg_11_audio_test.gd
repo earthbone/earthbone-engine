@@ -4,6 +4,10 @@ extends SceneTree
 var failures := 0
 var finished := false
 const MIN_PEAK := 0.0001
+var _listener: AudioListener3D
+var _camera: Camera3D
+var _bank: Node3D
+var _capture: AudioEffectCapture
 
 func _initialize() -> void:
 	call_deferred("_watchdog")
@@ -16,7 +20,23 @@ func _watchdog() -> void:
 		_finish(1)
 
 func _finish(exit_code: int) -> void:
+	if finished:
+		return
 	finished = true
+	if is_instance_valid(_bank):
+		for player: Node in _bank.get_children():
+			if player is AudioStreamPlayer3D:
+				player.stop()
+		_bank.free()
+	if is_instance_valid(_listener):
+		_listener.free()
+	if is_instance_valid(_camera):
+		_camera.free()
+	if is_instance_valid(_capture):
+		for index in range(AudioServer.get_bus_effect_count(0)):
+			if AudioServer.get_bus_effect(0, index) == _capture:
+				AudioServer.remove_bus_effect(0, index)
+				break
 	quit(exit_code)
 
 func _check(ok: bool, message: String) -> void:
@@ -59,63 +79,59 @@ func _run() -> void:
 		_finish(1)
 		return
 
-	var listener := AudioListener3D.new()
-	get_root().add_child(listener)
-	listener.make_current()
-	var camera := Camera3D.new()
-	get_root().add_child(camera)
-	camera.make_current()
-	var bank := ClassDB.instantiate("SoundBank") as Node3D
-	get_root().add_child(bank)
+	_listener = AudioListener3D.new()
+	get_root().add_child(_listener)
+	_listener.make_current()
+	_camera = Camera3D.new()
+	get_root().add_child(_camera)
+	_camera.make_current()
+	_bank = ClassDB.instantiate("SoundBank") as Node3D
+	get_root().add_child(_bank)
 	for method in ["open_data", "play_voice", "stop_voice", "last_error"]:
-		if not bank.has_method(method):
+		if not _bank.has_method(method):
 			printerr("FAIL: SoundBank lacks ", method, ", rebuild the release extension")
-			quit(1)
+			_finish(1)
 			return
 	await process_frame
-	_check(bank.call("open_data", data), "SoundBank could not open the voice fixture archive: " + str(bank.call("last_error")))
+	_check(_bank.call("open_data", data), "SoundBank could not open the voice fixture archive: " + str(_bank.call("last_error")))
 	if failures != 0:
 		_finish(1)
 		return
 
-	var capture := AudioEffectCapture.new()
-	capture.buffer_length = 2.0
-	AudioServer.add_bus_effect(0, capture)
+	_capture = AudioEffectCapture.new()
+	_capture.buffer_length = 2.0
+	AudioServer.add_bus_effect(0, _capture)
 	await process_frame
 	var first_position := Vector3(1.25, 0.0, -1.0)
 	var second_position := Vector3(2.0, 0.0, -1.0)
-	var first_slot: int = bank.call("play_voice", first_path, first_position)
-	_check(first_slot >= 0, "first resolved voice did not start: " + str(bank.call("last_error")))
+	var first_slot: int = _bank.call("play_voice", first_path, first_position)
+	_check(first_slot >= 0, "first resolved voice did not start: " + str(_bank.call("last_error")))
 	if first_slot < 0:
 		_finish(1)
 		return
-	var first_player := bank.get_child(first_slot) as AudioStreamPlayer3D
+	var first_player := _bank.get_child(first_slot) as AudioStreamPlayer3D
 	_check(first_player.playing, "first AudioStreamPlayer3D is not playing")
 	_check(first_player.position.is_equal_approx(first_position), "first voice is not at the speaker position")
-	var first_peak: float = await _wait_for_peak(capture, first_player)
+	var first_peak: float = await _wait_for_peak(_capture, first_player)
 	_check(first_peak > MIN_PEAK, "first voice produced no Godot mixer output")
 
-	_check(bank.call("stop_voice", first_slot), "interrupt did not stop the active voice")
+	_check(_bank.call("stop_voice", first_slot), "interrupt did not stop the active voice")
 	_check(not first_player.playing, "interrupted AudioStreamPlayer3D kept playing")
 	await create_timer(0.05).timeout
-	capture.clear_buffer()
+	_capture.clear_buffer()
 	await create_timer(0.1).timeout
-	capture.clear_buffer()
-	var second_slot: int = bank.call("play_voice", second_path, second_position)
-	_check(second_slot >= 0, "replacement resolved voice did not start: " + str(bank.call("last_error")))
+	_capture.clear_buffer()
+	var second_slot: int = _bank.call("play_voice", second_path, second_position)
+	_check(second_slot >= 0, "replacement resolved voice did not start: " + str(_bank.call("last_error")))
 	if second_slot < 0:
 		_finish(1)
 		return
-	var second_player := bank.get_child(second_slot) as AudioStreamPlayer3D
+	var second_player := _bank.get_child(second_slot) as AudioStreamPlayer3D
 	_check(second_player.playing, "replacement AudioStreamPlayer3D is not playing")
 	_check(second_player.position.is_equal_approx(second_position), "replacement voice is not at the speaker position")
-	var second_peak: float = await _wait_for_peak(capture, second_player)
+	var second_peak: float = await _wait_for_peak(_capture, second_player)
 	_check(second_peak > MIN_PEAK, "replacement voice produced no Godot mixer output")
-	_check(bank.call("stop_voice", second_slot), "cleanup did not stop the replacement voice")
-	AudioServer.remove_bus_effect(0, AudioServer.get_bus_effect_count(0) - 1)
-	bank.free()
-	listener.free()
-	camera.queue_free()
+	_check(_bank.call("stop_voice", second_slot), "cleanup did not stop the replacement voice")
 	print("DLG-11 mixer peaks: first=", first_peak, " replacement=", second_peak)
 	print("RESULT: ", "PASS" if failures == 0 else "FAIL", " dialogue audio playback")
 	_finish(0 if failures == 0 else 1)
