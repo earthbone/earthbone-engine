@@ -3962,16 +3962,18 @@ fn decal_material(
             material.set_shader_parameter("has_normal", &true.to_variant());
         }
     }
-    let color = Color::from_rgb(
-        desc.emissive_color[0],
-        desc.emissive_color[1],
-        desc.emissive_color[2],
-    );
-    material.set_shader_parameter("emission_color", &color.to_variant());
-    material.set_shader_parameter("emission_strength", &desc.emissive_multiple.to_variant());
-    if let Some(data) = &textures.glow {
-        if let Some(texture) = cached_texture(cache, desc.glow_texture(), data) {
-            material.set_shader_parameter("glow_texture", &texture.to_variant());
+    if desc.emits_light() {
+        let color = Color::from_rgb(
+            desc.emissive_color[0],
+            desc.emissive_color[1],
+            desc.emissive_color[2],
+        );
+        material.set_shader_parameter("emission_color", &color.to_variant());
+        material.set_shader_parameter("emission_strength", &desc.emissive_multiple.to_variant());
+        if let Some(data) = &textures.glow {
+            if let Some(texture) = cached_texture(cache, desc.glow_texture(), data) {
+                material.set_shader_parameter("glow_texture", &texture.to_variant());
+            }
         }
     }
     if let (Some(path), Some(data)) = (desc.environment_texture(), &textures.environment) {
@@ -4027,6 +4029,11 @@ fn decal_shader(desc: &MaterialDesc) -> String {
     } else {
         ""
     };
+    let emission = if desc.emits_light() {
+        "EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, UV).rgb;"
+    } else {
+        ""
+    };
     format!(
         "shader_type spatial;
 render_mode {depth}, {cull}{test};
@@ -4063,7 +4070,7 @@ void fragment() {{
         vec3 tangent_normal = vec3(tangent_xy, sqrt(max(0.0, 1.0 - dot(tangent_xy, tangent_xy))));
         reflection_normal = normalize(mat3(TANGENT, BINORMAL, NORMAL) * tangent_normal);
     }}
-    EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, UV).rgb;
+    {emission}
     if (has_environment) {{
         float mask = has_environment_mask ? texture(environment_mask, UV).r : normal_sample.a;
         vec3 world_reflection = mat3(INV_VIEW_MATRIX) * reflect(-VIEW, reflection_normal);

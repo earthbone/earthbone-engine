@@ -1710,3 +1710,6 @@ mod rnd_17_tests;
 
 #[cfg(test)]
 mod rnd_22_tests;
+
+#[cfg(test)]
+mod rnd_24_tests;
