@@ -55,7 +55,7 @@ disjoint request borrows with a shared immutable graph. No unsafe code or
 per-actor host nodes are introduced.
 
 Initial request setup and its first slice, package evaluation, conditions,
-marker selection, movement and combat remain on the calling thread. Papyrus
+marker selection, movement preparation and combat remain on the calling thread. Papyrus
 also remains on that thread, with its existing instruction budget and shared
 `Rc<RefCell<_>>` values and native closures. This implementation does not satisfy
 PRF-17's full AI and Papyrus worker execution or vanilla per-object lock contract.
@@ -70,6 +70,14 @@ The stress fixture's short routes finish in the caller's first slice, so it
 launches no resumed navigation jobs and does not establish worker scaling.
 The mixed long-route and flee test measures navigation jobs separately. Its
 worker busy and caller wait times do not measure Papyrus or application locks.
+
+PRF-36 adds waypoint steering to the same pool, borrowing a detached AiState.
+The caller joins each job before applying movement and arrival effects in
+FormID order. These jobs share the configured pool with navigation. Separate
+movement job, worker busy and caller wait metrics include their dispatch costs.
+Distance-based process scheduling and immutable PACK and procedure-tree caches
+reduce caller work. [game.md](game.md) specifies the cadence policy. World
+mutation, package conditions, RNG and event emission remain on the caller.
 
 [ini]: https://ck.uesp.net/w/index.php?title=INI_Settings_%28Papyrus%29&veaction=edit
 [threading]: https://ck.uesp.net/wiki/Threading_Notes_(Papyrus)

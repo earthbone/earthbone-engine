@@ -26,6 +26,7 @@
 //! ```
 
 mod allocations;
+mod capacity;
 mod gates;
 mod profile_diff;
 mod stress;
@@ -71,6 +72,15 @@ fn main() -> ExitCode {
                 print!("{report}");
                 ExitCode::SUCCESS
             }
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if args.first().is_some_and(|arg| arg == "capacity") {
+        return match capacity::run(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("{error}");
                 ExitCode::FAILURE

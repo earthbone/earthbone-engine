@@ -140,6 +140,11 @@ impl DataSource {
         &self,
         cell_id: GlobalFormId,
     ) -> Result<(Vec<PlacedCollider>, CollisionStats), DataSourceError> {
+        let _load = soe_trace::LoadScope::operation(
+            "cell_collision",
+            cell_id.to_string(),
+            std::time::Duration::from_millis(33),
+        );
         let _span = soe_trace::Span::new("host.collide_cell", "host");
         let mut stats = CollisionStats::default();
         let mut out: Vec<PlacedCollider> = Vec::new();
@@ -255,7 +260,13 @@ impl DataSource {
     fn colliders_of(&self, model: &str, refr: &Refr) -> Result<RefColliders, DataSourceError> {
         let _span = soe_trace::Span::new("host.collider", "host");
         let bytes = self.vfs().read(&format!("meshes/{model}"))?;
-        let file = crate::data_source::placed_model(&bytes)?;
+        let file = {
+            let _parse =
+                soe_trace::LoadScope::new("collision_parse", soe_trace::LoadCause::Parse, model);
+            crate::data_source::placed_model(&bytes)?
+        };
+        let _build =
+            soe_trace::LoadScope::new("collision_build", soe_trace::LoadCause::CpuBuild, model);
         let collected =
             soe_physics::collect(&file).map_err(|e| DataSourceError::Collision(e.to_string()))?;
         let placement = placement_iso(refr);

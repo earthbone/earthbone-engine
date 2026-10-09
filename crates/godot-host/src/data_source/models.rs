@@ -14,6 +14,9 @@
 //! sibling geometry and leaving collision selection unchanged.
 
 //! UESP ACTI and xEdit's wbRecord(ACTI) use the same MODL and marker flag.
+//! xEdit's wbDefinitionsTES5.pas uses wbGenericModel for TREE, FLOR, LIGH,
+//! MSTT, SCOL, TACT and loose items. ARMO instead uses MOD2 and MOD4 for
+//! ground models. Its MODL fields are FormIDs of armor addons, never paths.
 
 use soe_esm::records::stat::Static;
 use soe_esm::{tag, Record, Tag};
@@ -26,9 +29,35 @@ pub(crate) fn is_editor_marker_name(name: &str) -> bool {
 pub(crate) fn model_for(record: &Record) -> Option<String> {
     let model = if record.tag == tag::STAT {
         Static::from_record(record).ok()?.model?
+    } else if record.tag == Tag::new(b"ARMO") {
+        [b"MOD2", b"MOD4"].into_iter().find_map(|field| {
+            record
+                .find(Tag::new(field))
+                .map(soe_esm::cursor::zstring)
+                .filter(|path| !path.is_empty())
+        })?
     } else if ([Tag::new(b"ACTI"), Tag::new(b"FURN"), Tag::new(b"DOOR")].contains(&record.tag)
         && record.flags & (1 << 23) == 0)
-        || record.tag == Tag::new(b"CONT")
+        || matches!(
+            record.tag.as_bytes(),
+            b"CONT"
+                | b"TREE"
+                | b"FLOR"
+                | b"LIGH"
+                | b"MSTT"
+                | b"SCOL"
+                | b"TACT"
+                | b"MISC"
+                | b"WEAP"
+                | b"BOOK"
+                | b"INGR"
+                | b"ALCH"
+                | b"KEYM"
+                | b"SLGM"
+                | b"AMMO"
+                | b"SCRL"
+                | b"APPA"
+        )
     {
         soe_esm::cursor::zstring(record.find(Tag::new(b"MODL"))?)
     } else if record.tag == tag::GRAS {
@@ -43,9 +72,15 @@ pub(crate) fn model_for(record: &Record) -> Option<String> {
 
 /// Visual selection excludes markers without changing collision model selection.
 pub(super) fn render_model_for(record: &Record) -> Option<String> {
-    (record.flags & (1 << 23) == 0)
+    (!is_marker_base(record))
         .then(|| model_for(record))
         .flatten()
+}
+
+/// Bit 23 means Is Marker only on these xEdit base definitions.
+pub(super) fn is_marker_base(record: &Record) -> bool {
+    matches!(record.tag.as_bytes(), b"STAT" | b"ACTI" | b"FURN" | b"DOOR")
+        && record.flags & (1 << 23) != 0
 }
 
 /// xEdit's REFR definition identifies occlusion planes and room/portal data.
@@ -103,9 +138,54 @@ mod tests {
     }
 
     #[test]
+    fn rnd_32_placed_base_types_use_generic_models_for_rendering_and_collision() {
+        for kind in [
+            b"TREE", b"FLOR", b"LIGH", b"MSTT", b"SCOL", b"TACT", b"MISC", b"WEAP", b"BOOK",
+            b"INGR", b"ALCH", b"KEYM", b"SLGM", b"AMMO", b"SCRL", b"APPA",
+        ] {
+            let record = Record::new(Tag::new(kind), 1).zsub(b"MODL", "Object.nif");
+            assert_eq!(
+                model_for(&record).as_deref(),
+                Some("Object.nif"),
+                "{kind:?}"
+            );
+            assert_eq!(render_model_for(&record).as_deref(), Some("Object.nif"));
+            assert_eq!(model_for(&Record::new(Tag::new(kind), 1)), None);
+            assert_eq!(
+                model_for(&Record::new(Tag::new(kind), 1).zsub(b"MODL", "")),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn rnd_32_armor_uses_ground_models_and_never_addon_formids() {
+        let record = Record::new(Tag::new(b"ARMO"), 1).sub(b"MODL", 0x123_u32.to_le_bytes());
+        assert_eq!(model_for(&record), None);
+        let female = record.zsub(b"MOD4", "Female.nif");
+        assert_eq!(model_for(&female).as_deref(), Some("Female.nif"));
+        let male = female.zsub(b"MOD2", "Male.nif");
+        assert_eq!(model_for(&male).as_deref(), Some("Male.nif"));
+    }
+
+    #[test]
+    fn rnd_32_marker_flag_only_applies_to_declared_marker_types() {
+        for kind in [b"STAT", b"ACTI", b"DOOR", b"FURN"] {
+            let record = Record::new(Tag::new(kind), 1)
+                .with_flags(1 << 23)
+                .zsub(b"MODL", "Marker.nif");
+            assert_eq!(render_model_for(&record), None);
+        }
+        let weapon = Record::new(Tag::new(b"WEAP"), 1)
+            .with_flags(1 << 23)
+            .zsub(b"MODL", "Sword.nif");
+        assert_eq!(render_model_for(&weapon).as_deref(), Some("Sword.nif"));
+    }
+
+    #[test]
     fn unsupported_records_and_malformed_statics_are_not_reinterpreted() {
-        let weapon = Record::new(Tag::new(b"WEAP"), 1).zsub(b"MODL", "Sword.nif");
-        assert_eq!(model_for(&weapon), None);
+        let sound = Record::new(Tag::new(b"SOUN"), 1).zsub(b"MODL", "SoundMarker.nif");
+        assert_eq!(model_for(&sound), None);
         let malformed = Record::new(tag::STAT, 1)
             .zsub(b"MODL", "Wall.nif")
             .sub(b"OBND", [0u8; 3]);

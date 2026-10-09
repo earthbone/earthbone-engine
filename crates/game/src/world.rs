@@ -119,9 +119,11 @@ mod record_save;
 mod static_object_restore;
 pub use quest_restore::QuestRestoreReport;
 mod light_references;
+mod reference_changes;
 mod reference_extras;
 mod reference_restore;
 mod refs;
+pub use reference_changes::ReferenceChanges;
 mod shim_extras;
 mod spatial_restore;
 pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceRestoreReport};
@@ -378,6 +380,8 @@ pub struct ActorState {
     pub instant_spell: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
+    /// Cadence remainder persisted by the PRF-36 actor section.
+    pub process_clock: Option<crate::ai::ProcessClock>,
     /// Papyrus KeepOffsetFromActor movement request.
     pub keep_offset: Option<ActorKeepOffset>,
     /// Reference forced as this actor's landing marker.
@@ -843,6 +847,8 @@ pub struct World {
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
     refs: HashMap<GlobalFormId, RefState>,
+    reference_changes: std::cell::RefCell<reference_changes::State>,
+    translation_candidates: BTreeSet<GlobalFormId>,
     light_references: std::cell::RefCell<light_references::LightReferences>,
     /// Current occupants, derived from actor movement and XPRM placement.
     trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
@@ -1029,6 +1035,8 @@ pub struct World {
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
+    magic_definitions: std::cell::RefCell<magic::MagicDefinitions>,
+    effect_index: magic::EffectIndex,
     /// Visual effects currently attached to references. Host rendering is
     /// transient and is rebuilt from Papyrus calls after load.
     visual_effect_attachments: BTreeMap<(GlobalFormId, GlobalFormId), VisualEffectAttachment>,
@@ -1233,6 +1241,8 @@ impl World {
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),
+            reference_changes: std::cell::RefCell::default(),
+            translation_candidates: BTreeSet::new(),
             light_references: std::cell::RefCell::default(),
             trigger_occupants: BTreeMap::new(),
             trigger_index: None,
@@ -1352,6 +1362,8 @@ impl World {
             commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
+            magic_definitions: std::cell::RefCell::default(),
+            effect_index: magic::EffectIndex::default(),
             visual_effect_attachments: BTreeMap::new(),
             visual_effects: BTreeMap::new(),
             cloak_effects: BTreeMap::new(),

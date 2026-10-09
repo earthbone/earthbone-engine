@@ -189,6 +189,10 @@ impl PlayerNode {
     /// when driving the recording explicitly from a script.
     #[func]
     pub fn record_player_session(&mut self, seed: i64) -> bool {
+        if seed < 0 || self.game.is_none() {
+            return false;
+        }
+        self.flush_automatic_detection();
         let (Some(game), Ok(seed)) = (self.game.as_mut(), u64::try_from(seed)) else {
             return false;
         };
@@ -205,6 +209,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn write_player_session(&mut self, path: GString) -> bool {
+        self.flush_automatic_detection();
         let Some(game) = self.game.as_ref() else {
             return false;
         };
@@ -232,7 +237,10 @@ impl PlayerNode {
         let result = Session::read(std::path::Path::new(&path.to_string()))
             .and_then(|session| self.player_input.start_replay(game, &session));
         match result {
-            Ok(()) => self.sync_game_pose(),
+            Ok(()) => {
+                self.automatic_detection = super::detection::AutomaticDetection::default();
+                self.sync_game_pose()
+            }
             Err(error) => {
                 godot_error!("PlayerNode: {error}");
                 false
