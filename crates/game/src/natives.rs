@@ -3148,24 +3148,49 @@ fn game(vm: &mut Vm, w: &Shared) {
         b(world.player_is_sungazing())
     });
     global!(vm, w, "Game", "ShakeCamera", |world, call| {
-        let player = world.player();
+        if call.args.len() != 2 {
+            world.report_native_error(
+                "Game.ShakeCamera",
+                "expected an ObjectReference source and a Float strength".into(),
+            );
+            return none();
+        }
         let source = match call.args.first() {
-            None | Some(Value::None) => Some(player),
-            Some(Value::Object(object)) => world.form_of(*object),
+            Some(Value::Object(object)) => world.form_of(*object).filter(|id| {
+                world.record(*id).is_some_and(|record| {
+                    (record.tag == Tag(*b"REFR") || record.tag == Tag(*b"ACHR"))
+                        && !record.is_deleted()
+                })
+            }),
             _ => None,
         };
-        if let Some(source) = source {
-            let strength = call.args.get(1).map_or(0.5, Value::as_float);
-            let duration = call.args.get(2).map_or(0.0, Value::as_float);
-            if duration == 0.0 {
-                let setting = world
-                    .game_setting("fCameraShakeDuration")
-                    .map_or(0.25, |v| v.as_float());
-                world.shake_camera(source, strength, setting);
-            } else {
-                world.shake_camera(source, strength, duration);
+        let Some(source) = source else {
+            world.report_native_error(
+                "Game.ShakeCamera",
+                "expected a live ObjectReference source".into(),
+            );
+            return none();
+        };
+        let strength = match call.args.get(1) {
+            Some(Value::Float(value)) => *value,
+            Some(Value::Int(value)) => *value as f32,
+            _ => {
+                world.report_native_error("Game.ShakeCamera", "expected a Float strength".into());
+                return none();
             }
+        };
+        let duration = world
+            .game_setting("fCameraShakeDuration")
+            .map_or(0.25, |value| value.as_float());
+        if !strength.is_finite() || !duration.is_finite() || duration < 0.0 {
+            world.report_native_error(
+                "Game.ShakeCamera",
+                "strength and shake duration must be finite, and duration must be non-negative"
+                    .into(),
+            );
+            return none();
         }
+        world.shake_camera(source, strength, duration);
         none()
     });
     global!(vm, w, "Game", "IncrementStat", |world, call| {
