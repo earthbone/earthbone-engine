@@ -37,9 +37,7 @@ use soe_audio::{VoiceArchiveError, VoiceLocale};
 use soe_bsa::{Archive, Vfs};
 use soe_esm::records::cell::Cell;
 use soe_esm::records::refr::Refr;
-use soe_esm::{tag, CellIndex, GlobalFormId, LoadOrder};
-#[cfg(any(feature = "godot", test))]
-use soe_esm::{Record, Tag};
+use soe_esm::{tag, CellIndex, GlobalFormId, LoadOrder, Record, Tag};
 use soe_nif::{Mat33, Mesh as NifMesh, NifFile, Transform as NifTransform, Vec3 as NifVec3};
 
 use crate::mesh::{
@@ -1200,6 +1198,7 @@ impl DataSource {
     /// `instance_transform` to apply per instance through a `MultiMesh`
     /// instead. Every other static keeps baking the full placement into its
     /// vertex data, unchanged.
+    #[cfg(any(feature = "godot", test))]
     fn load_static_surfaces(&self, model: &str, refr: &Refr, instancing: bool) -> BuiltStatic {
         self.load_object_surfaces(model, refr, instancing, SurfacePlayback::Frozen)
     }

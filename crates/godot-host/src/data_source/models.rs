@@ -223,6 +223,9 @@ mod rnd_31_tests {
             render_model_for(&tree).as_deref(),
             Some(r"Landscape\Trees\Pine01.nif")
         );
-        assert_eq!(render_model_for(&tree.with_flags(1 << 23)), None);
+        assert_eq!(
+            render_model_for(&tree.with_flags(1 << 23)).as_deref(),
+            Some(r"Landscape\Trees\Pine01.nif")
+        );
     }
 }
