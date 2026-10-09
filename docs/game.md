@@ -262,7 +262,9 @@ runtime override and winning GMST path, placed HAZD reference identity and
 placement, the actor's combat target and stagger window, and HitData from an
 accepted melee result. The adapter owns no parallel state. Hazard ticking,
 head tracking, animation sequence state and executable hit dispatch remain
-unsupported hooks with named reasons. The C++ contract has no Rust ABI bridge.
+unsupported hooks with named reasons. The SHM-11 C++ fixture sends contract calls
+to a Rust test host that reads this live adapter and returns its results. The
+request/reply transport is test-only and does not define a plugin ABI.
 HST-18 adds transient crosshair and grabbed-reference values to `World`.
 `Game.GetCurrentCrosshairRef` and `Game.GetPlayerGrabbedRef` create the
 corresponding Papyrus form object when a host value is present, and return
