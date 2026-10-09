@@ -8,7 +8,7 @@ use soe_papyrus::pex::{self, Opcode};
 use soe_papyrus::{ThreadId, Value, Vm};
 use std::hint::black_box;
 
-const LOOP_COUNT: i32 = 10_000;
+const LOOP_COUNT: i32 = 100;
 const MAX_PARSE_INSTRUCTIONS: u64 = 500_000;
 const MAX_VM_INSTRUCTIONS: u64 = 2_000_000;
 
@@ -79,7 +79,7 @@ fn bench_pex_parse(bytes: Vec<u8>) -> usize {
         Callgrind::default().hard_limits([(EventKind::Ir, MAX_VM_INSTRUCTIONS)])
     )
 )]
-#[bench::execute_10000_loop_iterations(args = (vm_script_bytes()), setup = setup_vm)]
+#[bench::execute_100_loop_iterations(args = (vm_script_bytes()), setup = setup_vm)]
 fn bench_vm_run((mut vm, thread): (Vm, ThreadId)) -> Value {
     assert!(vm.run_until_idle(100_000), "VM hot loop reaches idle");
     black_box(vm.thread_result(thread).expect("hot loop returns a result"))

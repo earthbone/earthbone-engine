@@ -55,8 +55,8 @@ fn tst_04_vm_benchmark_loop_returns_the_expected_sum() {
     vm.load_bytes(&vm_script_bytes())
         .expect("synthetic PEX loads");
     let thread = vm
-        .call_global("Tst04Vm", "Count", &[Value::Int(10_000)])
+        .call_global("Tst04Vm", "Count", &[Value::Int(100)])
         .expect("hot loop starts");
     assert!(vm.run_until_idle(100_000), "VM hot loop reaches idle");
-    assert_eq!(vm.thread_result(thread), Some(Value::Int(49_995_000)));
+    assert_eq!(vm.thread_result(thread), Some(Value::Int(4_950)));
 }

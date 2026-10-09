@@ -348,6 +348,10 @@ uses `iai-callgrind` 0.16.1 and its absolute `EventKind::Ir` hard limit, as
 documented in the upstream iai-callgrind library docs. Running requires Valgrind
 and a matching `iai-callgrind-runner` 0.16.1 in PATH.
 
+The 2026-10-09 run measured 167,362 instructions for the 128-record plugin,
+below the 500,000 instruction ceiling. A temporary 1-instruction ceiling
+failed at 167,362 instructions.
+
 ```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" \
   cargo test -p soe-esm --release --test real_files -- --nocapture
