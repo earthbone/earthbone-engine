@@ -272,7 +272,10 @@ current actor death and unconscious flags, reference and winning-record deletion
 and each actor's reserved furniture seat. Handles resolve through the current
 load order. Unknown or uninstantiated references return no result. A current
 seat is represented as a furniture Enter event. Binary hook requests return
-the shim's named unsupported-hook error.
+the shim's named unsupported-hook error. SHM-21's C++ contract test sends each
+query over a test pipe and receives its result from the current `World`, including
+unknown-handle results. The pipe exercises the source-level MIT interface and
+does not provide a C++ to Rust ABI.
 
 ## What is in it
 
@@ -1638,7 +1641,9 @@ player spell addition and streamed cell arrival. Their payloads resolve from
 the same world and load order. Binary hooks return explicit unsupported errors.
 A game integration fixture forwards these live events to compiled C++ sinks
 over a test pipe and checks the responses. This test transport is not an engine
-plugin ABI. See [shim](shim.md#event-binding-batch-shm-18) for the projected C++
+plugin ABI. SHM-21 also queries inventory, actor death, bleedout, deletion and
+furniture state from C++ over a pipe, with each result read from the same live
+`World`. See [shim](shim.md#event-binding-batch-shm-18) for the projected C++
 payload contract and unsupported binary hook boundary.
 
 ## Conformance table
