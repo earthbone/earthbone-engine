@@ -30,16 +30,16 @@ fn weather(x: Option<Vec<u8>>, y: Option<Vec<u8>>) -> Record {
         .sub(b"FNAM", vec![0; 32])
         .sub(b"LNAM", 1_u32.to_le_bytes())
         .sub(b"00TX", b"sky/cloud.dds\0".to_vec())
-        .with_optional_subrecord(b"QNAM", x)
-        .with_optional_subrecord(b"RNAM", y)
+        .with_optional_subrecord(*b"QNAM", x)
+        .with_optional_subrecord(*b"RNAM", y)
 }
 
 trait OptionalSubrecord {
-    fn with_optional_subrecord(self, tag: &[u8; 4], value: Option<Vec<u8>>) -> Self;
+    fn with_optional_subrecord(self, tag: [u8; 4], value: Option<Vec<u8>>) -> Self;
 }
 
 impl OptionalSubrecord for Record {
-    fn with_optional_subrecord(mut self, tag: &[u8; 4], value: Option<Vec<u8>>) -> Self {
+    fn with_optional_subrecord(mut self, tag: [u8; 4], value: Option<Vec<u8>>) -> Self {
         if let Some(value) = value {
             self = self.sub(tag, value);
         }
@@ -53,7 +53,9 @@ fn sample(
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(record);
     let mut order = LoadOrder::new();
-    order.add("Clouds.esm", plugin).expect("add weather fixture");
+    order
+        .add("Clouds.esm", plugin)
+        .expect("add weather fixture");
     World::new(order).sample_sky(id(10), &climate(), 12.0, 0.0)
 }
 

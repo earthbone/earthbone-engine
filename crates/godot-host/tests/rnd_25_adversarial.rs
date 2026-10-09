@@ -42,7 +42,9 @@ fn sky(record: Record) -> soe_game::world::sky::SkyFrame {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(record);
     let mut order = LoadOrder::new();
-    order.add("Clouds.esm", plugin).expect("add weather fixture");
+    order
+        .add("Clouds.esm", plugin)
+        .expect("add weather fixture");
     let world = World::new(order);
     world
         .sample_sky(id(10), &climate(), 12.0, 0.0)
