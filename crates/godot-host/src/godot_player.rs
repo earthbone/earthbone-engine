@@ -1476,6 +1476,34 @@ impl PlayerNode {
         result
     }
 
+    /// Read an actor value from the active shared gameplay world.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn gameplay_actor_value(&mut self, file: i32, object: i64, name: GString) -> f32 {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return 0.0;
+        };
+        game.world_mut()
+            .actor_value(GlobalFormId { file, object }, &name.to_string())
+    }
+
+    /// Report whether an actor's shared World stagger deadline is active.
+    #[func]
+    pub fn gameplay_actor_is_staggered(&mut self, file: i32, object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        game.world_mut().is_staggered(GlobalFormId { file, object })
+    }
+
     /// Count this reference's movement and Godot query collision bodies.
     #[func]
     pub fn reference_collision_bodies(&self, file: i32, object: i64) -> VarDictionary {
