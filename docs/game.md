@@ -1713,6 +1713,13 @@ and behavior remain owned by SCR-16. They also have no `Trespass` declaration,
 whose behavior remains owned by SCR-15. Both absent contracts are recorded in
 the manifest.
 
+The SCR-02 contract-shape regression compares the local `EquipItem` CK
+declaration, including its `Form` and `Bool` parameter types, both false
+defaults and its `None` return, with the native invocation. Calling the native
+with only the required item exercises those defaults: it equips the item,
+emits the ordinary equip notification and returns `None`. `SCR-74` owns the
+prevent-removal and silent-message behavior and tests those explicit arguments.
+
 `Actor.KeepOffsetFromActor` stores the target, required body-space XYZ offset,
 optional XYZ angles and catch-up/follow radii on the calling actor. Omitted
 optional arguments use the CK defaults. Targets must be actors, all numeric
