@@ -280,7 +280,8 @@ public:
 enum class CannotCastReason : std::uint8_t {
     Ok = 0, Magicka = 1, PowerUsed = 2, RangedUnderWater = 3,
     MultipleCast = 4, ItemCharge = 5, CastWhileShouting = 6,
-    ShoutWhileCasting = 7, ShoutWhileRecovering = 8
+    ShoutWhileCasting = 7, ShoutWhileRecovering = 8,
+    CustomReasonNoStart = 100
 };
 class MagicSystem {
 public:

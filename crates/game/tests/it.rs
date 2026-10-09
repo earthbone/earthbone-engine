@@ -60,6 +60,8 @@ mod shm_18_breaker_2_adversarial;
 
 #[path = "shm_13_adversarial.rs"]
 mod shm_13_adversarial;
+#[path = "shm_13_cpp_live_magic.rs"]
+mod shm_13_cpp_live_magic;
 
 #[path = "ply_06_ai_crafting.rs"]
 mod ply_06_ai_crafting;
