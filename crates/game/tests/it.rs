@@ -1655,6 +1655,8 @@ mod shm_15_world_state;
 mod shm_16_adversarial;
 #[path = "shm_16_breaker_adversarial.rs"]
 mod shm_16_breaker_adversarial;
+#[path = "shm_16_breaker_3_adversarial.rs"]
+mod shm_16_breaker_3_adversarial;
 #[path = "shm_16_cpp_live_world.rs"]
 mod shm_16_cpp_live_world;
 #[path = "shm_17_adversarial.rs"]
