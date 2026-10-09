@@ -77,13 +77,18 @@ fn prf_19_breaker_godot_overlay_shows_health_in_both_script_and_plugin_views() {
         return;
     };
     let project = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot");
+    let user = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(format!(".prf-19-user-{}", std::process::id()));
     let mut command = std::process::Command::new(godot);
     command
         .args(["--headless", "--path"])
         .arg(project)
         .args(["--script", "prf_19_health_test.gd"])
+        .env("XDG_DATA_HOME", &user)
         .env("SKYRIM_DATA", data);
     let output = command.output().unwrap();
+    std::fs::remove_dir_all(user).unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stdout}\n{stderr}");
