@@ -66,7 +66,7 @@ fn advance_lod(
 
 pub(super) fn config() -> StreamConfig {
     StreamConfig {
-        load_radius: 1,
+        load_radius: 2,
         unload_radius: 2,
         max_loads_per_tick: soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE,
         max_unloads_per_tick: 4,
@@ -109,6 +109,14 @@ impl PlayerNode {
             soe_trace::error!(target: "host::exterior", system = "host::exterior", "PlayerNode: no exterior cell at {},{}", coord.x, coord.y);
             return false;
         };
+        if source.is_small_world(exterior.world) {
+            if let Err(error) = game.update_streaming_cells(cell, &[], &[]) {
+                soe_trace::error!(target: "host::exterior", system = "host::exterior", "PlayerNode: small-world focus failed: {error}");
+                return false;
+            }
+            self.loaded_cell = Some(cell);
+            return true;
+        }
         // Commit the planner only after every requested cell has prepared successfully.
         let mut planner = exterior.planner.clone();
         let budget = StreamBudget {

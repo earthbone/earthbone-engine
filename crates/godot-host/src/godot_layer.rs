@@ -1188,6 +1188,8 @@ impl CellStreamerNode {
             }
         });
         self.free_departed_occluders(departed);
+        self.exterior_cells
+            .retain(|_, cell| !departed.contains(cell));
         self.deferred_references
             .retain(|_, cell| !departed.contains(cell));
         self.load_profiles
@@ -3281,6 +3283,10 @@ impl CellStreamerNode {
         };
         if let Some(source) = &self.data_source {
             visible.stats.reference_counts = source.reference_counts(cell, &visible, world);
+            if let Some(grid) = source.cell_index().grid_of(cell) {
+                self.exterior_cells
+                    .insert(CellCoord::new(grid.x, grid.y), cell);
+            }
             let drawn: std::collections::HashSet<_> = visible
                 .surfaces
                 .iter()

@@ -71,6 +71,8 @@ mod rnd_20_tests;
 #[cfg(test)]
 mod rnd_32_tests;
 #[cfg(test)]
+mod rnd_27_tests;
+#[cfg(test)]
 mod ui_25_tests;
 
 #[cfg(feature = "godot")]

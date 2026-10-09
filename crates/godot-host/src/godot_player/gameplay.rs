@@ -975,9 +975,10 @@ impl PlayerNode {
             let worldspace = source.exterior_world(cell);
             let prepared = self.interior_prefetch.take(cell);
             self.interior_prefetch.invalidate();
-            let location = match prepared
-                .map_or_else(|| source.load_location(cell, position, 1), Ok)
-            {
+            let location = match prepared.map_or_else(
+                || source.load_location(cell, position, super::exterior::config().load_radius),
+                Ok,
+            ) {
                 Ok(location) => location,
                 Err(error) => {
                     soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
