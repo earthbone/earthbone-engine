@@ -2,7 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_bsa::{write_bsa, BsaFile, BsaVersion};
-use soe_esm::{FileHeader, Plugin};
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Tag};
+use soe_game::{music, Game};
 use soe_godot_host::audio::MusicFade;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -90,6 +91,38 @@ fn write_music_fixture(data: &Path) {
         .expect("write voice archive to fixture data");
 }
 
+fn installed_fading_music_type(data: &Path) -> GlobalFormId {
+    let mut order = LoadOrder::new();
+    for name in [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
+        let path = data.join(name);
+        let bytes =
+            std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
+    }
+    let mut game = Game::new(order);
+    let player = game.player();
+    let music_types: Vec<_> = game
+        .world()
+        .order()
+        .winners_of(Tag::new(b"MUSC"))
+        .map(|(id, _)| id)
+        .collect();
+    for music_type in music_types {
+        if let Ok(track) = music::select(&mut game, music_type, player, 0.5) {
+            if !track.flags.abrupt_transition && track.fade_in > 0.2 && track.path.is_some() {
+                return music_type;
+            }
+        }
+    }
+    panic!("installed masters contain no supported MUSC with configured fades");
+}
+
 #[test]
 fn aud_05_music_fade_applies_both_record_durations_and_finishes_cleanly() {
     let mut fade = MusicFade::new(0.8, 2.0, 4.0, false);
@@ -149,5 +182,40 @@ fn aud_05_godot_interrupted_transition_replaces_stale_player_stream() {
     assert!(
         output.status.success() && stdout.contains("RESULT: PASS"),
         "Godot music transition test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn aud_05_player_music_selection_reaches_godot_with_vanilla_fades() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("SKYRIM_DATA not set, skipping installed PlayerNode music check");
+        return;
+    };
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from) else {
+        eprintln!("SOE_GODOT_BIN not set, skipping installed PlayerNode music check");
+        return;
+    };
+    let extension = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("godot/soe.gdextension");
+    let music_type = installed_fading_music_type(&data);
+    let project = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../godot");
+    let output = Command::new(godot)
+        .args(["--path"])
+        .arg(&project)
+        .args(["--resolution", "640x360", "--script"])
+        .arg(project.join("aud_05_player_music_test.gd"))
+        .env("SKYRIM_DATA", &data)
+        .env("AUD_05_EXTENSION", extension)
+        .env("AUD_05_MUSIC_FILE", music_type.file.to_string())
+        .env("AUD_05_MUSIC_OBJECT", music_type.object.to_string())
+        .env("AUD_05_MUSIC_DRAW", "0.5")
+        .output()
+        .expect("Godot process starts");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() && stdout.contains("RESULT: PASS"),
+        "PlayerNode vanilla music selection failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }
