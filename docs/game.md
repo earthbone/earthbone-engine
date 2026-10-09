@@ -3753,12 +3753,18 @@ through `Game::save_state` and `Game::load_state`.
 `Game::load_state(&mut self, bytes) -> Result<(), VmError>`
 (`crates/game/src/save.rs`) wrap `World::save_state`/`load_state` and
 `soe_papyrus::Vm::save_state`/`load_state` behind one envelope, magic
-`SOEG`, version 2. The envelope stores sorted plugin names, regular/light
-kind, load-order slot and SHA-256 plugin fingerprints, followed by loaded
+`SOEG`, version 3. The envelope stores plugins in file-table order, including
+their regular/light kind, load-order slot, internal file-table position and
+SHA-256 fingerprints, followed by loaded
 script names and optional SHA-256 PEX fingerprints. `Game::saved_provenance`
-reads this evidence. `load_state` rejects missing or changed plugins and slot
-movement before replacing state, preventing a reordered plugin from silently
-retargeting saved form IDs. Script provenance is reported by
+reads this evidence. Version 2 remains readable with its original strict slot
+checks. `load_state` rejects changed plugin content, kind changes, added
+plugins and reordered plugins before replacing state. It permits missing
+plugins when the remaining same-kind slot sequence is unchanged, then remaps
+saved world FormIDs by plugin name and internal file-table position. A saved
+live FormID that belongs to a missing plugin rejects loading rather than
+binding to another plugin. Opaque SAV-58 identities remain plugin-relative.
+Script provenance is reported by
 `preflight_dependencies`, while the VM's saved script fingerprints validate
 the definitions that saved instances and frames actually use. Missing or
 changed definitions keep the whole VM payload suspended until compatible PEX

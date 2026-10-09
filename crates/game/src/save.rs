@@ -16,7 +16,7 @@ use soe_save::{Papyrus, Save};
 use crate::Game;
 
 pub const MAGIC: &[u8; 4] = b"SOEG";
-pub const VERSION: u16 = 2;
+pub const VERSION: u16 = 3;
 
 /// Dependency identity recorded in a native game save.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,6 +30,8 @@ pub struct PluginProvenance {
     pub name: String,
     pub light: bool,
     pub slot: u16,
+    /// Position in the engine's internal file table, used by saved FormIDs.
+    pub file: u16,
     pub fingerprint: [u8; 32],
 }
 
@@ -94,6 +96,7 @@ impl SaveProvenance {
             writer.str(&plugin.name);
             writer.bool(plugin.light);
             writer.u16(plugin.slot);
+            writer.u16(plugin.file);
             writer.out.extend_from_slice(&plugin.fingerprint);
         }
         writer.len(self.scripts.len());
@@ -106,19 +109,25 @@ impl SaveProvenance {
         }
     }
 
-    fn read(reader: &mut Reader<'_>) -> Result<Self, VmError> {
+    fn read(reader: &mut Reader<'_>, version: u16) -> Result<Self, VmError> {
         let plugin_count = reader.len()?;
         let mut plugins = Vec::with_capacity(plugin_count);
         for _ in 0..plugin_count {
             let name = reader.str()?;
             let light = reader.bool()?;
             let slot = reader.u16()?;
+            let file = if version >= 3 {
+                reader.u16()?
+            } else {
+                u16::MAX
+            };
             let mut fingerprint = [0; 32];
             fingerprint.copy_from_slice(reader.take(32)?);
             plugins.push(PluginProvenance {
                 name,
                 light,
                 slot,
+                file,
                 fingerprint,
             });
         }
@@ -140,13 +149,14 @@ impl SaveProvenance {
 }
 
 fn current_provenance(game: &Game) -> SaveProvenance {
-    let mut plugins: Vec<_> = game
+    let plugins: Vec<_> = game
         .world
         .borrow()
         .order()
         .files()
         .iter()
-        .map(|file| {
+        .enumerate()
+        .map(|(index, file)| {
             let (light, slot) = match file.slot {
                 Slot::Regular(slot) => (false, u16::from(slot)),
                 Slot::Light(slot) => (true, slot),
@@ -155,11 +165,11 @@ fn current_provenance(game: &Game) -> SaveProvenance {
                 name: file.name.clone(),
                 light,
                 slot,
+                file: index as u16,
                 fingerprint: file.fingerprint,
             }
         })
         .collect();
-    plugins.sort_by_key(|plugin| plugin.name.to_ascii_lowercase());
     let scripts = game
         .vm
         .loaded_script_fingerprints()
@@ -175,12 +185,12 @@ fn read_envelope(bytes: &[u8]) -> Result<(SaveProvenance, &[u8], &[u8]), VmError
         return Err(VmError::State("not a game save file".into()));
     }
     let version = reader.u16()?;
-    if version != VERSION {
+    if !matches!(version, 2..=VERSION) {
         return Err(VmError::State(format!(
             "game save version {version}, this build reads {VERSION}"
         )));
     }
-    let provenance = SaveProvenance::read(&mut reader)?;
+    let provenance = SaveProvenance::read(&mut reader, version)?;
     let world = reader.bytes()?;
     let vm = reader.bytes()?;
     reader.expect_end()?;
@@ -199,12 +209,9 @@ fn check_provenance(saved: &SaveProvenance, current: &SaveProvenance) -> Result<
             .iter()
             .map(|item| (item.name.to_ascii_lowercase(), item))
             .collect();
-        let mut missing = Vec::new();
         for (name, previous) in &saved_by_name {
             match current_by_name.get(name) {
-                None => {
-                    missing.push(previous);
-                }
+                None => {}
                 Some(now) if previous.light != now.light => {
                     return Err(VmError::State(format!(
                         "saved plugin {} changed regular/light kind",
@@ -217,13 +224,31 @@ fn check_provenance(saved: &SaveProvenance, current: &SaveProvenance) -> Result<
                         previous.name
                     )))
                 }
-                Some(now) if previous.slot != now.slot => {
-                    return Err(VmError::State(format!(
-                        "saved plugin {} moved load-order slot",
-                        previous.name
-                    )))
+                Some(now) => {
+                    let missing_before = saved.plugins.iter().any(|plugin| {
+                        plugin.light == previous.light
+                            && plugin.slot < previous.slot
+                            && !current_by_name.contains_key(&plugin.name.to_ascii_lowercase())
+                    });
+                    let removed_before = saved
+                        .plugins
+                        .iter()
+                        .filter(|plugin| {
+                            plugin.light == previous.light
+                                && plugin.slot < previous.slot
+                                && !current_by_name.contains_key(&plugin.name.to_ascii_lowercase())
+                        })
+                        .count();
+                    let expected = u16::try_from(removed_before)
+                        .ok()
+                        .and_then(|removed| previous.slot.checked_sub(removed));
+                    if (previous.file == u16::MAX && missing_before) || expected != Some(now.slot) {
+                        return Err(VmError::State(format!(
+                            "saved plugin {} moved load-order slot",
+                            previous.name
+                        )));
+                    }
                 }
-                Some(_) => {}
             }
         }
         if let Some(extra) = current_by_name
@@ -234,20 +259,46 @@ fn check_provenance(saved: &SaveProvenance, current: &SaveProvenance) -> Result<
                 "current plugin {extra} was not in the save"
             )));
         }
-        for absent in &missing {
-            if saved_by_name.values().any(|plugin| {
-                plugin.light == absent.light
-                    && plugin.slot > absent.slot
-                    && current_by_name.contains_key(&plugin.name.to_ascii_lowercase())
-            }) {
-                return Err(VmError::State(format!(
-                    "saved plugin {} is missing before a loaded plugin",
-                    absent.name
-                )));
-            }
-        }
     }
     Ok(())
+}
+
+fn native_file_map(
+    saved: &SaveProvenance,
+    current: &SaveProvenance,
+) -> Result<Option<Vec<Option<u16>>>, VmError> {
+    if saved.plugins.iter().any(|plugin| plugin.file == u16::MAX) {
+        return Ok(None);
+    }
+    let size = saved
+        .plugins
+        .iter()
+        .map(|plugin| usize::from(plugin.file) + 1)
+        .max()
+        .unwrap_or(0);
+    if size != saved.plugins.len() {
+        return Err(VmError::State(
+            "native save plugin file positions are not contiguous".into(),
+        ));
+    }
+    let current_by_name: std::collections::BTreeMap<_, _> = current
+        .plugins
+        .iter()
+        .map(|plugin| (plugin.name.to_ascii_lowercase(), plugin.file))
+        .collect();
+    let mut map = vec![None; size];
+    for plugin in &saved.plugins {
+        let entry = &mut map[usize::from(plugin.file)];
+        if entry.is_some() {
+            return Err(VmError::State(
+                "native save has duplicate plugin file positions".into(),
+            ));
+        }
+        *entry = current_by_name
+            .get(&plugin.name.to_ascii_lowercase())
+            .copied();
+    }
+    Ok(Some(map))
 }
 
 fn native_dependency_report(saved: &SaveProvenance, current: &SaveProvenance) -> DependencyReport {
@@ -537,8 +588,12 @@ impl Game {
             Err(error) => return Err(error),
         }
         let (saved, world_bytes, vm_bytes) = read_envelope(bytes)?;
-        check_provenance(&saved, &current_provenance(self))?;
-        self.world.borrow_mut().load_state(world_bytes)?;
+        let current = current_provenance(self);
+        check_provenance(&saved, &current)?;
+        let file_map = native_file_map(&saved, &current)?;
+        self.world
+            .borrow_mut()
+            .load_state_with_file_map(world_bytes, file_map.as_deref())?;
         self.vm.load_state(vm_bytes)?;
         self.bound = None;
         self.bound_cells.clear();
@@ -577,8 +632,12 @@ impl Game {
 
     pub(crate) fn validate_saved_state(&self, bytes: &[u8]) -> Result<(), VmError> {
         let (saved, world, vm) = read_envelope(bytes)?;
-        check_provenance(&saved, &current_provenance(self))?;
-        self.world.borrow().validate_state(world)?;
+        let current = current_provenance(self);
+        check_provenance(&saved, &current)?;
+        let file_map = native_file_map(&saved, &current)?;
+        self.world
+            .borrow()
+            .validate_state_with_file_map(world, file_map.as_deref())?;
         self.vm.validate_state(vm)
     }
 

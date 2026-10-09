@@ -189,17 +189,38 @@ pub(crate) enum FormNamespace {
 pub(crate) struct FormReader<'reader, 'data> {
     reader: &'reader mut Reader<'data>,
     namespace: FormNamespace,
+    file_map: Option<&'reader [Option<u16>]>,
 }
 
 impl<'reader, 'data> FormReader<'reader, 'data> {
     pub(crate) fn new(reader: &'reader mut Reader<'data>, namespace: FormNamespace) -> Self {
-        Self { reader, namespace }
+        Self {
+            reader,
+            namespace,
+            file_map: None,
+        }
+    }
+
+    pub(crate) fn with_file_map(
+        reader: &'reader mut Reader<'data>,
+        namespace: FormNamespace,
+        file_map: &'reader [Option<u16>],
+    ) -> Self {
+        Self {
+            reader,
+            namespace,
+            file_map: Some(file_map),
+        }
     }
 
     /// The namespace a nested reader over one section's payload should
     /// resolve `FormId`s against, matching this reader's own.
     pub(crate) fn namespace(&self) -> FormNamespace {
         self.namespace
+    }
+
+    pub(crate) fn file_map(&self) -> Option<&[Option<u16>]> {
+        self.file_map
     }
 }
 
@@ -592,6 +613,14 @@ impl World {
     /// A wrong magic or version, a truncated or inconsistent stream, or a
     /// quest the load order no longer defines.
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), VmError> {
+        self.load_state_with_file_map(bytes, None)
+    }
+
+    pub(crate) fn load_state_with_file_map(
+        &mut self,
+        bytes: &[u8],
+        file_map: Option<&[Option<u16>]>,
+    ) -> Result<(), VmError> {
         let mut r = Reader::new(bytes);
         if r.take(4)? != SAVE_MAGIC {
             return Err(VmError::State("not a world state file".into()));
@@ -613,7 +642,11 @@ impl World {
         } else {
             FormNamespace::Current
         };
-        let mut r = FormReader::new(&mut r, namespace);
+        let mut r = if let Some(file_map) = file_map {
+            FormReader::with_file_map(&mut r, namespace, file_map)
+        } else {
+            FormReader::new(&mut r, namespace)
+        };
         let table = ArrayTable::read_pool(&mut r)?;
 
         let n = r.len()?;
@@ -1569,7 +1602,7 @@ pub(crate) fn write_form_id(w: &mut Writer, id: GlobalFormId) {
 
 pub(crate) fn read_form_id(r: &mut FormReader<'_, '_>) -> Result<GlobalFormId, VmError> {
     let file = r.u16()?;
-    let file = match (r.namespace, file) {
+    let mut file = match (r.namespace, file) {
         (FormNamespace::Legacy, 0xFF) => super::DYNAMIC_FILE,
         (FormNamespace::Legacy, super::DYNAMIC_FILE) => {
             return Err(VmError::State(
@@ -1578,6 +1611,15 @@ pub(crate) fn read_form_id(r: &mut FormReader<'_, '_>) -> Result<GlobalFormId, V
         }
         _ => file,
     };
+    if file != super::DYNAMIC_FILE {
+        if let Some(map) = r.file_map {
+            file = map
+                .get(usize::from(file))
+                .copied()
+                .flatten()
+                .ok_or_else(|| VmError::State("saved form belongs to a missing plugin".into()))?;
+        }
+    }
     Ok(GlobalFormId {
         file,
         object: r.u32()?,
@@ -2182,9 +2224,13 @@ fn write_quest_mutable(w: &mut Writer, q: &QuestState) {
 }
 
 impl World {
-    pub(crate) fn validate_state(&self, bytes: &[u8]) -> Result<(), VmError> {
+    pub(crate) fn validate_state_with_file_map(
+        &self,
+        bytes: &[u8],
+        file_map: Option<&[Option<u16>]>,
+    ) -> Result<(), VmError> {
         let mut scratch = Self::from_shared_order(self.order.clone());
-        scratch.load_state(bytes)
+        scratch.load_state_with_file_map(bytes, file_map)
     }
 }
 
