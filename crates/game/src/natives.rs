@@ -2844,6 +2844,21 @@ fn game(vm: &mut Vm, w: &Shared) {
         let p = world.player();
         form_value(world, call, Some(p))
     });
+    global!(vm, w, "Game", "GetSavedProjectilePayload", |world, call| {
+        let Some(id) = world.form_arg(&call.arg(0)) else {
+            return s("");
+        };
+        let Some(projectile) = world.restored_projectile_extra(id) else {
+            return s("");
+        };
+        let hex = b"0123456789abcdef";
+        let mut payload = String::with_capacity(projectile.payload.len() * 2);
+        for byte in &projectile.payload {
+            payload.push(char::from(hex[usize::from(byte >> 4)]));
+            payload.push(char::from(hex[usize::from(byte & 0x0f)]));
+        }
+        s(&payload)
+    });
     for (name, request) in [
         ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
         ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
