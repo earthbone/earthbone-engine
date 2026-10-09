@@ -1677,6 +1677,8 @@ mod shm_19_breaker_adversarial;
 mod shm_19_events;
 #[path = "shm_19_extra_adversarial.rs"]
 mod shm_19_extra_adversarial;
+#[path = "shm_19_extra_breaker_adversarial.rs"]
+mod shm_19_extra_breaker_adversarial;
 #[path = "shm_20_breaker_adversarial.rs"]
 mod shm_20_breaker_adversarial;
 #[path = "shm_20_extra_adversarial.rs"]
