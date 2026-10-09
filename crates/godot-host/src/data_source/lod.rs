@@ -272,12 +272,97 @@ impl DataSource {
             Err(soe_bsa::Error::NotFound { .. }) => return Ok(None),
             Err(e) => return Err(e.into()),
         };
-        let loaded = self.load_lod_block_bytes(world, block, &bytes)?;
+        let mut loaded = self.load_lod_block_bytes(world, block, &bytes)?;
+        for surface in self.lod_water_surfaces(world, block)? {
+            loaded.approx_bytes += surface.arrays.mesh_byte_count() as u64;
+            loaded.triangles += surface.arrays.triangle_count();
+            loaded.surfaces.push(surface);
+        }
         if loaded.surfaces.is_empty() {
             Ok(None)
         } else {
             Ok(Some(loaded))
         }
+    }
+
+    /// Cell-sized distant water planes using the same XCLW and inherited
+    /// DNAM heights as loaded cells. CELL and WRLD No LOD Water flags omit
+    /// planes, following xEdit's `wbDefinitionsTES5.pas` definitions.
+    ///
+    /// # Errors
+    /// Returns a record error for malformed CELL or WRLD data.
+    pub fn lod_water_surfaces(
+        &self,
+        world: GlobalFormId,
+        block: LodBlockCoord,
+    ) -> Result<Vec<LoadedSurface>, DataSourceError> {
+        let Some(owner) = self.order.winner_ref(world) else {
+            return Ok(Vec::new());
+        };
+        if self.order.record(owner).tag != tag::WRLD {
+            return Ok(Vec::new());
+        }
+        let view = soe_esm::records::wrld::World::from_record(
+            self.order.record(owner),
+            self.order.file(owner.file).plugin.header.is_localized(),
+        )?;
+        if view.flags & soe_esm::records::wrld::flags::NO_LOD_WATER != 0 {
+            return Ok(Vec::new());
+        }
+        let world_file = owner.file;
+        let mut surfaces = Vec::new();
+        for y in 0..block.level.cells() {
+            for x in 0..block.level.cells() {
+                let (Some(x), Some(y)) = (block.x.checked_add(x), block.y.checked_add(y)) else {
+                    continue;
+                };
+                let Some(id) = self.cell_index().exterior_cell(world, x, y) else {
+                    continue;
+                };
+                let Some(owner) = self.order.winner_ref(id) else {
+                    continue;
+                };
+                let cell = Cell::from_record(
+                    self.order.record(owner),
+                    self.order.file(owner.file).plugin.header.is_localized(),
+                )?;
+                if cell.flags & soe_esm::records::cell::flags::NO_LOD_WATER != 0 {
+                    continue;
+                }
+                if let Some(mut surface) = self.water_surface(id, &[]) {
+                    let cell_height = cell
+                        .water_height
+                        .filter(|height| super::water::is_recorded_height(*height));
+                    let inherited_height = super::water::world_water(&self.order, world).height;
+                    if let Some(height) = cell_height
+                        .or(view
+                            .lod_water_height
+                            .filter(|height| super::water::is_recorded_height(*height)))
+                        .or(inherited_height)
+                    {
+                        let y = height * crate::units::METRES_PER_UNIT;
+                        for position in &mut surface.arrays.positions {
+                            position[1] = y;
+                        }
+                    }
+                    if let Some(material) = view
+                        .lod_water
+                        .and_then(|raw| self.order.winner(self.order.resolve(world_file, raw)))
+                    {
+                        surface.arrays.material.water =
+                            Some(super::water::water_material_from(material));
+                    }
+                    surface.arrays.material.water.get_or_insert_with(|| {
+                        crate::mesh::WaterMaterial {
+                            opacity: u8::MAX,
+                            ..crate::mesh::WaterMaterial::default()
+                        }
+                    });
+                    surfaces.push(surface);
+                }
+            }
+        }
+        Ok(surfaces)
     }
 
     /// Build generated or archived BTR bytes through the same surface path

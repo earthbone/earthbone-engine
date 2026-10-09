@@ -29,7 +29,11 @@ fn rnd_26_lod_shading_requires_both_normal_space_and_landscape_flags() {
             shader_flags_2: second,
             ..Default::default()
         };
-        assert_eq!(material.landscape_lod_normals(), expected, "{first:#x} {second:#x}");
+        assert_eq!(
+            material.landscape_lod_normals(),
+            expected,
+            "{first:#x} {second:#x}"
+        );
     }
 }
 
@@ -62,11 +66,17 @@ fn rnd_26_noise_cache_key_only_changes_for_active_landscape_lod() {
 
 #[test]
 fn rnd_26_installed_lod_textures_match_their_shader_flags() {
-    let data = std::env::var_os("SKYRIM_DATA").map(PathBuf::from).expect("SKYRIM_DATA");
+    let data = std::env::var_os("SKYRIM_DATA")
+        .map(PathBuf::from)
+        .expect("SKYRIM_DATA");
     let source = DataSource::open(&data).expect("installed data opens");
     let (world, _) = source.resolve_world("Tamriel").expect("Tamriel resolves");
     for (x, y) in [(0, -8), (4, -8), (8, -8), (0, -4), (4, -4)] {
-        let block = LodBlockCoord { level: LodLevel::L4, x, y };
+        let block = LodBlockCoord {
+            level: LodLevel::L4,
+            x,
+            y,
+        };
         let loaded = source
             .load_lod_block(world, "Tamriel", block)
             .expect("BTR loads")
@@ -84,7 +94,12 @@ fn rnd_26_installed_lod_textures_match_their_shader_flags() {
             assert!(surface.textures.terrain_noise.is_some(), "{block:?} noise");
             assert!(material.landscape_lod_noise, "{block:?} feature 18 noise");
             assert_eq!(surface.arrays.normals.len(), surface.arrays.positions.len());
-            assert!(surface.arrays.normals.iter().flatten().all(|n| n.is_finite()));
+            assert!(surface
+                .arrays
+                .normals
+                .iter()
+                .flatten()
+                .all(|n| n.is_finite()));
         }
         assert!(count > 0, "{block:?} contains no landscape LOD surface");
     }
@@ -104,7 +119,12 @@ fn rnd_26_installed_capture_checks_lighting_and_land_lod_seam() {
     let output = Command::new(godot)
         .arg("--path")
         .arg(&project)
-        .args(["--resolution", "640x360", "--script", "rnd_26_lod_lighting.gd"])
+        .args([
+            "--resolution",
+            "640x360",
+            "--script",
+            "rnd_26_lod_lighting.gd",
+        ])
         .env("SKYRIM_DATA", data)
         .output()
         .expect("Godot capture starts");

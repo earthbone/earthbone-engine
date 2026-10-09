@@ -61,6 +61,7 @@ pub mod streaming;
 pub mod terrain;
 pub mod terrain_lod;
 pub mod terrain_lod_generate;
+pub mod terrain_lod_join;
 pub mod training_menu;
 pub mod tree_lod;
 pub mod ui;

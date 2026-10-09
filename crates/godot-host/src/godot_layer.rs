@@ -201,6 +201,10 @@ struct TerrainLodState {
     world_editor_id: String,
     blocks: std::collections::HashMap<LodBlockCoord, Vec<LodInstance>>,
     last_step: LodStepCounts,
+    source_surfaces: std::collections::HashMap<LodBlockCoord, Vec<LoadedSurface>>,
+    near_heights: std::collections::HashMap<CellCoord, Vec<f32>>,
+    debug_material: Option<Gd<StandardMaterial3D>>,
+    focus: CellCoord,
 }
 
 /// One drawn LOD surface. The mesh is held so the instance's mesh RID stays
@@ -209,6 +213,7 @@ struct LodInstance {
     rid: Rid,
     mesh: Gd<ArrayMesh>,
     triangles: usize,
+    bytes: u64,
 }
 
 /// Stage-specific meshes drawn in place of a reference's base geometry.
@@ -268,6 +273,21 @@ fn lod_stats(lod: Option<&TerrainLodState>) -> VarDictionary {
     d.set("resident", lod.streamer.resident_count() as i64);
     d.set("absent", lod.streamer.absent_count() as i64);
     d.set("blocks", lod_block_list(lod).as_str());
+    let mut covered: Vec<_> = lod
+        .near_heights
+        .keys()
+        .map(|cell| (cell.x, cell.y))
+        .collect();
+    covered.sort_unstable();
+    d.set(
+        "covered_cells",
+        covered
+            .iter()
+            .map(|(x, y)| format!("{x}:{y}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+            .as_str(),
+    );
     d.set("instances", drawn.clone().count() as i64);
     d.set(
         "triangles",
@@ -732,6 +752,7 @@ impl CellStreamerNode {
                     rid,
                     mesh,
                     triangles: surface.arrays.triangle_count(),
+                    bytes: surface.arrays.mesh_byte_count() as u64,
                 });
             }
             self.destruction_models.insert(
@@ -1243,6 +1264,7 @@ impl CellStreamerNode {
             .map(|i| i.bounds)
             .reduce(crate::batch::merge_bounds);
         self.last_stats = totals.to_dictionary(self.materials.len() - before);
+        self.sync_terrain_lod_join();
         true
     }
 
@@ -2264,6 +2286,7 @@ impl CellStreamerNode {
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         self.last_stats.set("origin_x", block.origin.0);
         self.last_stats.set("origin_y", block.origin.1);
+        self.sync_terrain_lod_join();
         totals.instances as i32
     }
 
@@ -2888,6 +2911,11 @@ impl CellStreamerNode {
     /// refined near the focus without overlapping selected finer blocks or
     /// full-resolution cells. The recorded mesh budget is enforced after reads.
     /// Replaces earlier terrain LOD. Returns resident blocks, or -1 on failure.
+    /// It reads the selected blocks within `lod_radius` and records
+    /// `full_res_radius` from the near stream's configured radius. Terrain
+    /// coverage follows actual loaded LAND cells, including retained cells.
+    /// Each BTR is cut around them and joined to their exposed edges. The block
+    /// grid and level come from the world's LOD settings and archived paths.
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn stream_terrain_lod(
@@ -3102,6 +3130,28 @@ impl CellStreamerNode {
                 server.instance_set_visible(instance.rid, visible);
             }
         }
+    }
+
+    /// Give terrain LOD a flat magenta material for coverage capture checks.
+    #[func]
+    pub fn set_terrain_lod_debug_color(&mut self, enabled: bool) {
+        let Some(lod) = &mut self.terrain_lod else {
+            return;
+        };
+        let material = enabled.then(|| {
+            let mut material = StandardMaterial3D::new_gd();
+            material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
+            material.set_albedo(Color::from_rgb(1.0, 0.0, 1.0));
+            material
+        });
+        let rid = material
+            .as_ref()
+            .map_or(Rid::Invalid, |material| material.get_rid());
+        let mut server = RenderingServer::singleton();
+        for instance in lod.blocks.values().flatten() {
+            server.instance_geometry_set_material_override(instance.rid, rid);
+        }
+        lod.debug_material = material;
     }
 
     /// The LOD state as a dictionary: world, level, anchor_x, anchor_y,
@@ -3634,11 +3684,19 @@ impl CellStreamerNode {
             }
         };
         let lod = TerrainLodState {
-            streamer,
+            streamer: if matches!(kind, LodStream::Terrain) {
+                streamer.with_cell_handoff()
+            } else {
+                streamer
+            },
             world,
             world_editor_id,
             blocks: std::collections::HashMap::new(),
             last_step: LodStepCounts::default(),
+            source_surfaces: std::collections::HashMap::new(),
+            near_heights: std::collections::HashMap::new(),
+            debug_material: None,
+            focus,
         };
         match kind {
             LodStream::Terrain => self.terrain_lod = Some(lod),
@@ -3675,19 +3733,25 @@ impl CellStreamerNode {
             return None;
         };
         let scenario = self.scenario()?;
+        if matches!(kind, LodStream::Terrain) {
+            self.sync_terrain_lod_join();
+        }
         let mut lod = match kind {
             LodStream::Terrain => self.terrain_lod.take(),
             LodStream::Object => self.object_lod.take(),
             LodStream::Tree => self.tree_lod.take(),
         }?;
-        let full_cells: Vec<_> = self
-            .instances
-            .iter()
-            .filter_map(|instance| source.cell_index().grid_of(instance.cell))
-            .map(|grid| CellCoord::new(grid.x, grid.y))
-            .collect();
-        lod.streamer.set_full_cells(&full_cells);
+        if !matches!(kind, LodStream::Terrain) {
+            let full_cells: Vec<_> = self
+                .instances
+                .iter()
+                .filter_map(|instance| source.cell_index().grid_of(instance.cell))
+                .map(|grid| CellCoord::new(grid.x, grid.y))
+                .collect();
+            lod.streamer.set_full_cells(&full_cells);
+        }
         let mut built = std::collections::HashMap::new();
+        lod.focus = focus;
         let world = lod.world;
         let world_editor_id = lod.world_editor_id.as_str();
         let step = lod.streamer.step(focus, settle, |block| {
@@ -3707,6 +3771,7 @@ impl CellStreamerNode {
         let mut server = RenderingServer::singleton();
         for block in step.released() {
             built.remove(&block);
+            lod.source_surfaces.remove(&block);
             for instance in lod.blocks.remove(&block).into_iter().flatten() {
                 crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
                 drop(instance.mesh);
@@ -3722,18 +3787,36 @@ impl CellStreamerNode {
         }
         let drawn = built.len();
         for (block, loaded) in built {
-            let instances = loaded
-                .surfaces
-                .iter()
-                .map(|surface| self.lod_instance(surface, scenario))
-                .collect();
+            let instances = if matches!(kind, LodStream::Terrain) {
+                self.joined_lod_instances(block, &loaded.surfaces, &lod.near_heights, scenario)
+            } else {
+                loaded
+                    .surfaces
+                    .iter()
+                    .map(|surface| self.lod_instance(surface, scenario))
+                    .collect()
+            };
+            if matches!(kind, LodStream::Terrain) {
+                lod.source_surfaces.insert(block, loaded.surfaces);
+            }
+            if let Some(material) = &lod.debug_material {
+                for instance in &instances {
+                    server
+                        .instance_geometry_set_material_override(instance.rid, material.get_rid());
+                }
+            }
             lod.blocks.insert(block, instances);
         }
+        let joined_evictions = if matches!(kind, LodStream::Terrain) {
+            enforce_terrain_lod_budget(&mut lod)
+        } else {
+            0
+        };
         lod.last_step = LodStepCounts {
             loaded: drawn,
             missing: step.missing.len(),
             failed: step.failed.len(),
-            released: step.unloaded.len() + step.evicted.len(),
+            released: step.unloaded.len() + step.evicted.len() + joined_evictions,
         };
         match kind {
             LodStream::Terrain => self.terrain_lod = Some(lod),
@@ -3741,6 +3824,98 @@ impl CellStreamerNode {
             LodStream::Tree => self.tree_lod = Some(lod),
         }
         Some(drawn)
+    }
+
+    fn loaded_terrain_heights(&self) -> std::collections::HashMap<CellCoord, Vec<f32>> {
+        self.instances
+            .iter()
+            .filter_map(|instance| {
+                let arrays = &instance.arrays;
+                if !arrays
+                    .material
+                    .diffuse
+                    .as_deref()
+                    .is_some_and(|path| path.starts_with("terrain:"))
+                    || arrays.positions.len() != crate::units::LAND_SAMPLES.pow(2)
+                {
+                    return None;
+                }
+                let coord = CellCoord::new(
+                    (arrays.bounds.min.x / crate::units::CELL_METRES).round() as i32,
+                    (-arrays.bounds.max.z / crate::units::CELL_METRES).round() as i32,
+                );
+                Some((coord, arrays.positions.iter().map(|p| p[1]).collect()))
+            })
+            .collect()
+    }
+
+    fn joined_lod_instances(
+        &mut self,
+        block: LodBlockCoord,
+        surfaces: &[LoadedSurface],
+        near: &std::collections::HashMap<CellCoord, Vec<f32>>,
+        scenario: Rid,
+    ) -> Vec<LodInstance> {
+        surfaces
+            .iter()
+            .filter_map(|surface| {
+                match crate::terrain_lod_join::join_surface(&surface.arrays, block, near) {
+                    Ok(arrays) if !arrays.indices.is_empty() => {
+                        let joined = LoadedSurface {
+                            arrays,
+                            ..surface.clone()
+                        };
+                        Some(self.lod_instance(&joined, scenario))
+                    }
+                    Ok(_) => None,
+                    Err(error) => {
+                        godot_error!("CellStreamerNode: terrain LOD join {block:?}: {error}");
+                        None
+                    }
+                }
+            })
+            .collect()
+    }
+
+    fn sync_terrain_lod_join(&mut self) {
+        let Some(scenario) = self.scenario() else {
+            return;
+        };
+        let near = self.loaded_terrain_heights();
+        let Some(mut lod) = self.terrain_lod.take() else {
+            return;
+        };
+        let changed: Vec<_> = near
+            .keys()
+            .chain(lod.near_heights.keys())
+            .copied()
+            .filter(|cell| near.get(cell) != lod.near_heights.get(cell))
+            .collect();
+        let mut blocks: Vec<_> = lod
+            .source_surfaces
+            .keys()
+            .copied()
+            .filter(|block| changed.iter().any(|cell| block.ring_distance(*cell) <= 1))
+            .collect();
+        blocks.sort_by_key(|block| (block.x, block.y));
+        let mut server = RenderingServer::singleton();
+        for block in blocks {
+            let instances =
+                self.joined_lod_instances(block, &lod.source_surfaces[&block], &near, scenario);
+            for instance in lod.blocks.remove(&block).into_iter().flatten() {
+                server.free_rid(instance.rid);
+            }
+            if let Some(material) = &lod.debug_material {
+                for instance in &instances {
+                    server
+                        .instance_geometry_set_material_override(instance.rid, material.get_rid());
+                }
+            }
+            lod.blocks.insert(block, instances);
+        }
+        lod.near_heights = near;
+        lod.last_step.released += enforce_terrain_lod_budget(&mut lod);
+        self.terrain_lod = Some(lod);
     }
 
     /// One LOD surface as an `ArrayMesh` and a `RenderingServer` instance
@@ -3767,8 +3942,35 @@ impl CellStreamerNode {
             rid,
             mesh,
             triangles: surface.arrays.triangle_count(),
+            bytes: surface.arrays.mesh_byte_count() as u64,
         }
     }
+}
+
+fn enforce_terrain_lod_budget(lod: &mut TerrainLodState) -> usize {
+    for (&block, surfaces) in &lod.source_surfaces {
+        let source: u64 = surfaces
+            .iter()
+            .map(|surface| surface.arrays.mesh_byte_count() as u64)
+            .sum();
+        let uploaded: u64 = lod
+            .blocks
+            .get(&block)
+            .into_iter()
+            .flatten()
+            .map(|instance| instance.bytes)
+            .sum();
+        lod.streamer.record_bytes(block, source + uploaded);
+    }
+    let evicted = lod.streamer.evict_to_budget(lod.focus);
+    let mut server = RenderingServer::singleton();
+    for block in &evicted {
+        lod.source_surfaces.remove(block);
+        for instance in lod.blocks.remove(block).into_iter().flatten() {
+            server.free_rid(instance.rid);
+        }
+    }
+    evicted.len()
 }
 
 #[derive(Default)]

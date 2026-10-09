@@ -42,10 +42,15 @@ fn rnd_28_installed_player_view_contains_mountain_and_tree_lod() {
         });
     let godot = std::env::var_os("SOE_GODOT_BIN")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/run/media/pengolodh/linux-data-games/tmp/soe-run/bin/godot"));
+        .unwrap_or_else(|| {
+            PathBuf::from("/run/media/pengolodh/linux-data-games/tmp/soe-run/bin/godot")
+        });
     let extension = workspace.join("target/release/libsoe_godot_host.so");
     assert!(extension.is_file(), "release extension must be built first");
-    assert!(data.join("Skyrim.esm").is_file(), "installed Skyrim data is required");
+    assert!(
+        data.join("Skyrim.esm").is_file(),
+        "installed Skyrim data is required"
+    );
 
     let source = soe_godot_host::data_source::DataSource::open(&data).unwrap();
     let (world, _) = source.resolve_world("Tamriel").unwrap();
@@ -93,9 +98,8 @@ fn rnd_28_installed_player_view_contains_mountain_and_tree_lod() {
                 record.tag == soe_esm::tag::REFR
                     && !record.is_deleted()
                     && record.flags & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
-                    && soe_esm::records::refr::Refr::from_record(record).is_ok_and(|refr| {
-                        refr.transform.is_some() && refr.enable_parent.is_none()
-                    })
+                    && soe_esm::records::refr::Refr::from_record(record)
+                        .is_ok_and(|refr| refr.transform.is_some() && refr.enable_parent.is_none())
             })
         })
         .unwrap();
@@ -118,8 +122,12 @@ fn rnd_28_installed_player_view_contains_mountain_and_tree_lod() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success()
-            && stdout.contains("RESULT: PASS: PlayerNode streams object and tree LOD around Whiterun"),
+            && stdout
+                .contains("RESULT: PASS: PlayerNode streams object and tree LOD around Whiterun"),
         "installed LOD capture failed\nstdout: {stdout}\nstderr: {stderr}"
     );
-    assert!(capture.is_file(), "Godot did not save the installed capture");
+    assert!(
+        capture.is_file(),
+        "Godot did not save the installed capture"
+    );
 }

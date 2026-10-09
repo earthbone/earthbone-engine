@@ -385,6 +385,7 @@ pub struct TerrainLodStreamer {
     catalog: Option<Vec<LodBlockCoord>>,
     selected: Option<Vec<LodBlockCoord>>,
     full_cells: Vec<CellCoord>,
+    cell_handoff: bool,
 }
 
 impl TerrainLodStreamer {
@@ -409,6 +410,7 @@ impl TerrainLodStreamer {
             catalog: None,
             selected: None,
             full_cells: Vec::new(),
+            cell_handoff: false,
         })
     }
 
@@ -433,6 +435,13 @@ impl TerrainLodStreamer {
             self.full_cells = cells;
             self.selected = None;
         }
+    }
+
+    /// Keep blocks touching near cells for a renderer that masks individual cells.
+    /// Object LOD retains the default whole-block exclusion.
+    pub fn with_cell_handoff(mut self) -> Self {
+        self.cell_handoff = true;
+        self
     }
 
     pub fn config(&self) -> &TerrainLodConfig {
@@ -518,7 +527,7 @@ impl TerrainLodStreamer {
             for x in (low.x..=high.x).step_by(span as usize) {
                 let block = LodBlockCoord { level, x, y };
                 let d = block.ring_distance(focus);
-                if d > self.config.full_res_radius
+                if (self.cell_handoff || d > self.config.full_res_radius)
                     && d <= r
                     && !self.resident.contains_key(&block)
                     && !self.absent.contains(&block)
@@ -533,7 +542,11 @@ impl TerrainLodStreamer {
                 select_lod_blocks_excluding(
                     catalog,
                     focus,
-                    self.config.full_res_radius,
+                    if self.cell_handoff {
+                        -1
+                    } else {
+                        self.config.full_res_radius
+                    },
                     r,
                     &self.full_cells,
                 )
@@ -563,7 +576,7 @@ impl TerrainLodStreamer {
             .filter(|b| {
                 let d = b.ring_distance(focus);
                 d > r
-                    || d <= self.config.full_res_radius
+                    || (!self.cell_handoff && d <= self.config.full_res_radius)
                     || selected.as_ref().is_some_and(|blocks| !blocks.contains(b))
             })
             .collect();
