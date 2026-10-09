@@ -3766,6 +3766,12 @@ and alive in the shared World. `World::cast_spell` performs its authored reach
 check before applying effects. Invalid spells, unavailable physics space,
 misses and rejected targets return false.
 
+`godot/mag_16_actor_body_acquisition_test.gd` loads the installed Bannered Mare,
+synchronizes resident actor bodies and sends short live physics rays through
+their capsules. It checks that an acquired body RID belongs to the registered
+actor set and resolves to its owning FormID. Touch casts use the same owner map
+and first-contact query.
+
 `aimed_spell_projectile_contact(spell_file, spell_object,
 projectile_instance_id, contact_body)` maps the contacted actor body RID
 through that same owner table and applies the aimed spell through
