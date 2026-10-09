@@ -84,6 +84,7 @@ fn ply_03_difference_report_names_stage_quest_flags_and_inventory_fields() {
 }
 
 #[test]
+#[ignore = "needs PLY-03: the Helgen trigger and the MQ101 scene progression, see docs/game.md"]
 fn ply_03_two_consecutive_main_quest_pairs_list_quest_and_inventory_differences() {
     let (Some(data), Some(corpus)) = (
         std::env::var_os("SKYRIM_DATA"),

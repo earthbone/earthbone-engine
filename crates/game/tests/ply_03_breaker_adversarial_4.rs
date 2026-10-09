@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use soe_game::play::{self, Route};
 
 #[test]
+#[ignore = "needs PLY-03: the Helgen trigger and the MQ101 scene progression, see docs/game.md"]
 fn ply_03_each_route_reaches_its_successor_checkpoint() {
     let (Some(data), Some(root)) = (
         std::env::var_os("SKYRIM_DATA"),

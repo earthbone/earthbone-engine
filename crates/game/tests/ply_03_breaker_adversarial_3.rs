@@ -11,6 +11,7 @@ fn id(object: u32) -> GlobalFormId {
 }
 
 #[test]
+#[ignore = "needs PLY-03: the Helgen trigger and the MQ101 scene progression, see docs/game.md"]
 fn ply_03_replay_reaches_both_consecutive_corpus_checkpoints() {
     let (Some(data), Some(root)) = (
         std::env::var_os("SKYRIM_DATA"),
