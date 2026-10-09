@@ -119,6 +119,7 @@ pub(super) struct Planner {
     next_actor: Option<GlobalFormId>,
     pool: Option<rayon::ThreadPool>,
     pub(super) workers: PlanningWorkers,
+    pub(super) movement_workers: PlanningWorkers,
 }
 
 impl Default for Planner {
@@ -133,11 +134,53 @@ impl Default for Planner {
             next_actor: None,
             pool: None,
             workers: PlanningWorkers::default(),
+            movement_workers: PlanningWorkers::default(),
         }
     }
 }
 
 impl Planner {
+    pub(super) fn follow(
+        &mut self,
+        ai: &mut super::AiState,
+        position: [f32; 3],
+        cell: Option<GlobalFormId>,
+        dt: f32,
+        entity: Option<soe_trace::Entity>,
+    ) -> ([f32; 3], Option<GlobalFormId>) {
+        let started = Instant::now();
+        let execute = || {
+            let _entity = entity.map(|entity| soe_trace::EntityScope::new(|| entity, 1));
+            let _span = soe_trace::Span::new("ai.path_following", "worker");
+            let started = Instant::now();
+            let result = super::movement::follow(ai, position, cell, dt);
+            (result, started.elapsed(), rayon::current_thread_index())
+        };
+        let (result, busy, worker) = if let Some(pool) = &self.pool {
+            pool.install(execute)
+        } else {
+            let mut result = ((position, cell), Duration::ZERO, None);
+            rayon::in_place_scope(|scope| scope.spawn(|_| result = execute()));
+            result
+        };
+        self.movement_workers.main_thread_wait += started.elapsed();
+        self.movement_workers.jobs += 1;
+        if let Some(worker) = worker {
+            if self.movement_workers.busy.len() <= worker {
+                self.movement_workers
+                    .busy
+                    .resize(worker + 1, Duration::ZERO);
+            }
+            self.movement_workers.busy[worker] += busy;
+        }
+        *self
+            .movement_workers
+            .phase_busy
+            .entry("path_following")
+            .or_default() += busy;
+        result
+    }
+
     pub(super) fn set_workers(
         &mut self,
         workers: std::num::NonZeroUsize,

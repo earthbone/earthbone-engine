@@ -324,6 +324,13 @@ pub struct FrameSample {
 }
 
 impl FrameSample {
+    /// Total engine scope time on this thread, excluding unscoped host waits.
+    #[must_use]
+    pub fn engine_ns(&self) -> u64 {
+        self.system_ns
+            .iter()
+            .fold(0_u64, |sum, ns| sum.saturating_add(*ns))
+    }
     /// System duration in milliseconds.
     #[must_use]
     pub fn milliseconds(&self, system: System) -> f64 {
@@ -404,12 +411,23 @@ impl FrameHistory {
     /// Compute rolling p50, p99 and worst for one system outside the tick.
     #[must_use]
     pub fn statistics(&self, system: System) -> SystemStats {
+        self.statistics_for(|frame| frame.system_ns[system as usize])
+    }
+
+    /// Rolling percentiles of the complete engine total, computed per frame.
+    /// Summing each system's percentile would describe a different distribution.
+    #[must_use]
+    pub fn engine_statistics(&self) -> SystemStats {
+        self.statistics_for(FrameSample::engine_ns)
+    }
+
+    fn statistics_for(&self, value: impl Fn(&FrameSample) -> u64) -> SystemStats {
         if self.count == 0 {
             return SystemStats::default();
         }
         let mut values = [0; FRAME_HISTORY];
         for (index, frame) in self.frames.iter().take(self.count).enumerate() {
-            values[index] = frame.system_ns[system as usize];
+            values[index] = value(frame);
         }
         let values = &mut values[..self.count];
         values.sort_unstable();
@@ -445,6 +463,13 @@ impl FrameHistory {
                 self.worst_ns[index] as f64 / 1e6
             );
         }
+        let total = self.engine_statistics();
+        let _ = writeln!(
+            text,
+            "main_thread_engine rolling_p50_ms {:.6} rolling_p99_ms {:.6}",
+            total.p50_ns as f64 / 1e6,
+            total.p99_ns as f64 / 1e6
+        );
         text
     }
 }
@@ -452,6 +477,39 @@ impl FrameHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prf_37_total_uses_per_frame_sums_rather_than_summed_percentiles() {
+        let mut history = FrameHistory::default();
+        for slot in [System::Physics, System::Render] {
+            let mut sample = FrameSample {
+                frame_ns: 100_000_000,
+                ..FrameSample::default()
+            };
+            sample.system_ns[slot as usize] = 1_500_000;
+            history.record(sample);
+        }
+        assert_eq!(history.engine_statistics().p50_ns, 1_500_000);
+        assert_eq!(history.engine_statistics().p99_ns, 1_500_000);
+        assert!(history.summary_text().contains("main_thread_engine"));
+    }
+
+    #[test]
+    fn prf_37_total_excludes_other_thread_work_and_unscoped_render_waits() {
+        let frame = FrameSnapshot::now();
+        let worker = std::thread::spawn(|| {
+            let frame = FrameSnapshot::now();
+            let scope = SystemScope::new(System::Magic);
+            std::thread::sleep(Duration::from_millis(5));
+            drop(scope);
+            frame.finish()
+        });
+        let simulated = worker.join().unwrap();
+        let main = frame.finish();
+        assert_eq!(main.engine_ns(), 0);
+        assert!(simulated.engine_ns() >= 5_000_000);
+        assert!(main.frame_ns >= 5_000_000);
+    }
 
     #[test]
     fn prf_12_every_system_reports_without_event_tracing() {

@@ -203,6 +203,7 @@ impl World {
             if persistent {
                 continue;
             }
+            self.invalidate_reference(id);
             self.refs.remove(&id);
             self.actors.remove(&id);
             self.actor_templates.remove(&id);
@@ -541,6 +542,7 @@ impl World {
                 _ => false,
             };
             if pristine {
+                self.invalidate_reference(id);
                 self.refs.remove(&id);
                 dropped += 1;
             } else {
@@ -744,7 +746,7 @@ impl World {
         let ids = self.cell_reference_ids(cell);
         let mut out = Vec::new();
         for id in ids {
-            let Some(base) = self.base_of(id) else {
+            let Some(base) = self.reference_base_view(id) else {
                 continue;
             };
             if self.tag_of(base) != Some(super::T(b"DOOR")) {

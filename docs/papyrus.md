@@ -1,5 +1,22 @@
 # soe-papyrus: PEX loader and virtual machine
 
+## Deadline runner, PRF-37
+
+`Vm::run_before` uses the existing interpreter and 64-instruction round-robin
+slices with a wall deadline checked before each opcode. Its caller-owned
+`Option<ThreadId>` cursor retains the next stack across calls, including when
+one native consumes the entire allowance. Sleeping and latent stacks remain
+queued and another runnable stack can execute on the next dispatch. A native
+already running finishes before a deadline can stop execution. Completed
+thread retention uses the same history path as `run`.
+
+The cursor is transient host scheduling data and is not serialized. Restored
+VMs accept an absent or stale cursor by beginning at the first stack. The
+ordinary `run(budget)` entry point retains its existing instruction contract.
+The clock budget is the engine's PRF-37 policy, using the Papyrus dispatch
+allowance evidence in [threading.md](threading.md). This API does not add
+parallel bytecode execution or change object/array ownership.
+
 ## Entity execution profiling, PRF-13
 
 With `soe_trace::Profile` enabled, executed opcodes record their declaring

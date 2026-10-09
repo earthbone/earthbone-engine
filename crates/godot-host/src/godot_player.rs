@@ -58,6 +58,7 @@ mod race;
 mod reference_collision;
 mod saves;
 mod scripted;
+mod simulation;
 mod sky;
 mod training;
 
@@ -115,8 +116,15 @@ pub struct PlayerNode {
     physics_advances_since_process: u32,
     last_physics_steps: u32,
     last_catchup_steps: u32,
+    /// Set by automatic physics ticks, cleared by the one sync per frame in `process`.
+    reference_sync_pending: bool,
+    /// Godot's `max_physics_steps_per_frame` before gameplay lowered it.
+    prior_max_physics_steps: Option<i32>,
     catchup_since: Option<std::time::Instant>,
     catchup_warning_sent: bool,
+    scene_history: soe_trace::FrameHistory,
+    scene_frame: soe_trace::FrameSample,
+    scene_budget: soe_trace::FrameSample,
     budget_frame: Option<soe_trace::FrameSnapshot>,
     monitor_names: Vec<StringName>,
     /// Cell radius beyond which distant LOD replaces full resolution geometry.
@@ -132,15 +140,32 @@ pub struct PlayerNode {
     motion: CameraMotion,
     detection_time_usec: i64,
     detection_stage_usec: [i64; 4],
+    automatic_detection: detection::AutomaticDetection,
+    automatic_physics_step: bool,
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
     query_collision: crate::godot_physics::CellBodies,
     collision_references: HashMap<BodyId, GlobalFormId>,
+    /// Reverse of `collision_references`, so one reference finds its bodies at once.
+    collision_bodies: HashMap<GlobalFormId, Vec<BodyId>>,
+    collision_changes: soe_game::world::ReferenceChanges,
+    collision_cells: BTreeSet<GlobalFormId>,
+    collision_residents: BTreeMap<GlobalFormId, GlobalFormId>,
     collision_visibility: std::collections::BTreeMap<GlobalFormId, bool>,
+    /// Set when the collision world is replaced, so the next sync restarts tracking.
+    collision_reset: bool,
+    collision_pending_cells: std::collections::VecDeque<GlobalFormId>,
+    collision_removing: std::collections::VecDeque<(GlobalFormId, usize)>,
+    collision_expand_offset: usize,
+    collision_pending_watch: std::collections::VecDeque<GlobalFormId>,
+    collision_backlog: BTreeSet<GlobalFormId>,
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    simulation: Option<soe_game::simulation::Simulation>,
+    simulation_pair: Option<Arc<soe_game::simulation::SnapshotPair>>,
+    simulation_error: String,
     player_input: soe_game::player_input::Driver,
     animation_source: Option<GlobalFormId>,
     /// The existing skinned node bound to the player's own appearance.
@@ -249,8 +274,13 @@ impl INode3D for PlayerNode {
             physics_advances_since_process: 0,
             last_physics_steps: 0,
             last_catchup_steps: 0,
+            reference_sync_pending: false,
+            prior_max_physics_steps: None,
             catchup_since: None,
             catchup_warning_sent: false,
+            scene_history: soe_trace::FrameHistory::default(),
+            scene_frame: crate::scene_timing::snapshot(),
+            scene_budget: soe_trace::FrameSample::default(),
             budget_frame: None,
             monitor_names: Vec::new(),
             exterior_lod_full_res_radius: 1,
@@ -259,16 +289,31 @@ impl INode3D for PlayerNode {
             rig: CameraRig::default(),
             detection_time_usec: 0,
             detection_stage_usec: [0; 4],
+            automatic_detection: detection::AutomaticDetection::default(),
+            automatic_physics_step: false,
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
             driver: Driver::new(),
             world: None,
             query_collision: crate::godot_physics::CellBodies::default(),
             collision_references: HashMap::new(),
+            collision_bodies: HashMap::new(),
+            collision_changes: soe_game::world::ReferenceChanges::default(),
+            collision_cells: BTreeSet::new(),
+            collision_residents: BTreeMap::new(),
             collision_visibility: std::collections::BTreeMap::new(),
+            collision_reset: true,
+            collision_pending_cells: std::collections::VecDeque::new(),
+            collision_removing: std::collections::VecDeque::new(),
+            collision_expand_offset: 0,
+            collision_pending_watch: std::collections::VecDeque::new(),
+            collision_backlog: BTreeSet::new(),
             character: None,
             data_source: None,
             game: None,
+            simulation: None,
+            simulation_pair: None,
+            simulation_error: String::new(),
             player_input: soe_game::player_input::Driver::default(),
             animation_source: None,
             player_appearance: None,
@@ -390,6 +435,7 @@ impl INode3D for PlayerNode {
     }
 
     fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         let latency = event
             .clone()
             .try_cast::<InputEventKey>()
@@ -513,14 +559,27 @@ impl INode3D for PlayerNode {
     fn physics_process(&mut self, delta: f64) {
         self.physics_ticks_since_process = self.physics_ticks_since_process.saturating_add(1);
         if self.auto_step {
+            let frame = Engine::singleton().get_process_frames();
+            if let Some((elapsed, motion)) = self.automatic_detection.before_step(frame) {
+                self.advance_detection(elapsed, motion);
+            }
+            self.automatic_physics_step = true;
             self.advance(delta);
+            self.automatic_physics_step = false;
             self.profile_applied_inputs.append(&mut self.profile_inputs);
-            self.sync_actor_bodies();
-            self.update_grab_actor();
+            if self.simulation.is_some() {
+                self.sync_simulation_bodies();
+            } else {
+                self.sync_actor_bodies();
+                self.update_grab_actor();
+            }
         }
     }
 
     fn process(&mut self, delta: f64) {
+        let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
+        self.present_simulation();
+        self.flush_reference_sync();
         self.last_physics_queries = soe_trace::physics_query_stats();
         soe_trace::reset_physics_queries();
         self.last_physics_steps = std::mem::take(&mut self.physics_ticks_since_process)
@@ -541,6 +600,7 @@ impl INode3D for PlayerNode {
             self.catchup_warning_sent = false;
         }
         let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let scene_scope = crate::scene_timing::Scope::new(soe_trace::System::Other);
         if let Some(view) = self.item_card_view.as_mut() {
             view.tick(delta);
         }
@@ -574,9 +634,17 @@ impl INode3D for PlayerNode {
         if let Some(view) = self.hud_view.as_mut() {
             view.tick_presentation(delta);
         }
+        if self.auto_step {
+            self.refresh_image_space();
+        }
+        drop(scene_scope);
         drop(render_scope);
+        drop(engine_scope);
         let sample = self.host_frame.finish();
         soe_trace::Profile::systems("host", &sample);
+        self.scene_history
+            .record(crate::scene_timing::elapsed(&self.scene_frame));
+        self.scene_frame = crate::scene_timing::snapshot();
         self.host_history.record(sample);
         crate::godot_profiler::publish(&self.host_history);
         self.host_frame = soe_trace::FrameSnapshot::now();
@@ -586,6 +654,9 @@ impl INode3D for PlayerNode {
         if let Err(error) = soe_trace::Trace::wait_for_hitch_exports() {
             godot_error!("hitch export: {error}");
         }
+        self.restore_catchup_cap();
+        self.simulation = None;
+        self.simulation_pair = None;
         self.remove_system_monitors();
         RenderingServer::singleton().disconnect(
             "frame_post_draw",
@@ -999,7 +1070,9 @@ impl PlayerNode {
         self.melee_bodies.clear();
         self.exterior = None;
         self.collision_references = collision.references;
+        self.rebuild_collision_bodies();
         self.collision_visibility.clear();
+        self.collision_reset = true;
         self.last_activate_hit = false;
         self.last_activate_reference = None;
         self.grabbed_host = None;
@@ -1016,7 +1089,10 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
-        self.detection_time_usec = -1;
+        if !self.automatic_physics_step {
+            self.flush_automatic_detection();
+            self.detection_time_usec = -1;
+        }
         self.physics_advances_since_process = self.physics_advances_since_process.saturating_add(1);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Other);
         let frame = soe_trace::WorkFrame::begin();
@@ -1032,6 +1108,10 @@ impl PlayerNode {
     }
 
     fn advance_measured(&mut self, delta: f64) {
+        if self.simulation.is_some() {
+            self.advance_simulation_controller(delta);
+            return;
+        }
         if self.player_input.pending() > 0 {
             self.step_player_input();
             return;
@@ -1183,7 +1263,11 @@ impl PlayerNode {
         } else {
             soe_game::detection::Motion::Still
         };
-        self.advance_detection(delta, player_motion);
+        if self.automatic_physics_step {
+            self.automatic_detection.push(delta, player_motion);
+        } else {
+            self.advance_detection(delta, player_motion);
+        }
         self.advance_door_fade(delta);
 
         self.motion.step(self.feet(), self.capsule_height());
@@ -1265,6 +1349,9 @@ impl PlayerNode {
     /// Start the game VM using the same records and VFS as the renderer.
     #[func]
     pub fn start_gameplay(&mut self) -> bool {
+        if std::env::var("SOE_THREADED_SIMULATION").as_deref() == Ok("1") {
+            return self.start_threaded_gameplay();
+        }
         self.start_game_runtime()
     }
 
@@ -1292,6 +1379,7 @@ impl PlayerNode {
         let mut result = VarDictionary::new();
         if let Some(game) = &self.game {
             let world = game.world();
+            result.set("door_checks", world.ai.door_checks as i64);
             result.set(
                 "door_refresh_us",
                 world.ai.door_refresh_time.as_secs_f64() * 1_000_000.0,
@@ -1304,6 +1392,38 @@ impl PlayerNode {
                 result.set(format!("{phase}_us"), duration.as_secs_f64() * 1_000_000.0);
             }
             result.set("instantiated_actors", world.loaded_actors().len() as i64);
+            for (prefix, workers) in [
+                ("navigation_worker", world.ai.planning_workers()),
+                ("movement_worker", world.ai.movement_workers()),
+            ] {
+                result.set(format!("{prefix}_jobs"), workers.jobs as i64);
+                result.set(
+                    format!("{prefix}_wait_us"),
+                    workers.main_thread_wait.as_secs_f64() * 1e6,
+                );
+                result.set(
+                    format!("{prefix}_busy_us"),
+                    workers
+                        .busy
+                        .iter()
+                        .map(std::time::Duration::as_secs_f64)
+                        .sum::<f64>()
+                        * 1e6,
+                );
+            }
+            for (index, name) in ["high", "middle_high", "middle_low", "low"]
+                .into_iter()
+                .enumerate()
+            {
+                result.set(
+                    format!("{name}_actors"),
+                    world.ai.process_counts[index] as i64,
+                );
+                result.set(
+                    format!("{name}_updates"),
+                    world.ai.process_updates[index] as i64,
+                );
+            }
         }
         result
     }
@@ -2216,6 +2336,8 @@ impl PlayerNode {
     }
 
     fn place_camera(&mut self, feet: Vec3, height: f32) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let _phase = crate::scene_timing::Scope::new(soe_trace::System::Input);
         if self.camera.is_none() {
             return;
         }

@@ -463,6 +463,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.other_spell);
     opt_form(h, a.instant_spell);
     ai_state(h, &a.ai);
+    h.bool(a.process_clock.is_some());
+    if let Some(clock) = &a.process_clock {
+        h.f64(clock.elapsed);
+        h.f64(clock.until);
+    }
     h.bool(a.keep_offset.is_some());
     if let Some(offset) = a.keep_offset {
         form(h, offset.target);

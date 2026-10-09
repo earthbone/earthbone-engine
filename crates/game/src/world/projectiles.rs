@@ -180,6 +180,7 @@ impl World {
             return None;
         }
         let id = self.place_at(request.ammunition, request.attacker, false);
+        self.invalidate_reference(id);
         let reference = self.refs.get_mut(&id)?;
         reference.position = position;
         Some(id)

@@ -1,5 +1,52 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Snapshot adapter, PRF-37 draft
+
+`PlayerNode::start_threaded_gameplay` starts a worker-owned Game using the
+streamer's immutable records and VFS. It rejects an already active legacy
+Game. `SOE_THREADED_SIMULATION=1` selects this adapter through `start_gameplay`.
+The normal entry point otherwise retains the existing direct Game adapters.
+Startup script loading, quest initialization, cell binding and navigation
+graph construction happen on the simulation thread. Initialization attaches
+the plain resident cell IDs captured from the renderer in FormID order,
+including the exterior worldspace persistent cell. This follows the existing
+`reference_collision.rs` identity source. Contacts still require an attached
+exterior grid, so persistent identity does not place every exterior actor.
+Subsequent exterior walking residency changes are outside this draft adapter.
+
+In this adapter, physics callbacks step player input and the character
+controller, send a coalesced pose and synchronize Jolt actor bodies from
+the latest snapshot. They do not advance Game. Process callbacks poll an
+immutable snapshot pair and interpolate actor transforms. The streamer applies
+them to existing MultiMesh and array-mesh resources without reading World.
+Existing actor body synchronization uses snapshot contact shapes. SkyRecords
+reads the published sky rather than constructing a gameplay World on the
+main thread. No per-reference nodes or runtime dependencies are added.
+
+`simulation_status` reports readiness, initialization errors, tick count,
+actor count, package evaluations, tick wall time, PRF-17 search-worker busy
+time and continuous lag. `simulation_activate` queues a game activation.
+The adapter presents actor transforms, contact bodies and sky state. It does
+not consume the legacy menu, save, transition, detection, audio, animation,
+runtime light or effect presentation adapters. `stop_threaded_gameplay` joins
+the worker before host resources are replaced. This opt-in path is an
+integration draft rather than the normal playable host path.
+
+The local Godot thread-safety documentation requires active scene-tree work
+to stay on the main thread, and server threading requires explicit settings.
+This adapter sends no Godot handles to its worker. Loading/decoding and
+navigation retain the existing PRF-17 and AUD-12 paths. The snapshot transform
+adapter scans resident batches to locate changed actors, without evaluating
+enable chains. PRF-34's reference observer remains a separate draft.
+
+PRF-12's report and F3 overlay append a `main_thread_engine` total computed
+from each completed frame's exclusive system scopes. Player input and process
+callbacks have covering scopes, so controller catch-up work contributes to
+the same render-frame total. Unscoped host idle/render waits and other-thread
+work are excluded. The overlay and exit summary list simulation tick and
+search-worker busy time separately. Tick time already includes waiting for
+navigation workers, so the worker number must not be added to it.
+
 ## AI breakdown and overlay, PRF-27
 
 `PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
@@ -18,6 +65,40 @@ the existing panel and label, adding no per-reference nodes. The windowed
 `godot/prf_27_ai_overlay_test.gd` check reads the report with entity capture off,
 loads installed Bannered Mare NPCs, toggles F5, checks labels and viewport bounds,
 captures the window and quits.
+
+## AI phase reporting, PRF-36
+
+`PlayerNode::ai_planning_details` reports inclusive driver phase timings,
+actor counts and updates for high, middle-high, middle-low and low processing,
+and separate navigation and waypoint worker job counts, busy times and caller
+waits. The `ai_movement` row in `system_frame_breakdown` includes that phase
+dictionary. F3 displays scheduling, actor processing, procedure preparation,
+waypoint dispatch and worker costs below the exclusive system totals. Nested
+phase timings describe the last simulation tick and overlap. Worker busy time is not added to main-thread system
+time. Caller dispatch and join waits remain charged to AI.
+
+Automatic physics catch-up accumulates detection elapsed time and the latest
+player motion, then samples once in the next presentation's first physics
+callback. Queries stay on the physics thread and observations use the current
+record-backed poses. Queued sound events remain in World until sampled. Manual
+`advance` still samples each call. Manual advances, native generation writes
+and session recording boundaries flush pending observations. Successful game
+replacement, recovery and replay clear the old batch. A failed restored-game
+attachment retains it. This host query batch is transient. Saved detection
+values remain in World. No scene node is added.
+
+`godot/prf_36_ai_budget_test.gd` uses the windowed walkthrough startup, exits
+through its interior door and Whiterun gate, then walks on the Tamriel plains.
+It samples 3,600 fixed steps per location through PRF-12, checks that packages
+were evaluated, and checks combined plains AI below 0.6 ms p50 and 1.2 ms p99.
+The complete driver must also stay below 8 ms. The host integration test runs
+this script and the existing PRF-11 Bannered Mare script and collects both
+process exit statuses, including after a failed budget. Logs are retained under
+`target`. Fixed samples yield to rendering every 60 steps. A second plains
+check injects ordinary walking input for 60 wall seconds with automatic
+simulation enabled and applies the same limits to F3 presentation frames.
+Both scripts quit when their checks end. Build and
+import the release extension before running the installed host test.
 
 ## Default menu art, UI-24
 
@@ -208,6 +289,25 @@ presenter's record-backed list construction. Fast travel has no host transition
 entry point in this checkout, and its timing is not reported.
 
 ## Per-system frame monitors, PRF-12
+
+PRF-35 adds `magic_frame_breakdown` for the Game magic tick phases and the
+casting and dispatch remainder.
+The F3 overlay displays their last, p50, p99 and worst milliseconds, and
+`system_summary` appends their session totals. They are included in the
+existing magic slot and do not increase the system total or its frame share.
+`end_budget_frame` includes their latest tick times under `magic_phases`.
+Phase percentiles cover Game ticks, while system percentiles cover host
+presentation frames. The windowed `prf_35_magic_test.gd` drives the actual
+walkthrough indoors and through the authored city gate to the Whiterun plains,
+retains 360 samples per location and checks magic below 0.2 ms p50 and 0.5 ms p99.
+The thresholds and before/after measurements are in [performance.md](performance.md).
+
+The Grab Actor hook reads indexed active applications and selects a resident
+body in stable target order. Runtime light sync reads indexed summoned
+references, decodes LIGH data when creating a light, and updates RID transforms
+and fades only when they change. Expiry and visibility still release RIDs.
+These paths add no per-reference nodes or saved fields. They reuse the shared
+MAG-35 and MAG-66 contracts and Godot RenderingServer RID APIs.
 
 PRF-16's `begin_budget_frame` and `end_budget_frame` delimit one fixed-step
 CPU window using the same exclusive PRF-12 slots. Nested begins fail, an end
@@ -502,7 +602,8 @@ negative and off-by-default flags with FNAM fade. It samples current reference
 placement and enable state, including `PlaceAtMe` references, and bounds the
 resulting record-derived light estimate to 0 to 150. The host sends that
 value, sight, motion and queued detection sounds to
-`World::evaluate_detection` each step.
+`World::evaluate_detection` after each manual step, or once after automatic
+physics catch-up as described in PRF-36 above.
 PRF-31 builds a uniform actor grid and a separate grid of sound source
 positions each frame. A nearby event can belong to a distant actor and does
 not grant sight to its owner. Each target's light is sampled once per frame.
@@ -5086,8 +5187,8 @@ reference only when World reports it enabled. It uses the normal VFS, NIF,
 material and collision paths and adds RenderingServer and PhysicsServer3D
 resources. Unloading its cell removes the deferred identity.
 
-Built geometry reads effective visibility through `ref_placement` on every
-sync. Disabling collapses batched triangles or sets a MultiMesh member's scale
+Built geometry reads effective visibility through `ref_placement` for
+notified presentation changes. Disabling collapses batched triangles or sets a MultiMesh member's scale
 to zero, and removes the reference's host collision from its physics space.
 Enabling restores those resources without reloading the cell. Player movement
 and query collision also follow effective enable state. Static movement bodies
@@ -5512,3 +5613,31 @@ no per-reference nodes.
 script rows when `SKYRIM_DATA` is set. `SOE_PRF_19_CAPTURE` selects a PNG path
 for a windowed capture. The script frees its nodes and quits with the result.
 The host dictionary and UI calls use the existing Godot 4.4 API path.
+
+## Reference sync and scene phases, PRF-34
+
+The streamer indexes resident references to their geometry batches when cells
+attach or detach. Independent game observers notify rendering, movement
+collision and PhysicsServer placements of effective presentation changes.
+Idle synchronization drains empty queues. A changed merged batch rebuilds its
+members from the original upload. Deferred model references subscribe while
+hidden and build through the existing asset path when enabled. Static physics
+placements use an index. Movable bodies still poll Godot for simulated poses.
+No new reference scene nodes are allocated. Automatic gameplay uploads
+image-space presentation once per rendered frame. Manual advances retain
+immediate presentation.
+
+PRF-12's report adds reference collision sync, reference change sync, node
+transforms, mesh and material uploads, RenderingServer calls and other host
+scene work. Nested simulation scopes remain excluded. `host_scene_cpu` sums
+these host phases except RenderingServer calls. The F3 overlay reads the same
+report. The fixed PRF-34 windowed walk records every completed presentation
+frame for sixty seconds per location and checks sync maxima and scene CPU
+percentiles. Timings and acceptance results are in [performance.md](performance.md).
+
+Inspection for HST-21 found that `open_swing_door` queues its animated node for
+freeing when the reference closes and creates a new node on the next open.
+The batched door hides while open. Movement-body visibility uses effective
+enable state and does not remove a static door body solely because it opened.
+Query bodies additionally hide opened doors. Change notification retains this
+existing handoff. Door node lifetime and open-door capsule passage belong to HST-21.

@@ -40,7 +40,9 @@ use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_
 use super::{Alloc, Handle, Pending, World, T};
 use super::{SpellArtAction, SpellArtRequest};
 
+mod cache;
 mod state;
+pub(crate) use cache::{EffectIndex, MagicDefinitions};
 pub(crate) use state::PERK_SECTION as GRANTED_PERK_SECTION;
 pub(crate) use state::REANIMATE_SECTION;
 pub(crate) use state::SECTION as SAVE_SECTION;
@@ -477,12 +479,13 @@ impl World {
 
     /// Whether a live Paralysis archetype currently suppresses actor motion.
     pub fn actor_is_paralyzed(&self, actor: GlobalFormId) -> bool {
-        self.active_effects.values().any(|active| {
-            active.target == actor
-                && self
-                    .magic_effect(active.effect)
-                    .is_ok_and(|effect| effect.data.archetype == PARALYSIS_ARCHETYPE)
-        })
+        self.effects_of_archetype(PARALYSIS_ARCHETYPE)
+            .any(|active| {
+                active.target == actor
+                    && self
+                        .magic_effect_definition(active.effect)
+                        .is_ok_and(|effect| effect.data.archetype == PARALYSIS_ARCHETYPE)
+            })
     }
 
     pub(crate) fn create_brewed_potion(
@@ -500,10 +503,9 @@ impl World {
 
     pub(crate) fn slow_time_scale(&self) -> f64 {
         let slow_percent = self
-            .active_effects
-            .values()
+            .effects_of_archetype(SLOW_TIME)
             .filter_map(|active| {
-                let definition = self.magic_effect(active.effect).ok()?;
+                let definition = self.magic_effect_definition(active.effect).ok()?;
                 (definition.data.archetype == SLOW_TIME).then_some(active.magnitude)
             })
             .fold(0.0_f32, f32::max)
@@ -613,7 +615,7 @@ impl World {
             .map(|effect| (effect.effect, effect.caster, effect.source))
             .collect();
         effects.into_iter().find_map(|(effect, caster, source)| {
-            self.magic_effect(effect)
+            self.magic_effect_definition(effect)
                 .is_ok_and(|definition| definition.data.archetype == TURN_UNDEAD)
                 .then(|| {
                     caster
@@ -642,7 +644,7 @@ impl World {
         self.active_effects.values().any(|effect| {
             effect.target == target
                 && self
-                    .magic_effect(effect.effect)
+                    .magic_effect_definition(effect.effect)
                     .is_ok_and(|base| base.data.archetype == 6)
         })
     }
@@ -654,10 +656,10 @@ impl World {
     /// relationship.
     #[must_use]
     pub fn grab_actor_effect_on(&self, target: GlobalFormId) -> Option<&ActiveEffect> {
-        self.active_effects.values().find(|effect| {
+        self.effects_of_archetype(45).find(|effect| {
             effect.target == target
                 && self
-                    .magic_effect(effect.effect)
+                    .magic_effect_definition(effect.effect)
                     .is_ok_and(|definition| definition.data.archetype == 45)
         })
     }
@@ -667,7 +669,7 @@ impl World {
         self.active_effects.values().any(|effect| {
             effect.target == target
                 && self
-                    .magic_effect(effect.effect)
+                    .magic_effect_definition(effect.effect)
                     .is_ok_and(|base| base.data.archetype == DEMORALIZE)
         })
     }
@@ -677,7 +679,7 @@ impl World {
         self.active_effects.values().find_map(|effect| {
             (effect.target == target
                 && self
-                    .magic_effect(effect.effect)
+                    .magic_effect_definition(effect.effect)
                     .is_ok_and(|base| base.data.archetype == DEMORALIZE))
             .then_some(effect.caster.unwrap_or(effect.source))
         })
@@ -697,7 +699,7 @@ impl World {
         self.active_effects.values().any(|effect| {
             effect.target == target
                 && self
-                    .magic_effect(effect.effect)
+                    .magic_effect_definition(effect.effect)
                     .is_ok_and(|base| base.data.archetype == FRENZY_ARCHETYPE)
         })
     }
@@ -708,7 +710,7 @@ impl World {
         self.active_effects.values().any(|effect| {
             effect.target == actor
                 && self
-                    .magic_effect(effect.effect)
+                    .magic_effect_definition(effect.effect)
                     .is_ok_and(|definition| definition.data.archetype == INVISIBILITY)
         })
     }
@@ -720,7 +722,7 @@ impl World {
         self.active_effects.values().any(|effect| {
             effect.target == actor
                 && self
-                    .magic_effect(effect.effect)
+                    .magic_effect_definition(effect.effect)
                     .is_ok_and(|definition| definition.data.archetype == ETHEREALIZE)
         })
     }
@@ -733,7 +735,7 @@ impl World {
             .filter(|effect| {
                 effect.target == actor
                     && self
-                        .magic_effect(effect.effect)
+                        .magic_effect_definition(effect.effect)
                         .is_ok_and(|definition| definition.data.archetype == INVISIBILITY)
             })
             .map(|effect| effect.id)
@@ -942,7 +944,7 @@ impl World {
             let effect = self
                 .resolve_from(enchantment, entry.base_effect)
                 .ok_or(MagicError::Missing(enchantment))?;
-            let base = self.magic_effect(effect)?;
+            let base = self.magic_effect_definition(effect)?;
             let context = Context {
                 owner: effect,
                 ..context
@@ -967,15 +969,7 @@ impl World {
 
     /// Read the current winning SPEL definition.
     pub fn spell(&self, id: GlobalFormId) -> Result<Spell, MagicError> {
-        let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
-        let record = self.order.record(rref);
-        if record.is_deleted() {
-            return Err(MagicError::Missing(id));
-        }
-        Ok(Spell::from_record(
-            record,
-            self.order.file(rref.file).plugin.header.is_localized(),
-        )?)
+        Ok(self.spell_definition(id)?.as_ref().clone())
     }
 
     /// Read a winning SCRL record using the shared SPIT and effect layout.
@@ -1002,7 +996,7 @@ impl World {
             let effect = self
                 .resolve_from(id, entry.base_effect)
                 .ok_or(MagicError::Missing(id))?;
-            if self.magic_effect(effect)?.data.flags & HOSTILE != 0 {
+            if self.magic_effect_definition(effect)?.data.flags & HOSTILE != 0 {
                 return Ok(true);
             }
         }
@@ -1011,14 +1005,7 @@ impl World {
 
     /// Read the current winning MGEF definition.
     pub fn magic_effect(&self, id: GlobalFormId) -> Result<MagicEffect, MagicError> {
-        let record = self.record(id).ok_or(MagicError::Missing(id))?;
-        if record.is_deleted() {
-            return Err(MagicError::Missing(id));
-        }
-        Ok(MagicEffect::from_record(
-            record,
-            self.record_text_localized(id, T(b"FULL")),
-        )?)
+        Ok(self.magic_effect_definition(id)?.as_ref().clone())
     }
 
     /// Read the current winning ALCH definition.
@@ -1274,7 +1261,7 @@ impl World {
                 .map(|entry| entry.0)
                 .or_else(|| self.resolve_from(resolution, entry.base_effect))
                 .ok_or(MagicError::Missing(resolution))?;
-            let base = self.magic_effect(effect)?;
+            let base = self.magic_effect_definition(effect)?;
             let data = &base.data;
             if data.archetype == PEAK_VALUE_MODIFIER {
                 self.peak_value_keyword(effect, &base)?;
@@ -1609,7 +1596,7 @@ impl World {
                 .resolve_from(spell, entry.base_effect)
                 .ok_or(MagicError::Missing(spell))?;
             charge_time = charge_time.max(finite_nonnegative(
-                self.magic_effect(effect)?.data.casting_time,
+                self.magic_effect_definition(effect)?.data.casting_time,
             )?);
         }
         Ok(charge_time)
@@ -1631,7 +1618,7 @@ impl World {
                 let effect = self
                     .resolve_from(spell, entry.base_effect)
                     .ok_or(MagicError::Missing(spell))?;
-                let data = self.magic_effect(effect)?.data;
+                let data = &self.magic_effect_definition(effect)?.data;
                 let magnitude = f64::from(entry.data.magnitude.max(1.0));
                 let duration = if definition.data.cast_type == 2 || entry.data.duration == 0 {
                     10.0
@@ -1772,7 +1759,7 @@ impl World {
                 && self.spell(cast.spell).is_ok_and(|spell| {
                     spell.effects.iter().any(|entry| {
                         self.resolve_from(cast.spell, entry.base_effect)
-                            .and_then(|id| self.magic_effect(id).ok())
+                            .and_then(|id| self.magic_effect_definition(id).ok())
                             .is_some_and(|effect| effect.data.archetype == 20)
                     })
                 })
@@ -1917,7 +1904,7 @@ impl World {
         if definition.data.cast_type == 2
             && !definition.effects.iter().all(|entry| {
                 self.resolve_from(spell, entry.base_effect)
-                    .and_then(|effect| self.magic_effect(effect).ok())
+                    .and_then(|effect| self.magic_effect_definition(effect).ok())
                     .is_some_and(|effect| effect.data.archetype == DETECT_LIFE_ARCHETYPE)
             })
         {
@@ -2252,7 +2239,7 @@ impl World {
                         }
                     }
                 }
-                self.active_effects.insert(id, prepared.effect.clone());
+                self.insert_active_effect(id, prepared.effect.clone());
                 if let Some(alloc) = alloc.as_deref_mut() {
                     let object = self.object_of(Handle::ActiveEffect(id), alloc);
                     self.pending.push(Pending::BindEffect {
@@ -2461,7 +2448,7 @@ impl World {
             4 if !definition.effects.is_empty()
                 && definition.effects.iter().all(|entry| {
                     self.resolve_from(spell, entry.base_effect)
-                        .and_then(|effect| self.magic_effect(effect).ok())
+                        .and_then(|effect| self.magic_effect_definition(effect).ok())
                         .is_some_and(|effect| effect.data.archetype == SPAWN_SCRIPTED_REF)
                 }) =>
             {
@@ -2517,7 +2504,7 @@ impl World {
             let effect = self
                 .resolve_from(spell, entry.base_effect)
                 .ok_or(MagicError::Missing(spell))?;
-            let base = self.magic_effect(effect)?;
+            let base = self.magic_effect_definition(effect)?;
             let data = &base.data;
             if data.archetype == PEAK_VALUE_MODIFIER {
                 self.peak_value_keyword(effect, &base)?;
@@ -3304,7 +3291,7 @@ impl World {
                 alloc,
             );
             // An instant lethal effect must receive its target's death events too.
-            self.active_effects.insert(id, prepared.effect.clone());
+            self.insert_active_effect(id, prepared.effect.clone());
             if let Some((vampire_race, race_spells)) = prepared.vampire_form.clone() {
                 let actor_id = prepared.effect.target;
                 let previous_race = self.actor(actor_id).and_then(|actor| actor.race);
@@ -3360,7 +3347,7 @@ impl World {
                 );
             }
             if self
-                .magic_effect(prepared.effect.effect)
+                .magic_effect_definition(prepared.effect.effect)
                 .is_ok_and(|base| base.data.archetype == 35)
             {
                 self.cloak_effects.insert(id, CloakState::default());
@@ -3506,7 +3493,12 @@ impl World {
                     entry.insert(base)
                 }
             };
-            if self.magic_effect(prepared.effect.effect)?.data.archetype == 38 {
+            if self
+                .magic_effect_definition(prepared.effect.effect)?
+                .data
+                .archetype
+                == 38
+            {
                 let confidence = values.get("confidence").current();
                 prepared.effect.changes = vec![(
                     "confidence".to_string(),
@@ -3541,7 +3533,7 @@ impl World {
                     }
                     DispelRule::Keywords(keywords) => {
                         for effect in live.iter() {
-                            self.magic_effect(effect.effect)?;
+                            self.magic_effect_definition(effect.effect)?;
                             if self
                                 .keywords(effect.effect)
                                 .iter()
@@ -3553,7 +3545,7 @@ impl World {
                     }
                     DispelRule::Paralysis => {
                         for effect in live.iter() {
-                            if self.magic_effect(effect.effect)?.data.archetype
+                            if self.magic_effect_definition(effect.effect)?.data.archetype
                                 == PARALYSIS_ARCHETYPE
                             {
                                 selected.insert(effect.id);
@@ -3612,9 +3604,10 @@ impl World {
             .map(|effect| effect.effect)
             .collect();
         effects.into_iter().any(|effect| {
-            self.magic_effect(effect).is_ok_and(|definition| {
-                self.resolve_from(effect, definition.data.equip_ability) == Some(spell)
-            })
+            self.magic_effect_definition(effect)
+                .is_ok_and(|definition| {
+                    self.resolve_from(effect, definition.data.equip_ability) == Some(spell)
+                })
         })
     }
 
@@ -3721,7 +3714,7 @@ impl World {
             cloak.owned.retain(|owned| *owned != id);
         }
         if let Some(hazard) = effect.summoned.filter(|_| {
-            self.magic_effect(effect.effect)
+            self.magic_effect_definition(effect.effect)
                 .is_ok_and(|base| base.data.archetype == 40)
         }) {
             let owned: Vec<_> = self
@@ -3768,7 +3761,7 @@ impl World {
             }
             self.kill_actor(effect.target, None);
         }
-        if let Ok(definition) = self.magic_effect(effect.effect) {
+        if let Ok(definition) = self.magic_effect_definition(effect.effect) {
             if definition.data.archetype == 17 {
                 if let Some(weapon) = self
                     .resolve_from(effect.effect, definition.data.associated_item)
@@ -3793,8 +3786,9 @@ impl World {
             }
         }
         self.active_effects.remove(&id);
+        self.unindex_active_effect(id);
         if self
-            .magic_effect(effect.effect)
+            .magic_effect_definition(effect.effect)
             .is_ok_and(|base| base.data.archetype == FRENZY_ARCHETYPE)
             && !self.is_frenzied(effect.target)
         {
@@ -3835,13 +3829,15 @@ impl World {
         if !seconds.is_finite() || seconds < 0.0 {
             return errors;
         }
-        let active_effects: Vec<_> = self.active_effects.values().cloned().collect();
-        let mut trapped_corpses: Vec<_> = active_effects
-            .iter()
+        let mut trapped_corpses: Vec<_> = self
+            .effects_of_archetype(SOUL_TRAP_ARCHETYPE)
             .filter_map(|effect| {
-                (self.actor(effect.target).is_some_and(|actor| actor.dead)
+                (self
+                    .actors
+                    .get(&effect.target)
+                    .is_some_and(|actor| actor.dead)
                     && self
-                        .magic_effect(effect.effect)
+                        .magic_effect_definition(effect.effect)
                         .is_ok_and(|base| base.data.archetype == SOUL_TRAP_ARCHETYPE))
                 .then_some(effect.target)
             })
@@ -3853,17 +3849,45 @@ impl World {
         }
         let ids: Vec<_> = self.active_effects.keys().copied().collect();
         for id in ids {
-            let Some(mut effect) = self.active_effects.get(&id).cloned() else {
+            let Some(effect) = self.active_effects.get(&id) else {
                 continue;
             };
-            let dead = self.actor(effect.target).is_some_and(|a| a.dead);
-            let persist_death = self
-                .magic_effect(effect.effect)
-                .is_ok_and(|base| base.data.flags & NO_DEATH_DISPEL != 0);
-            if dead && !persist_death {
+            let definition = match self.effect_tick_definition(effect) {
+                Ok(definition) => definition,
+                Err(error) => {
+                    errors.push(error);
+                    continue;
+                }
+            };
+            let dead = self.actors.get(&effect.target).is_some_and(|a| a.dead);
+            if dead && !definition.no_death_dispel {
                 self.dispel_effect(id, alloc);
                 continue;
             }
+
+            if !definition.conditions
+                && !self.cloak_effects.contains_key(&id)
+                && !matches!(definition.archetype, 32 | 40)
+                && (effect.recover
+                    || definition.archetype == PEAK_VALUE_MODIFIER
+                    || effect.changes.is_empty()
+                    || effect.duration.is_none())
+            {
+                let expiry = effect
+                    .duration
+                    .map(|duration| duration + effect.taper_duration);
+                let elapsed = (effect.elapsed + seconds)
+                    .min(expiry.unwrap_or(f64::MAX))
+                    .min(f64::MAX);
+                if let Some(effect) = self.active_effects.get_mut(&id) {
+                    effect.elapsed = elapsed;
+                }
+                if expiry.is_some_and(|expiry| elapsed >= expiry) {
+                    self.dispel_effect(id, alloc);
+                }
+                continue;
+            }
+            let mut effect = effect.clone();
 
             if self.cloak_effects.contains_key(&id) {
                 if let Err(error) = self.tick_cloak(id, seconds, alloc) {
@@ -3880,22 +3904,7 @@ impl World {
                 }
                 continue;
             }
-            let spell_conditions = if self.tag_of(effect.spell) == Some(super::T(b"SPEL")) {
-                match self
-                    .magic_item_effect(effect.spell, effect.effect_index)
-                    .and_then(|entry| {
-                        let base = self.magic_effect(effect.effect)?;
-                        Ok(!entry.conditions.is_empty() || !base.conditions.is_empty())
-                    }) {
-                    Ok(has_conditions) => has_conditions,
-                    Err(error) => {
-                        errors.push(error);
-                        continue;
-                    }
-                }
-            } else {
-                false
-            };
+            let spell_conditions = definition.conditions;
             let mut remaining = seconds;
             let mut failed = false;
             while remaining > 0.0 {
@@ -3917,17 +3926,14 @@ impl World {
                     break;
                 }
                 let reached_check = spell_conditions && dt + 1e-9 >= to_check;
-                if self
-                    .magic_effect(effect.effect)
-                    .is_ok_and(|base| base.data.archetype == 32)
-                {
+                if definition.archetype == 32 {
                     if let Err(error) = self.accumulate_effect_value(&effect, dt) {
                         errors.push(error);
                         failed = true;
                         break;
                     }
                 } else if !effect.recover
-                    && !self.is_peak_value_effect(effect.effect).unwrap_or(false)
+                    && definition.archetype != PEAK_VALUE_MODIFIER
                     && (effect.duration != Some(0.0) || effect.taper_duration > 0.0)
                 {
                     let start = effect.elapsed;
@@ -3968,10 +3974,7 @@ impl World {
                     }
                 }
                 effect.elapsed = (effect.elapsed + dt).min(f64::MAX);
-                if self
-                    .magic_effect(effect.effect)
-                    .is_ok_and(|base| base.data.archetype == 40)
-                {
+                if definition.archetype == 40 {
                     if let Err(error) =
                         self.tick_spawn_hazard(&effect, effect.elapsed - dt, effect.elapsed, alloc)
                     {
@@ -3994,14 +3997,14 @@ impl World {
                     match self.spell_effect_conditions_hold(&effect) {
                         Ok(true) => {}
                         Ok(false) => {
-                            self.active_effects.insert(id, effect.clone());
+                            self.insert_active_effect(id, effect.clone());
                             self.dispel_effect(id, alloc);
                             failed = true;
                             break;
                         }
                         Err(error) => {
                             errors.push(error);
-                            self.active_effects.insert(id, effect.clone());
+                            self.insert_active_effect(id, effect.clone());
                             failed = true;
                             break;
                         }
@@ -4014,7 +4017,7 @@ impl World {
             let expired = effect
                 .duration
                 .is_some_and(|duration| effect.elapsed >= duration + effect.taper_duration);
-            self.active_effects.insert(id, effect);
+            self.insert_active_effect(id, effect);
             if expired {
                 self.dispel_effect(id, alloc);
             }
@@ -4049,7 +4052,7 @@ impl World {
         current: f64,
         alloc: Alloc<'_>,
     ) -> Result<(), MagicError> {
-        let base_effect = self.magic_effect(effect.effect)?;
+        let base_effect = self.magic_effect_definition(effect.effect)?;
         let base = self
             .resolve_from(effect.effect, base_effect.data.associated_item)
             .ok_or(MagicError::Missing(effect.effect))?;
@@ -4122,7 +4125,7 @@ impl World {
         let Some(effect) = self.active_effects.get(&id).cloned() else {
             return Ok(());
         };
-        let base = self.magic_effect(effect.effect)?;
+        let base = self.magic_effect_definition(effect.effect)?;
         let associated = self
             .resolve_from(effect.effect, base.data.associated_item)
             .ok_or(MagicError::Missing(effect.effect))?;
@@ -4173,7 +4176,7 @@ impl World {
             .effects
             .get(effect.effect_index as usize)
             .ok_or(MagicError::Unsupported("active effect entry"))?;
-        let base = self.magic_effect(effect.effect)?;
+        let base = self.magic_effect_definition(effect.effect)?;
         if base.data.archetype == DETECT_LIFE_ARCHETYPE {
             // CONTEXT: Detection conditions select candidates, not the origin actor.
             return Ok(true);
@@ -4270,7 +4273,7 @@ impl World {
             }
         }
         if self
-            .magic_effect(effect.effect)
+            .magic_effect_definition(effect.effect)
             .is_ok_and(|definition| definition.data.archetype == 4)
         {
             if let Some(caster) = effect.caster {
@@ -4305,9 +4308,12 @@ impl World {
 
     pub fn detect_life_targets(&mut self) -> Result<Vec<DetectedActor>, MagicError> {
         let mut detected = Vec::new();
-        let active_effects: Vec<_> = self.active_effects.values().cloned().collect();
+        let active_effects: Vec<_> = self
+            .effects_of_archetype(DETECT_LIFE_ARCHETYPE)
+            .cloned()
+            .collect();
         for active in active_effects {
-            let definition = self.magic_effect(active.effect)?;
+            let definition = self.magic_effect_definition(active.effect)?;
             if definition.data.archetype != DETECT_LIFE_ARCHETYPE
                 || !active.magnitude.is_finite()
                 || active.magnitude <= 0.0
@@ -4415,7 +4421,7 @@ impl World {
         let guided = self.active_effects.values().any(|effect| {
             effect.target == player
                 && self
-                    .magic_effect(effect.effect)
+                    .magic_effect_definition(effect.effect)
                     .is_ok_and(|definition| definition.data.archetype == 25)
         });
         if !guided {
@@ -4544,7 +4550,7 @@ impl World {
             .filter(|active| {
                 active.target == target
                     && self
-                        .magic_effect(active.effect)
+                        .magic_effect_definition(active.effect)
                         .is_ok_and(|effect| effect.data.archetype == SOUL_TRAP_ARCHETYPE)
             })
             .map(|active| active.id)
@@ -4676,7 +4682,7 @@ impl World {
     }
 
     fn is_peak_value_effect(&self, effect: GlobalFormId) -> Result<bool, MagicError> {
-        Ok(self.magic_effect(effect)?.data.archetype == PEAK_VALUE_MODIFIER)
+        Ok(self.magic_effect_definition(effect)?.data.archetype == PEAK_VALUE_MODIFIER)
     }
 
     fn peak_value_keyword(
@@ -4702,7 +4708,7 @@ impl World {
         effect: &ActiveEffect,
         scale: f64,
     ) -> Result<(), MagicError> {
-        let definition = self.magic_effect(effect.effect)?;
+        let definition = self.magic_effect_definition(effect.effect)?;
         let keyword = self.peak_value_keyword(effect.effect, &definition)?;
         let Some((actor_value, _)) = effect.changes.first() else {
             return Err(MagicError::Unsupported("peak value actor value"));
@@ -4711,7 +4717,7 @@ impl World {
             if active.target != effect.target {
                 return Ok(None);
             }
-            let active_definition = self.magic_effect(active.effect)?;
+            let active_definition = self.magic_effect_definition(active.effect)?;
             if active_definition.data.archetype != PEAK_VALUE_MODIFIER {
                 return Ok(None);
             }
@@ -4868,7 +4874,7 @@ pub(super) fn validate_vampire_lord_state(
         if effects.get(id).is_none_or(|effect| {
             effect.target != form.actor
                 || !world
-                    .magic_effect(effect.effect)
+                    .magic_effect_definition(effect.effect)
                     .is_ok_and(|definition| definition.data.archetype == 46)
         }) || !actors.contains_key(&form.actor)
             || world.tag_of(form.vampire_race) != Some(super::T(b"RACE"))
@@ -4885,7 +4891,7 @@ pub(super) fn validate_vampire_lord_state(
 impl World {
     pub(crate) fn make_commanded_for_test(&mut self, target: GlobalFormId) {
         let id = EffectId(1);
-        self.active_effects.insert(
+        self.insert_active_effect(
             id,
             ActiveEffect {
                 id,

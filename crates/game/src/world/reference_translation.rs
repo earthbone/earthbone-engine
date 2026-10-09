@@ -215,15 +215,23 @@ impl World {
         if !seconds.is_finite() || seconds <= 0.0 {
             return;
         }
-        let mut ids: Vec<_> = self.refs.keys().copied().collect();
-        ids.sort_unstable();
+        let ids = std::mem::take(&mut self.translation_candidates);
         for id in ids {
+            if self
+                .refs
+                .get(&id)
+                .is_none_or(|state| state.translation.is_none())
+            {
+                continue;
+            }
+            self.invalidate_reference(id);
             let Some(state) = self.refs.get_mut(&id) else {
                 continue;
             };
             let Some(mut translation) = state.translation else {
                 continue;
             };
+            self.ai.mark_nav_door(id);
             if !state.enabled || state.deleted {
                 state.translation = None;
                 self.translation_event(id, "OnTranslationFailed", alloc);
@@ -287,6 +295,7 @@ impl World {
                 state.translation = None;
             } else {
                 state.translation = Some(translation);
+                self.translation_candidates.insert(id);
             }
             if almost_complete {
                 self.translation_event(id, "OnTranslationAlmostComplete", alloc);

@@ -161,6 +161,54 @@ impl Vm {
         used
     }
 
+    /// Run the existing interpreter until an instruction allowance or wall
+    /// deadline expires. `next` retains round-robin position across slices.
+    /// A native already executing completes before the deadline is checked.
+    /// The cursor is host scheduling data and is not serialized by the VM.
+    pub fn run_before(
+        &mut self,
+        budget: usize,
+        deadline: std::time::Instant,
+        next: &mut Option<ThreadId>,
+    ) -> usize {
+        if self.suspended_state.is_some() || self.threads.is_empty() {
+            return 0;
+        }
+        let _span = soe_trace::Span::new("vm.run", "vm");
+        let mut used = 0;
+        let mut completed = Vec::new();
+        let mut index = next
+            .and_then(|id| self.threads.iter().position(|thread| thread.id == id))
+            .unwrap_or(0);
+        let mut visited_without_progress = 0;
+        while used < budget && std::time::Instant::now() < deadline {
+            let executed = if self.threads[index].state == ThreadState::Runnable {
+                let _span = soe_trace::Span::new("vm.slice", "vm");
+                let executed =
+                    self.step_thread_before(index, 64.min(budget - used), Some(deadline));
+                if self.threads[index].state == ThreadState::Done {
+                    completed.push(self.threads[index].id);
+                }
+                executed
+            } else {
+                0
+            };
+            used += executed;
+            visited_without_progress = if executed == 0 {
+                visited_without_progress + 1
+            } else {
+                0
+            };
+            index = (index + 1) % self.threads.len();
+            *next = Some(self.threads[index].id);
+            if visited_without_progress >= self.threads.len() {
+                break;
+            }
+        }
+        self.retain_recent_completed_threads(&completed);
+        used
+    }
+
     fn retain_recent_completed_threads(&mut self, newly_completed: &[ThreadId]) {
         if newly_completed.is_empty() {
             return;
