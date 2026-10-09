@@ -1263,6 +1263,9 @@ render the EFSH particle or gradient groups. The EFSH fields follow local xEdit
 archetype page defining additional execution semantics. The focused check
 `mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`
 also checks the start and stop requests and authored membrane settings.
+The windowed installed-data check casts vanilla Detect Life and verifies that
+the streamer's EFSH render-instance count becomes nonzero while the effect is
+active.
 
 `facegen::build_head_part_surface` takes one already resolved head-part NIF mesh, a parsed
 `FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and

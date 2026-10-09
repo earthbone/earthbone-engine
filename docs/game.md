@@ -1526,6 +1526,12 @@ keywords. Function 579 compares the equipped shout, and 632 reports a held
 concentration cast. Casting source values outside Left, Right, Voice and
 Instant return a parameter error. Voice and Instant have no selected spell in
 this runtime, so spell comparisons return false and casting type returns zero.
+Function 719, `IsHostileToActor`, compares the subject's current combat target
+with its actor parameter. A zero actor parameter means the player. This follows
+the local xEdit parameter type and CK Actor script contract. The runtime does
+not infer hostility from faction or crime relationships before combat starts.
+Function 715, `IsUndead`, reads the subject actor's `ActorTypeUndead` keyword,
+following the CK Actor script query and the keyword used by Turn Undead.
 Functions 602, 627 and 676 read host-reported actor state. Function 602
 compares the supplied ward state against xEdit's None, Absorb and Break values.
 Function 627 returns the host's dual-casting flag, and 676 returns the current
@@ -5964,16 +5970,18 @@ and dismissal reuse `World::place_at` and the existing effect expiry path.
 
 ### Detect Life, MAG-40
 
-Archetype 19 selects loaded, enabled, living actor references within the active
-effect magnitude of its target, excluding the target itself. Results are
-ordered by active effect and actor identity. Each result carries the winning
-MGEF's `Hit Shader` FormID from DATA offset 32, resolved in the plugin that
-owns that MGEF. The selection does not load distant actors. Direct
+Archetype 19 selects loaded, enabled, living actor references within the
+winning spell effect's EFIT area, excluding the target itself. If EFIT area is
+zero, the active effect magnitude supplies the radius. Results are ordered by
+active effect and actor identity. Each result carries the winning MGEF's `Hit
+Shader` FormID from DATA offset 32, resolved in the plugin that owns that
+MGEF. The selection does not load distant actors. Direct
 concentration casts are accepted only when every spell effect is archetype 19.
 They stay active until dispelled. This does not add charge or magicka-cost
 handling. The spell-entry and MGEF conditions are evaluated for each candidate
-actor, with that actor as subject and the caster as target. xEdit's local MGEF
-definitions supply the archetype and field layout.
+actor, with that actor as subject and the caster as target. Local xEdit
+`wbDefinitionsTES5.pas` defines MGEF archetypes and the spell EFIT magnitude,
+area and duration fields used for the radius.
 The local CK dump has no Magic Effect archetype page with further Detect Life
 execution semantics.
 `mag_40_active_detect_life_selects_only_live_actors_in_range_with_authored_shader`
@@ -5981,8 +5989,10 @@ checks selection and shader identity. The host adapter converts those results
 to Godot coordinates and retains the authored shader FormID for presentation.
 The host reconciles active targets into EFSH start and stop requests. The
 RenderingServer path displays the authored membrane settings while each target
-remains selected. See [godot-host](godot-host.md#detect-life-presentation-mag-40)
-for the rendered fields and limits.
+remains selected. The windowed installed-data test casts vanilla Detect Life
+and checks that the host presents an EFSH visual while the effect is active.
+See [godot-host](godot-host.md#detect-life-presentation-mag-40) for the rendered
+fields and limits.
 
 `mag_39_summon_check_spawns_authored_actor_with_caster_ownership_and_dismisses_on_expiry`
 exercises the row's spawn, ownership and expiry check with synthetic records.
