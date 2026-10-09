@@ -2402,11 +2402,11 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.ClearPrison` | Clears the player's arrested flag and cumulative served-day counter. |
 | `Game.SetSunGazeImageSpaceModifier` | Sets the saved IMAD modifier triggered when sungazing begins. |
 | `Game.ShakeController` | Queues left and right rumble strengths plus duration for the Godot host. |
-| `Game.FadeOutGame` | Quiet stub. CK takes fade direction, black fade, delay and duration. |
-| `Game.RequestSave` | Quiet stub for a normal save request. |
-| `Game.RequestAutoSave` | Quiet stub for an autosave request. |
-| `Game.ForceFirstPerson` | Quiet stub for forcing first-person camera mode. |
-| `Game.ForceThirdPerson` | Quiet stub for forcing third-person camera mode. |
+| `Game.FadeOutGame` | Validates non-negative finite delay and duration, then queues the requested direction and color for the host fade overlay. |
+| `Game.RequestSave` | Queues a manual native-generation save request. |
+| `Game.RequestAutoSave` | Queues an automatic native-generation save request. |
+| `Game.ForceFirstPerson` | Queues first-person mode for the live player camera. |
+| `Game.ForceThirdPerson` | Queues third-person mode for the live player camera. |
 | `Game.SetHudCartMode` | Quiet stub for setting cart HUD mode. |
 | `Game.ShowRaceMenu` | Quiet stub for opening the race menu. |
 | `Game.TriggerScreenBlood` | Quiet stub. The CK Game class page has no entry. |
@@ -2435,14 +2435,13 @@ and leaves the separate `in_chargen` state unchanged. `player_controls` remains 
 state used by existing condition evaluation. Host input does not yet consume
 each individual control flag. The `GetFormEx` alias and three Game bindings
 absent from the CK class page are also recorded here as engine or extension
-surface, not CK contracts. The quiet stub fixes belong to these existing native rows:
+surface, not CK contracts. The remaining quiet-stub fixes belong to these
+existing native rows:
 
 - SCR-26: `IsPlayerSungazing`, `GetSunPositionX`, `GetSunPositionY`,
   `GetSunPositionZ`, `ShakeCamera`.
 - SCR-27: `SendWereWolfTransformation`, `ServeTime`, `ClearPrison`,
   `SetSunGazeImageSpaceModifier`, `ShakeController`.
-- SCR-28: `FadeOutGame`, `RequestSave`, `RequestAutoSave`, `ForceFirstPerson`,
-  `ForceThirdPerson`.
 - SCR-29: `SetHudCartMode`, `ShowRaceMenu`, `TriggerScreenBlood`, `PlayBink`,
   `AdvanceSkill`.
 - SCR-30: `PrecacheCharGen`, `PrecacheCharGenClear`, `ShowTrainingMenu`,
@@ -2451,6 +2450,8 @@ surface, not CK contracts. The quiet stub fixes belong to these existing native 
   `GetCurrentCrosshairRef`, `GetPlayerGrabbedRef`.
 - SCR-32: `FindClosestActor`, `FindRandomActor`,
   `FindClosestReferenceOfType`, `FindRandomReferenceOfType`, `GetFormEx2`.
+- SCR-28 implements the five Game bindings above. The SCR-28 Papyrus tests
+  check fade arguments, invalid timings and host request ordering.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides
   the class (`ReferenceAlias` or `LocationAlias`) of the VM object.

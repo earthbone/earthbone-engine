@@ -3992,7 +3992,11 @@ logged. These operations run after the VM tick that enqueued them.
 Camera requests share the rig mode helper used by the camera tests. The fade
 overlay uses one presentation value for its color, opacity and visibility,
 including when a door fallback fade overlaps a Papyrus fade. Save requests use
-the same generation writer as explicit host saves.
+the same generation writer as explicit host saves. The
+`godot/scr_28_live_test.gd` runner invokes the camera and fade natives through
+the live PlayerNode, then checks the camera mode and rendered white and black
+overlay colors. Rust host tests cover the separate manual and automatic save
+stores without writing into the user's Godot save directory.
 
 ## Native menu framework
 

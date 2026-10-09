@@ -39,6 +39,55 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    /// Invoke the SCR-28 Game presentation natives for a host integration check.
+    pub(super) fn invoke_scr_28_native_for_check(
+        &mut self,
+        name: &GString,
+        fading_out: bool,
+        black: bool,
+        delay: f32,
+        duration: f32,
+    ) -> bool {
+        let name = name.to_string();
+        let args = match name.as_str() {
+            "FadeOutGame" => vec![
+                Value::Bool(fading_out),
+                Value::Bool(black),
+                Value::Float(delay),
+                Value::Float(duration),
+            ],
+            "RequestSave" | "RequestAutoSave" | "ForceFirstPerson" | "ForceThirdPerson" => {
+                Vec::new()
+            }
+            _ => return false,
+        };
+        let script_name = "SoeScr28NativeHostCheck";
+        let mut function = FunctionBuilder::new("Run", "None").global();
+        let mut operands = vec![s("Game"), s(&name), ident("unused")];
+        for (index, _) in args.iter().enumerate() {
+            let parameter = format!("arg{index}");
+            function = function.param(&parameter, "Var");
+            operands.push(ident(&parameter));
+        }
+        let bytes = ScriptBuilder::new(script_name, "Form")
+            .function(function.ins(CallStatic, operands).build())
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if game.load_script(&bytes).is_err() {
+            return false;
+        }
+        let Ok(thread) = game.vm.call_global(script_name, "Run", &args) else {
+            return false;
+        };
+        if !game.run_until_idle(64) || game.vm.thread_result(thread) != Some(Value::None) {
+            return false;
+        }
+        self.apply_host_requests();
+        true
+    }
+
     /// Invoke either main-menu Game native for host integration checks.
     pub(super) fn invoke_main_menu_native_for_check(
         &mut self,
