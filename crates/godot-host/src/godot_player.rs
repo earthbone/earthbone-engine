@@ -32,6 +32,9 @@ use godot::classes::{
 use godot::global::{JoyAxis, JoyButton, Key, MouseButton};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
+use soe_game::Handle;
+use soe_papyrus::asm::{ident, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::{Opcode::*, Value};
 use soe_physics::{BodyId, CharacterSettings, PhysicsWorld, SimpleWorld, Vec3};
 
 use crate::camera::{CameraHostState, CameraMode, CameraMotion, CameraRig, Eye};
@@ -789,6 +792,67 @@ impl PlayerNode {
     #[func]
     pub fn debug_invoke_main_menu_native(&mut self, name: GString, sequence: GString) -> bool {
         self.invoke_main_menu_native_for_check(&name, &sequence)
+    }
+
+    /// Start a Papyrus `WaitForAnimationEvent` call for a host integration check.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_start_animation_wait(&mut self, file: i32, object: i64, event: GString) -> i64 {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return -1;
+        };
+        let source = GlobalFormId { file, object };
+        let script_name = "SoeAnm58HostWaitCheck";
+        let function = FunctionBuilder::new("Run", "Bool")
+            .global()
+            .param("target", "ObjectReference")
+            .param("event", "String")
+            .local("result", "Bool")
+            .ins(
+                CallMethod,
+                vec![
+                    ident("WaitForAnimationEvent"),
+                    ident("target"),
+                    ident("result"),
+                    ident("event"),
+                ],
+            )
+            .ins(Return, vec![ident("result")])
+            .build();
+        let bytes = ScriptBuilder::new(script_name, "Form")
+            .function(function)
+            .bytes();
+        if game.load_script(&bytes).is_err() {
+            return -1;
+        }
+        let target = game.object_of(Handle::Form(source));
+        let Ok(thread) = game.vm.call_global(
+            script_name,
+            "Run",
+            &[Value::Object(target), Value::string(&event.to_string())],
+        ) else {
+            return -1;
+        };
+        game.run_until_idle(64);
+        i64::try_from(thread.0).unwrap_or(-1)
+    }
+
+    /// Return -2 while the check wait is pending, 0 for false, or 1 for true.
+    #[func]
+    pub fn debug_animation_wait_result(&self, thread: i64) -> i32 {
+        let (Ok(thread), Some(game)) = (u64::try_from(thread), self.game.as_ref()) else {
+            return -1;
+        };
+        match game.vm.thread_result(soe_papyrus::vm::ThreadId(thread)) {
+            None => -2,
+            Some(Value::Bool(false)) => 0,
+            Some(Value::Bool(true)) => 1,
+            Some(_) => -1,
+        }
     }
 
     /// Connect an already loaded character rig to this gameplay world's live

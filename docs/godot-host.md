@@ -2462,8 +2462,11 @@ animation graphs are not instantiated by this bridge.
 
 `PlayerNode.gameplay_animation_events` returns the source file and object IDs
 and event name for each graph event delivered to the active Game. The ANM-58
-Godot integration test emits the rig signal after binding and checks that the
-event reaches this world log.
+Godot integration test starts a Papyrus `WaitForAnimationEvent` through the
+host diagnostic methods, emits the bound rig's signal, and checks that the wait
+returns true. It starts a second wait and checks that the graph unload signal
+returns false. The diagnostic methods expose the VM thread result to that
+integration check.
 
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local
