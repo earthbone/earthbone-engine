@@ -6,6 +6,31 @@ use soe_papyrus::Value;
 
 use crate::natives_dlc::{call, form, game, obj};
 
+const GAME_DOC: &str = include_str!("../../../docs/game.md");
+
+#[test]
+fn scr_74_game_docs_equip_item_contract_covers_both_arguments() {
+    let contract = GAME_DOC
+        .lines()
+        .find(|line| line.starts_with("| Actor.EquipItem |"))
+        .expect("Actor.EquipItem contract row is present");
+
+    for term in [
+        "`abPreventRemoval` prevents replacement through EquipItem",
+        "`abSilent` suppresses the equip message",
+        "rejects replacement and direct unequip",
+        "`UnequipAll` and `RemoveAllItems` clear the protection",
+        "survives save/load in the `SCR-74` actor section",
+        "queues an `Equipped <name>` notification unless silent",
+    ] {
+        assert!(contract.contains(term), "missing contract detail: {term}");
+    }
+    assert!(
+        !contract.contains("ignored"),
+        "the SCR-74 contract must not describe the EquipItem arguments as ignored"
+    );
+}
+
 #[test]
 fn scr_74_prevent_removal_blocks_slot_replacement_and_manual_unequip() {
     let mut game = game();
