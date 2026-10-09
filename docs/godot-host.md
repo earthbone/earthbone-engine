@@ -3371,28 +3371,63 @@ batching. Godot documents `AnimatableBody3D` for manually moved doors and its
 `sync_to_physics` property for physics-frame updates. The host advances the
 controller from its process callback.
 
-When player activation opens a non-teleport DOOR, `PlayerNode` resolves its
-winning model through the shared load order and VFS, loads the NIF bytes into
-an `AnimatedStaticNode`, enables trimesh collision, places it at the reference
-transform and starts its controller. A NIF with a supported transform
-controller is selected automatically. These nodes are freed when the host
-replaces the loaded location. `gameplay_swing_doors` and `swing_door_count`
-expose the current targets and attached-node count to host tests. Load doors
-keep the transition path and do not start a swing controller.
+The standalone `hst_01_door_swing_test.gd` loads a synthetic NIF controller
+through the byte loader. It advances the rotation track and confirms that the
+animated physics body and shape follow the mesh transform.
 
-The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
-through the same byte loader used for VFS doors. It advances the rotation track
-and confirms the animated physics body and shape follow the visual mesh
-transform. The player activation path loads animated swing-door NIFs from the
-VFS and starts the node after game activation.
+### Resident doors, HST-21
 
-Locked player picks use the shared game's key check. Without the key they
-remain closed, pending lockpicking UI. Resource preparation is synchronous.
-Exterior walking loads and unloads nearby grid cells through the budgeted
-planner when either mesh budget is set. The swing-door host path applies to
-activated non-teleport doors with a supported NIF transform controller.
-Teleporting doors retain the cell transition path. Portal transitions and
-revised AI remain deferred until existing Skyrim gameplay works.
+Cell installation separates DOOR surfaces from ordinary material batches.
+Each built door has one control `Node3D` and RenderingServer mesh instances,
+with the winning reference transform and the normal cached materials. Both
+swing doors and XTEL load doors use this path. World owns the open and enable
+states. Opening and closing retain the node, meshes and render RIDs until
+cell detach. A disabled door hides its render instances and control node
+without destroying them. Re-enabling restores the same resources.
+
+The old activation path created an AnimatedStaticNode on open and queued its
+removal on close. It skipped load doors, while the batch sync collapsed every
+opened door's geometry. Movement collision only followed enable state, so
+SimpleWorld retained a closed panel after the render path hid it. The resident
+path replaces that activation-time node creation. SimpleWorld now removes
+opened door bodies and restores them on close. Both player query collision
+and optional streamer PhysicsServer collision detach open or disabled door
+bodies from their space. Closing a disabled door keeps every collider absent.
+
+The resident mesh swings reversibly through a quarter-turn about the authored
+placement origin at one quarter-turn per second and holds each endpoint.
+This fallback follows local OpenMW `apps/openmw/mwworld/worldimp.cpp`,
+`World::rotateDoor`. It is not the NIF controller-manager Open/Close sequence
+player. The existing HST-01 direct-controller utility remains available.
+No moving door is included in a static cell occluder. The source for the
+open/close destination is local CK `SetOpen_-_ObjectReference.wikitext`, and
+REFR placement and XTEL identity use the existing record reader. The local
+godotwind `door_portal.gd` hides door meshes during portal previews. That path
+does not fit ordinary door presentation here, which retains visible geometry
+and disables the original panel collision while open.
+
+`door_state` exposes the stable node identity, render RID identities, local
+bounds, placement, visibility and swing fraction. `advance_doors` advances
+presentation without a gameplay tick. `swing_door_count` reports resident
+control nodes rather than activation-time nodes. The `hst_21_` tests cover
+reversal, endpoint holding, invalid elapsed time and the SetOpen native's
+unlocking behavior. The SKYRIM_DATA-gated scene uses the installed Bannered
+Mare and Breezehome front doors, opens and closes each ten times, checks node
+and render identity, and moves a CharacterBody3D capsule through each open
+doorway with a blocked closed-door control. Each sweep ends with the capsule wholly
+beyond the panel plane and before the interior end wall. It checks disable, close while
+disabled, re-enable and cell detach across movement, query and streamer
+collision. Windowed captures are external under `target/hst_21`.
+
+This path adds one control node per built door, with no child mesh or physics
+nodes. The windowed Godot 4.4.1 llvmpipe scene passed all twenty cycles and
+exited zero. Bannered Mare had six resident door nodes and the front door
+had five render surfaces. Breezehome had one node and three surfaces.
+Across 1,000 zero-time `advance_doors` calls, the whole API call averaged
+0.086 microseconds for the six doors and 0.081 microseconds for the single
+door. These measure held-pose presentation calls with GDScript dispatch,
+not the full host frame or moving-mesh server submission cost. Door surfaces
+remain server resources. The path adds no dependencies or saved fields.
 
 ### Cold door fade fallback (2026-09-20)
 

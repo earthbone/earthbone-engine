@@ -190,7 +190,6 @@ pub struct PlayerNode {
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
-    swing_doors: HashMap<GlobalFormId, Gd<crate::godot_animated_static::AnimatedStaticNode>>,
     loaded_cell: Option<GlobalFormId>,
     last_work_counts: soe_trace::WorkCounts,
     door_fade: DoorFade,
@@ -336,7 +335,6 @@ impl INode3D for PlayerNode {
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
-            swing_doors: HashMap::new(),
             loaded_cell: None,
             last_work_counts: soe_trace::WorkCounts::default(),
             door_fade: DoorFade::default(),
@@ -961,7 +959,6 @@ impl PlayerNode {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
-                self.clear_swing_doors();
                 self.load_control_map(&source);
                 if self.base().is_node_ready() {
                     self.register_actions();
@@ -1034,7 +1031,6 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn enter_cell(&mut self, editor_id: GString, x: f32, y: f32, z: f32) -> i32 {
-        self.clear_swing_doors();
         let Some(source) = self.data_source.as_ref() else {
             soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: load_data was not called");
             return -1;
@@ -1519,6 +1515,20 @@ impl PlayerNode {
         true
     }
 
+    /// Set an object's open destination through the shared World, like SetOpen.
+    #[func]
+    pub fn set_reference_open(&mut self, file: i32, object: i64, opened: bool) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .set_reference_open(GlobalFormId { file, object }, opened)
+    }
+
     /// Remove a reference from its host presentation on the next tick.
     #[func]
     pub fn despawn_reference(&mut self, file: i32, object: i64) -> bool {
@@ -1895,10 +1905,12 @@ impl PlayerNode {
         result
     }
 
-    /// Number of animated swing doors currently attached to the player.
+    /// Number of door control nodes attached to the gameplay streamer.
     #[func]
     pub fn swing_door_count(&self) -> i32 {
-        i32::try_from(self.swing_doors.len()).unwrap_or(i32::MAX)
+        self.game_streamer
+            .as_ref()
+            .map_or(0, |streamer| streamer.bind().door_count())
     }
 
     /// Drive the same activation path from a runtime harness using a resolved FormID.
