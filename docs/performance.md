@@ -1142,6 +1142,17 @@ stopped with a failure, and targeted retries recorded two more failed test
 cases. The consolidated installed capture passed, so the available records do
 not establish matching installed results test for test.
 
+On 2026-10-09, a four-thread installed run started 3,849 tests in the `it`
+binary. The captured output contains 3,831 passes, 10 ignored tests and two
+failures. Six tests were still incomplete when the process ended with SIGKILL
+while two installed cell-attachment checks were running. The two failures were
+`ply_02_routes::ply_02_soe_play_runs_a_corpus_save_headless_and_reports_failure_status`
+and
+`prf_13_entities::prf_13_windowed_host_overlay_script_passes_with_synthetic_audio_fixture`.
+This interrupted run does not establish installed test-for-test parity. The
+full captured output was retained in the run target directory, and the writer
+record is `writer-TST-16.last`.
+
 ## Parsed plugin cache, 2026-09-29
 
 `crates/esm/tests/fmt_29_cache.rs::fmt_29_installed_skyrim_master_cache_hit_matches_and_times_second_load`
