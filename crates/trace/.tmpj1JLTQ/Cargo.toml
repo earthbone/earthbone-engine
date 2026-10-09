@@ -1,0 +1,5 @@
+[workspace]
+[package]
+name = "tool-06-print-lint"
+version = "0.0.0"
+edition = "2021"

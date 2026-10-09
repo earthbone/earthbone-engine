@@ -450,6 +450,7 @@ fn prf_13_windowed_host_overlay_script_passes_with_synthetic_audio_fixture() {
             "prf_13_entities_test.gd",
         ])
         .env("SOE_PRF_13_FIXTURE", &fixture)
+        .env("XDG_DATA_HOME", scratch.join("user"))
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
