@@ -4395,10 +4395,12 @@ render EFSH authored textures, color keys or particles on reference geometry.
 An opt-in `scr-24-test` build adds a synthetic request driver to
 `CellStreamerNode`. `godot/scr_24_effect_shader_test.gd` drives the actual
 RenderingServer path and checks keyed refresh, Stop, finite expiry, clear and
-tree-exit cleanup. Build with
+tree-exit cleanup. `godot/mag_14_effect_shader_live_test.gd` checks that Play
+creates one host shader instance and Stop releases it through that path. These
+checks verify RID lifecycle, not authored EFSH appearance. Build with
 `cargo build -p soe-godot-host --release --features scr-24-test`, then run
-`godot --path godot --script scr_24_effect_shader_test.gd`. The regression
-checks temporary server-instance ownership, not authored EFSH appearance.
+`godot --path godot --script scr_24_effect_shader_test.gd` or
+`godot --path godot --script mag_14_effect_shader_live_test.gd`.
 See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
 
 ## Image-space modifier rendering, MAG-71
