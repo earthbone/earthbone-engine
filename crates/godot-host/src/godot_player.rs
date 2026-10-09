@@ -638,10 +638,11 @@ impl INode3D for PlayerNode {
         drop(engine_scope);
         let sample = self.host_frame.finish();
         soe_trace::Profile::systems("host", &sample);
+        // CONTEXT: The host frame must complete the hitch tail before subphase history can export it.
+        self.host_history.record(sample);
         self.scene_history
             .record(crate::scene_timing::elapsed(&self.scene_frame));
         self.scene_frame = crate::scene_timing::snapshot();
-        self.host_history.record(sample);
         crate::godot_profiler::publish(&self.host_history);
         self.host_frame = soe_trace::FrameSnapshot::now();
     }

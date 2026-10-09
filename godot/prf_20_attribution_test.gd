@@ -1,5 +1,6 @@
 extends SceneTree
 
+const SYSTEMS := ["papyrus_vm", "ai_planning", "ai_movement", "combat", "magic", "quests_story_manager", "dialogue", "physics_sync", "cell_streaming", "audio", "save", "input", "host_render_submission", "other"]
 var failures := 0
 
 func _initialize() -> void:
@@ -54,9 +55,12 @@ func run() -> void:
 	await process_frame
 	await process_frame
 	var memory: Dictionary = player.call("system_frame_breakdown")
-	check(memory.size() == 14, "all system memory slots")
-	for slot: Dictionary in memory.values():
-		check(slot.has("live_bytes") and slot.has("allocations"), "frame memory fields")
+	for system in SYSTEMS:
+		check(memory.has(system), "missing system memory slot " + system)
+		var slot: Dictionary = memory.get(system, {})
+		check(slot.has("live_bytes") and slot.has("allocations"), "frame memory fields " + system)
+		if not slot.has("live_bytes") or not slot.has("allocations"):
+			continue
 		check(slot.live_bytes >= 0 and slot.allocations >= 0, "nonnegative memory counters")
 	player.free()
 	print("RESULT: PASS" if failures == 0 else "RESULT: FAIL")
