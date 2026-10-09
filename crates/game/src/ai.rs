@@ -1165,6 +1165,7 @@ fn switch_to_inner(
     ai.dwell_until = 0.0;
     ai.wait_until = None;
     ai.hover_height = 0.0;
+    patrol::release_mount(world, actor, &mut ai);
     ai.patrol = None;
     ai.speed = movement_speed(world, actor, speed::WALK);
     ai.start_position = position;
@@ -1361,6 +1362,7 @@ fn begin_procedure_inner(
     ai.dwell_until = 0.0;
     ai.wait_until = None;
     ai.hover_height = 0.0;
+    patrol::release_mount(world, actor, ai);
     ai.patrol = None;
     let alias = ai.alias.or_else(|| {
         let id = ai.package?;
@@ -3112,7 +3114,7 @@ fn step_procedure(
         }
     }
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
-        patrol::prepare(world, &mut ai);
+        patrol::prepare(world, actor, &mut ai);
     }
     if ai.procedure == Procedure::Flee && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         let target = combat_target(world, actor);
