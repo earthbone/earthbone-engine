@@ -33,22 +33,30 @@ fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
 }
 
 #[test]
-fn scr_50_memory_budget_count_is_unavailable_without_memory_tracking() {
+fn scr_50_memory_budget_count_requires_initialization() {
     let mut game = Game::new(LoadOrder::new());
 
-    assert_eq!(call(&mut game, "GetCurrentMemory", &[]), Value::None);
     assert_eq!(call(&mut game, "GetBudgetCount", &[]), Value::None);
     assert!(game
         .vm
         .log
-        .contains("Utility.GetBudgetCount: memory tracking is unavailable"));
+        .contains("Utility.GetBudgetCount: call GetCurrentMemory first"));
+    assert!(matches!(
+        call(&mut game, "GetCurrentMemory", &[]),
+        Value::Int(value) if value >= 0
+    ));
+    assert_eq!(
+        call(&mut game, "GetBudgetCount", &[]),
+        Value::Int(soe_trace::SYSTEM_COUNT as i32)
+    );
 }
 
 #[test]
 fn scr_50_budget_names_do_not_report_scheduler_limits_as_memory_budgets() {
     let mut game = Game::new(LoadOrder::new());
 
-    for index in [0, 1] {
+    call(&mut game, "GetCurrentMemory", &[]);
+    for index in 0..soe_trace::SYSTEM_COUNT as i32 {
         let name = call(&mut game, "GetBudgetName", &[Value::Int(index)]);
         assert_ne!(name, Value::string("Papyrus instructions per slice"));
         assert_ne!(name, Value::string("Exterior cell loads per update"));
