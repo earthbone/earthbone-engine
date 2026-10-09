@@ -680,17 +680,19 @@ vector and quaternion operands, unknown symbols, malformed source and
 non-finite arithmetic return expression errors. Their guards stay closed,
 with deduplicated entries in `Unsupported.conditions`.
 
-A comma after a relational comparison repeats its left operand for one more
-relational comparison and combines the two results with logical AND. Thus
-`staggerMagnitude > .3 , < .7` passes strictly inside the two bounds and fails
-at either bound. `serde-hkx` declares a comma token but does not document its
-evaluation. Synthetic state-machine and expression tests cover the operator.
-The gated `tests/anm_50_adversarial.rs` check loads the shipped troll behavior,
-finds its authored transition and records the active troll machine state after
-the event at both bounds and just inside them. This exercises the decoded graph
-through the behavior interpreter, rather than substituting a synthetic graph.
-The local source establishes the token and the shipped expression. No capture
-from Skyrim's original Havok runtime was available.
+A comma after a relational comparison is interpreted here as repeating its
+left operand for another relational comparison and combining both results with
+logical AND. Thus `staggerMagnitude > .3 , < .7` passes strictly inside the two
+bounds and fails at either bound. The `serde-hkx` token schema lists comma,
+relational comparison and logical AND token kinds, but does not define comma
+evaluation. The interpretation is supported by the shipped troll expression
+and the regression traces, not by a Havok evaluation reference. Synthetic
+state-machine and expression tests cover the operator. The gated
+`tests/anm_50_adversarial.rs` check loads the shipped troll behavior, finds its
+authored transition and records the active troll machine state after the event
+at both bounds and just inside them. This runs the decoded graph through this
+crate's behavior interpreter. No trace from Skyrim's original Havok runtime is
+available, so the engine's comma semantics remain unconfirmed.
 
 `DISABLE_CONDITION` bypasses a guard. `DISABLED` still disables the whole
 transition. An event guard must match its event as well as its expression.
