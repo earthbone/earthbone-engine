@@ -52,16 +52,27 @@ fn advance_lod(
             lod_radius,
             budget_bytes,
         );
-        if terrain < 0 || objects < 0 {
+        let trees = node.stream_tree_lod(
+            godot::prelude::GString::from(world_editor_id.as_str()),
+            focus.x,
+            focus.y,
+            full_res_radius,
+            lod_radius,
+            budget_bytes,
+        );
+        if terrain < 0 || objects < 0 || trees < 0 {
             node.clear_terrain_lod();
             node.clear_object_lod();
+            node.clear_tree_lod();
             return false;
         }
         exterior.lod_started = true;
         return true;
     }
 
-    node.update_terrain_lod(focus.x, focus.y) >= 0 && node.update_object_lod(focus.x, focus.y) >= 0
+    node.update_terrain_lod(focus.x, focus.y) >= 0
+        && node.update_object_lod(focus.x, focus.y) >= 0
+        && node.update_tree_lod(focus.x, focus.y) >= 0
 }
 
 pub(super) fn config() -> StreamConfig {

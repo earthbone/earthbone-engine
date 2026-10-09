@@ -62,6 +62,7 @@ pub mod terrain;
 pub mod terrain_lod;
 pub mod terrain_lod_generate;
 pub mod training_menu;
+pub mod tree_lod;
 pub mod ui;
 pub mod units;
 

@@ -38,10 +38,10 @@
 //! estimate made before the read. `TerrainLodStreamer::step` runs one plan,
 //! load, record and evict cycle against a caller's loader, which is what
 //! the Godot node's `stream_terrain_lod` and `update_terrain_lod` drive. A
-//! caller that wants more than one LOD level resident at once runs one
-//! `TerrainLodStreamer` per level, each configured with a disjoint
-//! `full_res_radius`..`lod_radius` band, finer levels nearer the focus.
-//! Picking a level by distance automatically is left to that caller.
+//! catalog selects disjoint distance levels from archived block paths, retaining
+//! coarser blocks where no finer files exist. Selection is cached until the
+//! focus or retained full-cell set changes. Without a catalog, the streamer
+//! requests the configured single level on the worldspace's anchored grid.
 
 use std::collections::{HashMap, HashSet};
 
@@ -117,25 +117,16 @@ impl LodBlockCoord {
     /// when `from` falls inside the block. The metric the load and unload
     /// rings use, matching `CellCoord::ring_distance`.
     pub fn ring_distance(self, from: CellCoord) -> i32 {
-        let span = self.level.cells();
-        let origin = self.origin_cell();
-        let max_x = origin.x + span - 1;
-        let max_y = origin.y + span - 1;
-        let dx = if from.x < origin.x {
-            origin.x - from.x
-        } else if from.x > max_x {
-            from.x - max_x
-        } else {
-            0
-        };
-        let dy = if from.y < origin.y {
-            origin.y - from.y
-        } else if from.y > max_y {
-            from.y - max_y
-        } else {
-            0
-        };
-        dx.max(dy)
+        let span = i64::from(self.level.cells());
+        let min_x = i64::from(self.x);
+        let min_y = i64::from(self.y);
+        let max_x = min_x + span - 1;
+        let max_y = min_y + span - 1;
+        let x = i64::from(from.x);
+        let y = i64::from(from.y);
+        let dx = (min_x - x).max(x - max_x).max(0);
+        let dy = (min_y - y).max(y - max_y).max(0);
+        dx.max(dy).min(i64::from(i32::MAX)) as i32
     }
 }
 
@@ -167,6 +158,73 @@ pub fn bto_path(world_editor_id: &str, block: LodBlockCoord) -> String {
         "meshes/terrain/{world_editor_id}/Objects/{}.bto",
         btr_stem(world_editor_id, block)
     )
+}
+
+/// The BTT tree-reference path, from xEdit TwbLodTES5TreeBlock.
+pub fn btt_path(world_editor_id: &str, block: LodBlockCoord) -> String {
+    format!(
+        "meshes/terrain/{world_editor_id}/Trees/{}.btt",
+        btr_stem(world_editor_id, block)
+    )
+}
+
+/// Archived scenery to stream through the load-order VFS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LodKind {
+    Terrain,
+    Object,
+    Tree,
+}
+
+/// Select disjoint archived blocks, refining coarse blocks near the focus
+/// where finer files exist. Near-cell overlap always descends or disappears.
+/// Empty portions of a finer level have no archived geometry to request.
+pub fn select_lod_blocks(
+    catalog: &[LodBlockCoord],
+    focus: CellCoord,
+    full_res_radius: i32,
+    lod_radius: i32,
+) -> Vec<LodBlockCoord> {
+    select_lod_blocks_excluding(catalog, focus, full_res_radius, lod_radius, &[])
+}
+
+fn select_lod_blocks_excluding(
+    catalog: &[LodBlockCoord],
+    focus: CellCoord,
+    full_res_radius: i32,
+    lod_radius: i32,
+    full_cells: &[CellCoord],
+) -> Vec<LodBlockCoord> {
+    let mut blocks = catalog.to_vec();
+    blocks.sort_unstable_by_key(|b| (std::cmp::Reverse(b.level.cells()), b.x, b.y));
+    blocks.dedup();
+    let contains = |outer: LodBlockCoord, inner: LodBlockCoord| {
+        inner.x >= outer.x
+            && inner.y >= outer.y
+            && i64::from(inner.x) + i64::from(inner.level.cells())
+                <= i64::from(outer.x) + i64::from(outer.level.cells())
+            && i64::from(inner.y) + i64::from(inner.level.cells())
+                <= i64::from(outer.y) + i64::from(outer.level.cells())
+    };
+    let mut selected: Vec<LodBlockCoord> = Vec::new();
+    for block in &blocks {
+        let distance = block.ring_distance(focus);
+        if distance > lod_radius || selected.iter().any(|parent| contains(*parent, *block)) {
+            continue;
+        }
+        let full_overlap = full_cells
+            .iter()
+            .any(|cell| block.ring_distance(*cell) == 0);
+        let refine = (distance <= block.level.cells() * 2 || full_overlap)
+            && blocks
+                .iter()
+                .any(|child| child.level.cells() < block.level.cells() && contains(*block, *child));
+        if distance > full_res_radius && !full_overlap && !refine {
+            selected.push(*block);
+        }
+    }
+    selected.sort_unstable_by_key(|b| (b.ring_distance(focus), b.level.cells(), b.x, b.y));
+    selected
 }
 
 /// The worldspace's LOD settings file, `TwbLodSettings.GetFileName` for
@@ -324,6 +382,9 @@ pub struct TerrainLodStreamer {
     held_back: HashSet<LodBlockCoord>,
     /// The focus of the last `update`, which decides when `held_back` clears.
     last_focus: Option<CellCoord>,
+    catalog: Option<Vec<LodBlockCoord>>,
+    selected: Option<Vec<LodBlockCoord>>,
+    full_cells: Vec<CellCoord>,
 }
 
 impl TerrainLodStreamer {
@@ -345,7 +406,33 @@ impl TerrainLodStreamer {
             absent: HashSet::new(),
             held_back: HashSet::new(),
             last_focus: None,
+            catalog: None,
+            selected: None,
+            full_cells: Vec::new(),
         })
+    }
+
+    /// Restrict requests to archived blocks and choose their distance levels.
+    pub fn with_catalog(
+        config: TerrainLodConfig,
+        anchor: CellCoord,
+        catalog: Vec<LodBlockCoord>,
+    ) -> Result<Self, LodConfigError> {
+        let mut streamer = Self::with_anchor(config, anchor)?;
+        streamer.catalog = Some(catalog);
+        Ok(streamer)
+    }
+
+    /// Exclude retained full cells from archived selection outside the near ring.
+    /// Changing this set invalidates the cached distance selection.
+    pub fn set_full_cells(&mut self, cells: &[CellCoord]) {
+        let mut cells = cells.to_vec();
+        cells.sort_unstable_by_key(|cell| (cell.x, cell.y));
+        cells.dedup();
+        if self.full_cells != cells {
+            self.full_cells = cells;
+            self.selected = None;
+        }
     }
 
     pub fn config(&self) -> &TerrainLodConfig {
@@ -410,6 +497,7 @@ impl TerrainLodStreamer {
         if self.last_focus != Some(focus) {
             self.held_back.clear();
             self.last_focus = Some(focus);
+            self.selected = None;
         }
         let level = self.config.level;
         let span = level.cells();
@@ -440,7 +528,30 @@ impl TerrainLodStreamer {
                 }
             }
         }
-        wanted.sort_by_key(|b| (b.ring_distance(focus), b.x, b.y));
+        if self.selected.is_none() {
+            self.selected = self.catalog.as_ref().map(|catalog| {
+                select_lod_blocks_excluding(
+                    catalog,
+                    focus,
+                    self.config.full_res_radius,
+                    r,
+                    &self.full_cells,
+                )
+            });
+        }
+        let selected = &self.selected;
+        if let Some(selected) = selected {
+            wanted = selected
+                .iter()
+                .copied()
+                .filter(|block| {
+                    !self.resident.contains_key(block)
+                        && !self.absent.contains(block)
+                        && !self.held_back.contains(block)
+                })
+                .collect();
+        }
+        wanted.sort_by_key(|b| (b.ring_distance(focus), b.level.cells(), b.x, b.y));
         if self.config.max_loads_per_tick > 0 {
             wanted.truncate(self.config.max_loads_per_tick);
         }
@@ -451,13 +562,19 @@ impl TerrainLodStreamer {
             .copied()
             .filter(|b| {
                 let d = b.ring_distance(focus);
-                d > r || d <= self.config.full_res_radius
+                d > r
+                    || d <= self.config.full_res_radius
+                    || selected.as_ref().is_some_and(|blocks| !blocks.contains(b))
             })
             .collect();
         stale.sort_by_key(|b| (std::cmp::Reverse(b.ring_distance(focus)), b.x, b.y));
         let mut distant_unloads = 0;
         stale.retain(|block| {
-            if block.ring_distance(focus) <= self.config.full_res_radius {
+            if block.ring_distance(focus) <= self.config.full_res_radius
+                || selected
+                    .as_ref()
+                    .is_some_and(|blocks| !blocks.contains(block))
+            {
                 return true;
             }
             distant_unloads += 1;

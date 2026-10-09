@@ -1611,9 +1611,9 @@ The nearest-first planning follows the cell ordering in OpenMW's
 distance ordering and adds the per-tick work caps described above.
 
 `CellStreamerNode::stream_object_lod` reads and draws existing BTO object LOD
-blocks from `meshes/terrain/<world>/Objects`. It uses the world's LOD settings
-for the block anchor and level, and the same capped distance streamer and byte
-budget as BTR terrain LOD. Blocks inside the full resolution radius are not
+blocks from `meshes/terrain/<world>/Objects`. Archived paths supply available
+levels and block coordinates. It uses the same capped distance streamer and
+byte budget as BTR terrain LOD. Blocks inside the full resolution radius are not
 requested. Each rendered block remains keyed by its worldspace and
 `LodBlockCoord`, and release or budget eviction frees its instances. Use
 `update_object_lod` to move the BTO streamer as the focus changes, and
@@ -1638,15 +1638,15 @@ identity. xEdit `Core/wbDefinitionsTES5.pas` defines the two independent flags,
 and `Core/wbLOD.pas` supplies block alignment and settings. The NIF block
 layouts are documented by local `nifxml/nif.xml`.
 
-The default LOD radius is 16 cells. The exported full-resolution exclusion
+The default LOD radius is 96 cells. The exported full-resolution exclusion
 radius is clamped to at least the near streamer's two-cell unload radius,
 covering cells retained by hysteresis. Both radii and an approximate byte
 budget per LOD stream are exported on the player. Each player update advances
 both LOD streams at the current cell coordinate. Blocks overlapping the
 full-resolution exclusion are released immediately, ahead of near uploads,
 while distant releases retain their per-update quota. A worldspace change
-starts both streams for the destination world, and leaving exterior gameplay
-clears both streams. Residency and handoff operate on whole BTR and BTO blocks.
+starts terrain, object and tree streams for the destination world. Leaving
+exterior gameplay clears all three streams. Residency and handoff operate on whole BTR and BTO blocks.
 `set_terrain_lod_visible` toggles resident terrain instances without changing
 near geometry or object LOD, for capture comparisons. The gate diagnostic
 returns both ends of its teleport link, allowing the check to move from
@@ -6150,3 +6150,57 @@ The batched door hides while open. Movement-body visibility uses effective
 enable state and does not remove a static door body solely because it opened.
 Query bodies additionally hide opened doors. Change notification retains this
 existing handoff. Door node lifetime and open-door capsule passage belong to HST-21.
+
+## Distant scenery, RND-28
+
+PlayerNode streams archived BTO objects and BTT trees alongside BTR terrain.
+The load-order VFS supplies each world's available block levels, including
+loose overrides. Selection uses coarse blocks farther away and descends into
+finer archived blocks within twice the coarse block's cell span. Selected
+levels never cover the same block square. A missing finer level retains the
+available coarse block. Near coverage excludes whole blocks, and retained
+full cells outside the near radius also exclude their blocks. Selection is
+cached until the focus or retained-cell set changes. Updates cap new block
+loads, release obsolete level choices immediately and enforce the recorded
+mesh byte budget. Worldspace inheritance follows WRLD's Use LOD Data flag.
+World changes replace all three streams, and interiors and node teardown free
+their RenderingServer instances. Scenery adds no per-reference scene nodes.
+
+BTO meshes apply their authored NIF transforms once. Unlike BTR terrain,
+archived object shapes already contain the block translation and level scale.
+Adding the terrain block translation moves objects away from their cells.
+BTT positions are absolute world coordinates. Its type groups index the
+world's LST table by the stored type index. The table supplies billboard
+width, height and atlas rectangle. Each reference builds two perpendicular,
+two-sided quads with authored rotation and scale, using the world's
+`textures/terrain/<world>/trees/<world>treelod.dds` atlas and alpha testing.
+The reader bounds-checks counts and rejects truncated fields, non-finite
+values, invalid dimensions, unknown type indices and trailing LST data.
+BTT trailing data is unused, matching xEdit's reader and several shipped
+Solstheim blocks. UV overscan and mirrored rectangles are preserved. Archived
+reference IDs remain metadata. Render surfaces identify the resolved
+worldspace, as merged BTO surfaces do.
+
+Sources are xEdit `Core/wbLOD.pas`, `TwbLodTES5TreeType`,
+`TwbLodTES5TreeRef`, LST/BTT read and write routines, block naming and atlas
+naming, xEdit `Core/wbDataFormatMisc.pas` array layouts, and
+`nifxml/nif.xml` AV-object transforms and segmented shapes. The
+local UESP WRLD page documents LOD inheritance and distant settings but the
+modfileformat corpus contains no separate LOD file page. The RND-10 source
+name `tes4skyrim terrain_lod.py` is absent from the local corpus. xEdit's
+Windows generator does not fit runtime asset consumption. The host reads
+its output through the existing Rust VFS and Godot mesh pipeline instead.
+
+The `rnd_28_` Rust tests exercise level selection, immediate handoff,
+retained cells, byte eviction, LST/BTT validation and billboard placement.
+The installed-data case checks every shipped Tamriel object level and tree
+block. `godot/rnd_28_player_lod_capture.gd` crosses from Whiterun into Tamriel,
+looks toward the Throat of the World from the plains and freezes gameplay.
+A flat sky isolates silhouette coverage in a terrain-only control. The check
+requires at least 500 object-contributed pixels where that control shows sky
+and at least 25 tree-contributed pixels. It captures terrain-only, object and
+combined images under `godot/.godot`, checks available rendered levels,
+movement, a Solstheim asset switch and full-cell exclusion, then returns
+indoors and quits.
+`set_object_lod_visible` and `set_tree_lod_visible` toggle resident instances
+for these comparisons without changing residency.

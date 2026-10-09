@@ -1048,6 +1048,7 @@ impl PlayerNode {
                 let mut node = streamer.bind_mut();
                 node.clear_terrain_lod();
                 node.clear_object_lod();
+                node.clear_tree_lod();
             }
             if let Some(worldspace) = worldspace {
                 let mut planner = crate::streaming::CellStreamer::new(super::exterior::config())

@@ -58,6 +58,7 @@ func rnd_19_player_lod_capture() -> void:
 	var player: Node3D = ClassDB.instantiate("PlayerNode")
 	player.set("capture_mouse", false)
 	player.set("auto_step", false)
+	player.set("exterior_lod_radius", 16)
 	root.add_child(player)
 	_check(player.call("use_streamer_data", streamer), "shared data source")
 	_check(player.call("enter_cell", CELL, 0.0, 0.0, 500.0) > 0, "Bannered Mare entry")
