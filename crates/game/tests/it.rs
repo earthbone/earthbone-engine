@@ -813,6 +813,8 @@ mod mag_16_breaker_adversarial;
 mod mag_17_adversarial;
 #[path = "mag_17_breaker_adversarial.rs"]
 mod mag_17_breaker_adversarial;
+#[path = "mag_17_breaker_adversarial_2.rs"]
+mod mag_17_breaker_adversarial_2;
 #[path = "mag_18_adversarial.rs"]
 mod mag_18_adversarial;
 #[path = "mag_19_adversarial.rs"]
