@@ -1124,9 +1124,24 @@ actor itself detach it. `SetLookAt` stores its placed-reference target and
 pathing argument, and `ClearLookAt` clears the target. The actor section
 `SCR-11` persists these relationships and they are included in the
 determinism hash. `World::actor_vehicle` and `World::actor_look_at` expose the
-values. Vehicle-follow movement and forced-look rendering are not connected to
-the host, so these native effects currently expose the requested relationships
-without moving or turning the actor.
+values. `World::tick_actor_script_relationships` applies target movement and yaw
+changes to the actor's shared reference placement. It rotates the actor's
+vehicle-relative offset with the target, updates its cell when the target has a
+cell, turns the actor toward a live look target, and supplies the target to the
+AI movement step when the look request enables pathing. That step routes toward
+the live target, updates its route when the target moves and stops within its
+arrival radius. Disabling or changing a pathing request clears the prior forced
+route. The AI tick applies the relationship update, and the host observes
+changed actor placement through the existing reference change path. Save
+loading clears the transient vehicle motion baseline so the first post-load
+tick uses restored placements.
+
+The bindings follow the local CK `SetVehicle_-_Actor.wikitext`,
+`GetSitState_-_Actor.wikitext` and `GetFlyingState_-_Actor.wikitext` pages, plus
+the `Actor_Script.wikitext` signatures and descriptions. The CK sources define
+the vehicle attach/detach contract and flying-state codes. The engine keeps
+sit transition animation states unavailable because the host does not report
+them.
 
 **Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
 current time-driven sun position in Skyrim units, on the runtime's 100,000-unit
