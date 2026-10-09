@@ -2472,6 +2472,19 @@ actors explicitly bound through `PlayerNode.bind_actor_appearance`. Animated sta
 still use their NIF transform controller path, and general reference animation
 graphs are not instantiated by this bridge.
 
+### Magic condition animation signals, AI-60
+
+An appearance-bound `SkinnedActorNode` exposes `report_ward_state`,
+`report_dual_casting` and `report_shout_variation` for the host animation
+controller. The methods write to the actor's shared `World` fields used by
+conditions 602, 627 and 676. Ward states and shout variations accept `-1` to
+clear a report and 0 through 2 for defined values. Dual casting uses -1 for
+unknown, 0 for false and 1 for true. Invalid values and unbound rigs return
+false. Removing the rig clears all three reports before
+the animation graph unload notification. The vanilla master behavior graph
+does not expose these states as graph variables or authored graph events, so
+the host controller must supply them from its animation/process state.
+
 Three pieces, none of which touch Godot except the last:
 
 - `soe_hkx::pose::to_model_space_into` composes the interpreter's local pose
