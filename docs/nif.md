@@ -89,7 +89,7 @@ for this row but is not present in the local reference corpus.
 - `bone_weights` and `bone_indices`, four per vertex, indexing `skin.bones`.
 - `skin`: skeleton root, per-bone name, node reference and inverse bind
   transform.
-- `material`: shader kind, texture slots by Skyrim meaning (diffuse, normal,
+- `material`: shader kind, normalized texture slots by Skyrim meaning (diffuse, normal,
   glow, height, environment, environment mask, inner layer, backlight), the
   flag-derived booleans a renderer acts on (double sided, vertex colors,
   vertex alpha, model-space normals, shadows, depth write and test, decal),
@@ -101,6 +101,21 @@ for this row but is not present in the local reference corpus.
 Conventions are the file's: right-handed, Z up, game units, DirectX UV
 origin. Converting to a host's axes is the host's job and is documented at
 the top of `mesh.rs`.
+
+Texture-set and effect-shader paths are trimmed, lowercased, and converted to
+forward slashes while the neutral mesh material is built. The first
+`textures/` component begins the resolved path; a path without that component
+gets the `textures/` prefix. Empty slots stay empty. This follows nifly's
+`NifFile::TrimTexturePaths` behavior and its `Trim texture paths` test in
+`tests/TestNifFile.cpp`. Nifly's `Nodes.hpp` declares `BSTreeNode` and
+`BSLeafAnimNode` as NiNode-derived scene nodes. OpenMW's local
+`components/nifosg/nifloader.cpp` was checked for scene and material handling,
+but it does not implement Skyrim's tree-animation shader behavior.
+
+`SLSF2_Tree_Anim` remains in the material's second shader flag word. The host
+uses it to choose a tree shader which samples diffuse and normal maps, applies
+the authored alpha test and culling mode, and offsets vertices over time by
+their red vertex-color value.
 
 ## Static glTF import and Skyrim SE export
 

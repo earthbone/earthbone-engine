@@ -3831,6 +3831,11 @@ fn material_for(
         water_material(water).upcast()
     } else if let Some(effect) = &desc.effect {
         nif_effect_material(desc, effect, textures, &mut cache.textures).upcast()
+    } else if tree_anim_material(desc)
+        && desc.decal_depth().is_none()
+        && desc.environment_texture().is_none()
+    {
+        tree_material(desc, textures, &mut cache.textures).upcast()
     } else if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
         decal_material(desc, textures, &mut cache.textures, &mut cache.cubemaps).upcast()
     } else {
@@ -3838,6 +3843,50 @@ fn material_for(
     };
     cache.materials.insert(key, material.clone());
     material
+}
+
+fn tree_material(
+    desc: &MaterialDesc,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+) -> Gd<ShaderMaterial> {
+    let mut shader = Shader::new_gd();
+    shader.set_code(&tree_shader_code(desc));
+    let mut material = ShaderMaterial::new_gd();
+    material.set_shader(&shader);
+    if let Some(texture) = albedo_texture(cache, desc, textures) {
+        material.set_shader_parameter("albedo_texture", &texture.to_variant());
+    }
+    if let Some(data) = &textures.normal {
+        if let Some(texture) = cached_texture(cache, desc.normal.as_deref(), data) {
+            material.set_shader_parameter("normal_texture", &texture.to_variant());
+            material.set_shader_parameter("has_normal", &true.to_variant());
+        }
+    }
+    material
+}
+
+fn tree_shader_code(desc: &MaterialDesc) -> String {
+    let alpha = match desc.alpha {
+        AlphaMode::Opaque => String::new(),
+        AlphaMode::Blend => "ALPHA = color.a;".to_string(),
+        AlphaMode::Cutout(threshold) => format!(
+            "if (color.a < {:.8}) {{ discard; }}",
+            f32::from(threshold) / 255.0
+        ),
+    };
+    let cull = if desc.double_sided {
+        "cull_disabled"
+    } else {
+        "cull_back"
+    };
+    format!(
+        "shader_type spatial;\nrender_mode {cull};\nuniform sampler2D albedo_texture : source_color, filter_linear_mipmap_anisotropic, repeat_enable;\nuniform sampler2D normal_texture : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;\nuniform bool has_normal = false;\nvoid vertex() {{ float sway = COLOR.r; float phase = TIME * 1.7 + VERTEX.x * 0.013 + VERTEX.y * 0.009; VERTEX.x += sin(phase) * sway * 0.035; VERTEX.y += cos(phase * 0.73) * sway * 0.018; }}\nvoid fragment() {{ vec4 color = texture(albedo_texture, UV) * COLOR; ALBEDO = color.rgb; if (has_normal) {{ NORMAL_MAP = texture(normal_texture, UV).rgb; }} {alpha} }}"
+    )
+}
+
+fn tree_anim_material(desc: &MaterialDesc) -> bool {
+    desc.shader_flags_2 & soe_nif::blocks::flags2::TREE_ANIM != 0
 }
 
 fn nif_effect_material(
@@ -4618,5 +4667,30 @@ mod decal_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod rnd_31_tree_tests {
+    use super::{tree_anim_material, tree_shader_code, AlphaMode, MaterialDesc};
+    use soe_nif::blocks::flags2;
+
+    #[test]
+    fn rnd_31_tree_shader_uses_vertex_color_alpha_cutout_and_two_sided_faces() {
+        let ordinary = MaterialDesc::default();
+        assert!(!tree_anim_material(&ordinary));
+        let tree = MaterialDesc {
+            shader_flags_2: flags2::TREE_ANIM,
+            alpha: AlphaMode::Cutout(128),
+            double_sided: true,
+            ..MaterialDesc::default()
+        };
+        assert!(tree_anim_material(&tree));
+        let shader = tree_shader_code(&tree);
+        assert!(shader.contains("render_mode cull_disabled"));
+        assert!(shader.contains("float sway = COLOR.r"));
+        assert!(shader.contains("VERTEX.x += sin(phase) * sway"));
+        assert!(shader.contains("if (color.a < 0.501960"));
+        assert!(shader.contains("has_normal"));
     }
 }

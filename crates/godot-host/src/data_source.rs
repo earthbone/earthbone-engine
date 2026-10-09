@@ -948,15 +948,11 @@ impl DataSource {
                             .as_ref()
                             .is_none_or(|texture| Arc::ptr_eq(texture, &checker_albedo()))
                         {
-                            if let Some(owner) = self.order.winner_ref(*reference) {
-                                let base = self.order.resolve(owner.file, refr.base);
-                                if let Some(record) = self.order.winner(base) {
-                                    soe_trace::warn!(target: "host::materials", system = "host::materials",
-                                        reference = %reference, base = %base,
-                                        editor_id = ?record.editor_id(), record_type = %record.tag,
-                                        model, shape_index, texture_set = ?arrays.material,
-                                        "surface has no source albedo");
-                                }
+                            if let Some(path) = arrays.material.diffuse.as_deref() {
+                                self.textures.warn_missing_surface_once(
+                                    &format!("{model}#{shape_index}"),
+                                    path,
+                                );
                             }
                         }
                         stats.triangles += arrays.triangle_count();
