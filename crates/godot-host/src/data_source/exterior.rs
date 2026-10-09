@@ -447,6 +447,7 @@ impl DataSource {
                             has_land = true;
                             loaded.stats.triangles += arrays.triangle_count();
                             loaded.surfaces.push(LoadedSurface {
+                                animation: None,
                                 reference: *land_id,
                                 arrays,
                                 textures: SurfaceTextures {

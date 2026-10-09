@@ -6064,3 +6064,58 @@ The batched door hides while open. Movement-body visibility uses effective
 enable state and does not remove a static door body solely because it opened.
 Query bodies additionally hide opened doors. Change notification retains this
 existing handoff. Door node lifetime and open-door capsule passage belong to HST-21.
+
+## Object controller rendering, RND-23
+
+Cell loading retains live NIF controller assets for animated object surfaces.
+Those surfaces use local geometry outside static batching and MultiMesh
+instancing. Each shape has a RenderingServer instance and a private material,
+with a RenderingServer skeleton when the NIF supplies skin bones. Shapes of
+one placement share their immutable controller asset. CellStreamerNode advances
+object transforms, skin poses and material parameters every frame. It adds no
+per-reference scene nodes. Animated shapes are excluded from stationary cell
+occluders.
+
+Skin transforms combine the sampled model-space bone with its NIF inverse
+bind in the mesh's bone order, using the existing host axis and bind-matrix
+conversion. Reference movement updates the visual placement from World.
+Reference disable and destruction selection hide the original visual.
+Reference enable uses the same live loader. Clear, cell departure and tree
+exit release instances, skeletons and private materials. Inventory previews
+and destruction overlays retain their frozen mesh path.
+
+Successful player activation tries authored Open, Activate, Trigger, Pull,
+Push, Down, On, Forward and Play sequences before the older swinging-door
+node path. Game animation requests target the same resolved form identity and
+start matching named sequences. Each shape maintains its own cursor into the
+game's animation request log. The host changes no saved fields and registers
+no save section. Playback clocks and poses are transient rendering state.
+
+Animated shader instances update UV offsets and scales, alpha, emissive color
+and strength, and effect falloff values. They start from the NIF's authored
+UV and alpha defaults, and sampling leaves other placements' materials
+unchanged. Lighting materials use the existing shader-material texture,
+glow and environment path. Effect materials use the RND-22 shader.
+
+`tests/rnd_23_object_animation.rs` verifies skin transforms, material ownership
+and installed controller retention. `tests/rnd_23_capture.gd` draws a Whiterun
+banner through the production RID path at two fixed playback times, compares
+uploaded transforms and rendered pixels, saves both captures under target,
+and checks zero added scene children and resource release. Run it with the
+built extension and the installed-data variable:
+
+```text
+$SOE_GODOT_BIN --path godot --resolution 640x360 --script "$PWD/crates/godot-host/tests/rnd_23_capture.gd"
+```
+
+The installed-data capture on Godot 4.4.1 with software Vulkan samples the
+banner at 0.1 and 0.7 seconds. It reports eight uploaded transforms, a maximum
+transform difference of 0.025225, 19,151 visible pixels and 17,279 changed
+pixels. The same run starts a chest's Open sequence through activation,
+observes its changed pose, starts Close and rejects an unknown sequence.
+It checks resource release and exits with status zero. The Rust row tests
+pass twelve NIF cases and four host cases with installed data.
+
+Controller layout and sampling references are recorded in `docs/nif.md`.
+Object animation uses no new dependency. Collision remains on its existing
+record-backed host path and does not follow these visual bone poses.

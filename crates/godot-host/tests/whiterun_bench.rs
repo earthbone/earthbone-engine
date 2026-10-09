@@ -330,6 +330,7 @@ fn repeated_rock_benchmark_measures_batching_vs_instancing() {
             arrays.bounds.max.y += delta.y;
             arrays.bounds.max.z += delta.z;
             LoadedSurface {
+                animation: None,
                 reference: reference(i),
                 arrays,
                 textures: SurfaceTextures::default(),
@@ -349,6 +350,7 @@ fn repeated_rock_benchmark_measures_batching_vs_instancing() {
         .map(|(i, &(x, y))| {
             let origin = SkyrimPos::new(x, y, 0.0).to_godot();
             LoadedSurface {
+                animation: None,
                 reference: reference(i),
                 arrays: local_arrays.clone(),
                 textures: SurfaceTextures::default(),

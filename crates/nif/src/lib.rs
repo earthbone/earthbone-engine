@@ -28,6 +28,7 @@ pub mod controller;
 pub mod error;
 pub mod header;
 pub mod mesh;
+pub mod object_animation;
 pub mod particle;
 pub mod serialize;
 pub mod static_mesh;

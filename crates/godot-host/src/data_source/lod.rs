@@ -224,6 +224,7 @@ impl DataSource {
             let arrays = build_surface(&data, MeshOptions::default())?;
             let textures = self.textures.resolve(&self.vfs, &arrays.material);
             surfaces.push(LoadedSurface {
+                animation: None,
                 reference: world,
                 arrays,
                 textures,
@@ -285,6 +286,7 @@ impl DataSource {
             let arrays = build_surface(&data, MeshOptions::default())?;
             let textures = self.textures.resolve(&self.vfs, &arrays.material);
             surfaces.push(LoadedSurface {
+                animation: None,
                 reference: world,
                 arrays,
                 textures,
@@ -475,6 +477,7 @@ impl DataSource {
                 let arrays = build_surface(&data, MeshOptions::default())?;
                 let textures = self.textures.resolve(&self.vfs, &arrays.material);
                 surfaces.push(LoadedSurface {
+                    animation: None,
                     reference: world,
                     arrays,
                     textures,

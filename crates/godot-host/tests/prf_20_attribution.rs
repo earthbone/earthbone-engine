@@ -40,6 +40,7 @@ fn prf_20_cell_texture_memory_deduplicates_paths_and_counts_cube_faces() {
         )
         .unwrap();
         surfaces.push(LoadedSurface {
+            animation: None,
             reference: GlobalFormId { file: 0, object: 1 },
             arrays,
             textures: SurfaceTextures {

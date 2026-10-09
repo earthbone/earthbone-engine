@@ -355,6 +355,7 @@ mod hst_08_tests {
 
     fn surface(texture: Arc<TextureData>) -> LoadedSurface {
         LoadedSurface {
+            animation: None,
             reference: GlobalFormId { file: 0, object: 1 },
             arrays: SurfaceArrays {
                 positions: vec![[0.0; 3]; 3],

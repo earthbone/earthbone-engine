@@ -211,6 +211,8 @@ pub struct CellStats {
 /// from.
 #[derive(Clone)]
 pub struct LoadedSurface {
+    /// NIF controllers retained for live RID transforms and material updates.
+    pub animation: Option<crate::object_animation::AnimatedSurface>,
     /// The `REFR` that placed this surface, or the `LAND` record for a
     /// terrain surface, so a batched triangle can be traced back to a form.
     pub reference: GlobalFormId,
@@ -652,6 +654,35 @@ impl DataSource {
         Ok(built)
     }
 
+    /// Build origin-placed object animation surfaces using the cell loader.
+    ///
+    /// # Errors
+    /// Reports missing NIFs, malformed controllers or invalid geometry.
+    pub fn animated_model_surfaces(
+        &self,
+        model: &str,
+    ) -> Result<Vec<LoadedSurface>, DataSourceError> {
+        let reference = Refr::from_record(
+            &Record::new(tag::REFR, 0).sub(Tag::new(b"NAME"), 0_u32.to_le_bytes()),
+        )?;
+        let LoadedStatic::Surfaces {
+            built, animations, ..
+        } = self.load_object_surfaces(model, &reference, false, SurfacePlayback::Live)?;
+        Ok(built
+            .into_iter()
+            .zip(animations)
+            .map(|((arrays, textures), animation)| LoadedSurface {
+                reference: GlobalFormId { file: 0, object: 0 },
+                arrays,
+                textures,
+                animation,
+                placement: soe_physics::Iso::IDENTITY,
+                instance_transform: None,
+                mesh_identity: None,
+            })
+            .collect())
+    }
+
     /// The cell index built at open, for callers that walk cells by grid
     /// position or need a cell's land and navmeshes.
     #[must_use]
@@ -894,6 +925,7 @@ impl DataSource {
                     marker_shapes_filtered,
                     marker_only,
                     instance_transform,
+                    animations,
                 }) => {
                     stats.editor_markers_filtered += marker_shapes_filtered;
                     stats.editor_marker_only_models += usize::from(marker_only);
@@ -946,6 +978,7 @@ impl DataSource {
                             .as_ref()
                             .map(|base| Arc::<str>::from(format!("{base}#{shape_index}")));
                         surfaces.push(LoadedSurface {
+                            animation: animations.get(shape_index).cloned().flatten(),
                             reference: *reference,
                             arrays,
                             textures,
@@ -1012,7 +1045,7 @@ impl DataSource {
                 surfaces: Vec::new(),
             });
         };
-        self.stream_destruction_model(reference, &model)
+        self.stream_model(reference, &model, SurfacePlayback::Live)
     }
 
     /// Builds the selected destruction-stage model for one placed reference
@@ -1022,16 +1055,26 @@ impl DataSource {
         reference: GlobalFormId,
         model: &str,
     ) -> Result<LoadedCell, DataSourceError> {
+        self.stream_model(reference, model, SurfacePlayback::Frozen)
+    }
+
+    fn stream_model(
+        &self,
+        reference: GlobalFormId,
+        model: &str,
+        playback: SurfacePlayback,
+    ) -> Result<LoadedCell, DataSourceError> {
         let winner = self
             .order
             .winner_ref(reference)
             .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
         let refr = Refr::from_record(self.order.record(winner))?;
-        let loaded = self.load_static_surfaces(model, &refr, false)?;
+        let loaded = self.load_object_surfaces(model, &refr, false, playback)?;
         let LoadedStatic::Surfaces {
             built,
             marker_shapes_filtered,
             marker_only,
+            animations,
             ..
         } = loaded;
         let mut stats = CellStats {
@@ -1043,9 +1086,11 @@ impl DataSource {
         };
         let surfaces = built
             .into_iter()
-            .map(|(arrays, textures)| {
+            .zip(animations)
+            .map(|((arrays, textures), animation)| {
                 stats.triangles += arrays.triangle_count();
                 LoadedSurface {
+                    animation,
                     reference,
                     arrays,
                     textures,
@@ -1113,6 +1158,7 @@ impl DataSource {
         let data = water_plane_mesh(footprint, height, material);
         let arrays = build_surface(&data, MeshOptions::default()).ok()?;
         Some(LoadedSurface {
+            animation: None,
             reference: water_id.unwrap_or(cell_id),
             arrays,
             textures: SurfaceTextures::default(),
@@ -1146,7 +1192,7 @@ impl DataSource {
                     "base:{} mesh:{model}",
                     base.map_or_else(|| "unknown".to_owned(), |base| base.to_string())
                 ));
-                self.load_static_surfaces(model, refr, instancing)
+                self.load_object_surfaces(model, refr, instancing, SurfacePlayback::Live)
             })
     }
 
@@ -1159,6 +1205,16 @@ impl DataSource {
     /// instead. Every other static keeps baking the full placement into its
     /// vertex data, unchanged.
     fn load_static_surfaces(&self, model: &str, refr: &Refr, instancing: bool) -> BuiltStatic {
+        self.load_object_surfaces(model, refr, instancing, SurfacePlayback::Frozen)
+    }
+
+    fn load_object_surfaces(
+        &self,
+        model: &str,
+        refr: &Refr,
+        instancing: bool,
+        playback: SurfacePlayback,
+    ) -> BuiltStatic {
         let _span = soe_trace::Span::new("host.static", "host");
         let path = format!("meshes/{model}");
         let bytes = self.vfs.read(&path)?;
@@ -1174,6 +1230,12 @@ impl DataSource {
         let _build = soe_trace::LoadScope::new("mesh_build", soe_trace::LoadCause::CpuBuild, path);
         let marker_blocks = editor_marker_shape_blocks(&file);
         let nonvisual_blocks = nonvisual_shape_indices(&file.blocks);
+        let animation = Arc::new(soe_nif::object_animation::ObjectAnimation::from_file(
+            &file,
+        )?);
+        let animated = playback == SurfacePlayback::Live && animation.is_animated();
+        let instancing = instancing && !animated;
+        let mut animations = Vec::new();
         let mut meshes = file.meshes()?;
         let marker_shapes_filtered = meshes
             .iter()
@@ -1188,7 +1250,9 @@ impl DataSource {
         for shape in &meshes {
             let arrays = {
                 let _surface = soe_trace::Span::new("host.build_surface", "host");
-                let combined = if instancing {
+                let combined = if animated {
+                    NifTransform::IDENTITY
+                } else if instancing {
                     shape.transform
                 } else {
                     refr_transform.then(&shape.transform)
@@ -1200,6 +1264,16 @@ impl DataSource {
                 let _material = soe_trace::Span::new("host.material", "host");
                 self.textures.resolve(&self.vfs, &arrays.material)
             };
+            animations.push(animated.then(|| crate::object_animation::AnimatedSurface {
+                asset: animation.clone(),
+                block: shape.block,
+                shader: soe_nif::object_animation::shader_ref(&file.blocks[shape.block]).get(),
+                skin: shape.skin.clone(),
+                placement: refr_transform,
+                uv_offset: shape.material.uv_offset,
+                uv_scale: shape.material.uv_scale,
+                alpha: shape.material.alpha,
+            }));
             out.push((arrays, textures));
         }
         let instance_transform = instancing.then(|| {
@@ -1211,6 +1285,7 @@ impl DataSource {
         });
         Ok(LoadedStatic::Surfaces {
             built: out,
+            animations,
             marker_shapes_filtered,
             marker_only,
             instance_transform,
@@ -1266,11 +1341,18 @@ fn archive_paths(
 }
 
 /// One static's surfaces with their textures, or why it failed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SurfacePlayback {
+    Frozen,
+    Live,
+}
+
 type BuiltStatic = Result<LoadedStatic, DataSourceError>;
 
 enum LoadedStatic {
     Surfaces {
         built: Vec<(SurfaceArrays, SurfaceTextures)>,
+        animations: Vec<Option<crate::object_animation::AnimatedSurface>>,
         marker_shapes_filtered: usize,
         marker_only: bool,
         /// The reference's placement, in Godot space, when `load_static_surfaces`

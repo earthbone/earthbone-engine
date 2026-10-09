@@ -45,6 +45,8 @@ use crate::units::{
 };
 use soe_physics::{Iso, Vec3};
 
+mod object_animation;
+
 fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
     let encoded = u64::try_from(encoded).ok()?;
     let file = u16::try_from(encoded >> 32).ok()?;
@@ -243,6 +245,7 @@ fn lod_block_list(lod: &TerrainLodState) -> String {
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
 /// a triangle back to the form that placed it.
 struct Instance {
+    animation: Option<object_animation::RuntimeSurface>,
     cell: GlobalFormId,
     bounds: crate::mesh::Aabb,
     rid: Rid,
@@ -609,7 +612,8 @@ impl INode3D for CellStreamerNode {
         self.reference_index_dirty = true;
     }
 
-    fn process(&mut self, _delta: f64) {
+    fn process(&mut self, delta: f64) {
+        self.advance_object_animations(delta as f32);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let Some(focus) = self.focus.as_ref() else {
             return;
@@ -1338,8 +1342,46 @@ impl CellStreamerNode {
                 touched_instances.extend(members.iter().map(|(instance, _)| *instance));
             }
         }
-        for index in touched_instances {
-            let instance = &mut self.instances[index];
+        for (index, instance) in self.instances.iter_mut().enumerate() {
+            if let Some(animation) = &mut instance.animation {
+                if let BatchTable::Triangles(members) = &instance.table {
+                    if let Some(member) = members.first() {
+                        if let Some(placement) = world.ref_placement(member.reference) {
+                            let iso = Iso::placement(
+                                placement.position,
+                                placement.rotation,
+                                placement.scale,
+                            );
+                            animation.surface.placement = soe_nif::Transform {
+                                rotation: soe_nif::Mat33 {
+                                    rows: iso.rotation.rows,
+                                },
+                                translation: soe_nif::Vec3::new(
+                                    placement.position[0],
+                                    placement.position[1],
+                                    placement.position[2],
+                                ),
+                                scale: placement.scale,
+                            };
+                            server.instance_set_visible(
+                                instance.rid,
+                                placement.visible
+                                    && world.destruction_model(member.reference).is_none(),
+                            );
+                            for name in animation
+                                .events
+                                .take_for(&world.animation_requests, member.reference)
+                            {
+                                animation.play(&name);
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            if !touched_instances.contains(&index) {
+                continue;
+            }
             let BatchTable::Triangles(members) = &instance.table else {
                 if let (BatchTable::Instances(members), InstanceMesh::Multi(multi)) =
                     (&instance.table, &mut instance.mesh)
@@ -1712,6 +1754,73 @@ mod mag_14_tests {
 
 #[godot_api]
 impl CellStreamerNode {
+    /// Advance object RID animation by an explicit interval for deterministic capture.
+    #[func]
+    pub fn step_object_animations(&mut self, seconds: f64) {
+        self.advance_object_animations(seconds as f32);
+    }
+
+    /// Start an authored sequence on every animated shape of one form.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn play_object_sequence(&mut self, file: i32, object: i64, name: GString) -> i32 {
+        let Some(reference) = script_reference(file, object) else {
+            return 0;
+        };
+        let mut count = 0;
+        for instance in &mut self.instances {
+            let BatchTable::Triangles(members) = &instance.table else {
+                continue;
+            };
+            if members.iter().any(|m| m.reference == reference) {
+                if let Some(animation) = &mut instance.animation {
+                    count += i32::from(animation.play(&name.to_string()));
+                }
+            }
+        }
+        count
+    }
+
+    /// Start the activation sequence through the same path as player activation.
+    #[func]
+    pub fn activate_object(&mut self, file: i32, object: i64) -> bool {
+        script_reference(file, object)
+            .is_some_and(|reference| self.activate_object_animation(reference))
+    }
+
+    /// Uploaded object and bone poses for capture assertions.
+    #[func]
+    pub fn object_animation_transforms(&self) -> Array<Transform3D> {
+        self.instances
+            .iter()
+            .filter_map(|i| i.animation.as_ref())
+            .flat_map(|a| a.last_transforms.iter().copied())
+            .collect()
+    }
+
+    /// Draw a model at the origin through the production object RID path.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn stream_animated_model(&mut self, model: GString) -> i32 {
+        let Some(source) = self.data_source.clone() else {
+            return 0;
+        };
+        let Some(scenario) = self.scenario() else {
+            return 0;
+        };
+        let Ok(loaded) = source.animated_model_surfaces(&model.to_string()) else {
+            return 0;
+        };
+        let mut count = 0;
+        for surface in loaded {
+            if surface.animation.is_some() {
+                self.add_animated_surface(GlobalFormId { file: 0, object: 0 }, &surface, scenario);
+                count += 1;
+            }
+        }
+        count
+    }
+
     /// Return the winning cell's authored XCLL and inherited LTMP lighting.
     #[allow(clippy::needless_pass_by_value)]
     #[func]
@@ -3346,6 +3455,12 @@ impl CellStreamerNode {
         if self.cell_occluders {
             self.add_cell_occluder(cell, &loaded.surfaces, scenario);
         }
+        for surface in &loaded.surfaces {
+            if surface.animation.is_some() {
+                self.add_animated_surface(cell, surface, scenario);
+                totals.instances += 1;
+            }
+        }
         let (groups, remainder) = instancing_candidates(&loaded.surfaces);
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
@@ -3353,7 +3468,10 @@ impl CellStreamerNode {
         }
         let remainder: Vec<LoadedSurface> = remainder
             .into_iter()
-            .map(|i| loaded.surfaces[i].clone())
+            .filter_map(|i| {
+                let surface = &loaded.surfaces[i];
+                surface.animation.is_none().then(|| surface.clone())
+            })
             .collect();
         if self.batch_surfaces {
             let (batches, stats) = batch_surfaces(&remainder);
@@ -3439,6 +3557,7 @@ impl CellStreamerNode {
         });
         self.reference_index_dirty = true;
         self.instances.push(Instance {
+            animation: None,
             cell,
             bounds: arrays.bounds,
             rid,
@@ -3485,6 +3604,7 @@ impl CellStreamerNode {
         let table = BatchTable::Instances(group.members.iter().map(|m| m.reference).collect());
         self.reference_index_dirty = true;
         self.instances.push(Instance {
+            animation: None,
             cell,
             bounds,
             rid,
@@ -3895,7 +4015,7 @@ fn decal_shader(desc: &MaterialDesc) -> String {
     let test = if test { "" } else { ", depth_test_disabled" };
     let alpha = match desc.alpha {
         AlphaMode::Opaque => String::new(),
-        AlphaMode::Blend => "ALPHA = color.a;".into(),
+        AlphaMode::Blend => "ALPHA = color.a * material_alpha;".into(),
         // Debug keeps the decimal point on whole values. Display prints a
         // threshold of 255 as `1`, an int literal the shader compiler rejects
         // against the float alpha.
@@ -3921,6 +4041,16 @@ uniform sampler2D environment_mask : hint_default_white, filter_linear_mipmap_an
 uniform float environment_scale = 1.0;
 uniform bool has_environment = false;
 uniform bool has_environment_mask = false;
+uniform vec2 uv_offset = vec2(0.0);
+uniform vec2 uv_scale = vec2(1.0);
+uniform float uv_rotation = 0.0;
+uniform float material_alpha = 1.0;
+void vertex() {{
+    vec2 centered = UV * uv_scale - vec2(0.5);
+    float c = cos(uv_rotation);
+    float s = sin(uv_rotation);
+    UV = mat2(vec2(c, s), vec2(-s, c)) * centered + vec2(0.5) + uv_offset;
+}}
 void fragment() {{
     vec4 color = texture(albedo_texture, UV);
     ALBEDO = color.rgb;
