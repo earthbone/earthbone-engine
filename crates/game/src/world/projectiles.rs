@@ -166,6 +166,141 @@ impl World {
         })
     }
 
+    /// Queue a Papyrus `Weapon.Fire` launch from the supplied placed reference.
+    ///
+    /// # Errors
+    /// Invalid source, weapon, ammunition or projectile records, or unsupported weapon kinds.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn fire_weapon(
+        &mut self,
+        weapon: GlobalFormId,
+        source: GlobalFormId,
+        ammo: Option<GlobalFormId>,
+    ) -> Result<(), crate::combat::FireError> {
+        if !matches!(self.tag_of(source), Some(tag) if tag == T(b"REFR") || tag == T(b"ACHR")) {
+            return Err(crate::combat::FireError::Source);
+        }
+        let weapon_record = self
+            .record(weapon)
+            .filter(|record| record.tag == T(b"WEAP") && !record.is_deleted())
+            .ok_or(crate::combat::FireError::Weapon(weapon))?;
+        let weapon_data = crate::combat::records::Weapon::from_record(weapon_record)?;
+        let ammunition = match ammo {
+            Some(ammo) => ammo,
+            None if self.actor(source).is_some() => {
+                self.ranged_equipment(source)
+                    .map_err(|_| {
+                        crate::combat::FireError::Unsupported("source has no ranged ammunition")
+                    })?
+                    .ammunition
+            }
+            None => {
+                return Err(crate::combat::FireError::Unsupported(
+                    "ammunition is required",
+                ))
+            }
+        };
+        let ammo_record = self
+            .record(ammunition)
+            .filter(|record| record.tag == T(b"AMMO") && !record.is_deleted())
+            .ok_or(crate::combat::FireError::Ammo(ammunition))?;
+        let ammo_record_flags = ammo_record.flags;
+        if !matches!(weapon_data.animation, 7 | 9) {
+            return Err(crate::combat::FireError::Unsupported(
+                "weapon is not a bow or crossbow",
+            ));
+        }
+        let mut ammo_data = Fields::new(
+            ammo_record.tag,
+            T(b"DATA"),
+            ammo_record.required(T(b"DATA"))?,
+        );
+        let raw_projectile = ammo_data.u32()?;
+        let ammo_flags = ammo_data.u32()?;
+        let damage = ammo_data.f32()?;
+        if !damage.is_finite() || damage < 0.0 {
+            return Err(crate::combat::FireError::Unsupported(
+                "invalid ammunition damage",
+            ));
+        }
+        let projectile = self.resolve_from(ammunition, raw_projectile).ok_or(
+            crate::combat::FireError::Unsupported("ammunition projectile is missing"),
+        )?;
+        let projectile_record = self
+            .record(projectile)
+            .filter(|record| record.tag == T(b"PROJ") && !record.is_deleted())
+            .ok_or(crate::combat::FireError::Unsupported(
+                "ammunition projectile is invalid",
+            ))?;
+        let mut projectile_data = Fields::new(
+            projectile_record.tag,
+            T(b"DATA"),
+            projectile_record.required(T(b"DATA"))?,
+        );
+        let flags = projectile_data.u16()?;
+        let kind = projectile_data.u16()?;
+        let gravity = projectile_data.f32()?;
+        let speed = projectile_data.f32()?;
+        let range = projectile_data.f32()?;
+        let bolt = ammo_flags & AMMO_NON_BOLT == 0;
+        if bolt != (weapon_data.animation == 9)
+            || flags & PROJ_HITSCAN != 0
+            || kind & PROJ_ARROW == 0
+        {
+            return Err(crate::combat::FireError::Unsupported(
+                "incompatible ranged projectile",
+            ));
+        }
+        if !gravity.is_finite()
+            || !speed.is_finite()
+            || speed <= 0.0
+            || !range.is_finite()
+            || range <= 0.0
+        {
+            return Err(crate::combat::FireError::Unsupported(
+                "invalid projectile motion",
+            ));
+        }
+        let (origin, rotation) = self
+            .reference(source)
+            .map(|reference| (reference.position, reference.rotation))
+            .ok_or(crate::combat::FireError::Source)?;
+        if !origin
+            .iter()
+            .chain(rotation.iter())
+            .all(|value| value.is_finite())
+        {
+            return Err(crate::combat::FireError::Unsupported(
+                "invalid source transform",
+            ));
+        }
+        let (pitch, yaw) = (rotation[0], rotation[2]);
+        let direction = [
+            yaw.sin() * pitch.cos(),
+            yaw.cos() * pitch.cos(),
+            pitch.sin(),
+        ];
+        self.weapon_fire_requests.push(FlightRequest {
+            attacker: source,
+            weapon,
+            ammunition,
+            projectile,
+            origin,
+            direction,
+            gravity,
+            speed,
+            range,
+            damage,
+            recoverable: flags & PROJ_CAN_BE_PICKED_UP != 0
+                && ammo_record_flags & AMMO_RECORD_NON_PLAYABLE == 0
+                && ammo_flags & AMMO_NON_PLAYABLE == 0
+                && ammo_flags & AMMO_NON_BOLT != 0,
+        });
+        Ok(())
+    }
+
     /// Create one placed AMMO reference after a missed arrow hits the world.
     ///
     /// The reference uses the existing dynamic identity and placement state,

@@ -14,18 +14,31 @@ const fn id(object: u32) -> GlobalFormId {
 fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag::new(b"STAT"), 0x100));
+    plugin.push_top(Record::new(Tag::new(b"NPC_"), 0x101));
+    let mut dnam = vec![0; 100];
+    dnam[0] = 7;
     plugin.push_top(
         Record::new(Tag::new(b"WEAP"), 0x200)
             .sub(Tag::new(b"DATA"), [0; 10])
-            .sub(Tag::new(b"DNAM"), [0; 100]),
+            .sub(Tag::new(b"DNAM"), dnam),
     );
-    plugin.push_top(Record::new(Tag::new(b"AMMO"), 0x201));
+    let mut ammo = vec![0; 20];
+    ammo[0..4].copy_from_slice(&0x204_u32.to_le_bytes());
+    ammo[4..8].copy_from_slice(&(1_u32 << 2).to_le_bytes());
+    ammo[8..12].copy_from_slice(&12_f32.to_le_bytes());
+    plugin.push_top(Record::new(Tag::new(b"AMMO"), 0x201).sub(Tag::new(b"DATA"), ammo));
+    let mut projectile = vec![0; 92];
+    projectile[2..4].copy_from_slice(&(1_u16 << 6).to_le_bytes());
+    projectile[4..8].copy_from_slice(&0.1_f32.to_le_bytes());
+    projectile[8..12].copy_from_slice(&3000_f32.to_le_bytes());
+    projectile[12..16].copy_from_slice(&5000_f32.to_le_bytes());
+    plugin.push_top(Record::new(Tag::new(b"PROJ"), 0x204).sub(Tag::new(b"DATA"), projectile));
     plugin.push_top(Record::new(Tag::new(b"ARMO"), 0x202));
     plugin.push_top(
         Record::new(Tag::new(b"REFR"), 0x300).sub(Tag::new(b"NAME"), 0x100_u32.to_le_bytes()),
     );
     plugin.push_top(
-        Record::new(Tag::new(b"ACHR"), 0x301).sub(Tag::new(b"NAME"), 0x100_u32.to_le_bytes()),
+        Record::new(Tag::new(b"ACHR"), 0x301).sub(Tag::new(b"NAME"), 0x101_u32.to_le_bytes()),
     );
     let mut order = LoadOrder::new();
     order
@@ -75,7 +88,7 @@ fn form(game: &mut Game, object: u32) -> Value {
 }
 
 #[test]
-fn actor_source_satisfies_object_reference_contract() {
+fn scr_53_actor_source_requires_its_equipped_ammunition_when_ammo_is_omitted() {
     let mut game = fixture();
     let source = form(&mut game, 0x301);
     assert_eq!(
@@ -85,12 +98,12 @@ fn actor_source_satisfies_object_reference_contract() {
     assert!(game
         .vm
         .log
-        .contains("unsupported weapon fire behavior: ranged projectile execution"));
+        .contains("unsupported weapon fire behavior: source has no ranged ammunition"));
     assert!(game.world().pending.is_empty());
 }
 
 #[test]
-fn missing_ammo_form_is_reported_without_side_effects() {
+fn scr_53_missing_ammo_form_is_reported_without_side_effects() {
     let mut game = fixture();
     let source = form(&mut game, 0x300);
     let missing_ammo = form(&mut game, 0x404);
@@ -107,7 +120,7 @@ fn missing_ammo_form_is_reported_without_side_effects() {
 }
 
 #[test]
-fn missing_weapon_form_is_reported_without_side_effects() {
+fn scr_53_missing_weapon_form_is_reported_without_side_effects() {
     let mut game = fixture();
     let source = form(&mut game, 0x300);
     assert_eq!(
@@ -122,7 +135,7 @@ fn missing_weapon_form_is_reported_without_side_effects() {
 }
 
 #[test]
-fn repeated_valid_requests_each_report_unsupported_without_mutation() {
+fn scr_53_repeated_valid_requests_queue_launches_without_consuming_ammo() {
     let mut game = fixture();
     let source = form(&mut game, 0x300);
     let ammo = form(&mut game, 0x201);
@@ -140,8 +153,9 @@ fn repeated_valid_requests_each_report_unsupported_without_mutation() {
                 "Weapon.Fire: unsupported weapon fire behavior: ranged projectile execution"
             ))
             .count(),
-        2
+        0
     );
+    assert_eq!(game.world().weapon_fire_requests.len(), 2);
     assert!(game.world().pending.is_empty());
     assert!(game.world().spell_casts.is_empty());
     assert_eq!(game.world_mut().item_count(id(0x300), id(0x201)), 0);

@@ -1033,6 +1033,8 @@ pub struct World {
     pub(crate) effect_shader_requests: Vec<events::EffectShaderRequest>,
     /// Transient host physics operations requested by Papyrus natives.
     pub reference_physics_requests: Vec<events::ReferencePhysicsRequest>,
+    /// Transient ranged launches requested by Papyrus `Weapon.Fire`.
+    pub weapon_fire_requests: Vec<crate::combat::FlightRequest>,
     /// Active `MusicType.Add` entries in the order scripts added them.
     music_types: Vec<GlobalFormId>,
     /// `(spell, source, target)` per `Spell.Cast`, in order.
@@ -1356,6 +1358,7 @@ impl World {
             next_sound: 0,
             effect_shader_requests: Vec::new(),
             reference_physics_requests: Vec::new(),
+            weapon_fire_requests: Vec::new(),
             music_types: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
