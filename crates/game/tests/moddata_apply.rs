@@ -237,6 +237,39 @@ fn a_keyword_file_makes_has_keyword_answer_true() {
 }
 
 #[test]
+fn mod_07_real_devious_devices_kid_rule_applies_with_fixture_provenance() {
+    let dir = Dir::new("mod-07-real-devious-devices");
+    let source = "Devious Devices_KID.ini";
+    let rule = "Keyword = 0x0012DB~Schlongs of Skyrim - Core.esm|Armor|zadNG_SoSRevealing\n";
+    dir.write(source, rule);
+
+    let parsed = soe_moddata::kid::KidFile::read(dir.0.join(source)).unwrap();
+    assert_eq!(
+        parsed.path.file_name().and_then(|name| name.to_str()),
+        Some(source)
+    );
+    assert_eq!(parsed.rules.len(), 1);
+    assert_eq!(parsed.rules[0].line, 1);
+
+    let mut plugin = master();
+    plugin.push_top(Record::new(T(b"KYWD"), 0x0012DB).zsub(EDID, "zadNG_SoSRevealing"));
+    plugin.push_top(Record::new(T(b"ARMO"), 0x816).zsub(EDID, "zadNG_SoSRevealing"));
+    let mut order = LoadOrder::new();
+    order
+        .add(
+            "Schlongs of Skyrim - Core.esm",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
+        .unwrap();
+    let mut game = Game::new(order);
+    let report = game.apply_mod_data(&dir.roots());
+
+    assert_eq!(report.keyword_rules, 1);
+    assert_eq!(report.keywords_attached, 1);
+    assert!(game.world_mut().has_keyword(id(0x816), id(0x0012DB)));
+}
+
+#[test]
 fn a_keyword_file_leaves_a_form_its_filter_misses_alone() {
     let dir = Dir::new("kid-miss");
     dir.write("Test_KID.ini", "Keyword = MyKeyword|Armor|SomethingElse\n");
