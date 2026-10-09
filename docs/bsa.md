@@ -143,3 +143,19 @@ change was needed.
 `soe-trace`. Release builds remove the event and its argument evaluation.
 Subscribers, filter directives, rate limiting and output are described in
 [trace.md](trace.md). The archive reader does not install a subscriber.
+
+## Load timing phases, PRF-29
+
+Archive opening records the archive path and elapsed open call. Index parsing
+records a separate parse scope. A wrapper below the buffered index reader sums
+physical read and seek durations per archive, including failures, and subtracts
+those sums from the parser's exclusive time. The retained history contains two
+I/O totals per index rather than one event for every seek.
+
+Payload reads record an archive-and-entry boundary, disk read time including
+read-lock contention, and the byte-slice decode. Loose VFS reads name the
+resolved disk path and retain a phase when reading fails. All use `soe-trace`'s
+always-on load history without changing archive or loose-file precedence.
+Elapsed I/O calls include their CPU work and are not operating-system wait
+counters. The instrumentation reuses this crate's existing disk/index/read
+boundaries documented above and `docs/performance.md`.

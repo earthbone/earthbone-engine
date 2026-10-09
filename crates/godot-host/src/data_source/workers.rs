@@ -39,14 +39,18 @@ impl WorkerPools {
         let pool = self.pool(threads)?;
         let chunk_size = items.len().div_ceil(threads);
         let recorder = soe_trace::WorkRecorder::current();
-        let load = soe_trace::LoadRecorder::current();
+        let load_recorder = soe_trace::LoadRecorder::current();
+        let load = soe_trace::LoadToken::current();
+        let submitted = std::time::Instant::now();
         catch_unwind(AssertUnwindSafe(|| {
             pool.install(|| {
                 items
                     .par_chunks(chunk_size)
                     .map(|chunk| {
+                        let _ownership = load.as_ref().map(soe_trace::LoadToken::enter);
+                        soe_trace::LoadTrace::queue_wait("asset_chunk", submitted);
                         let _frame = recorder.as_ref().map(soe_trace::WorkRecorder::enter);
-                        let _load = load.as_ref().map(soe_trace::LoadRecorder::enter);
+                        let _load = load_recorder.as_ref().map(soe_trace::LoadRecorder::enter);
                         let _system = load
                             .as_ref()
                             .map(|_| soe_trace::SystemScope::new(soe_trace::System::Streaming));

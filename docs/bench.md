@@ -57,3 +57,52 @@ They report successful allocation and reallocation request counts, and the
 sum of requested sizes, between sample boundaries. This uses the same Rust
 allocation accounting as the host, with one process allocator. Reallocation
 bytes describe the new request's size. Godot's own heap is outside the sample.
+
+## PRF-28 CPU capacity probes
+
+`soe-bench capacity ai synthetic` doubles the existing Travel/Sandbox
+workload from 16 actors through a configured maximum. `capacity ai whiterun`
+uses the five installed masters and clones enabled WhiterunWorld placed
+actor bases at their authored positions, retaining their packages. Neither
+fixture loads Papyrus scripts, collision or rendered actors. Both tick Game
+at 1/60 second and verify the process counts and actor updates. The installed
+fixture uses the shared load order and its cached cell index.
+
+`capacity animation synthetic` evaluates a three-node blend of two constant
+99-track spline clips, composes the parent-first skeleton and computes 99
+skin matrices per actor. `capacity animation whiterun` selects the first
+Whiterun actor from the same fixture, loads its record-selected rig and
+appearance from the installed mesh and animation archives, then runs one
+interpreter and pose buffers per copy. Asset loading is outside measurement.
+The probe prints missing clips, unresolved references and unsupported graph
+work. It computes CPU skin matrices without GPU vertex skinning or uploads.
+
+Each CPU rung warms ten ticks and measures 120 ticks. CLI options are
+`--start`, `--max`, `--samples` and `--warmup`. The limits are p99 16.7 ms and
+worst 33 ms. Every rung prints `CAPACITY_SAMPLE`, and `CAPACITY_RESULT`
+records the highest passing rung and first failing rung. A passing configured
+maximum reports `limit_not_found`. A completed curve returns zero even when it
+finds a breach, an invalid workload returns nonzero. These are single-process
+ladders, without repeated boundary refinement. Counts above the sampled
+passing rung are not established capacity.
+
+Only high-process AI and one worker execute in this checkout. `--level high`
+and `--workers 1` are accepted for AI. Other levels and worker counts fail
+before setup. The benchmark reports these capabilities explicitly.
+
+`capacity settings` reads only Skyrim.esm and lists numeric GMST candidate
+names containing actor, process, light or shadow, in sorted order, through
+World's existing setting reader. It also reports whether the three published
+actor-cap candidate names are stored. Numeric mod settings retain the
+existing editor-ID override behavior, exercised by a synthetic patch test.
+This survey does not apply actor or light limits to runtime scheduling.
+
+The `prf_28_` tests cover ladder boundaries, an unreached maximum, invalid
+counts, nearest-rank percentiles, unsupported process modes, mod setting
+values, actor updates and the animation blend/skin pipeline. Installed cases
+are gated on SKYRIM_DATA. Sources read include local UESP GMST, xEdit's
+`wbDefinitionsTES5.pas`, Wrye Bash's `multitweak_settings.py`, CommonLibSSE-NG
+`AIProcess.h` and `ProcessLists.h`, and godotwind's benchmarking manual.
+The existing readers and host skinning implementation supply the algorithms.
+No new external dependency was added. HKX and NIF are existing workspace
+crates, NIF moved from a test dependency to a runtime dependency here.

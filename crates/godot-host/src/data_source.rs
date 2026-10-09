@@ -421,6 +421,7 @@ fn parse_masters(
 ) -> Result<Vec<soe_esm::Plugin>, DataSourceError> {
     let _span = soe_trace::Span::with_payload("host.parse_masters", "host", threads as u64);
     let parse_one = |name: &str| -> Result<soe_esm::Plugin, DataSourceError> {
+        let _plugin = soe_trace::LoadScope::object(format!("plugin:{name}"));
         let path = data_dir.join(name);
         let parsed = if let Some(cache_dir) = cache_dir {
             soe_esm::read_plugin_cached(&path, cache_dir)
@@ -561,6 +562,11 @@ impl DataSource {
         threads: usize,
         cache_dir: Option<&Path>,
     ) -> Result<Self, DataSourceError> {
+        let _load = soe_trace::LoadScope::operation(
+            "startup",
+            "DataSource",
+            std::time::Duration::from_secs(18),
+        );
         let _span = soe_trace::Span::with_payload("host.open", "host", threads as u64);
         let threads = threads.max(1);
         let workers = WorkerPools::default();
@@ -804,6 +810,11 @@ impl DataSource {
     /// skipped, it does not stop the rest of the cell from loading.
     pub fn stream_cell_id(&self, cell_id: GlobalFormId) -> Result<LoadedCell, DataSourceError> {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
+        let _load = soe_trace::LoadScope::operation(
+            "cell",
+            cell_id.to_string(),
+            std::time::Duration::from_millis(33),
+        );
         let _span = soe_trace::Span::new("host.stream_cell", "host");
         let mut stats = CellStats::default();
         let _capture = stats.profile.enter();
@@ -1121,12 +1132,20 @@ impl DataSource {
     ) -> Result<Vec<BuiltStatic>, DataSourceError> {
         let _span = soe_trace::Span::with_payload("host.build_all", "host", work.len() as u64);
         self.workers
-            .ordered_map(work, self.threads, |(model, refr, _)| {
+            .ordered_map(work, self.threads, |(model, refr, reference)| {
                 let instancing = model_counts
                     .get(&model.to_lowercase())
                     .copied()
                     .unwrap_or(0)
                     >= crate::batch::INSTANCE_MIN_PLACEMENTS;
+                let base = self
+                    .order
+                    .winner_ref(*reference)
+                    .map(|rref| self.order.resolve(rref.file, refr.base));
+                let _object = soe_trace::LoadScope::object(format!(
+                    "base:{} mesh:{model}",
+                    base.map_or_else(|| "unknown".to_owned(), |base| base.to_string())
+                ));
                 self.load_static_surfaces(model, refr, instancing)
             })
     }
@@ -1148,8 +1167,11 @@ impl DataSource {
                 soe_trace::LoadStage::NifParse,
                 &soe_bsa::normalize(&path),
             );
+            let _scope =
+                soe_trace::LoadScope::new("mesh_parse", soe_trace::LoadCause::Parse, path.clone());
             placed_model(&bytes)?
         };
+        let _build = soe_trace::LoadScope::new("mesh_build", soe_trace::LoadCause::CpuBuild, path);
         let marker_blocks = editor_marker_shape_blocks(&file);
         let nonvisual_blocks = nonvisual_shape_indices(&file.blocks);
         let mut meshes = file.meshes()?;

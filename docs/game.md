@@ -825,7 +825,19 @@ CLAS/FACT/RELA record changes, reference placement, actor templates,
 inventories, reference extras, quests, lists and Papyrus execution. The
 individual world passes validate before applying their own changes.
 `Game::restore_vanilla_papyrus` resolves saved script-instance RefIDs to live
-form objects and imports their saved variables into the VM.
+form objects and imports their saved variables into the VM. Scripts deriving
+from Alias bind to `Handle::Alias` on the saved owning quest instead of its
+form object. UESP's Papyrus ScriptInstance numeric component is the low two
+bits of `unknown_2bits` times 1000 plus the signed `unknown` word. The importer
+validates that component against the quest's alias definitions and checks
+ReferenceAlias or LocationAlias against the alias kind. Distinct aliases on one quest therefore
+retain distinct objects and native dispatch. Existing alias handles persist
+through the native save layout, with no new saved field. The `sav_19_` unit
+checks cover distinct handles, the signed word, missing aliases and alias kind
+rejection. FallrimTools keeps these instance header fields separate from variable
+data. Form objects still use one object per form. Distinct saved inventory item
+script objects targeting one form therefore remain unsupported, as reported by
+the SAV-19 corpus survey in [godot-host.md](godot-host.md).
 `Game::restore_vanilla_papyrus_execution` also converts and schedules
 validated active script frames, rolling back VM state if the import fails.
 Saved reference-only objects are created using their saved runtime type.
@@ -3596,9 +3608,11 @@ active markers and exact runtime bytes in record overrides. The save crate
 validates SCEN action widths, counts and field boundaries before this import.
 The `World::restore_vanilla_dialogue_scene_changes` path validates all targets
 before applying them. INFO state updates dialogue history, SCEN state updates
-the playing-scene set, and the record accessors expose the saved values. INFO
-has no saved timestamp, so its said-once marker uses the current game day.
-Version 37 also retains PACK and NAVM change markers in record overrides.
+the playing-scene set at the saved phase, and the record accessors expose the
+saved values. Saved `CHANGE_FORM_FLAGS` bits toggle the matching live record
+flags. SCEN action progress is not restored. INFO has no saved timestamp, so
+its said-once marker uses the current game day. Version 37 also retains PACK
+and NAVM change markers in record overrides.
 
 SAV-58 stores opaque unresolved record payloads and plugin-relative links in a
 world section. These records are not installed into the live form table.
@@ -9080,6 +9094,21 @@ fanout and lifetime cleanup. Tests distinguish 1,000 registration calls on one
 object from 1,000 registered objects, add 500 individual inventory items through
 the notification path, verify shared-timer fanout and quest cleanup, and check
 winning ownership on the installed player form when `SKYRIM_DATA` is set.
+
+## Load timing phases, PRF-29
+
+String-table loading records the language as an aggregate operation and each
+companion table's parse under its VFS path. Script loading records the aggregate
+scripts operation and each PEX parse. Placed-reference script binding records
+the reference and base form as object ownership around its CPU binding phase.
+The first shared navigation graph construction records a `navmesh_build` CPU
+phase over winning NAVM records. Subsequent graph access adds no build phase.
+
+Engine save loading records an aggregate `engine_save_load` and its parse/restore
+phase, including validation failures. `soe-trace` reports aggregate budgets and
+slowest retained cause phases. These measurements use the existing load/bind
+contracts and PRF-08 boundaries in `docs/performance.md`. They add no saved
+fields and leave world and VM layouts unchanged.
 
 ## Reference presentation changes, PRF-34
 

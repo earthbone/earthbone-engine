@@ -12,6 +12,63 @@ var elapsed := 0.0
 var entities := false
 var plugin_view := false
 var ai := false
+var orphan_elapsed := 0.0
+var orphan_start := -1.0
+var orphan_warning := false
+
+const UNMEASURED_RENDER_METRICS := {
+	"frustum_culled": "Godot does not expose per-stage cull counts",
+	"occlusion_culled": "Godot does not expose per-stage cull counts",
+	"visibility_range_culled": "Godot does not expose per-stage cull counts",
+	"lod_culled": "Godot does not expose per-stage cull counts",
+	"unloaded_cell_culled": "Unloaded references are not counted",
+	"lod_switches_per_second": "LOD transitions are not instrumented",
+	"shadow_casters_per_light": "Per-light caster counts are not instrumented",
+	"materials_created_per_frame": "Material creation is not counted per frame",
+	"meshes_created_per_frame": "Mesh creation is not counted per frame",
+}
+
+const MONITORS := {
+	"fps": Performance.TIME_FPS,
+	"process_ms": Performance.TIME_PROCESS,
+	"physics_ms": Performance.TIME_PHYSICS_PROCESS,
+	"navigation_ms": Performance.TIME_NAVIGATION_PROCESS,
+	"objects": Performance.OBJECT_COUNT,
+	"nodes": Performance.OBJECT_NODE_COUNT,
+	"orphan_nodes": Performance.OBJECT_ORPHAN_NODE_COUNT,
+	"static_memory_bytes": Performance.MEMORY_STATIC,
+	"static_memory_max_bytes": Performance.MEMORY_STATIC_MAX,
+	"message_buffer_max_bytes": Performance.MEMORY_MESSAGE_BUFFER_MAX,
+	"resources": Performance.OBJECT_RESOURCE_COUNT,
+	"objects_in_frame": Performance.RENDER_TOTAL_OBJECTS_IN_FRAME,
+	"primitives_in_frame": Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME,
+	"draw_calls_in_frame": Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME,
+	"video_memory_bytes": Performance.RENDER_VIDEO_MEM_USED,
+	"texture_memory_bytes": Performance.RENDER_TEXTURE_MEM_USED,
+	"render_buffer_memory_bytes": Performance.RENDER_BUFFER_MEM_USED,
+	"physics_2d_active_objects": Performance.PHYSICS_2D_ACTIVE_OBJECTS,
+	"physics_2d_collision_pairs": Performance.PHYSICS_2D_COLLISION_PAIRS,
+	"physics_2d_islands": Performance.PHYSICS_2D_ISLAND_COUNT,
+	"physics_3d_active_objects": Performance.PHYSICS_3D_ACTIVE_OBJECTS,
+	"physics_3d_collision_pairs": Performance.PHYSICS_3D_COLLISION_PAIRS,
+	"physics_3d_islands": Performance.PHYSICS_3D_ISLAND_COUNT,
+	"navigation_active_maps": Performance.NAVIGATION_ACTIVE_MAPS,
+	"navigation_regions": Performance.NAVIGATION_REGION_COUNT,
+	"navigation_agents": Performance.NAVIGATION_AGENT_COUNT,
+	"navigation_links": Performance.NAVIGATION_LINK_COUNT,
+	"navigation_polygons": Performance.NAVIGATION_POLYGON_COUNT,
+	"navigation_edges": Performance.NAVIGATION_EDGE_COUNT,
+	"navigation_edge_merges": Performance.NAVIGATION_EDGE_MERGE_COUNT,
+	"navigation_edge_connections": Performance.NAVIGATION_EDGE_CONNECTION_COUNT,
+	"navigation_free_edges": Performance.NAVIGATION_EDGE_FREE_COUNT,
+	"navigation_obstacles": Performance.NAVIGATION_OBSTACLE_COUNT,
+	"audio_output_latency_ms": Performance.AUDIO_OUTPUT_LATENCY,
+	"pipeline_canvas": Performance.PIPELINE_COMPILATIONS_CANVAS,
+	"pipeline_mesh": Performance.PIPELINE_COMPILATIONS_MESH,
+	"pipeline_surface": Performance.PIPELINE_COMPILATIONS_SURFACE,
+	"pipeline_draw": Performance.PIPELINE_COMPILATIONS_DRAW,
+	"pipeline_specialization": Performance.PIPELINE_COMPILATIONS_SPECIALIZATION,
+}
 var frame_samples: Array[float] = []
 const FRAME_SAMPLE_LIMIT := 240
 var transition_metrics := TransitionMetrics.new()
@@ -40,6 +97,7 @@ func _ready() -> void:
 	scroll.add_child(label)
 	add_child(panel)
 	panel.hide()
+	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	refresh()
 	if is_instance_valid(player):
 		entities = player.call("entity_profiling_enabled")
@@ -77,6 +135,11 @@ func _input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	orphan_elapsed += delta
+	if orphan_elapsed >= 10.0:
+		var current := float(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+		_sample_orphan_count(current)
+		orphan_elapsed = 0.0
 	frame_samples.append(delta * 1000.0)
 	if frame_samples.size() > FRAME_SAMPLE_LIMIT:
 		frame_samples.pop_front()
@@ -86,6 +149,11 @@ func _process(delta: float) -> void:
 		_capture_simulation()
 		if panel.visible:
 			refresh()
+
+
+func _sample_orphan_count(current: float) -> void:
+	orphan_warning = orphan_start >= 0.0 and current > orphan_start
+	orphan_start = current
 
 
 func refresh() -> void:
@@ -125,6 +193,19 @@ func refresh() -> void:
 			for kind in ["navigation", "movement"]:
 				text += "  %s workers: %.3f ms busy / %.3f ms caller wait / %d jobs\n" % [kind, float(ai_phases.get(kind + "_worker_busy_us", 0.0)) / 1000.0, float(ai_phases.get(kind + "_worker_wait_us", 0.0)) / 1000.0, int(ai_phases.get(kind + "_worker_jobs", 0))]
 			text += "  process high/middle high/middle low/low: %d/%d/%d/%d\n" % [int(ai_phases.get("high_actors", 0)), int(ai_phases.get("middle_high_actors", 0)), int(ai_phases.get("middle_low_actors", 0)), int(ai_phases.get("low_actors", 0))]
+	var godot := godot_metrics()
+	text += "Godot frame: %.1f fps, %d resources, static memory max %d, message buffer max %d, render buffers %.1f MiB\n" % [godot.fps, godot.resources, godot.static_memory_max_bytes, godot.message_buffer_max_bytes, godot.render_buffer_memory_bytes / 1048576.0]
+	text += "Physics 2D: %d objects, %d pairs, %d islands; navigation: %d maps, %d regions, %d agents, %d links, %d polygons\n" % [godot.physics_2d_active_objects, godot.physics_2d_collision_pairs, godot.physics_2d_islands, godot.navigation_active_maps, godot.navigation_regions, godot.navigation_agents, godot.navigation_links, godot.navigation_polygons]
+	text += "Godot ms: process %.3f, physics %.3f, navigation %.3f\n" % [godot.process_ms, godot.physics_ms, godot.navigation_ms]
+	text += "Godot objects: %d, nodes: %d, orphans: %d%s\n" % [godot.objects, godot.nodes, godot.orphan_nodes, " WARNING: orphan nodes grew over 10s" if orphan_warning else ""]
+	text += "Render visible/shadow/canvas objects: %d / %d / %d, draw calls: %d, primitives: %d\n" % [godot.visible.objects, godot.shadow.objects, godot.canvas.objects, godot.visible.draw_calls, godot.visible.primitives]
+	text += "Render CPU/GPU ms: %.3f / %.3f, video/texture MiB: %.1f / %.1f\n" % [godot.render_cpu_ms, godot.render_gpu_ms, godot.video_memory_bytes / 1048576.0, godot.texture_memory_bytes / 1048576.0]
+	for kind in ["cells", "plugins"]:
+		for name in godot.render_attribution.get(kind, {}):
+			var counts: Dictionary = godot.render_attribution[kind][name]
+			text += "%s %s: %d instances / %d draw calls / %d primitives\n" % [kind, name, counts.instances, counts.draw_calls, counts.primitives]
+	if not godot.render_attribution.unavailable.is_empty():
+		text += "Render attribution unavailable: " + ", ".join(godot.render_attribution.unavailable.keys()) + "\n"
 	text += "PRF-24 runtime metrics (cumulative unless gauge):\n"
 	for name: String in runtime:
 		text += "%s: %d\n" % [name, runtime[name]]
@@ -214,6 +295,47 @@ func ai_text(report: Dictionary) -> String:
 	return text
 
 
+func godot_metrics() -> Dictionary:
+	var values := {}
+	for name in MONITORS:
+		values[name] = Performance.get_monitor(MONITORS[name])
+	var server := RenderingServer
+	var rid := get_viewport().get_viewport_rid()
+	var passes := {}
+	for pair in [["visible", server.VIEWPORT_RENDER_INFO_TYPE_VISIBLE], ["shadow", server.VIEWPORT_RENDER_INFO_TYPE_SHADOW], ["canvas", server.VIEWPORT_RENDER_INFO_TYPE_CANVAS]]:
+		passes[pair[0]] = {
+			"objects": server.viewport_get_render_info(rid, pair[1], server.VIEWPORT_RENDER_INFO_OBJECTS_IN_FRAME),
+			"primitives": server.viewport_get_render_info(rid, pair[1], server.VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME),
+			"draw_calls": server.viewport_get_render_info(rid, pair[1], server.VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME),
+		}
+	values["visible"] = passes.visible
+	values["shadow"] = passes.shadow
+	values["canvas"] = passes.canvas
+	values["render_cpu_ms"] = server.viewport_get_measured_render_time_cpu(rid)
+	values["render_gpu_ms"] = server.viewport_get_measured_render_time_gpu(rid)
+	values["frame_setup_cpu_ms"] = server.get_frame_setup_time_cpu()
+	values["orphan_growth_warning"] = orphan_warning
+	var attribution := _render_attribution(get_tree().root)
+	var unavailable := {}
+	for name in UNMEASURED_RENDER_METRICS:
+		if not attribution.has(name):
+			attribution[name] = null
+			unavailable[name] = UNMEASURED_RENDER_METRICS[name]
+	attribution["unavailable"] = unavailable
+	values["render_attribution"] = attribution
+	return values
+
+
+func _render_attribution(node: Node) -> Dictionary:
+	if node.has_method("render_attribution"):
+		return node.call("render_attribution")
+	for child in node.get_children():
+		var found := _render_attribution(child)
+		if not found.is_empty():
+			return found
+	return {}
+
+
 func frame_pacing() -> Dictionary:
 	var sorted := frame_samples.duplicate()
 	sorted.sort()
@@ -247,19 +369,21 @@ func write_summary() -> Error:
 		return ERR_UNAVAILABLE
 	if not player.call("write_entity_profile", ProjectSettings.globalize_path("user://")):
 		return ERR_CANT_CREATE
-	var summary: String = player.call("system_summary")
-	summary += "\nPRF-24 runtime metrics: " + JSON.stringify(player.call("performance_metrics"))
 	var simulation := _capture_simulation()
 	if not simulation.ready and not last_simulation.is_empty():
 		simulation = last_simulation
-	summary += "\nPRF-37 simulation: " + JSON.stringify(simulation)
-	summary += "\nPRF-24 frame pacing: " + JSON.stringify(frame_pacing()) + "\n"
-	print(summary)
+	var summary := JSON.stringify({"systems": player.call("system_summary"), "godot": godot_metrics(), "runtime_metrics": player.call("performance_metrics"), "simulation": simulation, "frame_pacing": frame_pacing()})
+	print("SOE_FRAME_REPORT " + summary)
 	var file := FileAccess.open("user://soe-systems.txt", FileAccess.WRITE)
 	if file == null:
 		return FileAccess.get_open_error()
 	file.store_string(summary)
 	return file.get_error()
+
+
+func _exit_tree() -> void:
+	if is_instance_valid(get_viewport()):
+		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), false)
 
 
 func write_transition_summary() -> Error:

@@ -123,6 +123,11 @@ impl Vfs {
                     &normalize(path),
                     &format!("loose:{}", p.display()),
                 );
+                let _io = soe_trace::LoadScope::new(
+                    "loose_read",
+                    soe_trace::LoadCause::IoWait,
+                    p.display().to_string(),
+                );
                 Ok(std::fs::read(p)?)
             }
             Some(Source::Archived { archive, record }) => {

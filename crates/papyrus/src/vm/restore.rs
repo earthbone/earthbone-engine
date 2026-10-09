@@ -34,7 +34,9 @@ pub struct SavedVariable {
 /// One saved Papyrus frame after save-format names and values are resolved.
 #[derive(Clone, Debug)]
 pub struct SavedFrame {
-    pub object: ObjectId,
+    /// The object the frame runs on. `None` for a global function, which has
+    /// no instance or self object, as in `call_static`.
+    pub object: Option<ObjectId>,
     pub script: String,
     pub function: String,
     pub pc: usize,
@@ -76,24 +78,60 @@ impl Vm {
             }
             let mut frames = Vec::with_capacity(saved_thread.frames.len());
             for (index, saved_frame) in saved_thread.frames.iter().enumerate() {
-                let (instance, script, function) = self
-                    .find_script_method(
-                        saved_frame.object,
-                        &saved_frame.script,
-                        &saved_frame.function,
-                    )
-                    .ok_or_else(|| {
-                        VmError::State(format!(
-                            "saved function {}.{} is unavailable",
-                            saved_frame.script, saved_frame.function
-                        ))
-                    })?;
-                if saved_frame.code != function.code {
-                    return Err(VmError::State(format!(
-                        "saved function {}.{} differs from loaded PEX",
-                        saved_frame.script, saved_frame.function
-                    )));
-                }
+                let (instance, script, function) = match saved_frame.object {
+                    Some(object) => {
+                        let (instance, script, function) = self
+                            .find_script_method(object, &saved_frame.script, &saved_frame.function)
+                            .ok_or_else(|| {
+                                VmError::State(format!(
+                                    "saved function {}.{} is unavailable",
+                                    saved_frame.script, saved_frame.function
+                                ))
+                            })?;
+                        (Some(instance), script, function)
+                    }
+                    None => {
+                        let script = self.script(&saved_frame.script).ok_or_else(|| {
+                            VmError::State(format!(
+                                "saved global function {}.{} is unavailable",
+                                saved_frame.script, saved_frame.function
+                            ))
+                        })?;
+                        let function = script
+                            .functions
+                            .get(&(String::new(), saved_frame.function.to_ascii_lowercase()))
+                            .cloned()
+                            .ok_or_else(|| {
+                                VmError::State(format!(
+                                    "saved global function {}.{} is unavailable",
+                                    saved_frame.script, saved_frame.function
+                                ))
+                            })?;
+                        (None, script, function)
+                    }
+                };
+                // A handler that changes state while it runs is saved after the
+                // instance is already in the new state, so the frame belongs
+                // to the same-named function of an earlier state. Find the
+                // body in any state of the declaring script that matches.
+                let function = if same_code(&saved_frame.code, &function.code) {
+                    function
+                } else {
+                    let name = saved_frame.function.to_ascii_lowercase();
+                    script
+                        .functions
+                        .iter()
+                        .filter(|((_, candidate), _)| *candidate == name)
+                        .map(|(_, candidate)| candidate)
+                        .find(|candidate| same_code(&saved_frame.code, &candidate.code))
+                        .cloned()
+                        .ok_or_else(|| {
+                            VmError::State(format!(
+                                "saved function {}.{} differs from loaded PEX",
+                                saved_frame.script, saved_frame.function
+                            ))
+                        })?
+                };
                 if saved_frame.pc > function.code.len()
                     || saved_frame.locals.len() != function.params.len() + function.locals.len()
                 {
@@ -109,12 +147,18 @@ impl Vm {
                     .chain(&function.locals)
                     .zip(&saved_frame.locals)
                 {
-                    if !desc.name.eq_ignore_ascii_case(name) {
+                    // SOURCE: a frame suspended inside a native function
+                    // (Utility.Wait) has no PEX body, so the game names its
+                    // arguments `param1`, `param2` by position. They map onto
+                    // the declared parameters in order.
+                    let positional = is_positional_param(name);
+                    if !positional && !desc.name.eq_ignore_ascii_case(name) {
                         return Err(VmError::State(format!(
-                            "saved local {name} differs from PEX"
+                            "saved local {name} differs from PEX {} in {}.{}",
+                            desc.name, saved_frame.script, saved_frame.function
                         )));
                     }
-                    let key = name.to_ascii_lowercase();
+                    let key = desc.name.to_ascii_lowercase();
                     locals.insert(key.clone(), value.clone());
                     local_types.insert(key, desc.type_name.clone());
                 }
@@ -126,8 +170,8 @@ impl Vm {
                 frames.push(Frame {
                     coverage_recorded: false,
                     profile_recorded: false,
-                    instance: Some(instance),
-                    self_object: Some(saved_frame.object),
+                    instance,
+                    self_object: saved_frame.object,
                     script: Some(script),
                     function,
                     pc: saved_frame.pc,
@@ -252,4 +296,38 @@ impl Vm {
         self.instances = instances;
         Ok((0..saved.len()).map(InstanceId).collect())
     }
+}
+
+/// Whether a saved function body is the loaded PEX body.
+///
+/// SOURCE: the ESS string table folds case, so a saved operand carries the
+/// first spelling the game met (`ShouldSpawn` where the PEX says
+/// `shouldSpawn`), and the call opcodes save their function names as string
+/// operands where the PEX stores identifiers. Papyrus names are case
+/// insensitive, so text operands compare by value without case and a string
+/// stands for an identifier. Opcodes, operand counts and every number must
+/// still match exactly.
+fn same_code(saved: &[crate::pex::Instruction], loaded: &[crate::pex::Instruction]) -> bool {
+    use crate::pex::Operand;
+    fn same_operand(a: &Operand, b: &Operand) -> bool {
+        match (a, b) {
+            (
+                Operand::Identifier(a) | Operand::Str(a),
+                Operand::Identifier(b) | Operand::Str(b),
+            ) => a.eq_ignore_ascii_case(b),
+            _ => a == b,
+        }
+    }
+    saved.len() == loaded.len()
+        && saved.iter().zip(loaded).all(|(a, b)| {
+            a.op == b.op
+                && a.args.len() == b.args.len()
+                && a.args.iter().zip(&b.args).all(|(a, b)| same_operand(a, b))
+        })
+}
+
+/// Whether a saved local name is the positional `paramN` form of a native frame.
+fn is_positional_param(name: &str) -> bool {
+    name.strip_prefix("param")
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
 }

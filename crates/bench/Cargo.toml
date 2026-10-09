@@ -18,11 +18,12 @@ soe-save = { path = "../save" }
 soe-navmesh = { path = "../navmesh" }
 soe-trace = { path = "../trace" }
 soe-godot-host = { path = "../godot-host", default-features = false, features = ["profile-memory"] }
+soe-hkx = { path = "../hkx" }
+soe-nif = { path = "../nif" }
 stats_alloc = "0.1.10"
 serde_json = "1.0"
 
 [dev-dependencies]
-soe-nif = { path = "../nif" }
 soe-dds = { path = "../dds" }
 divan = "0.1.21"
 

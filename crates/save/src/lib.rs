@@ -109,7 +109,20 @@ impl Save {
     }
 
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
-        let bytes = std::fs::read(path)?;
+        let path = path.as_ref();
+        let _load = soe_trace::LoadScope::operation(
+            "vanilla_save_load",
+            path.display().to_string(),
+            std::time::Duration::from_millis(33),
+        );
+        let bytes = {
+            let _io = soe_trace::LoadScope::new(
+                "save_read",
+                soe_trace::LoadCause::IoWait,
+                path.display().to_string(),
+            );
+            std::fs::read(path)?
+        };
         Self::parse(&bytes)
     }
 
@@ -142,6 +155,7 @@ impl Save {
     /// file itself cannot be, since rebuilding it re-runs the compressor and
     /// nothing promises an encoder reproduces the game's exact output.
     pub fn split(bytes: &[u8]) -> Result<(Header, usize, Vec<u8>)> {
+        let _parse = soe_trace::LoadScope::new("save_header", soe_trace::LoadCause::Parse, "ESS");
         let mut file = cursor::Cursor::new(bytes, "header");
         let header = Header::read(&mut file)?;
         let header_len = file.pos();
@@ -149,6 +163,11 @@ impl Save {
         let body = match header.compression {
             Compression::None => file.rest().to_vec(),
             scheme => {
+                let _decode = soe_trace::LoadScope::new(
+                    "save_decompress",
+                    soe_trace::LoadCause::Decode,
+                    "ESS",
+                );
                 let uncompressed_len = file.u32()?;
                 let compressed_len = file.u32()?;
                 let compressed = file.take(compressed_len as usize)?;
@@ -185,6 +204,7 @@ impl Save {
         body: &[u8],
         mut profile: Option<&mut ParseProfile>,
     ) -> Result<Self> {
+        let _parse = soe_trace::LoadScope::new("save_body", soe_trace::LoadCause::Parse, "ESS");
         let mut cursor = cursor::Cursor::new(body, "body");
         let lap = profile::Lap::start(&profile, 0);
 

@@ -133,23 +133,27 @@ impl Vm {
         let function_name = name.to_ascii_lowercase();
         for &iid in &obj.instances {
             let instance = &self.instances[iid.0];
-            let Some(script) = instance
+            // The named script may sit below the one that declares the
+            // function, so search it and then every parent up the chain.
+            let Some(start) = instance
                 .chain
                 .iter()
-                .find(|script| script.name.eq_ignore_ascii_case(class))
+                .position(|script| script.name.eq_ignore_ascii_case(class))
             else {
                 continue;
             };
-            if let Some(function) = script
-                .functions
-                .get(&(instance.state.to_ascii_lowercase(), function_name.clone()))
-                .or_else(|| {
-                    script
-                        .functions
-                        .get(&(String::new(), function_name.clone()))
-                })
-            {
-                return Some((iid, script.clone(), function.clone()));
+            for script in &instance.chain[start..] {
+                if let Some(function) = script
+                    .functions
+                    .get(&(instance.state.to_ascii_lowercase(), function_name.clone()))
+                    .or_else(|| {
+                        script
+                            .functions
+                            .get(&(String::new(), function_name.clone()))
+                    })
+                {
+                    return Some((iid, script.clone(), function.clone()));
+                }
             }
         }
         None

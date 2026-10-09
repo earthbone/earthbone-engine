@@ -263,6 +263,13 @@ impl ActorAssets {
         actor: soe_esm::GlobalFormId,
         vfs: &Vfs,
     ) -> Result<ActorAssets, ActorError> {
+        let base = world
+            .reference_ref(actor)
+            .and_then(|reference| reference.base);
+        let _object = soe_trace::LoadScope::object(format!(
+            "base:{} actor:{actor}",
+            base.map_or_else(|| "unknown".to_owned(), |base| base.to_string())
+        ));
         let rig = world
             .actor_animation_rig(actor)?
             .ok_or(ActorError::MissingRaceModel {
@@ -411,6 +418,7 @@ impl ActorAssets {
 
     fn load_skeleton_at(vfs: &Vfs, path: &str) -> Result<(Skeleton, Option<Ragdoll>), ActorError> {
         let bytes = read(vfs, path)?;
+        let _parse = soe_trace::LoadScope::new("skeleton_parse", soe_trace::LoadCause::Parse, path);
         let pf = packfile(&bytes, path)?;
         let container =
             AnimationContainer::from_packfile(&pf).map_err(|source| ActorError::Havok {
@@ -440,6 +448,8 @@ impl ActorAssets {
 
     fn load_graph(vfs: &Vfs, path: &str) -> Result<(BehaviorGraph, Vec<String>), ActorError> {
         let bytes = read(vfs, path)?;
+        let _parse =
+            soe_trace::LoadScope::new("behaviour_graph", soe_trace::LoadCause::Parse, path);
         let pf = packfile(&bytes, path)?;
         let mut graph = BehaviorGraph::from_packfile(&pf).map_err(|source| ActorError::Havok {
             path: path.to_string(),
@@ -537,6 +547,11 @@ impl ActorAssets {
             path: mesh_path.to_string(),
             source,
         })?;
+        let _build = soe_trace::LoadScope::new(
+            "actor_mesh_build",
+            soe_trace::LoadCause::CpuBuild,
+            mesh_path,
+        );
         let meshes = file.meshes().map_err(|source| ActorError::Nif {
             path: mesh_path.to_string(),
             source,

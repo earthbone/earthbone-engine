@@ -368,7 +368,7 @@ impl World {
             }
             record.subrecords = subrecords;
             if let Some((flags, _)) = dialogue.as_ref().and_then(|extra| extra.form_flags) {
-                record.flags = flags;
+                record.flags ^= flags;
             }
             if matches!(record.tag.as_bytes(), b"CELL" | b"LCTN" | b"ECZN") {
                 if (plain_full && record.tag != T(b"CELL"))
@@ -694,7 +694,12 @@ impl World {
                     b"FACT" => {
                         record.all(T(b"DATA")).all(|data| data.len() == 4)
                             && record.all(T(b"XNAM")).all(|data| data.len() == 12)
-                            && record.all(T(b"CRVA")).all(|data| data.len() == 16)
+                            // SOURCE: xEdit wbDefinitionsTES5 `CRVA` is a 20 byte
+                            // struct in the plugin, and a change form with the
+                            // crime flag replaces it with four counter words.
+                            && record
+                                .all(T(b"CRVA"))
+                                .all(|data| data.len() == 16 || data.len() == 20)
                     }
                     _ => {
                         record.all(T(b"DATA")).count() == 1

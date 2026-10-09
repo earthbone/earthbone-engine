@@ -3,7 +3,15 @@
 //! Explicit host choice for vanilla ESS recovery. Dependency checks use the
 //! game save report, while accepted sessions use the native generation store.
 //! ESS type identities follow UESP's `Save_File_Format.wikitext` and
-//! FallrimTools' `ChangeForm.java`.
+//! FallrimTools' `ChangeForm.java`. xEdit leaves projectile subtypes opaque.
+//! CommonLib's `GrenadeProjectile.h` identifies PGRE as a projectile subtype.
+//!
+//! Arrows, missiles, grenades and hazards are runtime-created references with
+//! a lifetime of seconds. Recovery leaves them out and reports how many of each
+//! kind it left out, so the omission is counted rather than silent. The source
+//! ESS keeps every payload.
+
+use std::{borrow::Cow, collections::BTreeMap};
 
 use soe_game::{
     save::{DependencyChange, DependencyFinding, DependencyReport},
@@ -17,6 +25,10 @@ use soe_save::Save;
 pub struct AcceptedVanillaSession {
     pub report: DependencyReport,
     pub generation: GenerationWrite,
+    /// Transient arrows, missiles, grenade projectiles and hazards left out of
+    /// recovery, counted by ESS record type. Their payloads remain in the
+    /// source ESS.
+    pub skipped_transient: BTreeMap<&'static str, usize>,
 }
 
 /// Why a vanilla ESS cannot start as an accepted recovery session.
@@ -48,11 +60,18 @@ fn unusable_finding(finding: &DependencyFinding) -> bool {
     )
 }
 
+/// Projectile kinds whose forms are short-lived runtime references. PMIS is a
+/// spell missile, PARW an arrow, PGRE a grenade and PHZD a hazard.
+fn is_transient_projectile(kind: &str) -> bool {
+    matches!(kind, "PMIS" | "PARW" | "PHZD" | "PGRE")
+}
+
 /// Inspect and explicitly accept a vanilla save into a separate native store.
 ///
 /// Missing plugins or scripts and changed plugin kinds are reported before
-/// restoration. Active projectile and hazard changes are not imported, while
-/// opaque PCON and PARW bytes also refuse execution rather than being dropped.
+/// restoration. PMIS, PARW, PHZD and PGRE are transient and left out with
+/// counts, and the remaining beam, flame and barrier projectiles and opaque
+/// PCON bytes refuse execution.
 /// The source ESS path is never opened for writing by this operation.
 ///
 /// # Errors
@@ -77,29 +96,24 @@ pub fn accept_vanilla_recovery_session(
             )
         })
         .collect();
+    let mut skipped_transient = BTreeMap::new();
+    for change in &save.change_forms {
+        if is_transient_projectile(change.record_type()) {
+            *skipped_transient.entry(change.record_type()).or_default() += 1;
+        }
+    }
     let mut opaque: Vec<_> = save
         .change_forms
         .iter()
-        .filter(|change| change.record_type() == "PARW")
-        .map(|change| format!("PARW change form {:06X}", change.form.raw()))
+        .filter(|change| matches!(change.record_type(), "PBEA" | "PFLA" | "PBAR"))
+        .map(|change| {
+            format!(
+                "unimported {} change form {:06X}",
+                change.record_type(),
+                change.form.raw()
+            )
+        })
         .collect();
-    opaque.extend(
-        save.change_forms
-            .iter()
-            .filter(|change| {
-                matches!(
-                    change.record_type(),
-                    "PMIS" | "PGRE" | "PBEA" | "PFLA" | "PHZD" | "PBAR"
-                )
-            })
-            .map(|change| {
-                format!(
-                    "unimported {} change form {:06X}",
-                    change.record_type(),
-                    change.form.raw()
-                )
-            }),
-    );
     for change in save
         .change_forms
         .iter()
@@ -118,7 +132,14 @@ pub fn accept_vanilla_recovery_session(
         return Err(VanillaRecoveryError::Refused { report, reasons });
     }
 
-    game.restore_vanilla_world_and_vm(save)
+    let mut recovery = Cow::Borrowed(save);
+    if !skipped_transient.is_empty() {
+        recovery
+            .to_mut()
+            .change_forms
+            .retain(|change| !is_transient_projectile(change.record_type()));
+    }
+    game.restore_vanilla_world_and_vm(&recovery)
         .map_err(|error| VanillaRecoveryError::Restore {
             report: report.clone(),
             detail: error.to_string(),
@@ -129,5 +150,14 @@ pub fn accept_vanilla_recovery_session(
             report: report.clone(),
             detail: error.to_string(),
         })?;
-    Ok(AcceptedVanillaSession { report, generation })
+    for (kind, count) in &skipped_transient {
+        soe_trace::warn!(target: "host::saves", system = "host::saves",
+            "vanilla recovery left out {count} transient {kind} change forms, source ESS retained"
+        );
+    }
+    Ok(AcceptedVanillaSession {
+        report,
+        generation,
+        skipped_transient,
+    })
 }

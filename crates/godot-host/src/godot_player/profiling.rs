@@ -371,6 +371,7 @@ impl PlayerNode {
     #[func]
     fn system_summary(&self) -> GString {
         let mut summary = self.host_history.summary_text();
+        summary.push_str(&soe_trace::LoadTrace::summary_text());
         summary.push_str(&crate::scene_timing::summary(&self.scene_history));
         if let Some(game) = &self.game {
             summary.push_str(&game.magic_frame_history().summary_text());
