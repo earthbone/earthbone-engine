@@ -482,6 +482,10 @@ emits the caster and target after the weapon is dropped. `AddToMap` emits
 location discovery only when it first adds the reference, using the cell's
 resolved worldspace when available. Level increase reads the current player
 identity and rejects levels outside the event's `u16` field before dispatch.
+The SHM-19 integration fixture forwards events emitted by a live `World` to
+compiled C++ sinks subscribed through `RE::ScriptEventSourceHolder`. It checks
+the received payloads and unsupported vtable-hook result over a test pipe,
+which is not a C++ to Rust ABI.
 The grab and release channel follows held-reference changes, harvest follows a
 successful `World::harvest_item` inventory addition, hit follows a committed
 melee contact, object loaded follows reference 3D residency changes, and quest
