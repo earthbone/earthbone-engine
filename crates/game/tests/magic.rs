@@ -1011,7 +1011,7 @@ fn mag_02_aimed_projectile_contact_hits_only_its_hostile_actor_once() {
 fn mag_17_location_cast_uses_selected_position_and_authored_area() {
     let mut game = game(plugin_with_positions(
         location_effect(),
-        vec![location_spell(SPELL, 100.0, 20)],
+        vec![location_spell(SPELL, 5.0, 20)],
         &[
             (ACTOR, [0.0, 0.0, 0.0]),
             (OTHER, [105.0, 0.0, 0.0]),
@@ -1034,7 +1034,7 @@ fn mag_17_location_cast_uses_selected_position_and_authored_area() {
 fn mag_17_location_cast_rejects_a_point_beyond_authored_range() {
     let mut game = game(plugin_with_positions(
         location_effect(),
-        vec![location_spell(SPELL, 50.0, 20)],
+        vec![location_spell(SPELL, 2.0, 20)],
         &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
     ));
 
@@ -1044,6 +1044,20 @@ fn mag_17_location_cast_rejects_a_point_beyond_authored_range() {
     ));
     assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn mag_17_location_cast_accepts_a_point_at_the_authored_range_boundary() {
+    let mut game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, 1.0, 20)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [21.333_334, 0.0, 0.0])],
+    ));
+
+    let applied = location_cast(&mut game, SPELL, [21.333_334, 0.0, 0.0], true).unwrap();
+
+    assert_eq!(applied.len(), 1);
+    assert_eq!(game.world().active_effects().count(), 1);
 }
 
 #[test]

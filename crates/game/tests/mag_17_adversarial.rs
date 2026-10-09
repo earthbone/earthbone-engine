@@ -4,7 +4,7 @@ use crate::common::mag_adversarial as support;
 use support::*;
 
 #[test]
-fn location_area_hits_only_actors_around_the_selected_point() {
+fn mag_17_location_area_hits_only_actors_around_the_selected_point() {
     let mut game = game(
         effect(5, -1),
         vec![spell(SPELL, 1, 4, 500.0, 100)],
@@ -29,7 +29,7 @@ fn location_area_hits_only_actors_around_the_selected_point() {
 }
 
 #[test]
-fn obstructed_location_cast_does_not_apply_or_leave_effects() {
+fn mag_17_obstructed_location_cast_does_not_apply_or_leave_effects() {
     let mut game = game(effect(5, -1), vec![spell(SPELL, 1, 4, 500.0, 0)], &[]);
     let result = game.shared_world().borrow_mut().cast_spell_at_location(
         id(SPELL),
