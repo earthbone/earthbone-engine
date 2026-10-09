@@ -67,9 +67,16 @@ SKSE_PLUGIN_QUERY(SKSE::QueryInterface*, SKSE::PluginInfo* info)
     return true;
 }
 
-SKSE_PLUGIN_LOAD(const SKSE::LoadInterface*)
+SKSE_PLUGIN_LOAD(const SKSE::LoadInterface* skse)
 {
-    return true;
+    auto* papyrus = static_cast<SKSE::PapyrusInterface*>(skse->queryInterface(2));
+    if (!papyrus) return false;
+    return papyrus->register_natives([](RE::NativeRegistry& registry) {
+        const bool editor_id = registry.register_native({"Form", "GetFormEditorID", false});
+        const bool condition_list = registry.register_native({"Form", "GetConditionList", false});
+        const bool duplicate = registry.register_native({"form", "getformeditorid", false});
+        return editor_id && condition_list && !duplicate;
+    });
 }
 "#;
 
@@ -86,6 +93,10 @@ fn shm_02_papyrus_extender_adaptation_compiles_loads_and_reports_unsupported_hoo
     assert!(stdout.contains("plugin: Papyrus Extender source adaptation v100"));
     assert!(stdout.contains("unsupported hook: Papyrus Extender trampoline patches"));
     assert!(stdout.contains("unsupported hook: Papyrus Extender scene graph and Havok natives"));
+    assert!(stdout.contains("registered natives: 2"));
+    assert!(stdout.contains("native: Form.GetFormEditorID"));
+    assert!(stdout.contains("native: Form.GetConditionList"));
+    assert!(stdout.contains("duplicate natives: 1"));
     assert!(stdout.contains("loaded: Papyrus Extender source adaptation"));
     fs::remove_dir_all(dir).unwrap();
 }
