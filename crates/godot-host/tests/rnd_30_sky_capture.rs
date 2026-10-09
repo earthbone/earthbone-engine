@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic)]
 
-//! Sky-pass occlusion and seamless hemisphere captures using the Godot sky API.
+//! Sky-pass occlusion and hemisphere captures using the Godot sky API.
 
 use std::path::PathBuf;
 use std::process::Command;
