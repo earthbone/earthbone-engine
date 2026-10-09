@@ -4112,11 +4112,14 @@ bindings first, then asks each registered MCM config to run its
 `GetCustomControl(keyCode)` method in registration order. It reports the first
 nonempty custom control with that config's `ModName`. The older scanner
 constructor and `remap_key_scanned` remain available for focused callers and
-fixtures. Color dialog parameters are exposed by the host model. They are not
-yet wired to Papyrus calls to the two SkyUI setter functions. Synthetic tests
-cover active binding discovery, registered script calls, callback eligibility,
-conflict precedence, color dialog parameters, acceptance and cancellation
-without Skyrim data.
+fixtures. After `OnOptionColorOpen` settles, the host reads the attached
+`SKI_ConfigBase` script's `_colorParams` array. Its first two integer entries
+set the dialog's start and default colors, matching calls to
+`SetColorDialogStartColor` and `SetColorDialogDefaultColor`. Missing or
+non-integer entries leave the corresponding `-1` default in place. Synthetic
+tests cover active binding discovery, registered script calls, callback
+eligibility, conflict precedence, Papyrus color setters, acceptance and
+cancellation without Skyrim data.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
