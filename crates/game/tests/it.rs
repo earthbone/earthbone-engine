@@ -353,6 +353,8 @@ mod ai_69_quest_conditions;
 mod ai_70_adversarial;
 #[path = "ai_70_breaker_adversarial.rs"]
 mod ai_70_breaker_adversarial;
+#[path = "ai_70_breaker2_adversarial.rs"]
+mod ai_70_breaker2_adversarial;
 #[path = "ai_70_reference_state_conditions.rs"]
 mod ai_70_reference_state_conditions;
 #[path = "ai_71_adversarial.rs"]
