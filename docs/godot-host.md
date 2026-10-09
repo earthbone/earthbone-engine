@@ -5693,6 +5693,50 @@ walkthrough with gameplay, pauses simulation stepping, checks its shared
 World interior lighting and captures eight rendered frames. It passed and
 exited with status 0. This smoke run does not measure interactive frame time.
 
+## Sky depth and hemisphere continuity, RND-30
+
+`record_sky.gdshader` uses Godot's background sky pass for the atmosphere,
+clouds, sun, moons and stars. These inputs depend on viewing direction rather
+than camera position or a finite mesh radius. World geometry occludes the
+background, and the sky writes no world depth. The controller creates no
+finite sky mesh, cloud billboard or node per placed reference.
+
+Cloud UVs use a stereographic upper hemisphere, `eye.xz / (1 + eye.y)`.
+There are no cube faces or clamped projection bands. Cloud alpha fades to
+zero across the lowest 0.16 of the vertical viewing direction, meeting the
+horizon color continuously. Cloud uploads generate mipmaps after resizing,
+and the texture array uses linear mipmap filtering. Star texture sampling
+wraps at the spherical longitude boundary.
+
+Sources read were local OpenMW `apps/openmw/mwrender/sky.cpp`, its
+`files/shaders/compatibility/sky.vert`, and Godot's
+`tutorials/shaders/shader_reference/sky_shader.rst`,
+`shading_language.rst` and `tutorials/shaders/advanced_postprocessing.rst`.
+OpenMW places a camera-relative sky in an early render bin and disables
+depth writes. Godot supplies the background pass and direction inputs,
+so the host retains that API instead of porting OpenMW's OSG mesh path.
+The depth-mask test uses Godot 4.4's reversed depth buffer, with zero denoting
+the background. No dependency or saved state is added.
+
+The `rnd_30_` tests launch `godot/rnd_30_sky_capture_test.gd` windowed at
+640 by 360 and quit on completion. Synthetic captures check occlusion at
+10, 10,000 and 1,000,000 metres, camera translation with every sky component
+enabled, and adjacent samples across sixteen cube-edge, pole and horizon
+views. The continuity limit is 0.04 per channel. The installed-data case
+uses the walkthrough's PlayerNode and record sky, exits the Bannered Mare
+and views the Throat of the World from Whiterun's wall gate. It checks the
+gameplay sky binding, then uses shared-source preview controls for noon
+SkyrimCloudy. It identifies
+BTR mountain pixels by toggling terrain LOD, and distinguishes geometry
+from sky with a depth mask. Replacing the sky with magenta must leave those
+mountain pixels unchanged and fill every sampled background pixel. The
+minimum is 500 pixels in each region, with a tolerance of 2/255 per channel
+and no contaminated samples. Fog and reflections are disabled for this
+diagnostic comparison. A separate capture retains the authored cloudy sky
+and fog. Eight installed-cloud views sample former cube edges and corners
+with a limit of 0.08 per channel. PNGs and process logs are written under
+`target/rnd_30`.
+
 ## NIF effect materials, RND-22
 
 BSEffectShaderProperty meshes use a separate ShaderMaterial path. The host

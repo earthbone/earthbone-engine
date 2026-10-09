@@ -11,7 +11,7 @@ uniform sampler2D sun_texture : source_color, filter_linear;
 uniform sampler2D glare_texture : source_color, filter_linear;
 uniform bool sun_enabled;
 uniform float sun_glare;
-uniform sampler2D stars_texture : source_color, filter_linear;
+uniform sampler2D stars_texture : source_color, filter_linear, repeat_enable;
 uniform bool stars_enabled;
 uniform float night_alpha;
 uniform sampler2D masser_texture : source_color, filter_linear;
@@ -20,7 +20,7 @@ uniform bool masser_enabled;
 uniform bool secunda_enabled;
 uniform vec3 masser_direction;
 uniform vec3 secunda_direction;
-uniform sampler2DArray cloud_textures : source_color, filter_linear, repeat_enable;
+uniform sampler2DArray cloud_textures : source_color, filter_linear_mipmap, repeat_enable;
 uniform vec4 cloud_colors[256] : source_color;
 uniform vec2 cloud_speeds[256];
 uniform float cloud_layers[256];
@@ -59,10 +59,12 @@ void sky() {
 			COLOR = mix(COLOR, moon.rgb, moon.a);
 		}
 		if (EYEDIR.y > 0.0) {
-			vec2 uv = EYEDIR.xz / max(0.15, EYEDIR.y) * 0.125 + 0.5;
+			// CONTEXT: Stereographic hemisphere coordinates have no cube faces or horizon clamp.
+			vec2 uv = EYEDIR.xz / (1.0 + EYEDIR.y) * 0.25 + 0.5;
+			float horizon_alpha = smoothstep(0.0, 0.16, EYEDIR.y);
 			for (int i = 0; i < cloud_count; i++) {
 				vec4 cloud = texture(cloud_textures, vec3(uv + cloud_speeds[i] * elapsed, cloud_layers[i]));
-				COLOR = mix(COLOR, cloud.rgb * cloud_colors[i].rgb, cloud.a * cloud_colors[i].a);
+				COLOR = mix(COLOR, cloud.rgb * cloud_colors[i].rgb, cloud.a * cloud_colors[i].a * horizon_alpha);
 			}
 		}
 	}
