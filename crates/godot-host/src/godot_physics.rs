@@ -1548,6 +1548,7 @@ impl ActorBodies {
         };
         let point = crate::units::SkyrimPos::new(position[0], position[1], position[2]).to_godot();
         let transform = Transform3D::new(Basis::IDENTITY, Vector3::new(point.x, point.y, point.z));
+        PhysicsServer3D::singleton().body_set_mode(body.body, BodyMode::KINEMATIC);
         PhysicsServer3D::singleton().body_set_state(
             body.body,
             BodyState::TRANSFORM,
