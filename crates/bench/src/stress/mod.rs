@@ -4,7 +4,7 @@
 //! separate resource observations follow engine-refs/godotwind's benchmarking
 //! manual. The Python runner owns process isolation, budgets and refinement.
 
-mod fixtures;
+pub(super) mod fixtures;
 mod frame_budget;
 
 pub(super) use frame_budget::run as run_frame_budget;

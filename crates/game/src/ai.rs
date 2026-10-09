@@ -2119,6 +2119,11 @@ fn invalidate_actor_paths(world: &mut World) {
 
 fn ensure_nav_graph(world: &mut World) {
     if world.ai.nav.is_none() {
+        let _load = soe_trace::LoadScope::new(
+            "navmesh_build",
+            soe_trace::LoadCause::CpuBuild,
+            "winning NAVM records",
+        );
         // CONTEXT: Thread creation belongs to navigation preparation, not first movement.
         let _ = rayon::current_num_threads();
         let _span = soe_trace::Span::new("ai.nav_graph", "game");

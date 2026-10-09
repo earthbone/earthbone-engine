@@ -292,6 +292,46 @@ duplicate-player ownership and removal, toggles the overlay with F3, verifies
 its labels and frame shares, and writes and reads the summary. A windowed run
 can save an overlay PNG through `SOE_PRF_12_CAPTURE`.
 
+The same overlay and exit report include Godot's process, physics and
+navigation times, object and node counts, orphan nodes, static memory,
+rendered object/primitive/draw-call counts, video and texture memory, 3D
+physics counts, audio output latency and pipeline compilation counters. The
+root viewport reports visible, shadow and canvas objects, draw calls and
+primitives plus measured render CPU and GPU milliseconds. The overlay checks
+orphan node counts every ten seconds and flags an increase. Render timing is
+enabled for the overlay's viewport while it is in the tree.
+
+`CellStreamerNode.render_attribution` groups its live batch RIDs by loaded
+cell and derives source-plugin membership from each batch's reference table.
+Cell values count the cell's batch RIDs, one draw call per batch and the
+uploaded triangle count, with MultiMesh triangle counts multiplied by
+placement count. A plugin is counted once for each batch containing one of
+its references, so merged batches can appear under more than one plugin. These
+are resident batch totals. Godot's per-frame viewport counts exclude culled
+objects and are reported separately. The installed-data
+`godot/prf_30_godot_render_report_test.gd` checks these counts against the
+streamer's created batch count and checks monitor, viewport and report fields.
+
+The report retains unmeasured render fields as `null`, with reasons in
+`render_attribution.unavailable`. These include per-stage culling, unloaded
+references, LOD switches, per-light shadow casters and per-frame material and
+mesh creation. The overlay names those unavailable fields. A null value does
+not mean zero. Resident batches and aggregate viewport figures do not supply
+these measurements, and PRF-30 remains open for their instrumentation.
+
+PRF-30 is partial. The Godot monitors, the per-viewport render info with CPU
+and GPU render time, the orphan growth warning and the per-cell and per-plugin
+resident batch totals are measured. Still missing: frustum, occlusion,
+visibility range, LOD and unloaded cell cull counters per stage, the LOD
+switch rate, shadow casters per light, and material and mesh creation counts
+per frame. The installed-data test accepts a null with a reason for those
+fields, so it does not measure them. The test also cannot reconcile per-cell
+counts with Godot's objects in frame, because the cell figures are resident
+batch totals and the in-frame figure excludes culled batches. It checks only
+that the in-frame count is positive and not above the resident total. Exact
+reconciliation needs per-batch in-frame membership, which needs the cull stage
+counters above.
+
 The physics row also exposes `physics_frame_breakdown`. It reports the number
 of physics callbacks since the last presentation process callback, inferred
 catch-up steps, Godot's physics-step duration and PHYSICS_3D active body,
@@ -5752,6 +5792,90 @@ Validation passed eight RND-32 Rust tests, eight model-selection tests, seven
 texture-cache tests and two RND-17 cell preparation regressions. These groups
 overlap where new tests belong to an existing module. Formatting and
 `cargo clippy -p soe-godot-host --all-targets -- -D warnings` also passed.
+
+## PRF-28 light capacity probe
+
+`godot/capacity_lights.gd` measures a baseline and a doubling ladder of
+RenderingServer omni-light RIDs. `SOE_CAPACITY_LIGHTS` selects `dynamic` or
+`shadow`, `SOE_CAPACITY_WORLD` selects `synthetic` or `whiterun`.
+`SOE_CAPACITY_START` and `SOE_CAPACITY_MAX` default to 1 and 256. Whiterun
+loads the installed radius-one WhiterunOrigin exterior through
+CellStreamerNode. The synthetic scene uses a lit plane and 64 shadow-casting
+boxes. Whiterun adds the 64 calibration boxes to its real streamed geometry,
+without the plane. Its camera and light grid use the upper end of the vertical
+bounds because buried geometry extends the minimum far below the city.
+Each Whiterun sample requires more triangles than the calibration boxes alone.
+A bounding camera keeps the light grid in view.
+
+Lights move vertically each measured frame. Both geometry and lights use
+RIDs, with zero nodes per light. The probe verifies that light pixels differ
+from the baseline. Shadow rungs also disable shadows temporarily after the
+measurement and check that the rendered image changes. The script owns and
+frees each light and instance RID, clears the streamer and quits at the end.
+
+The viewport renders at 1600 by 900, independently of the window size.
+Warm-up uses the existing render pipeline helper. Each rung measures at least
+600 frames and five seconds with the bench.gd wall-frame, GPU and render CPU
+contract. SOE_BENCH_P99_MS and SOE_BENCH_WORST_MS retain the existing defaults
+of 16.7 and 33 ms. Reports include the baseline result, renderer, adapter,
+scene counts and zero per-light nodes. `CAPACITY_RESULT` distinguishes the
+first breach from a limit not reached. A measured boundary exits zero,
+an invalid measurement exits nonzero. This is a throughput probe, not a
+passing-frame gate.
+
+The probe requires Forward+ and bounds its requested maximum by the project's
+clustered-element limit. Its 4096-pixel positional shadow atlas has four
+quadrants of 256 maps. These settings are reported with every sample.
+The headless `prf_28_capacity_test.gd` checks only ladder arithmetic.
+Sources are local Godot RenderingServer, Viewport, light/shadow and pipeline
+references, plus godotwind's benchmark manual. Stock Godot supplies the
+renderer. No second rendering dependency or new reference-node path is added.
+
+## Load timing phases, PRF-29
+
+DataSource startup records an 18-second diagnostic budget. Cell geometry,
+collision, upload, localization, scripts and save operations use 33-millisecond
+diagnostic budgets. These thresholds report breaches rather than enforcing
+loading deadlines. The report names the largest exclusive retained cause
+phase and its asset. Worker queue phases measure submission to chunk entry.
+Worker results retain load ownership alongside the existing work recorder.
+
+Static loading carries the resolved base form and model path as owning object.
+It separates VFS reads, placed-model parse, CPU surface construction and
+texture parse/preparation. Collision loading separates model parse from shape
+construction. Actor assets record skeleton and behavior parsing, CPU mesh
+construction and actor/base ownership for record-selected rigs. Server mesh,
+MultiMesh and cached texture creation record upload submission time, including
+waits inside those host calls, rather than GPU execution time.
+
+`CellStreamerNode.load_timing_dump` returns the retained phase table and budget
+reports. `write_load_trace` writes ordinary spans and load phases as a Chrome
+trace. PlayerNode's session summary also includes load phases. The walkthrough
+adds one `load_diagnostics.gd` control node, independent of reference count.
+It observes the five pipeline-source counters after drawn frames and writes
+`user://soe-loads.txt` and `user://soe-loads.json` on exit. The text dump combines
+Rust load phases with compilation observations and current counters.
+
+Each compilation observation reports counter deltas, a drawn-frame interval
+and whether that interval exceeds 33 milliseconds. Compiler duration and
+responsible asset report unavailable. The local Godot pipeline guide and
+`godotwind/src/core/diagnostics/pipeline_compile_monitor.gd` define these source
+counters. The public stock Godot API supplies counts rather than compiler
+durations or identities. These observations do not establish that compilation
+caused a hitch. Specialization remains separate from draw-time compilation.
+
+PRF-29 is partial. Startup, geometry, collision, upload, worker queue and save
+phases carry cause classes and budgets. Still missing: compiler duration and
+the responsible asset for shader and pipeline compiles (Godot exposes counters
+only), the PRF-18 dump (this checkout has no recorder, so breaches are named in
+the log and in the `load_timing_dump`, Chrome trace and `user://soe-loads`
+files instead), PRF-20's per-asset cell split, PRF-21's per-plugin save split,
+and GPU execution time (upload records submission time only).
+
+`prf_29_loads` Rust tests exercise plugin cold/cache paths, archive and loose
+reads, engine-save failures, and installed startup, Whiterun geometry, collision
+and navigation causes. `godot/prf_29_loads_test.gd` checks windowed startup,
+Whiterun uploads, pipeline observations and both dump formats, then quits.
 
 ## Reference sync and scene phases, PRF-34
 

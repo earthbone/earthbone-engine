@@ -118,7 +118,14 @@ impl Vfs {
     pub fn read(&self, path: &str) -> Result<Vec<u8>> {
         let _span = soe_trace::Span::new("bsa.vfs_read", "bsa");
         match self.resolve(path) {
-            Some(Source::Loose(p)) => Ok(std::fs::read(p)?),
+            Some(Source::Loose(p)) => {
+                let _io = soe_trace::LoadScope::new(
+                    "loose_read",
+                    soe_trace::LoadCause::IoWait,
+                    p.display().to_string(),
+                );
+                Ok(std::fs::read(p)?)
+            }
             Some(Source::Archived { archive, record }) => {
                 self.archives[*archive].read_record(*record)
             }

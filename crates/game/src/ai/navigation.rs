@@ -273,83 +273,87 @@ impl Planner {
         for actor in invalid {
             self.cancel(actor);
         }
-        let mut pending: Vec<_> = self
-            .requests
-            .iter_mut()
-            .filter(|(_, request)| request.result.is_pending())
-            .collect();
-        let first = pending
-            .partition_point(|(actor, _)| self.next_actor.is_some_and(|next| **actor < next));
-        pending.rotate_left(first);
-        if pending.is_empty() {
-            return;
-        }
-        let entities = soe_trace::Profile::enabled().then(|| {
-            pending
-                .iter()
-                .map(|(actor, _)| (**actor, entity(**actor)))
-                .collect::<BTreeMap<_, _>>()
-        });
-        let recorder = soe_trace::WorkRecorder::current();
-        let workers = self.pool.as_ref().map_or_else(
-            rayon::current_num_threads,
-            rayon::ThreadPool::current_num_threads,
-        );
-        self.workers.busy = vec![Duration::ZERO; workers];
-        let mut offset = 0;
-        while offset < pending.len() {
-            if self.remaining == 0 {
-                self.next_actor = Some(*pending[offset].0);
-                break;
+        let mut ready = Vec::new();
+        {
+            let mut pending: Vec<_> = self
+                .requests
+                .iter_mut()
+                .filter(|(_, request)| request.result.is_pending())
+                .collect();
+            let first = pending
+                .partition_point(|(actor, _)| self.next_actor.is_some_and(|next| **actor < next));
+            pending.rotate_left(first);
+            if pending.is_empty() {
+                return;
             }
-            let budget = self.remaining.min(REQUEST_NODE_BUDGET);
-            let count = (self.remaining / budget).min(pending.len() - offset);
-            let batch = &mut pending[offset..offset + count];
-            let mut execute = || {
-                batch
-                    .par_iter_mut()
-                    .map(|(actor, request)| {
-                        let _work = recorder.as_ref().map(soe_trace::WorkRecorder::enter);
-                        let actor = **actor;
-                        let _entity = entities.as_ref().map(|entities| {
-                            soe_trace::EntityScope::new(|| entities[&actor].clone(), 1)
-                        });
-                        let started = Instant::now();
-                        let mut phases = BTreeMap::new();
-                        let used = request.advance(graph, cells, budget, &mut phases);
-                        (
-                            used,
-                            phases,
-                            started.elapsed(),
-                            rayon::current_thread_index(),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            };
-            let started = Instant::now();
-            let results = if let Some(pool) = &self.pool {
-                pool.install(execute)
-            } else {
-                execute()
-            };
-            self.workers.main_thread_wait += started.elapsed();
-            for ((_, request), (used, phases, busy, worker)) in batch.iter_mut().zip(results) {
-                self.remaining -= used;
-                self.last_work += used;
-                request.frame = self.frame;
-                self.workers.jobs += 1;
-                if let Some(worker) = worker {
-                    self.workers.busy[worker] += busy;
+            let entities = soe_trace::Profile::enabled().then(|| {
+                pending
+                    .iter()
+                    .map(|(actor, _)| (**actor, entity(**actor)))
+                    .collect::<BTreeMap<_, _>>()
+            });
+            let recorder = soe_trace::WorkRecorder::current();
+            let workers = self.pool.as_ref().map_or_else(
+                rayon::current_num_threads,
+                rayon::ThreadPool::current_num_threads,
+            );
+            self.workers.busy = vec![Duration::ZERO; workers];
+            let mut offset = 0;
+            while offset < pending.len() {
+                if self.remaining == 0 {
+                    self.next_actor = Some(*pending[offset].0);
+                    break;
                 }
-                for (phase, elapsed) in phases {
-                    *self.workers.phase_busy.entry(phase).or_default() += elapsed;
+                let budget = self.remaining.min(REQUEST_NODE_BUDGET);
+                let count = (self.remaining / budget).min(pending.len() - offset);
+                let batch = &mut pending[offset..offset + count];
+                let mut execute = || {
+                    batch
+                        .par_iter_mut()
+                        .map(|(actor, request)| {
+                            let _work = recorder.as_ref().map(soe_trace::WorkRecorder::enter);
+                            let actor = **actor;
+                            let _entity = entities.as_ref().map(|entities| {
+                                soe_trace::EntityScope::new(|| entities[&actor].clone(), 1)
+                            });
+                            let started = Instant::now();
+                            let mut phases = BTreeMap::new();
+                            let used = request.advance(graph, cells, budget, &mut phases);
+                            (
+                                used,
+                                phases,
+                                started.elapsed(),
+                                rayon::current_thread_index(),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                };
+                let started = Instant::now();
+                let results = if let Some(pool) = &self.pool {
+                    pool.install(execute)
+                } else {
+                    execute()
+                };
+                self.workers.main_thread_wait += started.elapsed();
+                for ((actor, request), (used, phases, busy, worker)) in
+                    batch.iter_mut().zip(results)
+                {
+                    self.remaining -= used;
+                    self.last_work += used;
+                    request.frame = self.frame;
+                    self.workers.jobs += 1;
+                    if let Some(worker) = worker {
+                        self.workers.busy[worker] += busy;
+                    }
+                    for (phase, elapsed) in phases {
+                        *self.workers.phase_busy.entry(phase).or_default() += elapsed;
+                    }
+                    ready.push(**actor);
                 }
+                offset += count;
             }
-            offset += count;
         }
-        drop(pending);
-        let actors: Vec<_> = self.requests.keys().copied().collect();
-        for actor in actors {
+        for actor in ready {
             self.track_ready(actor);
         }
     }

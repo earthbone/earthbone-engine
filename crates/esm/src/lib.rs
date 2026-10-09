@@ -54,7 +54,14 @@ pub use tag::Tag;
 
 /// Read and parse one plugin file.
 pub fn read_plugin(path: impl AsRef<std::path::Path>) -> std::io::Result<Result<Plugin>> {
-    let bytes = std::fs::read(path)?;
+    let path = path.as_ref();
+    let asset = path.display().to_string();
+    let bytes = {
+        let _io =
+            soe_trace::LoadScope::new("plugin_read", soe_trace::LoadCause::IoWait, asset.clone());
+        std::fs::read(path)?
+    };
+    let _parse = soe_trace::LoadScope::new("plugin_parse", soe_trace::LoadCause::Parse, asset);
     Ok(Plugin::parse(&bytes))
 }
 
@@ -70,6 +77,7 @@ pub fn read_plugin_cached(
     use std::time::UNIX_EPOCH;
 
     let canonical_path = std::fs::canonicalize(path)?;
+    let asset = canonical_path.display().to_string();
     let metadata = std::fs::metadata(&canonical_path)?;
     let modified = metadata
         .modified()?
@@ -87,7 +95,20 @@ pub fn read_plugin_cached(
         modified_nanos,
     );
 
-    if let Ok(bytes) = std::fs::read(&cache_path) {
+    let cached = {
+        let _io = soe_trace::LoadScope::new(
+            "plugin_cache_read",
+            soe_trace::LoadCause::IoWait,
+            cache_path.display().to_string(),
+        );
+        std::fs::read(&cache_path)
+    };
+    if let Ok(bytes) = cached {
+        let _decode = soe_trace::LoadScope::new(
+            "plugin_cache_decode",
+            soe_trace::LoadCause::Decode,
+            asset.clone(),
+        );
         if let Some(plugin) =
             decode_plugin_cache(&bytes, &path_identity, size, modified_secs, modified_nanos)
         {
@@ -95,8 +116,15 @@ pub fn read_plugin_cached(
         }
     }
 
-    let bytes = std::fs::read(&canonical_path)?;
-    let parsed = Plugin::parse(&bytes);
+    let bytes = {
+        let _io =
+            soe_trace::LoadScope::new("plugin_read", soe_trace::LoadCause::IoWait, asset.clone());
+        std::fs::read(&canonical_path)?
+    };
+    let parsed = {
+        let _parse = soe_trace::LoadScope::new("plugin_parse", soe_trace::LoadCause::Parse, asset);
+        Plugin::parse(&bytes)
+    };
     if let Ok(plugin) = &parsed {
         if let Some(encoded) =
             encode_plugin_cache(&path_identity, size, modified_secs, modified_nanos, plugin)
