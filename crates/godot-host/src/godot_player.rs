@@ -1879,17 +1879,19 @@ impl PlayerNode {
                 continue;
             };
             let base = source.order().resolve(record_ref.file, reference.base);
+            let state = world.reference_ref(id);
             if source
                 .order()
                 .winner(base)
                 .is_none_or(|record| record.tag != soe_esm::Tag::new(b"DOOR"))
-                || world.reference_ref(id).is_some_and(|state| state.locked)
+                || state.is_some_and(|state| state.locked)
             {
                 continue;
             }
             let mut row = VarDictionary::new();
             row.set("file", i64::from(id.file));
             row.set("object", i64::from(id.object));
+            row.set("opened", state.is_some_and(|state| state.opened));
             result.push(&row);
         }
         result
@@ -1909,6 +1911,18 @@ impl PlayerNode {
         };
         let ok = self.activate_game_reference(GlobalFormId { file, object });
         self.sync_game_pose() && ok
+    }
+
+    /// Run an Actor menu native through Papyrus for the SCR-13 host check.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_actor_menu_native(
+        &mut self,
+        name: GString,
+        target_name: GString,
+        force: bool,
+    ) -> bool {
+        self.invoke_actor_menu_native_for_check(&name, &target_name, force)
     }
 
     /// Return the pending lockpick target and authored lock level for the UI.

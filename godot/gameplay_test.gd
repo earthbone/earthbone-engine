@@ -27,9 +27,18 @@ func _hst_01_gameplay_swing_door(player: Node3D) -> void:
 	_check(not swing_doors.is_empty(), "Bannered Mare has no unlocked swing door")
 	if swing_doors.is_empty():
 		return
-	var swing: Dictionary = swing_doors[0]
-	_check(player.call("activate_reference", swing.file, swing.object), "swing door activation failed")
-	_check(player.call("swing_door_count") == 1, "activation did not create an animated swing door")
+	var swing: Dictionary = {}
+	for candidate: Dictionary in swing_doors:
+		if candidate.opened:
+			continue
+		if not player.call("activate_reference", candidate.file, candidate.object):
+			continue
+		if player.call("swing_door_count") > 0:
+			swing = candidate
+			break
+	_check(not swing.is_empty(), "no closed swing door created an animated door")
+	if swing.is_empty():
+		return
 	var animated: Node3D
 	for child: Node in player.get_children():
 		if child.name.begins_with("SwingDoor_"):
