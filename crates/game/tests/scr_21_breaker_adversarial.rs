@@ -123,3 +123,100 @@ fn scr_21_channel_notify_keeps_empty_and_whitespace_arguments() {
     game.run_until_idle(64);
     assert!(game.vm.log.contains("[]  line\n"));
 }
+
+#[test]
+fn scr_21_dump_alias_data_rejects_a_non_quest_form() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+    let mut order = LoadOrder::new();
+    order.add("Scr21InvalidQuest.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let actor = GlobalFormId {
+        file: 0,
+        object: 0x800,
+    };
+    let value = Value::Object(game.object_of_form(actor));
+    let script = "Scr21InvalidQuestProbe";
+    let function = FunctionBuilder::new("Run", "None")
+        .global()
+        .param("quest", "Quest")
+        .ins(
+            CallStatic,
+            vec![
+                s("Debug"),
+                s("DumpAliasData"),
+                ident("::nonevar"),
+                ident("quest"),
+            ],
+        )
+        .ins(Return, vec![soe_papyrus::asm::none()])
+        .build();
+    game.load_script(
+        &ScriptBuilder::new(script, "Form")
+            .function(function)
+            .bytes(),
+    )
+    .unwrap();
+    game.vm.call_global(script, "Run", &[value]).unwrap();
+    game.run_until_idle(64);
+
+    assert!(game
+        .vm
+        .log
+        .contains("Debug.DumpAliasData: quest has no runtime state"));
+}
+
+#[test]
+fn scr_21_dump_alias_data_uses_alias_log_without_polluting_papyrus_log() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(Tag(*b"QUST"), 0x801)
+            .sub(Tag(*b"DNAM"), [0; 12])
+            .sub(Tag(*b"NEXT"), [])
+            .sub(Tag(*b"INDX"), [0; 4])
+            .sub(Tag(*b"ALST"), 7_u32.to_le_bytes()),
+    );
+    let mut order = LoadOrder::new();
+    order.add("Scr21AliasDump.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let quest_id = GlobalFormId {
+        file: 0,
+        object: 0x801,
+    };
+    let quest = Value::Object(game.object_of_form(quest_id));
+    let script = "Scr21RepeatedAliasDump";
+    let function = FunctionBuilder::new("Run", "None")
+        .global()
+        .param("quest", "Quest")
+        .ins(
+            CallStatic,
+            vec![
+                s("Debug"),
+                s("DumpAliasData"),
+                ident("::nonevar"),
+                ident("quest"),
+            ],
+        )
+        .ins(
+            CallStatic,
+            vec![
+                s("Debug"),
+                s("DumpAliasData"),
+                ident("::nonevar"),
+                ident("quest"),
+            ],
+        )
+        .ins(Return, vec![soe_papyrus::asm::none()])
+        .build();
+    game.load_script(
+        &ScriptBuilder::new(script, "Form")
+            .function(function)
+            .bytes(),
+    )
+    .unwrap();
+    game.vm.call_global(script, "Run", &[quest]).unwrap();
+    game.run_until_idle(64);
+
+    assert!(game.vm.log.messages().is_empty());
+    assert_eq!(game.world_mut().quest_state(quest_id).unwrap().aliases[&7], None);
+}
