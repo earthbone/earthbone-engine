@@ -45,11 +45,12 @@ impl World {
         let mapping = SavedFormMap::new(save, self.order())?;
         let mut overrides = BTreeMap::new();
         let mut said = BTreeMap::new();
+        let mut scene_phases = BTreeMap::new();
         let mut seen = BTreeSet::new();
         let mut report = DialogueSceneRestoreReport::default();
 
         for change in &save.change_forms {
-            let (tag, extra) = match change.record_type() {
+            let (tag, extra, scene_phase) = match change.record_type() {
                 "INFO" => {
                     let Some(data) = change.info_change()? else {
                         continue;
@@ -61,6 +62,7 @@ impl World {
                             info_said_once: Some(data.said_once),
                             ..DialogueRecordExtra::default()
                         },
+                        None,
                     )
                 }
                 "SMQN" => {
@@ -74,12 +76,14 @@ impl World {
                             smqn_last_run_times: data.last_run_times,
                             ..DialogueRecordExtra::default()
                         },
+                        None,
                     )
                 }
                 "SCEN" => {
                     let Some(data) = change.scene_change()? else {
                         continue;
                     };
+                    let scene_phase = data.runtime_data()?.map(|runtime| runtime.phase);
                     (
                         Tag(*b"SCEN"),
                         DialogueRecordExtra {
@@ -88,6 +92,7 @@ impl World {
                             scene_active_data: data.active.then_some(data.active_data),
                             ..DialogueRecordExtra::default()
                         },
+                        scene_phase,
                     )
                 }
                 _ => continue,
@@ -106,18 +111,29 @@ impl World {
             if tag == Tag(*b"SCEN") {
                 let scene = soe_esm::records::gameplay::Scene::from_record(record)
                     .map_err(|error| invalid(id, error.to_string()))?;
-                if extra.scene_active == Some(true)
-                    && (scene.phases.is_empty()
-                        || scene.actions.iter().any(|action| {
-                            match (action.start_phase, action.end_phase) {
-                                (Some(start), Some(end)) => {
-                                    start > end || end as usize >= scene.phases.len()
-                                }
-                                _ => true,
+                if extra.scene_active == Some(true) {
+                    let Some(phase) = scene_phase else {
+                        return Err(invalid(id, "active SCEN has no saved phase"));
+                    };
+                    if scene.phases.is_empty() || phase as usize >= scene.phases.len() {
+                        return Err(invalid(
+                            id,
+                            format!(
+                                "active SCEN phase {phase} exceeds {} record phases",
+                                scene.phases.len()
+                            ),
+                        ));
+                    }
+                    if scene.actions.iter().any(|action| {
+                        match (action.start_phase, action.end_phase) {
+                            (Some(start), Some(end)) => {
+                                start > end || end as usize >= scene.phases.len()
                             }
-                        }))
-                {
-                    return Err(invalid(id, "active SCEN has invalid phase actions"));
+                            _ => true,
+                        }
+                    }) {
+                        return Err(invalid(id, "active SCEN has invalid phase actions"));
+                    }
                 }
             }
             if self.record_overrides.contains_key(&id) {
@@ -134,11 +150,14 @@ impl World {
                 }
                 _ => {
                     report.scenes += 1;
+                    if let Some(phase) = scene_phase {
+                        scene_phases.insert(id, phase);
+                    }
                 }
             }
             let mut value = RecordOverride::new(id, record.clone());
             if let Some((flags, _)) = extra.form_flags {
-                value.record.flags = flags;
+                value.record.flags ^= flags;
             }
             value.dialogue = Some(extra);
             overrides.insert(id, value);
@@ -159,7 +178,13 @@ impl World {
                 if let Some(active) = extra.scene_active {
                     if active {
                         playing_scenes.insert(*id);
-                        playing_runs.insert(*id, SceneRunState::default());
+                        playing_runs.insert(
+                            *id,
+                            SceneRunState {
+                                phase: scene_phases.get(id).copied().unwrap_or_default(),
+                                ..SceneRunState::default()
+                            },
+                        );
                     } else {
                         playing_scenes.remove(id);
                         playing_runs.remove(id);

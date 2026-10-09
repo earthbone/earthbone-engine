@@ -1141,6 +1141,25 @@ raw and cannot validate their interior. The Rust decoder uses the measured
 layout because none of those readers defines it. No source code or save
 file was copied into this repository.
 
+### Live INFO, SMQN and SCEN records, SAV-30
+
+Restoring a save validates every decoded INFO, SMQN and SCEN change first and
+only then writes the world, so one malformed or wrong-type change leaves the
+whole world unchanged. A repeated restore that conflicts with a runtime
+override is rejected the same way. The applied state lives in the record
+override table, beside the other record-backed saved changes.
+
+`World::restored_info_said_once`, `restored_smqn_last_run_times`,
+`restored_scene_active_data` and `restored_dialogue_form_flags` answer from
+that table. Form flag masks apply to the live record flags, and a zero mask
+leaves them alone. A scene whose change is inactive refuses active payload
+bytes. SMQN last-run values keep their exact float bits. The table is part of
+the engine's own save section, so a restored result survives an engine save
+and load, which `tests/vanilla_save/sav_30_dialogue_scene.rs` and its two
+adversarial files exercise, including against the installed dialogue and scene
+records. The saved scene runtime is kept as bytes. Scene execution does not
+read it yet.
+
 ## Form-list and leveled-list changes
 
 `ChangeForm::form_list_change` decodes FLST additions.
