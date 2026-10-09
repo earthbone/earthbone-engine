@@ -104,7 +104,7 @@ the top of `mesh.rs`.
 
 Texture-set and effect-shader paths are trimmed, lowercased, and converted to
 forward slashes while the neutral mesh material is built. The first
-`textures/` component begins the resolved path; a path without that component
+`textures/` component begins the resolved path. A path without that component
 gets the `textures/` prefix. Empty slots stay empty. This follows nifly's
 `NifFile::TrimTexturePaths` behavior and its `Trim texture paths` test in
 `tests/TestNifFile.cpp`. Nifly's `Nodes.hpp` declares `BSTreeNode` and
