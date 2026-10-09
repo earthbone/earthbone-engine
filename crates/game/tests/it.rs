@@ -1509,6 +1509,8 @@ mod scr_53_weapon_fire;
 mod scr_54_adversarial;
 #[path = "scr_54_breaker2_adversarial.rs"]
 mod scr_54_breaker2_adversarial;
+#[path = "scr_54_breaker3_adversarial.rs"]
+mod scr_54_breaker3_adversarial;
 #[path = "scr_54_breaker_adversarial.rs"]
 mod scr_54_breaker_adversarial;
 #[path = "scr_54_weather_set_active.rs"]
