@@ -34,7 +34,16 @@ fn rnd_22_uv_scale_then_offset_preserves_authored_effect_mapping() {
     let (desc, effect) = material();
     let shader = nif_effect::shader(&desc, &effect);
 
-    assert!(shader.contains("vec2 uv = UV * uv_scale + uv_offset;"));
+    // RND-23 rotates the scaled coordinates about the centre before the
+    // offset, so check that the scale comes first and the offset after it,
+    // not one literal line.
+    let scale = shader
+        .find("vec2 uv = UV * uv_scale")
+        .expect("UV is scaled by uv_scale first");
+    assert!(
+        shader[scale..].contains("+ uv_offset;"),
+        "uv_offset is added after the scale"
+    );
 }
 
 #[test]
