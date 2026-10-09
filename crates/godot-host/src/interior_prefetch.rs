@@ -254,6 +254,7 @@ fn payload_bytes(location: &LoadedLocation) -> usize {
                 &surface.textures.environment_mask,
                 &surface.textures.glow,
                 &surface.textures.greyscale,
+                &surface.textures.terrain_noise,
             ]
             .into_iter()
             .flatten()
@@ -387,6 +388,7 @@ mod tests {
                     environment_mask: None,
                     glow: None,
                     greyscale: None,
+                    terrain_noise: None,
                 },
                 instance_transform: None,
                 mesh_identity: None,
@@ -396,6 +398,44 @@ mod tests {
             "shared texture counted twice"
         );
         assert!(!admitted(&data));
+    }
+
+    #[test]
+    fn rnd_26_prefetch_counts_shared_terrain_noise_once() {
+        let mut data = location();
+        let texture = Arc::new(TextureData::Rgba8(soe_dds::Image {
+            width: 1,
+            height: 1,
+            depth: 1,
+            rgba: vec![128; 4],
+        }));
+        data.cells[0]
+            .1
+            .surfaces
+            .push(crate::data_source::LoadedSurface {
+                reference: CELL,
+                arrays: crate::mesh::build_surface(
+                    &crate::mesh::MeshData {
+                        positions: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                        indices: vec![0, 1, 2],
+                        ..Default::default()
+                    },
+                    crate::mesh::MeshOptions::default(),
+                )
+                .unwrap(),
+                placement: soe_physics::Iso::IDENTITY,
+                textures: crate::data_source::SurfaceTextures {
+                    terrain_noise: Some(Arc::clone(&texture)),
+                    ..Default::default()
+                },
+                instance_transform: None,
+                mesh_identity: None,
+            });
+        let noise_only = payload_bytes(&data);
+        data.cells[0].1.surfaces[0].textures.normal = Some(texture);
+        assert_eq!(payload_bytes(&data), noise_only);
+        data.cells[0].1.surfaces[0].textures = crate::data_source::SurfaceTextures::default();
+        assert_eq!(noise_only - payload_bytes(&data), 4);
     }
 
     #[test]

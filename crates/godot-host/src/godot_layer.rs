@@ -268,12 +268,10 @@ struct CellOccluder {
 /// Both keep the `RenderingServer` instance's own transform at identity, so
 /// freeing either only needs the enum, never a second lookup.
 ///
-/// Neither payload is read again after construction: each variant exists to
-/// hold the strong `Gd` reference the underlying `RefCounted` resource needs
+/// Each variant holds the strong `Gd` reference the `RefCounted` resource needs
 /// to stay alive, since the `RenderingServer` instance's mesh RID does not
 /// itself keep the resource from being freed. `free_instances` drops the
-/// whole enum, which is enough, so `#[allow(dead_code)]` here documents an
-/// RAII field rather than hiding an unused one.
+/// whole enum. Terrain inspection also exposes the array mesh variant.
 #[allow(dead_code)]
 enum InstanceMesh {
     Array(Gd<ArrayMesh>),
@@ -3063,6 +3061,43 @@ impl CellStreamerNode {
         }
     }
 
+    /// Toggle loaded LAND instances for captures, retaining objects and collision.
+    #[func]
+    pub fn set_loaded_terrain_visible(&mut self, visible: bool) {
+        let mut server = RenderingServer::singleton();
+        for instance in &self.instances {
+            if instance
+                .arrays
+                .material
+                .diffuse
+                .as_deref()
+                .is_some_and(|path| path.starts_with("terrain:"))
+            {
+                server.instance_set_visible(instance.rid, visible);
+            }
+        }
+    }
+
+    /// Loaded LAND mesh resources for inspecting terrain edges and materials.
+    #[func]
+    pub fn loaded_terrain_meshes(&self) -> Array<Gd<ArrayMesh>> {
+        let mut meshes = Array::new();
+        for instance in &self.instances {
+            if instance
+                .arrays
+                .material
+                .diffuse
+                .as_deref()
+                .is_some_and(|path| path.starts_with("terrain:"))
+            {
+                if let InstanceMesh::Array(mesh) = &instance.mesh {
+                    meshes.push(mesh);
+                }
+            }
+        }
+        meshes
+    }
+
     /// The LOD state as a dictionary: world, level, anchor_x, anchor_y,
     /// full_res_radius, lod_radius, budget_bytes, usage_bytes, over_budget,
     /// resident, absent, instances, triangles, blocks as space separated
@@ -3711,12 +3746,52 @@ fn material_for(
         water_material(water).upcast()
     } else if let Some(effect) = &desc.effect {
         nif_effect_material(desc, effect, textures, &mut cache.textures).upcast()
+    } else if desc.landscape_lod_normals() {
+        landscape_lod_material(desc, textures, &mut cache.textures).upcast()
     } else if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
         decal_material(desc, textures, &mut cache.textures, &mut cache.cubemaps).upcast()
     } else {
         material_with_textures(desc, textures, &mut cache.textures).upcast()
     };
     cache.materials.insert(key, material.clone());
+    material
+}
+
+fn landscape_lod_material(
+    desc: &MaterialDesc,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+) -> Gd<ShaderMaterial> {
+    let mut shader = Shader::new_gd();
+    let code = include_str!("landscape_lod.gdshader");
+    if desc.double_sided {
+        shader.set_code(
+            code.replace("specular_disabled;", "specular_disabled, cull_disabled;")
+                .as_str(),
+        );
+    } else {
+        shader.set_code(code);
+    }
+    let mut material = ShaderMaterial::new_gd();
+    material.set_shader(&shader);
+    if let Some(texture) = albedo_texture(cache, desc, textures) {
+        material.set_shader_parameter("diffuse_texture", &texture.to_variant());
+    }
+    if let Some(normal) = &textures.normal {
+        if let Some(texture) = cached_texture(cache, desc.normal.as_deref(), normal) {
+            material.set_shader_parameter("normal_texture", &texture.to_variant());
+            material.set_shader_parameter("has_normal", &true.to_variant());
+        }
+    }
+    if desc.landscape_lod_noise {
+        if let Some(noise) = &textures.terrain_noise {
+            if let Some(texture) = cached_texture(cache, Some("textures/terrain/noise.dds"), noise)
+            {
+                material.set_shader_parameter("noise_texture", &texture.to_variant());
+                material.set_shader_parameter("has_noise", &true.to_variant());
+            }
+        }
+    }
     material
 }
 

@@ -1664,6 +1664,51 @@ The Rust `rnd_19_` tests run this installed-data capture, survey WRLD flags,
 and exercise independent land/LOD inheritance, nested parents, invalid
 parents, focus movement, radius validation and immediate near handoff.
 
+Landscape LOD materials with both `Model_Space_Normals` and `LOD_Landscape`
+use a lit spatial shader. The LOD diffuse texture is sampled as sRGB and the
+normal texture as linear RGB encoding Skyrim X, Z, Y. The shader converts
+that direction to Godot X, Y, negative Z and then to view space. It uses the
+same scenario lights, ambient environment and record fog pass as loaded LAND.
+Shader type 18 also applies the authored landscape noise operation to linear
+albedo, using the shared `textures/terrain/noise.dds` mask tiled three times
+over the block. Ordinary type 9 landscape LOD does not apply that mask.
+A missing normal texture
+leaves the converted mesh normal in use. Material cache identity includes
+the normal-space and noise choices, so an ordinary mesh using the same texture paths
+does not reuse the LOD shader. Geometry remains in RenderingServer instances.
+
+The normal swizzle follows the local Community Shaders
+`package/Shaders/Lighting.hlsl` `MODELSPACENORMALS`, `LODLANDSCAPE` and
+`LODLANDNOISE` branches, including `GetLodLandBlendParameter` and
+`GetLodLandBlendMultiplier`. CommonLibSSE-NG's
+`BSLightingShaderMaterialLODLandscape.h` identifies feature 18 and its separate
+noise texture. The installed Tamriel BTRs select that feature, and the installed
+texture archive supplies `textures/terrain/noise.dds`. Missing noise leaves
+the diffuse unmodulated. The shared mask participates in the prepared-cell
+upload and interior-prefetch texture byte budgets.
+`nifxml/nif.xml` defines the two flags, and xEdit's `Worldspace browser.pas`
+`LODTextureFileName` supplies Skyrim's diffuse and `_n.dds` naming. OpenMW's
+`components/nifosg/nifloader.cpp` leaves this landscape shader unhandled, and
+Godotwind's Terrain3D shader consumes a different terrain format. The host
+therefore applies these semantics in its own Godot material.
+
+`set_loaded_terrain_visible` toggles loaded LAND batches for capture masks,
+retaining placed objects and collision. `loaded_terrain_meshes` exposes those
+mesh resources for edge and material inspection. `godot/rnd_26_lod_lighting.gd` compares
+the shipped BTR material against a standard material under six normal
+directions, ambient light, fog, rotated geometry and a missing normal map.
+Dark and bright albedos with three constant noise masks verify the linear
+noise operation before lighting.
+It then looks south from Whiterun's gate wall. The capture loads a complete
+radius-two LAND ring through `stream_exterior` and the adjoining BTR ring,
+because the gameplay one-cell load ring does not fill its two-cell LOD
+exclusion. Independent LAND and BTR visibility captures identify the two
+sides at the projected shared cell boundary, excluding foreground hill crests.
+At least 40 columns must contribute,
+with mean linear luminance ratio at most 1.35 and difference at most 0.08.
+The captures and process log are stored under `godot/.godot/rnd_26-*`.
+This material change does not change the gameplay ring's geometry coverage.
+
 ## Mesh
 
 `mesh::MeshSource` is a trait shaped like the `nif` crate's neutral output: positions,
