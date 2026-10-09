@@ -2,6 +2,7 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -185,6 +186,19 @@ fn scratch_dir() -> PathBuf {
     std::env::temp_dir().join(format!("soe-tst-10-champollion-{}", std::process::id()))
 }
 
+fn corpus_inputs(
+    data: Option<OsString>,
+    champollion: Option<OsString>,
+) -> Result<Option<(PathBuf, PathBuf)>, &'static str> {
+    let Some(data) = data else {
+        return Ok(None);
+    };
+    let Some(champollion) = champollion else {
+        return Err("CHAMPOLLION must name the decoder when SKYRIM_DATA is set");
+    };
+    Ok(Some((PathBuf::from(data), PathBuf::from(champollion))))
+}
+
 fn compare_corpus(data: &Path, champollion: &Path, report: &Path) {
     let archive =
         soe_bsa::Archive::open(&data.join("Skyrim - Misc.bsa")).expect("open Skyrim - Misc.bsa");
@@ -273,6 +287,22 @@ fn tst_10_champollion_assembly_inventory_parser_reads_signatures_and_opcodes() {
             params: vec!["amount:int".into()],
             instructions: 2,
         })
+    );
+}
+
+#[test]
+fn tst_10_champollion_requires_decoder_when_game_data_is_configured() {
+    assert_eq!(corpus_inputs(None, None), Ok(None));
+    assert_eq!(
+        corpus_inputs(Some(OsString::from("Data")), None),
+        Err("CHAMPOLLION must name the decoder when SKYRIM_DATA is set")
+    );
+    assert_eq!(
+        corpus_inputs(
+            Some(OsString::from("Data")),
+            Some(OsString::from("champollion"))
+        ),
+        Ok(Some((PathBuf::from("Data"), PathBuf::from("champollion"))))
     );
 }
 
@@ -390,12 +420,13 @@ fn tst_10_champollion_report_differences_include_missing_and_changed_functions()
 
 #[test]
 fn tst_10_champollion_matches_all_shipped_scripts_or_writes_differences() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+    let inputs = corpus_inputs(
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("CHAMPOLLION"),
+    )
+    .unwrap_or_else(|message| panic!("TST-10 configuration error: {message}"));
+    let Some((data, champollion)) = inputs else {
         eprintln!("skipping TST-10: SKYRIM_DATA is not set");
-        return;
-    };
-    let Some(champollion) = std::env::var_os("CHAMPOLLION").map(PathBuf::from) else {
-        eprintln!("skipping TST-10: CHAMPOLLION is not set");
         return;
     };
     let default_report = std::env::var_os("CARGO_TARGET_DIR")
