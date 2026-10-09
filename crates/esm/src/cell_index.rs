@@ -75,6 +75,8 @@ pub struct CellIndex {
     grid: HashMap<GridCell, GlobalFormId>,
     grid_of: HashMap<GlobalFormId, GridCell>,
     world_cells: HashMap<GlobalFormId, GlobalFormId>,
+    /// The reverse of `world_cells`. A cell shared by several worlds keeps the lowest world id.
+    cell_worlds: HashMap<GlobalFormId, GlobalFormId>,
     by_editor_id: HashMap<String, GlobalFormId>,
     placed: usize,
     deleted: usize,
@@ -135,6 +137,13 @@ impl CellIndex {
             entry.deleted.sort_unstable();
             index.placed += entry.placed.len();
             index.deleted += entry.deleted.len();
+        }
+        for (world, cell) in &index.world_cells {
+            index
+                .cell_worlds
+                .entry(*cell)
+                .and_modify(|held| *held = (*held).min(*world))
+                .or_insert(*world);
         }
         span.set_payload(index.placed as u64);
         index
@@ -242,6 +251,15 @@ impl CellIndex {
     #[must_use]
     pub fn world_persistent_cell(&self, world: GlobalFormId) -> Option<GlobalFormId> {
         self.world_cells.get(&world).copied()
+    }
+
+    /// The worldspace whose persistent cell this is, the lowest id when
+    /// several name it. `None` for every other cell. This is the reverse of
+    /// [`CellIndex::world_persistent_cell`] and costs one hash lookup, where
+    /// scanning the worldspace records walks the whole load order.
+    #[must_use]
+    pub fn persistent_cell_world(&self, cell: GlobalFormId) -> Option<GlobalFormId> {
+        self.cell_worlds.get(&cell).copied()
     }
 
     /// The cell with this editor id. When an interior and an exterior cell

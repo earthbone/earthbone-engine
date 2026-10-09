@@ -157,6 +157,12 @@ pub(crate) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> 
             .entries
             .push(Entry::Record(plugin.push_record(record)));
     }
+    for floor in 1..=3 {
+        let geometry = lookup_floor(floor as f32 * 10_000.0);
+        temporary.entries.push(Entry::Record(plugin.push_record(
+            Record::new(T(b"NAVM"), NAV + 0x100 + floor).sub(T(b"NVNM"), geometry.to_bytes()),
+        )));
+    }
     for n in 0..count {
         temporary
             .entries
@@ -176,7 +182,7 @@ pub(crate) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> 
     plugin.groups.push(block);
     let mut order = LoadOrder::new();
     order.add("Stress.esm", plugin).map_err(|e| e.to_string())?;
-    let game = Game::new(order);
+    let mut game = Game::new(order);
     let ids: Vec<_> = (0..count)
         .map(|n| GlobalFormId {
             file: 0,
@@ -188,7 +194,69 @@ pub(crate) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> 
             return Err(format!("could not drive actor {id}"));
         }
     }
+    soe_game::ai::nav_graph(&mut game.world_mut());
+    let shared = game.shared_world();
+    for &id in &ids {
+        if shared
+            .borrow_mut()
+            .evaluate_package(id, &mut |name, class| game.vm.create_object_of(name, class))
+            .is_none()
+        {
+            return Err(format!("could not select a package for actor {id}"));
+        }
+    }
     Ok((game, ids))
+}
+
+fn lookup_floor(height: f32) -> Geometry {
+    let mut vertices = Vec::with_capacity(40_000);
+    let mut triangles = Vec::with_capacity(20_000);
+    for x in 0..100 {
+        for y in 0..100 {
+            let v = vertices.len() as u16;
+            let t = triangles.len() as i16;
+            let left = x as f32 * FAR / 100.0;
+            let right = (x + 1) as f32 * FAR / 100.0;
+            let bottom = y as f32 * 10.0;
+            vertices.extend([
+                [left, bottom, height],
+                [right, bottom, height],
+                [right, bottom + 10.0, height],
+                [left, bottom + 10.0, height],
+            ]);
+            triangles.extend([
+                Triangle {
+                    vertices: [v, v + 1, v + 2],
+                    edges: [-1, -1, t + 1],
+                    flags: 0,
+                    cover_flags: 0,
+                },
+                Triangle {
+                    vertices: [v, v + 2, v + 3],
+                    edges: [t, -1, -1],
+                    flags: 0,
+                    cover_flags: 0,
+                },
+            ]);
+        }
+    }
+    Geometry {
+        version: 12,
+        location_crc: 0,
+        parent: Parent::Cell(CELL),
+        vertices,
+        triangles,
+        edge_links: vec![],
+        door_links: vec![],
+        cover_triangles: vec![],
+        grid: NavGrid {
+            divisor: 1,
+            size: [FAR, 1000.0],
+            min: [0.0, 0.0, height],
+            max: [FAR, 1000.0, height],
+            cells: vec![(0..20_000).collect()],
+        },
+    }
 }
 
 pub(super) fn navigation() -> NavGraph {

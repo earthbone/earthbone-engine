@@ -830,6 +830,8 @@ pub struct World {
     pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     quest_alias_candidates: std::sync::OnceLock<Option<Arc<[GlobalFormId]>>>,
+    /// Parsed story manager nodes, built on the first story event.
+    story_nodes: std::sync::OnceLock<Result<Arc<[story_manager::Node]>, story_manager::StoryError>>,
     pub(crate) dialogue: crate::dialogue::State,
     pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
     /// NPC bases warned about during this world session, excluded from saves.
@@ -1358,6 +1360,7 @@ impl World {
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             quest_alias_candidates: std::sync::OnceLock::new(),
+            story_nodes: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
             known_dialogue_topics: BTreeSet::new(),
             duplicate_npc_perk_warnings: BTreeSet::new(),

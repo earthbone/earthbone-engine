@@ -422,6 +422,73 @@ the first resumed control callback. Fast travel has no host transition entry
 point in this checkout. PRF-16 has no transition budgets until the remaining
 paths and native presenter measurements are implemented.
 
+## TST-18 gameplay frame gates
+
+The non-ignored `tst_18_` timing checks use fixed limits: p99 at most 16.7 ms and
+every measured frame at most 33 ms. Limits are checked directly in Rust and
+in the Godot script, with no environment override. These headless gameplay
+measurements include simulation and host callbacks, with no GPU throughput
+claim. They do not use `Performance.TIME_PROCESS` as a frame denominator.
+
+`crates/bench/tests/tst_18_walkthrough.rs` launches
+`godot/tst_18_walkthrough.gd`, which inherits the real walkthrough startup,
+once for WhiterunBanneredMare and once for WhiterunOrigin's radius-one block.
+Passing children run at least 60 wall seconds and 3,600 fixed 1/60-second
+steps. A run with a frame breach reports failure after 60 measured wall
+seconds, even if it has not reached 3,600 steps.
+Setup and a 20-wall-second gameplay settling phase are excluded. Wall
+intervals between process callbacks include the explicit player advance and
+the other host callbacks. Once per simulated second, the measured frame also
+probes the navigation graph at world positions of NPCs with supported packages,
+matching AI's package evaluation interval so retained planner results
+cannot hide an expensive lookup. At least five actors, a nonempty navigation
+graph, package evaluations, selected packages throughout measurement and
+successful probes at every scheduled navigation frame are required. These
+read-only probes add a fixed cadence to the headless walkthrough gate. They
+are excluded from settling.
+The script counts every frame above 33 ms, reports p99 and worst, then quits
+with failure on any breach. The parent checks the report and exit status,
+drains both pipes and kills and reaps a child after 240 seconds. Each child
+also has a 210-second script watchdog. Measurements and diagnostics are
+retained under the ignored `performance-results/tst-18/` directory.
+
+The PRF-07 fixture retains its Travel and Sandbox routes and adds three
+overlapping NAVM floors, each with 20,000 triangles, giving 60,002 total.
+Graph construction and package selection occur in setup. A cold 120-tick
+work-count check includes the first package tick and permits at most 4,000
+triangle examinations per tick. The optimized PRF-07 test measures a cold
+120-tick window including the first package tick, then checks the Python
+runner's 120-tick window after one warm-up tick. Both assert numeric p99 and
+worst against the same limits, with process RSS below 2,048 MiB. The ordinary
+test builds its optimized child through Cargo, retaining the configured build
+flags and target directory.
+Every actor selects its expected procedure. Travel actors must advance. Both
+reports are checked for numeric timings, graph size and package
+evaluations. The cold child has a 120-second deadline and is killed and reaped
+on timeout. Its complete output is retained alongside the walkthrough logs.
+
+With `SKYRIM_DATA` set, build the release extension and import the project
+before running the installed gate. `SOE_GODOT_BIN` names the host executable:
+
+```text
+rtk cargo build -p soe-godot-host --release
+rtk proxy "$SOE_GODOT_BIN" --headless --path godot --import
+rtk cargo test -p soe-bench --test tst_18_walkthrough -- --nocapture
+rtk cargo test -p soe-bench --bin soe-bench tst_18_ -- --nocapture
+rtk cargo test -p soe-bench --test prf_07_adversarial -- --nocapture
+```
+
+Unset `SKYRIM_DATA` skips only the installed walkthrough cases. The synthetic
+thousand-actor limits remain active in the normal Cargo test gate.
+Sources are the local `godotwind/docs/systems/benchmarking.md` for separate
+setup, its 10 to 20 second settling interval and workload counters, and
+`godot-docs/classes/class_time.rst` for
+monotonic frame intervals. The headless gameplay requirement is separate from
+that manual's windowed rendering acceptance. NAVM fixtures use this engine's
+geometry writer, following `TES5Edit/Core/wbDefinitionsTES5.pas`'s `wbNVNM`,
+including 16-bit vertices and signed 16-bit edge and grid triangle indices.
+Each added floor stays within those index widths.
+
 ## Per-system frames, PRF-12
 
 PRF-20 cell cost reports, texture inventories, plugin record bodies and counting
@@ -2015,6 +2082,48 @@ release extension and import once before running:
 ```text
 rtk proxy env SOE_THREADED_SIMULATION=1 SKYRIM_DATA=<installed-data> "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script tst_18_frame_budget_test.gd
 ```
+
+The exterior soak found one frame of 123 to 217 ms. A story event rebuilt the
+node list by walking every winning record in the load order, about 20 ms per
+event, and a burst of events in one frame cost 150 to 260 ms. The parsed nodes
+depend only on the load order, so `World` now builds them on the first event
+and reuses them (`story_nodes` in `crates/game/src/world/story_manager.rs`).
+After the change the exterior soak has no frame over 33 ms on the installed
+data.
+
+The interior soak then failed far more often than the three frames the
+script prints (it prints only the first three breaches). Two runs on a lightly
+loaded host reported over_budget_frames 57 and 83 over about 2,600 samples,
+p99 35.0 and 39.2 ms, worst 48.4 and 81.3 ms, a median frame of about 21 ms
+and about 45 fps against about 145 fps in the exterior. The FAIL line now
+prints over_budget_frames, p99, worst and the sample count. SOE systems summed
+to only about 4 ms of that frame, and the interior was three times slower per
+frame than the exterior under the same renderer, so the renderer was not the
+cause. The single frame worst values in the systems table (dialogue,
+audio, host render submission, Papyrus VM) come from startup and settle
+frames, not the measured window. A frame profile of the interior walkthrough
+found `World::sky_frame`: for an interior cell it walked every winning WRLD
+record and asked the cell index for the persistent cell of each, once per
+tick, costing 16.9 ms per call. `CellIndex::persistent_cell_world` now keeps
+the reverse map, so the owner is one hash lookup. After that change the
+interior walkthrough has over_budget_frames 0, p99 9.1 ms and worst 15.6 ms
+over 8,691 samples, and the exterior p99 8.3 ms and worst 14.9 ms over 8,695.
+
+The interior log carries repeated Papyrus errors, `cannot call IsInFaction()
+on a None object` from `DialogueSwapGovernmentAliasesScript.TestForSwap`
+line 66. The log reports each distinct error once with a count (about 100
+lines per run), so printing is not a per-frame cost, and the fixed run meets
+the budget with them still present. The None actor in that alias is a
+separate defect and is not part of the frame budget.
+
+The pre-PRF-11 comparison was run with the linear scan in
+`NavGraph::nearest` restored: the exterior walkthrough fails
+(over_budget_frames 123, p99 88.7 ms, worst 98.1 ms), and so does the
+thousand-actor runner test. Navigation work in the warm 600-tick PRF-14 window
+is no longer asserted because the fixture setup now performs it, so
+navigation is covered by the cold-start tests
+(`tst_18_cold_actor_packages_bound_lookup_on_overlapping_navmesh_floors` and
+`tst_18_prf_07_runner_asserts_thousand_actor_p99_and_worst_limits`).
 
 This gate measures the opt-in snapshot adapter. It does not establish complete
 playable-runtime integration or include startup and cell replacement in the
