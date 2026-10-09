@@ -353,7 +353,7 @@ impl Material {
 }
 
 /// Normalize a NIF texture path to the game's virtual `textures/` namespace.
-/// nifly's `TrimTexturePaths` removes the authored data/build prefix; VFS
+/// nifly's `TrimTexturePaths` removes the authored data/build prefix. VFS
 /// lookup then uses case-insensitive forward-slash paths.
 fn normalize_texture_path(path: &str) -> String {
     let normalized = path.trim().replace('\\', "/").to_lowercase();
