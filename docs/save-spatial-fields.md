@@ -2,11 +2,13 @@
 
 SAV-27 decodes CELL fields with serialized layouts in xEdit, including its
 seen-data shape. The named CELL flags 28 to 30 are exposed as typed markers,
-and bytes after the defined fields remain an exact opaque suffix. ECZN and
-LCTN expose their named changed markers and common form flags. Their
-placeholder-union bytes remain an exact opaque tail. SAV-28 applies supported
-fields to live records and retains opaque bytes through engine save/load.
-Opaque bytes do not identify field widths or internal values.
+but xEdit omits their unions from the CELL payload dispatch. When one of those
+markers is set, bytes after the other defined fields remain an exact opaque
+suffix. ECZN and LCTN expose their common form flags and named changed markers.
+Each marker union is defined as two `wbNull` alternatives, so it consumes zero
+payload bytes. Any remaining bytes are retained as an exact opaque tail, with
+no assigned field widths or meanings. SAV-28 applies supported fields to live
+records and retains opaque bytes through engine save/load.
 
 ## Source boundary
 
@@ -31,10 +33,10 @@ cell record. This heuristic needs validation against independent cell identity
 and complete payload boundaries before it becomes an engine decoder contract.
 
 ECZN's Zone Flags and Game Data unions and LCTN's KeywordData and Cleared unions
-are `[wbNull, wbNull]`. The decoder treats these as zero-payload markers and
-retains remaining bytes without assigning them to a marker. These bytes still
-need controlled fixtures or a public serialized schema before they can be
-split into typed fields.
+are `[wbNull, wbNull]` and appear in the respective payload dispatch. Their
+flag presence is typed, and no bytes are assigned to those markers. The
+remaining bytes still need controlled fixtures or a public serialized schema
+before they can be split into typed fields.
 
 The CommonLibSSE-NG headers confirm runtime CELL flag names, the LCTN runtime
 keyword-data entry shape and cleared booleans, and ECZN runtime data and game
@@ -97,12 +99,13 @@ independently observed state. Include single flags, combinations, interior and
 exterior cells, variable counts and unchanged control saves. Account for every
 intervening field before assigning offsets or meanings.
 
-Synthetic tests assert the source-defined layouts and each named zero-payload
-marker. They check truncation rejection for CELL fields with known widths and
-the common form flags. The census accounts for every target record, but it does
-not turn opaque suffixes into typed fields or establish internal truncation
-rules for those suffixes. No user save was modified or copied into this
-repository.
+Synthetic tests cover every combination of source-defined CELL, ECZN and LCTN
+flags, assert the typed fields and exact payload re-encoding, and reject
+truncation of fields with known widths and the common form flags. The census
+accounts for every target record and checks exact bytes for records accepted
+by the typed decoders. It does not turn opaque suffixes into typed fields or
+establish internal truncation rules for those suffixes. No user save was
+modified or copied into this repository.
 
 `ChangeForm::cell_change` decodes CELL bits 0 to 3 and 31 in xEdit's order:
 common flags, cell flags, seen data, full name and ownership. It checks the
