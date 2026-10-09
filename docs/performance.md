@@ -88,6 +88,18 @@ papyrus and trace. Cargo reported a future Rust compatibility notice for
 `proc-macro-error2` 2.0.1. The reviewer owns the full workspace gate.
 No dependencies, saved fields or reference scene-node paths were added.
 
+### PRF-37 on hardware, 2026-10-09
+
+Run on the user's own machine (NVIDIA GeForce RTX 5070 Ti, Vulkan 1.4.351
+Forward+), release extension, run master c0b3bb622, 640x360 window.
+`tst_18_frame_budget_test.gd` under `SOE_THREADED_SIMULATION=1` passes, main
+thread 0.051 ms p50 and 0.101 ms p99 over 100 ticks. On the default path it
+fails with "simulation never published a first snapshot", since the test
+drives the threaded adapter. The PRF-36 walk under
+`SOE_THREADED_SIMULATION=1` fails navigation readiness, the interior exit and
+the Whiterun gate, so door and cell transitions are missing from the
+threaded adapter. It stays opt-in until those work.
+
 ## Recorded sessions and profile differences, PRF-22
 
 Record a fixed-step workload through the PLY-01 input layer. In Rust, call
@@ -566,6 +578,17 @@ moved off the frame that streams its cell, or a longer-lived cache of that state
 The 14 `game it prf_34` tests prove idle queries perform zero record lookups and
 pass, but they do not replace the installed windowed timing.
 
+### PRF-34 on hardware, 2026-10-09
+
+Run on the user's own machine (NVIDIA GeForce RTX 5070 Ti, Vulkan 1.4.351
+Forward+), release extension, run master c0b3bb622, 640x360 window. Every
+p50 and p99 clause passes. Bannered Mare collision sync worst 0.073 ms,
+change sync worst 0.075 ms, host scene CPU 0.098 ms p50 and 0.171 ms p99.
+Whiterun plains host scene CPU 0.029 ms p50 and 0.181 ms p99. The any-frame
+0.2 ms clause still misses on 4 plains frames, collision sync worst 0.344 ms
+and change sync worst 0.702 ms, which line up with cell attaches. That clause
+is the only remainder.
+
 ## Magic tick work, PRF-35, 2026-10-06
 
 The user's original Whiterun plains F3 capture on `8ae73582` recorded magic
@@ -698,6 +721,18 @@ ticks Godot ran per frame, 8 against 2, and the budget tracks that count. The
 live clause therefore passes or fails with host load, which is the PRF-37
 catch-up spiral on the default path, so PRF-36 is partial until PRF-37 removes
 the dependence. It is not a fixed-step cost problem.
+
+### PRF-36 on hardware, 2026-10-09
+
+Run on the user's own machine (NVIDIA GeForce RTX 5070 Ti, Vulkan 1.4.351
+Forward+), release extension, run master c0b3bb622, 640x360 window. Every
+clause of `godot/prf_36_ai_budget_test.gd` passes with failures=0. Bannered
+Mare 0.165 ms p50 and 0.385 ms p99, plains 0.065 ms p50 and 0.217 ms p99,
+live plains 0.279 ms p99 at 0.42 catch-up ticks per frame. The llvmpipe
+misses (0.690 ms p50 and 2.140 ms p99 at 8 ticks per frame) came from the
+software renderer driving the catch-up spiral, which hardware does not
+reach. PRF-36 is done on this run. `prf_11_ai_planning_check.gd` passes on
+the same run, worst AI 1.42 ms over 7 actors.
 
 ## Music decode frame cost, AUD-12, 2026-10-05
 
