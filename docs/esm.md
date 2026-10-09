@@ -133,6 +133,11 @@ the named fields and leave the record intact, so an unknown subrecord is never l
 FormIDs inside views are raw, as written in the file, so a view can be built without a
 load order and resolved later.
 
+The WRLD view also carries `north_rotation`, the runtime worldspace value exposed by
+CommonLib's `TESWorldSpace`. Skyrim plugin records do not serialize this field, so a
+view built from a WRLD record starts it at zero. The game shim reads this value for
+exterior CELL north-rotation queries after resolving the cell's owning WRLD.
+
 `Cell::lighting` decodes XCLL's ambient, directional, fog, rotation and six
 directional ambient-color fields. Color values retain all four bytes,
 including xEdit's unused fourth byte. The optional fields after those six

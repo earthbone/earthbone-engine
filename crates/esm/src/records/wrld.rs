@@ -30,6 +30,8 @@ pub struct MapData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
     pub form_id: u32,
+    /// Runtime north rotation. WRLD plugin records do not serialize this value.
+    pub north_rotation: f32,
     pub editor_id: Option<String>,
     pub name: Option<Text>,
     pub flags: u8,
@@ -123,6 +125,7 @@ impl World {
         };
         Ok(World {
             form_id: rec.form_id,
+            north_rotation: 0.0,
             editor_id: rec.editor_id(),
             name: text(rec, tag::FULL, localized),
             flags,
@@ -194,5 +197,12 @@ mod tests {
     fn a_short_map_block_is_an_error() {
         let rec = Record::new(tag::WRLD, 1).sub(b"MNAM", [0u8; 10]);
         assert!(World::from_record(&rec, false).is_err());
+    }
+
+    #[test]
+    fn worldspace_runtime_north_rotation_starts_at_zero() {
+        let rec = Record::new(tag::WRLD, 1);
+        let world = World::from_record(&rec, false).unwrap();
+        assert_eq!(world.north_rotation, 0.0);
     }
 }

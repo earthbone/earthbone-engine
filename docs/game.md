@@ -321,8 +321,9 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   activation parents. XAPR targets must be REFR or ACHR records. Missing
   linked-reference targets are reported when their forms are absent from the
   form table. Interior cells expose the zero north-rotation default. Exterior
-  worldspace north rotation is not represented by runtime records and returns
-  no value. Executable vtable hooks return an explicit unsupported result.
+  cells resolve their owning WRLD and read its runtime north rotation, which
+  starts at zero because plugin records do not serialize it. Executable vtable
+  hooks return an explicit unsupported result.
 - `World::add_quest_start_stop_sink` registers an MIT shim event listener.
   Successful `Start`, `Stop`, and stage-driven quest transitions emit the
   resolved runtime FormID and the resulting failed state. The event source
