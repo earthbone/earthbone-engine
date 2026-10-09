@@ -309,7 +309,12 @@ impl DataSource {
         if view.flags & soe_esm::records::wrld::flags::NO_LOD_WATER != 0 {
             return Ok(Vec::new());
         }
-        let world_file = owner.file;
+        let (lod_world, _) = self.lod_worldspace(world).unwrap_or((world, String::new()));
+        let lod_owner = self.order.winner_ref(lod_world).unwrap_or(owner);
+        let lod_view = soe_esm::records::wrld::World::from_record(
+            self.order.record(lod_owner),
+            self.order.file(lod_owner.file).plugin.header.is_localized(),
+        )?;
         let mut surfaces = Vec::new();
         for y in 0..block.level.cells() {
             for x in 0..block.level.cells() {
@@ -335,7 +340,7 @@ impl DataSource {
                         .filter(|height| super::water::is_recorded_height(*height));
                     let inherited_height = super::water::world_water(&self.order, world).height;
                     if let Some(height) = cell_height
-                        .or(view
+                        .or(lod_view
                             .lod_water_height
                             .filter(|height| super::water::is_recorded_height(*height)))
                         .or(inherited_height)
@@ -345,9 +350,9 @@ impl DataSource {
                             position[1] = y;
                         }
                     }
-                    if let Some(material) = view
+                    if let Some(material) = lod_view
                         .lod_water
-                        .and_then(|raw| self.order.winner(self.order.resolve(world_file, raw)))
+                        .and_then(|raw| self.order.winner(self.order.resolve(lod_owner.file, raw)))
                     {
                         surface.arrays.material.water =
                             Some(super::water::water_material_from(material));

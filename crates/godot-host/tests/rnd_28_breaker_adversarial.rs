@@ -23,7 +23,7 @@ fn rnd_28_lst_accepts_bytes_after_the_declared_table() {
     );
     let parsed = parsed.unwrap();
     assert_eq!(parsed.len(), 1);
-    assert_eq!(parsed[&0].width, 100.0);
+    assert_eq!(parsed[&7].width, 100.0);
 }
 
 #[test]
@@ -33,11 +33,9 @@ fn rnd_28_player_capture_streams_mountains_trees_and_world_changes() {
     let project = workspace.join("godot");
     let data = PathBuf::from(std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA"));
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN");
-    assert!(
-        workspace
-            .join("target/release/libsoe_godot_host.so")
-            .is_file()
-    );
+    assert!(workspace
+        .join("target/release/libsoe_godot_host.so")
+        .is_file());
 
     let source = soe_godot_host::data_source::DataSource::open(&data).unwrap();
     let (tamriel, _) = source.resolve_world("Tamriel").unwrap();

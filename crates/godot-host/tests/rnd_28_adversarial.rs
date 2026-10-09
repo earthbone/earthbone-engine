@@ -22,7 +22,7 @@ fn rnd_28_lst_accepts_unused_bytes_after_declared_tree_table() {
     );
     let parsed = parsed.unwrap();
     assert_eq!(parsed.len(), 1);
-    assert_eq!(parsed[&0].width, 100.0);
+    assert_eq!(parsed[&7].width, 100.0);
 }
 
 #[test]

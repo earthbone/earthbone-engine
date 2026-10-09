@@ -312,7 +312,7 @@ fn rnd_28_tree_atlas_indices_world_positions_rotation_scale_and_alpha_are_preser
 }
 
 #[test]
-fn rnd_28_tree_files_reject_truncation_bad_counts_nonfinite_values_and_missing_types() {
+fn rnd_28_tree_files_validate_declared_data_and_accept_trailing_bytes() {
     use soe_godot_host::tree_lod::{build_billboards, read_references, read_types};
     let (list, refs) = tree_fixtures();
     for end in 0..list.len() {
@@ -333,7 +333,10 @@ fn rnd_28_tree_files_reject_truncation_bad_counts_nonfinite_values_and_missing_t
     assert!(build_billboards(&std::collections::BTreeMap::default(), &refs, "a.dds").is_err());
     let mut trailing = list;
     trailing.push(0);
-    assert!(read_types(&trailing).is_err());
+    assert_eq!(
+        read_types(&trailing).unwrap(),
+        read_types(&trailing[..trailing.len() - 1]).unwrap()
+    );
 }
 
 #[test]

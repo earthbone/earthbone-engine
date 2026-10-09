@@ -56,13 +56,6 @@ impl Reader<'_> {
         }
         Ok(count)
     }
-
-    fn finish(&self) -> Result<(), TreeLodError> {
-        if self.offset != self.bytes.len() {
-            return Err(self.error("trailing bytes"));
-        }
-        Ok(())
-    }
 }
 
 /// One atlas entry keyed by its stored index, which need not equal its row.
@@ -85,7 +78,7 @@ pub struct TreeReference {
     pub raw_form_id: u32,
 }
 
-/// Read the count and packed 32-byte LST entries.
+/// Read the count and packed 32-byte LST entries, ignoring bytes after the table.
 pub fn read_types(bytes: &[u8]) -> Result<BTreeMap<u32, TreeType>, TreeLodError> {
     let mut reader = Reader {
         bytes,
@@ -113,7 +106,6 @@ pub fn read_types(bytes: &[u8]) -> Result<BTreeMap<u32, TreeType>, TreeLodError>
             return Err(reader.error("duplicate type index"));
         }
     }
-    reader.finish()?;
     Ok(types)
 }
 

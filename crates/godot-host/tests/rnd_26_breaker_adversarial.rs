@@ -49,14 +49,12 @@ fn rnd_26_installed_landscape_lod_has_diffuse_normal_noise_and_finite_normals() 
                 "feature 18 disabled {block:?}"
             );
             assert_eq!(surface.arrays.normals.len(), surface.arrays.positions.len());
-            assert!(
-                surface
-                    .arrays
-                    .normals
-                    .iter()
-                    .flatten()
-                    .all(|n| n.is_finite())
-            );
+            assert!(surface
+                .arrays
+                .normals
+                .iter()
+                .flatten()
+                .all(|n| n.is_finite()));
         }
     }
     assert!(

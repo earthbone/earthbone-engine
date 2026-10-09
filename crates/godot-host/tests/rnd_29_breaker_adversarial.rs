@@ -5,7 +5,7 @@
 
 use std::{path::PathBuf, process::Command};
 
-use soe_esm::{Entry, FileHeader, Group, GroupKind, Plugin, Record, tag};
+use soe_esm::{tag, Entry, FileHeader, Group, GroupKind, Plugin, Record};
 use soe_godot_host::data_source::DataSource;
 use soe_godot_host::terrain_lod::{LodBlockCoord, LodLevel};
 use soe_godot_host::units::METRES_PER_UNIT;
@@ -96,11 +96,9 @@ fn rnd_29_installed_capture_has_no_lod_overlap_or_boundary_gap() {
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN");
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = workspace.join("godot");
-    assert!(
-        workspace
-            .join("target/release/libsoe_godot_host.so")
-            .is_file()
-    );
+    assert!(workspace
+        .join("target/release/libsoe_godot_host.so")
+        .is_file());
 
     let source = DataSource::open(&data).unwrap();
     let order = source.shared_order();
