@@ -11,7 +11,8 @@
 //! so the viseme path returns evaluated poses for its caller.
 
 use soe_audio::viseme::{morph_weights, Shape, VisemeTrack};
-use soe_esm::records::race::Race;
+use soe_esm::{records::race::Race, GlobalFormId};
+use soe_game::World;
 use soe_nif::tri::HeadTri;
 use std::collections::BTreeMap;
 
@@ -63,6 +64,23 @@ pub fn expression_weights(
             (name.clone(), weight)
         })
         .collect()
+}
+
+/// Resolve the expression blend-shape weights for an actor bound to a head.
+///
+/// The result includes available expression targets only. A missing actor or
+/// an actor without a record mood produces no weights.
+#[must_use]
+pub fn bound_actor_expression_weights(
+    world: &mut World,
+    actor: GlobalFormId,
+    target_names: &[String],
+) -> BTreeMap<String, f32> {
+    world
+        .facial_expression(actor)
+        .map_or_else(BTreeMap::new, |(mood, strength)| {
+            expression_weights(target_names, mood, strength)
+        })
 }
 
 /// Resolve one CK id to the blend shape name used by the actor head.

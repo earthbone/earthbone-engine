@@ -4550,11 +4550,17 @@ rejected. Paths use the data source VFS and its file overlay.
 
 `facial::expression_weights` maps CK expression ids 0 through 16 to the
 corresponding named head blend shape and returns weights for available
-expression names only. `apply_expression` sets the selected shape to the
-requested percentage and zeros competing expression shapes while preserving
-other morph values. The actor NIF pipeline does not currently load Skyrim
-`.tri` targets or upload Godot blend shape arrays, so this mapping is not yet
-connected to a rendered vanilla head.
+expression names only. `bound_actor_expression_weights` reads the effective
+expression from the bound actor in the shared world and resolves those weights
+for the head's available targets. `SkinnedActorNode` submits the selected
+weight and clears competing expression targets on each pose update, while
+preserving unrelated morphs. The actor NIF pipeline loads matching `.tri`
+expression deltas and uploads them as Godot blend shapes.
+`SkinnedActorNode.debug_expression_weights` reports the latest submitted
+target values. `PlayerNode` exposes debug setters used by the bound-head
+integration check to change and clear the player's override through the shared
+world. `bind_actor_expression_head` connects a loaded head mesh to the actor's
+effective expression without replacing the mesh.
 The installed body/hand/null refresh fixture measured a 8.2 us cached view against
 the declared 2 ms budget. This measures record resolution, not rendered frame time.
 

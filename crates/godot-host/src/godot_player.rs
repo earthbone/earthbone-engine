@@ -839,6 +839,27 @@ impl PlayerNode {
         }
     }
 
+    /// Bind a loaded head mesh to an actor's effective expression in the shared world.
+    #[func]
+    pub fn bind_actor_expression_head(
+        &mut self,
+        mut visual: Gd<crate::godot_actor::SkinnedActorNode>,
+        file: i32,
+        object: i64,
+    ) -> bool {
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let actor = soe_esm::GlobalFormId { file, object };
+        visual
+            .bind_mut()
+            .bind_facial_expression(game.shared_world(), actor);
+        true
+    }
+
     /// Queue the same source-to-actor impulse used by ObjectReference.PushActorAway.
     ///
     /// Returns false if the game, either form ID, or the world request is invalid.
@@ -1447,6 +1468,40 @@ impl PlayerNode {
         let player = game.player();
         game.world_mut()
             .damage_actor_value(player, &name.to_string(), amount)
+            .is_ok()
+    }
+
+    /// Set the player's facial expression override for a host integration check.
+    #[func]
+    pub fn debug_set_player_expression_override(&mut self, mood: i32, strength: i32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        game.world_mut()
+            .set_expression_override(player, mood, strength)
+            .is_ok()
+    }
+
+    /// Clear the player's facial expression override for a host integration check.
+    #[func]
+    pub fn debug_clear_player_expression_override(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        game.world_mut().clear_expression_override(player).is_ok()
+    }
+
+    /// Set the player's record-backed mood value for a host integration check.
+    #[func]
+    pub fn debug_set_player_expression_mood(&mut self, mood: f32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        game.world_mut()
+            .set_actor_value(player, "mood", mood)
             .is_ok()
     }
 
