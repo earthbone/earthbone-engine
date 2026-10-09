@@ -791,6 +791,13 @@ impl PlayerNode {
         self.invoke_main_menu_native_for_check(&name, &sequence)
     }
 
+    /// Invoke a character-generation cache native for host integration checks.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_chargen_native(&mut self, name: GString) -> bool {
+        self.invoke_chargen_native_for_check(&name)
+    }
+
     /// Connect an already loaded character rig to this gameplay world's live
     /// skin and equipment records. Reuses the existing character node.
     #[func]

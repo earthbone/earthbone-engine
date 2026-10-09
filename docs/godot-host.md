@@ -957,11 +957,15 @@ This does not upload preview meshes or apply morphs to a rendered actor.
 
 The SCR-30 cache tests check retained file and byte counts, clear every cache
 counter after a cache load, and load installed head-part models and
-morph files when `SKYRIM_DATA` is set. The training presentation test checks
-the offer values used for the trainer heading and purchase button, including
-an unavailable trainer. The camera visibility test checks the value passed to
-the rendered actor instances for first and third person. These Rust checks do
-not inspect pixels from a live player appearance.
+morph files when `SKYRIM_DATA` is set. The headless
+`godot/ui_17_chargen_cache_test.gd` check invokes both Game natives through the
+player request path and reads the attached streamer's file, model, morph,
+missing-path and byte counters before and after the requests. It opens the race
+menu after precaching and confirms the assets remain resident. The training
+presentation test checks the offer values used for the trainer heading and
+purchase button, including an unavailable trainer. The camera visibility test
+checks the value passed to the rendered actor instances for first and third
+person. These Rust checks do not inspect pixels from a live player appearance.
 
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the

@@ -39,6 +39,45 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    /// Invoke a character-generation cache native for host integration checks.
+    pub(super) fn invoke_chargen_native_for_check(&mut self, name: &GString) -> bool {
+        let name = name.to_string();
+        if !matches!(name.as_str(), "PrecacheCharGen" | "PrecacheCharGenClear") {
+            return false;
+        }
+        let script_name = "SoeUi17ChargenHostCheck";
+        let bytes = ScriptBuilder::new(script_name, "Form")
+            .function(
+                FunctionBuilder::new("Run", "None")
+                    .global()
+                    .local("result", "None")
+                    .ins(CallStatic, vec![s("Game"), s(&name), ident("result")])
+                    .build(),
+            )
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.load_script(&bytes) {
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: failed to load UI-17 host check script: {error}");
+            return false;
+        }
+        let thread = match game.vm.call_global(script_name, "Run", &[]) {
+            Ok(thread) => thread,
+            Err(error) => {
+                soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: Game.{name} host check failed: {error}");
+                return false;
+            }
+        };
+        if !game.run_until_idle(64) || game.vm.thread_result(thread) != Some(Value::None) {
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: Game.{name} host check did not complete");
+            return false;
+        }
+        self.apply_host_requests();
+        self.dispatch_menu_requests();
+        true
+    }
+
     /// Invoke either main-menu Game native for host integration checks.
     pub(super) fn invoke_main_menu_native_for_check(
         &mut self,
@@ -363,36 +402,7 @@ impl PlayerNode {
         if let Some(trainer) = training_request {
             self.open_training_menu(trainer);
         }
-        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
-            std::mem::take(&mut game.world_mut().menu_requests)
-        });
-        for request in requests {
-            match request {
-                soe_game::world::MenuRequest::PrecacheCharGen => {
-                    if let (Some(game), Some(streamer)) =
-                        (self.game.as_ref(), self.game_streamer.as_mut())
-                    {
-                        streamer.bind_mut().precache_chargen(game);
-                    }
-                }
-                soe_game::world::MenuRequest::PrecacheCharGenClear => {
-                    if let Some(streamer) = self.game_streamer.as_mut() {
-                        streamer.bind_mut().precache_chargen_clear();
-                    }
-                }
-                soe_game::world::MenuRequest::Race => {
-                    self.show_race_menu();
-                }
-                // CONTEXT: Valid trainers use the pending request consumed above.
-                soe_game::world::MenuRequest::Training(_) => {}
-                soe_game::world::MenuRequest::Barter(actor) => {
-                    self.open_barter_menu(actor);
-                }
-                soe_game::world::MenuRequest::ActorInventory(actor) => {
-                    self.open_container_menu(actor);
-                }
-            }
-        }
+        self.dispatch_menu_requests();
         if let Some(game) = &mut self.game {
             let requests = game.world_mut().take_game_ui_requests();
             for request in requests {
@@ -537,6 +547,39 @@ impl PlayerNode {
             }
         }
         succeeded
+    }
+
+    fn dispatch_menu_requests(&mut self) {
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().menu_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::MenuRequest::PrecacheCharGen => {
+                    if let (Some(game), Some(streamer)) =
+                        (self.game.as_ref(), self.game_streamer.as_mut())
+                    {
+                        streamer.bind_mut().precache_chargen(game);
+                    }
+                }
+                soe_game::world::MenuRequest::PrecacheCharGenClear => {
+                    if let Some(streamer) = self.game_streamer.as_mut() {
+                        streamer.bind_mut().precache_chargen_clear();
+                    }
+                }
+                soe_game::world::MenuRequest::Race => {
+                    self.show_race_menu();
+                }
+                // CONTEXT: Valid trainers use the pending request consumed above.
+                soe_game::world::MenuRequest::Training(_) => {}
+                soe_game::world::MenuRequest::Barter(actor) => {
+                    self.open_barter_menu(actor);
+                }
+                soe_game::world::MenuRequest::ActorInventory(actor) => {
+                    self.open_container_menu(actor);
+                }
+            }
+        }
     }
 
     fn apply_host_requests(&mut self) {
