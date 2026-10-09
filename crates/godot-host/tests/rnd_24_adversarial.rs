@@ -37,7 +37,8 @@ fn rnd_24_installed_chandelier_emission_is_limited_to_glow_map_pixels() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        output.status.success() && stdout.contains("rnd_24_installed_bannered_mare_chandelier_glow_is_masked"),
+        output.status.success()
+            && stdout.contains("rnd_24_installed_bannered_mare_chandelier_glow_is_masked"),
         "Godot chandelier capture failed\n{stdout}\n{stderr}"
     );
 

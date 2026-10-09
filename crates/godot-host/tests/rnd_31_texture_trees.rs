@@ -31,6 +31,9 @@ fn rnd_31_installed_whiterun_tree_capture_shows_texture_detail_and_cutouts() {
             .resolve_exterior_block(origin, radius)
             .unwrap_or_else(|error| panic!("{origin} exterior block: {error}"));
         for cell in &block.cells {
+            if cell.x.abs_diff(block.origin.0) > 2 || cell.y.abs_diff(block.origin.1) > 2 {
+                continue;
+            }
             for id in source.cell_index().references(cell.id) {
                 let Some(reference) = order.winner_ref(*id) else {
                     continue;
@@ -65,13 +68,13 @@ fn rnd_31_installed_whiterun_tree_capture_shows_texture_detail_and_cutouts() {
                     let editor_cell = editor_cells
                         .iter()
                         .find(|editor_cell| editor_cell.id == cell.id.to_string());
-                    let (cell_name, capture_radius) = match editor_cell {
+                    let cell_name = match editor_cell {
                         Some(editor_cell) if editor_cell.name != editor_cell.id => {
-                            (editor_cell.name.clone(), 0)
+                            editor_cell.name.clone()
                         }
-                        _ => (origin.to_string(), radius),
+                        _ => origin.to_string(),
                     };
-                    target = Some((position, model, cell_name, capture_radius));
+                    target = Some((position, model, cell_name, 2));
                     break;
                 }
             }

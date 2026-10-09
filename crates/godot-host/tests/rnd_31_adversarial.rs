@@ -55,7 +55,12 @@ fn rnd_31_installed_tundra_driftwood_animated_surfaces_and_textures() {
     let mut missing = Vec::new();
     let mut found = Vec::new();
     for mesh in meshes {
-        for texture in mesh.material.textures.iter().filter(|path| !path.is_empty()) {
+        for texture in mesh
+            .material
+            .textures
+            .iter()
+            .filter(|path| !path.is_empty())
+        {
             found.push(texture.clone());
             if texture.ends_with("tundradriftwoodbark01.dds") {
                 bark = true;
@@ -68,11 +73,20 @@ fn rnd_31_installed_tundra_driftwood_animated_surfaces_and_textures() {
             continue;
         }
         tree_surfaces += 1;
-        assert!(mesh.material.alpha_test.is_some(), "tree surface lacks alpha test");
+        assert!(
+            mesh.material.alpha_test.is_some(),
+            "tree surface lacks alpha test"
+        );
         assert!(mesh.material.double_sided, "tree surface is not two sided");
     }
-    assert!(tree_surfaces > 0, "installed Tundra Driftwood has no animated tree surfaces");
-    assert!(bark, "installed Tundra Driftwood bark path was not normalized: {found:?}");
+    assert!(
+        tree_surfaces > 0,
+        "installed Tundra Driftwood has no animated tree surfaces"
+    );
+    assert!(
+        bark,
+        "installed Tundra Driftwood bark path was not normalized: {found:?}"
+    );
     assert!(
         missing.is_empty(),
         "installed Tundra Driftwood textures did not resolve: {missing:?}"
@@ -92,7 +106,10 @@ fn rnd_31_installed_whiterun_tree_capture_shows_texture_detail_and_cutouts() {
     let workspace = manifest.join("../..");
     let project = workspace.join("godot");
     let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(extension.exists(), "build the release Godot extension before capture");
+    assert!(
+        extension.exists(),
+        "build the release Godot extension before capture"
+    );
 
     let source = soe_godot_host::data_source::DataSource::open(&data)
         .unwrap_or_else(|error| panic!("open installed DataSource: {error}"));
@@ -104,6 +121,9 @@ fn rnd_31_installed_whiterun_tree_capture_shows_texture_detail_and_cutouts() {
             .resolve_exterior_block(origin, radius)
             .unwrap_or_else(|error| panic!("{origin} exterior block: {error}"));
         for cell in &block.cells {
+            if cell.x.abs_diff(block.origin.0) > 2 || cell.y.abs_diff(block.origin.1) > 2 {
+                continue;
+            }
             for id in source.cell_index().references(cell.id) {
                 let Some(reference) = order.winner_ref(*id) else {
                     continue;
@@ -138,13 +158,13 @@ fn rnd_31_installed_whiterun_tree_capture_shows_texture_detail_and_cutouts() {
                     let editor_cell = editor_cells
                         .iter()
                         .find(|editor_cell| editor_cell.id == cell.id.to_string());
-                    let (cell_name, capture_radius) = match editor_cell {
+                    let cell_name = match editor_cell {
                         Some(editor_cell) if editor_cell.name != editor_cell.id => {
-                            (editor_cell.name.clone(), 0)
+                            editor_cell.name.clone()
                         }
-                        _ => (origin.to_string(), radius),
+                        _ => origin.to_string(),
                     };
-                    target = Some((position, model, cell_name, capture_radius));
+                    target = Some((position, model, cell_name, 2));
                     break;
                 }
             }
@@ -178,5 +198,9 @@ fn rnd_31_installed_whiterun_tree_capture_shows_texture_detail_and_cutouts() {
         output.status.success() && stdout.contains("RND-31 RESULT: PASS"),
         "RND-31 Godot capture failed for {model}\n{stdout}\n{stderr}"
     );
-    assert!(capture.exists(), "tree capture was not written: {}", capture.display());
+    assert!(
+        capture.exists(),
+        "tree capture was not written: {}",
+        capture.display()
+    );
 }
