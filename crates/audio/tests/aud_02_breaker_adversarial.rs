@@ -108,6 +108,7 @@ fn aud_02_breaker_multiple_vanilla_lines_match_ffmpeg_and_repeat() {
     );
     let indices: Vec<usize> = (0..8).map(|slot| slot * (names.len() - 1) / 7).collect();
     let mut waveform_mismatches = Vec::new();
+    let mut minimum_correlation = 1.0f64;
     for index in indices {
         let name = &names[index];
         let bytes = archive.read(name).expect("voice line reads");
@@ -136,6 +137,8 @@ fn aud_02_breaker_multiple_vanilla_lines_match_ffmpeg_and_repeat() {
         );
         if native.peak() > 0.0 && reference.iter().any(|sample| *sample != 0.0) {
             let correlation = max_correlation(&native.samples, &reference);
+            minimum_correlation = minimum_correlation.min(correlation);
+            eprintln!("{name}: native/ffmpeg waveform correlation {correlation:.3}");
             if correlation < 0.8 {
                 waveform_mismatches.push(format!("{name}: correlation {correlation:.3}"));
             }
@@ -147,6 +150,7 @@ fn aud_02_breaker_multiple_vanilla_lines_match_ffmpeg_and_repeat() {
             );
         }
     }
+    eprintln!("minimum sampled waveform correlation: {minimum_correlation:.3}");
     assert!(
         waveform_mismatches.is_empty(),
         "native waveform correlation is below 0.8: {waveform_mismatches:?}"

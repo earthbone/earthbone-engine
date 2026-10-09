@@ -125,6 +125,7 @@ fn aud_02_installed_vanilla_xwma_matches_ffmpeg_without_feature() {
     );
     if native.peak() > 0.0 && reference.iter().any(|sample| *sample != 0.0) {
         let correlation = max_correlation(&native.samples, &reference);
+        eprintln!("{name}: native/ffmpeg waveform correlation {correlation:.3}");
         assert!(
             correlation >= MIN_WAVEFORM_CORRELATION,
             "{name}: native waveform correlation is {correlation:.3}"

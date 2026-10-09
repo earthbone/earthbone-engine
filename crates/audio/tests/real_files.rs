@@ -240,6 +240,7 @@ fn aud_02_vanilla_xwma_decodes_in_process_and_matches_ffmpeg() {
             correlation = correlation.max(dot / (native_energy * reference_energy).sqrt());
         }
     }
+    eprintln!("{name}: native/ffmpeg waveform correlation {correlation:.3}");
     assert!(
         correlation >= 0.8,
         "{name}: native output correlation with ffmpeg is {correlation:.3}"
