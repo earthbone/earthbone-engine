@@ -3127,9 +3127,9 @@ entries, and the existing xEdit PACK and shared spell APIs.
 
 `Actor.GetVoiceRecoveryTime` reads the remaining duration from that actor's
 real-seconds deadline. `Actor.PlayIdleWithTarget` queues the idle's editor ID
-for the calling actor and returns false for a missing idle or invalid target
-reference. A target is validated but is not yet routed to paired animation
-playback. `Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
+to its explicit target reference, or to the calling actor when the target is
+`None`, and returns false for a missing idle or invalid target reference.
+`Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
 hands, source 2 from the actor's other-spell slot, and source 3 from its
 instant-spell slot. The latter slots persist in the actor section named
 `SCR-15`. `Actor.Dismount` returns true only when it clears a set mounted flag.
@@ -3137,8 +3137,8 @@ instant-spell slot. The latter slots persist in the actor section named
 CK pages consulted for these bindings are `GetEquippedSpell_-_Actor`,
 `GetVoiceRecoveryTime_-_Actor`, `PlayIdleWithTarget_-_Actor` and
 `Dismount_-_Actor`. The CK snapshot has no `Trespass_-_Actor` page. The
-existing world model does not provide paired-idle target routing or host mount
-placement, and these calls do not create crime witness events.
+host mount placement is not provided, and these calls do not create crime
+witness events.
 
 Nested `Sequence` branches finish after their children, and `Repeat when
 Complete` restarts only the branch carrying that flag. `Success Completes
