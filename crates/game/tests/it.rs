@@ -1850,3 +1850,5 @@ mod prf_35_magic;
 mod prf_37_adversarial;
 #[path = "prf_37_simulation.rs"]
 mod prf_37_simulation;
+#[path = "scr_53_breaker3_adversarial.rs"]
+mod scr_53_breaker3_adversarial;
