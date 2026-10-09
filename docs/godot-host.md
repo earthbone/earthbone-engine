@@ -1034,6 +1034,12 @@ collision-cell release or node teardown frees joints and pending pairs. The
 host does not sample the `HorseSpine2` skeleton bone, build the wheel and pole
 constraints, or reproduce the cart suspension and upright recovery action.
 
+`scr_41_ragdoll_collision_retention_test.gd` binds a vanilla actor, applies the
+forced-ragdoll override, rebuilds player collision by entering the same cell
+again, and checks that the actor's Jolt bodies and ragdoll render mode remain
+active. This covers the host collision rebuild lifecycle. It does not claim
+cart rig or horse-bone constraint support.
+
 ### Editor forms dock, EDT-02
 
 `godot/addons/soe_forms` is a Godot editor plugin. It opens plugin paths in load-order order
