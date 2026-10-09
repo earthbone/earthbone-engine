@@ -5129,11 +5129,13 @@ The Game globals `QuitToMainMenu` and `StartTitleSequence` queue transient
 host requests on the shared World. PlayerNode consumes them after a gameplay
 tick. Returning to the main menu closes any modal menu, drops the active Game,
 streaming source, cell and host physics resources, and emits
-`returned_to_main_menu`. `is_main_menu` reports this state. Starting a title
-sequence first enters the main menu, stores the requested name as the active
-sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
-returns that name or an empty string when none is active. A plain return clears
-any active sequence. Starting a new game leaves the main menu state.
+`returned_to_main_menu`. `is_main_menu` reports this state. A title sequence
+starts only when a Godot `Animation` has been registered under its name with
+`register_title_sequence`. PlayerNode plays the matching animation through its
+child `AnimationPlayer`, stores the active name and emits
+`title_sequence_started(name)`. `is_title_sequence_playing` and
+`title_sequence_playback_position` report playback state. A plain return and
+starting a new game stop playback and clear the active name.
 
 The Creation Kit `engine-refs/ck-wiki/Game_Script.wikitext` says
 `QuitToMainMenu` forces the game back to the main menu and
@@ -5144,12 +5146,11 @@ requests. `QuitToMainMenu` clears a current sequence, while
 
 `PlayerNode.debug_invoke_main_menu_native` invokes either of those two Game
 globals through the active VM and consumes the resulting host request. The
-host emits `title_sequence_started(name)` for the menu presenter and exposes
-the active name through `active_title_sequence`. The Godot check
-`godot/ui_18_main_menu_test.gd` starts a live runtime, verifies the title
-sequence signal and menu state, reattaches the data source, and verifies that
-quitting closes gameplay and clears the sequence. Run it with installed game
-data and the built extension:
+Godot check `godot/ui_18_main_menu_test.gd` registers a two second animation,
+starts it through the Papyrus native, verifies its playhead and animated
+PlayerNode property advance after gameplay is released, then checks that
+quitting clears the active sequence and stops playback. Run it with installed
+game data and the built extension:
 
 ```text
 SOE_GODOT_BIN --path godot --script ui_18_main_menu_test.gd --resolution 640x360

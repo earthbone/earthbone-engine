@@ -25,9 +25,9 @@ use std::time::Duration;
 use godot::builtin::Rid;
 use godot::classes::control::{LayoutPreset, MouseFilter};
 use godot::classes::{
-    Camera3D, CanvasLayer, ColorRect, Engine, INode3D, Input, InputEventJoypadButton,
-    InputEventJoypadMotion, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap,
-    Node3D, RenderingServer, SphereMesh, StandardMaterial3D,
+    AnimationPlayer, Camera3D, CanvasLayer, ColorRect, Engine, INode3D, Input,
+    InputEventJoypadButton, InputEventJoypadMotion, InputEventKey, InputEventMouseButton,
+    InputEventMouseMotion, InputMap, Node3D, RenderingServer, SphereMesh, StandardMaterial3D,
 };
 use godot::global::{JoyAxis, JoyButton, Key, MouseButton};
 use godot::prelude::*;
@@ -190,6 +190,7 @@ pub struct PlayerNode {
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
+    title_sequence_player: Option<Gd<AnimationPlayer>>,
     swing_doors: HashMap<GlobalFormId, Gd<crate::godot_animated_static::AnimatedStaticNode>>,
     loaded_cell: Option<GlobalFormId>,
     last_work_counts: soe_trace::WorkCounts,
@@ -336,6 +337,7 @@ impl INode3D for PlayerNode {
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
+            title_sequence_player: None,
             swing_doors: HashMap::new(),
             loaded_cell: None,
             last_work_counts: soe_trace::WorkCounts::default(),
