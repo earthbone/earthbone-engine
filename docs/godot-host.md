@@ -1354,9 +1354,15 @@ therefore participates in the same divergence report as world and VM state.
 dependency preflight before restoring a vanilla ESS. Missing plugins, missing
 scripts and changed regular/light plugin kinds return the report and refuse
 session start. ESS provenance that is unavailable in the format remains
-reported as unknown. Unimported projectile and hazard changes, opaque PCON
-remainders and PARW payloads also refuse execution so they are not silently
-omitted. Other supported restoration errors return before a recovery
+reported as unknown. Unimported PMIS, PBEA, PFLA and PBAR changes and
+opaque PCON remainders also refuse execution. PARW placed arrows, PHZD placed
+hazards and PGRE grenade projectiles are classified as transient for
+accepted recovery. They are filtered from a private copy of the import input,
+omitted, with per-type counts returned in `AcceptedVanillaSession.skipped_transient`
+and logged after the generation is written. This policy does not restore
+unexpired arrows, grenade projectiles or active hazards. Their payloads remain
+in the original ESS. Dependency checks still inspect the complete source save.
+Other supported restoration errors return before a recovery
 generation is written.
 
 After restoration succeeds, the host writes a native generation to the
@@ -1377,11 +1383,64 @@ character, cell and camera remain attached. The caller should retain its active
 
 The UESP `Player_Location.wikitext` describes a world or cell, exterior cell
 coordinates and a position. FallrimTools' ESS player-location handling keeps
-that data separate from the player's ACHR change form. The game crate in this
-worktree does not expose the SAV-09 atomic world and VM restoration entry point,
-so no vanilla-save import currently calls this host adapter. The host check is
-therefore limited to the adapter's restored-pose validation. An end-to-end
-vanilla import, attached cell and advanced frame still require SAV-09.
+that data separate from the player's ACHR change form. xEdit's
+`wbDefinitionsTES5Saves.pas` leaves PHZD, PGRE and PARW subtype payloads empty,
+and FallrimTools falls back to opaque bytes for these types. Recovery uses the
+transient policy above rather than deriving an undocumented lifetime reader.
+CommonLib's `GrenadeProjectile.h` supplies the PGRE projectile identity, and
+`Projectile.h` separates its living time from reference placement.
+No new parser, dependency or per-reference scene node is added.
+
+`sav_19_vanilla_atomic_import_attaches_saved_cell_pose_camera_and_verified_frame`
+is gated on `SKYRIM_DATA` and `SOE_TEST_SAVES`. It attempts recovery across the
+external save corpus and writes each result to `target/sav_19/survey.json`.
+Refused imports must preserve the prior game snapshot. Every source ESS is
+checked for unchanged bytes. At least one Clean Save must recover. Its player
+cell, position and rotation are compared with ESS player-location and ACHR data.
+The test passes the resulting native generation to
+`godot/sav_19_vanilla_attach_test.gd` when `SOE_GODOT_BIN` is set. That windowed
+check uses `attach_restored_generation`, verifies the saved pose and current
+camera, checks that the game clock advanced, and captures a 640 by 360 frame.
+At least 100 sampled pixels must differ from the background by 0.05 in RGB
+distance. The script writes `target/sav_19/frame.png` and quits. Recovery
+refusals and host output remain in the survey and `target/sav_19/host.log`.
+
+The 2026-10-08 survey attempted all 60 external saves and accepted 57,
+including 18 of the 19 Clean Saves. Three refused. One Clean Save
+(After The Throat of the World) carries an opaque PCON change form, which still
+refuses by policy. Saves 40 and 41 of the Dawnguard and Dragonborn set refuse
+because the saved body of `DLC2dunBookLevel4Bend.OnTriggerEnter` differs from
+the loaded PEX, the next thing to diagnose by dumping the first differing
+instruction as was done for the other mismatches.
+
+Getting from none to 57 took these restore changes, each tied to a reader:
+
+- PMIS, PARW, PHZD and PGRE changes are left out with per-type counts in
+  `skipped_transient`, and the source ESS keeps them.
+- A Papyrus instance on a created form with no change form restores as a
+  standalone object (FallrimTools reports these as scripts some mods create),
+  and further instances of one script on one form, saved once per
+  item stack, each get their own object.
+- A frame with a Null owner is a global function frame, so it runs on no
+  object.
+- A suspended caller whose pointer names the call instruction itself, as a
+  frame blocked in `Utility.Wait` is saved, resumes after that call.
+- The frame's event field is the function name, and it is looked up through
+  the script's parents.
+- Saved code compares names without case and a string operand stands for an
+  identifier, because the ESS string table folds case. A native frame names its
+  arguments `param1`, `param2` by position. A handler that changed state is
+  matched against the same-named function of any state.
+- A FACT change form carries a 20 byte `CRVA` plugin struct as well as the 16
+  byte counter form.
+- The player's cell comes from the saved `coorX` and `coorY` when present.
+
+The survey keeps every per-save reason in `target/sav_19/survey.json` and
+verifies rollback and source-byte preservation. The vanilla attachment test
+`sav_19_vanilla_attach` passed on the 2026-10-08 run, 850 s, with the
+extension built from this branch and imported on Godot 4.4.1. It captured the
+verified frame for a Clean Save at its saved cell, pose and camera. The play
+session check by the user remains open.
 
 `CellStreamer::update(focus)` returns a `StreamPlan`: cells to load, nearest first, and cells
 to unload, farthest first. The load square is `load_radius` cells each side of the focus cell

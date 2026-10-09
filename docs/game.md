@@ -818,7 +818,19 @@ CLAS/FACT/RELA record changes, reference placement, actor templates,
 inventories, reference extras, quests, lists and Papyrus execution. The
 individual world passes validate before applying their own changes.
 `Game::restore_vanilla_papyrus` resolves saved script-instance RefIDs to live
-form objects and imports their saved variables into the VM.
+form objects and imports their saved variables into the VM. Scripts deriving
+from Alias bind to `Handle::Alias` on the saved owning quest instead of its
+form object. UESP's Papyrus ScriptInstance numeric component is the low two
+bits of `unknown_2bits` times 1000 plus the signed `unknown` word. The importer
+validates that component against the quest's alias definitions and checks
+ReferenceAlias or LocationAlias against the alias kind. Distinct aliases on one quest therefore
+retain distinct objects and native dispatch. Existing alias handles persist
+through the native save layout, with no new saved field. The `sav_19_` unit
+checks cover distinct handles, the signed word, missing aliases and alias kind
+rejection. FallrimTools keeps these instance header fields separate from variable
+data. Form objects still use one object per form. Distinct saved inventory item
+script objects targeting one form therefore remain unsupported, as reported by
+the SAV-19 corpus survey in [godot-host.md](godot-host.md).
 `Game::restore_vanilla_papyrus_execution` also converts and schedules
 validated active script frames, rolling back VM state if the import fails.
 Saved reference-only objects are created using their saved runtime type.
