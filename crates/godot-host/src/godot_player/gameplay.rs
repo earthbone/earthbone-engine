@@ -39,6 +39,49 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    pub(super) fn capture_screenshot_path(&mut self, path: &str) -> bool {
+        let script_name = "SoeHostHst19ScreenshotProbe";
+        let run = FunctionBuilder::new("Run", "None")
+            .global()
+            .param("path", "String")
+            .ins(
+                CallStatic,
+                vec![
+                    s("Debug"),
+                    s("TakeScreenshot"),
+                    ident("::nonevar"),
+                    ident("path"),
+                ],
+            )
+            .build();
+        let bytes = ScriptBuilder::new(script_name, "None")
+            .function(run)
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.load_script(&bytes) {
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: failed to load screenshot probe: {error}");
+            return false;
+        }
+        let thread = match game
+            .vm
+            .call_global(script_name, "Run", &[Value::string(path)])
+        {
+            Ok(thread) => thread,
+            Err(error) => {
+                soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: failed to run screenshot probe: {error}");
+                return false;
+            }
+        };
+        game.run_until_idle(64);
+        if game.vm.thread_result(thread) != Some(Value::None) {
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: screenshot probe did not complete");
+            return false;
+        }
+        self.capture_screenshot_requests()
+    }
+
     /// Invoke either main-menu Game native for host integration checks.
     pub(super) fn invoke_main_menu_native_for_check(
         &mut self,
@@ -514,6 +557,9 @@ impl PlayerNode {
             .as_mut()
             .map(|game| game.world_mut().take_screenshot_requests())
             .unwrap_or_default();
+        if requests.is_empty() {
+            return false;
+        }
         let mut succeeded = true;
         for path in requests {
             let Some(viewport) = self.base().get_viewport() else {

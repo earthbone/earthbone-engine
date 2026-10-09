@@ -1542,19 +1542,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn take_screenshot(&mut self, path: GString) -> bool {
-        let Some(game) = self.game.as_mut() else {
-            return false;
-        };
-        if let Err(error) = game.vm.call_global(
-            "Debug",
-            "TakeScreenshot",
-            &[soe_papyrus::Value::string(&path.to_string())],
-        ) {
-            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: Debug.TakeScreenshot failed: {error}");
-            return false;
-        }
-        game.run_until_idle(64);
-        self.capture_screenshot_requests()
+        self.capture_screenshot_path(&path.to_string())
     }
 
     /// Current derived image-space stack for host diagnostics.
