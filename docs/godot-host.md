@@ -1586,6 +1586,15 @@ Papyrus budget usage. Papyrus reads the latest count through
 `Utility.GetCurrentBudget` and compares it with the configured cap through
 `OverBudget`. The counter resets to zero at the start of each host update.
 
+The direct gameplay adapter publishes exterior cell arrivals and departures
+to `Game::update_streaming_cells` after `CellStreamerNode` applies the resource
+delta. Initial neighboring cells use `Game::attach_streaming_cells`, and the
+old exterior ring uses `Game::detach_streaming_cells` when its host resources
+leave. The game derives reference 3D residency from those cell IDs, so a cell
+prefetch alone does not report loaded 3D. `ObjectReference.Is3DLoaded` then
+reports the residency state, including references culled by room bounds, until
+their cell leaves the streamer.
+
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under
 `deleted_references` instead (`docs/esm.md`, "Dirty plugins"). A deleted
