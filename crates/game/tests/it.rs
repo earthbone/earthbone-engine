@@ -1616,6 +1616,8 @@ mod shm_10_breaker_adversarial;
 mod shm_11_adversarial;
 #[path = "shm_11_cpp_live_world.rs"]
 mod shm_11_cpp_live_world;
+#[path = "shm_11_breaker_3_adversarial.rs"]
+mod shm_11_breaker_3_adversarial;
 
 #[path = "prf_11.rs"]
 mod prf_11;
