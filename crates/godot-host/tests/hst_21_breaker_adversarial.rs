@@ -8,7 +8,10 @@ use std::process::Command;
 
 #[test]
 fn hst_21_two_installed_doors_keep_identity_without_stale_collision() {
-    assert!(std::env::var_os("SKYRIM_DATA").is_some(), "SKYRIM_DATA is required");
+    assert!(
+        std::env::var_os("SKYRIM_DATA").is_some(),
+        "SKYRIM_DATA is required"
+    );
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
     let project = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../godot");
     let output = Command::new(godot)
