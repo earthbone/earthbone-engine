@@ -190,6 +190,7 @@ impl DataSource {
         let mut collision_cells = BTreeMap::new();
         let mut stats = CollisionStats::default();
         for (id, loaded) in &cells {
+            let _capture = loaded.stats.profile.enter();
             let (placed, found) = self.location_colliders(*id, loaded)?;
             stats.references += found.references;
             stats.with_collision += found.with_collision;
@@ -198,6 +199,7 @@ impl DataSource {
             stats.skipped_blocks += found.skipped_blocks;
             let mut bodies = Vec::new();
             for placed in placed.into_iter().filter(|p| p.collider.is_static()) {
+                let _build = soe_trace::LoadMeasure::new(soe_trace::LoadStage::CollisionBuild, "");
                 let before = world.primitive_count();
                 let body = world.add_static(&placed.collider);
                 references.insert(body, placed.reference);
@@ -276,6 +278,7 @@ impl DataSource {
             .cells
             .into_iter()
             .map(|(cell, loaded)| {
+                let _capture = loaded.stats.profile.enter();
                 let (colliders, _) = self.location_colliders(cell.id, &loaded)?;
                 Ok(PreparedCell {
                     id: cell.id,
@@ -292,6 +295,7 @@ impl DataSource {
         loaded: &LoadedCell,
     ) -> Result<(Vec<PlacedCollider>, CollisionStats), DataSourceError> {
         let (mut placed, stats) = self.placed_cell_colliders(cell)?;
+        let _build = soe_trace::LoadMeasure::new(soe_trace::LoadStage::CollisionBuild, "");
         for surface in &loaded.surfaces {
             if self
                 .order

@@ -54,7 +54,7 @@ const MASTERS: [&str; 5] = [
     "Dragonborn.esm",
 ];
 
-const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] [--max-seconds metric=value] <load-order|open-data|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|dirty|save|overhead <editor id>|trace <subcommand ...>|all>";
+const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] [--max-seconds metric=value] <load-order|open-data|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|dirty|save [file.ess]|overhead <editor id>|trace <subcommand ...>|all>";
 
 struct Options {
     gates: RefCell<Gates>,
@@ -134,7 +134,14 @@ fn main() -> ExitCode {
             _ => break,
         }
     }
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+    let data = std::env::var_os("SKYRIM_DATA").map_or_else(
+        || {
+            (args.first().is_some_and(|arg| arg == "save") && args.get(1).is_some())
+                .then(PathBuf::new)
+        },
+        |path| Some(PathBuf::from(path)),
+    );
+    let Some(data) = data else {
         eprintln!("SKYRIM_DATA is not set");
         return ExitCode::FAILURE;
     };
@@ -173,7 +180,7 @@ fn dispatch(opts: &Options, args: &[String]) -> Result<(), String> {
         Some("scripts") => scripts(opts),
         Some("navmesh") => navmesh(opts),
         Some("dirty") => dirty(opts),
-        Some("save") => save(opts),
+        Some("save") => save(opts, args.get(1).map(String::as_str)),
         Some("overhead") => overhead(opts, arg(1)?),
         Some("trace") => {
             if args.len() < 2 {
@@ -204,7 +211,7 @@ fn dispatch(opts: &Options, args: &[String]) -> Result<(), String> {
             .and_then(|()| scripts(opts))
             .and_then(|()| navmesh(opts))
             .and_then(|()| dirty(opts))
-            .and_then(|()| save(opts))
+            .and_then(|()| save(opts, None))
             .and_then(|()| overhead(opts, "WhiterunBanneredMare")),
         _ => Err(USAGE.to_string()),
     }
@@ -792,7 +799,178 @@ fn navmesh(opts: &Options) -> Result<(), String> {
     Ok(())
 }
 
-fn save(opts: &Options) -> Result<(), String> {
+/// Named section sizes and decode times, then the per-plugin split of the
+/// sections that name a plugin. Plugin names can hold spaces, so the plugin is
+/// always the last field of a row.
+///
+/// Section rows are `save_section <name> <bytes>` and
+/// `save_section_time <name> <ns>`. Their totals follow as `save_section_bytes`
+/// and `save_section_load_ns`, and `save_section_unaccounted_bytes` is the part
+/// of the body no section spans. Plugin rows are
+/// `save_plugin_section <section> <entries> <bytes> <plugin>` and
+/// `save_plugin_load <forms> <ns> <plugin>`, with `save_plugin_load_ns` as the
+/// sum of the second.
+fn report_save_sections(save: &soe_save::Save, profile: &soe_save::ParseProfile) {
+    let mut bytes_total = 0;
+    let mut nanos_total = 0_u64;
+    for section in &profile.sections {
+        println!("save_section {} {}", section.name, section.bytes);
+        println!("save_section_time {} {}", section.name, section.nanos);
+        if section.name != "container" {
+            bytes_total += section.bytes;
+        }
+        nanos_total += section.nanos;
+    }
+    report_count("save_section_bytes", bytes_total, "bytes");
+    report_count(
+        "save_section_load_ns",
+        usize::try_from(nanos_total).unwrap_or(usize::MAX),
+        "ns",
+    );
+    let body_len = save.body_bytes().len();
+    report_count(
+        "save_section_unaccounted_bytes",
+        body_len.saturating_sub(bytes_total),
+        "bytes",
+    );
+    let mut plugin_ns = 0_u64;
+    for row in save.plugin_load_nanos(profile) {
+        println!(
+            "save_plugin_load {} {} {}",
+            row.forms, row.nanos, row.plugin
+        );
+        plugin_ns += row.nanos;
+    }
+    report_count(
+        "save_plugin_load_ns",
+        usize::try_from(plugin_ns).unwrap_or(usize::MAX),
+        "ns",
+    );
+    let mut change_forms = std::collections::BTreeMap::<String, (usize, usize)>::new();
+    for row in save.change_form_sizes_by_plugin() {
+        let entry = change_forms.entry(row.plugin).or_default();
+        entry.0 += row.count;
+        entry.1 += row.bytes;
+    }
+    for (plugin, (entries, bytes)) in change_forms {
+        println!("save_plugin_section change_forms {entries} {bytes} {plugin}");
+    }
+    for row in save.form_id_array_by_plugin() {
+        println!(
+            "save_plugin_section form_id_array {} {} {}",
+            row.entries, row.bytes, row.plugin
+        );
+    }
+}
+
+/// Papyrus variable data of script instances, by script and owning plugin.
+///
+/// `save_papyrus_script <script> <instances> <bytes> <plugin>` is the plugin of
+/// the form the instance runs on. `save_papyrus_script_plugin` totals the same
+/// rows per plugin and `save_papyrus_script_bytes` is the grand total.
+/// `save_papyrus_unattributed_bytes` is the rest of the value data: reference
+/// and array data, which no script instance owns.
+fn report_save_papyrus(save: &soe_save::Save, papyrus: &soe_save::Papyrus) -> Result<(), String> {
+    let decode = Instant::now();
+    let sizes = save
+        .papyrus_script_sizes(papyrus)
+        .map_err(|error| error.to_string())?;
+    println!(
+        "save_section_time papyrus_attribution {}",
+        decode.elapsed().as_nanos()
+    );
+    let mut per_plugin = std::collections::BTreeMap::<String, (usize, usize)>::new();
+    let mut total = 0;
+    for row in &sizes {
+        println!(
+            "save_papyrus_script {} {} {} {}",
+            row.script, row.instances, row.bytes, row.plugin
+        );
+        let entry = per_plugin.entry(row.plugin.clone()).or_default();
+        entry.0 += row.instances;
+        entry.1 += row.bytes;
+        total += row.bytes;
+    }
+    for (plugin, (instances, bytes)) in per_plugin {
+        println!("save_papyrus_script_plugin {instances} {bytes} {plugin}");
+    }
+    report_count("save_papyrus_script_bytes", total, "bytes");
+    let value_data = papyrus.execution_start.saturating_sub(papyrus.data_start);
+    report_count(
+        "save_papyrus_unattributed_bytes",
+        value_data.saturating_sub(total),
+        "bytes",
+    );
+    Ok(())
+}
+
+fn save(opts: &Options, input: Option<&str>) -> Result<(), String> {
+    if let Some(input) = input {
+        let path = Path::new(input);
+        let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if bytes.starts_with(soe_game::save::MAGIC) {
+            let mut game = Game::new(read_order_threads(&opts.data, opts.threads)?);
+            game.load_scripts_from_data(&opts.data);
+            game.bind();
+            let (_, ()) = timed(opts, "save_load", opts.runs, || {
+                game.load_state(&bytes).map_err(|error| error.to_string())
+            })?;
+            report_count("save_file_bytes", bytes.len(), "bytes");
+            return Ok(());
+        }
+        let (_, (save, profile)) = timed(opts, "save_parse", opts.runs, || {
+            soe_save::Save::parse_profiled(&bytes).map_err(|error| error.to_string())
+        })?;
+        report_count("save_file_bytes", bytes.len(), "bytes");
+        let mut global_sections = std::collections::BTreeMap::<u32, usize>::new();
+        for (index, table) in [
+            (&save.table_1, "table_1"),
+            (&save.table_2, "table_2"),
+            (&save.table_3, "table_3"),
+        ] {
+            report_count(
+                &format!("save_{table}_bytes"),
+                index.iter().map(|block| 8 + block.data.len()).sum(),
+                "bytes",
+            );
+            for block in index {
+                *global_sections.entry(block.kind).or_default() += 8 + block.data.len();
+            }
+        }
+        for (kind, size) in global_sections {
+            report_count(&format!("save_global_section_{kind}_bytes"), size, "bytes");
+        }
+        report_count("save_change_forms", save.change_forms.len(), "forms");
+        for row in save.change_form_sizes_by_plugin() {
+            println!(
+                "save_plugin_change {} {} {} {}",
+                row.plugin, row.record_type, row.count, row.bytes
+            );
+        }
+        report_save_sections(&save, &profile);
+        let decode = Instant::now();
+        let papyrus = save.papyrus();
+        println!(
+            "save_section_time papyrus_decode {}",
+            decode.elapsed().as_nanos()
+        );
+        if let Some(Ok(papyrus)) = papyrus {
+            let bytes = save
+                .table_3
+                .iter()
+                .find(|block| block.kind == soe_save::table::GlobalData::PAPYRUS)
+                .map_or(0, |block| block.data.len());
+            report_count("save_papyrus_bytes", bytes, "bytes");
+            report_count("save_papyrus_scripts", papyrus.scripts.len(), "scripts");
+            report_count(
+                "save_papyrus_instances",
+                papyrus.instances.len(),
+                "instances",
+            );
+            report_save_papyrus(&save, &papyrus)?;
+        }
+        return Ok(());
+    }
     let mut game = Game::new(read_order_threads(&opts.data, opts.threads)?);
     game.load_scripts_from_data(&opts.data);
     game.bind();

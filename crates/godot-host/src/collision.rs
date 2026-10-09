@@ -260,11 +260,14 @@ impl DataSource {
     fn colliders_of(&self, model: &str, refr: &Refr) -> Result<RefColliders, DataSourceError> {
         let _span = soe_trace::Span::new("host.collider", "host");
         let bytes = self.vfs().read(&format!("meshes/{model}"))?;
+        let path = soe_bsa::normalize(&format!("meshes/{model}"));
         let file = {
-            let _parse =
+            let _parse = soe_trace::LoadMeasure::new(soe_trace::LoadStage::NifParse, &path);
+            let _scope =
                 soe_trace::LoadScope::new("collision_parse", soe_trace::LoadCause::Parse, model);
             crate::data_source::placed_model(&bytes)?
         };
+        let _asset = soe_trace::LoadMeasure::new(soe_trace::LoadStage::CollisionBuild, &path);
         let _build =
             soe_trace::LoadScope::new("collision_build", soe_trace::LoadCause::CpuBuild, model);
         let collected =

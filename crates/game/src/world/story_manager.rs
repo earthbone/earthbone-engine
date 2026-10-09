@@ -3,6 +3,7 @@
 //! Routes story events through winning SMEN, SMBN and SMQN records.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use soe_esm::{records::gameplay::Condition, GlobalFormId, Tag};
 use soe_papyrus::{vm::state::Writer, Value, Vm, VmError};
@@ -40,7 +41,7 @@ pub enum StoryError {
 }
 
 #[derive(Debug)]
-struct Node {
+pub(super) struct Node {
     id: GlobalFormId,
     tag: Tag,
     parent: Option<GlobalFormId>,
@@ -78,12 +79,16 @@ impl World {
         self.send_story_event_inner(event, &mut StoryAllocator::Native(alloc))
     }
 
-    fn send_story_event_inner(
-        &mut self,
-        event: &StoryEvent,
-        allocator: &mut StoryAllocator<'_>,
-    ) -> Result<Vec<GlobalFormId>, StoryError> {
-        let code = u32::from_le_bytes(event.code);
+    /// The winning story nodes in id order. The node records depend only on the
+    /// load order, so they are parsed once and shared by every event. Walking
+    /// every winning record per event cost about 20 ms on the installed game.
+    fn story_nodes(&self) -> Result<Arc<[Node]>, StoryError> {
+        self.story_nodes
+            .get_or_init(|| self.build_story_nodes().map(Arc::from))
+            .clone()
+    }
+
+    fn build_story_nodes(&self) -> Result<Vec<Node>, StoryError> {
         let mut nodes = Vec::new();
         for (id, rref) in self.order.winners() {
             let rec = self.order.record(rref);
@@ -146,6 +151,16 @@ impl World {
             nodes.push(node);
         }
         nodes.sort_by_key(|node| node.id);
+        Ok(nodes)
+    }
+
+    fn send_story_event_inner(
+        &mut self,
+        event: &StoryEvent,
+        allocator: &mut StoryAllocator<'_>,
+    ) -> Result<Vec<GlobalFormId>, StoryError> {
+        let code = u32::from_le_bytes(event.code);
+        let nodes = self.story_nodes()?;
 
         let parameters = event
             .parameters

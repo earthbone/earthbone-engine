@@ -54,6 +54,24 @@ The container format is documented and has a mature open implementation,
 so both were read first. SCEN runtime field widths were inferred from the
 external save corpus where those sources leave the payload undefined.
 
+`Save::change_form_sizes_by_plugin` resolves each change-form RefID through
+the save's form-ID array and plugin lists, then groups the exact encoded form
+bytes by plugin and record type. Created, invalid and unresolved IDs receive
+explicit synthetic owners so their bytes remain in the total.
+
+`Save::parse_profiled` runs the same parse and also returns a `ParseProfile`:
+the size and decode time of each region of the body (plugin info, location
+table, form-ID array, visited worldspaces, the three global tables, change
+forms) and the decode time of every change form. The regions tile the body
+exactly, which the PRF-21 survey asserts over the save corpus.
+`Save::plugin_load_nanos` groups the change-form times by plugin and
+`Save::form_id_array_by_plugin` groups the form-ID array. Papyrus script
+definitions do not carry their provider plugin in ESS, so
+`Save::papyrus_script_sizes` attributes each instance's variable data to the
+plugin of the form the instance runs on, which is the owner a save can name.
+Reference and array data belong to no instance and stay unattributed. The
+`soe-bench save` rows are listed in `docs/performance.md`.
+
 ## Sources, and what each gave
 
 - `../engine-refs/uesp-savefile/` holds 37 wikitext pages fetched from the UESP

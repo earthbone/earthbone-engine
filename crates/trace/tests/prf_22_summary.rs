@@ -12,6 +12,8 @@ fn prf_22_summary_preserves_metadata_and_excludes_overlapping_systems_from_plugi
     let frame = FrameSample {
         frame_ns: 100,
         system_ns: [10; SYSTEM_COUNT],
+        live_bytes: [0; SYSTEM_COUNT],
+        allocation_calls: [0; SYSTEM_COUNT],
     };
     Profile::systems("game", &frame);
     assert!(Profile::summary().is_empty());

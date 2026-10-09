@@ -38,13 +38,97 @@ The design uses the repository's Chrome writer and local Godot profiler manual
 for inclusive versus self time. godotwind's dynamic model timings informed the
 rolling view, but do not provide Rust actor or script identities.
 
+## Hitch history, PRF-18
+
+The main thread keeps a 65,536-event ring of named spans, exclusive system
+spans, frame spans and all ten work counters, retaining the last five seconds.
+Recording runs with optional tracing off. System events reuse PRF-12's clock reads.
+Frame completion samples the active work recorder, including joined workers'
+counts. Worker timings remain on their calling thread's ring. Static `Span`
+names and payloads are retained. Dynamic spans use their category as a name
+when optional tracing is off, without calling the name-building closure.
+With optional tracing on, their full names are retained too. System and
+operation names use fixed slots. After initial allocation, normal recording
+with optional tracing off neither allocates nor locks.
+
+`FrameHistory::record` detects frames strictly above 33.4 ms, twice the
+16.7 ms budget. `Trace::set_hitch_threshold` accepts a positive duration.
+A hitch pins the preceding five seconds until one second of subsequent
+wall time has passed. Further hitches do not extend that tail. The next
+completed frame hands the capture to a background writer. At least ten
+seconds pass between a dump and the next eligible trigger. A process-wide
+limiter also separates dumps from concurrent recording threads. A full ring
+overwrites its oldest event and reports the count in the trace and summary.
+
+The writer emits Chrome complete spans and counter events to a JSON file
+and a matching one-line text summary. Times are microseconds relative to the
+window's beginning, and spans are clipped to the window. The summary lists
+three span names ordered by longest individual duration. System spans are
+exclusive while ordinary named spans include nested work. Filenames contain
+process, thread and trigger identity. Write failures are reported.
+`Trace::wait_for_hitch_exports` joins submitted writes and returns failures.
+Thread shutdown also joins them. A run that stops before the one-second tail
+finishes has no completed capture to export.
+
+The Linux headless default is
+`$XDG_DATA_HOME/godot/app_userdata/Skyrim open engine host/hitches`, using
+`$HOME/.local/share` when XDG_DATA_HOME is absent. `SOE_HITCH_DIR` overrides
+this path. The host uses `Trace::set_hitch_directory` with Godot's resolved
+`user://hitches`, including custom project user directories.
+
+Sources read were local godotwind's
+`src/core/world/performance_profiler.gd`, spdlog's
+`details/backtracer-inl.h` in SKSE64Plugins, and Godot's ProjectSettings
+class documentation. Their dynamic GDScript arrays and mutex-protected log
+messages do not fit the fixed main-thread system slots. The Rust ring reuses
+the repository's clock and Chrome exporter design without adding a dependency
+or saved state. The `prf_18_` tests cover retention, capacity, threshold,
+tail, cooldown, export and I/O failure, plus a forced synthetic hitch with
+optional tracing off. The optimized overhead checks use a limit below 1.01.
+
+## System timings and work counts
+
+## Cell costs and allocation counters, PRF-20
+
+`LoadRecorder` follows one cell through worker preparation, collision and host
+upload. Its scoped capture restores the previous cell on return or unwind.
+Joined workers explicitly enter the caller's recorder. `LoadReport` includes
+archive I/O by winning archive path or loose source, NIF parse, texture
+preparation, texture upload, collision build and NAVM preparation, including
+zero slots. Durations are cumulative CPU work and waits, rather than wall-time
+shares. Texture preparation includes DDS parsing and compressed mip padding.
+Archive reads include decompression and lock waits. Collision construction
+excludes separately measured archive reads and NIF parsing.
+
+Asset costs sum measured operations for each canonical path. The slowest asset
+uses that cumulative cost, with lexical tie breaking. `diagnostic` names it
+alongside stage and archive totals. Texture inventories contain one payload
+size per canonical path per cell, including generated terrain and cube faces.
+These totals describe referenced upload bytes, rather than driver allocations.
+
+`MemorySnapshot` holds process-wide Rust allocation counters for every system.
+The host counting allocator retains the allocating system in a prefix and
+charges deallocation and reallocation to that owner even after scope or thread
+changes. `FrameSample` reports live requested bytes and successful allocation
+or reallocation calls between snapshots. Godot's heap and GPU allocations are
+outside these counters. Instrumentation is enabled in host debug builds and
+optimized builds with `profile-memory`.
+
+The timing table was checked against local
+`godotwind/src/core/world/performance_profiler.gd`. Its aggregate Godot memory
+monitors do not provide Rust allocation ownership, so the host uses the Rust
+standard library allocator and layout contract. No dependency or saved state
+was added. The PRF-18 dump consumer is absent from this checkout. The diagnostic
+API supplies streaming attribution for a consumer to include.
+
 `Span` records optional Chrome trace events in the existing global event list.
 `SystemScope` also provides always-on exclusive elapsed timings for fourteen fixed
 slots: Papyrus VM, AI planning, AI movement, combat, magic, quests and story
 manager, dialogue, physics sync, cell streaming, audio, save, input handling,
 host render submission and other work.
 
-The counters are thread-local and use no event strings, allocations or mutexes.
+The counters are thread-local and use no event strings or mutexes. The hitch
+ring allocates once when first initialized on a recording thread.
 Entering another system charges the elapsed interval to the previous system.
 Leaving restores the previous system, so a native operation inside a VM run
 is charged once. Re-entering the same system requires no clock read.
@@ -58,7 +142,8 @@ totals and worst values. Queries compute nearest-rank p50, p99 and worst
 over the ring, including zero samples for idle systems. The last frame exposes
 milliseconds and a percentage of its own wall time. An empty frame returns
 zero percentages. The summary includes every system's session total, mean
-and worst alongside its rolling p50 and p99. Recording does not sort or allocate.
+and worst alongside its rolling p50 and p99. Ordinary recording does not sort
+or allocate. A completed hitch tail allocates a capture for the writer.
 `with_timing_suspended` provides a thread-local baseline for overhead
 calibration and restores recording after the closure, including on unwind.
 
@@ -194,6 +279,19 @@ release argument elision, per-second counts, actor separation, shutdown,
 reentrant sinks, rotation, escaped lines, bounded retention and file errors.
 The hitch-window test includes unflushed messages and excludes both outside
 boundaries. Host routing and F3 controls are tested in Godot separately.
+
+## Papyrus health snapshots, PRF-19
+
+`PapyrusHealth`, `UpdateRegistrations` and `EventHealth` carry live scheduler
+counts and frame durations without trace events. `EventRate` measures arrivals
+in a trailing real-time second and retains the session peak. Equal timestamps
+share a bucket. The oldest bucket expires at its one-second boundary.
+`PapyrusHealth::add` sums counts and durations and takes the maximum backlog
+age. Its peak addition is for intermediate rows only. VM and Game reports
+replace those sums with the independently measured group peaks.
+
+The snapshot meanings follow the local CK OnUpdate, RegisterForSingleUpdate
+and Utility pages. These data structures add no dependencies or saved state.
 
 ## Load causes, PRF-29
 

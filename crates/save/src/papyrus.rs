@@ -96,6 +96,35 @@ pub struct VariableData {
     pub variables: Vec<Value>,
 }
 
+impl VariableData {
+    fn write(&self, out: &mut Vec<u8>) -> Result<()> {
+        if (self.flags & 4 != 0) != self.extra.is_some() {
+            return Err(bad("variable data flag disagrees with optional field"));
+        }
+        out.extend_from_slice(&self.id.to_le_bytes());
+        out.push(self.flags);
+        out.extend_from_slice(&self.state_or_type.0.to_le_bytes());
+        out.extend_from_slice(&self.unknown.to_le_bytes());
+        if let Some(extra) = self.extra {
+            out.extend_from_slice(&extra.to_le_bytes());
+        }
+        let count = u32::try_from(self.variables.len()).map_err(|_| bad("too many variables"))?;
+        out.extend_from_slice(&count.to_le_bytes());
+        for value in &self.variables {
+            value.write(out)?;
+        }
+        Ok(())
+    }
+
+    /// Serialized size of this record in the second pass, which is what the
+    /// save spends on one script object's variables.
+    pub fn encoded_len(&self) -> Result<usize> {
+        let mut out = Vec::new();
+        self.write(&mut out)?;
+        Ok(out.len())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ArrayData {
     pub id: u64,
@@ -270,22 +299,7 @@ impl Papyrus {
     pub fn value_data_bytes(&self) -> Result<Vec<u8>> {
         let mut out = Vec::new();
         for data in self.instance_data.iter().chain(&self.reference_data) {
-            if (data.flags & 4 != 0) != data.extra.is_some() {
-                return Err(bad("variable data flag disagrees with optional field"));
-            }
-            out.extend_from_slice(&data.id.to_le_bytes());
-            out.push(data.flags);
-            out.extend_from_slice(&data.state_or_type.0.to_le_bytes());
-            out.extend_from_slice(&data.unknown.to_le_bytes());
-            if let Some(extra) = data.extra {
-                out.extend_from_slice(&extra.to_le_bytes());
-            }
-            let count =
-                u32::try_from(data.variables.len()).map_err(|_| bad("too many variables"))?;
-            out.extend_from_slice(&count.to_le_bytes());
-            for value in &data.variables {
-                value.write(&mut out)?;
-            }
+            data.write(&mut out)?;
         }
         for data in &self.array_data {
             out.extend_from_slice(&data.id.to_le_bytes());

@@ -49,6 +49,15 @@ pub enum TextureData {
 }
 
 impl TextureData {
+    /// Bytes supplied for upload, including padded mip tails and all cube faces.
+    pub fn payload_bytes(&self) -> usize {
+        match self {
+            Self::Cubemap(faces) => faces.iter().map(Self::payload_bytes).sum(),
+            Self::Compressed { bytes, .. } => bytes.len(),
+            Self::Rgba8(image) => image.rgba.len(),
+        }
+    }
+
     pub fn width(&self) -> u32 {
         match self {
             TextureData::Cubemap(faces) => faces[0].width(),
@@ -72,11 +81,12 @@ impl TextureData {
 /// cell's stream time. Anything else decodes its top mip to RGBA8.
 fn load_texture(vfs: &Vfs, path: &str) -> Result<TextureData, DataSourceError> {
     let bytes = vfs.read(path)?;
+    let _decode = soe_trace::LoadMeasure::new(soe_trace::LoadStage::TextureDecode, path);
     let dds = {
         let _parse = soe_trace::LoadScope::new("texture_parse", soe_trace::LoadCause::Parse, path);
         Dds::parse(&bytes)?
     };
-    let _decode = soe_trace::LoadScope::new("texture_prepare", soe_trace::LoadCause::Decode, path);
+    let _prepare = soe_trace::LoadScope::new("texture_prepare", soe_trace::LoadCause::Decode, path);
     if dds.header().is_cubemap() {
         if dds.layer_count() != 6 || dds.width() != dds.height() || dds.header().depth() != 1 {
             return Err(soe_dds::Error::BadHeader(
@@ -223,6 +233,8 @@ impl TextureCache {
             .entry(path.clone())
             .or_insert_with(|| {
                 let bytes = vfs.read(&path).ok()?;
+                let _decode =
+                    soe_trace::LoadMeasure::new(soe_trace::LoadStage::TextureDecode, &path);
                 Dds::parse(&bytes)
                     .and_then(|dds| dds.decode(0, 0))
                     .ok()

@@ -15,12 +15,18 @@ var loaded := false
 var loading_label: Label
 var startup_msec := 0
 var loading_phase := "Opening game data"
+var startup_cell := "WhiterunBanneredMare"
+var startup_position := Vector3(0.0, 0.0, 500.0)
+var startup_radius := -1
 
 func _initialize() -> void:
 	call_deferred("_start")
 
 func _finalize() -> void:
 	print("WALKTHROUGH stopped: ready=", loaded)
+
+func _spawn_position(_streamer: Node3D) -> Vector3:
+	return startup_position
 
 func _start() -> void:
 	var data := OS.get_environment("SKYRIM_DATA")
@@ -49,12 +55,21 @@ func _start() -> void:
 		await process_frame
 		state = streamer.call("poll_load_data")
 	print("STARTUP data ms=", Time.get_ticks_msec() - startup_msec)
-	loading_phase = "Building the Bannered Mare"
+	loading_phase = "Building " + startup_cell
 	await process_frame
 	await process_frame
 	var phase_msec := Time.get_ticks_msec()
-	if state < 0 or streamer.call("stream_cell", "WhiterunBanneredMare") <= 0:
-		printerr("Could not render the Bannered Mare")
+	if state < 0:
+		printerr("Could not load game data")
+		quit(1)
+		return
+	var built: int
+	if startup_radius < 0:
+		built = streamer.call("stream_cell", startup_cell)
+	else:
+		built = streamer.call("stream_exterior", startup_cell, startup_radius)
+	if built <= 0:
+		printerr("Could not render ", startup_cell)
 		quit(1)
 		return
 	print("STARTUP render ms=", Time.get_ticks_msec() - phase_msec)
@@ -65,17 +80,17 @@ func _start() -> void:
 	system_overlay.player = player
 	get_root().add_child(system_overlay)
 	phase_msec = Time.get_ticks_msec()
-	var spawn := Vector3(0.0, 0.0, 500.0)
-	if OS.get_environment("SOE_AUD_11_TEST") == "1":
+	var spawn := _spawn_position(streamer)
+	if OS.get_environment("SOE_AUD_11_TEST") == "1" and startup_cell == "WhiterunBanneredMare":
 		spawn = Vector3(-125.0, -800.0, 120.0)
-	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", "WhiterunBanneredMare", spawn.x, spawn.y, spawn.z) <= 0:
-		printerr("Could not enter the Bannered Mare")
+	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", startup_cell, spawn.x, spawn.y, spawn.z) <= 0:
+		printerr("Could not enter ", startup_cell)
 		quit(1)
 		return
 	print("STARTUP player ms=", Time.get_ticks_msec() - phase_msec)
 	var sky := RecordSky.new()
 	scene.add_child(sky)
-	if not sky.use_streamer(streamer, "WhiterunBanneredMare"):
+	if not sky.use_streamer(streamer, startup_cell):
 		printerr("Could not initialize cell lighting")
 		quit(1)
 		return

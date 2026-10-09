@@ -33,6 +33,7 @@ pub mod header;
 pub mod list;
 pub mod npc;
 pub mod papyrus;
+pub mod profile;
 pub mod quest;
 pub mod reference;
 pub mod table;
@@ -59,6 +60,7 @@ pub use error::{Error, Result};
 pub use globals::{GlobalVariable, GlobalVariables};
 pub use header::{Compression, Header};
 pub use papyrus::Papyrus;
+pub use profile::{PapyrusScriptSize, ParseProfile, PluginFormIds, PluginLoad, SectionProfile};
 pub use quest::FormFlags;
 pub use table::{FileLocationTable, GlobalData};
 
@@ -86,6 +88,15 @@ pub struct Save {
     /// Length of the uncompressed header block, which every location table
     /// offset is measured from.
     header_len: usize,
+}
+
+/// Exact serialized change-form bytes attributed to a save plugin and record type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangeFormSize {
+    pub plugin: String,
+    pub record_type: &'static str,
+    pub count: usize,
+    pub bytes: usize,
 }
 
 impl Save {
@@ -118,7 +129,23 @@ impl Save {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         let _span = soe_trace::Span::new("save.parse", "save");
         let (header, header_len, body) = Self::split(bytes)?;
-        Self::parse_body(header, header_len, &body)
+        Self::parse_body(header, header_len, &body, None)
+    }
+
+    /// Parse and measure each named section and each change form. The result
+    /// is the same save [`Save::parse`] returns.
+    pub fn parse_profiled(bytes: &[u8]) -> Result<(Self, ParseProfile)> {
+        let _span = soe_trace::Span::new("save.parse", "save");
+        let mut profile = ParseProfile::default();
+        let started = std::time::Instant::now();
+        let (header, header_len, body) = Self::split(bytes)?;
+        profile.sections.push(SectionProfile {
+            name: "container",
+            bytes: header_len,
+            nanos: profile::nanos_since(started),
+        });
+        let save = Self::parse_body(header, header_len, &body, Some(&mut profile))?;
+        Ok((save, profile))
     }
 
     /// Splits a file into its header, the header block's length, and the
@@ -171,9 +198,15 @@ impl Save {
         self.write_body()
     }
 
-    fn parse_body(header: Header, header_len: usize, body: &[u8]) -> Result<Self> {
+    fn parse_body(
+        header: Header,
+        header_len: usize,
+        body: &[u8],
+        mut profile: Option<&mut ParseProfile>,
+    ) -> Result<Self> {
         let _parse = soe_trace::LoadScope::new("save_body", soe_trace::LoadCause::Parse, "ESS");
         let mut cursor = cursor::Cursor::new(body, "body");
+        let lap = profile::Lap::start(&profile, 0);
 
         let form_version = cursor.u8()?;
         if form_version < SE_MIN_FORM_VERSION {
@@ -211,7 +244,11 @@ impl Save {
             });
         }
 
+        lap.finish(&mut profile, "plugin_info", cursor.pos());
+
+        let lap = profile::Lap::start(&profile, cursor.pos());
         let location_table = FileLocationTable::read(&mut cursor)?;
+        lap.finish(&mut profile, "location_table", cursor.pos());
 
         // The form id array sits past the change forms, but a reference in any
         // earlier table needs it to resolve, so read it first and come back.
@@ -221,6 +258,7 @@ impl Save {
             "form id array",
         )?;
         cursor.seek(form_id_array_at, "form id array")?;
+        let lap = profile::Lap::start(&profile, cursor.pos());
         let form_id_count = cursor.u32()?;
         if form_id_count as usize * 4 > cursor.remaining() {
             return Err(Error::TableOffset {
@@ -233,35 +271,52 @@ impl Save {
         for _ in 0..form_id_count {
             form_id_array.push(cursor.u32()?);
         }
+        lap.finish(&mut profile, "form_id_array", cursor.pos());
 
+        let lap = profile::Lap::start(&profile, cursor.pos());
         let worldspace_count = cursor.u32()?;
         let mut visited_worldspaces = Vec::with_capacity(worldspace_count as usize);
         for _ in 0..worldspace_count {
             visited_worldspaces.push(cursor.u32()?);
         }
         let unknown_3 = cursor.rest().to_vec();
+        lap.finish(&mut profile, "visited_worldspaces", cursor.pos());
 
         // Back to the tables, which run in one stretch from table one through
         // the change forms to table three.
         let table_1_at = offset_into_body(location_table.table_1_offset, header_len, "table 1")?;
         cursor.seek(table_1_at, "table 1")?;
 
+        let lap = profile::Lap::start(&profile, cursor.pos());
         let mut table_1 = Vec::with_capacity(location_table.table_1_count as usize);
         for _ in 0..location_table.table_1_count {
             table_1.push(GlobalData::read(&mut cursor)?);
         }
+        lap.finish(&mut profile, "table_1", cursor.pos());
+        let lap = profile::Lap::start(&profile, cursor.pos());
         let mut table_2 = Vec::with_capacity(location_table.table_2_count as usize);
         for _ in 0..location_table.table_2_count {
             table_2.push(GlobalData::read(&mut cursor)?);
         }
+        lap.finish(&mut profile, "table_2", cursor.pos());
+        let lap = profile::Lap::start(&profile, cursor.pos());
         let mut change_forms = Vec::with_capacity(location_table.change_form_count as usize);
         for _ in 0..location_table.change_form_count {
+            let started = profile.is_some().then(std::time::Instant::now);
             change_forms.push(ChangeForm::read(&mut cursor)?);
+            if let (Some(started), Some(profile)) = (started, profile.as_deref_mut()) {
+                profile
+                    .change_form_nanos
+                    .push(profile::nanos_since(started));
+            }
         }
+        lap.finish(&mut profile, "change_forms", cursor.pos());
+        let lap = profile::Lap::start(&profile, cursor.pos());
         let mut table_3 = Vec::with_capacity(location_table.table_3_read_count() as usize);
         for _ in 0..location_table.table_3_read_count() {
             table_3.push(GlobalData::read(&mut cursor)?);
         }
+        lap.finish(&mut profile, "table_3", cursor.pos());
 
         Ok(Save {
             header,
@@ -438,6 +493,57 @@ impl Save {
         let mut counts: Vec<_> = counts.into_iter().collect();
         counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
         counts
+    }
+
+    /// Attribute serialized change forms to their regular or light plugin slot.
+    /// Created forms and malformed or unresolved references are reported under
+    /// explicit synthetic names so the byte totals still reconcile.
+    #[must_use]
+    pub fn change_form_sizes_by_plugin(&self) -> Vec<ChangeFormSize> {
+        use std::collections::BTreeMap;
+
+        let mut totals: BTreeMap<(String, &'static str), (usize, usize)> = BTreeMap::new();
+        for form in &self.change_forms {
+            let plugin = self.plugin_of(form.form);
+            let mut encoded = Vec::new();
+            form.write(&mut encoded);
+            let entry = totals.entry((plugin, form.record_type())).or_default();
+            entry.0 += 1;
+            entry.1 += encoded.len();
+        }
+        totals
+            .into_iter()
+            .map(|((plugin, record_type), (count, bytes))| ChangeFormSize {
+                plugin,
+                record_type,
+                count,
+                bytes,
+            })
+            .collect()
+    }
+
+    /// The plugin a reference belongs to, or a synthetic name for created,
+    /// invalid and unresolved references so byte totals still reconcile.
+    #[must_use]
+    pub fn plugin_of(&self, reference: RefId) -> String {
+        self.resolve(reference)
+            .and_then(|id| self.plugin_name_for_form_id(id))
+            .unwrap_or_else(|| match reference.kind() {
+                RefKind::Created => "<created>".to_owned(),
+                RefKind::Invalid => "<invalid>".to_owned(),
+                RefKind::Index => "<unresolved>".to_owned(),
+                RefKind::Default => "<unknown-plugin>".to_owned(),
+            })
+    }
+
+    /// Return the plugin name encoded by a resolved FormID.
+    fn plugin_name_for_form_id(&self, form_id: u32) -> Option<String> {
+        let plugin_index = if form_id >> 24 == 0xFE {
+            self.light_plugins.get(((form_id >> 12) & 0xFFF) as usize)?
+        } else {
+            self.plugins.get((form_id >> 24) as usize)?
+        };
+        Some(plugin_index.to_text())
     }
 }
 

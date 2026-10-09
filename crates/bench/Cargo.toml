@@ -14,9 +14,10 @@ soe-esm = { path = "../esm" }
 soe-bsa = { path = "../bsa" }
 soe-game = { path = "../game" }
 soe-papyrus = { path = "../papyrus" }
+soe-save = { path = "../save" }
 soe-navmesh = { path = "../navmesh" }
 soe-trace = { path = "../trace" }
-soe-godot-host = { path = "../godot-host", default-features = false }
+soe-godot-host = { path = "../godot-host", default-features = false, features = ["profile-memory"] }
 soe-hkx = { path = "../hkx" }
 soe-nif = { path = "../nif" }
 stats_alloc = "0.1.10"

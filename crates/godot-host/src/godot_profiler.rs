@@ -100,12 +100,15 @@ fn system_frame_values(sample: &FrameSample) -> Vec<(&'static str, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soe_trace::SYSTEM_COUNT;
 
     #[test]
     fn prf_23_editor_profiler_payload_contains_every_system_in_seconds() {
         let sample = FrameSample {
             frame_ns: 1_000_000_000,
             system_ns: std::array::from_fn(|index| (index as u64 + 1) * 1_000_000),
+            live_bytes: [0; SYSTEM_COUNT],
+            allocation_calls: [0; SYSTEM_COUNT],
         };
         let values = system_frame_values(&sample);
         assert_eq!(values.len(), System::ALL.len());

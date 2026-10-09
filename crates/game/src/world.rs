@@ -830,6 +830,8 @@ pub struct World {
     pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     quest_alias_candidates: std::sync::OnceLock<Option<Arc<[GlobalFormId]>>>,
+    /// Parsed story manager nodes, built on the first story event.
+    story_nodes: std::sync::OnceLock<Result<Arc<[story_manager::Node]>, story_manager::StoryError>>,
     pub(crate) dialogue: crate::dialogue::State,
     pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
     /// NPC bases warned about during this world session, excluded from saves.
@@ -920,6 +922,7 @@ pub struct World {
     /// Actor pairs visible during the latest successful host perception step.
     pub(crate) line_of_sight: BTreeSet<(GlobalFormId, GlobalFormId)>,
     pub(crate) frame_rate: performance::FrameRateState,
+    navigation_load_times: BTreeMap<GlobalFormId, u64>,
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
     pub host_requests: Vec<HostRequest>,
@@ -1284,6 +1287,7 @@ impl World {
             menu_mode: false,
             line_of_sight: BTreeSet::new(),
             frame_rate: performance::FrameRateState::default(),
+            navigation_load_times: BTreeMap::new(),
             pending: Vec::new(),
             host_requests: Vec::new(),
             spell_art_requests: Vec::new(),
@@ -1356,6 +1360,7 @@ impl World {
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             quest_alias_candidates: std::sync::OnceLock::new(),
+            story_nodes: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
             known_dialogue_topics: BTreeSet::new(),
             duplicate_npc_perk_warnings: BTreeSet::new(),

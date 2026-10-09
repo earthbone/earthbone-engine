@@ -710,6 +710,7 @@ impl Vm {
     }
 
     fn clear_runtime_state(&mut self) {
+        self.health = super::health::Tracker::default();
         self.objects.clear();
         self.next_object = 0;
         self.instances.clear();
@@ -923,6 +924,7 @@ impl Vm {
         self.next_object = next_object;
         self.instances = instances;
         self.threads = threads;
+        self.health = super::health::Tracker::default();
         self.next_thread = next_thread;
         self.latent_counter = latent_counter;
         self.latent_waiters = latent_waiters;

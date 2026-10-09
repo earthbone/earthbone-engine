@@ -55,6 +55,13 @@ refused before any allocation.
 
 ## The data view
 
+During an active PRF-20 cell capture, `Vfs::read` records the canonical asset
+path and its winning archive's path or loose file source. The timed interval
+includes file I/O, decompression and archive lock waits. Cache hits outside the
+VFS do not create I/O samples. Failed reads from a resolved source retain their
+cost. Missing paths have no source to charge. Selection still follows the
+precedence rules below.
+
 `Vfs` applies the game's override rule:
 
 1. loose files beat every archive,

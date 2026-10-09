@@ -97,7 +97,9 @@ impl Clock {
         if !self.suspended.get() {
             if let (Some(system), Some(since)) = (self.system.get(), self.since.get()) {
                 let total = &self.totals[system as usize];
-                total.set(total.get().saturating_add(nanos(now.duration_since(since))));
+                let duration_ns = nanos(now.duration_since(since));
+                total.set(total.get().saturating_add(duration_ns));
+                crate::hitch::span(system, since, duration_ns, now);
             }
         }
         self.since.set(Some(now));
@@ -180,9 +182,14 @@ fn nanos(duration: Duration) -> u64 {
     u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
+pub(crate) fn timing_suspended() -> bool {
+    CLOCK.with(|clock| clock.suspended.get())
+}
+
 /// Charges a scope to one system, excluding nested scopes in other systems.
 /// Nested scopes in the same system perform no clock reads. Timings are
-/// independent of the optional event trace and never allocate or lock.
+/// independent of the optional event trace. After flight recorder initialization
+/// they never allocate or lock.
 pub struct SystemScope {
     previous: ScopeState,
     _thread: PhantomData<Rc<()>>,
@@ -194,6 +201,13 @@ enum ScopeState {
 }
 
 impl SystemScope {
+    /// Allocation owner on this thread, including allocations outside a frame.
+    pub fn current_system() -> System {
+        CLOCK
+            .try_with(|clock| clock.system.get().unwrap_or(System::Other))
+            .unwrap_or(System::Other)
+    }
+
     /// Begin an exclusive scope on the calling thread.
     #[must_use]
     pub fn new(system: System) -> Self {
@@ -253,6 +267,7 @@ pub fn with_timing_suspended<T>(work: impl FnOnce() -> T) -> T {
 /// Game measures its tick while the host measures the whole presentation frame.
 pub struct FrameSnapshot {
     totals: [u64; SYSTEM_COUNT],
+    memory: crate::MemorySnapshot,
     start: Instant,
     _thread: PhantomData<Rc<()>>,
 }
@@ -274,6 +289,7 @@ impl FrameSnapshot {
         });
         Self {
             totals,
+            memory: crate::MemorySnapshot::now(),
             start,
             _thread: PhantomData,
         }
@@ -288,6 +304,11 @@ impl FrameSnapshot {
             system_ns: std::array::from_fn(|index| {
                 end.totals[index].saturating_sub(self.totals[index])
             }),
+            live_bytes: end.memory.live_bytes,
+            allocation_calls: std::array::from_fn(|index| {
+                end.memory.allocation_calls[index]
+                    .saturating_sub(self.memory.allocation_calls[index])
+            }),
         }
     }
 }
@@ -298,6 +319,8 @@ impl FrameSnapshot {
 pub struct FrameSample {
     pub frame_ns: u64,
     pub system_ns: [u64; SYSTEM_COUNT],
+    pub live_bytes: [u64; SYSTEM_COUNT],
+    pub allocation_calls: [u64; SYSTEM_COUNT],
 }
 
 impl FrameSample {
@@ -345,6 +368,7 @@ pub struct FrameHistory {
 
 impl Default for FrameHistory {
     fn default() -> Self {
+        crate::hitch::prepare();
         Self {
             frames: Box::new(std::array::from_fn(|_| FrameSample::default())),
             next: 0,
@@ -357,8 +381,9 @@ impl Default for FrameHistory {
 }
 
 impl FrameHistory {
-    /// Append one completed frame in constant time.
+    /// Append a completed frame and advance its hitch capture, if pending.
     pub fn record(&mut self, sample: FrameSample) {
+        crate::hitch::frame(sample.frame_ns);
         crate::Trace::frame_mark();
         for system in System::ALL {
             let index = system as usize;
@@ -532,6 +557,7 @@ mod tests {
             history.record(FrameSample {
                 frame_ns: value * SYSTEM_COUNT as u64,
                 system_ns: [value; SYSTEM_COUNT],
+                ..FrameSample::default()
             });
         }
         for system in System::ALL {

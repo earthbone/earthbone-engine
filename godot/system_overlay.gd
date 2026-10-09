@@ -10,6 +10,7 @@ var panel: PanelContainer
 var label: Label
 var elapsed := 0.0
 var entities := false
+var plugin_view := false
 var ai := false
 var orphan_elapsed := 0.0
 var orphan_start := -1.0
@@ -90,7 +91,10 @@ func _ready() -> void:
 	label.add_theme_constant_override("line_spacing", 0)
 	label.add_theme_font_size_override("font_size", 12)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(label)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(minf(get_viewport().get_visible_rect().size.x - 16.0, 620.0), minf(get_viewport().get_visible_rect().size.y - 16.0, 500.0))
+	panel.add_child(scroll)
+	scroll.add_child(label)
 	add_child(panel)
 	panel.hide()
 	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
@@ -120,6 +124,12 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.keycode == KEY_F3 and event.pressed and not event.echo:
 		ai = false
 		panel.visible = not panel.visible
+		refresh()
+		get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.keycode == KEY_F7 and event.pressed and not event.echo:
+		ai = false
+		plugin_view = not plugin_view
+		panel.show()
 		refresh()
 		get_viewport().set_input_as_handled()
 
@@ -217,7 +227,27 @@ func refresh() -> void:
 		for phase in magic_phases:
 			var row: Dictionary = magic_phases[phase]
 			text += "%s: %.3f / %.3f / %.3f / %.3f\n" % [phase, row.ms, row.p50_ms, row.p99_ms, row.worst_ms]
-	label.text = text
+	var health: Dictionary = player.call("papyrus_health")
+	var health_display := "Papyrus health, F7: %s\n" % ("per plugin" if plugin_view else "per script")
+	health_display += health_text("Total", health.total)
+	if plugin_view:
+		for plugin in health.plugins:
+			health_display += "%s\n" % plugin
+			for script in health.plugins[plugin]:
+				health_display += health_text(script, health.plugins[plugin][script])
+	else:
+		for script in health.scripts:
+			health_display += health_text(script, health.scripts[script])
+	label.text = health_display + "\n" + text if plugin_view else text + "\n" + health_display
+
+
+func health_text(name: String, health: Dictionary) -> String:
+	var text := "%s: backlog %d, oldest %.3fs, suspended %d\n" % [name, health.backlog, health.oldest_wait_seconds, health.suspended_stacks]
+	text += "  Updates repeat/single %d/%d, game time %d/%d\n" % [health.repeating_updates, health.single_updates, health.repeating_game_time_updates, health.single_game_time_updates]
+	text += "  Waiting %.3f stack s, running %.3f CPU ms\n" % [health.waiting_seconds, health.running_ms]
+	for event in health.events:
+		text += "  %s: queued %d, peak %d/s\n" % [event, health.events[event].queued, health.events[event].peak_per_second]
+	return text
 
 
 func ai_text(report: Dictionary) -> String:

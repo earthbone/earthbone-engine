@@ -95,3 +95,27 @@ impl FrameRateState {
         Ok(output)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::world::World;
+    use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+
+    #[test]
+    fn prf_20_navigation_load_time_is_cell_owned_transient_and_consumed_once() {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag::new(b"CELL"), 1).sub(b"DATA", [1, 0]));
+        plugin.push_top(Record::new(Tag::new(b"CELL"), 2).sub(b"DATA", [1, 0]));
+        let mut order = LoadOrder::new();
+        order.add("Test.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        let a = GlobalFormId { file: 0, object: 1 };
+        let b = GlobalFormId { file: 0, object: 2 };
+        assert_eq!(world.take_navigation_load_time(a), 0);
+        world.load_cell(a);
+        world.load_cell(b);
+        assert!(world.take_navigation_load_time(a) > 0);
+        assert_eq!(world.take_navigation_load_time(a), 0);
+        assert!(world.take_navigation_load_time(b) > 0);
+    }
+}

@@ -193,6 +193,68 @@ saved fields or dependency were added. The windowed `prf_13_` host check
 covers F4, an applied camera switch, presentation latency, an audio start,
 installed render submissions, summary JSON and an overlay capture. It uses
 the existing input path and the local Godot RenderingServer signal contract.
+`prf_13_windowed_host_overlay_script_passes_with_synthetic_audio_fixture` in
+`crates/game/tests/prf_13_entities.rs` runs the script in a window against the
+built extension with SKYRIM_DATA, SOE_GODOT_BIN and a display set, so an overlay
+key remap that leaves the script behind fails `cargo test`.
+
+## Hitch dumps, PRF-18
+
+PlayerNode resolves `user://hitches` through Godot's ProjectSettings when it
+enters the tree. Both its presentation frames and nested game tick frames
+feed `soe-trace`'s always-on flight recorder. A frame above 33.4 ms captures
+the preceding five seconds plus one second afterward. A background writer
+emits Chrome trace JSON and a one-line summary naming the slowest
+spans. Dumps have a ten-second cooldown. Leaving the tree joins submitted
+writes and reports errors. Pending captures need their one-second tail to
+complete before exit. This adds no per-reference nodes or saved state.
+
+The local Godot `classes/class_projectsettings.rst` documents the user path
+resolution. `godot/prf_18_hitches_test.gd` lets startup's dump cooldown pass,
+forces an 80 ms pause, parses the dump with Godot's JSON parser, checks prior
+frames, tail, counters and summary, then frees its node and quits. It runs
+both headless and windowed, without game records. Recorder details and the
+headless Rust output path are in [trace.md](trace.md).
+`crates/godot-host/tests/prf_18_hitches_host.rs` runs the script headless in
+an isolated project under the same gating.
+
+## Cell loading and memory attribution, PRF-20
+
+`CellStats::profile` retains a cell-local `soe-trace` recorder through model
+workers, textures, collision preparation and host texture creation. Exterior
+terrain and grass enter the same capture. `CellStreamerNode.streaming_profiles`
+reports each resident cell's stage durations in nanoseconds, I/O by winning
+archive or loose source, the slowest canonical asset, and distinct texture
+payload bytes with their sum. CPU durations include waits and sum worker work.
+Texture upload measures Godot resource creation, excluding GPU execution.
+Warm material and texture cache hits produce no new upload work. Clearing or
+releasing a cell removes its report. Shared textures are charged once to each
+cell that uses them, including every cubemap face and generated LAND albedo.
+Material caches can retain resources beyond cell release, so these per-cell
+totals describe cell usage rather than global physical texture residency.
+
+`plugin_record_memory` counts requested capacity of retained record bodies,
+subrecord tables and subrecord payloads per defining plugin, including losing
+overrides and raw TES4 records. Decoded header metadata, group tables and shared
+load-order indices are outside these record-body totals. The implementation
+uses the existing ESM structs rather than a second record store.
+
+Debug builds use a counting Rust System allocator. Optimized profiling builds
+enable it with `--features profile-memory`. The allocator adds an aligned owner
+prefix, preserves that owner across reallocation and frees on other threads,
+and leaves Godot's own heap outside the counters. PlayerNode's
+`system_frame_breakdown` includes `live_bytes` and `allocations` for every
+system in the last completed presentation frame. Reallocations count as calls.
+Unscoped allocations use `other`. No saved state or per-reference nodes were
+added. These hooks use the Rust allocator contract and the model timing table
+in local `godotwind/src/core/world/performance_profiler.gd`.
+
+`streaming_diagnostic` supplies the slowest asset and adds it to the calling
+thread's bounded hitch history for PRF-18 dumps. The PRF-20 Rust installed
+check loads Bannered Mare and WhiterunOrigin and checks preparation categories,
+NAVM handoff, plugin record bodies and texture sums. The headless Godot script
+`prf_20_attribution_test.gd` checks actual host uploads, source reports, sums
+and profile removal. It measures no rendering throughput.
 
 ## PRF-24 runtime metric publication
 
@@ -225,6 +287,30 @@ construction, string filtering and sorting operations by menu and item count.
 The list workload is a synthetic scene check. It does not time each native
 presenter's record-backed list construction. Fast travel has no host transition
 entry point in this checkout, and its timing is not reported.
+
+## TST-18 walkthrough gameplay timing
+
+`walkthrough.gd` exposes startup cell, position and exterior radius to derived
+scripts. Exterior stream statistics include the resolved grid origin, which
+the timing script uses for its spawn. Its default remains the Bannered Mare
+spawn. Headless startup skips render pipeline preparation and still loads the
+same data, collision and
+gameplay runtime. `tst_18_walkthrough.gd` inherits that startup for both the
+Bannered Mare and a Whiterun exterior block, then settles gameplay for 20 wall
+seconds and measures host frame intervals
+with fixed player advances for at least 60 wall seconds. It checks that the
+logical cell remains the requested cell. It enforces the budgets and active
+package checks
+in [performance.md](performance.md), and quits after the measurement.
+`PlayerNode.ai_planning_details` includes selected supported package and NAVM
+triangle counts alongside phase timings and instantiated actors. These are
+read-only observations of the shared world. `probe_npc_navigation` queries the
+existing graph at the shared positions of NPCs with supported packages and
+returns query and success counts. The timing script calls it once per
+simulated second within a measured frame to keep lookup cost visible despite
+retained planner results, matching AI's package evaluation interval.
+No saved state or per-reference node path is added. The monotonic clock follows
+local Godot Time documentation.
 
 ## Per-system frame monitors, PRF-12
 
@@ -5678,6 +5764,21 @@ updates exceeded the 2,000-microsecond budget, so the check exited one.
 The full-update timing requirement remains unmet, see [performance.md](performance.md).
 The check runs a zero-time gameplay frame after load-door transitions to settle
 pending unload before exterior walking.
+
+## Papyrus health overlay, PRF-19
+
+`PlayerNode.papyrus_health` exposes Game's total, script and attachment-plugin
+health rows as dictionaries. An absent game returns zero totals and empty
+rows. The F3 system overlay shows backlog and age, four timer counts, suspended
+stacks, waiting stack seconds, running CPU milliseconds and event queues with
+session peaks per second. F7 switches between per-script and per-plugin rows.
+A scroll container keeps long reports inside the viewport. The adapter adds
+no per-reference nodes.
+
+`godot/prf_19_health_test.gd` checks the adapter, F3 and F7 views and installed
+script rows when `SKYRIM_DATA` is set. `SOE_PRF_19_CAPTURE` selects a PNG path
+for a windowed capture. The script frees its nodes and quits with the result.
+The host dictionary and UI calls use the existing Godot 4.4 API path.
 
 ## Placed model coverage and reference accounting, RND-32
 

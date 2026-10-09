@@ -172,6 +172,13 @@ host raycast is connected to this path.
 
 ## Per-system frame timing, PRF-12
 
+PRF-20 records NAVM preparation during `World::load_cell` after reference
+prefetch and before attachment. `take_navigation_load_time` consumes the latest
+duration for that resolved cell. The host adds it to the cell's streaming
+report when attaching the location. Rendering-only loads perform no NAVM
+preparation and report zero. These durations are transient diagnostics and
+are not saved.
+
 `Game::tick` and `tick_menu_mode` record an always-on exclusive system frame
 through `soe-trace`. `Game::frame_history` exposes the last tick's breakdown
 and rolling p50, p99 and worst over 240 ticks, with zero samples for idle
@@ -9106,6 +9113,33 @@ The existing MUST track lookup remains available separately.
 `music_type_for_cell` resolves CELL/XCMO, regional RDMO and owning WRLD/ZNAM
 in that order, retaining an explicit null CELL music type as silence.
 No saved fields or save version change are introduced.
+
+## Papyrus frame health, PRF-19
+
+`Game::papyrus_health` combines VM diagnostics with current update timers and
+pending world events. Its totals count object timers once, while each attached
+script row shows that object's registrations. Repeating, single, repeating
+game-time and single game-time timers have separate counts. Repeated native
+registration replaces only the same mode on that object, while unregistering
+removes both modes in its clock domain. Quest stop removes quest and alias
+timers. Active-effect removal uses the existing timer cleanup.
+
+Script rows group under the plugin supplying their winning VMAD attachment.
+For objects attached through the public VM API, the fallback reads their
+reference base, form, quest alias owner or active-effect definition. Unknown
+origins and global calls use `<unattributed>`. This is attachment ownership,
+not PEX asset provenance. Pending event deliveries remain visible before pump,
+then VM queues retain them until the first instruction executes. The report
+contains per-script and per-plugin counts, frame CPU and suspended durations,
+and separately metered session event peaks. It does not mutate world state.
+
+The timer rules follow local CK `RegisterForUpdate_-_Form.wikitext`,
+`RegisterForSingleUpdate_-_Form.wikitext`, their game-time variants and
+`OnUpdate_-_Form.wikitext`. They describe replacement, clock domains, same-object
+fanout and lifetime cleanup. Tests distinguish 1,000 registration calls on one
+object from 1,000 registered objects, add 500 individual inventory items through
+the notification path, verify shared-timer fanout and quest cleanup, and check
+winning ownership on the installed player form when `SKYRIM_DATA` is set.
 
 ## Load timing phases, PRF-29
 

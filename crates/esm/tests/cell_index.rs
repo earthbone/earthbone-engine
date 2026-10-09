@@ -266,6 +266,9 @@ fn the_master_alone_files_every_child_under_its_cell() {
     assert_eq!(index.grid_of(id(INTERIOR)), None);
     assert_eq!(index.grid_of(id(WORLD_CELL)), None);
     assert_eq!(index.world_persistent_cell(id(WORLD)), Some(id(WORLD_CELL)));
+    assert_eq!(index.persistent_cell_world(id(WORLD_CELL)), Some(id(WORLD)));
+    assert_eq!(index.persistent_cell_world(id(INTERIOR)), None);
+    assert_eq!(index.persistent_cell_world(id(EXT_B)), None);
     assert_eq!(index.references(id(WORLD_CELL)), [id(REF_WORLD_PERSIST)]);
 
     // The interior and one exterior cell share an editor id, the interior wins.
