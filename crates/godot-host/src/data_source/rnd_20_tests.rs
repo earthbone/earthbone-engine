@@ -147,9 +147,9 @@ fn rnd_20_whiterun_gate_scene_has_albedo_or_documented_intent() {
 fn rnd_20_marker_flags_and_room_portal_occlusion_fields_are_not_drawn() {
     for tag in [
         tag::STAT,
+        Tag::new(b"ACTI"),
         Tag::new(b"FURN"),
         Tag::new(b"DOOR"),
-        Tag::new(b"CONT"),
     ] {
         let record = Record::new(tag, 1)
             .with_flags(1 << 23)
@@ -163,6 +163,14 @@ fn rnd_20_marker_flags_and_room_portal_occlusion_fields_are_not_drawn() {
             );
         }
     }
+    // xEdit's CONT definition has no Is Marker flag, bit 23 is unnamed there.
+    let container = Record::new(Tag::new(b"CONT"), 1)
+        .with_flags(1 << 23)
+        .zsub(b"MODL", "ordinary.nif");
+    assert_eq!(
+        models::render_model_for(&container).as_deref(),
+        Some("ordinary.nif")
+    );
     for field in [b"XOCP", b"XORD", b"XRMR", b"XPOD", b"XPTL"] {
         let record = Record::new(tag::REFR, 1).sub(field, [0; 32]);
         assert!(models::is_editor_reference(&record));

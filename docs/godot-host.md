@@ -779,21 +779,64 @@ the `soe-physics` `SimpleWorld` solver.
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each
-advance and stores the hit reference in the shared game world. The Game
-Papyrus globals `GetCurrentCrosshairRef` and `GetPlayerGrabbedRef` return those
-current host values. Holding the mapped Activate input converts a hit
-reference's collision body to kinematic mode and moves it with the look ray.
-Releasing Activate returns its body to rigid mode. The grabbed reference is
-cleared when the cell is replaced. These values are transient and are not
-saved.
+advance and stores the first hit reference in the shared game world. The ray
+uses the host physics space, including resident rigid clutter and static
+obstructions. Game Papyrus globals `GetCurrentCrosshairRef` and
+`GetPlayerGrabbedRef` return those current host values. HST-22 supplies the
+held-Activate path below. The grabbed reference is cleared when the cell is
+replaced. These values are transient and are not saved.
 
 The host also sends the active first-person POV to Game each camera-control
 sync. CTDA function 391 reads this value, and function 463 compares its REFR
 parameter with the current grabbed reference.
 
-The grab path currently uses references with static collision bodies loaded
-for the active cell. Movable-reference body creation and synchronizing their
-physics pose into the shared world remain HST-12 work.
+### Carrying loose objects, HST-22
+
+A mapped Activate press captures the reference under the crosshair. A release
+before 0.35 seconds performs ordinary activation through Game, including item
+pickup and object use. A hold reaching that threshold on the same reference
+starts carrying only if its resident body is rigid. Fixed and keyframed
+collision remains static, and a Papyrus motion override that makes a movable
+body static or kinematic prevents carrying it. A completed hold does not
+activate on release. Telekinesis retains its separate input path.
+
+The carry target stays at the captured eye-ray distance in front of the
+camera. The body remains rigid with its existing collision layer, mask,
+gravity and velocity. Each fixed step applies a central impulse from a damped
+spring between the hit anchor and that target. The spring uses acceleration
+100 times displacement minus 20 times velocity, compensates the body's current
+host gravity, bounds acceleration to 80 metres per second squared and bounds
+its impulse timestep to 1/30 second. Release stops applying impulses and keeps
+the body's linear and angular momentum. Jolt continues to resolve collisions
+while held and after the drop. Simulated poses reach the existing World
+reference fields and the renderer through HST-12's sync path.
+
+Successful grabs and releases queue `OnGrab()` and `OnRelease()` on the
+reference with no arguments. Focus loss, an open menu, disabled activation
+controls, removal of the body, a cell replacement and player exit clear the
+hold. `carry_status` exposes the shared crosshair and grabbed identities for
+host diagnostics. No saved field, dependency or per-reference node is added.
+
+Sources read were local `nifxml/nif.xml`'s `hkMotionType`, CK
+`SetMotionType_-_ObjectReference.wikitext`, `OnGrab_-_ObjectReference.wikitext`
+and `OnRelease_-_ObjectReference.wikitext`, Godot's PhysicsServer3D and direct
+body-state class references, and godotwind's
+`src/core/interaction/carry_controller.gd`. The NIF decoder and resident
+body builder already supply dynamic clutter. Godotwind uses node wrappers
+and a velocity drive. This host uses its existing RIDs and a spring impulse
+so contacts remain solver-controlled. The named CK Controls and UESP Skyrim
+Controls pages are absent from the local corpus, and their web endpoints
+refused retrieval. The task's held-Activate and release contract supplies the
+input behavior.
+
+The `hst_22_` tests cover tap and hold timing, interrupted or changed aim,
+spring forces and invalid inputs, fixed-container use, zero-argument reference
+events, dynamic versus static collision, and an installed Bannered Mare tankard. The windowed
+scene uses the mapped E input, checks collision against a server obstacle,
+carries the tankard two metres, releases with momentum, checks table or floor
+contact and settling, compares World and rendering poses, checks focus-loss
+release, then taps to pick up the dropped item. It captures
+`target/hst-22-carry.png`, writes `target/hst-22-scene.log` and quits.
 
 ### Destruction-stage models, CMB-37
 
@@ -5613,6 +5656,179 @@ no per-reference nodes.
 script rows when `SKYRIM_DATA` is set. `SOE_PRF_19_CAPTURE` selects a PNG path
 for a windowed capture. The script frees its nodes and quits with the result.
 The host dictionary and UI calls use the existing Godot 4.4 API path.
+
+## Placed model coverage and reference accounting, RND-32
+
+The shared render and collision model selector accepts TREE, FLOR, LIGH,
+MSTT, SCOL, TACT, MISC, WEAP, BOOK, INGR, ALCH, KEYM, SLGM, AMMO, SCRL and
+APPA through MODL, alongside STAT, ACTI, FURN, DOOR, CONT and GRAS. ARMO
+uses its male MOD2 ground model, falling back to female MOD4 when MOD2 is
+absent or empty. ARMO MODL contains armor-addon FormIDs and is never decoded
+as a filename. Cell preparation, deferred reference preparation and collision
+selection use this shared selector. New types do not increment the old
+container-only statistic.
+
+Vanilla tundra shrub NIFs include export paths such as
+`skyrimhd\\build\\pc\\data\\textures\\plants\\TundraShrub01.dds`.
+Texture lookup folds repeated separators and trims prefixes at a complete
+`textures` directory component before consulting the existing VFS. Canonical
+and export-prefixed aliases share one texture-cache slot, and loose-file
+precedence remains the VFS's responsibility. Material descriptions retain
+their authored paths.
+
+The path rule follows local `nifly/src/NifFile.cpp`, `TrimTexturePaths`, and
+OpenMW `components/misc/resourcehelpers.cpp`, `findDirectory` and
+`correctResourcePath`. Nifly mutates C++ NIF objects and OpenMW also supplies
+Morrowind extension fallbacks. This host only needs the directory trimming
+and separator folding in its existing read-only DDS cache. Synthetic RND-32
+tests check path boundaries and shared cache payloads. The installed census
+also rejects checker albedo on named TREE and FLOR texture fields.
+
+The sources are local `TES5Edit/Core/wbDefinitionsTES5.pas`, each named
+record's `wbGenericModel`, ARMO world models, Is Marker flags and `wbXESP`,
+plus `uesp-modfileformat/REFR.wikitext`. The generic ESM string decoder and
+existing VFS, NIF, mesh and bhk readers supply the implementation. These
+changes add no dependency, saved field or per-reference scene node.
+
+Bit 23 suppresses rendering only for STAT, ACTI, FURN and DOOR, whose xEdit
+definitions assign Is Marker to that bit. Existing NIF EditorMarker subtree
+filtering retains ordinary sibling geometry. Occlusion-plane, room, portal
+and plane-primitive references are also excluded from deferred rendering,
+matching the cell preparation path. Collision retains its existing marker
+selection rules.
+
+`CellStats::reference_counts` counts every indexed placement by its winning
+base signature, including actors and deleted winners. Built counts unique
+FormIDs with returned geometry, rather than NIF shapes, triangles or batches.
+The disjoint skip categories are Initially Disabled, XESP parent, runtime
+Disable, editor markers and named other reasons. NIFs containing only filtered
+marker geometry count as markers. Missing records, absent models, malformed
+references, deleted winners, empty non-marker geometry, deferred references
+and mesh failures have explicit other reasons. LAND and generated water are
+outside this placed-reference accounting.
+
+`DataSource::reference_counts` can audit prepared surfaces against a live
+World. A live Disable that changes the authored result is counted separately,
+including a Disable of a parent. An enabled reference awaiting preparation
+counts as deferred. The streamer repeats the audit against the gameplay World
+when installing a cell and exposes totals by signature in
+`last_stats().reference_counts`. The CPU loader emits per-cell counts under
+the `host::references` debug target. The audit does not instantiate references
+or retain authoritative enable state.
+
+Enable checks reuse RND-17's winning-record chain. An enabled parent overrides
+a child's Initially Disabled flag, the opposite-state flag inverts the parent
+and parents outside the resident cells still resolve through the load order.
+The synthetic `rnd_32_` tests exercise those cases, runtime Disable, both
+render build paths and solid bhk collision for each added type. Their bhk
+fixture follows local `nifxml/nif.xml` and the existing physics synthetic
+writer. Marker, model-less, deleted and failed-model outcomes are also tested.
+
+The installed `rnd_32_installed_cells_account_for_every_placed_reference`
+test streams the Bannered Mare and three Tamriel plains cells. It checks every
+winning REFR enable result against an independent flags/XESP traversal and
+asserts that returned model-bearing reference geometry equals placed models
+minus markers and truly disabled references. Every other indexed placement
+must have a counted reason. The survey writes its counts and plant placements
+to `target/rnd_32_whiterun.json`. The windowed
+`godot/rnd_32_references_test.gd` verifies uploaded TREE and FLOR identities
+and captures their placements under `target/rnd_32` at 640 by 360.
+
+### Installed cell census, 2026-10-06
+
+The census uses Skyrim.esm, Update.esm, Dawnguard.esm, HearthFires.esm and
+Dragonborn.esm. Runtime Disable is zero in these fresh authored preparations.
+Every row sums to placed = built + initial + XESP + runtime + markers + other.
+Model-bearing REFRs satisfy built = placed models minus markers minus truly
+disabled references. NPC_ uses actor presentation, IDLM is an idle marker,
+SOUN is an audio source and model-less LIGH references provide lighting.
+The model-less ACTI bases carry no MODL geometry. They remain identified in
+the census rather than being counted as failed meshes.
+
+#### WhiterunBanneredMare, 0:01605E
+
+| Base | Placed | Built | Initial | XESP | Runtime | Markers | Other |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| ACTI | 3 | 1 | 1 | 0 | 0 | 0 | 1 no placed model |
+| ALCH | 107 | 106 | 1 | 0 | 0 | 0 | - |
+| ARMO | 1 | 1 | 0 | 0 | 0 | 0 | - |
+| BOOK | 3 | 3 | 0 | 0 | 0 | 0 | - |
+| CONT | 40 | 40 | 0 | 0 | 0 | 0 | - |
+| DOOR | 6 | 6 | 0 | 0 | 0 | 0 | - |
+| FLOR | 18 | 18 | 0 | 0 | 0 | 0 | - |
+| FURN | 31 | 29 | 0 | 0 | 0 | 2 | - |
+| IDLM | 12 | 0 | 0 | 0 | 0 | 0 | 12 no placed model |
+| INGR | 2 | 2 | 0 | 0 | 0 | 0 | - |
+| LIGH | 18 | 0 | 0 | 0 | 0 | 0 | 18 no placed model |
+| MISC | 124 | 124 | 0 | 0 | 0 | 0 | - |
+| MSTT | 4 | 4 | 0 | 0 | 0 | 0 | - |
+| NPC_ | 7 | 0 | 1 | 0 | 0 | 0 | 6 actor presentation |
+| SOUN | 1 | 0 | 0 | 0 | 0 | 0 | 1 no placed model |
+| STAT | 319 | 302 | 0 | 0 | 0 | 17 | - |
+| WEAP | 1 | 1 | 0 | 0 | 0 | 0 | - |
+| Total | 697 | 637 | 3 | 0 | 0 | 19 | 38 |
+
+#### WhiterunExterior04, 0:0095FC
+
+| Base | Placed | Built | Initial | XESP | Runtime | Markers | Other |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| ACTI | 14 | 0 | 6 | 7 | 0 | 1 | - |
+| HAZD | 2 | 0 | 0 | 2 | 0 | 0 | - |
+| LIGH | 3 | 0 | 0 | 0 | 0 | 0 | 3 no placed model |
+| MSTT | 17 | 12 | 0 | 3 | 0 | 2 | - |
+| NPC_ | 14 | 0 | 14 | 0 | 0 | 0 | - |
+| SOUN | 2 | 0 | 0 | 0 | 0 | 0 | 2 no placed model |
+| STAT | 130 | 90 | 0 | 6 | 0 | 34 | - |
+| TREE | 27 | 27 | 0 | 0 | 0 | 0 | - |
+| Total | 209 | 129 | 20 | 18 | 0 | 37 | 5 |
+
+#### WhiterunExterior13, 0:0095FD
+
+| Base | Placed | Built | Initial | XESP | Runtime | Markers | Other |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| ACTI | 6 | 0 | 3 | 3 | 0 | 0 | - |
+| HAZD | 4 | 0 | 0 | 4 | 0 | 0 | - |
+| LIGH | 1 | 0 | 0 | 0 | 0 | 0 | 1 no placed model |
+| MSTT | 13 | 10 | 0 | 2 | 0 | 1 | - |
+| NPC_ | 18 | 0 | 18 | 0 | 0 | 0 | - |
+| SOUN | 2 | 0 | 0 | 0 | 0 | 0 | 2 no placed model |
+| STAT | 52 | 34 | 0 | 4 | 0 | 14 | - |
+| TREE | 32 | 32 | 0 | 0 | 0 | 0 | - |
+| Total | 128 | 76 | 21 | 13 | 0 | 15 | 3 |
+
+#### WhiterunExterior17, 0:009639
+
+| Base | Placed | Built | Initial | XESP | Runtime | Markers | Other |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| ACTI | 2 | 0 | 0 | 0 | 0 | 0 | 2 no placed model |
+| FLOR | 2 | 2 | 0 | 0 | 0 | 0 | - |
+| MSTT | 3 | 3 | 0 | 0 | 0 | 0 | - |
+| SOUN | 1 | 0 | 0 | 0 | 0 | 0 | 1 no placed model |
+| STAT | 60 | 57 | 0 | 0 | 0 | 3 | - |
+| TREE | 72 | 72 | 0 | 0 | 0 | 0 | - |
+| Total | 140 | 134 | 0 | 0 | 0 | 3 | 3 |
+
+Every selected model parsed, with zero mesh failures. The three chimney-smoke
+placements in Exterior04 and Exterior13 have no mesh geometry after their
+EditorMarker shape is removed. They count as marker-only models, alongside
+the Exterior04 catapult-impact marker. This census measures placed mesh
+coverage and does not claim smoke-particle rendering.
+
+The Godot 4.4.1 software Vulkan check passed and exited with status 0. All 133
+TREE and FLOR reference identities had uploaded geometry, and the host's
+per-kind built counts matched the CPU census for each of the three plains
+cells. The streamer child count did not change, and no plains material bound
+the checker albedo. The tree and flora captures contain 160,648 and 153,433
+scene pixels respectively, above the 100-pixel
+threshold fixed before the run. Captures remain under `target/rnd_32`, outside
+the source tree. The installed Rust test launches this check when
+SOE_GODOT_BIN is also set, after writing the manifest. Build the release
+extension and import the Godot project before running that test.
+
+Validation passed eight RND-32 Rust tests, eight model-selection tests, seven
+texture-cache tests and two RND-17 cell preparation regressions. These groups
+overlap where new tests belong to an existing module. Formatting and
+`cargo clippy -p soe-godot-host --all-targets -- -D warnings` also passed.
 
 ## Reference sync and scene phases, PRF-34
 

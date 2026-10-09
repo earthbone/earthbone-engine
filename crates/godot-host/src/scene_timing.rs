@@ -71,6 +71,7 @@ pub(crate) fn elapsed(start: &FrameSample) -> FrameSample {
     let mut sample = FrameSample {
         frame_ns: 0,
         system_ns: std::array::from_fn(|i| end.system_ns[i].saturating_sub(start.system_ns[i])),
+        ..FrameSample::default()
     };
     sample.system_ns[System::Magic as usize] = PHASES
         .iter()

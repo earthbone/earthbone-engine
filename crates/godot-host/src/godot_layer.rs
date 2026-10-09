@@ -441,6 +441,7 @@ impl BatchTable {
 /// call added, reported through `last_stats`.
 #[derive(Default)]
 struct StreamTotals {
+    reference_counts: std::collections::BTreeMap<soe_esm::Tag, crate::data_source::ReferenceCounts>,
     cells: usize,
     references: usize,
     statics: usize,
@@ -462,6 +463,18 @@ struct StreamTotals {
 
 impl StreamTotals {
     fn add_cell(&mut self, loaded: &LoadedCell) {
+        for (&kind, counts) in &loaded.stats.reference_counts {
+            let total = self.reference_counts.entry(kind).or_default();
+            total.placed += counts.placed;
+            total.built += counts.built;
+            total.initially_disabled += counts.initially_disabled;
+            total.enable_parent += counts.enable_parent;
+            total.runtime_disabled += counts.runtime_disabled;
+            total.markers += counts.markers;
+            for (&reason, &count) in &counts.other {
+                *total.other.entry(reason).or_default() += count;
+            }
+        }
         self.cells += 1;
         self.water_planes += loaded.stats.water_plane_count;
         self.references += loaded.stats.references;
@@ -478,6 +491,23 @@ impl StreamTotals {
 
     fn to_dictionary(&self, materials: usize) -> VarDictionary {
         let mut d = VarDictionary::new();
+        let mut kinds = VarDictionary::new();
+        for (kind, counts) in &self.reference_counts {
+            let mut entry = VarDictionary::new();
+            entry.set("placed", counts.placed as i64);
+            entry.set("built", counts.built as i64);
+            entry.set("initially_disabled", counts.initially_disabled as i64);
+            entry.set("enable_parent", counts.enable_parent as i64);
+            entry.set("runtime_disabled", counts.runtime_disabled as i64);
+            entry.set("markers", counts.markers as i64);
+            let mut other = VarDictionary::new();
+            for (&reason, &count) in &counts.other {
+                other.set(reason, count as i64);
+            }
+            entry.set("other", &other);
+            kinds.set(kind.to_string().as_str(), &entry);
+        }
+        d.set("reference_counts", &kinds);
         d.set("cells", self.cells as i64);
         d.set("references", self.references as i64);
         d.set("statics", self.statics as i64);
@@ -679,6 +709,25 @@ impl CellStreamerNode {
         for (_, overlay) in self.destruction_models.drain() {
             free_destruction_overlay(&mut server, overlay);
         }
+    }
+
+    pub(crate) fn reference_for_body(&self, body: Rid) -> Option<GlobalFormId> {
+        self.collision.reference_for_body(body)
+    }
+
+    pub(crate) fn carry_anchor(&self, reference: GlobalFormId, hit: Vector3) -> Option<Vector3> {
+        self.collision.carry_anchor(reference, hit)
+    }
+
+    pub(crate) fn spring_carry(
+        &self,
+        reference: GlobalFormId,
+        anchor: Vector3,
+        target: Vector3,
+        delta: f32,
+    ) -> bool {
+        self.collision
+            .spring_carry(reference, anchor, target, delta)
     }
 
     pub(crate) fn grab_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
@@ -3090,7 +3139,7 @@ impl CellStreamerNode {
         world: Option<&soe_game::World>,
     ) {
         let enabled = |id| world.is_none_or(|world| world.reference_enabled(id));
-        let visible = LoadedCell {
+        let mut visible = LoadedCell {
             stats: loaded.stats.clone(),
             surfaces: loaded
                 .surfaces
@@ -3110,6 +3159,7 @@ impl CellStreamerNode {
                 .collect(),
         };
         if let Some(source) = &self.data_source {
+            visible.stats.reference_counts = source.reference_counts(cell, &visible, world);
             let drawn: std::collections::HashSet<_> = visible
                 .surfaces
                 .iter()

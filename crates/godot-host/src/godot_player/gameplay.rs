@@ -707,6 +707,7 @@ impl PlayerNode {
         if self.main_menu.is_active() {
             return;
         }
+        self.release_carry();
         self.close_menu();
         if let Some(streamer) = self.game_streamer.as_mut() {
             streamer.bind_mut().clear();
@@ -960,6 +961,7 @@ impl PlayerNode {
                 .and_then(|source| source.exterior_world(cell))
                 .is_some();
         if self.loaded_cell != Some(cell) || needs_exterior {
+            self.release_carry();
             self.clear_swing_doors();
             // Contacts belong to the cell that is leaving, not to an exterior
             // ring that is only being attached.

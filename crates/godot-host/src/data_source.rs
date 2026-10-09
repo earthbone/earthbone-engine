@@ -7,7 +7,7 @@
 //! builds the `CellIndex` over them, and builds a `bsa::Vfs` from their
 //! associated archives plus the data folder as a loose overlay.
 //! `DataSource::stream_cell` resolves a cell by editor id through the index,
-//! walks the `REFR` ids the index files under it, and for each STAT or furniture base
+//! walks the `REFR` ids the index files under it, and for each placed object base
 //! with a model, reads the NIF through the `Vfs`, parses it, places every
 //! shape at the reference's own position and rotation, and runs it through
 //! the same `mesh::build_surface` the synthetic path already used. Nothing
@@ -54,6 +54,7 @@ mod grass;
 mod location;
 mod lod;
 mod models;
+mod reference_audit;
 mod terrain_texture;
 mod textures;
 mod water;
@@ -68,6 +69,8 @@ mod prf_20_tests;
 #[cfg(test)]
 mod rnd_20_tests;
 #[cfg(test)]
+mod rnd_32_tests;
+#[cfg(test)]
 mod ui_25_tests;
 
 #[cfg(feature = "godot")]
@@ -77,6 +80,7 @@ pub use location::LoadedLocation;
 pub(crate) use location::PreparedCell;
 pub use lod::LoadedLodBlock;
 pub(crate) use models::{is_editor_marker_name, model_for};
+pub use reference_audit::ReferenceCounts;
 pub(crate) use textures::checker_albedo;
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
@@ -158,6 +162,10 @@ pub struct CellStats {
     /// Cell-local attribution retained through collision preparation and upload.
     pub profile: soe_trace::LoadRecorder,
     pub references: usize,
+    /// Mutually exclusive placed-reference outcomes, ordered by base signature.
+    pub reference_counts: std::collections::BTreeMap<soe_esm::Tag, ReferenceCounts>,
+    /// Mesh preparation outcomes for references with no returned surface.
+    pub reference_skips: std::collections::BTreeMap<GlobalFormId, &'static str>,
     pub statics_with_model: usize,
     pub furniture_with_model: usize,
     pub containers_with_model: usize,
@@ -846,7 +854,7 @@ impl DataSource {
                     stats.doors_with_model += 1;
                 } else if base_rec.tag == soe_esm::Tag::new(b"ACTI") {
                     stats.activators_with_model += 1;
-                } else {
+                } else if base_rec.tag == soe_esm::Tag::new(b"CONT") {
                     stats.containers_with_model += 1;
                 }
                 work.push((model, refr, id));
@@ -879,6 +887,16 @@ impl DataSource {
                     stats.editor_markers_filtered += marker_shapes_filtered;
                     stats.editor_marker_only_models += usize::from(marker_only);
                     stats.meshes_parsed += 1;
+                    if built.is_empty() {
+                        stats.reference_skips.insert(
+                            *reference,
+                            if marker_only {
+                                "marker model"
+                            } else {
+                                "no visible geometry"
+                            },
+                        );
+                    }
                     let placement = placement_iso(refr);
                     let identity_base = instance_transform.is_some().then(|| model.to_lowercase());
                     for (shape_index, (arrays, textures)) in built.into_iter().enumerate() {
@@ -929,6 +947,7 @@ impl DataSource {
                 Err(e) => {
                     soe_trace::warn!(target: "host::data_source", system = "host::data_source", "stream_cell: {model}: {e}");
                     stats.meshes_failed += 1;
+                    stats.reference_skips.insert(*reference, "mesh failure");
                 }
             }
         }
@@ -943,8 +962,15 @@ impl DataSource {
             stats.triangles += water.arrays.triangle_count();
             surfaces.push(water);
         }
-        let loaded = LoadedCell { stats, surfaces };
+        let mut loaded = LoadedCell { stats, surfaces };
         loaded.refresh_texture_inventory();
+        loaded.stats.reference_counts = self.reference_counts(cell_id, &loaded, None);
+        for (kind, counts) in &loaded.stats.reference_counts {
+            soe_trace::debug!(target: "host::references", cell = %cell_id, base_type = %kind,
+                placed = counts.placed, built = counts.built, initially_disabled = counts.initially_disabled,
+                enable_parent = counts.enable_parent, runtime_disabled = counts.runtime_disabled,
+                markers = counts.markers, other = ?counts.other, "cell reference counts");
+        }
         Ok(loaded)
     }
 
@@ -957,7 +983,14 @@ impl DataSource {
             .order
             .winner_ref(reference)
             .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
-        let refr = Refr::from_record(self.order.record(winner))?;
+        let record = self.order.record(winner);
+        if models::is_editor_reference(record) {
+            return Ok(LoadedCell {
+                stats: CellStats::default(),
+                surfaces: Vec::new(),
+            });
+        }
+        let refr = Refr::from_record(record)?;
         let base = self
             .order
             .winner(self.order.resolve(winner.file, refr.base))
