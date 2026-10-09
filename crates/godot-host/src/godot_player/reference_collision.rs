@@ -6,13 +6,80 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use godot::prelude::*;
-use soe_esm::{tag, GlobalFormId};
+use soe_esm::tag;
 use soe_physics::PhysicsWorld;
 
-use super::PlayerNode;
+use super::{BodyId, GlobalFormId, PlayerNode};
+use std::collections::HashMap;
+
+/// Main-thread time one frame may spend on watching newly resident references.
+/// Applying enable-state changes may use the same amount again. The backlog
+/// carries the rest to the next frame.
+const SYNC_BUDGET: std::time::Duration = std::time::Duration::from_micros(12);
+/// References moved into or out of the resident set between two clock reads.
+const EXPAND_SLICE: usize = 64;
+
+/// Records a static body for a reference in both lookup directions.
+pub(super) fn track_collision_body(
+    references: &mut HashMap<BodyId, GlobalFormId>,
+    bodies: &mut HashMap<GlobalFormId, Vec<BodyId>>,
+    body: BodyId,
+    id: GlobalFormId,
+) {
+    references.insert(body, id);
+    bodies.entry(id).or_default().push(body);
+}
+
+/// Forgets a static body that left with its cell.
+pub(super) fn untrack_collision_body(
+    references: &mut HashMap<BodyId, GlobalFormId>,
+    bodies: &mut HashMap<GlobalFormId, Vec<BodyId>>,
+    body: BodyId,
+) {
+    if let Some(id) = references.remove(&body) {
+        if let Some(list) = bodies.get_mut(&id) {
+            list.retain(|candidate| *candidate != body);
+            if list.is_empty() {
+                bodies.remove(&id);
+            }
+        }
+    }
+}
+
+/// The per-reference collision tracking a departing cell clears.
+type ResidentState<'a> = (
+    &'a mut BTreeMap<GlobalFormId, GlobalFormId>,
+    &'a mut BTreeMap<GlobalFormId, bool>,
+    &'a mut BTreeSet<GlobalFormId>,
+    &'a mut soe_game::world::ReferenceChanges,
+);
+
+/// Drops the given references of a departed cell from collision tracking.
+fn drop_residents(references: &[GlobalFormId], cell: GlobalFormId, state: ResidentState<'_>) {
+    let (residents, visibility, backlog, changes) = state;
+    for id in references {
+        if residents.get(id) == Some(&cell) {
+            residents.remove(id);
+        }
+        visibility.remove(id);
+        backlog.remove(id);
+        changes.unwatch(*id);
+    }
+}
 
 impl PlayerNode {
+    /// Rebuilds the reference to bodies lookup after `collision_references` was
+    /// replaced, at the call that replaced it and not inside the timed sync.
+    pub(super) fn rebuild_collision_bodies(&mut self) {
+        self.collision_bodies.clear();
+        for (&body, &id) in &self.collision_references {
+            self.collision_bodies.entry(id).or_default().push(body);
+        }
+    }
+
     pub(super) fn sync_reference_collision(&mut self) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let _phase = crate::scene_timing::Scope::new(soe_trace::System::Physics);
         let Some(space) = self.base().get_world_3d().map(|world| world.get_space()) else {
             return;
         };
@@ -31,20 +98,136 @@ impl PlayerNode {
         {
             cells.extend(source.cell_index().world_persistent_cell(world));
         }
-        let references: BTreeMap<GlobalFormId, GlobalFormId> = cells
-            .iter()
-            .flat_map(|cell| {
-                source
-                    .cell_index()
-                    .references(*cell)
-                    .iter()
-                    .map(|id| (*id, *cell))
-            })
-            .collect();
-        self.collision_visibility
-            .retain(|id, _| references.contains_key(id));
         let world = game.world();
-        for (id, cell) in references {
+        let started = std::time::Instant::now();
+        let reset = std::mem::take(&mut self.collision_reset);
+        let budget = SYNC_BUDGET;
+        if reset {
+            self.collision_cells.clear();
+            self.collision_residents.clear();
+            self.collision_visibility.clear();
+            self.collision_pending_cells.clear();
+            self.collision_removing.clear();
+            self.collision_expand_offset = 0;
+            self.collision_pending_watch.clear();
+            self.collision_backlog.clear();
+            self.collision_changes = soe_game::world::ReferenceChanges::default();
+        }
+        if cells != self.collision_cells {
+            let left: Vec<_> = self.collision_cells.difference(&cells).copied().collect();
+            let entered: Vec<_> = cells.difference(&self.collision_cells).copied().collect();
+            let front = self.collision_pending_cells.front().copied();
+            self.collision_pending_cells
+                .retain(|cell| cells.contains(cell));
+            if self.collision_pending_cells.front().copied() != front {
+                self.collision_expand_offset = 0;
+            }
+            for cell in left {
+                self.collision_removing.push_back((cell, 0));
+            }
+            for cell in entered {
+                // CONTEXT: A cell that left and came back before its removal ran
+                // would lose the residents it just regained, so that removal
+                // finishes first. The case is rare.
+                while let Some(index) = self
+                    .collision_removing
+                    .iter()
+                    .position(|(candidate, _)| *candidate == cell)
+                {
+                    if let Some((cell, offset)) = self.collision_removing.remove(index) {
+                        let references = source.cell_index().references(cell);
+                        drop_residents(
+                            &references[offset.min(references.len())..],
+                            cell,
+                            (
+                                &mut self.collision_residents,
+                                &mut self.collision_visibility,
+                                &mut self.collision_backlog,
+                                &mut self.collision_changes,
+                            ),
+                        );
+                    }
+                }
+                self.collision_pending_cells.push_back(cell);
+            }
+            self.collision_cells = cells;
+        }
+        // CONTEXT: While walking, a cell leaving the resident set is dropped, and
+        // a cell entering it is expanded and its references watched, in slices
+        // that stay inside the frame budget, so a streaming frame costs about
+        // what an idle one does. Those references stay unwatched for a few frames,
+        // and their enable state applies once they are watched.
+        while let Some(&(cell, offset)) = self.collision_removing.front() {
+            if started.elapsed() >= budget {
+                break;
+            }
+            let references = source.cell_index().references(cell);
+            let from = offset.min(references.len());
+            let end = (from + EXPAND_SLICE).min(references.len());
+            drop_residents(
+                &references[from..end],
+                cell,
+                (
+                    &mut self.collision_residents,
+                    &mut self.collision_visibility,
+                    &mut self.collision_backlog,
+                    &mut self.collision_changes,
+                ),
+            );
+            if end >= references.len() {
+                self.collision_removing.pop_front();
+            } else if let Some(entry) = self.collision_removing.front_mut() {
+                entry.1 = end;
+            }
+        }
+        while let Some(&cell) = self.collision_pending_cells.front() {
+            if started.elapsed() >= budget {
+                break;
+            }
+            let references = source.cell_index().references(cell);
+            let end = (self.collision_expand_offset + EXPAND_SLICE).min(references.len());
+            for id in &references[self.collision_expand_offset.min(end)..end] {
+                self.collision_residents.insert(*id, cell);
+                self.collision_pending_watch.push_back(*id);
+            }
+            if end >= references.len() {
+                self.collision_pending_cells.pop_front();
+                self.collision_expand_offset = 0;
+            } else {
+                self.collision_expand_offset = end;
+            }
+        }
+        // CONTEXT: The streamer built each cell's bodies from authored data, so a
+        // newly watched reference only needs work when it is disabled and still
+        // holds bodies. Watching resolves its enable state, which is the cost
+        // this loop spreads over frames.
+        while started.elapsed() < budget {
+            let Some(id) = self.collision_pending_watch.pop_front() else {
+                break;
+            };
+            if !self.collision_residents.contains_key(&id) {
+                continue;
+            }
+            if self.collision_changes.watch_quiet(&world, id) == Some(false)
+                && self.collision_bodies.contains_key(&id)
+            {
+                self.collision_backlog.insert(id);
+            }
+        }
+        self.collision_backlog
+            .extend(self.collision_changes.changed_within(&world, SYNC_BUDGET));
+        let mut handled = false;
+        while !handled || started.elapsed() < budget + SYNC_BUDGET {
+            let Some(id) = self.collision_backlog.pop_first() else {
+                break;
+            };
+            handled = true;
+            let Some(&cell) = self.collision_residents.get(&id) else {
+                continue;
+            };
+            if !self.collision_cells.contains(&cell) {
+                continue;
+            }
             if source
                 .order()
                 .winner(id)
@@ -57,21 +240,16 @@ impl PlayerNode {
                 .collision_visibility
                 .get(&id)
                 .copied()
-                .unwrap_or_else(|| {
-                    self.collision_references
-                        .values()
-                        .any(|reference| *reference == id)
-                });
+                // CONTEXT: The streamer builds bodies for every reference with a
+                // static collider, enabled or not. With no recorded state, a
+                // reference holding bodies is applied, and one without bodies
+                // has nothing to build or remove, so it counts as unchanged.
+                .unwrap_or_else(|| visible || self.collision_bodies.contains_key(&id));
             self.collision_visibility.insert(id, visible);
             if applied == visible {
                 continue;
             }
-            let bodies: Vec<_> = self
-                .collision_references
-                .iter()
-                .filter(|(_, reference)| **reference == id)
-                .map(|(body, _)| *body)
-                .collect();
+            let bodies = self.collision_bodies.remove(&id).unwrap_or_default();
             for body in bodies {
                 physics.remove(body);
                 self.collision_references.remove(&body);
@@ -99,17 +277,24 @@ impl PlayerNode {
             }
             for placed in &placed {
                 let body = physics.add_static(&placed.collider);
-                self.collision_references.insert(body, id);
+                track_collision_body(
+                    &mut self.collision_references,
+                    &mut self.collision_bodies,
+                    body,
+                    id,
+                );
                 if let Some(exterior) = &mut self.exterior {
                     if let Some(bodies) = exterior.cells.get_mut(&cell) {
                         bodies.push(body);
                     }
                 }
             }
-            self.query_collision
-                .append(crate::godot_physics::add_placed_query_statics(
-                    space, &placed,
-                ));
+            if !placed.is_empty() {
+                self.query_collision
+                    .append(crate::godot_physics::add_placed_query_statics(
+                        space, &placed,
+                    ));
+            }
         }
         self.query_collision.sync_placements(&world, space);
         self.query_collision

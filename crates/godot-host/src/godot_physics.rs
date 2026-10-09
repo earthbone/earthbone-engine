@@ -188,12 +188,20 @@ struct MovableEntry {
 #[derive(Default)]
 pub struct CellBodies {
     entries: Vec<StaticEntry>,
+    placement_changes: soe_game::world::ReferenceChanges,
+    placement_index: HashMap<GlobalFormId, (Vec<usize>, Vec<usize>)>,
+    indexed_counts: (usize, usize),
+    collision_state_dirty: bool,
+    state_cursor: (usize, usize),
     movable: Vec<MovableEntry>,
     grabbed_reference: Option<GlobalFormId>,
     collisions_enabled: Option<bool>,
     applied_collision_state: HashMap<Rid, bool>,
     pub stats: GodotCollisionStats,
 }
+
+/// Main-thread time one sync may spend indexing newly added placements.
+const PLACEMENT_INDEX_BUDGET: std::time::Duration = std::time::Duration::from_micros(12);
 
 impl CellBodies {
     /// Adopt additional placed bodies, retaining their reference sync metadata.
@@ -208,6 +216,7 @@ impl CellBodies {
 
     /// Release the static query bodies belonging to one reference.
     pub(crate) fn remove_reference(&mut self, reference: GlobalFormId) {
+        let before = self.entries.len();
         let mut server = PhysicsServer3D::singleton();
         self.entries.retain(|entry| {
             if entry.reference != Some(reference) {
@@ -222,6 +231,13 @@ impl CellBodies {
             self.stats.shapes = self.stats.shapes.saturating_sub(entry.shapes.len());
             false
         });
+        // CONTEXT: Only a real removal changes the entry count, so the placement
+        // index is rebuilt then and not on every call for a reference without
+        // bodies. Without this each sync re-indexed every static entry.
+        if self.entries.len() != before {
+            self.indexed_counts = (usize::MAX, usize::MAX);
+            self.collision_state_dirty = true;
+        }
     }
 
     /// Enable or disable host collision for every body owned by this cell.
@@ -232,6 +248,7 @@ impl CellBodies {
             return;
         }
         self.collisions_enabled = Some(enabled);
+        self.state_cursor = (self.entries.len(), self.movable.len());
         let mut server = PhysicsServer3D::singleton();
         for body in self
             .entries
@@ -247,17 +264,43 @@ impl CellBodies {
     }
 
     /// Apply the setting to bodies added since the last collision update.
+    ///
+    /// CONTEXT: Bodies only join at the end of either list, so a pass without a
+    /// removal or a rebuilt body visits only the ones added since the last pass.
+    /// A removal restarts the pass from the first body. Either way the pass stops
+    /// once the time budget is spent and resumes on the next sync, because one
+    /// full scan of a streamed-in exterior cost about a millisecond.
     pub fn sync_collision_state(&mut self) {
+        let counts = (self.entries.len(), self.movable.len());
+        if std::mem::take(&mut self.collision_state_dirty)
+            || self.state_cursor.0 > counts.0
+            || self.state_cursor.1 > counts.1
+        {
+            self.state_cursor = (0, 0);
+        }
+        if self.state_cursor == counts {
+            return;
+        }
         let Some(enabled) = self.collisions_enabled else {
             return;
         };
+        let started = std::time::Instant::now();
         let mut server = PhysicsServer3D::singleton();
-        for body in self
-            .entries
-            .iter()
-            .map(|entry| entry.body)
-            .chain(self.movable.iter().map(|entry| entry.body))
-        {
+        let mut visited = 0_usize;
+        while self.state_cursor != counts {
+            if visited % 4 == 3 && started.elapsed() >= PLACEMENT_INDEX_BUDGET {
+                break;
+            }
+            visited += 1;
+            let body = if self.state_cursor.0 < counts.0 {
+                let body = self.entries[self.state_cursor.0].body;
+                self.state_cursor.0 += 1;
+                body
+            } else {
+                let body = self.movable[self.state_cursor.1].body;
+                self.state_cursor.1 += 1;
+                body
+            };
             if body.is_valid() && self.applied_collision_state.get(&body) != Some(&enabled) {
                 Self::apply_collision_state(&mut server, body, enabled);
                 self.applied_collision_state.insert(body, enabled);
@@ -452,7 +495,9 @@ impl CellBodies {
     /// Materializes movable references before their first visibility sync.
     pub fn ensure_references(&self, world: &mut soe_game::World) {
         for entry in &self.movable {
-            world.reference(entry.reference);
+            if world.reference_ref(entry.reference).is_none() {
+                world.reference(entry.reference);
+            }
         }
     }
 
@@ -545,6 +590,9 @@ impl CellBodies {
     /// Releases every id back to the server. A cell that unloads must call
     /// this, the server does not reclaim ids on its own.
     pub fn free(&mut self) {
+        self.placement_changes = soe_game::world::ReferenceChanges::default();
+        self.placement_index.clear();
+        self.indexed_counts = (usize::MAX, usize::MAX);
         let mut server = PhysicsServer3D::singleton();
         for entry in self.entries.drain(..) {
             if entry.body.is_valid() {
@@ -565,6 +613,7 @@ impl CellBodies {
         self.stats = GodotCollisionStats::default();
         self.grabbed_reference = None;
         self.applied_collision_state.clear();
+        self.state_cursor = (0, 0);
     }
 
     /// Pushes a tracked reference's current placement and visibility to the
@@ -585,8 +634,69 @@ impl CellBodies {
     /// reference moved many times over many ticks never drifts. Entries
     /// [`add_statics`] created (`reference: None`) are left untouched.
     pub fn sync_placements(&mut self, world: &soe_game::World, space: Rid) {
+        let counts = (self.entries.len(), self.movable.len());
+        if self.indexed_counts != counts {
+            // CONTEXT: Entries are only ever appended or removed. A removal sets
+            // `indexed_counts` to the maximum, which forces an index rebuild.
+            // Otherwise only the entries added since the last pass are indexed,
+            // so streaming a cell in costs its own size and not the whole set.
+            // Indexing is cheap. Watching a reference for the first time
+            // resolves its enable state, which is not, so the pass stops after
+            // the watch that passes the time budget and resumes on the next
+            // sync. An unindexed reference keeps the placement it was built
+            // with, and references watched before a rebuild stay watched.
+            let (mut from_entries, mut from_movable) =
+                if self.indexed_counts.0 > counts.0 || self.indexed_counts.1 > counts.1 {
+                    self.placement_index.clear();
+                    (0, 0)
+                } else {
+                    self.indexed_counts
+                };
+            let started = std::time::Instant::now();
+            let mut spent = false;
+            while from_entries < counts.0 && !spent {
+                if let Some(reference) = self.entries[from_entries].reference {
+                    self.placement_index
+                        .entry(reference)
+                        .or_default()
+                        .0
+                        .push(from_entries);
+                    if !self.placement_changes.is_watched(reference) {
+                        self.placement_changes.watch(world, reference);
+                        spent = started.elapsed() >= PLACEMENT_INDEX_BUDGET;
+                    }
+                }
+                from_entries += 1;
+            }
+            while from_entries == counts.0 && from_movable < counts.1 && !spent {
+                let reference = self.movable[from_movable].reference;
+                self.placement_index
+                    .entry(reference)
+                    .or_default()
+                    .1
+                    .push(from_movable);
+                if !self.placement_changes.is_watched(reference) {
+                    self.placement_changes.watch(world, reference);
+                    spent = started.elapsed() >= PLACEMENT_INDEX_BUDGET;
+                }
+                from_movable += 1;
+            }
+            self.indexed_counts = (from_entries, from_movable);
+        }
+        let changed = self
+            .placement_changes
+            .changed_within(world, PLACEMENT_INDEX_BUDGET);
+        let mut statics = Vec::new();
+        let mut movable = Vec::new();
+        for reference in changed {
+            if let Some((a, b)) = self.placement_index.get(&reference) {
+                statics.extend(a.iter().copied());
+                movable.extend(b.iter().copied());
+            }
+        }
         let mut server = PhysicsServer3D::singleton();
-        for entry in &mut self.entries {
+        for index in statics {
+            let entry = &mut self.entries[index];
             let (Some(reference), Some(original)) = (entry.reference, entry.original) else {
                 continue;
             };
@@ -600,6 +710,7 @@ impl CellBodies {
                 continue;
             }
             entry.synced = Some(key);
+            self.collision_state_dirty = true;
             if !visible {
                 server.body_set_space(entry.body, Rid::Invalid);
                 continue;
@@ -636,7 +747,8 @@ impl CellBodies {
                 }
             }
         }
-        for entry in &mut self.movable {
+        for index in movable {
+            let entry = &mut self.movable[index];
             let Some(target) = world.ref_placement(entry.reference) else {
                 continue;
             };
@@ -647,6 +759,7 @@ impl CellBodies {
                 continue;
             }
             entry.synced = Some(key);
+            self.collision_state_dirty = true;
             if visible {
                 if entry.body.is_valid() && entry.shape_scale != iso.scale {
                     server.free_rid(entry.body);
@@ -685,11 +798,16 @@ impl CellBodies {
                 entry.body = Rid::Invalid;
             }
         }
+        let movable_before = self.movable.len();
         self.movable.retain(|entry| {
             !world
                 .reference_ref(entry.reference)
                 .is_some_and(|state| state.deleted)
         });
+        if self.movable.len() != movable_before {
+            self.indexed_counts = (usize::MAX, usize::MAX);
+            self.collision_state_dirty = true;
+        }
     }
 
     /// Copies the latest simulated pose into the record-backed World.
@@ -699,7 +817,7 @@ impl CellBodies {
         for entry in &mut self.movable {
             if !entry.body.is_valid()
                 || !world
-                    .reference(entry.reference)
+                    .reference_ref(entry.reference)
                     .is_some_and(|state| state.enabled && !state.deleted)
             {
                 continue;
@@ -715,6 +833,12 @@ impl CellBodies {
                     .to_skyrim();
             let rotation = skyrim_rotation(transform.basis);
             let pose = [position.x, position.y, position.z];
+            if world
+                .reference_ref(entry.reference)
+                .is_some_and(|state| state.position == pose && state.rotation == rotation)
+            {
+                continue;
+            }
             if world.set_host_ref_pose(entry.reference, pose, rotation) {
                 entry.synced = Some((true, Iso::placement(pose, rotation, entry.shape_scale)));
             }

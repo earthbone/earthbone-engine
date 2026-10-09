@@ -14,8 +14,78 @@ use super::PlayerNode;
 use crate::godot_combat::{ContactHit, ContactRays};
 use crate::units::SkyrimPos;
 
+/// Detection accumulated across automatic physics catch-up, sampled on the
+/// next presentation's first physics callback while the space is unlocked.
+#[derive(Default)]
+pub(super) struct AutomaticDetection {
+    frame: Option<u64>,
+    pending: Option<(f64, Motion)>,
+}
+
+impl AutomaticDetection {
+    pub(super) fn before_step(&mut self, frame: u64) -> Option<(f64, Motion)> {
+        if self.frame == Some(frame) {
+            return None;
+        }
+        self.frame = Some(frame);
+        self.take()
+    }
+
+    pub(super) fn push(&mut self, elapsed: f64, motion: Motion) {
+        if !elapsed.is_finite() || elapsed < 0.0 {
+            return;
+        }
+        let pending = self.pending.get_or_insert((0.0, motion));
+        pending.0 += elapsed;
+        pending.1 = motion;
+    }
+
+    pub(super) fn take(&mut self) -> Option<(f64, Motion)> {
+        self.pending.take()
+    }
+}
+
+#[cfg(test)]
+mod cadence_tests {
+    use super::{AutomaticDetection, Motion};
+
+    #[test]
+    fn prf_36_automatic_detection_samples_once_after_eight_catchup_steps() {
+        let mut cadence = AutomaticDetection::default();
+        assert!(cadence.before_step(0).is_none());
+        for _ in 0..8 {
+            assert!(cadence.before_step(0).is_none());
+            cadence.push(1.0 / 60.0, Motion::Running);
+        }
+        let (elapsed, motion) = cadence.before_step(1).unwrap();
+        assert!((elapsed - 8.0 / 60.0).abs() < 1e-9);
+        assert_eq!(motion, Motion::Running);
+        assert!(cadence.before_step(1).is_none());
+        assert!(cadence.take().is_none());
+    }
+
+    #[test]
+    fn prf_36_manual_detection_flushes_pending_time_and_latest_motion() {
+        let mut cadence = AutomaticDetection::default();
+        cadence.push(0.1, Motion::Walking);
+        cadence.push(0.2, Motion::Still);
+        cadence.push(f64::NAN, Motion::Running);
+        cadence.push(-1.0, Motion::Running);
+        let (elapsed, motion) = cadence.take().unwrap();
+        assert!((elapsed - 0.3).abs() < 1e-9);
+        assert_eq!(motion, Motion::Still);
+        assert!(cadence.before_step(1).is_none());
+    }
+}
+
 #[godot_api(secondary)]
 impl PlayerNode {
+    pub(super) fn flush_automatic_detection(&mut self) {
+        if let Some((elapsed, motion)) = self.automatic_detection.take() {
+            self.advance_detection(elapsed, motion);
+        }
+    }
+
     /// Return enabled LIGH references in the active cell as FormIDs and Godot
     /// positions. The live detection check uses these to isolate record-backed
     /// light changes without creating actor scene nodes.

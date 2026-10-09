@@ -226,3 +226,14 @@ measurement boundaries in `docs/performance.md`. Local
 `godotwind/src/core/diagnostics/pipeline_compile_monitor.gd` provide the
 compilation counter contract. The recorder does not infer compiler duration
 or asset ownership from those counters. It adds no dependency or saved state.
+
+## PRF-37 main-thread total
+
+`FrameSample::engine_ns` sums the exclusive system slots on the recording
+thread. `FrameHistory::engine_statistics` computes rolling p50, p99 and
+worst from those per-frame sums, rather than summing system percentiles.
+The PRF-12 summary appends this total as `main_thread_engine`.
+Scopes on simulation and navigation threads never enter the main thread's
+clock. Unscoped rendering waits remain in the wall-frame denominator and
+do not enter the engine total. The total describes instrumented engine
+callbacks, rather than GPU execution or every Godot/GDScript callback.

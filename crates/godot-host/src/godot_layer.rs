@@ -164,10 +164,11 @@ pub struct CellStreamerNode {
     /// Host joints between linked references, released with either endpoint.
     tethers: crate::godot_tether::TetherConstraints,
     pending_tethers: std::collections::BTreeSet<(GlobalFormId, GlobalFormId)>,
-    /// Every reference's last observed visibility and placement, gating the
-    /// rendering rebake so an untouched cell costs one map lookup per
-    /// reference per tick rather than a mesh rebuild. Collision has no such
-    /// cache, see `CellBodies::sync_placements` for why.
+    /// Applied presentation for geometry diagnostics and changed batch rebuilds.
+    reference_changes: soe_game::world::ReferenceChanges,
+    reference_index: std::collections::HashMap<GlobalFormId, Vec<(usize, usize)>>,
+    resident_references: std::collections::BTreeMap<GlobalFormId, GlobalFormId>,
+    reference_index_dirty: bool,
     ref_cache: std::collections::HashMap<GlobalFormId, (bool, Iso, Option<String>)>,
     deferred_references: std::collections::BTreeMap<GlobalFormId, GlobalFormId>,
     /// Replacement meshes for references with an active DEST model stage.
@@ -210,7 +211,7 @@ struct DestructionOverlay {
 
 fn free_destruction_overlay(server: &mut Gd<RenderingServer>, overlay: DestructionOverlay) {
     for instance in overlay.instances {
-        server.free_rid(instance.rid);
+        crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
         drop(instance.mesh);
     }
 }
@@ -313,6 +314,8 @@ struct ShaderParticleInstance {
 struct RuntimeLight {
     light: Rid,
     instance: Rid,
+    transform: Transform3D,
+    fade: Option<[f32; 2]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -531,6 +534,10 @@ impl INode3D for CellStreamerNode {
             collision_cell: None,
             tethers: crate::godot_tether::TetherConstraints::default(),
             pending_tethers: std::collections::BTreeSet::new(),
+            reference_changes: soe_game::world::ReferenceChanges::default(),
+            reference_index: std::collections::HashMap::new(),
+            resident_references: std::collections::BTreeMap::new(),
+            reference_index_dirty: true,
             ref_cache: std::collections::HashMap::new(),
             deferred_references: std::collections::BTreeMap::new(),
             destruction_models: std::collections::HashMap::new(),
@@ -564,6 +571,10 @@ impl INode3D for CellStreamerNode {
         self.collision_space = None;
         self.collision_cell = None;
         self.ref_cache.clear();
+        self.reference_changes = soe_game::world::ReferenceChanges::default();
+        self.reference_index.clear();
+        self.resident_references.clear();
+        self.reference_index_dirty = true;
     }
 
     fn process(&mut self, _delta: f64) {
@@ -634,10 +645,16 @@ impl CellStreamerNode {
                 );
                 let mesh = array_mesh_from(&surface.arrays);
                 let rid = soe_trace::Profile::render_submission(|| {
-                    server.instance_create2(mesh.get_rid(), scenario)
+                    crate::scene_timing::rendering_server(|| {
+                        server.instance_create2(mesh.get_rid(), scenario)
+                    })
                 });
-                server.instance_set_transform(rid, Transform3D::IDENTITY);
-                server.instance_geometry_set_material_override(rid, material.get_rid());
+                crate::scene_timing::rendering_server(|| {
+                    server.instance_set_transform(rid, Transform3D::IDENTITY);
+                });
+                crate::scene_timing::rendering_server(|| {
+                    server.instance_geometry_set_material_override(rid, material.get_rid());
+                });
                 instances.push(LodInstance {
                     rid,
                     mesh,
@@ -704,7 +721,7 @@ impl CellStreamerNode {
             let key = (request.shader, request.target);
             if !request.playing {
                 if let Some(effect) = self.effect_shaders.remove(&key) {
-                    server.free_rid(effect.rid);
+                    crate::scene_timing::rendering_server(|| server.free_rid(effect.rid));
                 }
                 continue;
             }
@@ -730,7 +747,9 @@ impl CellStreamerNode {
                 effect.cell = world
                     .reference_ref(request.target)
                     .and_then(|reference| reference.cell);
-                server.instance_set_transform(effect.rid, transform);
+                crate::scene_timing::rendering_server(|| {
+                    server.instance_set_transform(effect.rid, transform);
+                });
                 continue;
             }
             let mut mesh = SphereMesh::new_gd();
@@ -766,10 +785,14 @@ impl CellStreamerNode {
             }
             material.set_blend_mode(effect_blend_mode(request.appearance.blend));
             let rid = soe_trace::Profile::render_submission(|| {
-                server.instance_create2(mesh.get_rid(), scenario)
+                crate::scene_timing::rendering_server(|| {
+                    server.instance_create2(mesh.get_rid(), scenario)
+                })
             });
-            server.instance_set_transform(rid, transform);
-            server.instance_geometry_set_material_override(rid, material.get_rid());
+            crate::scene_timing::rendering_server(|| server.instance_set_transform(rid, transform));
+            crate::scene_timing::rendering_server(|| {
+                server.instance_geometry_set_material_override(rid, material.get_rid());
+            });
             self.effect_shaders.insert(
                 key,
                 EffectShaderInstance {
@@ -788,7 +811,7 @@ impl CellStreamerNode {
         }
         self.effect_shaders.retain(|(_, target), effect| {
             let Some(placement) = world.ref_placement(*target).filter(|p| p.visible) else {
-                server.free_rid(effect.rid);
+                crate::scene_timing::rendering_server(|| server.free_rid(effect.rid));
                 return false;
             };
             let position = SkyrimPos::new(
@@ -801,7 +824,9 @@ impl CellStreamerNode {
                 Basis::IDENTITY.scaled(Vector3::splat(placement.scale.max(0.01))),
                 Vector3::new(position.x, position.y, position.z),
             );
-            server.instance_set_transform(effect.rid, transform);
+            crate::scene_timing::rendering_server(|| {
+                server.instance_set_transform(effect.rid, transform);
+            });
             effect.elapsed += delta.max(0.0);
             let alpha =
                 effect.color_alpha * effect_alpha(effect.elapsed, effect.remaining, effect.fade);
@@ -817,7 +842,7 @@ impl CellStreamerNode {
             };
             *remaining -= delta.max(0.0);
             if *remaining <= 0.0 {
-                server.free_rid(effect.rid);
+                crate::scene_timing::rendering_server(|| server.free_rid(effect.rid));
                 false
             } else {
                 true
@@ -840,14 +865,14 @@ impl CellStreamerNode {
             if wanted.contains(id) {
                 true
             } else {
-                server.free_rid(effect.rid);
+                crate::scene_timing::rendering_server(|| server.free_rid(effect.rid));
                 false
             }
         });
         for request in active {
             let Some(placement) = world.ref_placement(request.target).filter(|p| p.visible) else {
                 if let Some(effect) = self.visual_effects.remove(&request.id) {
-                    server.free_rid(effect.rid);
+                    crate::scene_timing::rendering_server(|| server.free_rid(effect.rid));
                 }
                 continue;
             };
@@ -890,7 +915,9 @@ impl CellStreamerNode {
                 origin,
             );
             if let Some(effect) = self.visual_effects.get_mut(&request.id) {
-                server.instance_set_transform(effect.rid, transform);
+                crate::scene_timing::rendering_server(|| {
+                    server.instance_set_transform(effect.rid, transform);
+                });
                 effect.target = request.target;
                 continue;
             }
@@ -929,10 +956,14 @@ impl CellStreamerNode {
                 }
             }
             let rid = soe_trace::Profile::render_submission(|| {
-                server.instance_create2(mesh.get_rid(), scenario)
+                crate::scene_timing::rendering_server(|| {
+                    server.instance_create2(mesh.get_rid(), scenario)
+                })
             });
-            server.instance_set_transform(rid, transform);
-            server.instance_geometry_set_material_override(rid, material.get_rid());
+            crate::scene_timing::rendering_server(|| server.instance_set_transform(rid, transform));
+            crate::scene_timing::rendering_server(|| {
+                server.instance_geometry_set_material_override(rid, material.get_rid());
+            });
             self.visual_effects.insert(
                 request.id,
                 RuntimeVisualEffect {
@@ -948,7 +979,7 @@ impl CellStreamerNode {
     fn free_visual_effects(&mut self) {
         let mut server = RenderingServer::singleton();
         for (_, effect) in std::mem::take(&mut self.visual_effects) {
-            server.free_rid(effect.rid);
+            crate::scene_timing::rendering_server(|| server.free_rid(effect.rid));
         }
     }
 
@@ -997,7 +1028,9 @@ impl CellStreamerNode {
                 multi.set_instance_count(particle_count);
                 multi.set_visible_instance_count(particle_count);
                 let rid = soe_trace::Profile::render_submission(|| {
-                    server.instance_create2(multi.get_rid(), scenario)
+                    crate::scene_timing::rendering_server(|| {
+                        server.instance_create2(multi.get_rid(), scenario)
+                    })
                 });
                 self.shader_particles.insert(
                     geometry.form,
@@ -1038,14 +1071,16 @@ impl CellStreamerNode {
                         .multi
                         .set_instance_transform(index as i32, transform);
                 }
-                server.instance_set_transform(instance.rid, Transform3D::IDENTITY);
+                crate::scene_timing::rendering_server(|| {
+                    server.instance_set_transform(instance.rid, Transform3D::IDENTITY);
+                });
             }
         }
         self.shader_particles.retain(|form, instance| {
             if seen.contains(form) {
                 true
             } else {
-                server.free_rid(instance.rid);
+                crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
                 false
             }
         });
@@ -1054,14 +1089,14 @@ impl CellStreamerNode {
     fn free_shader_particles(&mut self) {
         let mut server = RenderingServer::singleton();
         for (_, instance) in std::mem::take(&mut self.shader_particles) {
-            server.free_rid(instance.rid);
+            crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
         }
     }
 
     fn free_effect_shaders(&mut self) {
         let mut server = RenderingServer::singleton();
         for (_, effect) in self.effect_shaders.drain() {
-            server.free_rid(effect.rid);
+            crate::scene_timing::rendering_server(|| server.free_rid(effect.rid));
         }
     }
 
@@ -1088,15 +1123,16 @@ impl CellStreamerNode {
         let mut server = RenderingServer::singleton();
         self.effect_shaders.retain(|_, effect| {
             if effect.cell.is_some_and(|cell| departed.contains(&cell)) {
-                server.free_rid(effect.rid);
+                crate::scene_timing::rendering_server(|| server.free_rid(effect.rid));
                 false
             } else {
                 true
             }
         });
+        self.reference_index_dirty = true;
         self.instances.retain(|instance| {
             if departed.contains(&instance.cell) {
-                server.free_rid(instance.rid);
+                crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
                 false
             } else {
                 true
@@ -1137,8 +1173,8 @@ impl CellStreamerNode {
     /// Applies game-side changes to collision, copies simulated rigid-body
     /// poses into World, then updates rendering from that shared state.
     ///
-    /// Rendering diffs each reference against `ref_cache` before visiting
-    /// batches, so every surface of a changed reference updates this tick.
+    /// Rendering visits notified references and their indexed batches, so every
+    /// surface of a changed reference updates this tick.
     ///
     /// A disabled reference is collapsed to a degenerate, zero-area patch
     /// rather than dropped from the batch: the batch is one shared
@@ -1148,8 +1184,12 @@ impl CellStreamerNode {
     /// upload, never from an already patched copy, matching
     /// `StaticEntry::source` on the collision side.
     pub(crate) fn sync_reference_changes(&mut self, world: &mut soe_game::World) {
-        self.sync_deferred_references(world);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let _phase = crate::scene_timing::Scope::new(soe_trace::System::Streaming);
+        self.refresh_reference_index(world);
+        let mut changed_references = self.reference_changes.changed(world);
+        self.sync_deferred_references(world, &changed_references);
+        self.refresh_reference_index(world);
         let stale_tethers: Vec<_> = self
             .tether_endpoints()
             .into_iter()
@@ -1180,6 +1220,9 @@ impl CellStreamerNode {
                 .apply_reference_physics_requests(world, &mut self.tethers);
             self.collision.poll_movable(world);
         }
+        changed_references.extend(self.reference_changes.changed(world));
+        changed_references.sort_unstable();
+        changed_references.dedup();
         for request in world.take_reference_physics_requests() {
             if let soe_game::world::ReferencePhysicsRequest::TetherToHorse { cart, horse } = request
             {
@@ -1208,10 +1251,9 @@ impl CellStreamerNode {
             self.pending_tethers.remove(&(cart, horse));
         }
         let mut changed = std::collections::HashSet::new();
-        let mut resident_refs = std::collections::BTreeMap::new();
-        let mut track = |reference: GlobalFormId| {
+        for reference in changed_references {
             let Some(placement) = world.ref_placement(reference) else {
-                return;
+                continue;
             };
             let iso = Iso::placement(placement.position, placement.rotation, placement.scale);
             let model = world.destruction_model(reference);
@@ -1223,46 +1265,49 @@ impl CellStreamerNode {
                 changed.insert(reference);
             }
             self.ref_cache.insert(reference, key);
-        };
-        for instance in &self.instances {
-            match &instance.table {
-                BatchTable::Triangles(members) => {
-                    for member in members {
-                        track(member.reference);
-                        resident_refs.insert(member.reference, instance.cell);
-                    }
-                }
-                BatchTable::Instances(members) => {
-                    for reference in members {
-                        track(*reference);
-                        resident_refs.insert(*reference, instance.cell);
-                    }
-                }
-            }
         }
-        self.sync_destruction_models(world, &resident_refs, &changed);
+        if !changed.is_empty() {
+            let resident_refs = changed
+                .iter()
+                .filter_map(|reference| {
+                    self.resident_references
+                        .get(reference)
+                        .map(|cell| (*reference, *cell))
+                })
+                .collect();
+            self.sync_destruction_models(world, &resident_refs, &changed);
+        }
         let mut server = RenderingServer::singleton();
         self.sync_runtime_lights(world, &mut server);
-        for instance in &mut self.instances {
+        let mut touched_instances = std::collections::BTreeSet::new();
+        for reference in &changed {
+            if let Some(members) = self.reference_index.get(reference) {
+                touched_instances.extend(members.iter().map(|(instance, _)| *instance));
+            }
+        }
+        for index in touched_instances {
+            let instance = &mut self.instances[index];
             let BatchTable::Triangles(members) = &instance.table else {
                 if let (BatchTable::Instances(members), InstanceMesh::Multi(multi)) =
                     (&instance.table, &mut instance.mesh)
                 {
                     for (index, reference) in members.iter().enumerate() {
-                        let Some(placement) = world.ref_placement(*reference) else {
-                            continue;
-                        };
-                        let target =
-                            Iso::placement(placement.position, placement.rotation, placement.scale);
                         if !changed.contains(reference) {
                             continue;
                         }
-                        let visible = placement.visible
-                            && world.destruction_model(*reference).is_none()
-                            && !crate::godot_physics::is_opened_door(world, *reference);
-                        let scale = if visible { placement.scale } else { 0.0 };
-                        let transform =
-                            placement_to_godot(target.rotation.rows, placement.position, scale);
+                        let Some((visible, target, _)) = self.ref_cache.get(reference) else {
+                            continue;
+                        };
+                        let scale = if *visible { target.scale } else { 0.0 };
+                        let transform = placement_to_godot(
+                            target.rotation.rows,
+                            [
+                                target.translation.x,
+                                target.translation.y,
+                                target.translation.z,
+                            ],
+                            scale,
+                        );
                         multi.set_instance_transform(index as i32, transform3d_from(transform));
                     }
                 }
@@ -1271,17 +1316,15 @@ impl CellStreamerNode {
             let mut touched = false;
             let mut targets: Vec<(usize, bool, Iso)> = Vec::new();
             for (index, member) in members.iter().enumerate() {
-                let Some(placement) = world.ref_placement(member.reference) else {
-                    continue;
-                };
-                let target_iso =
-                    Iso::placement(placement.position, placement.rotation, placement.scale);
+                let (visible, target_iso) = self
+                    .ref_cache
+                    .get(&member.reference)
+                    .map_or((true, member.origin), |(visible, pose, _)| {
+                        (*visible, *pose)
+                    });
                 if changed.contains(&member.reference) {
                     touched = true;
                 }
-                let visible = placement.visible
-                    && world.destruction_model(member.reference).is_none()
-                    && !crate::godot_physics::is_opened_door(world, member.reference);
                 targets.push((index, visible, target_iso));
             }
             if !touched {
@@ -1302,8 +1345,136 @@ impl CellStreamerNode {
                     new_mesh.surface_set_material(0, &material);
                 }
             }
-            server.instance_set_base(instance.rid, new_mesh.get_rid());
+            crate::scene_timing::rendering_server(|| {
+                server.instance_set_base(instance.rid, new_mesh.get_rid());
+            });
             instance.mesh = InstanceMesh::Array(new_mesh);
+        }
+    }
+
+    fn refresh_reference_index(&mut self, world: &soe_game::World) {
+        if !self.reference_index_dirty {
+            return;
+        }
+        self.reference_index_dirty = false;
+        // CONTEXT: Watches survive a rebuild. Resetting them re-resolved the enable
+        // state of every resident reference each time a cell streamed in, which
+        // was the largest single cost of a streaming frame. Only references that
+        // are new to the index are watched, and ones that left it are released.
+        let previous = std::mem::take(&mut self.resident_references);
+        self.reference_index.clear();
+        for (instance_index, instance) in self.instances.iter().enumerate() {
+            let references: Vec<_> = match &instance.table {
+                BatchTable::Triangles(members) => {
+                    members.iter().map(|member| member.reference).collect()
+                }
+                BatchTable::Instances(members) => members.clone(),
+            };
+            for (member_index, reference) in references.into_iter().enumerate() {
+                self.reference_index
+                    .entry(reference)
+                    .or_default()
+                    .push((instance_index, member_index));
+                self.resident_references.insert(reference, instance.cell);
+                if !self.reference_changes.is_watched(reference) {
+                    self.reference_changes.watch(world, reference);
+                }
+            }
+        }
+        for &reference in self.deferred_references.keys() {
+            if !self.reference_changes.is_watched(reference) {
+                self.reference_changes.watch(world, reference);
+            }
+        }
+        for reference in previous.keys() {
+            if !self.resident_references.contains_key(reference)
+                && !self.deferred_references.contains_key(reference)
+            {
+                self.reference_changes.unwatch(*reference);
+            }
+        }
+        self.ref_cache
+            .retain(|reference, _| self.reference_index.contains_key(reference));
+    }
+
+    /// Capture plain cell IDs for worker initialization, in stable FormID order.
+    pub(crate) fn simulation_resident_cells(&self) -> Vec<GlobalFormId> {
+        self.exterior_cells
+            .values()
+            .copied()
+            .chain(self.instances.iter().map(|instance| instance.cell))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    /// Apply worker-derived actor placements without reading or mutating World.
+    pub(crate) fn sync_snapshot_placements(
+        &mut self,
+        placements: &std::collections::BTreeMap<GlobalFormId, soe_game::world::RefPlacement>,
+    ) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let mut changed = std::collections::BTreeSet::new();
+        for (id, placement) in placements {
+            let key = (
+                placement.visible,
+                Iso::placement(placement.position, placement.rotation, placement.scale),
+                None,
+            );
+            if self.ref_cache.get(id) != Some(&key) {
+                self.ref_cache.insert(*id, key);
+                changed.insert(*id);
+            }
+        }
+        if changed.is_empty() {
+            return;
+        }
+        let mut server = RenderingServer::singleton();
+        for instance in &mut self.instances {
+            match (&instance.table, &mut instance.mesh) {
+                (BatchTable::Instances(members), InstanceMesh::Multi(multi)) => {
+                    for (index, id) in members
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, id)| changed.contains(id))
+                    {
+                        let Some(placement) = placements.get(id) else {
+                            continue;
+                        };
+                        let iso =
+                            Iso::placement(placement.position, placement.rotation, placement.scale);
+                        let scale = if placement.visible {
+                            placement.scale
+                        } else {
+                            0.0
+                        };
+                        let transform =
+                            placement_to_godot(iso.rotation.rows, placement.position, scale);
+                        multi.set_instance_transform(index as i32, transform3d_from(transform));
+                    }
+                }
+                (BatchTable::Triangles(members), InstanceMesh::Array(mesh)) => {
+                    if !members
+                        .iter()
+                        .any(|member| changed.contains(&member.reference))
+                    {
+                        continue;
+                    }
+                    let mut patched = instance.arrays.clone();
+                    for member in members {
+                        if let Some((visible, iso, _)) = self.ref_cache.get(&member.reference) {
+                            apply_member_patch(&mut patched, member, *visible, iso);
+                        }
+                    }
+                    let mut replacement = array_mesh_from(&patched);
+                    if let Some(material) = mesh.surface_get_material(0) {
+                        replacement.surface_set_material(0, &material);
+                    }
+                    server.instance_set_base(instance.rid, replacement.get_rid());
+                    *mesh = replacement;
+                }
+                _ => {}
+            }
         }
     }
 
@@ -1312,19 +1483,16 @@ impl CellStreamerNode {
     }
 
     fn sync_runtime_lights(&mut self, world: &soe_game::World, server: &mut Gd<RenderingServer>) {
-        let mut active: Vec<_> = world
-            .active_effects()
-            .filter_map(|effect| effect.summoned)
+        let active: std::collections::BTreeSet<_> = world
+            .summoned_effect_references()
             .filter(|reference| {
                 world
                     .reference_ref(*reference)
                     .and_then(|reference| reference.base)
-                    .and_then(|base| world.record(base))
-                    .is_some_and(|record| light_render_data(record).is_some())
+                    .and_then(|base| world.tag_of(base))
+                    .is_some_and(|tag| tag == soe_esm::Tag::new(b"LIGH"))
             })
             .collect();
-        active.sort_unstable();
-        let active: std::collections::HashSet<_> = active.into_iter().collect();
         self.runtime_lights.retain(|reference, light| {
             if active.contains(reference)
                 && world
@@ -1333,8 +1501,8 @@ impl CellStreamerNode {
             {
                 return true;
             }
-            server.free_rid(light.instance);
-            server.free_rid(light.light);
+            crate::scene_timing::rendering_server(|| server.free_rid(light.instance));
+            crate::scene_timing::rendering_server(|| server.free_rid(light.light));
             false
         });
         let Some(scenario) = self.scenario() else {
@@ -1348,9 +1516,6 @@ impl CellStreamerNode {
                 continue;
             };
             let Some(base) = world.reference_ref(reference).and_then(|value| value.base) else {
-                continue;
-            };
-            let Some(render) = world.record(base).and_then(light_render_data) else {
                 continue;
             };
             let position = SkyrimPos::new(
@@ -1368,38 +1533,75 @@ impl CellStreamerNode {
                 .and_then(|state| state.cell)
                 .and_then(|cell| crate::cell_lighting::cell_lighting(world.order(), cell))
                 .and_then(|lighting| lighting.distance_fade());
-            if let Some(light) = self.runtime_lights.get(&reference) {
-                server.instance_set_transform(light.instance, transform);
-                let [begin, length] = fade.unwrap_or_default();
-                server.light_set_distance_fade(light.light, fade.is_some(), begin, begin, length);
+            if let Some(light) = self.runtime_lights.get_mut(&reference) {
+                if light.transform != transform {
+                    crate::scene_timing::rendering_server(|| {
+                        server.instance_set_transform(light.instance, transform);
+                    });
+                    light.transform = transform;
+                }
+                if light.fade != fade {
+                    let [begin, length] = fade.unwrap_or_default();
+                    crate::scene_timing::rendering_server(|| {
+                        server.light_set_distance_fade(
+                            light.light,
+                            fade.is_some(),
+                            begin,
+                            begin,
+                            length,
+                        );
+                    });
+                    light.fade = fade;
+                }
                 continue;
             }
-            let light = server.omni_light_create();
+            let Some(render) = world.record(base).and_then(light_render_data) else {
+                continue;
+            };
+            let light = crate::scene_timing::rendering_server(|| server.omni_light_create());
             let [begin, length] = fade.unwrap_or_default();
-            server.light_set_distance_fade(light, fade.is_some(), begin, begin, length);
-            server.light_set_color(
-                light,
-                Color::from_rgb(render.color[0], render.color[1], render.color[2]),
+            crate::scene_timing::rendering_server(|| {
+                server.light_set_distance_fade(light, fade.is_some(), begin, begin, length);
+            });
+            crate::scene_timing::rendering_server(|| {
+                server.light_set_color(
+                    light,
+                    Color::from_rgb(render.color[0], render.color[1], render.color[2]),
+                );
+            });
+            crate::scene_timing::rendering_server(|| {
+                server.light_set_param(
+                    light,
+                    godot::classes::rendering_server::LightParam::RANGE,
+                    render.radius,
+                );
+            });
+            crate::scene_timing::rendering_server(|| {
+                server.light_set_negative(light, render.negative);
+            });
+            let instance = soe_trace::Profile::render_submission(|| {
+                crate::scene_timing::rendering_server(|| server.instance_create2(light, scenario))
+            });
+            crate::scene_timing::rendering_server(|| {
+                server.instance_set_transform(instance, transform);
+            });
+            self.runtime_lights.insert(
+                reference,
+                RuntimeLight {
+                    light,
+                    instance,
+                    transform,
+                    fade,
+                },
             );
-            server.light_set_param(
-                light,
-                godot::classes::rendering_server::LightParam::RANGE,
-                render.radius,
-            );
-            server.light_set_negative(light, render.negative);
-            let instance =
-                soe_trace::Profile::render_submission(|| server.instance_create2(light, scenario));
-            server.instance_set_transform(instance, transform);
-            self.runtime_lights
-                .insert(reference, RuntimeLight { light, instance });
         }
     }
 
     fn free_runtime_lights(&mut self) {
         let mut server = RenderingServer::singleton();
         for (_, light) in self.runtime_lights.drain() {
-            server.free_rid(light.instance);
-            server.free_rid(light.light);
+            crate::scene_timing::rendering_server(|| server.free_rid(light.instance));
+            crate::scene_timing::rendering_server(|| server.free_rid(light.light));
         }
     }
 }
@@ -2268,7 +2470,7 @@ impl CellStreamerNode {
         }
         let count = released.len();
         for instance in released {
-            server.free_rid(instance.rid);
+            crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
             drop(instance.mesh);
         }
         self.free_departed_occluders(&[owner]);
@@ -2733,7 +2935,9 @@ impl CellStreamerNode {
         let mut server = RenderingServer::singleton();
         if let Some(lod) = &self.terrain_lod {
             for instance in lod.blocks.values().flatten() {
-                server.instance_set_visible(instance.rid, visible);
+                crate::scene_timing::rendering_server(|| {
+                    server.instance_set_visible(instance.rid, visible);
+                });
             }
         }
     }
@@ -2821,7 +3025,7 @@ impl CellStreamerNode {
         };
         let mut server = RenderingServer::singleton();
         for instance in lod.blocks.into_values().flatten() {
-            server.free_rid(instance.rid);
+            crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
             drop(instance.mesh);
         }
     }
@@ -2834,7 +3038,7 @@ impl CellStreamerNode {
         };
         let mut server = RenderingServer::singleton();
         for instance in lod.blocks.into_values().flatten() {
-            server.free_rid(instance.rid);
+            crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
             drop(instance.mesh);
         }
     }
@@ -2856,6 +3060,10 @@ impl CellStreamerNode {
         self.free_runtime_lights();
         self.exterior_cells.clear();
         self.ref_cache.clear();
+        self.reference_changes = soe_game::world::ReferenceChanges::default();
+        self.reference_index.clear();
+        self.resident_references.clear();
+        self.reference_index_dirty = true;
         self.deferred_references.clear();
         self.clear_terrain_lod();
         self.clear_object_lod();
@@ -2940,6 +3148,7 @@ impl CellStreamerNode {
                     .and_then(crate::data_source::model_for)
                     .is_some()
                 {
+                    self.reference_index_dirty = true;
                     self.deferred_references.insert(id, cell);
                 }
             }
@@ -2947,18 +3156,23 @@ impl CellStreamerNode {
         self.add_cell(cell, &visible, scenario, totals);
     }
 
-    fn sync_deferred_references(&mut self, world: &soe_game::World) {
+    fn sync_deferred_references(&mut self, world: &soe_game::World, changed: &[GlobalFormId]) {
+        if changed.is_empty() {
+            return;
+        }
         let (Some(source), Some(scenario)) = (self.data_source.clone(), self.scenario()) else {
             return;
         };
-        let ready: Vec<_> = self
-            .deferred_references
+        let ready: Vec<_> = changed
             .iter()
-            .filter(|(id, _)| world.reference_enabled(**id))
-            .map(|(id, cell)| (*id, *cell))
+            .filter_map(|id| {
+                let cell = self.deferred_references.get(id)?;
+                world.reference_enabled(*id).then_some((*id, *cell))
+            })
             .collect();
         for (id, cell) in ready {
             self.deferred_references.remove(&id);
+            self.reference_index_dirty = true;
             match source.stream_reference(id) {
                 Ok(loaded) => self.add_cell(cell, &loaded, scenario, &mut StreamTotals::default()),
                 Err(error) => {
@@ -3000,6 +3214,7 @@ impl CellStreamerNode {
             cell.to_string(),
             std::time::Duration::from_millis(33),
         );
+        let _scene = crate::scene_timing::Scope::new(soe_trace::System::Other);
         let _span = soe_trace::Span::new("host.add_cell", "host");
         totals.add_cell(loaded);
         if self.cell_occluders {
@@ -3085,13 +3300,18 @@ impl CellStreamerNode {
         mesh.surface_set_material(0, material);
         let mut server = RenderingServer::singleton();
         let rid = soe_trace::Profile::render_submission(|| {
-            server.instance_create2(mesh.get_rid(), scenario)
+            crate::scene_timing::rendering_server(|| {
+                server.instance_create2(mesh.get_rid(), scenario)
+            })
         });
-        server.instance_set_transform(rid, Transform3D::IDENTITY);
+        crate::scene_timing::rendering_server(|| {
+            server.instance_set_transform(rid, Transform3D::IDENTITY);
+        });
         self.bounds = Some(match self.bounds {
             Some(b) => crate::batch::merge_bounds(b, arrays.bounds),
             None => arrays.bounds,
         });
+        self.reference_index_dirty = true;
         self.instances.push(Instance {
             cell,
             bounds: arrays.bounds,
@@ -3124,15 +3344,20 @@ impl CellStreamerNode {
         }
         let mut server = RenderingServer::singleton();
         let rid = soe_trace::Profile::render_submission(|| {
-            server.instance_create2(multi.get_rid(), scenario)
+            crate::scene_timing::rendering_server(|| {
+                server.instance_create2(multi.get_rid(), scenario)
+            })
         });
-        server.instance_set_transform(rid, Transform3D::IDENTITY);
+        crate::scene_timing::rendering_server(|| {
+            server.instance_set_transform(rid, Transform3D::IDENTITY);
+        });
         let bounds = group_bounds(group);
         self.bounds = Some(match self.bounds {
             Some(b) => crate::batch::merge_bounds(b, bounds),
             None => bounds,
         });
         let table = BatchTable::Instances(group.members.iter().map(|m| m.reference).collect());
+        self.reference_index_dirty = true;
         self.instances.push(Instance {
             cell,
             bounds,
@@ -3144,16 +3369,19 @@ impl CellStreamerNode {
     }
 
     fn free_instances(&mut self) {
+        self.reference_index_dirty = true;
         let mut server = RenderingServer::singleton();
         for instance in self.instances.drain(..) {
-            server.free_rid(instance.rid);
+            crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
             drop(instance.mesh);
         }
     }
 
     fn add_cell_occluder(&mut self, cell: GlobalFormId, surfaces: &[LoadedSurface], scenario: Rid) {
         let mut server = RenderingServer::singleton();
-        if !server.has_method("occluder_create") || !server.has_method("occluder_set_mesh") {
+        if !crate::scene_timing::rendering_server(|| server.has_method("occluder_create"))
+            || !crate::scene_timing::rendering_server(|| server.has_method("occluder_set_mesh"))
+        {
             return;
         }
         let (vertices, indices) = cell_occluder_mesh(surfaces);
@@ -3165,18 +3393,24 @@ impl CellStreamerNode {
             .map(|p| Vector3::new(p[0], p[1], p[2]))
             .collect();
         let packed_indices: PackedInt32Array = indices.into_iter().collect();
-        let mesh: Rid = server.call("occluder_create", &[]).to();
+        let mesh: Rid =
+            crate::scene_timing::rendering_server(|| server.call("occluder_create", &[])).to();
         let mesh_args = [
             mesh.to_variant(),
             packed_vertices.to_variant(),
             packed_indices.to_variant(),
         ];
-        server.call("occluder_set_mesh", &mesh_args);
+        crate::scene_timing::rendering_server(|| server.call("occluder_set_mesh", &mesh_args));
         let instance_args = [mesh.to_variant(), scenario.to_variant()];
         let instance: Rid = soe_trace::Profile::render_submission(|| {
-            server.call("instance_create2", &instance_args).to()
+            crate::scene_timing::rendering_server(|| {
+                server.call("instance_create2", &instance_args)
+            })
+            .to()
         });
-        server.instance_set_transform(instance, Transform3D::IDENTITY);
+        crate::scene_timing::rendering_server(|| {
+            server.instance_set_transform(instance, Transform3D::IDENTITY);
+        });
         self.occluders.push(CellOccluder {
             cell,
             instance,
@@ -3188,8 +3422,8 @@ impl CellStreamerNode {
         let mut server = RenderingServer::singleton();
         self.occluders.retain(|occluder| {
             if departed.contains(&occluder.cell) {
-                server.free_rid(occluder.instance);
-                server.free_rid(occluder.mesh);
+                crate::scene_timing::rendering_server(|| server.free_rid(occluder.instance));
+                crate::scene_timing::rendering_server(|| server.free_rid(occluder.mesh));
                 false
             } else {
                 true
@@ -3200,8 +3434,8 @@ impl CellStreamerNode {
     fn free_occluders(&mut self) {
         let mut server = RenderingServer::singleton();
         for occluder in self.occluders.drain(..) {
-            server.free_rid(occluder.instance);
-            server.free_rid(occluder.mesh);
+            crate::scene_timing::rendering_server(|| server.free_rid(occluder.instance));
+            crate::scene_timing::rendering_server(|| server.free_rid(occluder.mesh));
         }
     }
 
@@ -3259,7 +3493,7 @@ impl CellStreamerNode {
         for block in step.released() {
             built.remove(&block);
             for instance in lod.blocks.remove(&block).into_iter().flatten() {
-                server.free_rid(instance.rid);
+                crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
                 drop(instance.mesh);
             }
         }
@@ -3307,9 +3541,13 @@ impl CellStreamerNode {
         mesh.surface_set_material(0, &material);
         let mut server = RenderingServer::singleton();
         let rid = soe_trace::Profile::render_submission(|| {
-            server.instance_create2(mesh.get_rid(), scenario)
+            crate::scene_timing::rendering_server(|| {
+                server.instance_create2(mesh.get_rid(), scenario)
+            })
         });
-        server.instance_set_transform(rid, Transform3D::IDENTITY);
+        crate::scene_timing::rendering_server(|| {
+            server.instance_set_transform(rid, Transform3D::IDENTITY);
+        });
         LodInstance {
             rid,
             mesh,
@@ -3708,6 +3946,7 @@ fn cubemap_from(texture: &TextureData) -> Option<Gd<Cubemap>> {
 }
 
 fn image_from_texture(texture: &TextureData) -> Option<Gd<Image>> {
+    let _phase = crate::scene_timing::Scope::new(soe_trace::System::Save);
     let _span = soe_trace::Span::with_payload(
         "host.upload_texture",
         "host",
@@ -3765,6 +4004,7 @@ fn image_from_texture(texture: &TextureData) -> Option<Gd<Image>> {
 /// caller applies a material through `set_surface_override_material`, this
 /// function only builds the geometry.
 pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
+    let _phase = crate::scene_timing::Scope::new(soe_trace::System::Save);
     let arrays = mesh_surface_arrays(surface);
     let mut mesh = ArrayMesh::new_gd();
     mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &arrays);

@@ -545,6 +545,7 @@ impl World {
         };
         let base_runtime_id = base.map(|base| FormId(self.runtime_id(base)));
         let cell_runtime_id = cell.map(|cell| FormId(self.runtime_id(cell)));
+        self.invalidate_reference(id);
         let state = self.refs.get_mut(&id)?;
         Some(LiveObjectRef {
             runtime_id: FormId(runtime_id),
