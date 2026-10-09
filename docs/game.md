@@ -6946,6 +6946,9 @@ of 12,591 references with 2,228 ownership changes and 10,404 locks. The
 restoration survey compares decoded owner, rank, global, key, level, flags
 and retained words with live state, then verifies exact reference state,
 world hashes and bytes through engine save/load without queued events.
+The corpus checks are named `sav_69_installed_extra_presence_audit`,
+`sav_69_installed_lock_byte_mapping_matches_authored_levels` and
+`sav_69_installed_all_ownership_and_lock_extras_restore_and_persist`.
 No new saved fields, host nodes or dependencies were added. Leveled-lock
 scaling, ownership crime rules and lockpicking remain separate mechanics.
 
