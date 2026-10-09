@@ -13,7 +13,7 @@ use soe_probe::{
     Probe, Step, EXAMPLE,
 };
 
-const LOG: &str = include_str!("fixtures/Papyrus.0.log");
+const LOG: &str = include_str!("fixtures/Papyrus.0.txt");
 
 fn probe() -> Probe {
     Probe::parse(EXAMPLE).unwrap()

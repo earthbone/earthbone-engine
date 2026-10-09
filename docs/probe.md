@@ -342,7 +342,7 @@ every comparison field, numeric tolerance boundaries, repeated waits, menu
 clock domains, form validation, timeouts and CLI exit statuses. The
 SKYRIM_DATA-gated case executes the same sequence against the installed
 official records and checks CLI matching and differing comparisons.
-`tests/fixtures/Papyrus.0.log` is an authored synthetic trace, not a vanilla
+`tests/fixtures/Papyrus.0.txt` is an authored synthetic trace, not a vanilla
 capture. Its profile and FormIDs follow the synthetic plugin fixture and its
 small scheduling delays fit the tolerances declared before the tests run.
 No live Skyrim probe has been captured by these tests.

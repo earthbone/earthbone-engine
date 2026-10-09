@@ -94,7 +94,14 @@ fn aud_05_completed_interrupted_fade_leaves_only_latest_track_playing() {
     // CONTEXT: Cargo test does not refresh the release library Godot loads.
     let build = Command::new(env!("CARGO"))
         .current_dir(&workspace)
-        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
+        .args([
+            "build",
+            "-p",
+            "soe-godot-host",
+            "--release",
+            "--lib",
+            "--target-dir",
+        ])
         .arg(workspace.join("target"))
         .output()
         .expect("release extension build starts");
