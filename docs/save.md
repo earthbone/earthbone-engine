@@ -1141,6 +1141,25 @@ raw and cannot validate their interior. The Rust decoder uses the measured
 layout because none of those readers defines it. No source code or save
 file was copied into this repository.
 
+### Live INFO, SMQN and SCEN records, SAV-30
+
+Restoring a save validates every decoded INFO, SMQN and SCEN change first and
+only then writes the world, so one malformed or wrong-type change leaves the
+whole world unchanged. A repeated restore that conflicts with a runtime
+override is rejected the same way. The applied state lives in the record
+override table, beside the other record-backed saved changes.
+
+`World::restored_info_said_once`, `restored_smqn_last_run_times`,
+`restored_scene_active_data` and `restored_dialogue_form_flags` answer from
+that table. Form flag masks apply to the live record flags, and a zero mask
+leaves them alone. A scene whose change is inactive refuses active payload
+bytes. SMQN last-run values keep their exact float bits. The table is part of
+the engine's own save section, so a restored result survives an engine save
+and load, which `tests/vanilla_save/sav_30_dialogue_scene.rs` and its two
+adversarial files exercise, including against the installed dialogue and scene
+records. The saved scene runtime is kept as bytes. Scene execution does not
+read it yet.
+
 ## Form-list and leveled-list changes
 
 `ChangeForm::form_list_change` decodes FLST additions.
@@ -1462,3 +1481,13 @@ DOOR change it finds. The reported 60-save corpus contains zero examples of
 all three types, so that run provides zero payload observations. A separate
 `SKYRIM_DATA`-gated test confirms that `Skyrim.esm` contains the three vanilla
 record types. It does not stand in for saved change payloads.
+
+## Load timing phases, PRF-29
+
+`Save::open` records an aggregate vanilla-save load with the source path,
+then file I/O separately. `split` records header parsing and compressed-body
+decode as nested causes. `parse_body` records body parsing. Failed calls retain
+the elapsed phase through scope drop. The instrumentation follows the existing
+reader boundaries and `docs/performance.md`, and does not change ESS decoding
+or restoration support. In-memory `Save::parse` has cause phases without a
+file-read phase. All measurements remain transient in `soe-trace`.

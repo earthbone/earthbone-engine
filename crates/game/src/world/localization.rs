@@ -40,6 +40,11 @@ impl World {
         vfs: &Vfs,
         language: &str,
     ) -> Result<usize, LocalizationError> {
+        let _load = soe_trace::LoadScope::operation(
+            "string_tables",
+            language,
+            std::time::Duration::from_millis(33),
+        );
         let mut strings = BTreeMap::new();
         let mut loaded = 0;
         for (file, plugin) in self.order.files().iter().enumerate() {
@@ -63,6 +68,11 @@ impl World {
                     path: path.clone(),
                     source,
                 })?;
+                let _parse = soe_trace::LoadScope::new(
+                    "string_table_parse",
+                    soe_trace::LoadCause::Parse,
+                    path.clone(),
+                );
                 let table = StringTable::parse(&bytes, kind, language)
                     .map_err(|source| LocalizationError::Parse { path, source })?;
                 strings.insert((file as u16, kind), table);

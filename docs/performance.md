@@ -1,5 +1,93 @@
 # Performance
 
+## Fixed-tick budget gate, PRF-37 draft
+
+`godot/tst_18_frame_budget_test.gd` starts the PRF-12 walkthrough, warms it
+for two wall-clock seconds and samples 240 completed render frames in both
+the Bannered Mare and the Tamriel `WhiterunExterior04` cell. It then quits.
+`simulation_budget.gd` declares the limits before measurement: main-thread
+engine scope time at most 2 ms p50 and 4 ms p99, with no continuous simulation
+lag above one second. Empty samples, non-finite times and no simulation
+progress fail. Per-frame raw main, tick and worker samples and mean exclusive
+system times are written to `SOE_PRF_37_REPORT`, with an F3 capture at each location.
+
+Select the draft adapter with `SOE_THREADED_SIMULATION=1`. The host tests
+`prf_37_tst_18_rejects_main_thread_percentiles_and_simulation_lag` and
+`prf_37_installed_windowed_tst_18_gate` exercise the gate contract and
+installed-data rendering separately. Build the release extension and import
+the project before running them, as for the other host checks.
+
+The 2 ms budget applies jointly to player controller work, Jolt synchronization,
+snapshot application and the remaining instrumented PlayerNode callbacks.
+There is no separate allowance per catch-up physics callback. Simulation
+ticks and navigation-worker busy time are reported outside this total.
+Worker busy time overlaps simulation wall time. Host/GDScript work outside
+engine scopes is outside this measurement and remains visible through the
+host frame denominator. This draft measures snapshot placement, contact and
+sky presentation. The legacy gameplay presentation adapters are not part of
+the draft path's timing evidence. This is not a comparison with the user's
+interactive mod profile. The gate uses five installed masters and the fixed
+resident block, without walking across its boundary.
+
+### PRF-37 open gap, round 7 check
+
+The threaded simulation is opt-in through `SOE_THREADED_SIMULATION=1`. The
+default `start_gameplay` path, which is the one the user plays, still runs the
+game inline in `physics_process` with Godot's catch-up ticks, so a slow frame is
+followed by up to eight physics callbacks and the spiral the row describes is
+still live there. The TST-18 gate above passes only on the draft path. The
+default path is neither restructured nor measured by it, so the 2 ms main-thread
+clause cannot be read as the only open piece of PRF-37. Moving the default path
+onto the worker and measuring it with ordinary input are both still missing.
+
+### PRF-37 installed measurement, 2026-10-06
+
+The release extension with Godot 4.4.1, windowed software Vulkan at 640 by 360,
+passed both location gates. Neither measured window overlapped a Rust build
+or another Rust test.
+Each location supplied 240 completed render frames. Bannered Mare published
+seven contacts. The plains published two, including the player and a resident
+NPC from Tamriel's persistent cell. Both ran package evaluations.
+
+| Location | Main p50 ms | Main p99 ms | Maximum lag s | Simulation ticks during sample |
+|---|---|---|---|---|
+| Bannered Mare | 0.152 | 0.243 | 0.050 | 357 |
+| Whiterun plains | 0.214 | 0.341 | 0.140 | 890 |
+
+The shared 2 ms main-thread allowance had this measured mean cost split.
+These exclusive means add to the total mean, not to either percentile.
+
+| Main-thread engine work | Bannered Mare mean ms | Plains mean ms |
+|---|---|---|
+| Player controller and Jolt synchronization | 0.100647 | 0.116801 |
+| Input | 0.029796 | 0.047130 |
+| Snapshot rendering and process presentation | 0.012331 | 0.037016 |
+| Other covered callbacks | 0.009411 | 0.010260 |
+| Streaming | 0.000106 | 0.000074 |
+| Total | 0.152291 | 0.211281 |
+
+Simulation tick p50/p99 was 0.459/23.218 ms in Bannered Mare and
+1.972/5.729 ms on the plains. The occasional long interior tick did not
+sustain overdue simulation for one second. Mean reported navigation-worker
+busy time was 0.000315 ms and 0.000137 ms respectively. Those worker values
+are included in simulation wall time and excluded from the main total.
+
+The raw timing JSON, two F3 PNGs and process logs are under `target/prf-37-*`.
+The process exited zero and printed `WALKTHROUGH stopped`. Its logs include
+unsupported conditions and Papyrus calls against None objects. The timing
+pass does not establish gameplay fidelity. Initial gate setup was corrected
+to clear interior geometry, attach renderer residency and include the
+worldspace persistent cell before this measurement.
+
+All 20 new PRF-37 Rust checks passed: six simulation unit tests, nine game
+integration tests, two timing-total tests, one VM deadline test and two host
+checks. Both installed game cases and the windowed host case ran with
+SKYRIM_DATA. The six trace frame tests and 23 existing VM tests also passed.
+Formatting and all-target package Clippy exited zero for game, godot-host,
+papyrus and trace. Cargo reported a future Rust compatibility notice for
+`proc-macro-error2` 2.0.1. The reviewer owns the full workspace gate.
+No dependencies, saved fields or reference scene-node paths were added.
+
 ## Recorded sessions and profile differences, PRF-22
 
 Record a fixed-step workload through the PLY-01 input layer. In Rust, call
@@ -60,6 +148,186 @@ rtk proxy env SOE_PLY_01_FIXTURE="$PWD/target/prf-22-fixture" "$SOE_GODOT_BIN" -
 The host check records and replays 600 steps twice, checks eleven hashes and
 complete event logs, and quits. This is a simulation correctness check.
 Rendering frame comparisons continue to use the windowed bench.gd workflow.
+
+## Capacity probes, PRF-28, 2026-10-05
+
+The CPU and light probes are described in [bench.md](bench.md) and
+[godot-host.md](godot-host.md). These measurements use the Ryzen 9 7900X,
+with 24 online logical CPUs. CPU curves use one worker in a release build,
+ten warm-up ticks and 120 measured ticks per rung. Each curve doubles from
+16 through at most 65,536 actors, stopping on the first p99 above 16.7 ms
+or worst frame above 33 ms. The table records sampled passing rungs,
+not exact maxima between those rungs. Setup and reports are excluded.
+No local Cargo build overlapped these CPU measurements. Other machine
+activity was not controlled. CPU subsystem curves do not measure a complete
+rendered gameplay frame.
+
+| Workload | Highest passing rung | First failing rung | Passing p99 | Failing p99 | Failing worst |
+|---|---:|---:|---:|---:|---:|
+| Synthetic high-process AI | 4,096 | 8,192 | 15.524 ms | 33.560 ms | 50.656 ms |
+| Whiterun high-process AI | 2,048 | 4,096 | 12.199 ms | 22.473 ms | 24.429 ms |
+| Synthetic CPU animation | 2,048 | 4,096 | 15.972 ms | 24.711 ms | 24.877 ms |
+| Whiterun CPU animation | 512 | 1,024 | 7.540 ms | 18.970 ms | 21.755 ms |
+
+The synthetic AI workload retains the existing Travel/Sandbox records.
+Whiterun uses the five installed masters and repeats enabled placed actor
+bases with their authored packages and positions. The synthetic animation
+fixture blends two constant 99-bone clips. Whiterun's first selected actor
+uses a 99-bone rig, 822 graph nodes, 205 loaded clips and 94 skin matrices
+across its visible surfaces. Its loader reports 14 missing clips and 13
+unresolved behavior references. The log records unsupported interpreter
+work at every rung. Both animation curves measure graph evaluation and CPU
+skin matrices, without GPU vertex skinning or render submissions.
+
+Reproduction, after building `soe-bench --release`:
+
+```text
+rtk proxy target/release/soe-bench capacity ai synthetic --start 16 --max 65536
+rtk proxy env SKYRIM_DATA=<Data> target/release/soe-bench capacity ai whiterun --start 16 --max 65536
+rtk proxy target/release/soe-bench capacity animation synthetic --start 16 --max 65536
+rtk proxy env SKYRIM_DATA=<Data> target/release/soe-bench capacity animation whiterun --start 16 --max 65536
+rtk proxy env SKYRIM_DATA=<Data> target/release/soe-bench capacity settings
+```
+
+### CPU p99 curves
+
+Every cell below is a measured p99 in milliseconds. A dash means the
+curve stopped at an earlier breach. These are separate subsystem workloads.
+
+| Actors | Synthetic AI | Whiterun AI | Synthetic animation | Whiterun animation |
+|---:|---:|---:|---:|---:|
+| 16 | 0.056 | 0.203 | 0.093 | 0.112 |
+| 32 | 0.093 | 0.592 | 0.194 | 0.335 |
+| 64 | 0.197 | 1.086 | 0.328 | 0.732 |
+| 128 | 0.572 | 1.663 | 0.835 | 1.727 |
+| 256 | 0.738 | 3.394 | 1.564 | 4.312 |
+| 512 | 1.808 | 7.467 | 3.274 | 7.540 |
+| 1024 | 2.736 | 8.914 | 6.522 | 18.970 |
+| 2048 | 7.382 | 12.199 | 15.972 | - |
+| 4096 | 15.524 | 22.473 | 24.711 | - |
+| 8192 | 33.560 | - | - | - |
+
+### Windowed light curves
+
+The light runs use Godot 4.4.1 Forward+ with llvmpipe LLVM 22.1.8 software
+Vulkan. They render 1,600 by 900 inside a 640 by 360 window, with vsync off.
+Every rung measures at least 600 frames and five seconds after pipeline
+warm-up. Lights move every frame through server RIDs and add zero nodes per
+light. The positional shadow atlas is 4,096 pixels with 1,024 map slots.
+The maximum configured light count is 512, matching the clustered-element
+limit. These runs measure this software renderer, not a physical GPU.
+
+| Scene and lights | Highest passing rung | First failing rung | Baseline p99 | Passing p99 | Failing p99 | Failing worst |
+|---|---:|---:|---:|---:|---:|---:|
+| Synthetic dynamic | 256 | 512 | 6.922 ms | 16.544 ms | 21.686 ms | 23.592 ms |
+| Synthetic shadow | 8 | 16 | 8.437 ms | 16.441 ms | 20.520 ms | 24.459 ms |
+| Whiterun dynamic | 0 | 1 | 87.372 ms | - | 82.796 ms | 89.030 ms |
+| Whiterun shadow | 0 | 1 | 79.790 ms | - | 251.902 ms | 336.052 ms |
+
+Each cell below is frame-wall p99 in milliseconds. The zero-light rung is
+the baseline. A dash means that the curve stopped at an earlier breach.
+
+| Added lights | Synthetic dynamic | Synthetic shadow | Whiterun dynamic | Whiterun shadow |
+|---:|---:|---:|---:|---:|
+| 0 | 6.922 | 8.437 | 87.372 | 79.790 |
+| 1 | 9.963 | 9.854 | 82.796 | 251.902 |
+| 2 | 7.830 | 11.509 | - | - |
+| 4 | 7.899 | 13.128 | - | - |
+| 8 | 9.243 | 16.441 | - | - |
+| 16 | 9.274 | 20.520 | - | - |
+| 32 | 8.967 | - | - | - |
+| 64 | 11.071 | - | - | - |
+| 128 | 13.477 | - | - | - |
+| 256 | 16.544 | - | - | - |
+| 512 | 21.686 | - | - | - |
+
+The synthetic scene draws a plane and 64 boxes. Whiterun streams nine cells,
+957 references, 287 render instances and 282 parsed meshes with no failed
+meshes. Its baseline draws 388,160 triangles and 289 draw calls. The probe
+checks that more than the boxes' 768 triangles reach rendering. Buried
+geometry extends the raw scene bounds far below the city, so the camera and
+light grid use the upper eight metres of those bounds. Pixel checks confirm
+that lights change the image and disabling shadows changes each shadow rung.
+
+Both Whiterun baselines already exceed the budgets. Zero is the measured
+capacity for added lights in these runs. The dynamic baseline has a 1,354.335 ms
+worst frame, despite pipeline warm-up, and the following one-light window has
+an 89.030 ms worst frame. The shadow run's one-light rung increases drawn
+primitives to 900,092 and draw calls to 578. These are separate scene runs,
+not estimates of light-only time. They do not establish physical GPU capacity.
+
+Build the release extension and import once before these commands. Set
+`SOE_CAPACITY_WORLD` to `synthetic` or `whiterun`, and
+`SOE_CAPACITY_LIGHTS` to `dynamic` or `shadow` for each curve:
+
+```text
+rtk cargo build -p soe-godot-host --release
+rtk proxy "$SOE_GODOT_BIN" --headless --path godot --import
+rtk proxy env SKYRIM_DATA=<Data> SOE_CAPACITY_WORLD=whiterun SOE_CAPACITY_LIGHTS=shadow SOE_CAPACITY_MAX=512 "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script capacity_lights.gd
+rtk proxy "$SOE_GODOT_BIN" --headless --path godot --script prf_28_capacity_test.gd
+```
+
+The corrected Whiterun dynamic run set `SOE_CAPACITY_MAX=1` and failed at that
+first rung. The other three curves used 512. Each completed windowed process
+exited with status zero after releasing the scene and light RIDs. Raw reports
+are retained locally under `target/prf-28-{ai,animation,lights}-*.log`, with
+settings in `target/prf-28-settings-vanilla.log`. The light logs contain p50, p99, p99.9 and worst values. CPU logs contain
+p99 and worst values, workload counts and unsupported animation work.
+`target/prf-28-report.json` combines them with source hashes for this checkout.
+
+Validation ran the installed-data Rust cases: 22 bench tests passed and one
+existing stress survey remained ignored. All ten new `prf_28_` Rust tests
+passed. The six headless light-ladder checks and four windowed light curves
+completed successfully. Bench and host clippy with all targets passed. The
+full gate is left to the reviewer, as requested.
+
+### Stored settings and source boundaries
+
+The Skyrim.esm-only survey finds 35 numeric name candidates containing actor,
+process, light or shadow. The stored detection settings include
+`iLightLevelInteriorMod=25`, `iLightLevelMax=300`,
+`fDetectionSneakLightMod=15`, `fSneakLightMult=0.33` and
+`fSneakLightExteriorMult=0.5`. These are light-level inputs, not counts of
+renderable lights. No numeric processing or rendered-light count cap is
+stored among those candidates.
+
+Local Wrye Bash `Mopy/bash/patcher/patchers/multitweak_settings.py` names
+`iAINumberActorsComplexScene` as the active-AI limit and
+`iNumberActorsInCombatPlayer` as the combatant limit. It lists 20 for both
+TES5 defaults. `iNumberActorsAllowedToFollowPlayer` is a follower limit.
+All three are absent from this installed Skyrim.esm. Those published defaults
+are not values read from its DATA fields. UESP's local GMST page states that
+many used GMST defaults are omitted from plugins and that editor IDs supply
+setting identity. The synthetic patch test verifies that a later record with
+the same editor ID can raise a setting through the existing World reader.
+
+Local Community Shaders `src/Features/LightLimitFix.cpp::DataLoaded` names
+`iMagicLightMaxCount` and raises it to the maximum signed integer. This name
+is also absent from the stored numeric survey. `LightLimitFix.h` describes
+a vanilla four-light renderer restriction. Its cluster and total-light
+constants belong to that mod's renderer, not to Skyrim.esm records or to
+this engine's Godot renderer.
+
+The installed `Skyrim_Default.ini` contains `[Display]`
+`fLightLODMaxStartFade=3500`, `fLightLODStartFade=3500`,
+`fShadowLODMaxStartFade=1000` and `iShadowMapResolutionPrimary=2048`.
+They control fade distances and shadow resolution. They do not state actor
+process-level counts or a general light count cap. INI values do not come
+from Skyrim.esm. The local CK dump has no page defining those processing or
+light-count settings. No game binary was read for this survey.
+
+PRF-28 is incomplete. This checkout has no middle-high, middle-low or low
+process scheduler and no PRF-17 worker implementation, so those curves cannot
+be measured through an executing engine path. The probes reject those modes.
+GPU actor capacity and runtime application of GMST/INI caps also remain
+unimplemented. The measured rungs are not installed as runtime limits.
+
+The two breaker tests that need the missing pieces are marked `#[ignore]` with the
+reason: `prf_28_measures_each_vanilla_process_level` and
+`prf_28_each_vanilla_process_level_executes_a_capacity_measurement` wait for
+PRF-37, `prf_28_measures_ai_with_all_available_workers` and
+`prf_28_capacity_accepts_one_and_core_count_ai_workers` wait for the PRF-17
+worker pool. Run them with `--include-ignored` once those rows land.
 
 ## Permanent AI breakdown, PRF-27
 
@@ -238,6 +506,191 @@ Main-thread scope durations include waits inside their calls and do not
 measure GPU execution. Details and source paths are in
 [trace.md](trace.md), [game.md](game.md) and [godot-host.md](godot-host.md).
 Percentiles are computed when queried, outside the simulation tick.
+
+## Reference synchronization timing, PRF-34, 2026-10-06
+
+The original Whiterun plains F3 capture on `8ae73582` recorded
+`host_render_submission` at 121.7 ms p50, 355.4 ms p99 and 370 ms worst.
+The capture attributed five of ten stack samples to reference collision
+synchronization and two to reference change synchronization, but did not
+separate their phase times. After the PRF-34 changes, the breaker walk ran
+for 60 seconds in Bannered Mare and on the Whiterun plains with release
+Godot 4.4.1 at 640 by 360 on llvmpipe software Vulkan.
+
+| Location | Collision sync p50 / max ms | Change sync p50 / max ms | Host scene CPU p50 / p99 ms |
+|---|---:|---:|---:|
+| Bannered Mare | 0.054 / 1.296 | 0.033 / 0.362 | 0.324 / 1.424 |
+| Whiterun plains | 0.559 / 2.460 | 0.212 / 1.226 | 1.142 / 3.326 |
+
+`godot/prf_34_walk_test.gd` reports per-frame phase samples and applies the
+0.2 ms sync maximum and 0.5 ms p50, 1 ms p99 host scene CPU limits. It runs
+windowed against installed data and no cargo test starts it, so the gate does not
+cover it.
+
+Before the round 7 fixes the script reported 271 failed checks. Whiterun plains
+had reference_collision_sync worst 1.07 ms, reference_change_sync worst 0.457 ms
+and host_scene_cpu p50 0.613 ms, p99 1.363 ms. The causes were three passes
+that touched every body each time a few bodies changed:
+
+- The reference to bodies lookup was rebuilt from scratch inside the timed
+  sync. It is now rebuilt once where `collision_references` is replaced.
+- `sync_collision_state` rescanned every static and movable body whenever the
+  list grew. Bodies only join at the end, so it now resumes from a cursor and
+  visits only the new ones. A removal or rebuilt body restarts the pass.
+  Both passes stop on a 12 microsecond budget and resume next frame.
+- The placement index and collision state passes read the clock every 16 items,
+  which let a cold run of 16 overshoot. They now read it every 4.
+
+After these, three consecutive windowed runs of the script on this machine
+reported failures=1, 0 and 1. The two failing runs missed one check each, the
+reference_collision_sync worst frame on Whiterun plains at 0.20 to 0.22 ms. The
+passing run had a worst of 0.17 ms. p50 and p99 of both sync functions and of
+host_scene_cpu pass in all runs (reference_collision_sync p50 0.009 ms on the
+Bannered Mare, reference_change_sync worst 0.09 ms, host_scene_cpu p50 0.20 ms,
+p99 0.34 ms). Checkpoint timing inside the sync located the outlier frames in a
+single `watch` resolving an enable state for a cold reference, which costs about
+140 microseconds once and cannot be sliced further without deferring the
+reference's first collision.
+
+PRF-34 is partial. The timed clause is met on p50 and p99 and on one of three
+runs for the worst frame. What is missing is a worst frame under 0.2 ms on every
+run, which needs the first enable state lookup of a newly resident reference
+moved off the frame that streams its cell, or a longer-lived cache of that state.
+The 14 `game it prf_34` tests prove idle queries perform zero record lookups and
+pass, but they do not replace the installed windowed timing.
+
+## Magic tick work, PRF-35, 2026-10-06
+
+The user's original Whiterun plains F3 capture on `8ae73582` recorded magic
+at 25.3 ms p50 and 28.7 ms p99, with no spell being cast. The measurements
+here compare `0cfd0df3` with this PRF-35 change on the same fixed route.
+They use the release extension, installed Skyrim data and windowed Godot
+4.4.1 at 640 by 360 on the private software Vulkan display. They measure
+one simulation tick per windowed sample, rather than the user's original
+session with automatic physics catch-up. The result is a fixed-route measurement only. It
+does not show the cost under the eight catch-up ticks per frame of the default
+path (see PRF-37). Those two workloads have different
+timing distributions.
+
+`godot/prf_35_magic_test.gd` starts the actual walkthrough in the Bannered
+Mare, prepares navigation and warms 30 ticks. It measures 360 ticks of
+forward and backward walking at a simulated 60 Hz, exits through the authored
+tavern door and Whiterun gate, then repeats on the Tamriel plains.
+Each location checks movement, one tick per sample and running NPC packages.
+The CPU window surrounds `PlayerNode::advance` and closes before rendering
+waits or reporting. Magic's exclusive PRF-12 slot includes its nested work.
+The fixed acceptance limits, declared before measurement, are below 0.2 ms
+p50 and below 0.5 ms p99 at both locations.
+
+The old translation tick sorted every materialized reference, even without
+a translation. Active effects repeatedly decoded MGEF and SPEL records and
+called the actor builder, which rechecked passive spell lists. Grab Actor
+selected from all contact actors, resolving their controller scales even
+without a grab. These paths now use translation candidates, immutable decoded
+definitions, existing target state and active-effect identity indexes.
+Runtime MGEF overrides bypass the definition cache. Changed light transforms
+and fades update their existing RIDs. No per-reference nodes, dependencies
+or saved fields were added. Source paths and retained effect semantics are
+documented in [game.md](game.md) and [godot-host.md](godot-host.md).
+
+The report and F3 overlay subdivide the Game magic slot into image-space,
+translations, shader particles, effect shaders, visual effects, active effects,
+concentration, and a casting/dispatch remainder. The remainder accounts for
+reactive VM casts and bookkeeping outside the seven tick calls. These values
+are included in the existing system total. The percentile calculations stay
+outside the measured tick.
+
+The baseline raw samples are `target/prf-35-before-walk.json`. The gated
+`prf_35_installed_windowed_magic_budget` writes `target/prf-35-after.json`,
+its process log and an F3 PNG at each location, then quits Godot. Run it
+after building the release extension and importing the project:
+
+```text
+rtk proxy env SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" cargo test -p soe-game --test it prf_35_installed_windowed_magic_budget -- --nocapture
+```
+
+The completed 2026-10-06 after run on Godot 4.4.1 and llvmpipe software
+Vulkan measured 360 samples per location. Bannered Mare magic was 0.021 ms
+p50 and 0.056 ms p99. Whiterun plains magic was 0.030 ms p50 and 0.063 ms
+p99. The check passed both locations and the vanilla Candlelight light
+creation, reuse and expiry checks. These fixed-step samples follow a
+different workload from the original automatic-physics F3 capture.
+
+## Process cadence and waypoint timing, PRF-36
+
+The driver reports inclusive scheduling, actor processing, procedure-tree,
+marker, navigation and waypoint phases through `ai_planning_details`. F3 keeps
+exclusive PRF-12 system totals above these overlapping details. Navigation and
+waypoint job counts and worker busy time are separate. Caller dispatch and join
+waits remain part of main-thread AI time.
+
+Actors outside the player's high-process range use coarser updates, with
+accumulated simulation delta and actor-owned saved clocks. Immutable winning
+PACK definitions and procedure trees are cached by resolved FormID, while live
+overrides and restored package markers remain visible. Waypoint following uses
+the PRF-17 pool and applies joined results in FormID order. The distances and
+cadences are engine policy. Local CommonLibSSE-NG `AIProcess.h` and
+`ProcessLists.h` name the four process levels, and OpenMW
+`mwmechanics/actors.cpp` supplies the distance-processing example.
+
+After building and importing the release extension, run:
+
+```text
+rtk proxy env SKYRIM_DATA=/path/to/Data cargo test -p soe-godot-host --test prf_36_ai_budget -- --nocapture
+```
+
+The windowed installed walkthrough samples 3,600 fixed simulation steps in
+Bannered Mare, exits through the city gate, and samples another 3,600 while
+walking in Tamriel. Fixed samples yield to rendering every 60 steps, as the
+retained PRF-11 script does. A further 60-wall-second plains walk samples the
+actual F3 presentation frames with automatic simulation and ordinary device
+input. Both plains samples require combined main-thread `ai_movement` and
+`ai_planning` below 0.6 ms p50 and 1.2 ms p99. The complete fixed-step driver
+must stay below 8 ms. Evaluation counts, simulation progress, player movement
+and worker activity guard against idle samples. The host test also runs the
+unchanged PRF-11 Bannered Mare check, retains both logs under `target`, collects
+both exit statuses and leaves neither process running.
+
+The pre-change 120-step windowed probe on this worktree measured combined
+AI p50/p99 of 3.167/12.156 ms in Bannered Mare and 2.784/8.440 ms in the
+plains. These short probes do not establish a sustained budget. An intermediate
+3,600-step Bannered Mare run measured 0.746/2.228 ms and a 10.079 ms driver
+maximum, exceeding the 8 ms limit. That run rendered between every sample and
+the launcher's 300-second limit terminated it before the plains completed.
+Empty paths still dispatched waypoint jobs in that intermediate extension.
+The driver now skips those jobs. No dependency or per-reference scene node
+was added.
+
+The completed 2026-10-06 Godot 4.4.1 llvmpipe run measured the fixed 3,600
+step checks at 0.218/0.612 ms combined AI p50/p99 in Bannered Mare and
+0.085/0.436 ms on the plains. Driver worst was 5.046 ms in Bannered Mare
+and 0.842 ms on the plains. The retained PRF-11 60-second Bannered Mare
+check passed with 5.598 ms worst AI time. The ordinary-input 60-second
+plains walk only completed 30.27 simulation seconds across 227 presentation
+frames because Godot reached eight physics catch-up ticks per frame. Its
+combined AI was 1.145 ms p50 and 2.568 ms p99, above the 0.6 and 1.2 ms
+limits. The PRF-36 host test therefore failed its live-walk checks. Fixed-step
+success does not establish the live presentation budget.
+
+After the PRF-11 steering scope was no longer measured twice and the per-actor
+evaluation gate stopped re-checking actors that already hold a package, the
+same ordinary-input plains walk (227 frames, 30.27 simulation seconds, eight
+catch-up ticks per frame) measured 0.709 ms p50 and 1.474 ms p99 combined AI,
+still above the 0.6 and 1.2 ms limits. The fixed-step checks pass, so the
+live clause stays open until a hardware-rendered session of the user's own
+shows whether the catch-up ticks per frame drop below eight.
+
+Round 7 check, 2026-10-08. The reviewer's windowed run of
+`cargo test -p soe-godot-host --test prf_36_ai_budget` on installed data failed
+the live plains clause with 209 presentation frames, 0.690 ms p50, 2.140 ms p99
+and 8.0 simulation ticks per frame, while the fixed-step checks passed (Bannered
+Mare 0.177 ms p50 and 1.231 ms p99, plains 0.068 ms p50 and 0.317 ms p99). A
+rerun on this machine afterwards passed: live plains 236 frames, 0.172 ms p50,
+0.442 ms p99 and 2.0 ticks per frame. The two runs differ in how many catch-up
+ticks Godot ran per frame, 8 against 2, and the budget tracks that count. The
+live clause therefore passes or fails with host load, which is the PRF-37
+catch-up spiral on the default path, so PRF-36 is partial until PRF-37 removes
+the dependence. It is not a fixed-step cost problem.
 
 ## Music decode frame cost, AUD-12, 2026-10-05
 
@@ -1519,16 +1972,27 @@ PRF-11 actors=7 frames=3600 seconds=60 evaluations=24900 worst_ai_us=1756.340 fa
 ### TST-18 installed gameplay frame budget
 
 `godot/tst_18_frame_budget_test.gd` follows the walkthrough's installed-data
-startup in the Bannered Mare, then starts gameplay in the WhiterunWorld
-exterior. It runs ten warm-up frames followed by 3,600 fixed 60 Hz frames in
-each location, requires NPCs and package evaluations, and checks every
-measured gameplay step against the PRF-07 p99 budget of 16.7 ms and
-worst-frame budget of 33 ms. Each sample times one fixed `PlayerNode.advance`
-call. Headless walkthrough startup skips viewport pipeline warm-up.
-Run the check after building and importing the release extension:
+startup in the Bannered Mare, then streams a three by three block around
+Tamriel's WhiterunExterior04. It starts the PRF-37 simulation in each location,
+waits for a first snapshot and warms up for two wall-clock seconds. It samples
+240 completed rendered frames per location, requires resident NPCs and package
+evaluations, and checks the main-thread engine total against 2 ms p50 and
+4 ms p99. Continuous simulation lag above one second also fails the gate.
+These limits are declared in `godot/simulation_budget.gd` before measurement.
+The synthetic `prf_37_timing_gate_test.gd` checks all three failure thresholds,
+empty samples, invalid durations and a simulation that makes no progress.
+
+The installed check uses a window, captures the F3 overlay at both locations,
+writes raw main-thread, simulation and worker samples plus mean system times
+to `SOE_PRF_37_REPORT`, and quits with a failing exit status when a bound fails.
+Simulation and worker samples are the latest published values at each render
+frame, so several frames may observe the same tick. The Rust
+`prf_37_installed_windowed_tst_18_gate` launcher retains process output and
+requires successful exit and the walkthrough shutdown marker. Build the
+release extension and import once before running:
 
 ```text
-SOE_GODOT_BIN --headless --path godot --script tst_18_frame_budget_test.gd
+rtk proxy env SOE_THREADED_SIMULATION=1 SKYRIM_DATA=<installed-data> "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script tst_18_frame_budget_test.gd
 ```
 
 The exterior soak found one frame of 123 to 217 ms. A story event rebuilt the
@@ -1572,3 +2036,7 @@ is no longer asserted because the fixture setup now performs it, so
 navigation is covered by the cold-start tests
 (`tst_18_cold_actor_packages_bound_lookup_on_overlapping_navmesh_floors` and
 `tst_18_prf_07_runner_asserts_thousand_actor_p99_and_worst_limits`).
+
+This gate measures the opt-in snapshot adapter. It does not establish complete
+playable-runtime integration or include startup and cell replacement in the
+steady-frame percentile window. The draft limits are listed above.

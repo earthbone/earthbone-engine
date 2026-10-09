@@ -57,26 +57,54 @@ pub fn fixture() -> Game {
     Game::new(order)
 }
 
+/// The cargo and rustc that build the guest. With rustup on the path it asks
+/// rustup for the active toolchain. Without it (the dev container ships the
+/// toolchain directories but not the rustup binary) it takes the newest
+/// toolchain under `RUSTUP_HOME` that carries the `wasm32-wasip2` standard
+/// library, so the guest is still compiled for real.
+fn guest_toolchain() -> (Command, PathBuf) {
+    if let Ok(active) = Command::new("rustup")
+        .args(["show", "active-toolchain"])
+        .output()
+    {
+        assert!(active.status.success(), "rustup must select a toolchain");
+        let toolchain = String::from_utf8(active.stdout).unwrap();
+        let toolchain = toolchain.split_whitespace().next().unwrap().to_string();
+        let compiler = Command::new("rustup")
+            .args(["which", "rustc", "--toolchain", &toolchain])
+            .output()
+            .expect("rustup must locate the active compiler");
+        assert!(compiler.status.success(), "rustup must locate rustc");
+        let compiler = String::from_utf8(compiler.stdout).unwrap();
+        let mut cargo = Command::new("rustup");
+        cargo.args(["run", &toolchain, "cargo"]);
+        return (cargo, PathBuf::from(compiler.trim()));
+    }
+    let home = std::env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".rustup")))
+        .expect("RUSTUP_HOME or HOME must locate the toolchains");
+    let mut candidates: Vec<PathBuf> = std::fs::read_dir(home.join("toolchains"))
+        .expect("no rustup binary and no toolchain directory")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.join("lib/rustlib/wasm32-wasip2").is_dir())
+        .collect();
+    candidates.sort();
+    let toolchain = candidates
+        .pop()
+        .expect("no installed toolchain carries the wasm32-wasip2 target");
+    (
+        Command::new(toolchain.join("bin/cargo")),
+        toolchain.join("bin/rustc"),
+    )
+}
+
 pub fn wasm_component() -> PathBuf {
     let manifest =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/scr_03_mod/Cargo.toml");
-    let active = Command::new("rustup")
-        .args(["show", "active-toolchain"])
-        .output()
-        .expect("rustup must report the active toolchain");
-    assert!(active.status.success(), "rustup must select a toolchain");
-    let toolchain = String::from_utf8(active.stdout).unwrap();
-    let toolchain = toolchain.split_whitespace().next().unwrap();
-    let compiler = Command::new("rustup")
-        .args(["which", "rustc", "--toolchain", toolchain])
-        .output()
-        .expect("rustup must locate the active compiler");
-    assert!(compiler.status.success(), "rustup must locate rustc");
-    let compiler = String::from_utf8(compiler.stdout).unwrap();
-    let compiler = compiler.trim();
-    let mut cargo = Command::new("rustup");
+    let (mut cargo, compiler) = guest_toolchain();
     cargo
-        .args(["run", toolchain, "cargo", "build"])
+        .arg("build")
         .arg("--quiet")
         .arg("--manifest-path")
         .arg(&manifest)

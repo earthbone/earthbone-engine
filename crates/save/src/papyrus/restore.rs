@@ -132,14 +132,28 @@ impl Papyrus {
             if active.frames.is_empty() {
                 continue;
             }
-            let mut frames = Vec::with_capacity(active.frames.len());
+            let mut frames: Vec<SavedFrame> = Vec::with_capacity(active.frames.len());
             for (index, frame) in active.frames.iter().enumerate() {
-                let RuntimeValue::Object(object) = runtime_value(self, restored, &frame.owner)?
-                else {
-                    return Err(bad("saved stack frame owner is not a resolved object"));
-                };
                 let script = text(self, frame.script_name)?.to_owned();
-                let function = text(self, frame.base_name)?.to_owned();
+                // SOURCE: FallrimTools StackFrame names the frame `script.event`,
+                // where the event field holds the function name and the base
+                // name is the declaring script. The fixtures leave the event
+                // empty and put the function in the base name.
+                let function = match text(self, frame.event)? {
+                    "" => text(self, frame.base_name)?.to_owned(),
+                    event => event.to_owned(),
+                };
+                // A Null owner is a global function frame, such as
+                // utility.wait, which runs on no object.
+                let object = match runtime_value(self, restored, &frame.owner)? {
+                    RuntimeValue::Object(object) => Some(object),
+                    RuntimeValue::None => None,
+                    other => {
+                        return Err(bad(format!(
+                            "saved stack frame owner of {script}.{function} is not an object: {other:?}"
+                        )));
+                    }
+                };
                 let mut locals = Vec::with_capacity(frame.variables.len());
                 for (member, value) in frame
                     .parameters
@@ -206,13 +220,42 @@ impl Papyrus {
                     None
                 } else {
                     let caller = &active.frames[index - 1];
-                    let prior = caller
+                    let is_call = |instruction: &super::Instruction| {
+                        matches!(
+                            instruction.opcode,
+                            soe_papyrus::Opcode::CallMethod
+                                | soe_papyrus::Opcode::CallStatic
+                                | soe_papyrus::Opcode::CallParent
+                        )
+                    };
+                    // The pointer of a suspended caller names either the
+                    // instruction after the call or the call itself, which is
+                    // how a frame blocked in a native such as Utility.Wait is
+                    // saved. In the second case the call is already running,
+                    // so the restored caller resumes after it.
+                    let after = caller
                         .pointer
                         .checked_sub(1)
                         .and_then(|pc| caller.instructions.get(pc as usize))
-                        .ok_or_else(|| {
-                            bad("saved caller instruction pointer does not identify a call")
-                        })?;
+                        .filter(|instruction| is_call(instruction));
+                    let (prior, resume_after) = match after {
+                        Some(prior) => (prior, false),
+                        None => (
+                            caller
+                                .instructions
+                                .get(caller.pointer as usize)
+                                .filter(|instruction| is_call(instruction))
+                                .ok_or_else(|| {
+                                    bad("saved caller instruction pointer does not identify a call")
+                                })?,
+                            true,
+                        ),
+                    };
+                    if resume_after {
+                        if let Some(previous) = frames.last_mut() {
+                            previous.pc += 1;
+                        }
+                    }
                     let destination = match prior.opcode {
                         soe_papyrus::Opcode::CallMethod | soe_papyrus::Opcode::CallStatic => {
                             prior.operands.get(2)

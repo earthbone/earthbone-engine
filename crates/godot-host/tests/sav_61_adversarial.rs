@@ -98,18 +98,10 @@ fn sav_61_host_refuses_unimported_active_projectile_state_before_restoration() {
     let source_path = directory.0.join("source.ess");
     let mut missed_refusals = Vec::new();
 
-    // UESP's save type table identifies indices 2 to 5 and 40 to 41 as
-    // active projectile or hazard change forms. CommonLibSSE's FormTypes.h
-    // confirms their runtime types. The vanilla restore transaction does
-    // not import these forms, so recovery must not silently accept and drop them.
-    for (type_field, expected_type) in [
-        (2, "PMIS"),
-        (3, "PGRE"),
-        (4, "PBEA"),
-        (5, "PFLA"),
-        (40, "PHZD"),
-        (41, "PBAR"),
-    ] {
+    // CONTEXT: SAV-19 leaves PMIS, PARW, PGRE and PHZD out with reported
+    // counts. These other UESP projectile types still require an importer
+    // before recovery.
+    for (type_field, expected_type) in [(4, "PBEA"), (5, "PFLA"), (41, "PBAR")] {
         let mut save = empty_save();
         save.change_forms.push(ChangeForm {
             form: RefId::from_bytes([0, 0, 0]),
