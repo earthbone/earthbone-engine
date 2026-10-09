@@ -132,6 +132,78 @@ fn prf_11_unchanged_doors_preserve_routes_and_live_changes_invalidate_them() {
         .is_some());
 }
 
+#[test]
+fn prf_36_bound_doors_are_checked_only_after_mutation_and_restore() {
+    let game = game();
+    let mut world = game.world_mut();
+    world.actor(id(ACTOR)).unwrap().dead = true;
+    ai::nav_graph(&mut world);
+    let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+    for _ in 0..8 {
+        ai::tick(&mut world, 0.0, &mut alloc);
+        assert_eq!(world.ai.door_checks, 0);
+    }
+    let revision = world.ai.nav_graph().unwrap().query_revision();
+    assert!(!world.reference(id(DOOR)).unwrap().opened);
+    ai::tick(&mut world, 0.0, &mut alloc);
+    assert_eq!(world.ai.door_checks, 1);
+    assert_eq!(world.ai.nav_graph().unwrap().query_revision(), revision);
+    ai::tick(&mut world, 0.0, &mut alloc);
+    assert_eq!(world.ai.door_checks, 0);
+    let closed = world.save_state();
+    world.reference(id(DOOR)).unwrap().opened = true;
+    ai::tick(&mut world, 0.0, &mut alloc);
+    assert!(world.ai.nav_graph().unwrap().query_revision() > revision);
+    world.load_state(&closed).unwrap();
+    ai::tick(&mut world, 0.0, &mut alloc);
+    assert_eq!(world.ai.door_checks, 1);
+    assert!(world
+        .ai
+        .nav_graph()
+        .unwrap()
+        .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
+        .is_none());
+}
+
+#[test]
+fn prf_36_translated_and_reset_doors_refresh_their_navmesh_footprint() {
+    let game = game();
+    let mut world = game.world_mut();
+    world.actor(id(ACTOR)).unwrap().dead = true;
+    ai::nav_graph(&mut world);
+    let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+    world.start_translation(
+        id(DOOR),
+        [20.0, 20.0, 0.0],
+        [0.0; 3],
+        1.0,
+        0.0,
+        soe_game::world::TranslationPath::Linear,
+        &mut alloc,
+    );
+    ai::tick(&mut world, 0.0, &mut alloc);
+    let revision = world.ai.nav_graph().unwrap().query_revision();
+    world.tick_translations(100.0, &mut alloc);
+    ai::tick(&mut world, 0.0, &mut alloc);
+    assert_eq!(world.ai.door_checks, 1);
+    assert!(world.ai.nav_graph().unwrap().query_revision() > revision);
+    assert!(world
+        .ai
+        .nav_graph()
+        .unwrap()
+        .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
+        .is_some());
+    assert!(world.reset_reference(id(DOOR), None));
+    ai::tick(&mut world, 0.0, &mut alloc);
+    assert_eq!(world.ai.door_checks, 1);
+    assert!(world
+        .ai
+        .nav_graph()
+        .unwrap()
+        .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
+        .is_none());
+}
+
 trait WithCell {
     fn with_cell(self, cell: u32) -> Self;
 }

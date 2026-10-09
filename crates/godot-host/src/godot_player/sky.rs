@@ -23,6 +23,12 @@ impl PlayerNode {
         let Some(cell) = self.loaded_cell else {
             return Ok(None);
         };
+        if self.simulation.is_some() {
+            return Ok(self
+                .simulation_pair
+                .as_ref()
+                .and_then(|pair| pair.current.sky.clone()));
+        }
         if let Some(game) = &mut self.game {
             game.world_mut().sky_frame(cell)
         } else if let Some(source) = &self.data_source {

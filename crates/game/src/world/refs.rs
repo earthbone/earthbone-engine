@@ -74,16 +74,33 @@ impl World {
     /// superseded by its parent, while deletion always hides the reference.
     #[must_use]
     pub fn reference_enabled(&self, id: GlobalFormId) -> bool {
-        effective_enabled(
+        if let Some(enabled) = self.reference_changes.borrow().enabled.get(&id) {
+            return *enabled;
+        }
+        let enabled = effective_enabled(
             id,
             |id| self.record(id),
-            |id, raw| self.resolve_from(id, raw),
+            |child, raw| {
+                let parent = self.resolve_from(child, raw)?;
+                self.reference_changes
+                    .borrow_mut()
+                    .children
+                    .entry(parent)
+                    .or_default()
+                    .insert(child);
+                Some(parent)
+            },
             |id| {
                 self.refs
                     .get(&id)
                     .map(|state| (state.enabled, state.deleted))
             },
-        )
+        );
+        self.reference_changes
+            .borrow_mut()
+            .enabled
+            .insert(id, enabled);
+        enabled
     }
 
     /// Effective authored enable state for hosts preparing cells before gameplay.
@@ -551,11 +568,16 @@ impl World {
     }
 
     pub fn reference(&mut self, id: GlobalFormId) -> Option<&mut RefState> {
+        self.invalidate_reference(id);
+        self.ai.mark_nav_door(id);
         if !self.refs.contains_key(&id) {
             let st = self.load_ref(id)?;
+            self.invalidate_reference(id);
             self.refs.insert(id, st);
             self.track_light_reference(id);
         }
+        // CONTEXT: RefState exposes translation for mutation through this borrow.
+        self.translation_candidates.insert(id);
         self.refs.get_mut(&id)
     }
 
@@ -792,6 +814,7 @@ impl World {
             }
         }
         st.item = self.loose_item(Some(base), None, None);
+        self.invalidate_reference(id);
         self.refs.insert(id, st);
         self.track_light_reference(id);
         id
@@ -834,6 +857,7 @@ impl World {
                     };
                 }
             }
+            self.invalidate_reference(id);
             self.refs.insert(id, state);
         }
         self.player = Some(id);
@@ -902,6 +926,7 @@ impl World {
                 return crate::inventory::Bundle::default();
             }
         }
+        self.invalidate_reference(holder);
         let Some(source) = self.refs.get_mut(&holder) else {
             return crate::inventory::Bundle::default();
         };
@@ -912,6 +937,7 @@ impl World {
                 bundle.clear_ownership();
             }
             // CONTEXT: Both references and recipient capacity were checked above.
+            self.invalidate_reference(target);
             if let Some(recipient) = self.refs.get_mut(&target) {
                 let result = recipient.inventory.receive(item, bundle.clone());
                 debug_assert!(result.is_ok());
@@ -990,7 +1016,9 @@ impl World {
             fresh.cell = cell;
         }
         let is_actor = fresh.is_actor;
+        self.invalidate_reference(id);
         self.refs.insert(id, fresh);
+        self.ai.mark_nav_door(id);
         self.track_light_reference(id);
         if is_actor {
             let _ = self.resurrect_actor(id);

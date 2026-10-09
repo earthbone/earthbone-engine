@@ -113,6 +113,7 @@ impl PlayerNode {
             return false;
         };
 
+        let previous_detection = std::mem::take(&mut self.automatic_detection);
         let previous_game = self.game.replace(game);
         self.clear_player_input();
         self.melee_contact.cancel();
@@ -121,6 +122,7 @@ impl PlayerNode {
         self.footstep_cadence.reset();
         if !self.sync_game_pose() {
             self.game = previous_game;
+            self.automatic_detection = previous_detection;
             return false;
         }
 
@@ -146,6 +148,7 @@ impl PlayerNode {
                 .is_some_and(|camera| camera.is_instance_valid());
         if !attached {
             self.game = previous_game;
+            self.automatic_detection = previous_detection;
         }
         attached
     }
@@ -210,7 +213,9 @@ impl PlayerNode {
             soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
         }
         self.effect_shaders.sync(&game.world());
+        self.automatic_detection = super::detection::AutomaticDetection::default();
         self.game = Some(game);
+        self.cap_catchup_steps();
         self.start_footstep_audio();
         self.clear_player_input();
         self.refresh_image_space();
@@ -220,8 +225,61 @@ impl PlayerNode {
         installed
     }
 
+    /// Most physics ticks Godot may run for one presentation frame while the
+    /// legacy inline game is live. Godot's default of 8 makes a slow frame run
+    /// the whole game up to eight times, which makes the next frame slower
+    /// again. Two keeps one tick of catch-up and lets game time fall behind wall
+    /// time instead of spiralling (PRF-37 clause 1, interim until the game
+    /// leaves the render thread).
+    const CATCHUP_STEP_CAP: i32 = 2;
+
+    fn cap_catchup_steps(&mut self) {
+        let mut engine = godot::classes::Engine::singleton();
+        let current = engine.get_max_physics_steps_per_frame();
+        if self.prior_max_physics_steps.is_none() && current > Self::CATCHUP_STEP_CAP {
+            self.prior_max_physics_steps = Some(current);
+            engine.set_max_physics_steps_per_frame(Self::CATCHUP_STEP_CAP);
+        }
+    }
+
+    pub(super) fn restore_catchup_cap(&mut self) {
+        if let Some(prior) = self.prior_max_physics_steps.take() {
+            godot::classes::Engine::singleton().set_max_physics_steps_per_frame(prior);
+        }
+    }
+
+    /// Runs both reference syncs, collision and scene changes, once.
+    fn run_reference_sync(&mut self) {
+        if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let mut world = game.world_mut();
+            streamer.bind_mut().sync_reference_changes(&mut world);
+        }
+        self.sync_reference_collision();
+    }
+
+    /// Automatic physics ticks only mark the sync pending, because the scene
+    /// draws once per presentation frame and each catch-up tick repeated the same
+    /// cost. `process` runs it once, after the last tick, so one frame always
+    /// pays for one pass. Manual `advance` calls sync at once, which keeps
+    /// scripted fixed-step runs unchanged.
+    fn sync_references_for_tick(&mut self) {
+        if self.automatic_physics_step {
+            self.reference_sync_pending = true;
+            return;
+        }
+        self.run_reference_sync();
+    }
+
+    /// Applies the sync that automatic ticks deferred, once per presentation frame.
+    pub(super) fn flush_reference_sync(&mut self) {
+        if std::mem::take(&mut self.reference_sync_pending) {
+            self.run_reference_sync();
+        }
+    }
+
     pub(super) fn advance_game(&mut self, delta: f64, sprinting: bool) {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
+        let _scene = crate::scene_timing::Scope::new(soe_trace::System::Other);
         if self.game.is_none() || self.main_menu.is_active() {
             return;
         }
@@ -266,11 +324,7 @@ impl PlayerNode {
         }
         // CONTEXT: Apply game edits before reading simulated body poses back
         // into World, then draw the shared placement on this tick.
-        if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
-            let mut world = game.world_mut();
-            streamer.bind_mut().sync_reference_changes(&mut world);
-        }
-        self.sync_reference_collision();
+        self.sync_references_for_tick();
         if !self.advance_exterior() {
             self.auto_step = false;
             return;
@@ -296,7 +350,9 @@ impl PlayerNode {
                     .emit_signal("hud_cart_mode_changed", &[Variant::from(hud_cart_mode)]);
             }
         }
-        self.refresh_image_space();
+        if !self.auto_step {
+            self.refresh_image_space();
+        }
 
         self.advance_ambient_dialogue();
         self.capture_screenshot_requests();
@@ -657,6 +713,7 @@ impl PlayerNode {
             streamer.bind_mut().clear();
         }
         self.game = None;
+        self.automatic_detection = super::detection::AutomaticDetection::default();
         self.clear_player_input();
         self.data_source = None;
         self.game_streamer = None;
@@ -664,6 +721,7 @@ impl PlayerNode {
         self.exterior = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.collision_references.clear();
+        self.collision_bodies.clear();
         self.melee_bodies.clear();
         self.last_melee_target = None;
         self.last_melee_obstruction = None;
@@ -1020,7 +1078,9 @@ impl PlayerNode {
             self.world = Some(world);
             self.character = Some(id);
             self.collision_references = collision.references;
+            self.rebuild_collision_bodies();
             self.collision_visibility.clear();
+            self.collision_reset = true;
             self.loaded_cell = Some(cell);
             self.sync_cell_ambience(cell);
             self.sync_cell_music(cell);

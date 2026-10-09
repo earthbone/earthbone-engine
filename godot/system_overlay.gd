@@ -14,6 +14,7 @@ var ai := false
 var frame_samples: Array[float] = []
 const FRAME_SAMPLE_LIMIT := 240
 var transition_metrics := TransitionMetrics.new()
+var last_simulation := {}
 
 
 func _ready() -> void:
@@ -29,6 +30,7 @@ func _ready() -> void:
 	background.content_margin_bottom = 4.0
 	panel.add_theme_stylebox_override("panel", background)
 	label = Label.new()
+	label.add_theme_constant_override("line_spacing", 0)
 	label.add_theme_font_size_override("font_size", 12)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(label)
@@ -69,16 +71,19 @@ func _process(delta: float) -> void:
 	if frame_samples.size() > FRAME_SAMPLE_LIMIT:
 		frame_samples.pop_front()
 	elapsed += delta
-	if panel.visible and elapsed >= 0.25:
+	if elapsed >= 0.25:
 		elapsed = 0.0
-		refresh()
+		_capture_simulation()
+		if panel.visible:
+			refresh()
 
 
 func refresh() -> void:
 	if not is_instance_valid(player):
 		return
-	label.add_theme_font_size_override("font_size", 9 if entities and get_viewport().get_visible_rect().size.y < 400.0 else 12)
-	label.add_theme_constant_override("line_spacing", 3)
+	var compact := get_viewport().get_visible_rect().size.y < 400.0
+	label.add_theme_font_size_override("font_size", 9 if ai or ((entities or player.has_method("magic_frame_breakdown")) and compact) else 12)
+	label.add_theme_constant_override("line_spacing", 0 if compact else 3)
 	if ai:
 		label.add_theme_font_size_override("font_size", 9)
 		label.add_theme_constant_override("line_spacing", -3)
@@ -90,10 +95,26 @@ func refresh() -> void:
 	var report: Dictionary = player.call("system_frame_breakdown")
 	var runtime: Dictionary = player.call("performance_metrics")
 	var text := "F3: Engine systems, exclusive scope ms and % of wall frame\n"
+	var total: Dictionary = report.main_thread_engine
+	text += "Main engine: %.3f ms / p50 %.3f / p99 %.3f / worst %.3f\n" % [total.ms, total.p50_ms, total.p99_ms, total.worst_ms]
+	var simulation := _capture_simulation()
+	if simulation.ready:
+		text += "Simulation: %.3f ms / workers %.3f ms / lag %.3f s\n" % [simulation.tick_ms, simulation.worker_ms, simulation.behind_seconds]
 	text += "System: last ms / frame % / rolling p50 / p99 / worst ms\n"
+	text += "Host phases split render submission, scene CPU excludes server calls\n"
 	for system in report:
+		if system == "main_thread_engine":
+			continue
 		var row: Dictionary = report[system]
 		text += "%s: %.3f / %.1f%% / %.3f / %.3f / %.3f\n" % [system, row.ms, row.percent, row.p50_ms, row.p99_ms, row.worst_ms]
+		if system == "ai_movement" and row.has("phases"):
+			var ai_phases: Dictionary = row.phases
+			text += "  Last simulation tick:\n"
+			for phase in ["scheduling", "actor_driver", "movement", "procedure_tree", "path_following_dispatch"]:
+				text += "  %s (inclusive): %.3f ms\n" % [phase, float(ai_phases.get(phase + "_us", 0.0)) / 1000.0]
+			for kind in ["navigation", "movement"]:
+				text += "  %s workers: %.3f ms busy / %.3f ms caller wait / %d jobs\n" % [kind, float(ai_phases.get(kind + "_worker_busy_us", 0.0)) / 1000.0, float(ai_phases.get(kind + "_worker_wait_us", 0.0)) / 1000.0, int(ai_phases.get(kind + "_worker_jobs", 0))]
+			text += "  process high/middle high/middle low/low: %d/%d/%d/%d\n" % [int(ai_phases.get("high_actors", 0)), int(ai_phases.get("middle_high_actors", 0)), int(ai_phases.get("middle_low_actors", 0)), int(ai_phases.get("low_actors", 0))]
 	text += "PRF-24 runtime metrics (cumulative unless gauge):\n"
 	for name: String in runtime:
 		text += "%s: %d\n" % [name, runtime[name]]
@@ -109,6 +130,12 @@ func refresh() -> void:
 			total_count += query_row.count
 			total_ms += query_row.ms
 		text += "  %s: %d / %.3f ms\n" % [kind, total_count, total_ms]
+	var magic_phases: Dictionary = player.call("magic_frame_breakdown") if player.has_method("magic_frame_breakdown") else {}
+	if not magic_phases.is_empty():
+		text += "Magic tick phases, included above: last / p50 / p99 / worst ms\n"
+		for phase in magic_phases:
+			var row: Dictionary = magic_phases[phase]
+			text += "%s: %.3f / %.3f / %.3f / %.3f\n" % [phase, row.ms, row.p50_ms, row.p99_ms, row.worst_ms]
 	label.text = text
 
 
@@ -178,6 +205,13 @@ func frame_pacing() -> Dictionary:
 	}
 
 
+func _capture_simulation() -> Dictionary:
+	var status: Dictionary = player.call("simulation_status")
+	if status.ready:
+		last_simulation = status
+	return status
+
+
 func write_summary() -> Error:
 	if not is_instance_valid(player):
 		return ERR_UNAVAILABLE
@@ -185,6 +219,10 @@ func write_summary() -> Error:
 		return ERR_CANT_CREATE
 	var summary: String = player.call("system_summary")
 	summary += "\nPRF-24 runtime metrics: " + JSON.stringify(player.call("performance_metrics"))
+	var simulation := _capture_simulation()
+	if not simulation.ready and not last_simulation.is_empty():
+		simulation = last_simulation
+	summary += "\nPRF-37 simulation: " + JSON.stringify(simulation)
 	summary += "\nPRF-24 frame pacing: " + JSON.stringify(frame_pacing()) + "\n"
 	print(summary)
 	var file := FileAccess.open("user://soe-systems.txt", FileAccess.WRITE)

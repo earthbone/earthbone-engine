@@ -52,7 +52,7 @@ pub(super) struct ExecutionState {
     pub(super) start_position: [f32; 3],
 }
 
-struct Tree {
+pub(super) struct Tree {
     owner: GlobalFormId,
     branches: Vec<Branch>,
     ends: Vec<usize>,
@@ -61,7 +61,20 @@ struct Tree {
 }
 
 impl Tree {
-    fn load(world: &World, id: GlobalFormId) -> Option<Self> {
+    fn load(world: &World, id: GlobalFormId) -> Option<std::sync::Arc<Self>> {
+        let cached = world.ai.trees.borrow().get(&id).cloned();
+        if let Some(cached) = cached {
+            // Only trees built from load-order winners are cached, and the
+            // load order is fixed, so a hit stays valid until a runtime
+            // record replaces one of the chain's records.
+            if cached
+                .chain
+                .iter()
+                .all(|(id, _)| !world.has_runtime_record(*id))
+            {
+                return Some(cached);
+            }
+        }
         let chain = template_chain(world, id);
         let (owner, template) = chain.iter().find(|(_, p)| !p.tree.is_empty())?;
         let ends = branch_ends(&template.tree).ok()?;
@@ -74,13 +87,27 @@ impl Tree {
             *parent_slot = stack.last().copied();
             stack.push(index);
         }
-        Some(Self {
+        let immutable = chain.iter().all(|(id, _)| {
+            world
+                .record(*id)
+                .zip(world.order().winner(*id))
+                .is_some_and(|(record, winner)| std::ptr::eq(record, winner))
+        });
+        let tree = std::sync::Arc::new(Self {
             owner: *owner,
             branches: template.tree.clone(),
             ends,
             parents,
             chain,
-        })
+        });
+        if immutable {
+            world
+                .ai
+                .trees
+                .borrow_mut()
+                .insert(id, std::sync::Arc::clone(&tree));
+        }
+        Some(tree)
     }
 
     fn location(&self, branch: &Branch) -> Option<(GlobalFormId, LocationData)> {

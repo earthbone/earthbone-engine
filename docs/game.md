@@ -1,5 +1,49 @@
 # soe-game: the runtime form table and the first natives
 
+## Fixed simulation owner, PRF-37 draft
+
+`simulation::Simulation` constructs Game and its native closures on one named
+thread. A 60 Hz fixed clock drives world ticks independently of render
+callbacks. `Config` defaults AI and script dispatch to 20 Hz. Fractional
+cadence retains phase and accumulated elapsed time, including rates that do
+not divide 60. Magic, timers and VM wait clocks advance on every fixed tick.
+Menu commands pause world time and AI while menu wait clocks continue.
+AI activation and greeting decisions follow the AI cadence. The existing
+actor driver supplies its current process policy, without a second actor store.
+
+Snapshots contain loaded actor placements, contact presentations, sky state,
+package evaluation counts and tick/worker timings. Consecutive immutable
+snapshots are published together with a nonblocking mutex exchange. A retained
+reader cannot be overwritten. Contention keeps the previously published pair.
+Interpolation clamps between those consecutive placements and wraps angles
+through their shortest difference. Visibility changes use the current value.
+The snapshot is presentation data, never an authoritative copy of World.
+
+A bounded queue accepts 64 ordered commands and reports rejection when full.
+The player pose mailbox coalesces finite poses without blocking. Poses apply
+only in the current loaded cell. Initialization failures and panics have a
+separate error channel. Shutdown wakes and joins the thread before releasing
+its state. Lag combines overdue completion time with age since publication,
+so a stalled publisher cannot continue reporting a healthy simulation.
+
+`tick_scheduled` shares a Papyrus execution allowance across all dispatches
+within a tick. The default worker allowance is 1.2 ms. AI and magic execution
+do not spend it. Event pumps and natives already executing finish before the
+next check. Exhaustion retains queued events and runnable stacks. The VM's
+deadline runner checks between opcodes and retains a round-robin continuation.
+The allowance, continuation cursor, worker and snapshots are transient and
+add no saved fields or sections. Ordinary `tick` retains its existing
+instruction-budget API.
+
+The source boundary is local `godot-docs/tutorials/performance/thread_safe_apis.rst`
+and `tutorials/scripting/idle_and_physics_processing.rst`. Papyrus budget
+evidence is recorded in [threading.md](threading.md), including CommonLibSSE-NG
+`include/RE/V/VirtualMachine.h` and the CK INI setting. The local CK dump does
+not contain that INI page and a direct fetch returned HTTP 403. The fixed-rate
+scheduler and snapshot exchange implement engine policy. They do not reproduce
+vanilla tasklet locking. PRF-34 reference observers, PRF-35 magic caches and
+PRF-36 process clocks remain their separate draft implementations.
+
 ## AI measurements, PRF-27
 
 `AiWorld::metrics` counts each NPC driver visit, including early returns, and
@@ -53,6 +97,41 @@ Backtracking does not reset the timer. Progress, arrival, inactive actors and a
 changed destination clear it. Metrics are transient, add no save sections and
 never supply gameplay decisions. The engine-owned timing and progress contract
 is PRF-27, rather than a vanilla saved-layout claim.
+
+## Magic tick work, PRF-35
+
+Magic ticks decode winning SPEL and MGEF records once into shared read-only
+views. Runtime MGEF overrides bypass those views. The condition-presence
+cache stores no evaluated condition result. Live conditions still run at
+each authored one-second boundary, and concentration checks each application.
+The active-effect loop reads existing target actor state without invoking
+the actor builder or scanning its spell list. Unchanged modifiers advance
+their elapsed clock and check expiry without cloning their value changes.
+Ongoing damage, taper, wards, cloaks and hazards keep their existing tick paths.
+Final partial intervals, death dispels and paused clocks retain their behavior.
+
+Effect insertion and removal maintain derived identity indexes for archetypes
+and summoned references. Slow Time, Paralysis, Detect Life and the host Grab
+Actor and light hooks use those indexes. Native-save load rebuilds them from
+the restored active-effect table. Translation ticks visit active translations
+and references borrowed for mutation since the previous tick. Completion
+removes their candidate identity. Load rebuilds candidates from saved
+translations, and direct RefState translation mutations are discovered through
+`World::reference`. These caches and indexes add no saved state.
+
+`Game::magic_frame_history` reports image-space, translation, shader-particle,
+effect-shader, visual-effect, active-effect and concentration tick phases.
+The casting and dispatch remainder includes reactive casts and phase bookkeeping.
+It uses PRF-12's exclusive magic clock and rolling 240-tick statistics.
+Paused ticks skip the seven update phases. Reactive casts still enter the
+remainder. Timing suspension also suspends phases.
+The host reports these subphases inside the existing magic system total.
+
+Sources are the repository's MAG implementations and PRF-12 clock, local
+OpenMW `apps/openmw/mwmechanics/activespells.cpp` for immutable spell-store
+views and active-application iteration, CK `TranslateTo` and `DispelAllSpells`
+for events and preserved abilities, and UESP `MGEF.wikitext` for death flags.
+OpenMW's Morrowind effect execution is not used for Skyrim archetypes.
 
 ## Entity runtime hooks, PRF-13
 
@@ -3719,7 +3798,8 @@ active-effect taper values also use world sections. RND-18 stores weather
 requests, climate or region identity and weighted transitions in a world section. An
 absent RND-18 section restores the default weather state. Missing sections
 restore an empty selection and untapered effects. AI-64 movement flags and AI-15
-stacked package frames use actor sections. MAG-64 pending reference bindings use a world section,
+stacked package frames use actor sections. PRF-36 stores the coarse movement
+clock remainder and next update in an actor section. MAG-64 pending reference bindings use a world section,
 after AI-16 script calls, to preserve their combined queue order. The source
 for this engine-owned layout is the frozen repository writer, rather than
 the external vanilla ESS references.
@@ -8741,10 +8821,50 @@ scheduler. Worker configuration, requests and timing data are transient and do
 not change saves. The pool is joined before world mutation resumes.
 
 Initial request setup and its first slice still run on the calling thread,
-as do package evaluation, marker selection, combat and movement. Papyrus
+as do package evaluation, marker selection, combat and movement preparation. Papyrus
 execution is unchanged. [threading.md](threading.md) records the reference
 evidence and the unimplemented parts of PRF-17. The dependency uses the already
 locked Rayon, rayon-core, either and Crossbeam utilities.
+
+### Process cadence and waypoint workers, PRF-36
+
+With a placed player, the driver selects high, middle-high, middle-low and low
+process levels. The distance bands are 4,096, 8,192 and 16,384 units. High actors
+update every tick, middle-high every 0.1 seconds, middle-low every 0.5 seconds
+and low every 5 seconds. Actors in separate interiors or worldspaces are low
+even when their local coordinates overlap. Combat actors, teammates, scene
+packages, ForceGreet and DialogueActivate use high processing. Explicit package
+reevaluation bypasses the cadence. Without a placed player, every actor uses
+high processing. Coarse updates accumulate simulation delta for movement and
+stagger their first update by FormID. Actor-owned scheduling clocks retain the
+elapsed remainder and next update in the PRF-36 actor save section. An absent
+section leaves the clock uninitialized. Invalid or non-finite clock values are
+load errors. Automatic selection retries use the one-second interval even
+when the previous attempt selected no package.
+
+The levels come from local CommonLibSSE-NG `AIProcess.h` and `ProcessLists.h`.
+OpenMW `mwmechanics/actors.cpp` supplies a player-distance processing example.
+Those sources do not define these distances or cadences, which are engine
+policy. The driver retains package conditions, authored speeds, path ownership,
+FormID movement order and immediate explicit EvaluatePackage calls.
+Scheduling resolves coordinate spaces only for actors in another cell within
+the widest distance band. Distant actors need no cell-space lookup, while
+combat, teammate and scene overrides still select high processing.
+
+Immutable winning PACK definitions and procedure trees are cached by resolved
+FormID. A runtime record override bypasses the cache, including an override in
+any template dependency. Waiting and never-run markers still come from the live
+record table. These caches contain definitions, not actor progress.
+
+Waypoint steering borrows the actor's detached AI state on the PRF-17 pool.
+The caller joins before applying position, cell changes, arrival effects and
+events in their existing order. No world or VM is sent to the worker. Patrol
+radius stopping and the four-unit arrival tolerance retain their existing
+rules. `movement_workers` reports jobs, worker busy time and caller dispatch
+and join time separately. The caller's wait remains in PRF-12 main-thread AI
+time. Empty routes do not dispatch a waypoint job. Process counts and updates
+report each level. SAVE_VERSION stays at 37. No dependency or per-reference
+host node is added.
 
 Marker and bed base filtering reads existing reference state first, or the
 winning placement's NAME, XLCN and cell when absent. It shares BOS base selection
@@ -8760,7 +8880,7 @@ marker selection and Turn Undead checks.
 
 Sandbox marker queries also retain their cursor and candidate FormIDs across
 frames. Each request examines at most 64 references in a tick and the frame
-shares 256 reference examinations. The scheduler rotates pending actors when
+shares 64 reference examinations. The scheduler rotates pending actors when
 the shared budget is exhausted. Pending actors hold their current step and
 consume no marker-choice RNG until the query completes. Candidate order remains
 FormID order. A changed package or search goal cancels the old query, and unloaded
@@ -8781,8 +8901,11 @@ engine caches empty results too because repeated endpoint lookup was the
 measured cost, and uses its NAVM revision to retry when walkability changes.
 
 Door refresh retains sorted door identities and the last position and open
-state applied to the graph. Every tick reads the live reference, but unchanged
-doors need no footprint query. Changed positions and open states rebind or
+state applied to the graph. Mutable reference access marks bound doors for
+comparison on the next tick. Translation, reference reset, native-save load
+and vanilla reference import also mark affected doors. Unmarked doors need no
+state scan or footprint query. `door_checks` counts comparisons for the last
+tick. Changed positions and open states rebind or
 update blocking and invalidate actor routes when graph walkability changes.
 The cache is rebuilt with the graph and is not saved. Door associations still
 follow local xEdit NVNM Door Links and CommonLibSSE-NG `BSNavmesh.h`.
@@ -8923,3 +9046,19 @@ The existing MUST track lookup remains available separately.
 `music_type_for_cell` resolves CELL/XCMO, regional RDMO and owning WRLD/ZNAM
 in that order, retaining an explicit null CELL music type as silence.
 No saved fields or save version change are introduced.
+
+## Reference presentation changes, PRF-34
+
+`World::reference_enabled` caches effective winning-record enable state. Its
+XESP dependency edges invalidate cached descendants when runtime reference
+state changes. The mutation accessor and internal placement, deletion,
+inventory removal and cell eviction paths notify independent `ReferenceChanges`
+observers. Each observer compares only notified reference placements, effective
+visibility, destruction models and open state. An unchanged mutable access
+produces no host update. Attaching a reference queues its initial presentation.
+The caches and observers are transient. Loading world state invalidates them
+without changing the saved reference layout.
+
+The enable rules remain those described under RND-17, from local UESP REFR
+and xEdit `wbXESP`. CK Enable and Disable pages describe children popping with
+parents. The host consumes these derived views of the shared World.

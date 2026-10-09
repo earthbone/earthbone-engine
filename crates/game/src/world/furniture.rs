@@ -101,6 +101,7 @@ impl World {
             } else {
                 return false;
             }
+            self.invalidate_reference(player);
             if let Some(reference) = self.refs.get_mut(&player) {
                 reference.position = position;
                 reference.rotation = rotation;
@@ -188,6 +189,7 @@ impl World {
         if self.reserve_furniture_marker(furniture, actor).is_none() {
             return false;
         }
+        self.invalidate_reference(actor);
         if let Some(reference) = self.refs.get_mut(&actor) {
             reference.position = position;
             reference.rotation = rotation;

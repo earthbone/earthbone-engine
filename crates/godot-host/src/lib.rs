@@ -118,3 +118,6 @@ mod entry {
         }
     }
 }
+
+#[cfg(feature = "godot")]
+mod scene_timing;
