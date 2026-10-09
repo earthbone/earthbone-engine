@@ -80,6 +80,32 @@ mod cadence_tests {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Test whether the live player camera has an unobstructed ray to a host
+    /// position. The gameplay detector uses the same camera origin for player
+    /// observations.
+    #[func]
+    pub fn camera_line_of_sight_to_point(&mut self, target: Vector3) -> bool {
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let player = game.player();
+        let (Some(camera), Some(space)) = (
+            self.camera.as_ref(),
+            self.base().get_world_3d().map(|world| world.get_space()),
+        ) else {
+            return false;
+        };
+        let from = camera.get_global_position();
+        let owners = [&self.melee_bodies, self.actor_bodies.owners()];
+        let Ok(mut rays) = ContactRays::new(space, &owners) else {
+            return false;
+        };
+        match rays.first_contact(player, from, target) {
+            Ok(ContactHit::Empty) => true,
+            Ok(_) | Err(_) => false,
+        }
+    }
+
     pub(super) fn flush_automatic_detection(&mut self) {
         if let Some((elapsed, motion)) = self.automatic_detection.take() {
             self.advance_detection(elapsed, motion);
@@ -427,6 +453,10 @@ impl PlayerNode {
         };
         let mut motions = BTreeMap::new();
         motions.insert(player, player_motion);
+        let camera_origin = self
+            .camera
+            .as_ref()
+            .map(|camera| camera.get_global_position());
         let owners = [&self.melee_bodies, self.actor_bodies.owners()];
         let world = game.world();
         let cells = actors.iter().map(|actor| actor.cell).collect::<Vec<_>>();
@@ -447,7 +477,12 @@ impl PlayerNode {
                     let eye = SkyrimPos::new(p[0], p[1], p[2] + 100.0 * actor.scale).to_godot();
                     Vector3::new(eye.x, eye.y, eye.z)
                 };
-                match rays.first_contact(observer.actor, position(observer), position(target)) {
+                let from = if observer.actor == player {
+                    camera_origin.unwrap_or_else(|| position(observer))
+                } else {
+                    position(observer)
+                };
+                match rays.first_contact(observer.actor, from, position(target)) {
                     Ok(ContactHit::Empty) => true,
                     Ok(ContactHit::Actor(id)) => id == target.actor,
                     _ => false,

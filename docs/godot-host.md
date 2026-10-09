@@ -100,6 +100,16 @@ simulation enabled and applies the same limits to F3 presentation frames.
 Both scripts quit when their checks end. Build and
 import the release extension before running the installed host test.
 
+## Player camera line of sight, AI-70
+
+Player-origin detection rays start at the live `Camera3D` position. Other
+actors continue to use their scaled eye positions. This makes player
+`GetLineOfSight` observations account for geometry between the rendered camera
+and the target. `PlayerNode::camera_line_of_sight_to_point` exposes the same
+physics ray for host integration checks. `godot/ai_70_camera_los_test.gd`
+places and removes a blocker in front of a live camera and checks both ray
+results against the Godot physics space.
+
 ## Default menu art, UI-24
 
 The UI-20 inventory, container, barter, favorites and magic menus share
