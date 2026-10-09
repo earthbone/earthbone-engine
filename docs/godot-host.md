@@ -5698,6 +5698,24 @@ the sampled sky region was 0.639 at noon and 0.272 at night, exceeding the
 0.05 difference threshold. The host texture, fog, phase, transition and
 interior checks passed in the same windowed run, which exited with status 0.
 
+### WTHR cloud scroll rates, RND-25
+
+`godot/record_sky.gd` converts each decoded WTHR cloud velocity to UV units
+per presentation second by dividing both axes by 400 before uploading them to
+the sky shader. The shader advances UV coordinates by that velocity times
+elapsed seconds. WTHR speed bytes use `(byte - 127) / 127 / 10`, as described
+by the local UESP WTHR page and implemented by Mutagen's Skyrim weather
+reader. The `/400` time scale follows OpenMW's sky cloud animation update in
+`apps/openmw/mwrender/sky.cpp`.
+
+`godot/rnd_25_cloud_speed_test.gd` loads installed data, selects
+`SkyrimCloudy`, and checks each uploaded axis against the source weather rate
+divided by 400 with a 3 percent tolerance. It also requires at least one
+moving layer. The Rust runner is
+`rnd_25_installed_skyrimcloudy_cloud_rate_matches_its_weather_record`, and a
+source contract test checks that the shader applies the uploaded rate over
+elapsed seconds.
+
 The radius-zero Whiterun bench used 51 renderer instances, 42 meshes and
 31,146 triangles. Its 600-frame software Vulkan sample had a 33.105 ms p99
 at the benchmark's fixed 1600 by 900 render size in a 640 by 360 window.
@@ -5709,6 +5727,50 @@ The separate `rnd_18_walkthrough_shared_world_interior_smoke` test loads the
 walkthrough with gameplay, pauses simulation stepping, checks its shared
 World interior lighting and captures eight rendered frames. It passed and
 exited with status 0. This smoke run does not measure interactive frame time.
+
+## Sky depth and hemisphere continuity, RND-30
+
+`record_sky.gdshader` uses Godot's background sky pass for the atmosphere,
+clouds, sun, moons and stars. These inputs depend on viewing direction rather
+than camera position or a finite mesh radius. World geometry occludes the
+background, and the sky writes no world depth. The controller creates no
+finite sky mesh, cloud billboard or node per placed reference.
+
+Cloud UVs use a stereographic upper hemisphere, `eye.xz / (1 + eye.y)`.
+There are no cube faces or clamped projection bands. Cloud alpha fades to
+zero across the lowest 0.16 of the vertical viewing direction, meeting the
+horizon color continuously. Cloud uploads generate mipmaps after resizing,
+and the texture array uses linear mipmap filtering. Star texture sampling
+wraps at the spherical longitude boundary.
+
+Sources read were local OpenMW `apps/openmw/mwrender/sky.cpp`, its
+`files/shaders/compatibility/sky.vert`, and Godot's
+`tutorials/shaders/shader_reference/sky_shader.rst`,
+`shading_language.rst` and `tutorials/shaders/advanced_postprocessing.rst`.
+OpenMW places a camera-relative sky in an early render bin and disables
+depth writes. Godot supplies the background pass and direction inputs,
+so the host retains that API instead of porting OpenMW's OSG mesh path.
+The depth-mask test uses Godot 4.4's reversed depth buffer, with zero denoting
+the background. No dependency or saved state is added.
+
+The `rnd_30_` tests launch `godot/rnd_30_sky_capture_test.gd` windowed at
+640 by 360 and quit on completion. Synthetic captures check occlusion at
+10, 10,000 and 1,000,000 metres, camera translation with every sky component
+enabled, and adjacent samples across sixteen cube-edge, pole and horizon
+views. The continuity limit is 0.04 per channel. The installed-data case
+uses the walkthrough's PlayerNode and record sky, exits the Bannered Mare
+and views the Throat of the World from Whiterun's wall gate. It checks the
+gameplay sky binding, then uses shared-source preview controls for noon
+SkyrimCloudy. It identifies
+BTR mountain pixels by toggling terrain LOD, and distinguishes geometry
+from sky with a depth mask. Replacing the sky with magenta must leave those
+mountain pixels unchanged and fill every sampled background pixel. The
+minimum is 500 pixels in each region, with a tolerance of 2/255 per channel
+and no contaminated samples. Fog and reflections are disabled for this
+diagnostic comparison. A separate capture retains the authored cloudy sky
+and fog. Eight installed-cloud views sample former cube edges and corners
+with a limit of 0.08 per channel. PNGs and process logs are written under
+`target/rnd_30`.
 
 ## NIF effect materials, RND-22
 

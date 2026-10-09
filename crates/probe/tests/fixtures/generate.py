@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import tomllib
 
-fixture = Path(__file__).with_name("Papyrus.0.log")
+fixture = Path(__file__).with_name("Papyrus.0.txt")
 probe = tomllib.loads((fixture.parents[2] / "probes/quest_wait.toml").read_text())
 slots = {
     "Update.esm": 1,
