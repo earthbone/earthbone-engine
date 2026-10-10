@@ -2736,7 +2736,7 @@ fn function_value(
         367 | 368 | 390 | 576 | 646 | 647 => return Err(Error::Function(c.function)),
         72 => {
             let base = resolve(world, context.owner, raw, None)?;
-            boolean(world.base_of(subject) == Some(base))
+            boolean(world.base_of(subject).unwrap_or(subject) == base)
         }
         372 => {
             let list = resolve(world, context.owner, raw, Some(*b"FLST"))?;
