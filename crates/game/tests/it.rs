@@ -43,6 +43,9 @@ mod scr_23_breaker_adversarial;
 #[path = "scr_11_breaker3_adversarial.rs"]
 mod scr_11_breaker3_adversarial;
 
+#[path = "scr_15_breaker3_adversarial.rs"]
+mod scr_15_breaker3_adversarial;
+
 #[path = "shm_11_breaker_2_adversarial.rs"]
 mod shm_11_breaker_2_adversarial;
 #[path = "shm_12_breaker_adversarial.rs"]
