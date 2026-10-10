@@ -1609,6 +1609,8 @@ mod scr_73_native_contract_audit;
 mod scr_74;
 #[path = "scr_74_adversarial.rs"]
 mod scr_74_adversarial;
+#[path = "scr_74_breaker_adversarial.rs"]
+mod scr_74_breaker_adversarial;
 #[path = "shm_03_live_world.rs"]
 mod shm_03_live_world;
 #[path = "shm_04_actor_world_binding.rs"]
