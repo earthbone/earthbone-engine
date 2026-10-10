@@ -143,6 +143,8 @@ pub struct CellStreamerNode {
     /// `release_exterior_cell` can find that cell's instances by the grid
     /// coordinate `cell_unload_requested` carries.
     exterior_cells: std::collections::HashMap<CellCoord, GlobalFormId>,
+    /// Installed cells, including ones with no static mesh surfaces.
+    rendered_cells: std::collections::BTreeSet<GlobalFormId>,
     /// `StandardMaterial3D` per texture set, kept across stream calls so a
     /// texture uploaded for one cell serves every later cell that names it.
     materials: MaterialMap,
@@ -614,6 +616,7 @@ impl INode3D for CellStreamerNode {
             shader_particles: std::collections::BTreeMap::new(),
             runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
+            rendered_cells: std::collections::BTreeSet::new(),
             materials: MaterialMap::new(),
             bounds: None,
             last_stats: VarDictionary::new(),
@@ -1265,6 +1268,7 @@ impl CellStreamerNode {
             .retain(|_, cell| !departed.contains(cell));
         self.load_profiles
             .retain(|cell, _| !departed.contains(cell));
+        self.rendered_cells.retain(|cell| !departed.contains(cell));
         self.bounds = self
             .instances
             .iter()
@@ -1539,10 +1543,29 @@ impl CellStreamerNode {
         self.exterior_cells
             .values()
             .copied()
-            .chain(self.instances.iter().map(|instance| instance.cell))
+            .chain(self.rendered_cells.iter().copied())
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect()
+    }
+
+    /// Whether character presentation has a rendered cell at its runtime position.
+    pub(crate) fn actor_cell_is_resident(&self, cell: GlobalFormId, position: [f32; 3]) -> bool {
+        let Some(source) = &self.data_source else {
+            return false;
+        };
+        if let Some(world) = source.exterior_world(cell) {
+            let coord = CellCoord::containing(crate::units::SkyrimPos::new(
+                position[0],
+                position[1],
+                position[2],
+            ));
+            return self
+                .exterior_cells
+                .get(&coord)
+                .is_some_and(|loaded| source.exterior_world(*loaded) == Some(world));
+        }
+        self.rendered_cells.contains(&cell)
     }
 
     /// Apply worker-derived actor placements without reading or mutating World.
@@ -2674,6 +2697,7 @@ impl CellStreamerNode {
         let Some(owner) = self.exterior_cells.remove(&coord) else {
             return 0;
         };
+        self.rendered_cells.remove(&owner);
         self.free_doors(&[owner]);
         self.deferred_references.retain(|_, cell| *cell != owner);
         if self.collision_cell == Some(owner) {
@@ -3354,6 +3378,7 @@ impl CellStreamerNode {
         totals: &mut StreamTotals,
         world: Option<&soe_game::World>,
     ) {
+        self.rendered_cells.insert(cell);
         let enabled = |id| world.is_none_or(|world| world.reference_enabled(id));
         let mut visible = LoadedCell {
             stats: loaded.stats.clone(),
@@ -3727,6 +3752,7 @@ impl CellStreamerNode {
     }
 
     fn free_instances(&mut self) {
+        self.rendered_cells.clear();
         self.reference_index_dirty = true;
         let mut server = RenderingServer::singleton();
         for instance in self.instances.drain(..) {

@@ -34,6 +34,15 @@ pub struct ActorAppearance {
     pub female: bool,
     pub skin: Option<GlobalFormId>,
     pub parts: Vec<ArmorPart>,
+    pub head_parts: Vec<HeadPart>,
+}
+
+/// A selected HDPT model, including its attached extra parts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeadPart {
+    pub form: GlobalFormId,
+    pub part_type: u32,
+    pub model: Option<String>,
 }
 
 /// Editable player head-part and morph selection stored with the player actor.
@@ -45,6 +54,7 @@ pub struct PlayerAppearance {
 
 #[derive(Default)]
 struct Traits {
+    source: Option<GlobalFormId>,
     race: Option<GlobalFormId>,
     skin: Option<GlobalFormId>,
     female: bool,
@@ -76,6 +86,7 @@ impl World {
                     .map(|distribution| distribution.what)
             });
             Traits {
+                source: Some(source),
                 race: self.actor_base_race(source)?,
                 skin: distributed_skin.or(self.skin(source)?),
                 female: self.npc_record(source)?.is_female(),
@@ -88,7 +99,10 @@ impl World {
             .ok_or_else(|| Error::Invalid(format!("appearance requires an actor: {actor}")))?;
         let race = state.race;
         let equipped = state.equipped.clone();
-        Records::World(self).assemble(&traits, race, &equipped)
+        let overrides = state.head_parts.clone();
+        let mut appearance = Records::World(self).assemble(&traits, race, &equipped)?;
+        Records::World(self).select_heads(&mut appearance, traits_source, &overrides)?;
+        Ok(appearance)
     }
 }
 
@@ -105,7 +119,9 @@ impl ActorAppearance {
             .map(|id| records.traits(id))
             .transpose()?
             .unwrap_or_default();
-        records.assemble(&traits, current_race, equipped)
+        let mut appearance = records.assemble(&traits, current_race, equipped)?;
+        records.select_heads(&mut appearance, traits.source, &BTreeMap::new())?;
+        Ok(appearance)
     }
 }
 
@@ -202,6 +218,85 @@ impl Records<'_> {
         Ok(out)
     }
 
+    fn select_heads(
+        &self,
+        appearance: &mut ActorAppearance,
+        base: Option<GlobalFormId>,
+        overrides: &BTreeMap<u32, GlobalFormId>,
+    ) -> Result<()> {
+        let mut selected: Vec<_> = overrides.values().copied().collect();
+        if let Some(base) = base {
+            let record = self.record(base, T(b"NPC_"))?;
+            for bytes in record.all(T(b"PNAM")) {
+                let mut field = Fields::new(record.tag, T(b"PNAM"), bytes);
+                field.exact(4)?;
+                selected.extend(self.link(base, field.u32()?));
+            }
+        }
+        if let Some(race) = appearance.race {
+            let record = self.record(race, T(b"RACE"))?;
+            let mut female = false;
+            for sub in &record.subrecords {
+                match &sub.tag.0 {
+                    b"MNAM" if sub.data.is_empty() => female = false,
+                    b"FNAM" if sub.data.is_empty() => female = true,
+                    b"HEAD" if female == appearance.female => {
+                        let mut field = Fields::new(record.tag, sub.tag, &sub.data);
+                        field.exact(4)?;
+                        selected.extend(self.link(race, field.u32()?));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let covered = appearance
+            .parts
+            .iter()
+            .fold(0, |slots, part| slots | part.visible_slots);
+        let mut types = BTreeSet::new();
+        if covered & (1 << 1) != 0 {
+            types.insert(3);
+        }
+        let mut visited = BTreeSet::new();
+        for form in selected {
+            let record = self.record(form, T(b"HDPT"))?;
+            let bytes = record.required(T(b"PNAM"))?;
+            let mut field = Fields::new(record.tag, T(b"PNAM"), bytes);
+            field.exact(4)?;
+            if types.insert(field.u32()?) {
+                self.add_head(form, &mut visited, &mut appearance.head_parts)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn add_head(
+        &self,
+        form: GlobalFormId,
+        visited: &mut BTreeSet<GlobalFormId>,
+        parts: &mut Vec<HeadPart>,
+    ) -> Result<()> {
+        if !visited.insert(form) {
+            return Ok(());
+        }
+        let record = self.record(form, T(b"HDPT"))?;
+        let mut field = Fields::new(record.tag, T(b"PNAM"), record.required(T(b"PNAM"))?);
+        field.exact(4)?;
+        parts.push(HeadPart {
+            form,
+            part_type: field.u32()?,
+            model: model(record, *b"MODL"),
+        });
+        for bytes in record.all(T(b"HNAM")) {
+            let mut field = Fields::new(record.tag, T(b"HNAM"), bytes);
+            field.exact(4)?;
+            if let Some(extra) = self.link(form, field.u32()?) {
+                self.add_head(extra, visited, parts)?;
+            }
+        }
+        Ok(())
+    }
+
     fn traits(&self, mut base: GlobalFormId) -> Result<Traits> {
         let mut visited = BTreeSet::new();
         loop {
@@ -230,6 +325,7 @@ impl Records<'_> {
                 }
             }
             return Ok(Traits {
+                source: Some(base),
                 race: self.record_link(record, file, T(b"RNAM"))?,
                 skin: self.record_link(record, file, T(b"WNAM"))?,
                 female,

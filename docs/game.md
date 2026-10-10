@@ -1,5 +1,23 @@
 # soe-game: the runtime form table and the first natives
 
+## Streamed character appearance, HST-23
+
+`ActorAppearance` includes selected HDPT models alongside the existing skin and
+worn armor addons. Runtime head-part overrides precede NPC PNAM selections,
+which precede the race's sex-specific HEAD defaults. One primary part per type
+survives. HNAM extra parts are included once, even when links cycle. Worn hair
+slots suppress hair. These views add no saved fields.
+
+The layouts come from local `TES5Edit/Core/wbDefinitionsTES5.pas`, ACHR, NPC_,
+HDPT and RACE. NPC-first head selection and covered hair follow local
+`openmw/apps/openmw/mwrender/esm4npcanimation.cpp`. Head selection is derived
+here because the host and worker use the same runtime overrides and load-order
+resolution. The host's existing asset readers handle those selected models.
+Simulation snapshots include derived appearances for enabled contact actors,
+refreshed with contacts at the AI cadence. Invisibility is included in their
+presentation visibility. World remains the owner of equipment, skin, position,
+AI packages and enable state.
+
 ## Fixed simulation owner, PRF-37 draft
 
 `simulation::Simulation` constructs Game and its native closures on one named

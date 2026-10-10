@@ -360,13 +360,12 @@ impl ActorAssets {
         let (mut graph, unresolved_references) = Self::load_graph(vfs, &behavior_path)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph, &root);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
-        let surfaces = Self::appearance_surfaces(vfs, appearance, &skeleton)?;
         let mut assets = ActorAssets {
             skeleton,
             ragdoll,
             graph,
             clips,
-            surfaces,
+            surfaces: Vec::new(),
             skeleton_path,
             skeleton_model_path,
             behavior_path,
@@ -376,6 +375,14 @@ impl ActorAssets {
             missing_clips,
             unresolved_references,
         };
+        if appearance
+            .parts
+            .iter()
+            .any(|part| part.visible_slots & (1 << 9) != 0)
+        {
+            assets.complete_race_skeleton(vfs)?;
+        }
+        assets.surfaces = Self::appearance_surfaces(vfs, appearance, &assets.skeleton)?;
         Self::extend_race_bones(vfs, &mut assets)?;
         let bones: std::collections::BTreeSet<_> = assets
             .surfaces
@@ -388,6 +395,23 @@ impl ActorAssets {
             });
         }
         Ok(assets)
+    }
+
+    /// Retain every authored rig node before sharing a rig across appearances.
+    /// Later outfits can bind bones the first appearance did not use.
+    pub(crate) fn complete_race_skeleton(&mut self, vfs: &Vfs) -> Result<(), ActorError> {
+        let bytes = read(vfs, &self.skeleton_model_path)?;
+        let file = soe_nif::parse(&bytes).map_err(|source| ActorError::Nif {
+            path: self.skeleton_model_path.clone(),
+            source,
+        })?;
+        let mut nodes = std::collections::BTreeMap::new();
+        let mut visited = std::collections::BTreeSet::new();
+        for root in &file.roots {
+            collect_rig_nodes(&file, *root, None, &mut visited, &mut nodes);
+        }
+        extend_skeleton(&mut self.skeleton, &file, &nodes.into_keys().collect())
+            .map_err(|bones| ActorError::RigMismatch { bones })
     }
 
     fn extend_race_bones(vfs: &Vfs, assets: &mut ActorAssets) -> Result<(), ActorError> {
@@ -526,12 +550,31 @@ impl ActorAssets {
             } else {
                 format!("meshes/{path}")
             };
-            surfaces.extend(Self::load_visible_surfaces(
+            let attachment = (part.visible_slots & (1 << 9) != 0)
+                .then(|| crate::combat::weapon_bones(soe_game::combat::Hand::Left))
+                .and_then(|names| {
+                    names
+                        .iter()
+                        .copied()
+                        .find(|name| skeleton.bones.iter().any(|bone| bone.name == *name))
+                });
+            surfaces.extend(Self::load_attached_surfaces(
                 vfs,
                 &path,
                 skeleton,
                 part.authored_slots & !part.visible_slots,
+                attachment,
             )?);
+        }
+        for part in &appearance.head_parts {
+            if let Some(model) = &part.model {
+                surfaces.extend(Self::load_visible_surfaces(
+                    vfs,
+                    &asset_path(model),
+                    skeleton,
+                    0,
+                )?);
+            }
         }
         Ok(surfaces)
     }
@@ -541,6 +584,16 @@ impl ActorAssets {
         mesh_path: &str,
         skeleton: &Skeleton,
         hidden_slots: u32,
+    ) -> Result<Vec<ActorSurface>, ActorError> {
+        Self::load_attached_surfaces(vfs, mesh_path, skeleton, hidden_slots, None)
+    }
+
+    fn load_attached_surfaces(
+        vfs: &Vfs,
+        mesh_path: &str,
+        skeleton: &Skeleton,
+        hidden_slots: u32,
+        attachment: Option<&str>,
     ) -> Result<Vec<ActorSurface>, ActorError> {
         let bytes = read(vfs, mesh_path)?;
         let file = soe_nif::parse(&bytes).map_err(|source| ActorError::Nif {
@@ -558,6 +611,17 @@ impl ActorAssets {
         })?;
         let mut out = Vec::new();
         for mesh in &meshes {
+            if mesh.skin.is_none() {
+                if let Some(bone) = attachment {
+                    out.push(rigid_surface(mesh, bone, skeleton).map_err(|source| {
+                        ActorError::Surface {
+                            path: mesh_path.to_owned(),
+                            source,
+                        }
+                    })?);
+                }
+                continue;
+            }
             let Some(skin) = mesh.skin.clone() else {
                 continue;
             };
@@ -1100,9 +1164,122 @@ fn surface_of(mesh: &soe_nif::mesh::Mesh) -> Result<SurfaceArrays, crate::mesh::
     build_surface(&data, MeshOptions::default())
 }
 
+/// Rigid biped models use their authored shape transform below an attachment bone.
+/// A single weight lets the ordinary server skeleton path carry that transform.
+fn rigid_surface(
+    mesh: &soe_nif::Mesh,
+    bone: &str,
+    skeleton: &Skeleton,
+) -> Result<ActorSurface, crate::mesh::MeshError> {
+    let data = mesh_data_from(mesh, &mesh.transform);
+    let mut arrays = build_surface(&data, MeshOptions::default())?;
+    arrays.bones = vec![0; arrays.positions.len() * 4];
+    arrays.weights = [1.0, 0.0, 0.0, 0.0].repeat(arrays.positions.len());
+    let skin = Skin {
+        skeleton_root: soe_nif::types::BlockRef::NONE,
+        skeleton_root_name: String::new(),
+        transform: NifTransform::IDENTITY,
+        bones: vec![soe_nif::mesh::Bone {
+            name: bone.to_owned(),
+            node: soe_nif::types::BlockRef::NONE,
+            inverse_bind: NifTransform::IDENTITY,
+            bound: mesh.bound,
+        }],
+        body_parts: Vec::new(),
+    };
+    let map = BoneMap::build(&skin.bones, skeleton);
+    Ok(ActorSurface {
+        name: mesh.name.clone(),
+        arrays,
+        expression_shapes: Vec::new(),
+        textures: SurfaceTextures::default(),
+        skin,
+        map,
+        node_offset: [0.0; 3],
+        partitions: 0,
+        remapped: false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hst_23_rigid_shield_keeps_shape_transform_and_tracks_attachment_pose() {
+        let skeleton = Skeleton {
+            name: "test".into(),
+            parent_indices: vec![-1],
+            bones: vec![HkxBone {
+                name: "SHIELD".into(),
+                lock_translation: false,
+            }],
+            reference_pose: vec![soe_hkx::QsTransform::IDENTITY],
+            reference_floats: Vec::new(),
+            float_slots: Vec::new(),
+        };
+        let mesh = soe_nif::Mesh {
+            name: "shield".into(),
+            block: 0,
+            transform: NifTransform {
+                translation: soe_nif::types::Vec3::new(10.0, 20.0, 30.0),
+                ..NifTransform::IDENTITY
+            },
+            bound: Default::default(),
+            positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            normals: Vec::new(),
+            tangents: Vec::new(),
+            uvs: Vec::new(),
+            uv_sets: Vec::new(),
+            colors: Vec::new(),
+            indices: vec![0, 1, 2],
+            bone_weights: Vec::new(),
+            bone_indices: Vec::new(),
+            skin: None,
+            material: Default::default(),
+        };
+        let surface = rigid_surface(&mesh, "SHIELD", &skeleton).unwrap();
+        assert_eq!(surface.map.matched(), 1);
+        assert_eq!(surface.arrays.weights, [1.0, 0.0, 0.0, 0.0].repeat(3));
+        for (actual, expected) in surface.arrays.positions[0]
+            .iter()
+            .zip([0.142875, 0.428625, -0.28575])
+        {
+            assert!((actual - expected).abs() < 0.00001);
+        }
+        let mut pose = skeleton.reference_pose.clone();
+        let initial =
+            crate::skinned::skinning_transforms(&surface.map, &surface.skin, &pose).unwrap();
+        pose[0].translation[0] = 100.0;
+        let moved =
+            crate::skinned::skinning_transforms(&surface.map, &surface.skin, &pose).unwrap();
+        assert!((moved[0].origin[0] - initial[0].origin[0] - 1.42875).abs() < 0.00001);
+    }
+
+    #[test]
+    fn hst_23_installed_guard_outfit_includes_rigid_shield() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(std::path::Path::new(&data)).unwrap();
+        let game = source.localized_game().unwrap();
+        let actor = game.form("GuardWhiterunImperialPostNightRef1").unwrap();
+        let assets =
+            ActorAssets::load_for_actor(&mut game.world_mut(), actor, source.vfs()).unwrap();
+        let shields: Vec<_> = assets
+            .surfaces
+            .iter()
+            .filter(|surface| {
+                surface.skin.bones.len() == 1
+                    && crate::combat::weapon_bones(soe_game::combat::Hand::Left)
+                        .contains(&surface.skin.bones[0].name.as_str())
+                    && surface.name.to_ascii_lowercase().contains("shield")
+            })
+            .collect();
+        assert!(!shields.is_empty());
+        assert!(shields.iter().all(|surface| surface.map.matched() == 1));
+        assert!(assets.surfaces.len() >= 3);
+    }
 
     #[test]
     fn covered_body_part_triangles_are_removed_in_both_partition_layouts() {

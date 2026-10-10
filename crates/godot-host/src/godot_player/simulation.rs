@@ -156,6 +156,7 @@ impl PlayerNode {
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
         let worker = Simulation::spawn(Config::default(), move || {
             let mut game = source.localized_game().map_err(|error| error.to_string())?;
+            game.apply_mod_data(source.vfs().loose_roots());
             let scripts = game.load_scripts_from_vfs(source.vfs());
             if !scripts.scripts_failed.is_empty() {
                 return Err(format!(

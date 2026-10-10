@@ -243,6 +243,7 @@ impl PlayerNode {
                     error = %error, "PlayerNode: could not configure Papyrus file logs");
             }
         }
+        game.apply_mod_data(source.vfs().loose_roots());
         let scripts = game.load_scripts_from_vfs(source.vfs());
         if !scripts.scripts_failed.is_empty() {
             soe_trace::error!(target: "host::gameplay", system = "host::gameplay",
