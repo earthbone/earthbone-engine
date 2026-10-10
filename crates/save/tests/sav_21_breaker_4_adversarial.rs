@@ -12,10 +12,7 @@ fn has_stacked(fields: &[Field]) -> bool {
     fields.iter().any(|field| match field {
         Field::String(name) => name.bytes() == b"Stacked",
         Field::Group(children) => has_stacked(children),
-        Field::Array(array) => array
-            .entries
-            .iter()
-            .any(|children| has_stacked(children)),
+        Field::Array(array) => array.entries.iter().any(|children| has_stacked(children)),
         _ => false,
     })
 }
@@ -45,7 +42,10 @@ fn every_observed_stacked_frame_reencodes_without_moving_its_successor() {
             .unwrap()
             .unwrap();
         let extras = contents.extra.as_ref().unwrap();
-        assert!(extras.entries.iter().any(|entry| has_stacked(&entry.fields)));
+        assert!(extras
+            .entries
+            .iter()
+            .any(|entry| has_stacked(&entry.fields)));
         let encoded = contents.data_bytes().unwrap();
         assert_eq!(encoded, payload[contents.start..contents.end]);
         assert_eq!(contents.start + encoded.len(), contents.end);
@@ -93,7 +93,12 @@ fn package_data_255_ends_before_the_next_extra() {
     let extras = contents.extra.unwrap();
     assert_eq!(extras.entries.len(), 2);
     assert_eq!(extras.entries[0].kind, 108);
-    assert!(matches!(extras.entries[0].fields.as_slice(), [Field::Byte(255)]));
+    assert!(matches!(
+        extras.entries[0].fields.as_slice(),
+        [Field::Byte(255)]
+    ));
     assert_eq!(extras.entries[1].kind, 133);
-    assert!(matches!(extras.entries[1].fields.as_slice(), [Field::Reference(id)] if id.raw() == 0x800900));
+    assert!(
+        matches!(extras.entries[1].fields.as_slice(), [Field::Reference(id)] if id.raw() == 0x800900)
+    );
 }

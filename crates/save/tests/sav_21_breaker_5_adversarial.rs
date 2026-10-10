@@ -69,7 +69,9 @@ fn observed_stacked_frames_keep_a_real_successor_extra_and_inventory_boundary() 
             .iter()
             .any(|field| matches!(field, Field::String(name) if name.bytes() == b"Stacked")));
         assert_eq!(extra.entries[1].kind, 133);
-        assert!(matches!(extra.entries[1].fields.as_slice(), [Field::Reference(id)] if id.raw() == 0x800900));
+        assert!(
+            matches!(extra.entries[1].fields.as_slice(), [Field::Reference(id)] if id.raw() == 0x800900)
+        );
         assert_eq!(contents.inventory.as_ref().unwrap().entries[0].delta, -3);
         assert_eq!(contents.end, change.data.len() - 2);
         assert_eq!(contents.remaining_bytes, 2);
@@ -78,7 +80,7 @@ fn observed_stacked_frames_keep_a_real_successor_extra_and_inventory_boundary() 
 }
 
 #[test]
-fn every_observed_stacked_truncation_fails_before_the_successor_extra() {
+fn every_observed_stacked_truncation_fails_without_successor_bytes() {
     let frames = observed_frames();
     if frames.is_empty() {
         eprintln!("SOE_TEST_SAVES unset, skipping observed Stacked truncation check");
@@ -87,11 +89,11 @@ fn every_observed_stacked_truncation_fails_before_the_successor_extra() {
     assert_eq!(frames.len(), 9);
     for (form_version, frame) in frames {
         for cut in 1..frame.len() {
-            let change = with_successor(&frame[..cut]);
+            let mut change = with_successor(&frame);
+            change.data.truncate(1 + cut);
             assert!(
                 change.reference_contents(form_version).is_err(),
-                "accepted Stacked frame prefix of {} bytes",
-                cut
+                "accepted Stacked frame prefix of {cut} bytes"
             );
         }
     }
