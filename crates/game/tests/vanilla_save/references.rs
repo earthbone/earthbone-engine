@@ -249,6 +249,54 @@ fn sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_ve
     }
 }
 
+#[test]
+fn sav_54_installed_reference_mask_words_apply_before_and_after_across_versions() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+        eprintln!("SKYRIM_DATA unset, skipping SAV-54 installed-record case");
+        return;
+    };
+    let plugin = Plugin::parse(&std::fs::read(data.join("Skyrim.esm")).unwrap()).unwrap();
+    let authored = plugin
+        .records_of(Tag(*b"REFR"))
+        .find(|record| !record.is_deleted())
+        .expect("Skyrim.esm contains a live REFR")
+        .flags;
+    let disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
+    let persistent = soe_esm::plugin::flags::PERSISTENT;
+
+    for (save_version, form_version) in [(12, 77), (12, 78), (13, 77), (13, 78)] {
+        for (mask, set_word) in [
+            (disabled | persistent, 0),
+            (0, u16::MAX),
+            (disabled | persistent, 0x0050),
+        ] {
+            let mut save = fixture();
+            save.header.version = save_version;
+            save.form_version = form_version;
+            set_form_mask(&mut save.change_forms[1], mask, set_word, form_version);
+
+            let mut before_world = World::new(fixture_order_with_flags(authored));
+            before_world.reference(id(0, 0xA00));
+            let before = before_world.reference_ref(id(0, 0xA00)).unwrap();
+            assert_eq!(before.enabled, authored & disabled == 0);
+            assert_eq!(before.persistent, authored & persistent != 0);
+
+            let mut after_world = World::new(fixture_order_with_flags(authored));
+            after_world
+                .restore_vanilla_reference_placements(&save)
+                .unwrap();
+            let after = after_world.reference_ref(id(0, 0xA00)).unwrap();
+            let effective = authored ^ mask;
+            assert_eq!(after.enabled, effective & disabled == 0);
+            assert_eq!(after.persistent, effective & persistent != 0);
+            assert_eq!(
+                after_world.is_persistent_child(id(0, 0x800), id(0, 0xA00)),
+                effective & persistent != 0
+            );
+        }
+    }
+}
+
 fn change(
     raw: u32,
     actor: bool,
