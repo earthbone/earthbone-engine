@@ -8594,6 +8594,14 @@ price and remaining sessions from the same World state used by
 `purchase_training`. The offer remains visible at the skill or session cap,
 while the purchase path rejects it without changing state.
 
+## Real mod data application, MOD-07
+
+The Devious Devices KID rule from `Devious Devices_KID.ini` is applied through
+`Game::apply_mod_data`. Its fixture keeps the source filename and line number,
+and the test checks the added keyword through the same world query used by
+gameplay. The source keyword is supplied by a minimal load-order record so the
+test does not require the external mod installation.
+
 ## Open Animation Replacer selection, ANM-09
 
 `Game::apply_mod_data` retains OAR submods in descending priority order.
