@@ -37,7 +37,10 @@ fn sav_54_mask_words_are_distinct_little_endian_values_with_exact_suffix_boundar
             let header = change.reference_header(form_version).unwrap().unwrap();
             assert_eq!(header.form_flags, Some((mask, second)));
             assert_eq!(header.remaining_bytes, 2);
-            assert_eq!(change.payload().unwrap()[header.bytes_consumed..], [0xDE, 0xAD]);
+            assert_eq!(
+                change.payload().unwrap()[header.bytes_consumed..],
+                [0xDE, 0xAD]
+            );
         }
     }
 }
@@ -47,6 +50,9 @@ fn sav_54_partial_mask_word_is_rejected_at_each_truncated_boundary() {
     for present in 0..6 {
         let payload = (0..present).map(|byte| byte as u8).collect();
         let change = moved_reference(payload);
-        assert!(change.reference_header(78).is_err(), "accepted {present} mask bytes");
+        assert!(
+            change.reference_header(78).is_err(),
+            "accepted {present} mask bytes"
+        );
     }
 }
