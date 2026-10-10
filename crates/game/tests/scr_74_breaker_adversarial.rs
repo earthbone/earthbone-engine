@@ -81,7 +81,10 @@ fn game() -> Game {
     order.add("Test.esm", plugin).unwrap();
     let mut game = Game::new(order);
     game.bind();
-    game.load_cell(GlobalFormId { file: 0, object: CELL });
+    game.load_cell(GlobalFormId {
+        file: 0,
+        object: CELL,
+    });
     game
 }
 
@@ -112,8 +115,12 @@ fn call(game: &mut Game, target_id: u32, method: &str, args: &[Value]) {
         .ins(CallMethod, operands)
         .ins(Return, vec![ident("result")])
         .build();
-    game.load_script(&ScriptBuilder::new(&script, "Form").function(function).bytes())
-        .unwrap();
+    game.load_script(
+        &ScriptBuilder::new(&script, "Form")
+            .function(function)
+            .bytes(),
+    )
+    .unwrap();
     let mut values = vec![Value::Object(game.object_of_form(GlobalFormId {
         file: 0,
         object: target_id,
@@ -125,28 +132,53 @@ fn call(game: &mut Game, target_id: u32, method: &str, args: &[Value]) {
 }
 
 fn form(game: &mut Game, id: u32) -> Value {
-    Value::Object(game.object_of_form(GlobalFormId { file: 0, object: id }))
+    Value::Object(game.object_of_form(GlobalFormId {
+        file: 0,
+        object: id,
+    }))
 }
 
 #[test]
 fn equip_defaults_give_missing_item_and_allow_later_unequip() {
     let mut game = game();
-    let item = GlobalFormId { file: 0, object: CLOTHES };
+    let item = GlobalFormId {
+        file: 0,
+        object: CLOTHES,
+    };
     let item_value = form(&mut game, CLOTHES);
     call(&mut game, PLAYER, "EquipItem", &[item_value]);
     {
         let mut world = game.world_mut();
-        let actor = world.actor(GlobalFormId { file: 0, object: PLAYER }).unwrap();
+        let actor = world
+            .actor(GlobalFormId {
+                file: 0,
+                object: PLAYER,
+            })
+            .unwrap();
         assert!(actor.equipped.contains(&item));
         assert!(!actor.prevent_equipment_removal.contains(&item));
     }
-    assert_eq!(game.world_mut().item_count(GlobalFormId { file: 0, object: PLAYER }, item), 1);
+    assert_eq!(
+        game.world_mut().item_count(
+            GlobalFormId {
+                file: 0,
+                object: PLAYER
+            },
+            item
+        ),
+        1
+    );
     assert_eq!(game.world().notifications, ["Equipped TestClothes"]);
 
     let item_value = form(&mut game, CLOTHES);
     call(&mut game, PLAYER, "UnequipItem", &[item_value]);
     let mut world = game.world_mut();
-    let actor = world.actor(GlobalFormId { file: 0, object: PLAYER }).unwrap();
+    let actor = world
+        .actor(GlobalFormId {
+            file: 0,
+            object: PLAYER,
+        })
+        .unwrap();
     assert!(!actor.equipped.contains(&item));
     assert!(!actor.prevent_equipment_removal.contains(&item));
 }
@@ -155,17 +187,46 @@ fn equip_defaults_give_missing_item_and_allow_later_unequip() {
 fn repeated_equipping_does_not_repeat_message_or_drop_protection() {
     let mut game = game();
     let item = form(&mut game, CLOTHES);
-    call(&mut game, PLAYER, "EquipItem", &[item.clone(), Value::Bool(true)]);
-    call(&mut game, PLAYER, "EquipItem", &[item, Value::Bool(false), Value::Bool(false)]);
+    call(
+        &mut game,
+        PLAYER,
+        "EquipItem",
+        &[item.clone(), Value::Bool(true)],
+    );
+    call(
+        &mut game,
+        PLAYER,
+        "EquipItem",
+        &[item, Value::Bool(false), Value::Bool(false)],
+    );
     assert_eq!(game.world().notifications, ["Equipped TestClothes"]);
     {
         let mut world = game.world_mut();
-        let actor = world.actor(GlobalFormId { file: 0, object: PLAYER }).unwrap();
-        assert!(actor.prevent_equipment_removal.contains(&GlobalFormId { file: 0, object: CLOTHES }));
+        let actor = world
+            .actor(GlobalFormId {
+                file: 0,
+                object: PLAYER,
+            })
+            .unwrap();
+        assert!(actor.prevent_equipment_removal.contains(&GlobalFormId {
+            file: 0,
+            object: CLOTHES
+        }));
     }
     let item_value = form(&mut game, CLOTHES);
     call(&mut game, PLAYER, "UnequipItem", &[item_value]);
-    assert!(game.world_mut().actor(GlobalFormId { file: 0, object: PLAYER }).unwrap().equipped.contains(&GlobalFormId { file: 0, object: CLOTHES }));
+    assert!(game
+        .world_mut()
+        .actor(GlobalFormId {
+            file: 0,
+            object: PLAYER
+        })
+        .unwrap()
+        .equipped
+        .contains(&GlobalFormId {
+            file: 0,
+            object: CLOTHES
+        }));
 }
 
 #[test]
@@ -174,7 +235,12 @@ fn missing_form_is_a_quiet_no_op() {
     call(&mut game, PLAYER, "EquipItem", &[Value::None]);
     assert!(game.world().notifications.is_empty());
     let mut world = game.world_mut();
-    let actor = world.actor(GlobalFormId { file: 0, object: PLAYER }).unwrap();
+    let actor = world
+        .actor(GlobalFormId {
+            file: 0,
+            object: PLAYER,
+        })
+        .unwrap();
     assert!(actor.equipped.is_empty());
     assert!(actor.prevent_equipment_removal.is_empty());
 }
@@ -182,13 +248,32 @@ fn missing_form_is_a_quiet_no_op() {
 #[test]
 fn protected_equipment_can_still_move_to_another_reference() {
     let mut game = game();
-    let player = GlobalFormId { file: 0, object: PLAYER };
-    let receiver = GlobalFormId { file: 0, object: RECEIVER };
-    let item = GlobalFormId { file: 0, object: CLOTHES };
+    let player = GlobalFormId {
+        file: 0,
+        object: PLAYER,
+    };
+    let receiver = GlobalFormId {
+        file: 0,
+        object: RECEIVER,
+    };
+    let item = GlobalFormId {
+        file: 0,
+        object: CLOTHES,
+    };
     let item_value = form(&mut game, CLOTHES);
     let receiver_value = form(&mut game, RECEIVER);
-    call(&mut game, PLAYER, "EquipItem", &[item_value.clone(), Value::Bool(true)]);
-    call(&mut game, PLAYER, "RemoveItem", &[item_value, Value::Int(1), Value::Bool(true), receiver_value]);
+    call(
+        &mut game,
+        PLAYER,
+        "EquipItem",
+        &[item_value.clone(), Value::Bool(true)],
+    );
+    call(
+        &mut game,
+        PLAYER,
+        "RemoveItem",
+        &[item_value, Value::Int(1), Value::Bool(true), receiver_value],
+    );
 
     assert_eq!(game.world_mut().item_count(player, item), 0);
     assert_eq!(game.world_mut().item_count(receiver, item), 1);
@@ -202,45 +287,111 @@ fn protected_equipment_can_still_move_to_another_reference() {
 fn silent_equip_applies_item_without_queuing_notification() {
     let mut game = game();
     let item_value = form(&mut game, CLOTHES);
-    call(&mut game, PLAYER, "EquipItem", &[item_value, Value::Bool(false), Value::Bool(true)]);
+    call(
+        &mut game,
+        PLAYER,
+        "EquipItem",
+        &[item_value, Value::Bool(false), Value::Bool(true)],
+    );
     assert!(game.world().notifications.is_empty());
-    assert!(game.world_mut().actor(GlobalFormId { file: 0, object: PLAYER }).unwrap().equipped.contains(&GlobalFormId { file: 0, object: CLOTHES }));
+    assert!(game
+        .world_mut()
+        .actor(GlobalFormId {
+            file: 0,
+            object: PLAYER
+        })
+        .unwrap()
+        .equipped
+        .contains(&GlobalFormId {
+            file: 0,
+            object: CLOTHES
+        }));
 }
 
 #[test]
 fn saved_protection_blocks_replacement_and_bulk_removal_clears_it() {
     let mut source = game();
-    let protected = GlobalFormId { file: 0, object: CLOTHES };
+    let protected = GlobalFormId {
+        file: 0,
+        object: CLOTHES,
+    };
     let protected_value = form(&mut source, CLOTHES);
-    call(&mut source, PLAYER, "EquipItem", &[protected_value, Value::Bool(true)]);
+    call(
+        &mut source,
+        PLAYER,
+        "EquipItem",
+        &[protected_value, Value::Bool(true)],
+    );
     let bytes = source.save_state().unwrap();
 
     let mut restored = game();
     restored.load_state(&bytes).unwrap();
     let replacement_value = form(&mut restored, OTHER_CLOTHES);
-    call(&mut restored, PLAYER, "EquipItem", &[replacement_value, Value::Bool(false)]);
+    call(
+        &mut restored,
+        PLAYER,
+        "EquipItem",
+        &[replacement_value, Value::Bool(false)],
+    );
     {
         let mut world = restored.world_mut();
-        let actor = world.actor(GlobalFormId { file: 0, object: PLAYER }).unwrap();
+        let actor = world
+            .actor(GlobalFormId {
+                file: 0,
+                object: PLAYER,
+            })
+            .unwrap();
         assert!(actor.equipped.contains(&protected));
         assert!(actor.prevent_equipment_removal.contains(&protected));
-        assert!(!actor.equipped.contains(&GlobalFormId { file: 0, object: OTHER_CLOTHES }));
+        assert!(!actor.equipped.contains(&GlobalFormId {
+            file: 0,
+            object: OTHER_CLOTHES
+        }));
     }
 
     call(&mut restored, PLAYER, "UnequipAll", &[]);
     {
         let mut world = restored.world_mut();
-        let actor = world.actor(GlobalFormId { file: 0, object: PLAYER }).unwrap();
+        let actor = world
+            .actor(GlobalFormId {
+                file: 0,
+                object: PLAYER,
+            })
+            .unwrap();
         assert!(!actor.equipped.contains(&protected));
         assert!(!actor.prevent_equipment_removal.contains(&protected));
     }
 
     let protected_value = form(&mut restored, CLOTHES);
-    call(&mut restored, PLAYER, "EquipItem", &[protected_value, Value::Bool(true)]);
-    call(&mut restored, PLAYER, "RemoveAllItems", &[Value::None, Value::Bool(false)]);
+    call(
+        &mut restored,
+        PLAYER,
+        "EquipItem",
+        &[protected_value, Value::Bool(true)],
+    );
+    call(
+        &mut restored,
+        PLAYER,
+        "RemoveAllItems",
+        &[Value::None, Value::Bool(false)],
+    );
     let mut world = restored.world_mut();
-    let actor = world.actor(GlobalFormId { file: 0, object: PLAYER }).unwrap();
+    let actor = world
+        .actor(GlobalFormId {
+            file: 0,
+            object: PLAYER,
+        })
+        .unwrap();
     assert!(!actor.equipped.contains(&protected));
     assert!(!actor.prevent_equipment_removal.contains(&protected));
-    assert_eq!(world.item_count(GlobalFormId { file: 0, object: PLAYER }, protected), 0);
+    assert_eq!(
+        world.item_count(
+            GlobalFormId {
+                file: 0,
+                object: PLAYER
+            },
+            protected
+        ),
+        0
+    );
 }

@@ -16,7 +16,9 @@ fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
     for object in [0x801, 0x802, 0x803] {
-        plugin.push_top(Record::new(Tag(*b"ACHR"), object).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+        plugin.push_top(
+            Record::new(Tag(*b"ACHR"), object).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
+        );
     }
     let mut order = LoadOrder::new();
     order.add("Scr11Breaker3.esm", plugin).unwrap();
@@ -83,12 +85,7 @@ fn vehicle_tracking_applies_each_motion_delta_once_and_stops_after_detach() {
     game.world_mut().reference(actor).unwrap().position = [10.0, 3.0, 2.0];
     game.world_mut().reference(vehicle).unwrap().position = [0.0, 0.0, 0.0];
     let vehicle_value = Value::Object(game.object_of_form(vehicle));
-    call(
-        &mut game,
-        actor,
-        "SetVehicle",
-        &[vehicle_value],
-    );
+    call(&mut game, actor, "SetVehicle", &[vehicle_value]);
 
     game.world_mut().reference(vehicle).unwrap().position = [4.0, -2.0, 5.0];
     game.world_mut().tick_actor_script_relationships();
@@ -96,11 +93,17 @@ fn vehicle_tracking_applies_each_motion_delta_once_and_stops_after_detach() {
     for _ in 0..3 {
         game.world_mut().tick_actor_script_relationships();
         let actual = game.world_mut().reference(actor).unwrap().position;
-        assert!(actual.iter().zip(expected).all(|(a, b)| (a - b).abs() < 0.0001));
+        assert!(actual
+            .iter()
+            .zip(expected)
+            .all(|(a, b)| (a - b).abs() < 0.0001));
     }
 
     call(&mut game, actor, "SetVehicle", &[Value::None]);
     game.world_mut().reference(vehicle).unwrap().position = [9.0, 9.0, 9.0];
     game.world_mut().tick_actor_script_relationships();
-    assert_eq!(game.world_mut().reference(actor).unwrap().position, expected);
+    assert_eq!(
+        game.world_mut().reference(actor).unwrap().position,
+        expected
+    );
 }

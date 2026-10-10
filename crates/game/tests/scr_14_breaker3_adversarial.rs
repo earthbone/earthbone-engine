@@ -3,9 +3,12 @@
 
 //! Runtime movement checks for SCR-14 Actor offset and landing-marker state.
 
-use soe_esm::{plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::{npc, Game};
+use soe_esm::{
+    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
+    Tag,
+};
 use soe_game::ai::Procedure;
+use soe_game::{npc, Game};
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
@@ -15,7 +18,13 @@ const T: fn(&[u8; 4]) -> Tag = Tag::new;
 static PROBES: AtomicUsize = AtomicUsize::new(0);
 
 fn actor(form: u32, name: &str) -> Record {
-    npc::build_record(form, name, name, npc::Config::default(), npc::Stats::default())
+    npc::build_record(
+        form,
+        name,
+        name,
+        npc::Config::default(),
+        npc::Stats::default(),
+    )
 }
 
 fn reference(form: u32, name: &str, base: u32) -> Record {
@@ -57,7 +66,10 @@ fn game() -> Game {
     plugin.groups.push(top);
     let mut order = LoadOrder::new();
     order
-        .add("SCR14Breaker.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .add(
+            "SCR14Breaker.esm",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
         .unwrap();
     Game::new(order)
 }
