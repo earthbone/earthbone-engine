@@ -55,3 +55,24 @@ fn hst_13_reference_3d_tracks_cell_streaming_and_enabled_state() {
     assert!(game.world().is_reference_loaded(reference));
     assert!(!game.world().is_reference_3d_loaded(reference));
 }
+
+#[test]
+fn hst_13_host_streaming_delta_publishes_and_releases_reference_3d() {
+    let mut game = game();
+    let focus = id(0x810);
+    let streamed = id(CELL_B);
+    let reference = id(ROCK_B);
+
+    game.change_cell(Some(focus));
+    assert!(!game.world().is_reference_3d_loaded(reference));
+
+    game.update_streaming_cells(focus, &[streamed], &[])
+        .unwrap();
+    assert!(game.world().is_reference_3d_loaded(reference));
+
+    game.world_mut().reference(reference).unwrap().position[0] += 1.0;
+    game.update_streaming_cells(focus, &[], &[streamed])
+        .unwrap();
+    assert!(game.world().is_reference_loaded(reference));
+    assert!(!game.world().is_reference_3d_loaded(reference));
+}

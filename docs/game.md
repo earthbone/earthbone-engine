@@ -4134,6 +4134,9 @@ that resolves a form builds that one reference, so an unrelated
 `ObjectReference.Is3DLoaded` uses that host-fed cell set for an instantiated
 reference. It returns false for disabled references and after their cell
 streams out, and does not depend on room-bound rendering culling.
+This matches the local CK `Is3DLoaded_-_ObjectReference` page, which says a
+reference in another room bound still reports loaded 3D when it otherwise
+would have been rendered.
 Cell attachment adds its reference IDs to a derived loaded-3D set, and cell
 release removes those IDs. Prefetch alone does not mark 3D loaded. The set is
 rebuilt from streaming events and is not saved.
