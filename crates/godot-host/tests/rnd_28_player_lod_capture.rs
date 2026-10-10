@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
+#[ignore = "needs RND-34: this capture holds about 30 GB under llvmpipe, see BACKLOG.csv"]
 fn rnd_28_player_streams_every_installed_level_and_captures_mountain_silhouette() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest.join("../..");
