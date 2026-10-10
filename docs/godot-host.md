@@ -1038,6 +1038,12 @@ requested actor, where the player can take items through the notified inventory
 transaction. These requests are consumed from the shared world's transient
 menu queue.
 
+`godot/scr_13_actor_menu_host_test.gd` starts the installed Bannered Mare
+runtime, invokes Hulda's `ShowBarterMenu` and forced `OpenInventory` through
+Papyrus, and checks that each request opens the native item presenter with its
+barter or container mode. Its check-only PlayerNode bridge accepts those two
+native names and a placed actor editor ID. An empty editor ID selects the player.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server
@@ -3482,6 +3488,9 @@ collision with the same positions as rendering. Cell identity remains intact.
 back through the game runtime, requiring a changed/restored cell identity,
 draw instances and supporting collision at each landing. This harness calls
 the same activation helper as the input ray, with explicit reference IDs.
+`gameplay_swing_doors` reports each candidate's current `opened` state so the
+harness tries closed doors and reports failure if none creates an animated
+door node.
 After the round trip it turns toward the door and injects the E key through
 the device input path, requiring the picked FormID and another exterior
 crossing. Its result is separate from the Rust gate.
