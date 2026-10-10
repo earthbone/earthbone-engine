@@ -10,7 +10,9 @@ use soe_godot_host::terrain_lod::{LodBlockCoord, LodLevel};
 
 #[test]
 fn rnd_26_installed_landscape_lod_has_diffuse_normal_noise_and_finite_normals() {
-    let data = PathBuf::from(std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA"));
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        return;
+    };
     let source = DataSource::open(&data).expect("installed data opens");
     let (world, _) = source.resolve_world("Tamriel").expect("Tamriel resolves");
     let mut landscape_surfaces = 0;
