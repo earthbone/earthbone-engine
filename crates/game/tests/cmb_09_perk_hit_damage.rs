@@ -84,6 +84,22 @@ fn perk_with_effects(perk: u32, effects: &[(u8, u8, f32)]) -> Record {
     record
 }
 
+fn perk_with_priority_effects(perk: u32, effects: &[(u8, u8, f32, u8)]) -> Record {
+    let mut record = Record::new(Tag(*b"PERK"), perk).sub(Tag(*b"DATA"), [0, 0, 1, 1, 0]);
+    for &(entry, function, value, priority) in effects {
+        record = record
+            .sub(Tag(*b"PRKE"), [2, 0, priority])
+            .sub(Tag(*b"DATA"), [entry, function, 3])
+            .sub(Tag(*b"PRKC"), [0])
+            .sub(Tag(*b"PRKC"), [1])
+            .sub(Tag(*b"PRKC"), [2])
+            .sub(Tag(*b"EPFT"), [1])
+            .sub(Tag(*b"EPFD"), value.to_le_bytes())
+            .sub(Tag(*b"PRKF"), []);
+    }
+    record
+}
+
 fn fixture(perks: Vec<Record>) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
@@ -160,4 +176,85 @@ fn cmb_09_ineligible_entry_leaves_the_hit_damage_unchanged() {
     let result = game.melee_hit(hit(attacker, target)).unwrap();
     assert!((result.weapon_damage - 15.0).abs() < 0.001);
     assert!((result.health_damage - 15.0).abs() < 0.001);
+}
+
+#[test]
+fn cmb_09_ineligible_incoming_entry_leaves_the_hit_damage_unchanged() {
+    let attacker = id(0x14);
+    let target = id(0x901);
+    let mut game = fixture(vec![float_effect(0x810, 36, 2, 100.0, true)]);
+    game.world_mut()
+        .actor(target)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+
+    let result = game.melee_hit(hit(attacker, target)).unwrap();
+
+    assert!((result.weapon_damage - 15.0).abs() < 0.001);
+    assert!((result.health_damage - 15.0).abs() < 0.001);
+}
+
+#[test]
+fn cmb_09_priority_orders_add_before_multiply_when_ascending() {
+    let attacker = id(0x14);
+    let target = id(0x901);
+    let mut game = fixture(vec![perk_with_priority_effects(
+        0x810,
+        &[(35, 2, 3.0, 1), (35, 3, 2.0, 2)],
+    )]);
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+
+    let result = game.melee_hit(hit(attacker, target)).unwrap();
+
+    // The source encodes Add at priority 1 and Multiply at priority 2.
+    assert!((result.weapon_damage - 36.0).abs() < 0.001);
+    assert!((result.health_damage - 36.0).abs() < 0.001);
+}
+
+#[test]
+fn cmb_09_incoming_priority_orders_add_before_multiply_when_ascending() {
+    let attacker = id(0x14);
+    let target = id(0x901);
+    let mut game = fixture(vec![perk_with_priority_effects(
+        0x810,
+        &[(36, 2, 3.0, 1), (36, 3, 2.0, 2)],
+    )]);
+    game.world_mut()
+        .actor(target)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+
+    let result = game.melee_hit(hit(attacker, target)).unwrap();
+
+    assert!((result.weapon_damage - 36.0).abs() < 0.001);
+    assert!((result.health_damage - 36.0).abs() < 0.001);
+}
+
+#[test]
+fn cmb_09_cross_perk_order_applies_the_last_winning_record_modifier() {
+    let attacker = id(0x14);
+    let target = id(0x901);
+    let mut game = fixture(vec![
+        perk_with_priority_effects(0x810, &[(35, 2, 3.0, 0)]),
+        perk_with_priority_effects(0x812, &[(35, 3, 2.0, 0)]),
+    ]);
+    for perk in [0x810, 0x812] {
+        game.world_mut()
+            .actor(attacker)
+            .unwrap()
+            .perks
+            .insert(id(perk));
+    }
+
+    let result = game.melee_hit(hit(attacker, target)).unwrap();
+
+    // LoadOrder::winners_of yields the lower owning FormID first.
+    assert!((result.weapon_damage - 36.0).abs() < 0.001);
+    assert!((result.health_damage - 36.0).abs() < 0.001);
 }
