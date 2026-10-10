@@ -3,6 +3,9 @@
 
 //! AUD-13 rejects broken music links and keeps audio alive across the installed transition.
 
+#[path = "common/isolated_project.rs"]
+mod isolated_project;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::World;
 use soe_godot_host::audio::music_type_for_cell;
@@ -80,13 +83,11 @@ fn aud_13_breaker_installed_bannered_mare_to_plains_audio_survives_twenty_second
     };
     let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(
-        extension.is_file(),
-        "build the release extension before this check"
-    );
+    let project = isolated_project::project(&["aud_13_transition_test.gd"], Some(&extension));
     let output = std::process::Command::new(godot)
+        .arg("--headless")
         .arg("--path")
-        .arg(workspace.join("godot"))
+        .arg(project.path())
         .args([
             "--resolution",
             "640x360",

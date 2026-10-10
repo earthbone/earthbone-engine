@@ -6302,5 +6302,7 @@ peak above -60 dB. Sampling follows the mix rate rather than render frames.
 In Whiterun it also seeks the current music near its end and checks that
 another selection starts.
 Both scenes quit and the Rust runners require successful process exit.
+The runners use isolated projects with explicit extension registration, so
+a fresh checkout needs no shared Godot import cache for these checks.
 The fixture scene runs in a window. Their stdout and stderr captures are
 written under `target/aud_13`.

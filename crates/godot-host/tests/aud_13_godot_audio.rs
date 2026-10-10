@@ -4,6 +4,9 @@
 
 //! Scene checks use record fixtures and the installed Bannered Mare door route.
 
+#[path = "common/isolated_project.rs"]
+mod isolated_project;
+
 use soe_bsa::{write_bsa, BsaFile, BsaVersion};
 use soe_esm::{FileHeader, Plugin, Record, Tag};
 use std::path::{Path, PathBuf};
@@ -123,11 +126,9 @@ fn run_scene(script: &str, data: &Path) {
         return;
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    assert!(
-        workspace
-            .join("target/release/libsoe_godot_host.so")
-            .is_file(),
-        "build the release extension first"
+    let project = isolated_project::project(
+        &[script.trim_start_matches("res://")],
+        Some(&workspace.join("target/release/libsoe_godot_host.so")),
     );
     let mut command = Command::new(godot);
     if script == "res://aud_13_transition_test.gd" {
@@ -135,7 +136,7 @@ fn run_scene(script: &str, data: &Path) {
     }
     let output = command
         .arg("--path")
-        .arg(workspace.join("godot"))
+        .arg(project.path())
         .args(["--resolution", "640x360", "--script"])
         .arg(script)
         .env("SKYRIM_DATA", data)
