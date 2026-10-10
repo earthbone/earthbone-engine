@@ -864,6 +864,16 @@ form flags, zero-byte value and full-name markers, unnamed flags and remaining
 payload bytes. xEdit defines no application operation for the mask, so this
 pass retains it without changing record flags. SOEW version 37 saves this
 metadata, and earlier versions remain readable.
+
+Saved REFR and ACHR form flags XOR the authored record flags with xEdit's
+`Mask Invert Flags` word before deriving runtime enable and persistence. A
+deleted winning record remains disabled. The second `Mask Set unk010` word is
+retained in the restore report and does not affect those two runtime properties.
+The reference-mask path accepts ESS versions 12 and 13 with matching
+change-form/form versions 77 or 78. Versioned synthetic cases and a gated
+installed Skyrim.esm record case check state before and after restoration.
+FallrimTools preserves both words without applying them, and CommonLib exposes
+the authored runtime flag queries without connecting them to save masks.
 `Game::restore_vanilla_world_and_vm` runs
 the supported restore passes in dependency order and restores the prior SOEG
 snapshot if any pass fails. The passes cover globals, NPC and
