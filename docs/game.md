@@ -1750,11 +1750,13 @@ optional XYZ angles and catch-up/follow radii on the calling actor. Omitted
 optional arguments use the CK defaults. Targets must be actors, all numeric
 values must be finite, and the catch-up radius must be at least the
 nonnegative follow radius.
-`ClearKeepOffsetFromActor` removes that request. `SetForcedLandingMarker`
-stores a resolved reference on the actor, and accepts `None` to clear it.
-These values persist in the actor section named `SCR-14`. The package/host
-movement path does not yet consume Papyrus offset requests, and the flight
-system does not yet consume forced landing markers.
+`ClearKeepOffsetFromActor` removes that request. AI movement rotates the
+body-space XYZ offset by the target's yaw, applies its relative XYZ angles,
+stops inside the follow radius and selects run speed outside the catch-up
+radius. `SetForcedLandingMarker` stores a resolved reference on the actor, and
+accepts `None` to clear it. When a Hover flight package ends, AI movement routes
+the actor to that marker and retains the in-flight state until it arrives.
+These values persist in the actor section named `SCR-14`.
 The local CK pages `KeepOffsetFromActor - Actor`,
 `ClearKeepOffsetFromActor - Actor` and `GetEquippedWeapon - Actor` define
 the offset and weapon argument contracts. `Actor_Script.wikitext` names the

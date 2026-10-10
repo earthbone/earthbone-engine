@@ -2326,8 +2326,12 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                     return None;
                 }
                 let state = world.loaded_actor_mut(actor)?;
-                state.flying =
-                    !state.dead && !state.unconscious && state.ai.procedure == Procedure::Hover;
+                state.flying = !state.dead
+                    && !state.unconscious
+                    && (state.ai.procedure == Procedure::Hover
+                        || (state.flying
+                            && state.forced_landing_marker.is_some()
+                            && !state.ai.arrived));
                 Some((state.dead, state.unconscious))
             }) else {
                 return;
@@ -3362,6 +3366,16 @@ fn step_procedure(
             ai.arrived = false;
         }
     }
+    // KeepOffsetFromActor and landing markers override package movement.
+    apply_keep_offset(world, actor, &mut ai, position);
+    if ai.procedure != Procedure::Hover {
+        let was_flying = world.actor_ref(actor).is_some_and(|state| state.flying);
+        let marker = world
+            .actor_ref(actor)
+            .and_then(|state| state.forced_landing_marker)
+            .and_then(|marker| world.reference(marker).map(|r| (r.position, r.cell)));
+        apply_forced_landing(&mut ai, was_flying, marker);
+    }
     if let (false, Some(dest)) = (ai.arrived, ai.destination) {
         if ai.path.is_empty() {
             let Some((path, cells)) = plan(world, actor, position, dest, ai.center_cell) else {
@@ -3423,8 +3437,91 @@ fn step_procedure(
         tree::succeeded(world, &mut ai);
     }
     if let Some(a) = world.loaded_actor_mut(actor) {
-        a.flying = ai.procedure == Procedure::Hover;
+        a.flying = ai.procedure == Procedure::Hover
+            || (a.flying && a.forced_landing_marker.is_some() && !ai.arrived);
         a.ai = ai;
+    }
+}
+
+fn apply_keep_offset(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f32; 3]) {
+    let Some(offset) = world.actor_ref(actor).and_then(|state| state.keep_offset) else {
+        return;
+    };
+    let Some((target_position, target_rotation, target_cell)) = world
+        .reference(offset.target)
+        .map(|reference| (reference.position, reference.rotation, reference.cell))
+    else {
+        return;
+    };
+    let Some(destination) = actor_offset_destination(target_position, target_rotation, offset)
+    else {
+        return;
+    };
+    let separation = distance(position, destination);
+    ai.center_cell = target_cell;
+    ai.path.clear();
+    ai.path_cells.clear();
+    if let Some(reference) = world.reference(actor) {
+        reference.rotation =
+            std::array::from_fn(|axis| target_rotation[axis] + offset.angles[axis].to_radians());
+    }
+    let Some(preferred_speed) = keep_offset_speed(separation, offset) else {
+        ai.destination = None;
+        ai.arrived = true;
+        return;
+    };
+    ai.destination = Some(destination);
+    ai.arrived = false;
+    ai.speed = movement_speed(world, actor, preferred_speed);
+}
+
+fn keep_offset_speed(separation: f32, offset: crate::world::ActorKeepOffset) -> Option<u8> {
+    if separation <= offset.follow_radius || separation == 0.0 {
+        None
+    } else if separation > offset.catch_up_radius {
+        Some(speed::RUN)
+    } else {
+        Some(speed::WALK)
+    }
+}
+
+fn actor_offset_destination(
+    target_position: [f32; 3],
+    target_rotation: [f32; 3],
+    offset: crate::world::ActorKeepOffset,
+) -> Option<[f32; 3]> {
+    if target_position
+        .iter()
+        .chain(target_rotation.iter())
+        .chain(offset.offset.iter())
+        .chain(offset.angles.iter())
+        .any(|value| !value.is_finite())
+    {
+        return None;
+    }
+    let yaw = target_rotation[2];
+    let (sin, cos) = yaw.sin_cos();
+    Some([
+        target_position[0] + offset.offset[0] * cos - offset.offset[1] * sin,
+        target_position[1] + offset.offset[0] * sin + offset.offset[1] * cos,
+        target_position[2] + offset.offset[2],
+    ])
+}
+
+fn apply_forced_landing(
+    ai: &mut AiState,
+    was_flying: bool,
+    marker: Option<([f32; 3], Option<GlobalFormId>)>,
+) {
+    if !was_flying {
+        return;
+    }
+    if let Some((destination, cell)) = marker {
+        ai.destination = Some(destination);
+        ai.center_cell = cell;
+        ai.path.clear();
+        ai.path_cells.clear();
+        ai.arrived = false;
     }
 }
 
@@ -4116,6 +4213,53 @@ fn read_tree_state_version(r: &mut Reader<'_>, version: u16) -> Result<Option<Tr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scr_14_keep_offset_rotates_body_space_and_rejects_non_finite_target() {
+        let offset = crate::world::ActorKeepOffset {
+            target: GlobalFormId { file: 0, object: 1 },
+            offset: [10.0, 0.0, 2.0],
+            angles: [0.0, 0.0, 90.0],
+            catch_up_radius: 20.0,
+            follow_radius: 5.0,
+        };
+        let destination = actor_offset_destination(
+            [1.0, 2.0, 3.0],
+            [0.0, 0.0, std::f32::consts::FRAC_PI_2],
+            offset,
+        )
+        .unwrap();
+        assert!((destination[0] - 1.0).abs() < 0.0001);
+        assert!((destination[1] - 12.0).abs() < 0.0001);
+        assert_eq!(destination[2], 5.0);
+        assert_eq!(keep_offset_speed(5.0, offset), None);
+        assert_eq!(keep_offset_speed(20.0, offset), Some(speed::WALK));
+        assert_eq!(keep_offset_speed(20.01, offset), Some(speed::RUN));
+        assert_eq!(
+            actor_offset_destination([f32::NAN, 0.0, 0.0], [0.0; 3], offset),
+            None
+        );
+    }
+
+    #[test]
+    fn scr_14_forced_landing_routes_flying_actor_to_marker_only() {
+        let cell = GlobalFormId { file: 0, object: 2 };
+        let mut ai = AiState {
+            destination: Some([99.0; 3]),
+            path: vec![[50.0; 3]],
+            path_cells: vec![Some(cell)],
+            arrived: true,
+            ..AiState::default()
+        };
+        apply_forced_landing(&mut ai, false, Some(([1.0, 2.0, 3.0], Some(cell))));
+        assert_eq!(ai.destination, Some([99.0; 3]));
+        apply_forced_landing(&mut ai, true, Some(([1.0, 2.0, 3.0], Some(cell))));
+        assert_eq!(ai.destination, Some([1.0, 2.0, 3.0]));
+        assert_eq!(ai.center_cell, Some(cell));
+        assert!(ai.path.is_empty());
+        assert!(ai.path_cells.is_empty());
+        assert!(!ai.arrived);
+    }
 
     #[test]
     fn ai_25_orbit_step_rejects_nav_gap_with_reachable_detour() {
