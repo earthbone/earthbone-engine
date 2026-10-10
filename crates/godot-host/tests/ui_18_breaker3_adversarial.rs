@@ -14,7 +14,8 @@ fn assert_godot_passed(output: &Output, marker: &str) {
 #[test]
 fn ui_18_breaker3_quit_closes_live_menu_and_title_sequence_animates() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let data = std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA must name installed Skyrim data");
+    let data =
+        std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA must name installed Skyrim data");
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN must name Godot 4.4");
     let temp = tempfile::tempdir().unwrap();
     let script = temp.path().join("ui_18_breaker3.gd");
@@ -94,7 +95,14 @@ func run_checks() -> void:
     let output = Command::new(godot)
         .current_dir(root)
         .env("SKYRIM_DATA", data)
-        .args(["--windowed", "--path", "godot", "--resolution", "640x360", "--script"])
+        .args([
+            "--windowed",
+            "--path",
+            "godot",
+            "--resolution",
+            "640x360",
+            "--script",
+        ])
         .arg(script)
         .output()
         .unwrap();
