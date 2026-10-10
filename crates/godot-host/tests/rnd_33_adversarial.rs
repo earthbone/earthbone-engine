@@ -66,9 +66,8 @@ fn rnd_33_palette_color_and_alpha_are_independent_source_lookups() {
     desc.shader_flags_1 |= flags1::GREYSCALE_TO_PALETTE_ALPHA;
     let both = nif_effect::shader(&desc, &effect);
     assert!(both.contains("texture(palette_texture, vec2(texel.g, tint.r)).rgb"));
-    assert!(both.contains(
-        "if (true) { opacity = texture(palette_texture, vec2(texel.a, opacity)).a; }"
-    ));
+    assert!(both
+        .contains("if (true) { opacity = texture(palette_texture, vec2(texel.a, opacity)).a; }"));
     assert!(both.contains("ALPHA = opacity;"));
 
     effect.blend = Some(Blend {
