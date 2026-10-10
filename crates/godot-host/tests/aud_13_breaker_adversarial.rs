@@ -80,11 +80,19 @@ fn aud_13_breaker_installed_bannered_mare_to_plains_audio_survives_twenty_second
     };
     let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let extension = workspace.join("target/release/libsoe_godot_host.so");
-    assert!(extension.is_file(), "build the release extension before this check");
+    assert!(
+        extension.is_file(),
+        "build the release extension before this check"
+    );
     let output = std::process::Command::new(godot)
         .arg("--path")
         .arg(workspace.join("godot"))
-        .args(["--resolution", "640x360", "--script", "res://aud_13_transition_test.gd"])
+        .args([
+            "--resolution",
+            "640x360",
+            "--script",
+            "res://aud_13_transition_test.gd",
+        ])
         .env("SKYRIM_DATA", data)
         .output()
         .expect("Godot transition scene starts");

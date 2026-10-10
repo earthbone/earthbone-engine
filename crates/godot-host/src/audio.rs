@@ -35,7 +35,7 @@ pub fn music_type_for_cell(
         .ok_or_else(|| Error::Invalid(format!("missing CELL {cell}")))?;
     let data = soe_esm::records::cell::Cell::from_record(record, false)?;
     if let Some(raw) = data.music {
-        return Ok((raw != 0).then(|| world.resolve_from(cell, raw)).flatten());
+        return resolve_music_link(world, cell, raw, "CELL/XCMO");
     }
     let mut candidates = Vec::new();
     for raw in &data.regions {
@@ -67,9 +67,7 @@ pub fn music_type_for_cell(
                     let mut fields = Fields::new(record.tag, sub.tag, &sub.data);
                     fields.exact(4)?;
                     let raw = fields.u32()?;
-                    candidates[index].2 = (raw != 0)
-                        .then(|| world.resolve_from(region, raw))
-                        .flatten();
+                    candidates[index].2 = resolve_music_link(world, region, raw, "REGN/RDMO")?;
                 }
             }
         }
@@ -100,7 +98,32 @@ pub fn music_type_for_cell(
     let mut fields = Fields::new(record.tag, Tag(*b"ZNAM"), data);
     fields.exact(4)?;
     let raw = fields.u32()?;
-    Ok((raw != 0).then(|| world.resolve_from(owner, raw)).flatten())
+    resolve_music_link(world, owner, raw, "WRLD/ZNAM")
+}
+
+fn resolve_music_link(
+    world: &soe_game::World,
+    owner: GlobalFormId,
+    raw: u32,
+    field: &str,
+) -> soe_esm::Result<Option<GlobalFormId>> {
+    use soe_esm::{Error, Tag};
+
+    if raw == 0 {
+        return Ok(None);
+    }
+    let music = world
+        .resolve_from(owner, raw)
+        .ok_or_else(|| Error::Invalid(format!("unresolved {field} music form {raw:08X}")))?;
+    if world
+        .record(music)
+        .is_none_or(|record| record.tag != Tag(*b"MUSC"))
+    {
+        return Err(Error::Invalid(format!(
+            "{field} music form {music} is not MUSC"
+        )));
+    }
+    Ok(Some(music))
 }
 
 /// Tracks the cell and record that own the current ambience stream.

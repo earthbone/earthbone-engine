@@ -37,6 +37,9 @@ fn world(cell_music: Option<u32>, regions: &[u32], entries: Vec<Record>) -> Worl
     for record in entries {
         plugin.push_top(record);
     }
+    for object in [0xA00, 0xB00, 0xB01, 0xB02, 0xB03] {
+        plugin.push_top(Record::new(Tag(*b"MUSC"), object));
+    }
     let mut order = LoadOrder::new();
     order.add("Aud13.esm", plugin).unwrap();
     World::new(order)
