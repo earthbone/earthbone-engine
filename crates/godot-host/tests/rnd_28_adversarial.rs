@@ -33,13 +33,9 @@ fn rnd_28_installed_player_view_contains_mountain_and_tree_lod() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest.join("../..");
     let project = workspace.join("godot");
-    let data = std::env::var_os("SKYRIM_DATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(
-                "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
-            )
-        });
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        return;
+    };
     let godot = std::env::var_os("SOE_GODOT_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|| {

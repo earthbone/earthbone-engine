@@ -6,18 +6,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn data_path() -> PathBuf {
-    std::env::var_os("SKYRIM_DATA").map_or_else(
-        || {
-            PathBuf::from(
-                "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
-            )
-        },
-        PathBuf::from,
-    )
+fn data_path() -> Option<PathBuf> {
+    std::env::var_os("SKYRIM_DATA").map(PathBuf::from)
 }
 
-fn run_container_scene(label: &str, home: Option<&Path>) -> String {
+fn run_container_scene(label: &str, home: Option<&Path>) -> Option<String> {
+    let data = data_path()?;
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut command = Command::new(godot);
@@ -30,7 +24,7 @@ fn run_container_scene(label: &str, home: Option<&Path>) -> String {
             "--script",
             "ui_27_container_panel_test.gd",
         ])
-        .env("SKYRIM_DATA", data_path())
+        .env("SKYRIM_DATA", data)
         .env("SOE_LOG", "info")
         .env("SOE_UI_27_TOOLS", "")
         .env("SOE_UI_27_CAPTURE", format!("/tmp/ui-27-{label}.png"))
@@ -56,12 +50,14 @@ fn run_container_scene(label: &str, home: Option<&Path>) -> String {
         "{label}: status={}\n{stdout}\n{stderr}",
         output.status
     );
-    format!("{stdout}\n{stderr}")
+    Some(format!("{stdout}\n{stderr}"))
 }
 
 #[test]
 fn ui_27_discovers_local_ffdec_without_environment_or_project_setup() {
-    let log = run_container_scene("unconfigured", None);
+    let Some(log) = run_container_scene("unconfigured", None) else {
+        return;
+    };
     assert!(
         log.contains("interface art: FFDec") && log.contains("ffdec-cli.jar"),
         "default discovery did not find the local FFDec installation: {log}"
@@ -71,7 +67,9 @@ fn ui_27_discovers_local_ffdec_without_environment_or_project_setup() {
 #[test]
 fn ui_27_missing_ffdec_keeps_the_reopened_container_panel_bounded() {
     let isolated_home = tempfile::tempdir_in("/tmp").unwrap();
-    let log = run_container_scene("no-ffdec", Some(isolated_home.path()));
+    let Some(log) = run_container_scene("no-ffdec", Some(isolated_home.path())) else {
+        return;
+    };
     assert!(
         log.contains("FFDec unavailable, using bundled menu theme"),
         "missing FFDec did not select the bundled theme: {log}"

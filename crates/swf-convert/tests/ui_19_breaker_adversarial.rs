@@ -7,12 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use swf::{PlaceObjectAction, Tag};
 
-const SKYRIM: &str =
-    "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data";
-const SKYUI: &str = "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/mods/SkyUI-5.2SE-6.11";
-
 fn data_dir() -> Option<PathBuf> {
-    let path = std::env::var_os("SKYRIM_DATA").map_or_else(|| PathBuf::from(SKYRIM), PathBuf::from);
+    let path = std::env::var_os("SKYRIM_DATA").map(PathBuf::from)?;
     path.join("Skyrim - Interface.bsa").exists().then_some(path)
 }
 
@@ -25,8 +21,7 @@ fn vanilla_vfs() -> Option<Vfs> {
 }
 
 fn skyui_vfs() -> Option<Vfs> {
-    let root =
-        std::env::var_os("SOE_TEST_SKYUI").map_or_else(|| PathBuf::from(SKYUI), PathBuf::from);
+    let root = std::env::var_os("SOE_TEST_SKYUI").map(PathBuf::from)?;
     let mut vfs = vanilla_vfs()?;
     vfs.add_archive_path(&root.join("SkyUI_SE.bsa")).ok()?;
     Some(vfs)

@@ -72,13 +72,12 @@ fn ui_20_favorite_toggle_survives_game_save_and_load() {
 
 #[test]
 fn ui_20_reopening_favorites_reconfigures_the_existing_item_menu() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        return;
+    };
     let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
         panic!("SOE_GODOT_BIN must be set for the UI-20 host lifecycle check");
     };
-    let data = std::env::var_os("SKYRIM_DATA").map_or_else(
-        || PathBuf::from("/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data"),
-        PathBuf::from,
-    );
     assert!(
         data.join("Skyrim.esm").is_file(),
         "installed Skyrim data is unavailable"

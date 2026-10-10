@@ -20,10 +20,10 @@ fn process_thread_count() -> std::io::Result<usize> {
 #[test]
 fn prf_05_single_and_persistent_workers_stream_same_cell_and_report_timings(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let data = std::env::var("SKYRIM_DATA").unwrap_or_else(|_| {
-        "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data"
-            .to_string()
-    });
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA is unset, skipping worker comparison");
+        return Ok(());
+    };
     if !Path::new(&data).is_dir() {
         eprintln!("installed Skyrim Data is absent, skipping worker comparison");
         return Ok(());
