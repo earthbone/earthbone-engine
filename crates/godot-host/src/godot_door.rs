@@ -17,6 +17,7 @@ pub(super) struct DoorSurface {
     pub rid: Rid,
     pub mesh: Gd<ArrayMesh>,
     pub original: Transform3D,
+    pub triangles: usize,
 }
 
 pub(super) struct ResidentDoor {

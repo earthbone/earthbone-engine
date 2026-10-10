@@ -2521,6 +2521,27 @@ impl CellStreamerNode {
                 plugin.2 += triangles * placements;
             }
         }
+        for (reference, door) in &self.doors {
+            let instances = door.surfaces.len() as i64;
+            let triangles = door
+                .surfaces
+                .iter()
+                .map(|surface| surface.triangles as i64)
+                .sum::<i64>();
+            let cell = cells.entry(door.cell).or_default();
+            cell.0 += instances;
+            cell.1 += instances;
+            cell.2 += triangles;
+            let file_index = reference.file;
+            let name = order
+                .as_ref()
+                .and_then(|load_order| load_order.files().get(file_index as usize))
+                .map_or_else(|| format!("file:{file_index}"), |file| file.name.clone());
+            let plugin = plugins.entry(name).or_default();
+            plugin.0 += instances;
+            plugin.1 += instances;
+            plugin.2 += triangles;
+        }
         let pack = |entries: Vec<(String, (i64, i64, i64))>| {
             let mut result = VarDictionary::new();
             for (name, (instances, draw_calls, primitives)) in entries {
@@ -3526,6 +3547,7 @@ impl CellStreamerNode {
                 rid,
                 mesh,
                 original,
+                triangles: surface.arrays.triangle_count(),
             });
             self.bounds = Some(self.bounds.map_or(surface.arrays.bounds, |bounds| {
                 crate::batch::merge_bounds(bounds, surface.arrays.bounds)

@@ -393,7 +393,9 @@ Cell values count the cell's batch RIDs, one draw call per batch and the
 uploaded triangle count, with MultiMesh triangle counts multiplied by
 placement count. A plugin is counted once for each batch containing one of
 its references, so merged batches can appear under more than one plugin. These
-are resident batch totals. Godot's per-frame viewport counts exclude culled
+totals include resident door surfaces, attributed to each door's cell and
+reference plugin with their uploaded triangle counts. These are resident
+batch totals. Godot's per-frame viewport counts exclude culled
 objects and are reported separately. The installed-data
 `godot/prf_30_godot_render_report_test.gd` checks these counts against the
 streamer's created batch count and checks monitor, viewport and report fields.
