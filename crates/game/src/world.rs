@@ -648,6 +648,8 @@ pub struct AnimationWaiter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnimationRequest {
     pub target: GlobalFormId,
+    /// Explicit partner override for an idle played on `target`.
+    pub partner: Option<GlobalFormId>,
     pub animation: String,
 }
 

@@ -1756,13 +1756,15 @@ stops inside the follow radius and selects run speed outside the catch-up
 radius. `SetForcedLandingMarker` stores a resolved reference on the actor, and
 accepts `None` to clear it. When a Hover flight package ends, AI movement routes
 the actor to that marker and retains the in-flight state until it arrives.
+Arrival at an earlier package destination does not suppress the landing route.
 These values persist in the actor section named `SCR-14`.
 The local CK pages `KeepOffsetFromActor - Actor`,
 `ClearKeepOffsetFromActor - Actor` and `GetEquippedWeapon - Actor` define
-the offset and weapon argument contracts. `Actor_Script.wikitext` names the
-shield and forced-marker signatures, while the local corpus has no dedicated
-pages for those two functions. `ClearForcedLandingMarker - Actor` says that
-clearing is equivalent to assigning `None`.
+the offset and weapon argument contracts. `Actor_Script.wikitext` defines the
+forced-marker contract and names the shield signature, while the local corpus
+has no dedicated pages for those two functions.
+`ClearForcedLandingMarker - Actor` says that clearing is equivalent to
+assigning `None`.
 
 The SCR-10 tests cover the state codes and argument boundaries described
 above. `HasLOS` does not query collision geometry, and `PathToReference` does
@@ -3177,8 +3179,12 @@ entries, and the existing xEdit PACK and shared spell APIs.
 
 `Actor.GetVoiceRecoveryTime` reads the remaining duration from that actor's
 real-seconds deadline. `Actor.PlayIdleWithTarget` queues the idle's editor ID
-to its explicit target reference, or to the calling actor when the target is
-`None`, and returns false for a missing idle or invalid target reference.
+on the calling actor and retains the explicit paired reference in
+`AnimationRequest.partner`. `None` leaves the partner override unset. It
+returns false for a missing idle or invalid partner reference. The host sends
+the event to the caller's graph. Partner alignment is not performed by this
+bridge. The local CK `PlayIdleWithTarget_-_Actor.wikitext` defines the caller
+and partner roles.
 `Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
 hands, source 2 from the actor's other-spell slot, and source 3 from its
 instant-spell slot. The latter slots persist in the actor section named
