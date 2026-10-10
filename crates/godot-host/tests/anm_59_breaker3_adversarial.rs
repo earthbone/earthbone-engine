@@ -65,7 +65,9 @@ fn anm_59_breaker3_repeated_override_switch_and_clear_are_actor_local() {
     ];
 
     world.set_expression_override(id(ACTOR), 12, 45).unwrap();
-    world.set_expression_override(id(OTHER_ACTOR), 2, 100).unwrap();
+    world
+        .set_expression_override(id(OTHER_ACTOR), 2, 100)
+        .unwrap();
     world.set_expression_override(id(ACTOR), 16, 0).unwrap();
     let switched = bound_actor_expression_weights(&mut world, id(ACTOR), &targets);
     assert_eq!(switched["CombatShout"], 0.0);

@@ -77,6 +77,82 @@ impl PlayerNode {
         true
     }
 
+    fn ensure_title_sequence_player(&mut self) -> Gd<godot::classes::AnimationPlayer> {
+        if let Some(player) = &self.title_sequence_player {
+            return player.clone();
+        }
+        let mut player = godot::classes::AnimationPlayer::new_alloc();
+        player.set_name("TitleSequencePlayer");
+        self.base_mut().add_child(&player);
+        self.title_sequence_player = Some(player.clone());
+        player
+    }
+
+    fn play_title_sequence(&mut self, name: &str) -> bool {
+        let mut player = self.ensure_title_sequence_player();
+        if !player.has_animation(name) {
+            player.stop();
+            return false;
+        }
+        player.play_ex().name(name).done();
+        player.is_playing()
+    }
+
+    fn stop_title_sequence(&mut self) {
+        if let Some(player) = self.title_sequence_player.as_mut() {
+            player.stop();
+        }
+    }
+}
+
+#[godot_api(secondary)]
+impl PlayerNode {
+    /// Register a Godot animation under a title sequence name.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn register_title_sequence(
+        &mut self,
+        name: GString,
+        animation: Gd<godot::classes::Animation>,
+    ) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let mut player = self.ensure_title_sequence_player();
+        let mut library = if player.has_animation_library("") {
+            let Some(library) = player.get_animation_library("") else {
+                return false;
+            };
+            library
+        } else {
+            let library = godot::classes::AnimationLibrary::new_gd();
+            if player.add_animation_library("", &library) != godot::global::Error::OK {
+                return false;
+            }
+            library
+        };
+        let animation_name = StringName::from(&name);
+        library.add_animation(&animation_name, &animation) == godot::global::Error::OK
+    }
+
+    /// Report whether the main menu title sequence animation is playing.
+    #[func]
+    pub fn is_title_sequence_playing(&self) -> bool {
+        self.title_sequence_player
+            .as_ref()
+            .is_some_and(|player| player.is_playing())
+    }
+
+    /// Return the playhead position of the active title sequence animation.
+    #[func]
+    pub fn title_sequence_playback_position(&self) -> f64 {
+        self.title_sequence_player
+            .as_ref()
+            .map_or(0.0, |player| player.get_current_animation_position())
+    }
+}
+
+impl PlayerNode {
     /// Invoke either main-menu Game native for host integration checks.
     pub(super) fn invoke_main_menu_native_for_check(
         &mut self,
@@ -258,6 +334,7 @@ impl PlayerNode {
         self.clear_player_input();
         self.refresh_image_space();
         self.main_menu.leave();
+        self.stop_title_sequence();
         let installed = self.sync_game_pose();
         self.sync_reference_collision();
         installed
@@ -593,11 +670,15 @@ impl PlayerNode {
                 }
                 soe_game::world::HostRequest::StartTitleSequence(name) => {
                     self.enter_main_menu();
-                    self.main_menu.start_sequence(name.clone());
-                    self.base_mut().emit_signal(
-                        "title_sequence_started",
-                        &[godot::builtin::Variant::from(GString::from(name.as_str()))],
-                    );
+                    if self.play_title_sequence(&name) {
+                        self.main_menu.start_sequence(name.clone());
+                        self.base_mut().emit_signal(
+                            "title_sequence_started",
+                            &[godot::builtin::Variant::from(GString::from(name.as_str()))],
+                        );
+                    } else {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: title sequence animation is not registered: {name}");
+                    }
                 }
                 soe_game::HostRequest::CameraFirstPerson => {
                     crate::camera::apply_game_camera_request(&mut self.rig, true);
@@ -772,6 +853,7 @@ impl PlayerNode {
         self.actor_bodies.free();
         self.character = None;
         self.main_menu.enter();
+        self.stop_title_sequence();
         self.base_mut().emit_signal("returned_to_main_menu", &[]);
     }
     fn prefetch_nearby_interior(&mut self, delta: f64) {

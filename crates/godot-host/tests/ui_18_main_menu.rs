@@ -9,6 +9,7 @@ use soe_game::Game;
 use soe_godot_host::ui::{apply_host_request, MainMenuState};
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
+use std::process::Command;
 
 fn game() -> Game {
     Game::new(LoadOrder::new())
@@ -71,4 +72,36 @@ fn ui_18_start_title_sequence_enters_menu_and_preserves_requested_name() {
 
     assert!(menu.is_active());
     assert_eq!(menu.title_sequence(), Some("MQ101Intro"));
+}
+
+#[test]
+fn ui_18_title_sequence_animation_plays_on_the_main_menu_in_godot() {
+    if std::env::var_os("SKYRIM_DATA").is_none() {
+        return;
+    }
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+        return;
+    };
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new(godot)
+        .current_dir(&workspace)
+        .args([
+            "--windowed",
+            "--path",
+            "godot",
+            "--resolution",
+            "640x360",
+            "--script",
+            "ui_18_main_menu_test.gd",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(
+        stdout.contains("PASS UI-18 main menu lifecycle"),
+        "{stdout}\n{stderr}"
+    );
+    assert!(!stderr.contains("SCRIPT ERROR"), "{stderr}");
 }
