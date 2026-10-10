@@ -100,6 +100,49 @@ simulation enabled and applies the same limits to F3 presentation frames.
 Both scripts quit when their checks end. Build and
 import the release extension before running the installed host test.
 
+## Interface art discovery and panel bounds, UI-27
+
+PlayerNode selects FFDec before building its interface cache. It tries a
+valid `SOE_FFDEC_JAR` with Java on PATH, then the executable named by
+`SOE_FFDEC`, then directories in `SOE_TOOLS_PATH` and the Godot project
+setting `soe/tools/path`. That setting accepts an absolute path or a Godot
+resource path. Tools directories may contain FFDec directly, under `FFDec`,
+`ffdec`, `tools/FFDec` or `SkyUI-Community/tools/FFDec`. A configured path may
+also name the JAR or executable itself. Discovery prefers `ffdec-cli.jar`
+over `ffdec.jar`, then executable launchers. It also checks nearby `tools`
+and `engine-refs` directories, the conventional system Java directories,
+and `ffdec-cli`, `ffdec` or `ffdec.sh` on PATH. Missing or invalid candidates
+fall through to the next location.
+
+The source is local `SkyUI-Community/tools/FFDec/ffdec-cli`, whose JAR
+manifest resolves its dependencies relative to the JAR, and `ffdec.sh`,
+which documents installed Java and system JAR locations. The host reuses
+UI-19's out-of-process converter with its existing headless Java command
+and local-only import policy. It logs the chosen JAR or launcher once per
+process. Without FFDec it logs the bundled-theme selection and skips cache
+conversion. Conversion errors also select the bundled theme. PlayerNode
+retains either result across menu openings.
+
+Inventory, container, barter, favorites and magic presentations set their
+shared shell to horizontal anchors 0.04 and 0.96 and vertical anchors 0.08
+and 0.92, independently of art availability. At 640 by 360 this gives a
+588.8 by 302.4 panel. Category buttons use 10-point text and 20-pixel minimum
+heights with no vertical separation. The native layout keeps categories
+before the item columns, search above the list and the item card beside it, with Take and
+Store tabs for containers. This follows `InventoryLists.as`'s bounded
+content panel and `ItemMenu.as`'s separate floating card. These proportions
+are the native host's viewport adaptation. Converted art never sets control
+bounds. Other modal presenters retain their existing shell layout.
+
+The `ui_27_` checks cover discovery precedence, tools-directory JARs,
+PATH launchers, executable permissions, absent Java, missing tools and
+invalid overrides. Installed-data checks export vanilla container actions
+with real Java and FFDec and open a vanilla container with no FFDec, a broken
+JAR and a configured FFDec install. The windowed scene compares panel bounds,
+checks category/list/card order and bundled art, reopens the container,
+captures the viewport and quits. Captures and logs go under `target/ui-27`.
+No dependency, saved state or per-reference node path is added.
+
 ## Default menu art, UI-24
 
 The UI-20 inventory, container, barter, favorites and magic menus share

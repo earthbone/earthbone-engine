@@ -67,6 +67,7 @@ func _ready() -> void:
 	body.add_theme_constant_override("separation", 10)
 	categories = VBoxContainer.new()
 	categories.name = "Categories"
+	categories.add_theme_constant_override("separation", 0)
 	categories.custom_minimum_size.x = 100
 	body.add_child(categories)
 	var list := VBoxContainer.new()
@@ -277,7 +278,8 @@ func refresh() -> void:
 		button.name = str(choice)
 		button.toggle_mode = true
 		button.button_pressed = category == choice
-		button.custom_minimum_size.y = 24
+		button.add_theme_font_size_override("font_size", 10)
+		button.custom_minimum_size.y = 20
 		var category_art := Icon.new()
 		category_art.name = "CategoryIcon"
 		category_art.icon_name = DefaultTheme.category_icon(str(choice))
