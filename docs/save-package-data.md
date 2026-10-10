@@ -262,3 +262,6 @@ children, malformed names and nesting beyond the existing limit remain errors.
 The strict 60-save reference-content survey now re-encodes all 1,154,736
 sections without errors. The version-1 manifest stays a historical ledger,
 while its test accounts for both decoded named variants.
+
+The [SAV-21 writer reply](sav-21-writer-reply.md) records the check results and
+the limit of this observed layout.

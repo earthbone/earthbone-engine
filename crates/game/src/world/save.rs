@@ -1514,6 +1514,7 @@ impl World {
         self.ai.mark_all_nav_doors();
         *self.light_references.get_mut() = super::light_references::LightReferences::default();
         self.actors = actors;
+        self.actor_vehicle_poses.clear();
         self.rebuild_effect_index();
         self.quests = quests;
         self.globals = globals;

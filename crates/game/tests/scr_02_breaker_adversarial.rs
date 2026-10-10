@@ -9,7 +9,10 @@ const GAME_DOC: &str = include_str!("../../../docs/game.md");
 #[test]
 fn equip_item_contract_discrepancy_has_an_owning_backlog_row() {
     let has_owner = BACKLOG.lines().any(|row| {
-        row.contains("EquipItem") && row.contains("abPreventRemoval") && row.contains("abSilent")
+        row.starts_with("\"SCR-74\",")
+            && row.contains("EquipItem")
+            && row.contains("abPreventRemoval")
+            && row.contains("abSilent")
     });
 
     assert!(
