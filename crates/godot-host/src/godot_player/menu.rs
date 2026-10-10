@@ -557,16 +557,29 @@ impl PlayerNode {
         if focused {
             self.input_focus_gained();
         }
+        let quit = (title == "Paused").then(|| self.base().get_tree().callable("quit"));
         let presentation = self.menu_view.as_mut().map(|view| {
             view.previous_mouse = Some(previous_mouse);
             view.previous_focus = previous_focus;
-            (view.title.clone(), view.panel.clone(), view.close.clone())
+            (
+                view.title.clone(),
+                view.panel.clone(),
+                view.close.clone(),
+                view.content.clone(),
+            )
         });
         Input::singleton().set_mouse_mode(MouseMode::VISIBLE);
-        if let Some((mut label, mut panel, mut close)) = presentation {
+        if let Some((mut label, mut panel, mut close, mut content)) = presentation {
             // CONTEXT: Focus and visibility callbacks may query the player.
             let _guard = self.base_mut();
             label.set_text(&title);
+            if let Some(callback) = quit {
+                let mut button = Button::new_alloc();
+                button.set_name("Quit");
+                button.set_text("Quit");
+                button.connect("pressed", &callback);
+                content.add_child(&button);
+            }
             panel.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
             panel.show();
             close.grab_focus();

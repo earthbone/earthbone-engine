@@ -3098,7 +3098,7 @@ moved about 90 Skyrim units north in 30 steps at 60 Hz. The exact-PC-map tests
 also passed against the installed archive, alongside 126 host unit tests.
 
 These are automated checks, not a manual play session. The launcher uses
-WASD, mouse look, Space, Ctrl and F, with Escape to exit. For a rendered
+WASD, mouse look, Space, Ctrl and F, with Escape to toggle pause. For a rendered
 smoke capture, set `SOE_CAPTURE_PATH` to a writable PNG path and use
 `--max-fps 60`. It disables mouse capture and exits after saving frame 120.
 An initial windowed smoke attempt ended with SIGTERM. A later run saved a
@@ -4267,6 +4267,38 @@ focus and releases the mouse. Escape and the Close button close the menu.
 Closing frees presenter controls, clears held gameplay actions and restores
 prior focus and mouse mode. Mouse restoration waits for window focus when
 closing while unfocused. Repeated opens and closes do not add shell nodes.
+
+### Walkthrough pause and shutdown, HST-24
+
+Escape opens the Paused menu and a second press closes it. Held-key echoes
+leave it open. The walkthrough process loop does not quit on Escape, including
+during startup. Paused adds one temporary Quit button to the shell's content.
+Its pressed signal calls SceneTree.quit. Closing the menu frees that button.
+The fixed shell still has six nodes and adds no per-reference node path.
+The window close button retains Godot's automatic quit handling. Both shutdown
+paths run the walkthrough finalizer, which prints `WALKTHROUGH stopped`.
+
+`system_overlay.gd` returns an empty metrics dictionary when its node has no
+viewport, including during teardown. Attached overlays retain the existing
+render and performance metrics. The local Godot `class_node.rst` documents
+the null viewport outside the tree, and `class_scenetree.rst` and
+`tutorials/inputs/handling_quit_requests.rst` document automatic window-close
+handling and explicit quit. The implementation uses these existing host APIs.
+
+`hst_24_pause.rs` runs `godot/hst_24_pause_test.gd`, which inherits the actual
+walkthrough loop. It injects Escape presses, release and echo, checks continued
+frames, pause state, clock, position, focus and content cleanup, then requests
+shutdown from Quit or the root window's close-request signal. A separate run
+checks unattached, attached and detached overlay metrics. With `SKYRIM_DATA`
+set it repeats both shutdown paths after the WhiterunOrigin exterior startup.
+The Rust runner requires successful process exit, the finalizer message and no
+script errors. These checks use headless Godot because they test input and
+lifecycle.
+
+The Escape handler survey under `godot/` found only `walkthrough.gd` quitting
+on Escape. `prf_13_entities_test.gd` injects Escape to test the modal menu and
+is unchanged. `crates/godot-host/tests/menu_runtime.gd` does the same and is
+also unchanged. Scripts inheriting the walkthrough use its updated loop.
 
 UI-21 documents the public API and license boundary for SKSE Menu Framework
 and dMenu style ImGui pages, and compares host rendering options. Those
