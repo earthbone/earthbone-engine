@@ -5,6 +5,7 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
+use soe_papyrus::Value;
 
 const CK_CONTRACTS: &str = include_str!("fixtures/scr_02_ck_contracts.txt");
 
@@ -142,4 +143,47 @@ fn scr_02_actor_contract_findings_are_registered_to_their_owning_rows() {
             "Actor.{method} is listed in the audit but absent from the registry"
         );
     }
+}
+
+#[test]
+fn scr_02_equip_item_types_defaults_and_return_match_ck_behavior() {
+    // CK source: engine-refs/ck-wiki/EquipItem_-_Actor.wikitext.
+    // The three Papyrus parameters are Form, Bool and Bool. Both Booleans
+    // default to false, and the native has no return value.
+    let declaration = CK_CONTRACTS
+        .lines()
+        .find(|line| line.starts_with("Actor|ck-wiki/EquipItem_-_Actor.wikitext|"));
+    assert_eq!(
+        declaration,
+        Some("Actor|ck-wiki/EquipItem_-_Actor.wikitext|None EquipItem(Form akItem, Bool abPreventRemoval = false, Bool abSilent = false)")
+    );
+
+    let mut game = crate::natives_dlc::game();
+    let player = crate::natives_dlc::obj(&mut game, "PlayerRef");
+    let item = crate::natives_dlc::obj(&mut game, "WarmArmor");
+
+    let result = crate::natives_dlc::call(&mut game, &player, "EquipItem", &[item]);
+    assert_eq!(result, Value::None, "EquipItem returns None");
+    assert_eq!(game.world().notifications.len(), 1);
+    assert!(game.world().notifications[0].contains("WarmArmor"));
+
+    let protected = crate::natives_dlc::obj(&mut game, "FarmClothes");
+    let result = crate::natives_dlc::call(
+        &mut game,
+        &player,
+        "EquipItem",
+        &[protected, Value::Bool(true), Value::Bool(true)],
+    );
+    assert_eq!(
+        result,
+        Value::None,
+        "explicit Bool arguments retain None return"
+    );
+    assert_eq!(game.world().notifications.len(), 1);
+    let player_form = crate::natives_dlc::form(&game, "PlayerRef");
+    let protected_form = crate::natives_dlc::form(&game, "FarmClothes");
+    let mut world = game.world_mut();
+    let actor = world.actor(player_form).unwrap();
+    assert!(actor.equipped.contains(&protected_form));
+    assert!(actor.prevent_equipment_removal.contains(&protected_form));
 }
