@@ -1850,3 +1850,6 @@ mod prf_35_magic;
 mod prf_37_adversarial;
 #[path = "prf_37_simulation.rs"]
 mod prf_37_simulation;
+
+#[path = "hst_21_doors.rs"]
+mod hst_21_doors;

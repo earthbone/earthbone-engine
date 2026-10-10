@@ -148,6 +148,11 @@ impl Planner {
         dt: f32,
         entity: Option<soe_trace::Entity>,
     ) -> ([f32; 3], Option<GlobalFormId>) {
+        let Some(pool) = &self.pool else {
+            let _entity = entity.map(|entity| soe_trace::EntityScope::new(|| entity, 1));
+            let _span = soe_trace::Span::new("ai.path_following", "game");
+            return super::movement::follow(ai, position, cell, dt);
+        };
         let started = Instant::now();
         let execute = || {
             let _entity = entity.map(|entity| soe_trace::EntityScope::new(|| entity, 1));
@@ -156,13 +161,7 @@ impl Planner {
             let result = super::movement::follow(ai, position, cell, dt);
             (result, started.elapsed(), rayon::current_thread_index())
         };
-        let (result, busy, worker) = if let Some(pool) = &self.pool {
-            pool.install(execute)
-        } else {
-            let mut result = ((position, cell), Duration::ZERO, None);
-            rayon::in_place_scope(|scope| scope.spawn(|_| result = execute()));
-            result
-        };
+        let (result, busy, worker) = pool.install(execute);
         self.movement_workers.main_thread_wait += started.elapsed();
         self.movement_workers.jobs += 1;
         if let Some(worker) = worker {

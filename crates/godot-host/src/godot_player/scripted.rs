@@ -130,7 +130,7 @@ impl PlayerNode {
         }
         if event.result.is_ok() {
             match &event.command {
-                Command::Activate { target } => self.open_swing_door(*target),
+                Command::Activate { .. } => self.sync_door_presentation(),
                 Command::ConfirmMenu(Confirmation::Gift) => {
                     if self
                         .menu

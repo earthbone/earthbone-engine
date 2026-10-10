@@ -393,7 +393,9 @@ Cell values count the cell's batch RIDs, one draw call per batch and the
 uploaded triangle count, with MultiMesh triangle counts multiplied by
 placement count. A plugin is counted once for each batch containing one of
 its references, so merged batches can appear under more than one plugin. These
-are resident batch totals. Godot's per-frame viewport counts exclude culled
+totals include resident door surfaces, attributed to each door's cell and
+reference plugin with their uploaded triangle counts. These are resident
+batch totals. Godot's per-frame viewport counts exclude culled
 objects and are reported separately. The installed-data
 `godot/prf_30_godot_render_report_test.gd` checks these counts against the
 streamer's created batch count and checks monitor, viewport and report fields.
@@ -3505,28 +3507,63 @@ batching. Godot documents `AnimatableBody3D` for manually moved doors and its
 `sync_to_physics` property for physics-frame updates. The host advances the
 controller from its process callback.
 
-When player activation opens a non-teleport DOOR, `PlayerNode` resolves its
-winning model through the shared load order and VFS, loads the NIF bytes into
-an `AnimatedStaticNode`, enables trimesh collision, places it at the reference
-transform and starts its controller. A NIF with a supported transform
-controller is selected automatically. These nodes are freed when the host
-replaces the loaded location. `gameplay_swing_doors` and `swing_door_count`
-expose the current targets and attached-node count to host tests. Load doors
-keep the transition path and do not start a swing controller.
+The standalone `hst_01_door_swing_test.gd` loads a synthetic NIF controller
+through the byte loader. It advances the rotation track and confirms that the
+animated physics body and shape follow the mesh transform.
 
-The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
-through the same byte loader used for VFS doors. It advances the rotation track
-and confirms the animated physics body and shape follow the visual mesh
-transform. The player activation path loads animated swing-door NIFs from the
-VFS and starts the node after game activation.
+### Resident doors, HST-21
 
-Locked player picks use the shared game's key check. Without the key they
-remain closed, pending lockpicking UI. Resource preparation is synchronous.
-Exterior walking loads and unloads nearby grid cells through the budgeted
-planner when either mesh budget is set. The swing-door host path applies to
-activated non-teleport doors with a supported NIF transform controller.
-Teleporting doors retain the cell transition path. Portal transitions and
-revised AI remain deferred until existing Skyrim gameplay works.
+Cell installation separates DOOR surfaces from ordinary material batches.
+Each built door has one control `Node3D` and RenderingServer mesh instances,
+with the winning reference transform and the normal cached materials. Both
+swing doors and XTEL load doors use this path. World owns the open and enable
+states. Opening and closing retain the node, meshes and render RIDs until
+cell detach. A disabled door hides its render instances and control node
+without destroying them. Re-enabling restores the same resources.
+
+The old activation path created an AnimatedStaticNode on open and queued its
+removal on close. It skipped load doors, while the batch sync collapsed every
+opened door's geometry. Movement collision only followed enable state, so
+SimpleWorld retained a closed panel after the render path hid it. The resident
+path replaces that activation-time node creation. SimpleWorld now removes
+opened door bodies and restores them on close. Both player query collision
+and optional streamer PhysicsServer collision detach open or disabled door
+bodies from their space. Closing a disabled door keeps every collider absent.
+
+The resident mesh swings reversibly through a quarter-turn about the authored
+placement origin at one quarter-turn per second and holds each endpoint.
+This fallback follows local OpenMW `apps/openmw/mwworld/worldimp.cpp`,
+`World::rotateDoor`. It is not the NIF controller-manager Open/Close sequence
+player. The existing HST-01 direct-controller utility remains available.
+No moving door is included in a static cell occluder. The source for the
+open/close destination is local CK `SetOpen_-_ObjectReference.wikitext`, and
+REFR placement and XTEL identity use the existing record reader. The local
+godotwind `door_portal.gd` hides door meshes during portal previews. That path
+does not fit ordinary door presentation here, which retains visible geometry
+and disables the original panel collision while open.
+
+`door_state` exposes the stable node identity, render RID identities, local
+bounds, placement, visibility and swing fraction. `advance_doors` advances
+presentation without a gameplay tick. `swing_door_count` reports resident
+control nodes rather than activation-time nodes. The `hst_21_` tests cover
+reversal, endpoint holding, invalid elapsed time and the SetOpen native's
+unlocking behavior. The SKYRIM_DATA-gated scene uses the installed Bannered
+Mare and Breezehome front doors, opens and closes each ten times, checks node
+and render identity, and moves a CharacterBody3D capsule through each open
+doorway with a blocked closed-door control. Each sweep ends with the capsule wholly
+beyond the panel plane and before the interior end wall. It checks disable, close while
+disabled, re-enable and cell detach across movement, query and streamer
+collision. Windowed captures are external under `target/hst_21`.
+
+This path adds one control node per built door, with no child mesh or physics
+nodes. The windowed Godot 4.4.1 llvmpipe scene passed all twenty cycles and
+exited zero. Bannered Mare had six resident door nodes and the front door
+had five render surfaces. Breezehome had one node and three surfaces.
+Across 1,000 zero-time `advance_doors` calls, the whole API call averaged
+0.086 microseconds for the six doors and 0.081 microseconds for the single
+door. These measure held-pose presentation calls with GDScript dispatch,
+not the full host frame or moving-mesh server submission cost. Door surfaces
+remain server resources. The path adds no dependencies or saved fields.
 
 ### Cold door fade fallback (2026-09-20)
 
@@ -5797,6 +5834,24 @@ the sampled sky region was 0.639 at noon and 0.272 at night, exceeding the
 0.05 difference threshold. The host texture, fog, phase, transition and
 interior checks passed in the same windowed run, which exited with status 0.
 
+### WTHR cloud scroll rates, RND-25
+
+`godot/record_sky.gd` converts each decoded WTHR cloud velocity to UV units
+per presentation second by dividing both axes by 400 before uploading them to
+the sky shader. The shader advances UV coordinates by that velocity times
+elapsed seconds. WTHR speed bytes use `(byte - 127) / 127 / 10`, as described
+by the local UESP WTHR page and implemented by Mutagen's Skyrim weather
+reader. The `/400` time scale follows OpenMW's sky cloud animation update in
+`apps/openmw/mwrender/sky.cpp`.
+
+`godot/rnd_25_cloud_speed_test.gd` loads installed data, selects
+`SkyrimCloudy`, and checks each uploaded axis against the source weather rate
+divided by 400 with a 3 percent tolerance. It also requires at least one
+moving layer. The Rust runner is
+`rnd_25_installed_skyrimcloudy_cloud_rate_matches_its_weather_record`, and a
+source contract test checks that the shader applies the uploaded rate over
+elapsed seconds.
+
 The radius-zero Whiterun bench used 51 renderer instances, 42 meshes and
 31,146 triangles. Its 600-frame software Vulkan sample had a 33.105 ms p99
 at the benchmark's fixed 1600 by 900 render size in a 640 by 360 window.
@@ -5808,6 +5863,50 @@ The separate `rnd_18_walkthrough_shared_world_interior_smoke` test loads the
 walkthrough with gameplay, pauses simulation stepping, checks its shared
 World interior lighting and captures eight rendered frames. It passed and
 exited with status 0. This smoke run does not measure interactive frame time.
+
+## Sky depth and hemisphere continuity, RND-30
+
+`record_sky.gdshader` uses Godot's background sky pass for the atmosphere,
+clouds, sun, moons and stars. These inputs depend on viewing direction rather
+than camera position or a finite mesh radius. World geometry occludes the
+background, and the sky writes no world depth. The controller creates no
+finite sky mesh, cloud billboard or node per placed reference.
+
+Cloud UVs use a stereographic upper hemisphere, `eye.xz / (1 + eye.y)`.
+There are no cube faces or clamped projection bands. Cloud alpha fades to
+zero across the lowest 0.16 of the vertical viewing direction, meeting the
+horizon color continuously. Cloud uploads generate mipmaps after resizing,
+and the texture array uses linear mipmap filtering. Star texture sampling
+wraps at the spherical longitude boundary.
+
+Sources read were local OpenMW `apps/openmw/mwrender/sky.cpp`, its
+`files/shaders/compatibility/sky.vert`, and Godot's
+`tutorials/shaders/shader_reference/sky_shader.rst`,
+`shading_language.rst` and `tutorials/shaders/advanced_postprocessing.rst`.
+OpenMW places a camera-relative sky in an early render bin and disables
+depth writes. Godot supplies the background pass and direction inputs,
+so the host retains that API instead of porting OpenMW's OSG mesh path.
+The depth-mask test uses Godot 4.4's reversed depth buffer, with zero denoting
+the background. No dependency or saved state is added.
+
+The `rnd_30_` tests launch `godot/rnd_30_sky_capture_test.gd` windowed at
+640 by 360 and quit on completion. Synthetic captures check occlusion at
+10, 10,000 and 1,000,000 metres, camera translation with every sky component
+enabled, and adjacent samples across sixteen cube-edge, pole and horizon
+views. The continuity limit is 0.04 per channel. The installed-data case
+uses the walkthrough's PlayerNode and record sky, exits the Bannered Mare
+and views the Throat of the World from Whiterun's wall gate. It checks the
+gameplay sky binding, then uses shared-source preview controls for noon
+SkyrimCloudy. It identifies
+BTR mountain pixels by toggling terrain LOD, and distinguishes geometry
+from sky with a depth mask. Replacing the sky with magenta must leave those
+mountain pixels unchanged and fill every sampled background pixel. The
+minimum is 500 pixels in each region, with a tolerance of 2/255 per channel
+and no contaminated samples. Fog and reflections are disabled for this
+diagnostic comparison. A separate capture retains the authored cloudy sky
+and fog. Eight installed-cloud views sample former cube edges and corners
+with a limit of 0.08 per channel. PNGs and process logs are written under
+`target/rnd_30`.
 
 ## NIF effect materials, RND-22
 
