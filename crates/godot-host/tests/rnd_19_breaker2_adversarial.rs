@@ -78,9 +78,9 @@ fn rnd_19_installed_gameplay_capture_shows_terrain_and_tracks_lod() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest.join("../..");
     let project = workspace.join("godot");
-    let data = PathBuf::from(
-        "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
-    );
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        return;
+    };
     let godot = std::env::var_os("SOE_GODOT_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|| {

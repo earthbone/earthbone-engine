@@ -6,13 +6,8 @@ use std::path::Path;
 use soe_bsa::{Archive, Vfs};
 use soe_swf_convert::convert;
 
-const SKYRIM: &str =
-    "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data";
-const SKYUI: &str = "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/mods/SkyUI-5.2SE-6.11";
-
 fn game_vfs() -> Option<Vfs> {
-    let data = std::env::var_os("SKYRIM_DATA")
-        .map_or_else(|| Some(Path::new(SKYRIM).to_path_buf()), |p| Some(p.into()))?;
+    let data = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from)?;
     let archive = data.join("Skyrim - Interface.bsa");
     if !archive.exists() {
         return None;
@@ -23,8 +18,7 @@ fn game_vfs() -> Option<Vfs> {
 }
 
 fn skyui_vfs() -> Option<Vfs> {
-    let root = std::env::var_os("SOE_TEST_SKYUI")
-        .map_or_else(|| Some(Path::new(SKYUI).to_path_buf()), |p| Some(p.into()))?;
+    let root = std::env::var_os("SOE_TEST_SKYUI").map(std::path::PathBuf::from)?;
     let archive = root.join("SkyUI_SE.bsa");
     if !archive.exists() {
         return None;

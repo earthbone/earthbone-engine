@@ -50,13 +50,9 @@ fn morph_weights_are_measured_from_the_unchanged_base_on_each_call() {
 
 #[test]
 fn vanilla_head_tri_morphs_move_only_declared_vertices_and_zero_restores_base() {
-    let data = std::env::var_os("SKYRIM_DATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(
-                "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
-            )
-        });
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        return;
+    };
     let archive = soe_bsa::Archive::open(&data.join("Skyrim - Meshes0.bsa"))
         .expect("open vanilla mesh archive");
     let mut sampled = 0;

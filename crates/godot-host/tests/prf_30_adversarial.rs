@@ -21,11 +21,10 @@ fn report_count(report: &str, field: &str) -> f64 {
 
 #[test]
 fn prf_30_resident_cell_render_counts_reconcile_with_the_streamer() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
-    let data = std::env::var_os("SKYRIM_DATA").unwrap_or_else(|| {
-        "/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data"
-            .into()
-    });
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("crate parent")
