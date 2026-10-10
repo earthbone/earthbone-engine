@@ -63,7 +63,10 @@ fn script_var(game: &mut Game, name: &str) -> Value {
 #[test]
 fn ui_11_signed_papyrus_option_ids_reject_pages_above_int_range() {
     let mut largest = ConfigPage::new(0x7f_ffff);
-    assert_eq!(largest.add_text("Last valid page", "", 0), Some(0x7fff_ff00));
+    assert_eq!(
+        largest.add_text("Last valid page", "", 0),
+        Some(0x7fff_ff00)
+    );
 
     let mut out_of_range = ConfigPage::new(0x80_0000);
     assert_eq!(out_of_range.add_text("Not representable", "", 0), None);

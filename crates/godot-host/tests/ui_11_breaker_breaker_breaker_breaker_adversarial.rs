@@ -81,7 +81,9 @@ fn ui_11_adversarial_disabled_and_hidden_rows_never_dispatch() {
         object: CONFIG_QUEST,
     };
     let mut page = ConfigPage::new(1);
-    let disabled = page.add_toggle("Disabled", true, OPTION_FLAG_DISABLED).unwrap();
+    let disabled = page
+        .add_toggle("Disabled", true, OPTION_FLAG_DISABLED)
+        .unwrap();
     let hidden = page.add_text("Hidden", "secret", HIDDEN).unwrap();
     assert!(!page.select(&mut game, form, disabled));
     assert!(!page.select(&mut game, form, hidden));
