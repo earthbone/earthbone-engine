@@ -55,7 +55,10 @@ fn caller_script() -> Vec<u8> {
                 .global()
                 .param("target", "NativeLeaf")
                 .local("result", "Float")
-                .ins(PropGet, vec![ident("vAlUe"), ident("target"), ident("result")])
+                .ins(
+                    PropGet,
+                    vec![ident("vAlUe"), ident("target"), ident("result")],
+                )
                 .ins(Return, vec![ident("result")])
                 .build(),
         )
@@ -64,7 +67,10 @@ fn caller_script() -> Vec<u8> {
                 .global()
                 .param("target", "NativeLeaf")
                 .param("value", "Float")
-                .ins(PropSet, vec![ident("VALUE"), ident("target"), ident("value")])
+                .ins(
+                    PropSet,
+                    vec![ident("VALUE"), ident("target"), ident("value")],
+                )
                 .ins(Return, vec![])
                 .build(),
         )
@@ -78,7 +84,10 @@ fn caller_script() -> Vec<u8> {
                     CallStatic,
                     vec![ident("Utility"), ident("Wait"), ident("ignored"), f(1.0)],
                 )
-                .ins(PropGet, vec![ident("Value"), ident("target"), ident("result")])
+                .ins(
+                    PropGet,
+                    vec![ident("Value"), ident("target"), ident("result")],
+                )
                 .ins(Return, vec![ident("result")])
                 .build(),
         )
@@ -160,14 +169,22 @@ fn scr_75_unknown_and_one_sided_properties_do_not_call_wrong_accessors() {
                 .global()
                 .param("target", "NativeLeaf")
                 .local("result", "Float")
-                .ins(PropGet, vec![ident("Missing"), ident("target"), ident("result")])
-                .ins(PropGet, vec![ident("WriteOnly"), ident("target"), ident("result")])
+                .ins(
+                    PropGet,
+                    vec![ident("Missing"), ident("target"), ident("result")],
+                )
+                .ins(
+                    PropGet,
+                    vec![ident("WriteOnly"), ident("target"), ident("result")],
+                )
                 .ins(PropSet, vec![ident("ReadOnly"), ident("target"), f(10.0)])
                 .build(),
         )
         .bytes();
     vm.load_bytes(&probe).unwrap();
-    let thread = vm.call_global("Probe", "Run", &[Value::Object(target)]).unwrap();
+    let thread = vm
+        .call_global("Probe", "Run", &[Value::Object(target)])
+        .unwrap();
     assert!(vm.run_until_idle(10_000));
     assert_eq!(vm.thread_result(thread), Some(Value::None));
     let messages = vm.log.messages();
@@ -175,7 +192,11 @@ fn scr_75_unknown_and_one_sided_properties_do_not_call_wrong_accessors() {
     assert!(messages[0].contains("has no property Missing"));
     assert!(messages[1].contains("WriteOnly is write-only"));
     assert!(messages[2].contains("ReadOnly is read-only"));
-    assert!(vm.log.messages().iter().all(|message| !message.contains("stored")));
+    assert!(vm
+        .log
+        .messages()
+        .iter()
+        .all(|message| !message.contains("stored")));
 }
 
 #[test]
@@ -186,7 +207,10 @@ fn scr_75_suspended_inherited_getter_survives_engine_save_and_load() {
         .call_global("Caller", "WaitRead", &[Value::Object(target)])
         .unwrap();
     vm.run(10_000);
-    assert!(matches!(vm.thread_state(thread), Some(ThreadState::Sleeping(_))));
+    assert!(matches!(
+        vm.thread_state(thread),
+        Some(ThreadState::Sleeping(_))
+    ));
     let state = vm.save_state().unwrap();
 
     let mut restored = Vm::new();

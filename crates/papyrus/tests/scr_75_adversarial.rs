@@ -12,7 +12,10 @@ fn caller() -> Vec<u8> {
                 .global()
                 .param("target", "NativeLeaf")
                 .local("result", "Float")
-                .ins(PropGet, vec![ident("vAlUe"), ident("target"), ident("result")])
+                .ins(
+                    PropGet,
+                    vec![ident("vAlUe"), ident("target"), ident("result")],
+                )
                 .ins(Return, vec![ident("result")])
                 .build(),
         )
@@ -21,7 +24,10 @@ fn caller() -> Vec<u8> {
                 .global()
                 .param("target", "NativeLeaf")
                 .param("value", "Float")
-                .ins(PropSet, vec![ident("VALUE"), ident("target"), ident("value")])
+                .ins(
+                    PropSet,
+                    vec![ident("VALUE"), ident("target"), ident("value")],
+                )
                 .build(),
         )
         .bytes()
