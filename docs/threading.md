@@ -75,6 +75,9 @@ PRF-36 adds waypoint steering to the same pool, borrowing a detached AiState.
 The caller joins each job before applying movement and arrival effects in
 FormID order. These jobs share the configured pool with navigation. Separate
 movement job, worker busy and caller wait metrics include their dispatch costs.
+Without a configured pool, steering runs on the caller and reports no worker
+jobs. This avoids a global-pool dispatch and join for
+each actor's short waypoint step.
 Distance-based process scheduling and immutable PACK and procedure-tree caches
 reduce caller work. [game.md](game.md) specifies the cadence policy. World
 mutation, package conditions, RNG and event emission remain on the caller.
