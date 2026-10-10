@@ -174,6 +174,54 @@ fn prf_21_save_command_reports_load_time_per_section() {
 }
 
 #[test]
+fn prf_21_save_command_reports_write_time_per_section() {
+    if report().is_none() {
+        return;
+    }
+    assert!(
+        stdout()
+            .lines()
+            .any(|line| line.starts_with("save_section_save_ns ")),
+        "save report has no section write timings"
+    );
+}
+
+#[test]
+fn prf_21_save_write_sections_cover_ess_body_and_preserve_encoded_bytes() {
+    let Some(path) = user_saves().into_iter().next() else {
+        eprintln!("no user saves found, skipping PRF-21 ESS writer profile check");
+        return;
+    };
+    let save = Save::open(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let (profiled_bytes, profile) = save.write_profiled().unwrap();
+    assert_eq!(profiled_bytes, save.write().unwrap());
+    assert_eq!(
+        profile
+            .sections
+            .iter()
+            .map(|section| section.bytes)
+            .sum::<usize>(),
+        save.body_bytes().len()
+    );
+    for section in [
+        "plugin_info",
+        "location_table",
+        "table_1",
+        "table_2",
+        "change_forms",
+        "table_3",
+        "form_id_array",
+        "visited_worldspaces",
+        "unknown_3",
+    ] {
+        assert!(
+            profile.sections.iter().any(|row| row.name == section),
+            "write profile omits {section}"
+        );
+    }
+}
+
+#[test]
 fn prf_21_save_command_reports_plugin_sizes() {
     if report().is_none() {
         return;

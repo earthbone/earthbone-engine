@@ -16,6 +16,14 @@ use soe_save::{Papyrus, Save};
 use crate::Game;
 
 pub const MAGIC: &[u8; 4] = b"SOEG";
+
+/// One measured top-level section in a native SOEG save.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeSaveSection {
+    pub name: &'static str,
+    pub bytes: usize,
+    pub nanos: u64,
+}
 pub const VERSION: u16 = 2;
 
 /// Dependency identity recorded in a native game save.
@@ -495,17 +503,40 @@ impl Game {
     /// Whatever [`soe_papyrus::Vm::save_state`] returns for a thread it
     /// cannot describe (a frame with no script).
     pub fn save_state(&self) -> Result<Vec<u8>, VmError> {
+        self.save_state_profiled().map(|(bytes, _)| bytes)
+    }
+
+    /// Serialize the save and measure its world, Papyrus and envelope sections.
+    pub fn save_state_profiled(&self) -> Result<(Vec<u8>, Vec<NativeSaveSection>), VmError> {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Save);
         let _span = soe_trace::Span::new("game.save_state", "game");
+        let started = std::time::Instant::now();
         let world_bytes = self.world.borrow().save_state();
+        let mut sections = vec![NativeSaveSection {
+            name: "world",
+            bytes: world_bytes.len(),
+            nanos: elapsed_nanos(started),
+        }];
+        let started = std::time::Instant::now();
         let vm_bytes = self.vm.save_state()?;
+        sections.push(NativeSaveSection {
+            name: "papyrus_vm",
+            bytes: vm_bytes.len(),
+            nanos: elapsed_nanos(started),
+        });
+        let started = std::time::Instant::now();
         let mut out = Writer::new();
         out.out.extend_from_slice(MAGIC);
         out.u16(VERSION);
         current_provenance(self).write(&mut out);
         out.bytes(&world_bytes);
         out.bytes(&vm_bytes);
-        Ok(out.out)
+        sections.push(NativeSaveSection {
+            name: "envelope",
+            bytes: out.out.len(),
+            nanos: elapsed_nanos(started),
+        });
+        Ok((out.out, sections))
     }
 
     /// Replace the world and VM state with a saved one. Compatible scripts
@@ -545,6 +576,10 @@ impl Game {
         self.bound_forms.clear();
         Ok(())
     }
+}
+
+fn elapsed_nanos(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 impl Game {

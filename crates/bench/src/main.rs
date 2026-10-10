@@ -916,6 +916,11 @@ fn save(opts: &Options, input: Option<&str>) -> Result<(), String> {
                 game.load_state(&bytes).map_err(|error| error.to_string())
             })?;
             report_count("save_file_bytes", bytes.len(), "bytes");
+            let (written, sections) = game
+                .save_state_profiled()
+                .map_err(|error| error.to_string())?;
+            report_native_save_sections(&sections);
+            report_count("save_write_file_bytes", written.len(), "bytes");
             return Ok(());
         }
         let (_, (save, profile)) = timed(opts, "save_parse", opts.runs, || {
@@ -948,6 +953,17 @@ fn save(opts: &Options, input: Option<&str>) -> Result<(), String> {
             );
         }
         report_save_sections(&save, &profile);
+        let (_, write_profile) = save.write_profiled().map_err(|error| error.to_string())?;
+        let mut save_nanos = 0_u64;
+        for section in &write_profile.sections {
+            println!("save_section_save_ns {} {}", section.name, section.nanos);
+            save_nanos = save_nanos.saturating_add(section.nanos);
+        }
+        report_count(
+            "save_section_save_ns_total",
+            usize::try_from(save_nanos).unwrap_or(usize::MAX),
+            "ns",
+        );
         let decode = Instant::now();
         let papyrus = save.papyrus();
         println!(
@@ -978,12 +994,30 @@ fn save(opts: &Options, input: Option<&str>) -> Result<(), String> {
         game.save_state().map_err(|e| e.to_string())
     })?;
     report("save_size_mb", bytes.len() as f64 / 1e6, "MB");
+    let (_, sections) = game
+        .save_state_profiled()
+        .map_err(|error| error.to_string())?;
+    report_native_save_sections(&sections);
     let mut fresh = Game::new(read_order_threads(&opts.data, opts.threads)?);
     fresh.load_scripts_from_data(&opts.data);
     let (_, ()) = timed(opts, "load_state", opts.runs, || {
         fresh.load_state(&bytes).map_err(|e| e.to_string())
     })?;
     Ok(())
+}
+
+fn report_native_save_sections(sections: &[soe_game::save::NativeSaveSection]) {
+    let mut total_nanos = 0_u64;
+    for section in sections {
+        println!("save_section {} {}", section.name, section.bytes);
+        println!("save_section_save_ns {} {}", section.name, section.nanos);
+        total_nanos = total_nanos.saturating_add(section.nanos);
+    }
+    report_count(
+        "save_section_save_ns_total",
+        usize::try_from(total_nanos).unwrap_or(usize::MAX),
+        "ns",
+    );
 }
 
 /// The cost of the spans themselves: the same cell streamed with tracing
