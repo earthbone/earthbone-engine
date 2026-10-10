@@ -241,3 +241,26 @@ fn cmb_09_weapon_tabs_match_the_weapon_form_for_both_damage_entry_points() {
     assert!((result.weapon_damage - 29.0).abs() < 0.001, "{result:?}");
     assert!((result.health_damage - 29.0).abs() < 0.001);
 }
+
+#[test]
+fn cmb_09_non_finite_numeric_effect_rejects_without_committing_hit_damage() {
+    let attacker = id(0x900);
+    let target = id(0x901);
+    let mut game = fixture(vec![perk_effect(
+        0x810,
+        35,
+        2,
+        1,
+        &f32::NAN.to_le_bytes(),
+    )]);
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+
+    let result = game.melee_hit(hit(attacker, target));
+
+    assert!(result.is_err());
+    assert_eq!(game.world_mut().actor(target).unwrap().values.get("health").current(), 100.0);
+}
