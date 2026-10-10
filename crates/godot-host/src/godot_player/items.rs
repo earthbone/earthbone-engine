@@ -2,7 +2,7 @@
 
 //! SkyUI-informed native Control presentation, with actions resolved in Game.
 
-use godot::classes::{Control, GDScript};
+use godot::classes::{Control, GDScript, ProjectSettings};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
@@ -65,6 +65,22 @@ impl PlayerNode {
         let Some(source) = self.data_source.as_ref() else {
             return String::new();
         };
+        let settings = ProjectSettings::singleton();
+        let configured = settings
+            .get_setting_ex("soe/tools/path")
+            .default_value(&GString::new().to_variant())
+            .done()
+            .try_to::<GString>()
+            .unwrap_or_default();
+        let configured = if configured.is_empty() {
+            String::new()
+        } else {
+            settings.globalize_path(&configured).to_string()
+        };
+        let Some(decompiler) = crate::interface_art::from_env(&configured) else {
+            self.interface_cache = Some(String::new());
+            return String::new();
+        };
         let root = std::env::var_os("SOE_INTERFACE_CACHE_ROOT").map_or_else(
             || std::path::PathBuf::from("/tmp/soe-interface-cache"),
             std::path::PathBuf::from,
@@ -75,12 +91,7 @@ impl PlayerNode {
             .iter()
             .map(|file| file.name.clone())
             .collect::<Vec<_>>();
-        let cache = match soe_swf_convert::build_cache(
-            source.vfs(),
-            &plugins,
-            &root,
-            &soe_swf_convert::Decompiler::from_env(),
-        ) {
+        let cache = match soe_swf_convert::build_cache(source.vfs(), &plugins, &root, &decompiler) {
             Ok(cache) => cache.directory.to_string_lossy().into_owned(),
             Err(error) => {
                 godot_error!("PlayerNode: interface art cache failed: {error}");
@@ -95,6 +106,7 @@ impl PlayerNode {
         let Some(mut content) = self.menu_content() else {
             return false;
         };
+        self.item_panel_layout();
         let mut data = VarArray::new();
         for (row, side) in rows {
             data.push(&dictionary(row, *side).to_variant());

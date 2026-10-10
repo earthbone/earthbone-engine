@@ -100,6 +100,50 @@ simulation enabled and applies the same limits to F3 presentation frames.
 Both scripts quit when their checks end. Build and
 import the release extension before running the installed host test.
 
+## Interface art discovery and panel bounds, UI-27
+
+PlayerNode selects FFDec before building its interface cache. It tries a
+valid `SOE_FFDEC_JAR` with Java on PATH, then the executable named by
+`SOE_FFDEC`, then directories in `SOE_TOOLS_PATH` and the Godot project
+setting `soe/tools/path`. That setting accepts an absolute path or a Godot
+resource path. Tools directories may contain FFDec directly, under `FFDec`,
+`ffdec`, `tools/FFDec` or `SkyUI-Community/tools/FFDec`. A configured path may
+also name the JAR or executable itself. Discovery prefers `ffdec-cli.jar`
+over `ffdec.jar`, then executable launchers. It also checks nearby `tools`
+and `engine-refs` directories, `Projects/Programming/skyrim-modclients/engine-refs`
+under each ancestor of `HOME`, the conventional system Java directories, and
+`ffdec-cli`, `ffdec` or `ffdec.sh` on PATH. Missing or invalid candidates fall
+through to the next location.
+
+The source is local `SkyUI-Community/tools/FFDec/ffdec-cli`, whose JAR
+manifest resolves its dependencies relative to the JAR, and `ffdec.sh`,
+which documents installed Java and system JAR locations. The host reuses
+UI-19's out-of-process converter with its existing headless Java command
+and local-only import policy. It logs the chosen JAR or launcher once per
+process. Without FFDec it logs the bundled-theme selection and skips cache
+conversion. Conversion errors also select the bundled theme. PlayerNode
+retains either result across menu openings.
+
+Inventory, container, barter, favorites and magic presentations set their
+shared shell to horizontal anchors 0.04 and 0.96 and vertical anchors 0.08
+and 0.92, independently of art availability. At 640 by 360 this gives a
+588.8 by 302.4 panel. Category buttons use 10-point text and 20-pixel minimum
+heights with no vertical separation. The native layout keeps categories
+before the item columns, search above the list and the item card beside it, with Take and
+Store tabs for containers. This follows `InventoryLists.as`'s bounded
+content panel and `ItemMenu.as`'s separate floating card. These proportions
+are the native host's viewport adaptation. Converted art never sets control
+bounds. Other modal presenters retain their existing shell layout.
+
+The `ui_27_` checks cover discovery precedence, tools-directory JARs,
+PATH launchers, executable permissions, absent Java, missing tools and
+invalid overrides. Installed-data checks export vanilla container actions
+with real Java and FFDec and open a vanilla container with no FFDec, a broken
+JAR and a configured FFDec install. The windowed scene compares panel bounds,
+checks category/list/card order and bundled art, reopens the container,
+captures the viewport and quits. Captures and logs go under `target/ui-27`.
+No dependency, saved state or per-reference node path is added.
+
 ## Default menu art, UI-24
 
 The UI-20 inventory, container, barter, favorites and magic menus share
@@ -800,9 +844,9 @@ cell audio. Music follows CELL/XCMO, regional RDMO or WRLD/ZNAM through
 Ambience follows CELL/XCAS, ASPC/SNAM/RDAT and CELL/XCLR regional descriptors
 through `soe_game::ambience` and `sound::prepare_for`. Godot non-positional
 players apply the selected descriptor's gain, pitch and ordinary loop mode.
-Cell changes stop and release those players. Envelope loop modes return an
-unsupported playback error. The older MUST ambience entry point remains
-available to callers.
+Cell changes crossfade those players after the replacement decode completes.
+Envelope loop modes return an unsupported playback error. The older MUST
+ambience entry point remains available to callers.
 
 Nearby Misc Hello and Idle responses selected by Game play at the speaker's
 position through the existing SoundBank voice pool, without opening a menu.
@@ -5969,6 +6013,38 @@ tracked content. The SKYRIM_DATA-gated
 test runs the installed captures, checks their brightness and backdrop
 transmission bounds, and requires the Godot process to exit successfully.
 
+## Additive hearth flames, RND-33
+
+The source-alpha plus one effect pair uses Godot's additive blend with the
+computed texture, vertex, base and falloff opacity in `ALPHA`. The blend applies
+source alpha once, so low-alpha flame texels do not fill the effect mesh hull.
+Blended effects keep depth writes disabled. Greyscale color
+and alpha lookups retain the authored palette flags, and falloff remains part
+of the opacity calculation. For a fire NIF with an authored greyscale color
+palette, an additive effect layer without its own palette path inherits the
+first sibling color palette and enables palette-color sampling. Existing
+palette assignments remain unchanged.
+
+The installed Bannered Mare survey finds `FireplaceWood01Burning` with an
+additive greyscale-palette surface and a separate palette surface with view
+falloff. It also finds the placed `Campfire01Burning` effect, whose unpaletted
+additive layer inherits the sibling `GradFireExplosion` color palette. The
+Godot capture test streams the cell and saves a room view, then draws the first
+additive palette-color surface from the installed fireplace NIF through
+`model_meshes` and its production material cache against dark and contrasting
+backdrops. It reads that surface's installed palette texture and checks that
+visible fire pixels are brighter than black, stay within palette hues and that
+every near-transparent pixel transmits the backdrop. It checks the shader
+retains falloff and saves the isolated hearth capture under `godot/.godot`.
+
+`rnd_33_installed_bannered_mare_hearth_capture_matches_its_palette` runs the
+windowed Godot capture when `SKYRIM_DATA` and `SOE_GODOT_BIN` are set. The local
+nifly effect-property definitions and OpenMW's
+`components/nifosg/nifloader.cpp` supplied the property and blend behavior.
+Community Shaders' `package/Shaders/Effect.hlsl` confirms the palette
+coordinates already implemented in RND-22. The implementation continues to
+use Godot's stock spatial shader and blend state.
+
 ## Detection neighborhoods, PRF-31
 
 `godot/prf_31_detection_test.gd` measures one installed Whiterun exterior
@@ -6351,3 +6427,70 @@ movement, a Solstheim asset switch and full-cell exclusion, then returns
 indoors and quits.
 `set_object_lod_visible` and `set_tree_lod_visible` toggle resident instances
 for these comparisons without changing residency.
+
+## Audio through cell transitions, AUD-13
+
+SoundBank and its music and ambience players are children of PlayerNode. Cell
+rendering and collision unloads leave them alive. Load-door transitions and
+exterior walking focus changes refresh CELL/XCAS and ambient descriptors.
+ASPC/SNAM supplies the acoustic sound, ASPC/RDAT supplies interior region
+sounds, and CELL/XCLR supplies weather-filtered exterior region sounds.
+Descriptor conditions, gain, pitch, loop mode and chance draws use the shared
+Game world. RDSA compares stored fractional chances with normalized draws,
+so a 1.0 regional loop survives every valid draw. The bank exposes the selected
+acoustic-space identity.
+
+Ambient descriptors resolve SNDR paths relative to Sound/, preserving an
+existing Sound/ prefix, then decode on workers through the active DataSource.
+Decode failures reach both last_error and the engine log. Cell-selection logs
+name the acoustic space, selected and prepared counts and rejected conditions.
+The old voices keep playing until the first replacement succeeds. Current
+voices then fade out over one second while replacements fade in over one second. Empty
+selections fade out directly. A failed replacement keeps the prior voices and
+reports its asset error. Each cell selection invalidates pending results from
+the preceding selection. Finished and faded voices release their nodes.
+This adds no node per placed reference, only players per selected ambient
+sound. Music retains its existing two slots.
+
+Music selects CELL/XCMO first, then sound-type REGN/RDMO entries by descending
+RDAT priority, then WRLD/ZNAM. Equal priorities retain CELL/XCLR order. An
+explicit null CELL music link suppresses inheritance. A regional override
+stops lower-priority regional entries. Crossing into another cell with the
+same music type keeps the playing track. A completed track requests another
+record selection unless MUSC specifies one selection. Silent selections wait
+for their authored duration. New music decodes before the existing record
+fade transition starts, and a finished file can restart from the cache.
+
+`preview_cell_ambience` provides record-selected audio for scene and editor
+previews without a running VM. Conditional descriptors reject that preview.
+The runtime uses `sound::prepare_for` with its live VM instead.
+The selection and ownership rules come from local UESP CELL, ASPC, REGN and
+WRLD pages and TES5Edit/Core/wbDefinitionsTES5.pas. Godot's local
+`audio_streams.rst` documents host players and bus output. Those sources
+supply semantics and APIs, with no new dependency or independent mixer.
+Mutagen's SkyrimSoundAssetType.cs supplies the Sound/ asset root.
+The existing game helper visits regional music in CELL order. The host reads
+RDAT priority before choosing a type, retaining the game's track and condition
+selection rather than copying that interpreter. Vanilla exterior tracks use
+GetIsCurrentWeather, so the game evaluator reads the existing shared sky
+weather for that predicate. Audio retains no separate weather state.
+
+The `aud_13_` Rust tests cover music precedence, priorities, null selection,
+regional overrides and malformed fields. `godot/aud_13_ambience_test.gd`
+checks short authored loops, fade overlap and cleanup, weather masks, stale
+decode cancellation, failed replacement continuity and surviving ownership.
+It also checks music fade overlap and an ended file restarting from the cache.
+The installed-data `godot/aud_13_transition_test.gd` activates the Bannered
+Mare exit, crosses Whiterun's gate to Tamriel and walks across exterior cell
+boundaries through host capsule movement and streaming, with AI and VM ticks
+omitted. It runs headless because these assertions concern mixer samples,
+ownership and cell identities. Captured samples are split into half-second
+windows for 20 seconds after each door crossing, requiring each window's
+peak above -60 dB. Sampling follows the mix rate rather than render frames.
+In Whiterun it also seeks the current music near its end and checks that
+another selection starts.
+Both scenes quit and the Rust runners require successful process exit.
+The runners use isolated projects with explicit extension registration, so
+a fresh checkout needs no shared Godot import cache for these checks.
+The fixture scene runs in a window. Their stdout and stderr captures are
+written under `target/aud_13`.

@@ -3047,13 +3047,21 @@ explicit unsupported-hook error.
 Condition function 170, `GetDayOfWeek`, reads the live calendar and returns
 zero for Sundas, with the starting date 17 Last Seed 4E 201 as day zero.
 Functions 12 `GetSecondsPassed`, 62 `IsRaining`, 75 `IsSnowing`, 148
-`GetCurrentWeatherPercent`, 149 `GetIsCurrentWeather`, 153 `CanHaveFlames` and
+`GetCurrentWeatherPercent`, 153 `CanHaveFlames` and
 154 `HasFlames` return explicit unsupported-function diagnostics. The local
 xEdit table supplies their identities and parameter types, but the CK corpus
 has no usable condition contracts for these queries. The runtime also has no
-condition state for elapsed evaluation time, current weather or reference
-flames. The evaluator checks the required `WTHR` parameter for function 149
-and rejects nonzero unused parameter slots on the parameterless functions.
+condition state for elapsed evaluation time or reference flames. The evaluator
+rejects nonzero unused parameter slots on the parameterless functions.
+
+AUD-13 implements function 149, `GetIsCurrentWeather`, against the shared
+sky's selected WTHR identity. It is false before the sky selects a weather.
+A transition reports its destination weather, rather than its outgoing blend
+sources. The evaluator resolves the WTHR in the condition owner's winning
+file and rejects missing, deleted or wrong-type forms and unused second
+parameters. xEdit supplies the function identity and weather parameter type,
+and CommonLibSSE-NG `include/RE/S/Sky.h` distinguishes currentWeather from
+lastWeather. This reads existing RND-18 state without adding a save section.
 
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
@@ -3594,6 +3602,21 @@ reach, and since they key off the calling object rather than a form the same
 behaviour registers cleanly on the effect class. The later active-effect
 implementation below supplies its getters and `Dispel` using a separate
 object for each effect application.
+
+### SCR-75 native-form property execution
+
+The SCR-75 installed-data test loads the five masters and their scripts, then
+executes mixed-case property reads and writes on `GameDaysPassed.Value`.
+The VM resolves the loaded `GlobalVariable` PEX accessors on the native form.
+They call `GetValue` and `SetValue` against the same shared world global used
+by the five methods below. This follows the shipped
+`skse64/scripts/vanilla/GlobalVariable.psc` and CK's
+`GlobalVariable_Script.wikitext` read-write float property contract.
+`crates/game/tests/scr_75_walkthrough.gd` extends the installed walkthrough,
+runs 20 seconds after gameplay is ready and quits. Startup that has not reached
+ready after 120 seconds fails the check. Set `SOE_SCR_75_LOG` to the captured
+console log. The check fails if that log is missing, empty or contains
+`has no property value`, compared without case.
 
 ### SCR-62 native contract audit
 
@@ -9111,7 +9134,7 @@ Idle chatter. Actors without an active package have no package restriction.
 
 `ambience::descriptors_for_cell` follows CELL/XCAS to ASPC/SNAM for interior
 ambient sound and interior-only ASPC/RDAT for regional sounds. CELL/XCLR also
-supplies regions. REGN sound entries use RDSA weather masks and percentage
+supplies regions. REGN sound entries use RDSA weather masks and stored
 chances, ordered by RDAT priority with override entries ending lower-priority
 selection. It returns resolved descriptor identities, leaving SNDR conditions
 and playback parameters to `sound::prepare_for`. Layout sources are local UESP
@@ -9179,3 +9202,11 @@ without changing the saved reference layout.
 The enable rules remain those described under RND-17, from local UESP REFR
 and xEdit `wbXESP`. CK Enable and Disable pages describe children popping with
 parents. The host consumes these derived views of the shared World.
+
+AUD-13 compares the RDSA chance float directly with a normalized draw. Vanilla
+region sounds store 1.0 for continuous ambience and fractions for occasional
+sounds. Equal draws exclude an entry. The parser retains Mutagen's accepted
+0 to 100 field range, so stored chances of at least 1 always pass. The source
+layouts are UESP REGN and xEdit's `wbRegionSounds`, with the chance range from
+Mutagen's Skyrim `Region.xml`. The installed city and tundra tests require a
+selected ordinary loop with a draw of 0.25. No ambient state is added to saves.

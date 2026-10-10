@@ -40,6 +40,8 @@ pub mod facial;
 pub mod hud;
 pub mod image_space;
 pub mod input;
+#[cfg(feature = "godot")]
+mod interface_art;
 pub mod interior_prefetch;
 pub mod inventory_menu;
 pub mod item_card;
