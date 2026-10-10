@@ -215,4 +215,59 @@ impl PlayerNode {
         }
         row
     }
+
+    /// Read a host reference through the corresponding Papyrus Game native.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_reference_native(&mut self, name: GString) -> VarDictionary {
+        let name = name.to_string();
+        if !matches!(
+            name.as_str(),
+            "GetCurrentCrosshairRef" | "GetPlayerGrabbedRef"
+        ) {
+            return VarDictionary::new();
+        }
+        let script_name = "SoeHst18ReferenceCheck";
+        let function = soe_papyrus::asm::FunctionBuilder::new("Read", "Form")
+            .global()
+            .local("result", "Form")
+            .ins(
+                soe_papyrus::Opcode::CallStatic,
+                vec![
+                    soe_papyrus::asm::s("Game"),
+                    soe_papyrus::asm::s(&name),
+                    soe_papyrus::asm::ident("result"),
+                ],
+            )
+            .ins(
+                soe_papyrus::Opcode::Return,
+                vec![soe_papyrus::asm::ident("result")],
+            )
+            .build();
+        let bytes = soe_papyrus::asm::ScriptBuilder::new(script_name, "Form")
+            .function(function)
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return VarDictionary::new();
+        };
+        if game.load_script(&bytes).is_err() {
+            return VarDictionary::new();
+        }
+        let Ok(thread) = game.vm.call_global(script_name, "Read", &[]) else {
+            return VarDictionary::new();
+        };
+        if !game.run_until_idle(64) {
+            return VarDictionary::new();
+        }
+        let Some(soe_papyrus::Value::Object(object)) = game.vm.thread_result(thread) else {
+            return VarDictionary::new();
+        };
+        let Some(reference) = game.world().form_of(object) else {
+            return VarDictionary::new();
+        };
+        let mut row = VarDictionary::new();
+        row.set("file", i64::from(reference.file));
+        row.set("object", i64::from(reference.object));
+        row
+    }
 }
