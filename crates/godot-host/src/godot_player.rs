@@ -184,6 +184,7 @@ pub struct PlayerNode {
     presented_hud_cart_mode: bool,
     effect_shaders: crate::effect_shader::EffectShaderStack,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
+    cell_music_type: Option<GlobalFormId>,
     dialogue_voice_slot: Option<i32>,
     ambient_response: Option<soe_game::dialogue::Line>,
     footstep_cadence: crate::audio::FootstepCadence,
@@ -329,6 +330,7 @@ impl INode3D for PlayerNode {
             presented_hud_cart_mode: false,
             effect_shaders: crate::effect_shader::EffectShaderStack::default(),
             sound_bank: None,
+            cell_music_type: None,
             dialogue_voice_slot: None,
             ambient_response: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
@@ -592,6 +594,15 @@ impl INode3D for PlayerNode {
         } else {
             self.catchup_since = None;
             self.catchup_warning_sent = false;
+        }
+        if self
+            .sound_bank
+            .as_ref()
+            .is_some_and(|bank| bank.bind().music_needs_selection())
+        {
+            if let Some(cell) = self.loaded_cell {
+                self.sync_cell_music(cell);
+            }
         }
         let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         let scene_scope = crate::scene_timing::Scope::new(soe_trace::System::Other);

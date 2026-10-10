@@ -844,9 +844,9 @@ cell audio. Music follows CELL/XCMO, regional RDMO or WRLD/ZNAM through
 Ambience follows CELL/XCAS, ASPC/SNAM/RDAT and CELL/XCLR regional descriptors
 through `soe_game::ambience` and `sound::prepare_for`. Godot non-positional
 players apply the selected descriptor's gain, pitch and ordinary loop mode.
-Cell changes stop and release those players. Envelope loop modes return an
-unsupported playback error. The older MUST ambience entry point remains
-available to callers.
+Cell changes crossfade those players after the replacement decode completes.
+Envelope loop modes return an unsupported playback error. The older MUST
+ambience entry point remains available to callers.
 
 Nearby Misc Hello and Idle responses selected by Game play at the speaker's
 position through the existing SoundBank voice pool, without opening a menu.
@@ -6207,3 +6207,68 @@ The batched door hides while open. Movement-body visibility uses effective
 enable state and does not remove a static door body solely because it opened.
 Query bodies additionally hide opened doors. Change notification retains this
 existing handoff. Door node lifetime and open-door capsule passage belong to HST-21.
+
+## Audio through cell transitions, AUD-13
+
+SoundBank and its music and ambience players are children of PlayerNode. Cell
+rendering and collision unloads leave them alive. Load-door transitions and
+exterior walking focus changes refresh CELL/XCAS and ambient descriptors.
+ASPC/SNAM supplies the acoustic sound, ASPC/RDAT supplies interior region
+sounds, and CELL/XCLR supplies weather-filtered exterior region sounds.
+Descriptor conditions, gain, pitch, loop mode and chance draws use the shared
+Game world. RDSA compares stored fractional chances with normalized draws,
+so a 1.0 regional loop survives every valid draw. The bank exposes the selected
+acoustic-space identity.
+
+Ambient descriptors resolve SNDR paths relative to Sound/, preserving an
+existing Sound/ prefix, then decode on workers through the active DataSource.
+Decode failures reach both last_error and the engine log. Cell-selection logs
+name the acoustic space, selected and prepared counts and rejected conditions.
+The old voices keep playing until the first replacement succeeds. Current
+voices then fade out over one second while replacements fade in over one second. Empty
+selections fade out directly. A failed replacement keeps the prior voices and
+reports its asset error. Each cell selection invalidates pending results from
+the preceding selection. Finished and faded voices release their nodes.
+This adds no node per placed reference, only players per selected ambient
+sound. Music retains its existing two slots.
+
+Music selects CELL/XCMO first, then sound-type REGN/RDMO entries by descending
+RDAT priority, then WRLD/ZNAM. Equal priorities retain CELL/XCLR order. An
+explicit null CELL music link suppresses inheritance. A regional override
+stops lower-priority regional entries. Crossing into another cell with the
+same music type keeps the playing track. A completed track requests another
+record selection unless MUSC specifies one selection. Silent selections wait
+for their authored duration. New music decodes before the existing record
+fade transition starts, and a finished file can restart from the cache.
+
+`preview_cell_ambience` provides record-selected audio for scene and editor
+previews without a running VM. Conditional descriptors reject that preview.
+The runtime uses `sound::prepare_for` with its live VM instead.
+The selection and ownership rules come from local UESP CELL, ASPC, REGN and
+WRLD pages and TES5Edit/Core/wbDefinitionsTES5.pas. Godot's local
+`audio_streams.rst` documents host players and bus output. Those sources
+supply semantics and APIs, with no new dependency or independent mixer.
+Mutagen's SkyrimSoundAssetType.cs supplies the Sound/ asset root.
+The existing game helper visits regional music in CELL order. The host reads
+RDAT priority before choosing a type, retaining the game's track and condition
+selection rather than copying that interpreter. Vanilla exterior tracks use
+GetIsCurrentWeather, so the game evaluator reads the existing shared sky
+weather for that predicate. Audio retains no separate weather state.
+
+The `aud_13_` Rust tests cover music precedence, priorities, null selection,
+regional overrides and malformed fields. `godot/aud_13_ambience_test.gd`
+checks short authored loops, fade overlap and cleanup, weather masks, stale
+decode cancellation, failed replacement continuity and surviving ownership.
+It also checks music fade overlap and an ended file restarting from the cache.
+The installed-data `godot/aud_13_transition_test.gd` activates the Bannered
+Mare exit, crosses Whiterun's gate to Tamriel and walks across exterior cell
+boundaries through host capsule movement and streaming, with AI and VM ticks
+omitted. It runs headless because these assertions concern mixer samples,
+ownership and cell identities. Captured samples are split into half-second
+windows for 20 seconds after each door crossing, requiring each window's
+peak above -60 dB. Sampling follows the mix rate rather than render frames.
+In Whiterun it also seeks the current music near its end and checks that
+another selection starts.
+Both scenes quit and the Rust runners require successful process exit.
+The fixture scene runs in a window. Their stdout and stderr captures are
+written under `target/aud_13`.
