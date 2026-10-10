@@ -126,10 +126,7 @@ fn blend_output(effect: &EffectMaterial) -> (&'static str, String) {
         None => ("blend_mix", String::new()),
         Some((SrcAlpha, OneMinusSrcAlpha)) => ("blend_mix", "ALPHA = opacity;".into()),
         Some((One, OneMinusSrcAlpha)) => ("blend_premul_alpha", "ALPHA = opacity;".into()),
-        Some((SrcAlpha, One)) => (
-            "blend_add",
-            "ALBEDO *= opacity; EMISSION *= opacity; ALPHA = 1.0;".into(),
-        ),
+        Some((SrcAlpha, One)) => ("blend_add", "ALPHA = opacity;".into()),
         Some((One, One)) => ("blend_add", "ALPHA = 1.0;".into()),
         Some((DstColor, Zero) | (Zero, SrcColor)) => ("blend_mul", "ALPHA = 1.0;".into()),
         Some((One, Zero)) => ("blend_mix", "ALPHA = 1.0;".into()),
