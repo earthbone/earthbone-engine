@@ -120,6 +120,7 @@ impl DataSource {
         let textures = self.textures.resolve(&self.vfs, &arrays.material);
         Ok(Some(LoadedLodBlock {
             surfaces: vec![LoadedSurface {
+                animation: None,
                 reference: world,
                 arrays,
                 textures,

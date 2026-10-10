@@ -414,6 +414,7 @@ mod tests {
             .1
             .surfaces
             .push(crate::data_source::LoadedSurface {
+                animation: None,
                 reference: CELL,
                 arrays: crate::mesh::build_surface(
                     &crate::mesh::MeshData {
