@@ -28,8 +28,8 @@
 //! # Order
 //!
 //! This implementation distributes once at game start, before scripts run.
-//! SPID's per-actor event lifecycle remains unimplemented. A swap is applied
-//! when the reference is built, see above.
+//! Fractional deterministic SPID chances are applied when each actor's state
+//! is built. A swap is applied when the reference is built, see above.
 //!
 //! # Chance
 //!
