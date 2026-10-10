@@ -747,6 +747,8 @@ mod hst_13_adversarial;
 mod hst_13_breaker_adversarial;
 #[path = "hst_13_reference_3d_residency.rs"]
 mod hst_13_reference_3d_residency;
+#[path = "hst_13_reference_3d_residency_adversarial.rs"]
+mod hst_13_reference_3d_residency_adversarial;
 #[path = "hst_14_adversarial.rs"]
 mod hst_14_adversarial;
 #[path = "hst_14_trigger_volumes.rs"]

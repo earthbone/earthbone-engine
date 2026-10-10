@@ -427,8 +427,21 @@ impl World {
 
     /// Resolve waits when a reference becomes disabled.
     pub fn set_reference_enabled(&mut self, source: GlobalFormId, enabled: bool) {
-        if let Some(reference) = self.reference(source) {
+        let cell = if let Some(reference) = self.reference(source) {
             reference.enabled = enabled;
+            reference.cell
+        } else {
+            None
+        };
+        if enabled {
+            let cell_is_loaded = cell.is_some_and(|cell| {
+                self.loaded_cell == Some(cell) || self.attached_cells.contains(&cell)
+            });
+            if cell_is_loaded && self.loaded_3d_references.insert(source) {
+                self.commonlib_object_loaded(source, true);
+            }
+        } else if self.loaded_3d_references.remove(&source) {
+            self.commonlib_object_loaded(source, false);
         }
         if !enabled {
             self.finish_animation_waits(source, None);
