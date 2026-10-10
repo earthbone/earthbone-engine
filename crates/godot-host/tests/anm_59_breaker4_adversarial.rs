@@ -14,7 +14,8 @@ fn assert_godot_passed(output: &Output, marker: &str) {
 #[test]
 fn anm_59_breaker4_bound_head_holds_override_and_resumes_latest_mood() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let data = std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA must name installed Skyrim data");
+    let data =
+        std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA must name installed Skyrim data");
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN must name Godot 4.4");
     let temp = tempfile::tempdir().unwrap();
     let script = temp.path().join("anm_59_breaker4.gd");
