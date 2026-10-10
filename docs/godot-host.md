@@ -1850,6 +1850,33 @@ normal view stands 1.7 metres above the installed LAND centre sample and looks
 south across the plains. Captures and logs are written under
 `godot/.godot/rnd-29-*`.
 
+## Walkthrough terrain coverage, RND-35
+
+`godot/rnd_35_walkthrough_lod_capture.gd` inherits the production walkthrough,
+starts at WhiterunOrigin with `startup_radius = 2` and keeps the player's
+default LOD radius. It captures the uploaded LAND grid after gameplay starts,
+at the city gate, in Tamriel and after two westward cell crossings. Movement
+uses the shared Game input driver. The two crossings move relative to the
+player's current placement, retaining its current CELL until the exterior
+planner advances. The check compares retained cell draw handles before and
+after each crossing to verify that the host applies a cell delta.
+
+The coverage oracle comes from uploaded LAND mesh coordinates. The
+orthographic camera covers that grid with integer pixels per cell and cell
+edges between pixel centres. The record sky's separate fog pass is hidden
+for the diagnostic. Each stop saves a normal view, a magenta terrain LOD view
+and a control with terrain LOD hidden. A second pair hides LAND as well,
+exposing LOD geometry below the ground. Only magenta pixels contributed by
+terrain LOD count. Each pair requires zero pixels inside uploaded LAND cells
+and at least 1000 outside them.
+
+The installed-data Rust runner is gated on `SKYRIM_DATA` and requires
+`SOE_GODOT_BIN` and the built release extension. Captures and its process log
+go under `godot/.godot/rnd-35-*`. The initial record survey checks all 25 LAND
+surfaces of the radius-two WhiterunOrigin grid. These checks exercise the
+existing RND-19 player streaming and RND-29 join paths, whose sources are
+xEdit's WRLD parent flags and block layout and OpenMW's terrain edge fans.
+
 ## Mesh
 
 `mesh::MeshSource` is a trait shaped like the `nif` crate's neutral output: positions,
