@@ -3595,6 +3595,21 @@ behaviour registers cleanly on the effect class. The later active-effect
 implementation below supplies its getters and `Dispel` using a separate
 object for each effect application.
 
+### SCR-75 native-form property execution
+
+The SCR-75 installed-data test loads the five masters and their scripts, then
+executes mixed-case property reads and writes on `GameDaysPassed.Value`.
+The VM resolves the loaded `GlobalVariable` PEX accessors on the native form.
+They call `GetValue` and `SetValue` against the same shared world global used
+by the five methods below. This follows the shipped
+`skse64/scripts/vanilla/GlobalVariable.psc` and CK's
+`GlobalVariable_Script.wikitext` read-write float property contract.
+`crates/game/tests/scr_75_walkthrough.gd` extends the installed walkthrough,
+runs 20 seconds after gameplay is ready and quits. Startup that has not reached
+ready after 120 seconds fails the check. Set `SOE_SCR_75_LOG` to the captured
+console log. The check fails if that log is missing, empty or contains
+`has no property value`, compared without case.
+
 ### SCR-62 native contract audit
 
 The native registry contains `GetOwningQuest` methods for `Alias`, `Scene`,
