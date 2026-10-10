@@ -14,7 +14,11 @@ fn hst_18_live_crosshair_grab_release_and_getters() {
         eprintln!("SKYRIM_DATA unset, skipping HST-18 host adversarial check");
         return;
     };
-    assert!(data.is_dir(), "installed Skyrim data is required: {}", data.display());
+    assert!(
+        data.is_dir(),
+        "installed Skyrim data is required: {}",
+        data.display()
+    );
     let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
     let source = DataSource::open(&data).expect("installed plugin and archive data");
     let order = source.shared_order();

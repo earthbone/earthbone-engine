@@ -41,7 +41,7 @@ func _run() -> void:
 
 	await process_frame
 	await process_frame
-	var path := "/tmp/hst_19_capture.png"
+	var path := "/tmp/hst_19_capture_%d.png" % OS.get_process_id()
 	_check(player.call("take_screenshot", path), "Papyrus screenshot request failed")
 	for _frame in range(120):
 		if FileAccess.file_exists(path):

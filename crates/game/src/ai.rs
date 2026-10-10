@@ -2329,9 +2329,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 state.flying = !state.dead
                     && !state.unconscious
                     && (state.ai.procedure == Procedure::Hover
-                        || (state.flying
-                            && state.forced_landing_marker.is_some()
-                            && !state.ai.arrived));
+                        || (state.flying && state.forced_landing_marker.is_some()));
                 Some((state.dead, state.unconscious))
             }) else {
                 return;
@@ -3374,6 +3372,9 @@ fn step_procedure(
             .actor_ref(actor)
             .and_then(|state| state.forced_landing_marker)
             .and_then(|marker| world.reference(marker).map(|r| (r.position, r.cell)));
+        if was_flying && marker.is_some() && ai.speed <= 0.0 {
+            ai.speed = movement_speed(world, actor, speed::WALK);
+        }
         apply_forced_landing(&mut ai, was_flying, marker);
     }
     if let (false, Some(dest)) = (ai.arrived, ai.destination) {

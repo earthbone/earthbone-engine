@@ -3177,8 +3177,8 @@ entries, and the existing xEdit PACK and shared spell APIs.
 
 `Actor.GetVoiceRecoveryTime` reads the remaining duration from that actor's
 real-seconds deadline. `Actor.PlayIdleWithTarget` queues the idle's editor ID
-to its explicit target reference, or to the calling actor when the target is
-`None`, and returns false for a missing idle or invalid target reference.
+to the calling actor and validates the paired target reference. It returns
+false for a missing idle or invalid target reference.
 `Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
 hands, source 2 from the actor's other-spell slot, and source 3 from its
 instant-spell slot. The latter slots persist in the actor section named

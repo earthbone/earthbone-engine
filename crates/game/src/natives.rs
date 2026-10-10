@@ -5446,17 +5446,14 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         let Some(name) = world.editor_id(idle) else {
             return b(false);
         };
-        let destination = if let Some(target) = world.form_arg(&call.arg(1)) {
+        if let Some(target) = world.form_arg(&call.arg(1)) {
             if world.reference(target).is_none() {
                 return b(false);
             }
-            target
         } else if !matches!(call.arg(1), Value::None) {
             return b(false);
-        } else {
-            me
-        };
-        world.request_animation(destination, &name);
+        }
+        world.request_animation(me, &name);
         b(true)
     });
     method!(vm, w, "Actor", "Dismount", |world, _call, me| {
