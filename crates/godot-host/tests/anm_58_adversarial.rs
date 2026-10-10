@@ -32,7 +32,10 @@ fn anm_58_unmatched_signal_stays_pending_and_disable_returns_false() {
         .args([
             "--headless",
             "--path",
-            workspace.join("godot").to_str().expect("Godot project path"),
+            workspace
+                .join("godot")
+                .to_str()
+                .expect("Godot project path"),
             "--script",
         ])
         .arg(workspace.join("godot/anm_58_adversarial_test.gd"))
