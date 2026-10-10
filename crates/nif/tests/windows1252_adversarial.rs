@@ -236,7 +236,7 @@ fn a_texture_set_with_high_byte_paths_decodes_correctly_through_a_real_mesh() {
         !diffuse.contains('\u{009A}'),
         "path still carries the Latin-1 C1 control reading: {diffuse:?}"
     );
-    assert_eq!(diffuse, "textures\\armor\\steel\\\u{0161}teel_d.dds");
+    assert_eq!(diffuse, "textures/armor/steel/\u{0161}teel_d.dds");
 }
 
 /// `decode_without_bom_handling` must not sniff or strip a leading byte
