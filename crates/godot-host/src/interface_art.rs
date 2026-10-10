@@ -104,6 +104,13 @@ pub(crate) fn from_env(configured_tools: &str) -> Option<Decompiler> {
         PathBuf::from("/usr/share/java/ffdec"),
         PathBuf::from("/usr/share/java/jpexs-decompiler"),
     ]);
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        tools.extend(
+            home.ancestors().map(|directory| {
+                directory.join("Projects/Programming/skyrim-modclients/engine-refs")
+            }),
+        );
+    }
     let selected = discover(jar.as_deref(), launcher.as_deref(), &tools, &search_path);
     static LOG_SELECTION: std::sync::Once = std::sync::Once::new();
     LOG_SELECTION.call_once(|| match &selected {

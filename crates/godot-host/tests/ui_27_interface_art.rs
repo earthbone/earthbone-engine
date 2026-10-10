@@ -78,6 +78,7 @@ fn scene(data: &Path, tools: &Path, jar: Option<&Path>, bundled: bool, label: &s
         ])
         .env("SKYRIM_DATA", data)
         .env("SOE_LOG", "info")
+        .env("HOME", tools)
         .env("SOE_UI_27_TOOLS", tools)
         .env("SOE_UI_27_CAPTURE", capture.as_os_str())
         .env("SOE_UI_27_BUNDLED", if bundled { "1" } else { "0" })

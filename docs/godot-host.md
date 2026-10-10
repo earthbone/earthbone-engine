@@ -110,9 +110,10 @@ resource path. Tools directories may contain FFDec directly, under `FFDec`,
 `ffdec`, `tools/FFDec` or `SkyUI-Community/tools/FFDec`. A configured path may
 also name the JAR or executable itself. Discovery prefers `ffdec-cli.jar`
 over `ffdec.jar`, then executable launchers. It also checks nearby `tools`
-and `engine-refs` directories, the conventional system Java directories,
-and `ffdec-cli`, `ffdec` or `ffdec.sh` on PATH. Missing or invalid candidates
-fall through to the next location.
+and `engine-refs` directories, `Projects/Programming/skyrim-modclients/engine-refs`
+under each ancestor of `HOME`, the conventional system Java directories, and
+`ffdec-cli`, `ffdec` or `ffdec.sh` on PATH. Missing or invalid candidates fall
+through to the next location.
 
 The source is local `SkyUI-Community/tools/FFDec/ffdec-cli`, whose JAR
 manifest resolves its dependencies relative to the JAR, and `ffdec.sh`,
