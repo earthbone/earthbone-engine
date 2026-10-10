@@ -27,14 +27,32 @@ func _hst_01_gameplay_swing_door(player: Node3D, streamer: Node3D) -> void:
 	_check(not swing_doors.is_empty(), "Bannered Mare has no unlocked swing door")
 	if swing_doors.is_empty():
 		return
-	var swing: Dictionary = swing_doors[0]
-	var before: Dictionary = streamer.call("door_state", swing.file, swing.object)
-	_check(not before.is_empty(), "swing door attaches before activation")
-	_check(player.call("activate_reference", swing.file, swing.object), "swing door activation failed")
+	var swing: Dictionary = {}
+	var before: Dictionary = {}
+	for candidate: Dictionary in swing_doors:
+		if candidate.opened:
+			continue
+		var attached: Dictionary = streamer.call("door_state", candidate.file, candidate.object)
+		if attached.is_empty():
+			continue
+		if not player.call("activate_reference", candidate.file, candidate.object):
+			continue
+		swing = candidate
+		before = attached
+		break
+	_check(not swing.is_empty(), "no closed swing door could be activated")
+	if swing.is_empty():
+		return
+	var controls_before: int = player.call("swing_door_count")
+	_check(controls_before > 0, "resident swing door control is missing")
 	streamer.call("advance_doors", 1.0)
-	var after: Dictionary = streamer.call("door_state", swing.file, swing.object)
-	_check(before.get("node", -1) == after.get("node", -2), "activation retains the door node")
-	_check(after.get("fraction", 0.0) == 1.0, "gameplay door swings open")
+	var animated: Dictionary = streamer.call("door_state", swing.file, swing.object)
+	_check(before.get("node", -1) == animated.get("node", -2), "activation retains the door node")
+	_check(animated.get("fraction", 0.0) == 1.0, "gameplay door swings open")
+	_check(not before.transform.basis.is_equal_approx(animated.transform.basis),
+		"gameplay door mesh did not swing")
+	_check(player.call("swing_door_count") == controls_before,
+		"activation preserves resident swing door controls")
 	var collision: Dictionary = player.call("reference_collision_bodies", swing.file, swing.object)
 	_check(collision.get("movement", -1) == 0 and collision.get("query", -1) == 0,
 		"open swing door disables its original collision")
