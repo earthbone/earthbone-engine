@@ -4280,12 +4280,19 @@ option types, disabled and hidden flags, page-strided option IDs, 128 positions
 per page and selection event shape. Godot Controls replace its Scaleform
 presentation under the project intent. The UI-11 VM fixture adds text and
 toggle rows, changes toggle enabled state and checks that one enabled selection
-delivers one `OnOptionSelect` callback. A separate source fixture reads the
+delivers one `OnOptionSelect` callback. The
+`ui_11_runs_unmodified_skyui_manager_and_base_pex_fixture` test loads both
+unmodified scripts from `SOE_SKYUI_CONFIG_BASE_PEX` and
+`SOE_SKYUI_CONFIG_MANAGER_PEX`. It runs the base script's page callback and
+option constructors, updates its option flags, rejects a disabled toggle, then
+sends the manager's option event and checks that the base script reaches the
+config callback once with its page-strided option ID. The execution check skips
+when either compiled PEX is unavailable. A separate source fixture reads the
 unmodified `SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` files, checking the
 text and toggle constructors, flag packing, page-strided selection callback
 and manager forwarding. Set `SOE_SKYUI_CONFIG_BASE` and
-`SOE_SKYUI_CONFIG_MANAGER` to use different source paths. The full upstream
-scripts are not compiled or executed by the Papyrus VM fixture. The host menu
+`SOE_SKYUI_CONFIG_MANAGER` to use different source paths. Script execution
+remains unverified when the compiled PEX files are absent. The host menu
 manager and Scaleform APIs remain outside this path.
 
 ### MCM slider and menu dialogs, UI-12

@@ -6,7 +6,7 @@ use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
 use soe_godot_host::mcm_menu::{ConfigPage, OptionKind, OPTION_FLAG_DISABLED};
 use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
-use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, PropSet};
+use soe_papyrus::Opcode::{ArrayCreate, ArraySetElement, Assign, CallMethod, IAdd, PropSet};
 use soe_papyrus::Value;
 
 const CONFIG_QUEST: u32 = 0x800;
@@ -305,4 +305,194 @@ fn ui_11_unmodified_skyui_sources_define_text_toggle_flags_and_callback() {
 
     let manager_select = function_body(&manager, "event OnOptionSelect(");
     assert!(manager_select.contains("_activeconfig.selectoption(optionindex)"));
+}
+
+#[test]
+fn ui_11_runs_unmodified_skyui_manager_and_base_pex_fixture() {
+    let (Some(base_path), Some(manager_path)) = (
+        std::env::var_os("SOE_SKYUI_CONFIG_BASE_PEX"),
+        std::env::var_os("SOE_SKYUI_CONFIG_MANAGER_PEX"),
+    ) else {
+        eprintln!(
+            "skipping real SkyUI MCM execution: set SOE_SKYUI_CONFIG_BASE_PEX and SOE_SKYUI_CONFIG_MANAGER_PEX"
+        );
+        return;
+    };
+    let base = std::fs::read(base_path).unwrap();
+    let manager = std::fs::read(manager_path).unwrap();
+    let form = GlobalFormId {
+        file: 0,
+        object: CONFIG_QUEST,
+    };
+    let manager_form = GlobalFormId {
+        file: 0,
+        object: CONFIG_QUEST + 1,
+    };
+    let config_vmad = Vmad {
+        scripts: vec![ScriptEntry::new("ConfigFixture")],
+        ..Default::default()
+    };
+    let manager_vmad = Vmad {
+        scripts: vec![ScriptEntry::new("SKI_ConfigManager")],
+        ..Default::default()
+    };
+    let mut plugin = Plugin::new(FileHeader {
+        flags: flags::MASTER,
+        ..Default::default()
+    });
+    plugin.push_top(
+        quest::build_record(
+            CONFIG_QUEST,
+            "ConfigFixtureQuest",
+            quest_flags::START_GAME_ENABLED,
+        )
+        .sub(Tag::new(b"VMAD"), config_vmad.write(Tag::new(b"QUST"))),
+    );
+    plugin.push_top(
+        quest::build_record(CONFIG_QUEST + 1, "ManagerFixtureQuest", 0)
+            .sub(Tag::new(b"VMAD"), manager_vmad.write(Tag::new(b"QUST"))),
+    );
+    let mut order = LoadOrder::new();
+    order.add("ConfigFixture.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+
+    let child = ScriptBuilder::new("ConfigFixture", "SKI_ConfigBase")
+        .variable("selection_count", "Int", i(0))
+        .variable("selected_option", "Int", i(-1))
+        .function(
+            FunctionBuilder::new("OnConfigInit", "None")
+                .local("pages", "String[]")
+                .ins(PropSet, vec![s("ModName"), ident("self"), s("Fixture Mod")])
+                .ins(ArrayCreate, vec![ident("pages"), i(1)])
+                .ins(ArraySetElement, vec![ident("pages"), i(0), s("General")])
+                .ins(PropSet, vec![s("Pages"), ident("self"), ident("pages")])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnPageReset", "None")
+                .param("page", "String")
+                .local("text_id", "Int")
+                .local("toggle_id", "Int")
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("AddTextOption"),
+                        ident("self"),
+                        ident("text_id"),
+                        s("Status"),
+                        s("Ready"),
+                        i(0),
+                    ],
+                )
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("AddToggleOption"),
+                        ident("self"),
+                        ident("toggle_id"),
+                        s("Enabled"),
+                        ident("::truevar"),
+                        i(0),
+                    ],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnOptionSelect", "None")
+                .param("option", "Int")
+                .ins(
+                    IAdd,
+                    vec![ident("selection_count"), ident("selection_count"), i(1)],
+                )
+                .ins(Assign, vec![ident("selected_option"), ident("option")])
+                .build(),
+        )
+        .bytes();
+
+    game.load_script(&base).unwrap();
+    game.load_script(&manager).unwrap();
+    game.load_script(&child).unwrap();
+    game.start();
+    assert!(game.mcm_open(form));
+    assert!(game.mcm_select_page(0));
+
+    let config_object = game.object_of_form(form);
+    let option_flags = game
+        .vm
+        .get_var(config_object, "SKI_ConfigBase", "_optionFlagsBuf");
+    let Some(Value::Array(option_flags)) = option_flags else {
+        panic!("unmodified SKI_ConfigBase did not initialize its option buffer");
+    };
+    assert_eq!(
+        &option_flags.items.borrow()[..2],
+        &[Value::Int(0x02), Value::Int(0x03)]
+    );
+
+    let mut rows = ConfigPage::new(1);
+    assert_eq!(rows.add_text("Status", "Ready", 0), Some(0x100));
+    assert_eq!(rows.add_toggle("Enabled", true, 0), Some(0x101));
+    assert!(rows.set_enabled(0x101, false));
+    assert!(!rows.rows()[1].enabled());
+    assert!(rows.set_enabled(0x101, true));
+    assert!(rows.rows()[1].enabled());
+    assert!(rows.set_enabled(0x101, false));
+    assert!(!rows.select(&mut game, form, 0x101));
+
+    let toggle_flags = game
+        .vm
+        .call(
+            config_object,
+            "SetOptionFlags",
+            &[Value::Int(1), Value::Int(OPTION_FLAG_DISABLED as i32)],
+        )
+        .unwrap();
+    game.run_until_idle(64);
+    assert!(game.vm.thread_result(toggle_flags).is_some());
+    let Some(Value::Array(option_flags)) =
+        game.vm
+            .get_var(config_object, "SKI_ConfigBase", "_optionFlagsBuf")
+    else {
+        panic!("unmodified SKI_ConfigBase lost its option buffer");
+    };
+    assert_eq!(option_flags.items.borrow()[1], Value::Int(0x0103));
+    let enable_toggle = game
+        .vm
+        .call(
+            config_object,
+            "SetOptionFlags",
+            &[Value::Int(1), Value::Int(0)],
+        )
+        .unwrap();
+    game.run_until_idle(64);
+    assert!(game.vm.thread_result(enable_toggle).is_some());
+    let Some(Value::Array(option_flags)) =
+        game.vm
+            .get_var(config_object, "SKI_ConfigBase", "_optionFlagsBuf")
+    else {
+        panic!("unmodified SKI_ConfigBase lost its option buffer");
+    };
+    assert_eq!(option_flags.items.borrow()[1], Value::Int(0x03));
+
+    let manager_object = game.object_of_form(manager_form);
+    game.vm
+        .set_var(
+            manager_object,
+            "SKI_ConfigManager",
+            "_activeConfig",
+            Value::Object(config_object),
+        )
+        .unwrap();
+    game.send_event(
+        manager_form,
+        "OnOptionSelect",
+        &[
+            Value::string("SKICP_optionSelected"),
+            Value::string(""),
+            Value::Float(0.0),
+            Value::None,
+        ],
+    );
+    game.run_until_idle(64);
+    assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(1));
+    assert_eq!(fixture_var(&mut game, "selected_option"), Value::Int(0x100));
 }
