@@ -959,6 +959,14 @@ DMDL through `World::destruction_model`. Clearing destruction removes the
 replacement and reveals the base model. Releasing the owning cell or clearing
 the streamer frees its replacement mesh and instance RIDs.
 
+The `cmb-37-test` feature adds a regression driver that selects an installed
+modeled REFR, damages its DEST stages in a World, and runs the same
+RenderingServer overlay sync used for resident references.
+`cmb_37_windowed_reference_damage_replaces_its_model` checks that damage
+selects a stage and that the host creates replacement instances for its DMDL.
+The format fields follow local xEdit `wbDefinitionsTES5.pas`. CK's
+`DamageObject` page states that it applies damage and may fire stage events.
+
 ### Character race and sex selection, UI-07
 
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex

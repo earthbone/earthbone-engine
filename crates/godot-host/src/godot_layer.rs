@@ -1869,6 +1869,76 @@ impl CellStreamerNode {
         i64::try_from(self.effect_shaders.len()).unwrap_or(-1)
     }
 
+    #[cfg(feature = "cmb-37-test")]
+    #[func]
+    pub fn cmb_37_damage_and_sync_model(&mut self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let Some(source) = self.data_source.clone() else {
+            result.set("error", "installed data is not loaded");
+            return result;
+        };
+        let Some(cell) = self.scenario().map(|_| GlobalFormId { file: 0, object: 1 }) else {
+            result.set("error", "streamer is not inside a scene tree");
+            return result;
+        };
+        let mut candidates = source
+            .order()
+            .winners_of(soe_esm::Tag::new(b"REFR"))
+            .filter_map(|(reference, record)| {
+                let refr = soe_esm::records::refr::Refr::from_record(record).ok()?;
+                let winner = source.order().winner_ref(reference)?;
+                let base = source.order().resolve(winner.file, refr.base);
+                let base_record = source.order().winner(base)?;
+                (base_record.find(soe_esm::Tag::new(b"DEST")).is_some()
+                    && base_record.all(soe_esm::Tag::new(b"DSTD")).next().is_some()
+                    && base_record.all(soe_esm::Tag::new(b"DMDL")).next().is_some())
+                .then_some((reference, base))
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_unstable();
+        let mut selected = None;
+        for (reference, base) in candidates {
+            let mut world = soe_game::World::from_shared_order(source.shared_order());
+            let mut allocate = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+            for _ in 0..16 {
+                world.damage_object(reference, 100_000.0, &mut allocate);
+            }
+            let stage = world.destruction_stage(reference);
+            let Some(model) = world.destruction_model(reference) else {
+                continue;
+            };
+            if source
+                .stream_destruction_model(reference, &model)
+                .is_ok_and(|loaded| !loaded.surfaces.is_empty())
+            {
+                selected = Some((world, reference, base, stage, model));
+                break;
+            }
+        }
+        let Some((world, reference, base, stage, model)) = selected else {
+            result.set(
+                "error",
+                "installed modeled references did not produce a drawable damaged stage",
+            );
+            return result;
+        };
+        let resident = std::collections::BTreeMap::from([(reference, cell)]);
+        let changed = std::collections::HashSet::from([reference]);
+        self.sync_destruction_models(&world, &resident, &changed);
+        let Some(overlay) = self.destruction_models.get(&reference) else {
+            result.set("error", "host did not create a destruction overlay");
+            result.set("stage", stage);
+            result.set("model", model);
+            return result;
+        };
+        result.set("base", format!("{base}"));
+        result.set("reference", format!("{reference}"));
+        result.set("stage", stage);
+        result.set("model", overlay.model.clone());
+        result.set("instances", overlay.instances.len() as i64);
+        result
+    }
+
     #[cfg(feature = "scr-24-test")]
     #[signal]
     fn scr_24_effect_shaders_released(count: i64);
