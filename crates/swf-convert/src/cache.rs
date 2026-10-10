@@ -4,7 +4,7 @@
 //! Publication is an atomic directory rename after resources and AS2 sources exist.
 
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::{Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -51,6 +51,10 @@ impl Decompiler {
     }
 
     fn export(&self, bytes: &[u8], directory: &Path) -> Result<(), Error> {
+        // CONTEXT: Godot retains SIGPIPE, so an early child exit must not close a write pipe.
+        let mut input = tempfile::tempfile()?;
+        input.write_all(bytes)?;
+        input.rewind()?;
         let mut command = match self {
             Self::Program(program) => Command::new(program),
             Self::Jar(jar) => {
@@ -59,7 +63,7 @@ impl Decompiler {
                 c
             }
         };
-        let mut child = command
+        let child = command
             .args([
                 "-onerror",
                 "abort",
@@ -72,7 +76,7 @@ impl Decompiler {
             ])
             .arg(directory)
             .arg("/dev/stdin")
-            .stdin(Stdio::piped())
+            .stdin(Stdio::from(input))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -81,10 +85,6 @@ impl Decompiler {
                     "start JPEXS FFDec: {e}. Set SOE_FFDEC_JAR or SOE_FFDEC"
                 ))
             })?;
-        let write_result = child
-            .stdin
-            .take()
-            .map_or(Ok(()), |mut input| input.write_all(bytes));
         let output = child.wait_with_output()?;
         if !output.status.success() {
             return Err(Error::Decompiler(format!(
@@ -94,7 +94,6 @@ impl Decompiler {
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
-        write_result?;
         let files = collect(directory)?;
         if !files.keys().any(|path| {
             Path::new(path)
@@ -106,6 +105,24 @@ impl Decompiler {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn ui_27_decompiler_early_exit_returns_export_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let program = temp.path().join("ffdec");
+        std::fs::write(&program, "#!/bin/sh\nexit 7\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let error = Decompiler::Program(program)
+            .export(&vec![0; 8 * 1024 * 1024], temp.path())
+            .unwrap_err();
+        assert!(matches!(error, Error::Decompiler(message) if message.contains("exit status: 7")));
     }
 }
 
