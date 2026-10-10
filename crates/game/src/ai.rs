@@ -2487,6 +2487,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 .insert(phase, world.ai.phase_slots.counts[index]);
         }
     }
+    world.tick_actor_script_relationships();
     world.ai.planning_phases.extend(
         world
             .ai
@@ -3329,6 +3330,36 @@ fn step_procedure(
         ai.path_cells.clear();
         if let (Some(target_cell), Some(reference)) = (ai.center_cell, world.reference(actor)) {
             reference.cell = Some(target_cell);
+        }
+    }
+    let look_path_target = world.actor_ref(actor).and_then(|state| {
+        state
+            .forced_look_at
+            .filter(|(_, pathing)| *pathing)
+            .and_then(|(target, _)| {
+                world
+                    .reference_ref(target)
+                    .map(|reference| (reference.position, reference.cell))
+            })
+    });
+    if let Some((target, target_cell)) = look_path_target {
+        if distance(position, target) <= ARRIVAL_DISTANCE {
+            ai.destination = None;
+            ai.path.clear();
+            ai.path_cells.clear();
+            ai.arrived = true;
+        } else {
+            if ai
+                .destination
+                .is_none_or(|destination| distance(destination, target) > 0.01)
+            {
+                ai.path.clear();
+                ai.path_cells.clear();
+            }
+            ai.destination = Some(target);
+            ai.center_cell = target_cell.or(cell);
+            ai.speed = movement_speed(world, actor, speed::WALK);
+            ai.arrived = false;
         }
     }
     if let (false, Some(dest)) = (ai.arrived, ai.destination) {

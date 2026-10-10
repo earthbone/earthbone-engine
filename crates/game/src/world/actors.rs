@@ -183,6 +183,17 @@ impl World {
                 return Err(format!("{target} is not a placed reference"));
             }
         }
+        if let Some(target) = vehicle {
+            let pose = self
+                .reference(target)
+                .map(|reference| (reference.position, reference.rotation));
+            if let Some((position, rotation)) = pose {
+                self.actor_vehicle_poses
+                    .insert(actor, (target, position, rotation));
+            }
+        } else {
+            self.actor_vehicle_poses.remove(&actor);
+        }
         if let Some(state) = self.actor(actor) {
             state.vehicle = vehicle;
         }
@@ -209,11 +220,22 @@ impl World {
             if self.reference(target).is_none() {
                 return Err(format!("{target} is not a placed reference"));
             }
-            if let Some(state) = self.actor(actor) {
-                state.forced_look_at = Some((target, pathing));
+        }
+        let previous = self.actor_ref(actor).and_then(|state| state.forced_look_at);
+        if previous.is_some_and(|(_, was_pathing)| was_pathing)
+            && (target.is_none()
+                || !pathing
+                || previous.is_some_and(|(old, _)| Some(old) != target))
+        {
+            if let Some(state) = self.actors.get_mut(&actor) {
+                state.ai.destination = None;
+                state.ai.path.clear();
+                state.ai.path_cells.clear();
+                state.ai.arrived = true;
             }
-        } else if let Some(state) = self.actor(actor) {
-            state.forced_look_at = None;
+        }
+        if let Some(state) = self.actor(actor) {
+            state.forced_look_at = target.map(|target| (target, pathing));
         }
         Ok(())
     }
@@ -222,6 +244,71 @@ impl World {
     #[must_use]
     pub fn actor_look_at(&mut self, actor: GlobalFormId) -> Option<(GlobalFormId, bool)> {
         self.actor(actor).and_then(|state| state.forced_look_at)
+    }
+
+    /// Apply script vehicle and look-at relationships to shared reference placement.
+    pub fn tick_actor_script_relationships(&mut self) {
+        let actors = self.loaded_actors();
+        for actor in actors {
+            let Some((vehicle, target)) = self
+                .actor_ref(actor)
+                .map(|state| (state.vehicle, state.forced_look_at))
+            else {
+                continue;
+            };
+            if let Some(vehicle) = vehicle {
+                if let Some((position, rotation, cell)) = self
+                    .reference_ref(vehicle)
+                    .map(|reference| (reference.position, reference.rotation, reference.cell))
+                {
+                    let previous = self.actor_vehicle_poses.get(&actor).copied();
+                    if let Some((previous_vehicle, old_position, old_rotation)) = previous {
+                        if previous_vehicle == vehicle {
+                            let yaw_delta = rotation[2] - old_rotation[2];
+                            if let Some(reference) = self.reference(actor) {
+                                let relative_x = reference.position[0] - old_position[0];
+                                let relative_y = reference.position[1] - old_position[1];
+                                let (sin, cos) = yaw_delta.sin_cos();
+                                reference.position = [
+                                    position[0] + relative_x * cos - relative_y * sin,
+                                    position[1] + relative_x * sin + relative_y * cos,
+                                    position[2] + reference.position[2] - old_position[2],
+                                ];
+                                reference.rotation[2] += yaw_delta;
+                                if cell.is_some() {
+                                    reference.cell = cell;
+                                }
+                            }
+                        }
+                    }
+                    self.actor_vehicle_poses
+                        .insert(actor, (vehicle, position, rotation));
+                } else {
+                    self.actor_vehicle_poses.remove(&actor);
+                }
+            } else {
+                self.actor_vehicle_poses.remove(&actor);
+            }
+
+            let Some((target, _pathing)) = target else {
+                continue;
+            };
+            let Some((actor_position, target_position)) = self
+                .reference_ref(actor)
+                .zip(self.reference_ref(target))
+                .map(|(actor, target)| (actor.position, target.position))
+            else {
+                continue;
+            };
+            let dx = target_position[0] - actor_position[0];
+            let dy = target_position[1] - actor_position[1];
+            if dx.hypot(dy) <= f32::EPSILON {
+                continue;
+            }
+            if let Some(reference) = self.reference(actor) {
+                reference.rotation[2] = dy.atan2(dx);
+            }
+        }
     }
 
     pub(super) fn write_scr_11(actor: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
