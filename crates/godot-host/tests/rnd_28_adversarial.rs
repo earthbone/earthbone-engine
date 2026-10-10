@@ -26,6 +26,7 @@ fn rnd_28_lst_accepts_unused_bytes_after_declared_tree_table() {
 }
 
 #[test]
+#[ignore = "needs RND-34: this capture holds about 27 GB under llvmpipe, see BACKLOG.csv"]
 fn rnd_28_installed_player_view_contains_mountain_and_tree_lod() {
     use std::path::PathBuf;
     use std::process::Command;
