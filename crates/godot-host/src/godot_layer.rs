@@ -4271,6 +4271,24 @@ struct MaterialMap {
     materials: std::collections::HashMap<crate::mesh::MaterialKey, Gd<Material>>,
     textures: std::collections::HashMap<String, Gd<ImageTexture>>,
     cubemaps: std::collections::HashMap<String, Gd<Cubemap>>,
+    /// Compiled shader resources by source. Materials with identical code
+    /// share one `Shader`, so the renderer builds one pipeline per variant
+    /// instead of one per material.
+    shaders: std::collections::HashMap<String, Gd<Shader>>,
+}
+
+/// One shared `Shader` per distinct source text.
+fn shader_for_code(
+    shaders: &mut std::collections::HashMap<String, Gd<Shader>>,
+    code: String,
+) -> Gd<Shader> {
+    if let Some(existing) = shaders.get(&code) {
+        return existing.clone();
+    }
+    let mut shader = Shader::new_gd();
+    shader.set_code(&code);
+    shaders.insert(code, shader.clone());
+    shader
 }
 
 impl MaterialMap {
@@ -4294,7 +4312,14 @@ fn material_for(
     let material: Gd<Material> = if let Some(water) = &desc.water {
         water_material(water).upcast()
     } else if let Some(effect) = &desc.effect {
-        nif_effect_material(desc, effect, textures, &mut cache.textures).upcast()
+        nif_effect_material(
+            desc,
+            effect,
+            textures,
+            &mut cache.textures,
+            &mut cache.shaders,
+        )
+        .upcast()
     } else if tree_anim_material(desc)
         && desc.decal_depth().is_none()
         && desc.environment_texture().is_none()
@@ -4303,7 +4328,14 @@ fn material_for(
     } else if desc.landscape_lod_normals() {
         landscape_lod_material(desc, textures, &mut cache.textures).upcast()
     } else if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
-        decal_material(desc, textures, &mut cache.textures, &mut cache.cubemaps).upcast()
+        decal_material(
+            desc,
+            textures,
+            &mut cache.textures,
+            &mut cache.cubemaps,
+            &mut cache.shaders,
+        )
+        .upcast()
     } else {
         material_with_textures(desc, textures, &mut cache.textures).upcast()
     };
@@ -4398,9 +4430,9 @@ fn nif_effect_material(
     effect: &crate::mesh::EffectMaterial,
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &mut std::collections::HashMap<String, Gd<Shader>>,
 ) -> Gd<ShaderMaterial> {
-    let mut shader = Shader::new_gd();
-    shader.set_code(&crate::nif_effect::shader(desc, effect));
+    let shader = shader_for_code(shaders, crate::nif_effect::shader(desc, effect));
     let mut material = ShaderMaterial::new_gd();
     material.set_shader(&shader);
     let p = &effect.params;
@@ -4498,9 +4530,9 @@ fn decal_material(
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
     cubemaps: &mut std::collections::HashMap<String, Gd<Cubemap>>,
+    shaders: &mut std::collections::HashMap<String, Gd<Shader>>,
 ) -> Gd<ShaderMaterial> {
-    let mut shader = Shader::new_gd();
-    shader.set_code(&decal_shader(desc));
+    let shader = shader_for_code(shaders, decal_shader(desc));
     let mut material = ShaderMaterial::new_gd();
     material.set_shader(&shader);
     if desc.decal_depth().is_some() {
