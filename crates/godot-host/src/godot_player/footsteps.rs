@@ -23,6 +23,7 @@ impl PlayerNode {
         if let Some(bank) = &mut self.sound_bank {
             bank.bind_mut().use_source(source);
         }
+        self.cell_music_type = None;
         self.footstep_cadence.reset();
         if let Some(cell) = self.loaded_cell {
             self.sync_cell_ambience(cell);
@@ -34,13 +35,12 @@ impl PlayerNode {
         let Some(bank) = &mut self.sound_bank else {
             return;
         };
-        bank.bind_mut().stop_ambience();
         let Some(game) = &mut self.game else { return };
         let Some(source) = &self.data_source else {
             return;
         };
         let order = source.shared_order();
-        let (sounds, player) = {
+        let (sounds, player, space) = {
             let mut world = game.world_mut();
             let draw = world.random_float(0.0, 1.0).min(1.0 - f32::EPSILON);
             let weather = world
@@ -61,8 +61,16 @@ impl PlayerNode {
                     return;
                 }
             };
-            (sounds, world.player())
+            let space = world
+                .record(cell)
+                .and_then(|record| soe_esm::records::cell::Cell::from_record(record, false).ok())
+                .and_then(|record| record.acoustic_space)
+                .and_then(|raw| world.resolve_from(cell, raw));
+            (sounds, world.player(), space)
         };
+        let count = sounds.len();
+        let mut plans = Vec::new();
+        let mut rejected = Vec::new();
         for sound in sounds {
             let mut world = game.world_mut();
             let draws = [
@@ -81,38 +89,59 @@ impl PlayerNode {
                 &soe_game::sound::SoundSettings::default(),
             );
             match plan {
-                Ok(plan) => {
-                    if !bank.bind_mut().play_ambience_descriptor(&plan) {
-                        soe_trace::error!(target: "host::audio", system = "host::audio", "cell ambience {}: {}", plan.data_path, bank.bind().last_error());
-                    }
-                }
+                Ok(plan) => plans.push(plan),
                 Err(error) => {
-                    soe_trace::debug!(target: "host::audio", system = "host::audio", "ambience descriptor {sound}: {error}");
+                    rejected.push(format!("{sound}: {error}"));
                 }
             }
         }
+        soe_trace::info!(target: "host::audio", system = "host::audio",
+            "AMBIENCE cell={cell} descriptors={count} prepared={} acoustic_space={space:?} rejected={rejected:?}",
+            plans.len()
+        );
+        bank.bind_mut().transition_ambience(space, &plans);
     }
 
     pub(super) fn sync_cell_music(&mut self, cell: soe_esm::GlobalFormId) {
-        let track = self.game.as_mut().and_then(|game| {
-            let (descriptor, subject, draw) = {
-                let mut world = game.world_mut();
-                let descriptor = soe_game::ambience::music_type_for_cell(&world, cell).ok()??;
-                let subject = world.player();
-                let draw = world.random_float(0.0, 1.0);
-                (descriptor, subject, draw)
-            };
-            soe_game::music::select(game, descriptor, subject, draw).ok()
-        });
-        if let Some(bank) = self.sound_bank.as_mut() {
-            if let Some(track) = track {
-                if !bank.bind_mut().play_selected_music(&track) {
-                    soe_trace::error!(target: "host::audio", system = "host::audio",
-                        "cell music playback failed: {}", bank.bind().last_error());
-                }
-            } else {
+        let Some(game) = self.game.as_mut() else {
+            return;
+        };
+        let descriptor = match crate::audio::music_type_for_cell(&game.world(), cell) {
+            Ok(descriptor) => descriptor,
+            Err(error) => {
+                soe_trace::error!(target: "host::audio", system = "host::audio", "cell music: {error}");
+                return;
+            }
+        };
+        let needs_selection = self
+            .sound_bank
+            .as_ref()
+            .is_some_and(|bank| bank.bind().music_needs_selection());
+        if descriptor == self.cell_music_type && !needs_selection {
+            return;
+        }
+        self.cell_music_type = descriptor;
+        let Some(descriptor) = descriptor else {
+            if let Some(bank) = self.sound_bank.as_mut() {
                 bank.bind_mut().stop_music();
             }
+            return;
+        };
+        let (subject, draw) = {
+            let mut world = game.world_mut();
+            (world.player(), world.random_float(0.0, 1.0))
+        };
+        match soe_game::music::select(game, descriptor, subject, draw) {
+            Ok(track) => {
+                if let Some(bank) = self.sound_bank.as_mut() {
+                    if !bank.bind_mut().play_selected_music(&track) {
+                        soe_trace::error!(target: "host::audio", system = "host::audio",
+                            "cell music playback failed: {}", bank.bind().last_error());
+                    }
+                }
+            }
+            Err(error) => soe_trace::error!(target: "host::audio", system = "host::audio",
+                "cell music selection: {error}"),
         }
     }
 

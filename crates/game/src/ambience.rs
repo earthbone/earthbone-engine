@@ -29,7 +29,7 @@ pub struct Track {
 }
 
 /// Ambient SNDR forms from CELL/XCAS, ASPC/SNAM/RDAT and REGN/RDSA.
-/// Regional entries are selected by their weather mask and percentage chance.
+/// Regional entries compare their stored chance with a normalized RNG draw.
 /// The caller supplies a normalized chance draw from the world's RNG.
 ///
 /// # Errors
@@ -115,7 +115,7 @@ pub fn descriptors_for_cell(
                         }
                         if raw != 0
                             && (flags == 0 || flags & u32::from(weather) != 0)
-                            && draw * 100.0 < chance
+                            && draw < chance
                         {
                             selected.push(world.resolve_from(region, raw).ok_or_else(|| {
                                 Error::Invalid(format!("invalid REGN sound at {region}"))

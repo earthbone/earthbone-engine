@@ -1856,3 +1856,6 @@ mod hst_21_doors;
 
 #[path = "scr_75_global_property.rs"]
 mod scr_75_global_property;
+
+#[path = "aud_13_weather_music.rs"]
+mod aud_13_weather_music;
