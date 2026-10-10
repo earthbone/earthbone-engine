@@ -33,8 +33,10 @@ fn cmb_27_authored_graph_receives_world_magnitude_and_returns_without_health_cha
         return;
     };
     let target = id(0x900);
-    let mut game = game_with_actor();
-    game.world_mut().set_actor_value(target, "health", 100.0).unwrap();
+    let game = game_with_actor();
+    game.world_mut()
+        .set_actor_value(target, "health", 100.0)
+        .unwrap();
     let shared = game.shared_world();
     {
         let mut world = shared.borrow_mut();
@@ -83,7 +85,12 @@ fn cmb_27_authored_graph_receives_world_magnitude_and_returns_without_health_cha
     let reaction_played = (0..90).any(|_| {
         vm.update(1.0 / 60.0);
         vm.active_clips().iter().any(|(node, _)| {
-            assets.graph.node(*node).name.to_ascii_lowercase().contains("stagger")
+            assets
+                .graph
+                .node(*node)
+                .name
+                .to_ascii_lowercase()
+                .contains("stagger")
         })
     });
     assert!(reaction_played, "authored stagger clip should play");

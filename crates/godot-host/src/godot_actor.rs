@@ -96,6 +96,7 @@ pub fn send_stagger_start(vm: &mut Interpreter<'_>, magnitude: f32) -> bool {
 #[derive(Default)]
 pub struct StaggerTracker {
     last_deadline: Option<f64>,
+    last_magnitude: Option<f32>,
     active: bool,
 }
 
@@ -110,15 +111,31 @@ impl StaggerTracker {
             .actor(actor)
             .map(|actor| (actor.stagger_end_time, actor.stagger_magnitude));
         let (deadline, magnitude) = state?;
-        self.observe(deadline, world.clock.real_seconds)
-            .map(|event| (event, magnitude as f32))
+        let magnitude = magnitude as f32;
+        self.observe(deadline, magnitude, world.clock.real_seconds)
+            .map(|event| (event, self.last_magnitude.unwrap_or(magnitude)))
     }
 
-    fn observe(&mut self, deadline: Option<f64>, now: f64) -> Option<StaggerGraphEvent> {
+    fn observe(
+        &mut self,
+        deadline: Option<f64>,
+        magnitude: f32,
+        now: f64,
+    ) -> Option<StaggerGraphEvent> {
         if self.last_deadline != deadline {
             self.last_deadline = deadline;
             if deadline.is_some_and(|until| until > now) {
                 self.active = true;
+                self.last_magnitude = Some(magnitude);
+                return Some(StaggerGraphEvent::Start);
+            }
+        }
+        if self.active && deadline.is_some_and(|until| until > now) {
+            let magnitude_changed = self
+                .last_magnitude
+                .is_none_or(|last_magnitude| last_magnitude.to_bits() != magnitude.to_bits());
+            if magnitude_changed {
+                self.last_magnitude = Some(magnitude);
                 return Some(StaggerGraphEvent::Start);
             }
         }
@@ -973,30 +990,30 @@ mod cmb_27_tests {
     #[test]
     fn cmb_27_stagger_deadline_sends_start_once_and_stop_at_expiry() {
         let mut tracker = StaggerTracker::default();
-        assert_eq!(tracker.observe(None, 1.0), None);
+        assert_eq!(tracker.observe(None, 0.0, 1.0), None);
         assert_eq!(
-            tracker.observe(Some(2.0), 1.0),
+            tracker.observe(Some(2.0), 1.0, 1.0),
             Some(StaggerGraphEvent::Start)
         );
-        assert_eq!(tracker.observe(Some(2.0), 1.5), None);
+        assert_eq!(tracker.observe(Some(2.0), 1.0, 1.5), None);
         assert_eq!(
-            tracker.observe(Some(2.0), 2.0),
+            tracker.observe(Some(2.0), 1.0, 2.0),
             Some(StaggerGraphEvent::Stop)
         );
-        assert_eq!(tracker.observe(Some(2.0), 2.1), None);
+        assert_eq!(tracker.observe(Some(2.0), 1.0, 2.1), None);
     }
 
     #[test]
     fn cmb_27_a_new_hit_restarts_an_active_stagger_deadline_once() {
         let mut tracker = StaggerTracker::default();
         assert_eq!(
-            tracker.observe(Some(2.0), 1.0),
+            tracker.observe(Some(2.0), 1.0, 1.0),
             Some(StaggerGraphEvent::Start)
         );
         assert_eq!(
-            tracker.observe(Some(3.0), 1.5),
+            tracker.observe(Some(3.0), 1.5, 1.5),
             Some(StaggerGraphEvent::Start)
         );
-        assert_eq!(tracker.observe(Some(3.0), 1.6), None);
+        assert_eq!(tracker.observe(Some(3.0), 1.5, 1.6), None);
     }
 }
