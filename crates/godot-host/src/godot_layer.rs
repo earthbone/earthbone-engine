@@ -8,9 +8,9 @@
 //!
 //! Streamed geometry bypasses the scene tree. Each batch becomes an
 //! `ArrayMesh` resource and a `RenderingServer` instance in the node's
-//! scenario, so a cell adds no `Node3D`, no per-node process or transform
-//! notification, and a 3 by 3 exterior block is two hundred RIDs rather than
-//! two hundred nodes. The node keeps the RIDs and frees them on `exit_tree`.
+//! scenario. Ordinary references add no scene nodes. HST-21 gives each door
+//! one stable control node while keeping its meshes in RenderingServer RIDs.
+//! Cell detach and `exit_tree` release both kinds of resources.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -174,6 +174,7 @@ pub struct CellStreamerNode {
     reference_index_dirty: bool,
     ref_cache: std::collections::HashMap<GlobalFormId, (bool, Iso, Option<String>)>,
     deferred_references: std::collections::BTreeMap<GlobalFormId, GlobalFormId>,
+    doors: std::collections::BTreeMap<GlobalFormId, crate::godot_door::ResidentDoor>,
     /// Replacement meshes for references with an active DEST model stage.
     destruction_models: std::collections::HashMap<GlobalFormId, DestructionOverlay>,
     /// Distant-terrain LOD blocks standing in for full resolution terrain
@@ -575,6 +576,7 @@ impl INode3D for CellStreamerNode {
             reference_index_dirty: true,
             ref_cache: std::collections::HashMap::new(),
             deferred_references: std::collections::BTreeMap::new(),
+            doors: std::collections::BTreeMap::new(),
             destruction_models: std::collections::HashMap::new(),
             terrain_lod: None,
             object_lod: None,
@@ -586,6 +588,7 @@ impl INode3D for CellStreamerNode {
     }
 
     fn exit_tree(&mut self) {
+        self.free_doors(&[]);
         self.free_instances();
         self.free_destruction_models();
         self.free_occluders();
@@ -614,6 +617,7 @@ impl INode3D for CellStreamerNode {
 
     fn process(&mut self, delta: f64) {
         self.advance_object_animations(delta as f32);
+        self.advance_doors(delta as f32);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let Some(focus) = self.focus.as_ref() else {
             return;
@@ -1193,6 +1197,9 @@ impl CellStreamerNode {
                 true
             }
         });
+        if !departed.is_empty() {
+            self.free_doors(departed);
+        }
         self.free_departed_occluders(departed);
         self.deferred_references
             .retain(|_, cell| !departed.contains(cell));
@@ -1207,7 +1214,7 @@ impl CellStreamerNode {
         true
     }
 
-    /// Replace drawn resources after CPU preparation succeeds. No per-reference nodes.
+    /// Replace drawn resources after CPU preparation succeeds, including resident door controls.
     pub(crate) fn replace_location(
         &mut self,
         location: &crate::data_source::LoadedLocation,
@@ -1241,6 +1248,18 @@ impl CellStreamerNode {
     /// upload, never from an already patched copy, matching
     /// `StaticEntry::source` on the collision side.
     pub(crate) fn sync_reference_changes(&mut self, world: &mut soe_game::World) {
+        for (id, door) in &mut self.doors {
+            let Some(placement) = world.ref_placement(*id) else {
+                continue;
+            };
+            let iso = Iso::placement(placement.position, placement.rotation, placement.scale);
+            door.sync(
+                iso,
+                placement.visible,
+                crate::godot_physics::is_opened_door(world, *id),
+            );
+            self.ref_cache.insert(*id, (placement.visible, iso, None));
+        }
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _phase = crate::scene_timing::Scope::new(soe_trace::System::Streaming);
         self.refresh_reference_index(world);
@@ -2517,7 +2536,12 @@ impl CellStreamerNode {
     /// Instances alive in this node's scenario.
     #[func]
     pub fn instance_count(&self) -> i32 {
-        self.instances.len() as i32
+        (self.instances.len()
+            + self
+                .doors
+                .values()
+                .map(|door| door.surfaces.len())
+                .sum::<usize>()) as i32
     }
 
     /// Number of point lights currently owned for active magic effects.
@@ -2606,6 +2630,27 @@ impl CellStreamerNode {
                 plugin.2 += triangles * placements;
             }
         }
+        for (reference, door) in &self.doors {
+            let instances = door.surfaces.len() as i64;
+            let triangles = door
+                .surfaces
+                .iter()
+                .map(|surface| surface.triangles as i64)
+                .sum::<i64>();
+            let cell = cells.entry(door.cell).or_default();
+            cell.0 += instances;
+            cell.1 += instances;
+            cell.2 += triangles;
+            let file_index = reference.file;
+            let name = order
+                .as_ref()
+                .and_then(|load_order| load_order.files().get(file_index as usize))
+                .map_or_else(|| format!("file:{file_index}"), |file| file.name.clone());
+            let plugin = plugins.entry(name).or_default();
+            plugin.0 += instances;
+            plugin.1 += instances;
+            plugin.2 += triangles;
+        }
         let pack = |entries: Vec<(String, (i64, i64, i64))>| {
             let mut result = VarDictionary::new();
             for (name, (instances, draw_calls, primitives)) in entries {
@@ -2672,6 +2717,7 @@ impl CellStreamerNode {
         let Some(owner) = self.exterior_cells.remove(&coord) else {
             return 0;
         };
+        self.free_doors(&[owner]);
         self.deferred_references.retain(|_, cell| *cell != owner);
         if self.collision_cell == Some(owner) {
             self.defer_tethers_for_collision_reset();
@@ -2851,6 +2897,32 @@ impl CellStreamerNode {
                     .count(),
             })
             .sum::<usize>() as i32
+            + self
+                .doors
+                .get(&reference)
+                .map_or(0, |door| door.surfaces.len() as i32)
+    }
+
+    /// Inspect the resident door control node and its current rendered swing.
+    #[func]
+    pub fn door_state(&self, file: i32, object: i64) -> VarDictionary {
+        script_reference(file, object)
+            .and_then(|id| self.doors.get(&id))
+            .map_or_else(VarDictionary::new, crate::godot_door::ResidentDoor::state)
+    }
+
+    /// Advance resident door presentation without advancing gameplay.
+    #[func]
+    pub fn advance_doors(&mut self, delta: f32) {
+        for door in self.doors.values_mut() {
+            door.advance(delta);
+        }
+    }
+
+    /// Number of resident door control nodes.
+    #[func]
+    pub fn door_count(&self) -> i32 {
+        self.doors.len() as i32
     }
 
     /// Count this reference's collision bodies attached to the host space.
@@ -3283,6 +3355,7 @@ impl CellStreamerNode {
         self.pending_tethers.clear();
         self.collision_space = None;
         self.collision_cell = None;
+        self.free_doors(&[]);
         self.free_instances();
         self.free_destruction_models();
         self.free_occluders();
@@ -3452,16 +3525,33 @@ impl CellStreamerNode {
         self.load_profiles
             .insert(cell, loaded.stats.profile.clone());
         totals.add_cell(loaded);
-        if self.cell_occluders {
-            self.add_cell_occluder(cell, &loaded.surfaces, scenario);
-        }
+
+        let mut ordinary = Vec::new();
+        let mut doors = std::collections::BTreeMap::<GlobalFormId, Vec<LoadedSurface>>::new();
         for surface in &loaded.surfaces {
+            if self.is_door(surface.reference) {
+                doors
+                    .entry(surface.reference)
+                    .or_default()
+                    .push(surface.clone());
+            } else {
+                ordinary.push(surface.clone());
+            }
+        }
+        for (id, surfaces) in doors {
+            self.add_door(cell, id, &surfaces, scenario);
+            totals.instances += surfaces.len();
+        }
+        if self.cell_occluders {
+            self.add_cell_occluder(cell, &ordinary, scenario);
+        }
+        for surface in &ordinary {
             if surface.animation.is_some() {
                 self.add_animated_surface(cell, surface, scenario);
                 totals.instances += 1;
             }
         }
-        let (groups, remainder) = instancing_candidates(&loaded.surfaces);
+        let (groups, remainder) = instancing_candidates(&ordinary);
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
             totals.instances += 1;
@@ -3469,7 +3559,7 @@ impl CellStreamerNode {
         let remainder: Vec<LoadedSurface> = remainder
             .into_iter()
             .filter_map(|i| {
-                let surface = &loaded.surfaces[i];
+                let surface = &ordinary[i];
                 surface.animation.is_none().then(|| surface.clone())
             })
             .collect();
@@ -3516,6 +3606,89 @@ impl CellStreamerNode {
                 self.add_instance(cell, &surface.arrays, &material, scenario, table);
                 totals.instances += 1;
             }
+        }
+    }
+
+    fn is_door(&self, id: GlobalFormId) -> bool {
+        let Some(source) = &self.data_source else {
+            return false;
+        };
+        let Some(owner) = source.order().winner_ref(id) else {
+            return false;
+        };
+        let record = source.order().record(owner);
+        if record.tag != soe_esm::tag::REFR {
+            return false;
+        }
+        let Ok(reference) = soe_esm::records::refr::Refr::from_record(record) else {
+            return false;
+        };
+        source
+            .order()
+            .winner(source.order().resolve(owner.file, reference.base))
+            .is_some_and(|record| record.tag == soe_esm::Tag::new(b"DOOR"))
+    }
+
+    fn add_door(
+        &mut self,
+        cell: GlobalFormId,
+        id: GlobalFormId,
+        surfaces: &[LoadedSurface],
+        scenario: Rid,
+    ) {
+        if self.doors.contains_key(&id) {
+            return;
+        }
+        let Some(first) = surfaces.first() else {
+            return;
+        };
+        let mut node = Node3D::new_alloc();
+        node.set_name(&format!("Door_{id}"));
+        self.base_mut().add_child(&node);
+        let mut door = crate::godot_door::ResidentDoor::new(cell, node, first.placement, false);
+        let mut server = RenderingServer::singleton();
+        for surface in surfaces {
+            let material = material_for(
+                &mut self.materials,
+                &surface.arrays.material,
+                &surface.textures,
+            );
+            let mut mesh = array_mesh_from(&surface.arrays);
+            mesh.surface_set_material(0, &material);
+            let rid = soe_trace::Profile::render_submission(|| {
+                server.instance_create2(mesh.get_rid(), scenario)
+            });
+            let original = if surface.instance_transform.is_some() {
+                Transform3D::IDENTITY
+            } else {
+                crate::godot_door::pose_transform(surface.placement)
+            };
+            door.surfaces.push(crate::godot_door::DoorSurface {
+                rid,
+                mesh,
+                original,
+                triangles: surface.arrays.triangle_count(),
+            });
+            self.bounds = Some(self.bounds.map_or(surface.arrays.bounds, |bounds| {
+                crate::batch::merge_bounds(bounds, surface.arrays.bounds)
+            }));
+        }
+        door.apply();
+        self.doors.insert(id, door);
+    }
+
+    fn free_doors(&mut self, departed: &[GlobalFormId]) {
+        let stale: Vec<_> = self
+            .doors
+            .iter()
+            .filter(|(_, door)| departed.is_empty() || departed.contains(&door.cell))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in stale {
+            if let Some(door) = self.doors.remove(&id) {
+                door.free();
+            }
+            self.ref_cache.remove(&id);
         }
     }
 
@@ -4534,7 +4707,7 @@ pub fn multimesh_from_group(group: &InstanceGroup) -> Gd<MultiMesh> {
     multi
 }
 
-fn transform3d_from(t: GodotTransform) -> Transform3D {
+pub(crate) fn transform3d_from(t: GodotTransform) -> Transform3D {
     let b = t.basis;
     Transform3D::new(
         Basis::from_rows(

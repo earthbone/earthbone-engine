@@ -72,6 +72,29 @@ mod tests {
     }
 
     #[test]
+    fn waypoint_following_without_a_pool_matches_serial_without_worker_jobs() {
+        let mut planner = Planner::default();
+        let mut ai = AiState {
+            procedure: Procedure::Travel,
+            speed: 100.0,
+            path: vec![[10.0, 0.0, 0.0], [100.0, 0.0, 0.0]],
+            path_cells: vec![Some(id(1)), Some(id(2))],
+            ..AiState::default()
+        };
+        let mut serial = ai.clone();
+        let expected = follow(&mut serial, [0.0; 3], None, 0.25);
+        assert_eq!(
+            planner.follow(&mut ai, [0.0; 3], None, 0.25, None),
+            expected
+        );
+        assert_eq!(ai, serial);
+        assert_eq!(planner.movement_workers.jobs, 0);
+        assert!(planner.movement_workers.busy.is_empty());
+        assert!(planner.movement_workers.phase_busy.is_empty());
+        assert!(planner.movement_workers.main_thread_wait.is_zero());
+    }
+
+    #[test]
     fn prf_36_worker_waypoints_match_serial_and_retain_cell_crossings() {
         for workers in [1, 8] {
             let mut planner = Planner::default();

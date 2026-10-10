@@ -184,13 +184,13 @@ pub struct PlayerNode {
     presented_hud_cart_mode: bool,
     effect_shaders: crate::effect_shader::EffectShaderStack,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
+    cell_music_type: Option<GlobalFormId>,
     dialogue_voice_slot: Option<i32>,
     ambient_response: Option<soe_game::dialogue::Line>,
     footstep_cadence: crate::audio::FootstepCadence,
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
-    swing_doors: HashMap<GlobalFormId, Gd<crate::godot_animated_static::AnimatedStaticNode>>,
     loaded_cell: Option<GlobalFormId>,
     last_work_counts: soe_trace::WorkCounts,
     door_fade: DoorFade,
@@ -330,13 +330,13 @@ impl INode3D for PlayerNode {
             presented_hud_cart_mode: false,
             effect_shaders: crate::effect_shader::EffectShaderStack::default(),
             sound_bank: None,
+            cell_music_type: None,
             dialogue_voice_slot: None,
             ambient_response: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
-            swing_doors: HashMap::new(),
             loaded_cell: None,
             last_work_counts: soe_trace::WorkCounts::default(),
             door_fade: DoorFade::default(),
@@ -594,6 +594,15 @@ impl INode3D for PlayerNode {
         } else {
             self.catchup_since = None;
             self.catchup_warning_sent = false;
+        }
+        if self
+            .sound_bank
+            .as_ref()
+            .is_some_and(|bank| bank.bind().music_needs_selection())
+        {
+            if let Some(cell) = self.loaded_cell {
+                self.sync_cell_music(cell);
+            }
         }
         let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         let scene_scope = crate::scene_timing::Scope::new(soe_trace::System::Other);
@@ -961,7 +970,6 @@ impl PlayerNode {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
-                self.clear_swing_doors();
                 self.load_control_map(&source);
                 if self.base().is_node_ready() {
                     self.register_actions();
@@ -1034,7 +1042,6 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn enter_cell(&mut self, editor_id: GString, x: f32, y: f32, z: f32) -> i32 {
-        self.clear_swing_doors();
         let Some(source) = self.data_source.as_ref() else {
             soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: load_data was not called");
             return -1;
@@ -1519,6 +1526,20 @@ impl PlayerNode {
         true
     }
 
+    /// Set an object's open destination through the shared World, like SetOpen.
+    #[func]
+    pub fn set_reference_open(&mut self, file: i32, object: i64, opened: bool) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .set_reference_open(GlobalFormId { file, object }, opened)
+    }
+
     /// Remove a reference from its host presentation on the next tick.
     #[func]
     pub fn despawn_reference(&mut self, file: i32, object: i64) -> bool {
@@ -1895,10 +1916,12 @@ impl PlayerNode {
         result
     }
 
-    /// Number of animated swing doors currently attached to the player.
+    /// Number of door control nodes attached to the gameplay streamer.
     #[func]
     pub fn swing_door_count(&self) -> i32 {
-        i32::try_from(self.swing_doors.len()).unwrap_or(i32::MAX)
+        self.game_streamer
+            .as_ref()
+            .map_or(0, |streamer| streamer.bind().door_count())
     }
 
     /// Drive the same activation path from a runtime harness using a resolved FormID.

@@ -71,6 +71,7 @@ impl AudioDataSource {
 enum AsyncAudioKind {
     Music,
     Ambience,
+    DescriptorAmbience,
 }
 
 struct AsyncAudioResult {
@@ -78,6 +79,7 @@ struct AsyncAudioResult {
     generation: u64,
     path: String,
     music_options: Option<(f32, f32, bool)>,
+    ambience_plan: Option<soe_game::sound::SoundPlayback>,
     decoded: Result<soe_audio::Sound, String>,
 }
 
@@ -91,6 +93,13 @@ struct MusicFadeState {
     from: Option<usize>,
     to: Option<usize>,
     fade: MusicFade,
+}
+
+struct AmbientVoice {
+    player: Gd<AudioStreamPlayer>,
+    gain: f32,
+    fade: MusicFade,
+    outgoing: bool,
 }
 
 /// Plays sounds resolved out of a load order, positioned in the world.
@@ -107,6 +116,9 @@ pub struct SoundBank {
     async_receiver: mpsc::Receiver<AsyncAudioResult>,
     async_workers: Vec<std::thread::JoinHandle<()>>,
     music_generation: u64,
+    music_pending: Option<String>,
+    music_repeat: bool,
+    silent_remaining: f32,
     ambience_generation: u64,
     music_cache: HashMap<(String, AsyncAudioKind), CachedTrack>,
     music_cache_order: VecDeque<(String, AsyncAudioKind)>,
@@ -123,7 +135,9 @@ pub struct SoundBank {
     music_current_fade_out: f32,
     music_fade: Option<MusicFadeState>,
     ambience: Option<Gd<AudioStreamPlayer>>,
-    descriptor_ambience: Vec<Gd<AudioStreamPlayer>>,
+    descriptor_ambience: Vec<AmbientVoice>,
+    ambience_replacement_pending: bool,
+    acoustic_space: Option<soe_esm::GlobalFormId>,
     dialogue_voice: crate::dialogue_menu::DialogueVoice,
     effect_starts: u64,
     voice_starts: u64,
@@ -169,6 +183,9 @@ impl INode3D for SoundBank {
             async_receiver,
             async_workers: Vec::new(),
             music_generation: 0,
+            music_pending: None,
+            music_repeat: false,
+            silent_remaining: 0.0,
             ambience_generation: 0,
             music_cache: HashMap::new(),
             music_cache_order: VecDeque::new(),
@@ -186,6 +203,8 @@ impl INode3D for SoundBank {
             music_fade: None,
             ambience: None,
             descriptor_ambience: Vec::new(),
+            ambience_replacement_pending: false,
+            acoustic_space: None,
             dialogue_voice: crate::dialogue_menu::DialogueVoice::default(),
             effect_starts: 0,
             voice_starts: 0,
@@ -204,8 +223,9 @@ impl INode3D for SoundBank {
             self.base_mut().add_child(&player);
             self.players.push(player);
         }
-        for _ in 0..2 {
+        for slot in 0..2 {
             let mut player = AudioStreamPlayer::new_alloc();
+            player.set_name(&format!("MusicPlayer{slot}"));
             player.set_volume_db(-80.0);
             self.base_mut().add_child(&player);
             self.music_players.push(player);
@@ -234,6 +254,8 @@ impl INode3D for SoundBank {
             );
         }
         self.advance_music_fade(_delta as f32);
+        self.advance_ambience_fades(_delta as f32);
+        self.silent_remaining = (self.silent_remaining - _delta as f32).max(0.0);
         self.finish_async_audio();
     }
 }
@@ -247,27 +269,120 @@ impl SoundBank {
         if let Some(player) = &mut self.ambience {
             player.stop();
         }
-        for mut player in self.descriptor_ambience.drain(..) {
-            player.stop();
-            player.queue_free();
+        self.ambience_replacement_pending = false;
+        for mut voice in self.descriptor_ambience.drain(..) {
+            voice.player.stop();
+            voice.player.queue_free();
         }
     }
 
-    pub(crate) fn play_ambience_descriptor(
+    pub(crate) fn transition_ambience(
         &mut self,
+        space: Option<soe_esm::GlobalFormId>,
+        plans: &[soe_game::sound::SoundPlayback],
+    ) {
+        self.acoustic_space = space;
+        self.ambience_generation = self.ambience_generation.wrapping_add(1);
+        self.ambience_replacement_pending = true;
+        if plans.is_empty() {
+            self.retire_ambience();
+        }
+        for plan in plans {
+            if !matches!(plan.looping, 0 | 8) {
+                self.last_error = "ambience envelope loop mode is unsupported".into();
+                continue;
+            }
+            let path = soe_bsa::normalize(&plan.data_path);
+            let path = if path.starts_with("sound/") {
+                path
+            } else {
+                format!("sound/{path}")
+            };
+            if !self.request_async_audio(
+                &path,
+                AsyncAudioKind::DescriptorAmbience,
+                None,
+                Some(plan.clone()),
+            ) {
+                soe_trace::error!(target: "host::audio", system = "host::audio",
+                    "ambience request: {}", self.last_error);
+            }
+        }
+    }
+
+    /// Preview record-selected cell ambience without a running gameplay VM.
+    /// Conditional descriptors return an error through `last_error`.
+    #[func]
+    fn preview_cell_ambience(&mut self, file: i64, object: i64, weather: i64, draw: f64) -> bool {
+        let (Ok(file), Ok(object), Ok(weather)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            u8::try_from(weather),
+        ) else {
+            self.last_error = "invalid cell ambience input".into();
+            return false;
+        };
+        let Some(source) = self.source.as_ref() else {
+            self.last_error = "use_streamer_data has not run".into();
+            return false;
+        };
+        let cell = soe_esm::GlobalFormId { file, object };
+        let order = source.shared_order();
+        let world = soe_game::World::from_shared_order(Arc::clone(&order));
+        let selection = (|| -> soe_esm::Result<_> {
+            let record = world
+                .record(cell)
+                .ok_or_else(|| soe_esm::Error::Invalid(format!("missing CELL {cell}")))?;
+            let data = soe_esm::records::cell::Cell::from_record(record, false)?;
+            let space = data
+                .acoustic_space
+                .and_then(|raw| world.resolve_from(cell, raw));
+            let sounds =
+                soe_game::ambience::descriptors_for_cell(&world, cell, weather, draw as f32)?;
+            let plans = sounds
+                .into_iter()
+                .map(|sound| {
+                    soe_game::sound::prepare(
+                        &order,
+                        sound,
+                        [draw as f32; 3],
+                        &soe_game::sound::SoundSettings::default(),
+                    )
+                })
+                .collect::<soe_esm::Result<Vec<_>>>()?;
+            Ok((space, plans))
+        })();
+        match selection {
+            Ok((space, plans)) => {
+                self.transition_ambience(space, &plans);
+                true
+            }
+            Err(error) => {
+                self.last_error = error.to_string().as_str().into();
+                false
+            }
+        }
+    }
+
+    fn retire_ambience(&mut self) {
+        self.ambience_replacement_pending = false;
+        for voice in &mut self.descriptor_ambience {
+            if !voice.outgoing {
+                let level = 10.0_f32.powf(voice.player.get_volume_db() / 20.0);
+                voice.fade = MusicFade::new(level, 0.0, 1.0, false);
+                voice.outgoing = true;
+            }
+        }
+    }
+
+    fn start_descriptor_ambience(
+        &mut self,
+        stream: &Gd<AudioStreamWav>,
         plan: &soe_game::sound::SoundPlayback,
     ) -> bool {
-        if !matches!(plan.looping, 0 | 8) {
-            self.last_error = "ambience envelope loop mode is unsupported".into();
-            return false;
+        if self.ambience_replacement_pending {
+            self.retire_ambience();
         }
-        let (stream, _, _) = match self.stream(&plan.data_path) {
-            Ok(decoded) => decoded,
-            Err(error) => {
-                self.last_error = error.as_str().into();
-                return false;
-            }
-        };
         let mut own_stream = AudioStreamWav::new_gd();
         own_stream.set_data(&stream.get_data());
         own_stream.set_format(stream.get_format());
@@ -275,18 +390,68 @@ impl SoundBank {
         own_stream.set_stereo(stream.is_stereo());
         if plan.looping == 8 {
             own_stream.set_loop_mode(audio_stream_wav::LoopMode::FORWARD);
-            own_stream.set_loop_end(stream.get_data().len() as i32 / 2);
+            let channels = if stream.is_stereo() { 2 } else { 1 };
+            own_stream.set_loop_end(stream.get_data().len() as i32 / (2 * channels));
         }
         let mut player = AudioStreamPlayer::new_alloc();
         player.set_stream(&own_stream);
         player.set_pitch_scale(plan.pitch);
-        player.set_volume_db(linear_to_db(plan.gain));
+        player.set_volume_db(-80.0);
+        player.set_meta("descriptor", &plan.descriptor.to_string().to_variant());
         self.base_mut().add_child(&player);
         player.play();
-        self.descriptor_ambience.push(player);
+        self.descriptor_ambience.push(AmbientVoice {
+            player,
+            gain: plan.gain,
+            fade: MusicFade::new(0.0, 1.0, 0.0, false),
+            outgoing: false,
+        });
         self.ambience_starts += 1;
         self.last_error = GString::new();
         true
+    }
+
+    fn advance_ambience_fades(&mut self, seconds: f32) {
+        self.descriptor_ambience.retain_mut(|voice| {
+            let (outgoing, incoming, finished) = voice.fade.advance(seconds);
+            let gain = if voice.outgoing {
+                outgoing
+            } else {
+                incoming * voice.gain
+            };
+            voice.player.set_volume_db(linear_to_db(gain));
+            if (voice.outgoing && finished) || !voice.player.is_playing() {
+                voice.player.stop();
+                voice.player.queue_free();
+                return false;
+            }
+            true
+        });
+    }
+
+    /// Acoustic space chosen from the current cell's XCAS.
+    #[func]
+    fn acoustic_space(&self) -> GString {
+        self.acoustic_space
+            .map_or_else(GString::new, |id| id.to_string().as_str().into())
+    }
+
+    /// Count of current and fading ambience voices still playing.
+    #[func]
+    fn ambience_playing_count(&self) -> i64 {
+        self.descriptor_ambience
+            .iter()
+            .filter(|voice| voice.player.is_playing())
+            .count() as i64
+    }
+
+    pub(crate) fn music_needs_selection(&self) -> bool {
+        self.music_repeat
+            && self.music_pending.is_none()
+            && self.silent_remaining == 0.0
+            && self
+                .music_current
+                .is_none_or(|slot| !self.music_players[slot].is_playing())
     }
 
     /// Start a non-positional ambience track resolved from a MUST record.
@@ -298,7 +463,7 @@ impl SoundBank {
             self.last_error = "SoundBank must be inside the scene tree".into();
             return false;
         }
-        self.request_async_audio(&data_path.to_string(), AsyncAudioKind::Ambience, None)
+        self.request_async_audio(&data_path.to_string(), AsyncAudioKind::Ambience, None, None)
     }
 
     /// Indexes the resolved vanilla profile for `data_dir`, including only the
@@ -522,10 +687,14 @@ impl SoundBank {
     /// Queue a selection produced by `soe_game::music::select` on the shared
     /// game. Kept as a Rust entry point because Game is owned by PlayerNode.
     pub(crate) fn play_selected_music(&mut self, track: &soe_game::music::MusicTrack) -> bool {
+        self.music_repeat = !track.flags.plays_one_selection;
         let Some(path) = track.path.as_deref() else {
             self.stop_music();
+            self.music_repeat = !track.flags.plays_one_selection;
+            self.silent_remaining = track.duration;
             return true;
         };
+        self.silent_remaining = 0.0;
         self.begin_music(
             path,
             track.fade_in,
@@ -565,6 +734,7 @@ impl SoundBank {
         self.music_cache_order.clear();
         self.music_cache_bytes = 0;
         self.music_generation = self.music_generation.wrapping_add(1);
+        self.music_pending = None;
         self.ambience_generation = self.ambience_generation.wrapping_add(1);
     }
 
@@ -650,11 +820,15 @@ impl SoundBank {
         }
         let key = soe_bsa::normalize(data_path);
         let cache_key = (key.clone(), AsyncAudioKind::Music);
-        if self
-            .music_current
-            .is_some_and(|slot| self.music_paths[slot].as_deref() == Some(key.as_str()))
-        {
+        if self.music_pending.as_deref() == Some(&key) {
+            return true;
+        }
+        if self.music_current.is_some_and(|slot| {
+            self.music_paths[slot].as_deref() == Some(key.as_str())
+                && self.music_players[slot].is_playing()
+        }) {
             self.music_generation = self.music_generation.wrapping_add(1);
+            self.music_pending = None;
             return true;
         }
         if let Some(cached) = self.music_cache.get(&cache_key) {
@@ -666,6 +840,7 @@ impl SoundBank {
             data_path,
             AsyncAudioKind::Music,
             Some((fade_in, fade_out, abrupt)),
+            None,
         )
     }
 
@@ -677,6 +852,7 @@ impl SoundBank {
         fade_out: f32,
         abrupt: bool,
     ) -> bool {
+        self.music_pending = None;
         let from = self.music_current;
         let outgoing_fade = self.music_current_fade_out;
         let to = from.map_or(0, |slot| 1 - slot);
@@ -708,11 +884,23 @@ impl SoundBank {
     }
 
     pub(crate) fn stop_music(&mut self) {
+        self.music_repeat = false;
+        self.music_pending = None;
+        self.silent_remaining = 0.0;
         self.music_generation = self.music_generation.wrapping_add(1);
         if self.music_players.len() != 2 {
             return;
         }
         let from = self.music_current;
+        if from.is_none() {
+            return;
+        }
+        if let Some(previous) = self.music_fade.take().and_then(|fade| fade.from) {
+            if Some(previous) != from {
+                self.music_players[previous].stop();
+                self.music_paths[previous] = None;
+            }
+        }
         let from_level = from.map_or(0.0, |slot| {
             10.0_f32.powf(self.music_players[slot].get_volume_db() / 20.0)
         });
@@ -754,11 +942,13 @@ impl SoundBank {
         path: &str,
         kind: AsyncAudioKind,
         music_options: Option<(f32, f32, bool)>,
+        ambience_plan: Option<soe_game::sound::SoundPlayback>,
     ) -> bool {
         let key = soe_bsa::normalize(path);
         let cache_key = (key.clone(), kind);
         let generation = match kind {
             AsyncAudioKind::Music => {
+                self.music_pending = Some(key.clone());
                 self.music_generation = self.music_generation.wrapping_add(1);
                 self.music_generation
             }
@@ -766,6 +956,7 @@ impl SoundBank {
                 self.ambience_generation = self.ambience_generation.wrapping_add(1);
                 self.ambience_generation
             }
+            AsyncAudioKind::DescriptorAmbience => self.ambience_generation,
         };
         if let Some(cached) = self.music_cache.get(&cache_key) {
             let stream = cached.stream.clone();
@@ -775,6 +966,9 @@ impl SoundBank {
                     self.start_music_stream(path, &stream, fade_in, fade_out, abrupt)
                 }
                 AsyncAudioKind::Ambience => self.start_ambience_stream(&stream),
+                AsyncAudioKind::DescriptorAmbience => ambience_plan
+                    .as_ref()
+                    .is_some_and(|plan| self.start_descriptor_ambience(&stream, plan)),
             };
         }
         let Some(source) = self
@@ -802,6 +996,7 @@ impl SoundBank {
                     generation,
                     path: result_path,
                     music_options,
+                    ambience_plan,
                     decoded,
                 });
             });
@@ -835,26 +1030,43 @@ impl SoundBank {
             }
             let current_generation = match result.kind {
                 AsyncAudioKind::Music => self.music_generation,
-                AsyncAudioKind::Ambience => self.ambience_generation,
+                AsyncAudioKind::Ambience | AsyncAudioKind::DescriptorAmbience => {
+                    self.ambience_generation
+                }
             };
             if result.generation != current_generation {
                 continue;
             }
+            if result.kind == AsyncAudioKind::Music {
+                self.music_pending = None;
+            }
             let sound = match result.decoded {
                 Ok(sound) if !sound.pcm.is_empty() => sound,
                 Ok(_) => {
+                    if result.kind == AsyncAudioKind::Music {
+                        self.music_repeat = false;
+                    }
                     self.last_error =
                         GString::from(format!("{}: decoded to no samples", result.path).as_str());
+                    soe_trace::error!(target: "host::audio", system = "host::audio",
+                        "audio decode: {}", self.last_error);
                     continue;
                 }
                 Err(error) => {
+                    if result.kind == AsyncAudioKind::Music {
+                        self.music_repeat = false;
+                    }
                     self.last_error = GString::from(error.as_str());
+                    soe_trace::error!(target: "host::audio", system = "host::audio",
+                        "audio decode: {}", self.last_error);
                     continue;
                 }
             };
             let stream = match result.kind {
                 AsyncAudioKind::Music => wav_from_stereo(&sound.pcm),
-                AsyncAudioKind::Ambience => wav_from(&sound.pcm),
+                AsyncAudioKind::Ambience | AsyncAudioKind::DescriptorAmbience => {
+                    wav_from(&sound.pcm)
+                }
             };
             let bytes = sound
                 .pcm
@@ -870,8 +1082,12 @@ impl SoundBank {
                         self.music_cache_bytes = self.music_cache_bytes.saturating_sub(old.bytes);
                     }
                 }
-                self.music_cache_bytes = self.music_cache_bytes.saturating_add(bytes);
                 let cache_key = (result.path.clone(), result.kind);
+                if let Some(previous) = self.music_cache.remove(&cache_key) {
+                    self.music_cache_bytes = self.music_cache_bytes.saturating_sub(previous.bytes);
+                    self.music_cache_order.retain(|key| key != &cache_key);
+                }
+                self.music_cache_bytes = self.music_cache_bytes.saturating_add(bytes);
                 self.music_cache_order.push_back(cache_key.clone());
                 self.music_cache.insert(
                     cache_key,
@@ -888,6 +1104,10 @@ impl SoundBank {
                     self.start_music_stream(&result.path, &stream, fade_in, fade_out, abrupt)
                 }
                 AsyncAudioKind::Ambience => self.start_ambience_stream(&stream),
+                AsyncAudioKind::DescriptorAmbience => result
+                    .ambience_plan
+                    .as_ref()
+                    .is_some_and(|plan| self.start_descriptor_ambience(&stream, plan)),
             };
             if !started {
                 self.last_error = "SoundBank must be inside the scene tree".into();

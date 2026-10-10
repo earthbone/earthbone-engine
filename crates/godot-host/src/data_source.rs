@@ -69,6 +69,8 @@ mod rnd_20_tests;
 #[cfg(test)]
 mod rnd_32_tests;
 #[cfg(test)]
+mod rnd_33_tests;
+#[cfg(test)]
 mod ui_25_tests;
 
 #[cfg(feature = "godot")]
@@ -1240,6 +1242,7 @@ impl DataSource {
             !marker_blocks.contains(&mesh.block) && !nonvisual_blocks.contains(&mesh.block)
         });
         let marker_only = marker_shapes_filtered > 0 && meshes.is_empty();
+        let fire_palette = infer_fire_palette(model, &meshes);
         let refr_transform = placement_transform(refr);
         let mut out = Vec::with_capacity(meshes.len());
         for shape in &meshes {
@@ -1253,7 +1256,9 @@ impl DataSource {
                     refr_transform.then(&shape.transform)
                 };
                 let data = mesh_data_from(shape, &combined);
-                build_surface(&data, MeshOptions::default())?
+                let mut arrays = build_surface(&data, MeshOptions::default())?;
+                apply_fire_palette_fallback(&mut arrays.material, fire_palette.as_deref());
+                arrays
             };
             let textures = {
                 let _material = soe_trace::Span::new("host.material", "host");
@@ -1286,6 +1291,43 @@ impl DataSource {
             instance_transform,
         })
     }
+}
+
+fn infer_fire_palette(model: &str, meshes: &[NifMesh]) -> Option<String> {
+    if !model.to_ascii_lowercase().contains("fire") {
+        return None;
+    }
+    meshes.iter().find_map(|mesh| {
+        let effect = mesh.material.effect.as_ref()?;
+        (mesh.material.flags1 & soe_nif::blocks::flags1::GREYSCALE_TO_PALETTE_COLOR != 0
+            && !effect.greyscale_texture.is_empty())
+        .then(|| effect.greyscale_texture.clone())
+    })
+}
+
+fn apply_fire_palette_fallback(material: &mut MaterialDesc, palette: Option<&str>) {
+    use soe_nif::blocks::{flags1, BlendFactor};
+    let Some(palette) = palette else {
+        return;
+    };
+    if material.shader_flags_1 & flags1::GREYSCALE_TO_PALETTE_COLOR != 0 {
+        return;
+    }
+    let Some(effect) = material.effect.as_mut() else {
+        return;
+    };
+    if !effect.params.greyscale_texture.is_empty()
+        || !effect.blend.is_some_and(|blend| {
+            matches!(
+                (blend.src, blend.dst),
+                (BlendFactor::SrcAlpha | BlendFactor::One, BlendFactor::One)
+            )
+        })
+    {
+        return;
+    }
+    material.shader_flags_1 |= flags1::GREYSCALE_TO_PALETTE_COLOR;
+    effect.params.greyscale_texture = palette.to_string();
 }
 
 /// Builds the archive and loose-file view for one resolved profile.

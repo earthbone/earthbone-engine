@@ -22,31 +22,22 @@ func _check_door_fade(player: Node3D, crossing: String) -> void:
 	if overlay != null:
 		_check(overlay.visible == expected, crossing + " fade overlay visibility is wrong")
 
-func _hst_01_gameplay_swing_door(player: Node3D) -> void:
+func _hst_01_gameplay_swing_door(player: Node3D, streamer: Node3D) -> void:
 	var swing_doors: Array = player.call("gameplay_swing_doors")
 	_check(not swing_doors.is_empty(), "Bannered Mare has no unlocked swing door")
 	if swing_doors.is_empty():
 		return
 	var swing: Dictionary = swing_doors[0]
+	var before: Dictionary = streamer.call("door_state", swing.file, swing.object)
+	_check(not before.is_empty(), "swing door attaches before activation")
 	_check(player.call("activate_reference", swing.file, swing.object), "swing door activation failed")
-	_check(player.call("swing_door_count") == 1, "activation did not create an animated swing door")
-	var animated: Node3D
-	for child: Node in player.get_children():
-		if child.name.begins_with("SwingDoor_"):
-			animated = child as Node3D
-	_check(animated != null, "activated swing door node is missing")
-	if animated == null or animated.get_child_count() == 0:
-		return
-	var mesh := animated.get_child(0) as MeshInstance3D
-	var body: StaticBody3D
-	for child: Node in mesh.get_children():
-		if child is StaticBody3D:
-			body = child
-	var before: Basis = mesh.global_transform.basis
-	animated.call("advance", 5.0)
-	_check(not before.is_equal_approx(mesh.global_transform.basis), "gameplay door did not swing")
-	_check(body != null and body.global_transform.is_equal_approx(mesh.global_transform),
-		"gameplay door collision did not follow the mesh")
+	streamer.call("advance_doors", 1.0)
+	var after: Dictionary = streamer.call("door_state", swing.file, swing.object)
+	_check(before.get("node", -1) == after.get("node", -2), "activation retains the door node")
+	_check(after.get("fraction", 0.0) == 1.0, "gameplay door swings open")
+	var collision: Dictionary = player.call("reference_collision_bodies", swing.file, swing.object)
+	_check(collision.get("movement", -1) == 0 and collision.get("query", -1) == 0,
+		"open swing door disables its original collision")
 
 func _run() -> void:
 	var data := OS.get_environment("SKYRIM_DATA")
@@ -71,7 +62,7 @@ func _run() -> void:
 	else:
 		var start: String = player.call("gameplay_cell")
 		_check(start == requested, "startup quests replaced the requested walkthrough cell")
-		_hst_01_gameplay_swing_door(player)
+		_hst_01_gameplay_swing_door(player, streamer)
 		var doors: Array = player.call("gameplay_doors")
 		var chosen: Dictionary = {}
 		for door: Dictionary in doors:

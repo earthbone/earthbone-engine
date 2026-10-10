@@ -227,7 +227,7 @@ fn ambience_world(chance: f32, flags: u32) -> soe_game::World {
 
 #[test]
 fn aud_11_cell_acoustic_space_and_region_select_actual_sound_descriptors() {
-    let world = ambience_world(100.0, 1);
+    let world = ambience_world(1.0, 1);
     assert_eq!(
         soe_game::ambience::descriptors_for_cell(&world, id(0x1000), 1, 0.5).unwrap(),
         [id(0x1002), id(0x1004)]
@@ -236,7 +236,7 @@ fn aud_11_cell_acoustic_space_and_region_select_actual_sound_descriptors() {
 
 #[test]
 fn aud_11_region_weather_mask_and_chance_filter_ineligible_sounds() {
-    let world = ambience_world(50.0, 4);
+    let world = ambience_world(0.5, 4);
     assert_eq!(
         soe_game::ambience::descriptors_for_cell(&world, id(0x1000), 1, 0.1).unwrap(),
         [id(0x1002)]
@@ -257,7 +257,7 @@ fn aud_11_invalid_ambience_chance_and_draw_return_errors() {
         let world = ambience_world(chance, 1);
         assert!(soe_game::ambience::descriptors_for_cell(&world, id(0x1000), 1, 0.1).is_err());
     }
-    let world = ambience_world(100.0, 1);
+    let world = ambience_world(1.0, 1);
     assert!(soe_game::ambience::descriptors_for_cell(&world, id(0x1000), 1, f32::NAN).is_err());
 }
 
@@ -301,7 +301,7 @@ fn aud_11_high_priority_region_override_suppresses_lower_priority_sounds() {
     ] {
         let mut entry = sound.to_le_bytes().to_vec();
         entry.extend_from_slice(&1u32.to_le_bytes());
-        entry.extend_from_slice(&100.0f32.to_le_bytes());
+        entry.extend_from_slice(&1.0f32.to_le_bytes());
         plugin.push_top(
             Record::new(T(b"REGN"), region)
                 .sub(

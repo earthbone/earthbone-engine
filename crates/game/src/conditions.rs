@@ -260,6 +260,7 @@ pub fn supports_function(function: u16) -> bool {
             | 74
             | 84
             | 136
+            | 149
             | 182
             | 244
             | 264
@@ -1559,8 +1560,11 @@ fn function_value(
             return Err(Error::Function(c.function));
         }
         149 => {
-            resolve(world, context.owner, raw, Some(*b"WTHR"))?;
-            return Err(Error::Function(c.function));
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let weather = resolve(world, context.owner, raw, Some(*b"WTHR"))?;
+            boolean(world.current_sky_weather() == Some(weather))
         }
         64 | 143 | 150 | 228 | 226 | 227 | 449 | 454 | 637 | 703 | 715 => {
             return Err(Error::Function(c.function));

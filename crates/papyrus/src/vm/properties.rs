@@ -25,7 +25,7 @@ impl Vm {
         value: Value,
     ) -> Result<(), VmError> {
         let id = self
-            .instance_on(object, script)
+            .property_instance(object, script)
             .ok_or_else(|| VmError::UnknownScript(script.to_string()))?;
         let auto_var = self.instances[id.0].chain.iter().find_map(|s| {
             s.object.property(property).and_then(|p| {
@@ -84,7 +84,7 @@ impl Vm {
         script: &str,
         property: &str,
     ) -> Option<Value> {
-        let id = self.instance_on(object, script)?;
+        let id = self.property_instance(object, script)?;
         let auto_var = self.instances[id.0].chain.iter().find_map(|s| {
             s.object.property(property).and_then(|p| {
                 p.auto_var
@@ -151,10 +151,23 @@ impl Vm {
         self.thread_result(tid)
     }
 
+    fn property_instance(&mut self, object: ObjectId, script: &str) -> Option<InstanceId> {
+        if let Some(id) = self.instance_on(object, script) {
+            return Some(id);
+        }
+        for class in self.class_names(object) {
+            let (chain, _) = self.chain_of(&class);
+            if chain.iter().any(|s| s.name.eq_ignore_ascii_case(script)) {
+                return self.attach(object, &class).ok();
+            }
+        }
+        None
+    }
+
     /// The instance on `obj` whose chain declares the property, with the
     /// declaring script.
     pub(super) fn find_property(
-        &self,
+        &mut self,
         obj: ObjectId,
         prop: &str,
     ) -> Option<(InstanceId, Rc<LoadedScript>)> {
@@ -164,6 +177,16 @@ impl Vm {
                 if s.object.property(prop).is_some() {
                     return Some((iid, s.clone()));
                 }
+            }
+        }
+        // CONTEXT: Native forms have a class but no VMAD attachment. Their
+        // loaded PEX still owns full properties such as GlobalVariable.Value.
+        for class in self.class_names(obj) {
+            let (chain, _) = self.chain_of(&class);
+            if let Some(script) = chain.iter().find(|s| s.object.property(prop).is_some()) {
+                let script = script.clone();
+                let iid = self.attach(obj, &class).ok()?;
+                return Some((iid, script));
             }
         }
         None

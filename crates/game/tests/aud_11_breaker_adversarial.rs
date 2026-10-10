@@ -41,13 +41,13 @@ fn region_world(interior: bool, flags: u32, chance: f32) -> soe_game::World {
 
 #[test]
 fn aud_11_breaker_aspc_region_sound_is_interior_only() {
-    let exterior = region_world(false, 1, 100.0);
+    let exterior = region_world(false, 1, 1.0);
     assert_eq!(
         soe_game::ambience::descriptors_for_cell(&exterior, id(0x1000), 1, 0.0).unwrap(),
         [id(0x1002)]
     );
 
-    let interior = region_world(true, 1, 100.0);
+    let interior = region_world(true, 1, 1.0);
     assert_eq!(
         soe_game::ambience::descriptors_for_cell(&interior, id(0x1000), 1, 0.0).unwrap(),
         [id(0x1002), id(0x1004)]
@@ -57,7 +57,7 @@ fn aud_11_breaker_aspc_region_sound_is_interior_only() {
 #[test]
 fn aud_11_breaker_regional_weather_bits_and_chance_boundary_are_exact() {
     for weather in [1u8, 2, 4, 8] {
-        let world = region_world(true, u32::from(weather), 50.0);
+        let world = region_world(true, u32::from(weather), 0.5);
         assert!(
             soe_game::ambience::descriptors_for_cell(&world, id(0x1000), weather, 0.499)
                 .unwrap()
@@ -82,6 +82,6 @@ fn aud_11_breaker_regional_weather_bits_and_chance_boundary_are_exact() {
 
 #[test]
 fn aud_11_breaker_reserved_regional_weather_flags_are_rejected() {
-    let world = region_world(true, 0x10, 100.0);
+    let world = region_world(true, 0x10, 1.0);
     assert!(soe_game::ambience::descriptors_for_cell(&world, id(0x1000), 1, 0.0).is_err());
 }
