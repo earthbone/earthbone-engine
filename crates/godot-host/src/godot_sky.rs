@@ -2,6 +2,8 @@
 
 //! Godot sky inputs from shared World forms, using the Godot sky shader API.
 //! The preview owns a World only when no gameplay PlayerNode is bound.
+//! Night meshes retain NIF geometry and UVs. nifly Shaders.cpp defines the
+//! SSE BSSkyShaderProperty texture field retained by the NIF reader.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -214,6 +216,91 @@ impl SkyRecords {
     }
 
     #[func]
+    fn night_meshes(&self, model: GString) -> Array<VarDictionary> {
+        let mut layers = Array::new();
+        let Some(source) = &self.source else {
+            return layers;
+        };
+        let model = model.to_string().replace('\\', "/");
+        if model.is_empty() {
+            return layers;
+        }
+        let model = if model.to_ascii_lowercase().starts_with("meshes/") {
+            model
+        } else {
+            format!("meshes/{model}")
+        };
+        let Ok(bytes) = source.vfs().read(&model) else {
+            return layers;
+        };
+        let Ok(file) = soe_nif::parse(&bytes) else {
+            return layers;
+        };
+        let Ok(meshes) = file.meshes() else {
+            return layers;
+        };
+        for mesh in meshes {
+            let shader = match file.blocks.get(mesh.block) {
+                Some(soe_nif::blocks::Block::BsTriShape(shape)) => shape.shader,
+                Some(soe_nif::blocks::Block::TriShape(shape)) => shape.shader,
+                _ => continue,
+            };
+            let Some(path) = shader
+                .get()
+                .and_then(|i| file.blocks.get(i))
+                .and_then(|block| match block {
+                    soe_nif::blocks::Block::Unknown { type_name, data }
+                        if type_name == "BSSkyShaderProperty"
+                            && file.header.user_version == 12
+                            && file.header.bs_version == 100 =>
+                    {
+                        sky_shader_texture(data)
+                    }
+                    soe_nif::blocks::Block::EffectShader(shader) => {
+                        Some(shader.source_texture.as_str())
+                    }
+                    _ => mesh.material.textures.first().map(String::as_str),
+                })
+            else {
+                continue;
+            };
+            if path.is_empty() || mesh.uvs.len() != mesh.positions.len() {
+                continue;
+            }
+            let mut layer = VarDictionary::new();
+            layer.set("name", mesh.name.as_str());
+            layer.set("texture", path);
+            let positions: PackedVector3Array = mesh
+                .positions
+                .iter()
+                .map(|p| {
+                    let p = mesh
+                        .transform
+                        .apply(soe_nif::types::Vec3::new(p[0], p[1], p[2]));
+                    direction(p.to_array())
+                })
+                .collect();
+            let uvs: PackedVector2Array = mesh
+                .uvs
+                .iter()
+                .map(|uv| Vector2::new(uv[0], uv[1]))
+                .collect();
+            let colors: PackedColorArray = mesh
+                .colors
+                .iter()
+                .map(|c| Color::from_rgba(c[0], c[1], c[2], c[3]))
+                .collect();
+            let indices: PackedInt32Array = mesh.indices.iter().map(|i| *i as i32).collect();
+            layer.set("positions", &positions);
+            layer.set("uvs", &uvs);
+            layer.set("colors", &colors);
+            layer.set("indices", &indices);
+            layers.push(&layer);
+        }
+        layers
+    }
+
+    #[func]
     fn night_texture(&mut self, model: GString) -> GString {
         let Some(source) = &self.source else {
             return GString::new();
@@ -341,6 +428,23 @@ mod tests {
         bytes.extend_from_slice(b"sky/stars.dds\0");
         assert_eq!(sky_shader_texture(&bytes), Some("sky/stars.dds"));
         bytes.truncate(46);
+        assert_eq!(sky_shader_texture(&bytes), None);
+    }
+
+    #[test]
+    fn rnd_36_night_shader_texture_rejects_truncation_and_invalid_extra_data_count() {
+        let path = b"textures/sky/SkyrimGalaxy.dds";
+        let mut bytes = vec![0; 36];
+        bytes.extend_from_slice(&(path.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(path);
+        assert_eq!(
+            sky_shader_texture(&bytes),
+            Some("textures/sky/SkyrimGalaxy.dds")
+        );
+        for len in 0..bytes.len() {
+            assert_eq!(sky_shader_texture(&bytes[..len]), None, "cut at {len}");
+        }
+        bytes[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
         assert_eq!(sky_shader_texture(&bytes), None);
     }
 }

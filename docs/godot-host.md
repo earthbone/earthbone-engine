@@ -5832,7 +5832,7 @@ reference.
 
 The sky shader draws upper, lower and horizon NAM0 colors. CLMT sun and glare
 textures, moon textures selected by TNAM flags and phase length, and the
-texture named by CLMT's night NIF come through the DataSource VFS. The sun
+textures named by CLMT's night NIF come through the DataSource VFS. The sun
 light follows the sampled sun direction and WTHR sunlight color. The ambient
 light uses WTHR ambient color. Cloud layers use their authored colors, alpha
 and XY velocities. Unique textures upload to an RGBA8 Texture2DArray at
@@ -5920,17 +5920,18 @@ exited with status 0. This smoke run does not measure interactive frame time.
 ## Sky depth and hemisphere continuity, RND-30
 
 `record_sky.gdshader` uses Godot's background sky pass for the atmosphere,
-clouds, sun, moons and stars. These inputs depend on viewing direction rather
-than camera position or a finite mesh radius. World geometry occludes the
+clouds, sun, moons and diagnostic stars. CLMT night meshes project directions
+at background depth. These inputs depend on viewing direction rather than
+camera position or a finite mesh radius. World geometry occludes the
 background, and the sky writes no world depth. The controller creates no
-finite sky mesh, cloud billboard or node per placed reference.
+cloud billboard or node per placed reference.
 
 Cloud UVs use a stereographic upper hemisphere, `eye.xz / (1 + eye.y)`.
 There are no cube faces or clamped projection bands. Cloud alpha fades to
 zero across the lowest 0.16 of the vertical viewing direction, meeting the
 horizon color continuously. Cloud uploads generate mipmaps after resizing,
-and the texture array uses linear mipmap filtering. Star texture sampling
-wraps at the spherical longitude boundary.
+and the texture array uses linear mipmap filtering. Night layers retain the
+CLMT model's authored UVs and project directions at background depth.
 
 Sources read were local OpenMW `apps/openmw/mwrender/sky.cpp`, its
 `files/shaders/compatibility/sky.vert`, and Godot's
@@ -5960,6 +5961,67 @@ diagnostic comparison. A separate capture retains the authored cloudy sky
 and fog. Eight installed-cloud views sample former cube edges and corners
 with a limit of 0.08 per channel. PNGs and process logs are written under
 `target/rnd_30`.
+
+### Night layers and the zenith, RND-36
+
+SkyRecords exports each shape of CLMT's night model with its accumulated
+transform, UVs, vertex colors, triangles and shader texture. The controller
+draws layers with nonempty geometry and available textures using
+`record_night_sky.gdshader`. Its direction-only
+projection ignores camera translation and puts every fragment at reversed-Z
+background depth, with depth writes disabled. Opaque world geometry occludes
+the night layers. The shader uses their authored UVs rather than interpreting
+a constellation sheet as a longitude/latitude panorama. The diagnostic
+texture path in the background sky shader uses pole-safe hemisphere UVs.
+
+Every night layer uses the shared World's CLMT sunrise/sunset fade and WTHR
+stars color. Vertex RGB supplies sky blend weights, summed and clamped to
+one for that common stars color, rather than tinting each channel separately.
+Vertex and texture alpha multiply the climate fade.
+Layers are hidden at zero night alpha and when the sky is hidden.
+Cloud alpha and sun/moon disc alpha mask the additive night contribution,
+keeping those background components in front of the night meshes. Changing
+the source or night model releases the old layer meshes and materials.
+
+The installed `Sky/Stars.nif` contains `Constellations1-6` and
+`Constellations7-13`, using `SkyrimConstellations01.dds` and
+`SkyrimConstellations02.dds`, plus `SkyrimGalaxy` using `SkyrimGalaxy.dds`
+and `SkyrimStars:0` using `Stars.dds`, all under `textures/sky`. The earlier
+host selected only the first constellation texture and sampled it as a
+panorama. These are four sky control meshes, shared by the whole view, with
+621 vertices and 1,018 triangles. No node is created per placed reference.
+
+Sources are the local UESP WTHR and CLMT pages, nifly's `src/Shaders.cpp` and
+`include/Shaders.hpp`, the installed sky model, and OpenMW's night-mesh fade
+in `apps/openmw/mwrender/sky.cpp`. Community Shaders' `package/Shaders/Sky.hlsl`
+supplies the authored-UV, texture-alpha and background-depth sky contract.
+The local CK dump has no Climate or Weather
+editor page, and those pages returned HTTP 403 online. The host uses Godot's
+far-depth projection rather than OpenMW's OSG camera-relative render bin.
+
+`rnd_36_installed_night_layers_and_climate_fade` checks each vanilla mesh's
+texture binding and the climate's sunrise/sunset endpoints and midpoints,
+including the midnight wrap. The windowed `rnd_36_` capture tests save PNGs
+and logs under `target/rnd_36` and quit after their checks. A smooth diagnostic
+night mesh checks four zenith camera rotations, camera translation, daytime
+exclusion, world occlusion and opaque cloud/moon masks. The installed capture
+looks straight up from WhiterunOrigin under SkyrimClear at noon and midnight.
+Comparing each image
+with its night layers disabled requires zero changed noon pixels and at
+least 200 changed midnight pixels, using a 2/255 channel tolerance. Adjacent
+pixels in the central 8 by 8 region have a 0.04 channel limit for the noon sky
+and the isolated night contribution. The midnight view places a full moon
+at the zenith, so its edge is removed by the no-night baseline before that
+comparison. Separate captures replace the loaded galaxy and star dome
+textures with a smooth periodic texture and hide the sun and moons. These
+captures check the same 0.04 limit on the actual model's UV interpolation.
+
+The Godot 4.4.1 software Vulkan captures measured zero night pixels at noon
+and 24,459 at midnight. The galaxy UV probe had a zero center step and the
+star dome probe had a 0.0039 step. The synthetic probe also measured 0.0039
+at each of four camera rotations. The full moon's 0.1725 center edge was
+present in the no-night baseline as well. The isolated night contribution
+had a zero center step.
 
 ## NIF effect materials, RND-22
 
