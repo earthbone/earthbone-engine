@@ -190,13 +190,33 @@ class and the parents the registry declared, so a quest form with no script
 still answers `SetStage`. This is how the game crate hands forms to scripts
 without preloading every form as a VM object.
 
+**Native-form properties, SCR-75.** Property opcodes search attached script
+chains first. If those do not declare the property, they search the object's
+base class and parents for a loaded PEX declaration and attach that chain on
+first access. Getter and setter frames run on the calling thread with the
+target object as `self`. Later accesses reuse the instance. Names compare
+without case, and missing, read-only and write-only properties retain their
+script errors. Host property reads and writes can also attach the loaded
+base-class chain. Existing instance and frame serialization preserves these
+attachments and suspended accessors without a new save field.
+
+The local `skse64/scripts/vanilla/GlobalVariable.psc` defines `Value` through
+`GetValue` and `SetValue`. CK's `GlobalVariable_Script.wikitext` lists the
+read-write float property, and Caprica's `pex/PexProperty.cpp` distinguishes
+auto variables from compiled accessor bodies. skymp's
+`papyrus-vm/src/papyrus-vm-lib/ActivePexInstance.cpp` restricts property lookup
+to active attachments and has limited accessor lookup, so this VM uses its
+existing inheritance and scheduler machinery instead. The `scr_75_` tests
+cover native forms, parent declarations, access permissions, object identity,
+mixed-case operands and suspended accessor restoration.
+
 **Host property writes.** `set_property` writes an auto property's variable
 directly. A full property (a compiled `Get` and `Set` pair) has no variable
 of its own, so the host runs the `Set` function on a fresh thread with the
 value as its argument and drives that thread to completion before returning,
 the way the game applies `VMAD` values to such properties. A setter that
 waits or calls a latent native is logged and left running. `get_property`
-reads auto variables only.
+also runs compiled getters.
 
 **Name operands.** The compiler writes the function name of `CallMethod` and
 `CallParent`, the class and function of `CallStatic`, and the property of
