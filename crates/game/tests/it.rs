@@ -40,6 +40,11 @@ mod prf_19_breaker_adversarial;
 
 #[path = "scr_23_breaker_adversarial.rs"]
 mod scr_23_breaker_adversarial;
+#[path = "scr_11_breaker3_adversarial.rs"]
+mod scr_11_breaker3_adversarial;
+
+#[path = "scr_15_breaker3_adversarial.rs"]
+mod scr_15_breaker3_adversarial;
 
 #[path = "shm_11_breaker_2_adversarial.rs"]
 mod shm_11_breaker_2_adversarial;
@@ -1273,6 +1278,8 @@ mod scr_01_breaker_adversarial;
 mod scr_02_adversarial;
 #[path = "scr_02_breaker2_adversarial.rs"]
 mod scr_02_breaker2_adversarial;
+#[path = "scr_02_breaker3_adversarial.rs"]
+mod scr_02_breaker3_adversarial;
 #[path = "scr_02_breaker_adversarial.rs"]
 mod scr_02_breaker_adversarial;
 #[path = "scr_02_native_contract_inventory.rs"]
@@ -1329,12 +1336,16 @@ mod scr_13_actor_native_batch;
 mod scr_13_adversarial;
 #[path = "scr_13_breaker2_adversarial.rs"]
 mod scr_13_breaker2_adversarial;
+#[path = "scr_13_breaker3_adversarial.rs"]
+mod scr_13_breaker3_adversarial;
 #[path = "scr_13_breaker_adversarial.rs"]
 mod scr_13_breaker_adversarial;
 #[path = "scr_14_adversarial.rs"]
 mod scr_14_adversarial;
 #[path = "scr_14_breaker2_adversarial.rs"]
 mod scr_14_breaker2_adversarial;
+#[path = "scr_14_breaker3_adversarial.rs"]
+mod scr_14_breaker3_adversarial;
 #[path = "scr_14_breaker_adversarial.rs"]
 mod scr_14_breaker_adversarial;
 #[path = "scr_15_adversarial.rs"]
@@ -1600,6 +1611,8 @@ mod scr_73_native_contract_audit;
 mod scr_74;
 #[path = "scr_74_adversarial.rs"]
 mod scr_74_adversarial;
+#[path = "scr_74_breaker_adversarial.rs"]
+mod scr_74_breaker_adversarial;
 #[path = "shm_03_live_world.rs"]
 mod shm_03_live_world;
 #[path = "shm_04_actor_world_binding.rs"]

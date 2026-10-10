@@ -1134,9 +1134,24 @@ actor itself detach it. `SetLookAt` stores its placed-reference target and
 pathing argument, and `ClearLookAt` clears the target. The actor section
 `SCR-11` persists these relationships and they are included in the
 determinism hash. `World::actor_vehicle` and `World::actor_look_at` expose the
-values. Vehicle-follow movement and forced-look rendering are not connected to
-the host, so these native effects currently expose the requested relationships
-without moving or turning the actor.
+values. `World::tick_actor_script_relationships` applies target movement and yaw
+changes to the actor's shared reference placement. It rotates the actor's
+vehicle-relative offset with the target, updates its cell when the target has a
+cell, turns the actor toward a live look target, and supplies the target to the
+AI movement step when the look request enables pathing. That step routes toward
+the live target, updates its route when the target moves and stops within its
+arrival radius. Disabling or changing a pathing request clears the prior forced
+route. The AI tick applies the relationship update, and the host observes
+changed actor placement through the existing reference change path. Save
+loading clears the transient vehicle motion baseline so the first post-load
+tick uses restored placements.
+
+The bindings follow the local CK `SetVehicle_-_Actor.wikitext`,
+`GetSitState_-_Actor.wikitext` and `GetFlyingState_-_Actor.wikitext` pages, plus
+the `Actor_Script.wikitext` signatures and descriptions. The CK sources define
+the vehicle attach/detach contract and flying-state codes. The engine keeps
+sit transition animation states unavailable because the host does not report
+them.
 
 **Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
 current time-driven sun position in Skyrim units, on the runtime's 100,000-unit
@@ -1723,16 +1738,25 @@ and behavior remain owned by SCR-16. They also have no `Trespass` declaration,
 whose behavior remains owned by SCR-15. Both absent contracts are recorded in
 the manifest.
 
+The SCR-02 contract-shape regression compares the local `EquipItem` CK
+declaration, including its `Form` and `Bool` parameter types, both false
+defaults and its `None` return, with the native invocation. Calling the native
+with only the required item exercises those defaults: it equips the item,
+emits the ordinary equip notification and returns `None`. `SCR-74` owns the
+prevent-removal and silent-message behavior and tests those explicit arguments.
+
 `Actor.KeepOffsetFromActor` stores the target, required body-space XYZ offset,
 optional XYZ angles and catch-up/follow radii on the calling actor. Omitted
 optional arguments use the CK defaults. Targets must be actors, all numeric
 values must be finite, and the catch-up radius must be at least the
 nonnegative follow radius.
-`ClearKeepOffsetFromActor` removes that request. `SetForcedLandingMarker`
-stores a resolved reference on the actor, and accepts `None` to clear it.
-These values persist in the actor section named `SCR-14`. The package/host
-movement path does not yet consume Papyrus offset requests, and the flight
-system does not yet consume forced landing markers.
+`ClearKeepOffsetFromActor` removes that request. AI movement rotates the
+body-space XYZ offset by the target's yaw, applies its relative XYZ angles,
+stops inside the follow radius and selects run speed outside the catch-up
+radius. `SetForcedLandingMarker` stores a resolved reference on the actor, and
+accepts `None` to clear it. When a Hover flight package ends, AI movement routes
+the actor to that marker and retains the in-flight state until it arrives.
+These values persist in the actor section named `SCR-14`.
 The local CK pages `KeepOffsetFromActor - Actor`,
 `ClearKeepOffsetFromActor - Actor` and `GetEquippedWeapon - Actor` define
 the offset and weapon argument contracts. `Actor_Script.wikitext` names the
@@ -3153,9 +3177,9 @@ entries, and the existing xEdit PACK and shared spell APIs.
 
 `Actor.GetVoiceRecoveryTime` reads the remaining duration from that actor's
 real-seconds deadline. `Actor.PlayIdleWithTarget` queues the idle's editor ID
-for the calling actor and returns false for a missing idle or invalid target
-reference. A target is validated but is not yet routed to paired animation
-playback. `Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
+to its explicit target reference, or to the calling actor when the target is
+`None`, and returns false for a missing idle or invalid target reference.
+`Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
 hands, source 2 from the actor's other-spell slot, and source 3 from its
 instant-spell slot. The latter slots persist in the actor section named
 `SCR-15`. `Actor.Dismount` returns true only when it clears a set mounted flag.
@@ -3163,8 +3187,8 @@ instant-spell slot. The latter slots persist in the actor section named
 CK pages consulted for these bindings are `GetEquippedSpell_-_Actor`,
 `GetVoiceRecoveryTime_-_Actor`, `PlayIdleWithTarget_-_Actor` and
 `Dismount_-_Actor`. The CK snapshot has no `Trespass_-_Actor` page. The
-existing world model does not provide paired-idle target routing or host mount
-placement, and these calls do not create crime witness events.
+host mount placement is not provided, and these calls do not create crime
+witness events.
 
 Nested `Sequence` branches finish after their children, and `Repeat when
 Complete` restarts only the branch carrying that flag. `Success Completes
