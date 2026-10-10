@@ -4143,7 +4143,11 @@ state and advances the animation interpreter. It never resolves the hit or
 changes health, so the combat event cannot apply damage twice.
 `cmb_27_shared_game_applies_stagger_damage_once_per_hit_frame` checks the
 shared Game applies damage once and consumes duplicate hit-frame events while
-the target is staggered.
+the target is staggered. `gameplay_actor_value` and
+`gameplay_actor_is_staggered` inspect that same shared World. The installed
+`godot/cmb_27_live_reaction_test.gd` hits a resident actor with a vanilla
+Iron Warhammer, checks the bound graph enters `Stagger_State`, advances the
+Game through expiry, and confirms health stays unchanged after the hit.
 
 `activeragdoll/src/main.cpp`'s `StaggerActor` and the local Nemesis master,
 stagger and one-handed behavior graphs establish the variable and event names.

@@ -4,7 +4,7 @@ extends SceneTree
 
 const BODY := "meshes/actors/character/character assets/malebody_1.nif"
 const PLAYER := 0x14
-const IRON_SWORD := 0x00012EB7
+const IRON_WARHAMMER := 0x00013982
 var failures := 0
 
 
@@ -40,7 +40,7 @@ func _run() -> void:
 	_check(player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) > 0,
 		"initial cell failed")
 	_check(player.call("start_gameplay"), "gameplay startup failed")
-	_check(player.call("equip_melee_weapon", 0, IRON_SWORD, false), "iron sword not equipped")
+	_check(player.call("equip_melee_weapon", 0, IRON_WARHAMMER, false), "iron warhammer not equipped")
 	await _frames(2)
 	player.call("sync_contact_actors")
 
@@ -59,37 +59,55 @@ func _run() -> void:
 	_check(visual.call("load_character", data, BODY), "human graph failed to load")
 	_check(player.call("bind_actor_appearance", visual, target.file, target.object),
 		"target rig did not bind to the shared World")
-	visual.call("start_walking")
 	for i in 30:
 		visual.call("advance", 1.0 / 60.0)
+	_check(visual.call("set_graph_variable", "iRightHandType", 1.0),
+		"vanilla master graph has no right-hand type variable")
+	visual.call("start_walking")
 	var locomotion: PackedStringArray = visual.call("active_states")
 	_check(not locomotion.is_empty(), "target locomotion state is empty")
 
 	var centre: Vector3 = target.position + Vector3.UP * 0.9
 	var origin := centre + Vector3(0.6, 0.0, 0.0)
 	var pose := Transform3D(Basis.looking_at(centre - origin, Vector3.UP), origin)
+	var health_before: float = player.call("gameplay_actor_value", target.file, target.object, "health")
 	_check(player.call("begin_melee_swing", false), "melee swing did not arm")
-	_check(player.call("melee_bone_contact", "HitFrame", pose), "shared melee hit did not resolve")
+	var hit_resolved: bool = player.call("melee_bone_contact", "HitFrame", pose)
+	_check(hit_resolved, "shared melee hit was rejected")
 	var hit: Dictionary = player.call("last_melee_target")
-	_check(hit.get("object", -1) == target.object, "hit reached %s, expected %x" % [hit, target.object])
+	_check(hit.get("file", -1) == target.file and hit.get("object", -1) == target.object,
+		"hit reached %s, expected %d:%x" % [hit, target.file, target.object])
+	var health_after_hit: float = player.call("gameplay_actor_value", target.file, target.object, "health")
+	_check(health_after_hit < health_before, "shared hit did not damage the bound actor")
+	_check(player.call("gameplay_actor_is_staggered", target.file, target.object),
+		"shared hit did not set the World stagger deadline")
+	_check(not player.call("melee_bone_contact", "HitFrame", pose), "duplicate hit frame resolved twice")
+	_check(is_equal_approx(player.call("gameplay_actor_value", target.file, target.object, "health"), health_after_hit),
+		"duplicate hit frame damaged the actor twice")
 
 	var reaction := false
 	for i in 90:
+		player.call("advance", 1.0 / 60.0)
 		visual.call("advance", 1.0 / 60.0)
-		for clip: String in visual.call("active_clips"):
-			reaction = reaction or clip.to_lower().contains("stagger")
+		for state: String in visual.call("active_states"):
+			reaction = reaction or state.contains("Stagger_State")
 		if reaction:
 			break
-	_check(reaction, "bound SkinnedActorNode did not play the authored stagger clip")
+	_check(reaction, "bound SkinnedActorNode did not enter the authored stagger state")
+	_check(is_equal_approx(player.call("gameplay_actor_value", target.file, target.object, "health"), health_after_hit),
+		"animation handoff changed health after the hit")
 
 	var returned := false
 	for i in 180:
 		await physics_frame
+		player.call("advance", 1.0 / 60.0)
 		visual.call("advance", 1.0 / 60.0)
 		if visual.call("active_states") == locomotion:
 			returned = true
 			break
 	_check(returned, "bound graph did not return to locomotion after the World deadline")
+	_check(is_equal_approx(player.call("gameplay_actor_value", target.file, target.object, "health"), health_after_hit),
+		"stagger expiry changed health after the hit")
 	visual.queue_free()
 	player.queue_free()
 	streamer.queue_free()
