@@ -1756,6 +1756,8 @@ stops inside the follow radius and selects run speed outside the catch-up
 radius. `SetForcedLandingMarker` stores a resolved reference on the actor, and
 accepts `None` to clear it. When a Hover flight package ends, AI movement routes
 the actor to that marker and retains the in-flight state until it arrives.
+Arrival at the prior package destination does not cancel the landing route.
+Landing uses record-backed walk speed when the package has no positive speed.
 These values persist in the actor section named `SCR-14`.
 The local CK pages `KeepOffsetFromActor - Actor`,
 `ClearKeepOffsetFromActor - Actor` and `GetEquippedWeapon - Actor` define
@@ -3177,8 +3179,10 @@ entries, and the existing xEdit PACK and shared spell APIs.
 
 `Actor.GetVoiceRecoveryTime` reads the remaining duration from that actor's
 real-seconds deadline. `Actor.PlayIdleWithTarget` queues the idle's editor ID
-to its explicit target reference, or to the calling actor when the target is
-`None`, and returns false for a missing idle or invalid target reference.
+to the calling actor, and returns false for a missing idle or invalid paired
+target reference. The paired target does not receive the animation request.
+The host request currently carries only the idle name, so paired-target binding
+in the animation graph remains unsupported.
 `Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
 hands, source 2 from the actor's other-spell slot, and source 3 from its
 instant-spell slot. The latter slots persist in the actor section named
