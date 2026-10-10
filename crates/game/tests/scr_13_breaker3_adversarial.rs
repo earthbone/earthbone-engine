@@ -38,7 +38,10 @@ fn trespass_alarm_records_immediately_and_rejects_invalid_criminal_without_mutat
     let criminal = game.form("CriminalRef").unwrap();
     let witness_object = object(&mut game, witness);
     let criminal_object = object(&mut game, criminal);
-    let faction = GlobalFormId { file: 0, object: 0x701 };
+    let faction = GlobalFormId {
+        file: 0,
+        object: 0x701,
+    };
 
     call(
         &mut game,
@@ -47,7 +50,10 @@ fn trespass_alarm_records_immediately_and_rejects_invalid_criminal_without_mutat
         std::slice::from_ref(&criminal_object),
     );
     assert_eq!(
-        game.world_mut().faction(faction).unwrap().crime_gold_nonviolent,
+        game.world_mut()
+            .faction(faction)
+            .unwrap()
+            .crime_gold_nonviolent,
         75
     );
     assert!(game
@@ -64,7 +70,10 @@ fn trespass_alarm_records_immediately_and_rejects_invalid_criminal_without_mutat
         &[Value::None],
     );
     assert_eq!(
-        game.world_mut().faction(faction).unwrap().crime_gold_nonviolent,
+        game.world_mut()
+            .faction(faction)
+            .unwrap()
+            .crime_gold_nonviolent,
         75
     );
     assert!(game
@@ -91,7 +100,10 @@ fn stop_combat_alarm_clears_inbound_combat_but_not_other_actor_alarm() {
     }
 
     let receiver_object = object(&mut game, receiver);
-    assert_eq!(call(&mut game, receiver_object, "StopCombatAlarm", &[]), Value::None);
+    assert_eq!(
+        call(&mut game, receiver_object, "StopCombatAlarm", &[]),
+        Value::None
+    );
     let mut world = game.world_mut();
     for id in [receiver, opponent] {
         let state = world.actor(id).unwrap();
@@ -126,7 +138,10 @@ fn inventory_calls_queue_once_per_eligible_invocation_in_order() {
 
     assert_eq!(
         game.world().menu_requests,
-        vec![MenuRequest::ActorInventory(guard), MenuRequest::ActorInventory(criminal)]
+        vec![
+            MenuRequest::ActorInventory(guard),
+            MenuRequest::ActorInventory(criminal)
+        ]
     );
 }
 
@@ -134,7 +149,10 @@ fn inventory_calls_queue_once_per_eligible_invocation_in_order() {
 fn clear_forced_movement_is_idempotent_and_retains_assigned_package() {
     let mut game = game();
     let guard = game.form("GuardRef").unwrap();
-    let package = soe_esm::GlobalFormId { file: 0, object: 0x777 };
+    let package = soe_esm::GlobalFormId {
+        file: 0,
+        object: 0x777,
+    };
     {
         let mut world = game.world_mut();
         let ai = &mut world.actor(guard).unwrap().ai;
