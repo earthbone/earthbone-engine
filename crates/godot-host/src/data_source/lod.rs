@@ -4,7 +4,8 @@
 //! surface pipeline `load_static_surfaces` uses for placed statics. Missing
 //! BTO blocks can be generated from winning placements and static meshes. See
 //! `crate::terrain_lod` for the block coordinates, the file naming and the
-//! residency budget that decides which blocks to request.
+//! residency budget that decides which blocks to request. Tree LST/BTT data
+//! follows xEdit Core/wbLOD.pas and is built through crate::tree_lod.
 
 use std::collections::HashMap;
 
@@ -42,6 +43,99 @@ pub struct LoadedLodBlock {
 }
 
 impl DataSource {
+    /// Inventory winning BTR, BTO or BTT paths, including loose overrides.
+    /// The file's level and south-west cell are authoritative, not settings.
+    pub fn scenery_lod_blocks(
+        &self,
+        world_editor_id: &str,
+        kind: crate::terrain_lod::LodKind,
+    ) -> Vec<LodBlockCoord> {
+        let (folder, extension) = match kind {
+            crate::terrain_lod::LodKind::Terrain => ("", "btr"),
+            crate::terrain_lod::LodKind::Object => ("objects", "bto"),
+            crate::terrain_lod::LodKind::Tree => ("trees", "btt"),
+        };
+        let world_name = world_editor_id.to_ascii_lowercase();
+        let prefix = if folder.is_empty() {
+            format!("meshes/terrain/{world_name}/")
+        } else {
+            format!("meshes/terrain/{world_name}/{folder}/")
+        };
+        let mut blocks = Vec::new();
+        for path in self.vfs.paths().filter(|path| path.starts_with(&prefix)) {
+            let Some(name) = path.strip_prefix(&prefix) else {
+                continue;
+            };
+            let fields: Vec<_> = name.split('.').collect();
+            if fields.len() != 5
+                || fields[0] != world_editor_id.to_ascii_lowercase()
+                || fields[4] != extension
+            {
+                continue;
+            }
+            let (Ok(level), Ok(x), Ok(y)) =
+                (fields[1].parse(), fields[2].parse(), fields[3].parse())
+            else {
+                continue;
+            };
+            if let Some(level) = crate::terrain_lod::LodLevel::from_cells(level) {
+                blocks.push(LodBlockCoord { level, x, y });
+            }
+        }
+        blocks.sort_unstable_by_key(|b| (b.level.cells(), b.x, b.y));
+        blocks.dedup();
+        blocks
+    }
+
+    /// Read BTT references and their world's LST atlas through the shared VFS.
+    /// The resulting alpha-tested quads use absolute BTT world positions.
+    pub fn load_tree_lod_block(
+        &self,
+        world: GlobalFormId,
+        world_editor_id: &str,
+        block: LodBlockCoord,
+    ) -> Result<Option<LoadedLodBlock>, DataSourceError> {
+        let bytes = match self
+            .vfs
+            .read(&crate::terrain_lod::btt_path(world_editor_id, block))
+        {
+            Ok(bytes) => bytes,
+            Err(soe_bsa::Error::NotFound { .. }) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let references = crate::tree_lod::read_references(&bytes)?;
+        if references.is_empty() {
+            return Ok(None);
+        }
+        let list = self.vfs.read(&format!(
+            "meshes/terrain/{world_editor_id}/trees/{world_editor_id}.lst"
+        ))?;
+        let types = crate::tree_lod::read_types(&list)?;
+        let atlas =
+            format!("textures/terrain/{world_editor_id}/trees/{world_editor_id}treelod.dds");
+        let mesh = crate::tree_lod::build_billboards(&types, &references, &atlas)?;
+        let arrays = build_surface(&mesh, MeshOptions::default())?;
+        let approx_bytes = (arrays.positions.len() * 32 + arrays.indices.len() * 4) as u64;
+        let triangles = arrays.triangle_count();
+        let textures = self.textures.resolve(&self.vfs, &arrays.material);
+        Ok(Some(LoadedLodBlock {
+            surfaces: vec![LoadedSurface {
+                reference: world,
+                arrays,
+                textures,
+                placement: soe_physics::Iso::IDENTITY,
+                instance_transform: None,
+                mesh_identity: None,
+            }],
+            approx_bytes,
+            authored_references: references.len(),
+            triangles,
+            source_triangles: triangles,
+            source_approx_bytes: approx_bytes,
+            simplified_references: 0,
+        }))
+    }
+
     /// Generate a BTR from winning LAND records for one worldspace block.
     /// A child worldspace uses parent LAND at positions it does not own when
     /// its PNAM use-land bit is set. Returns `None` for a block without land.
@@ -178,12 +272,102 @@ impl DataSource {
             Err(soe_bsa::Error::NotFound { .. }) => return Ok(None),
             Err(e) => return Err(e.into()),
         };
-        let loaded = self.load_lod_block_bytes(world, block, &bytes)?;
+        let mut loaded = self.load_lod_block_bytes(world, block, &bytes)?;
+        for surface in self.lod_water_surfaces(world, block)? {
+            loaded.approx_bytes += surface.arrays.mesh_byte_count() as u64;
+            loaded.triangles += surface.arrays.triangle_count();
+            loaded.surfaces.push(surface);
+        }
         if loaded.surfaces.is_empty() {
             Ok(None)
         } else {
             Ok(Some(loaded))
         }
+    }
+
+    /// Cell-sized distant water planes using the same XCLW and inherited
+    /// DNAM heights as loaded cells. CELL and WRLD No LOD Water flags omit
+    /// planes, following xEdit's `wbDefinitionsTES5.pas` definitions.
+    ///
+    /// # Errors
+    /// Returns a record error for malformed CELL or WRLD data.
+    pub fn lod_water_surfaces(
+        &self,
+        world: GlobalFormId,
+        block: LodBlockCoord,
+    ) -> Result<Vec<LoadedSurface>, DataSourceError> {
+        let Some(owner) = self.order.winner_ref(world) else {
+            return Ok(Vec::new());
+        };
+        if self.order.record(owner).tag != tag::WRLD {
+            return Ok(Vec::new());
+        }
+        let view = soe_esm::records::wrld::World::from_record(
+            self.order.record(owner),
+            self.order.file(owner.file).plugin.header.is_localized(),
+        )?;
+        if view.flags & soe_esm::records::wrld::flags::NO_LOD_WATER != 0 {
+            return Ok(Vec::new());
+        }
+        let (lod_world, _) = self.lod_worldspace(world).unwrap_or((world, String::new()));
+        let lod_owner = self.order.winner_ref(lod_world).unwrap_or(owner);
+        let lod_view = soe_esm::records::wrld::World::from_record(
+            self.order.record(lod_owner),
+            self.order.file(lod_owner.file).plugin.header.is_localized(),
+        )?;
+        let mut surfaces = Vec::new();
+        for y in 0..block.level.cells() {
+            for x in 0..block.level.cells() {
+                let (Some(x), Some(y)) = (block.x.checked_add(x), block.y.checked_add(y)) else {
+                    continue;
+                };
+                let Some(id) = self.cell_index().exterior_cell(world, x, y) else {
+                    continue;
+                };
+                let Some(owner) = self.order.winner_ref(id) else {
+                    continue;
+                };
+                let cell = Cell::from_record(
+                    self.order.record(owner),
+                    self.order.file(owner.file).plugin.header.is_localized(),
+                )?;
+                if cell.flags & soe_esm::records::cell::flags::NO_LOD_WATER != 0 {
+                    continue;
+                }
+                if let Some(mut surface) = self.water_surface(id, &[]) {
+                    let cell_height = cell
+                        .water_height
+                        .filter(|height| super::water::is_recorded_height(*height));
+                    let inherited_height = super::water::world_water(&self.order, world).height;
+                    if let Some(height) = cell_height
+                        .or(lod_view
+                            .lod_water_height
+                            .filter(|height| super::water::is_recorded_height(*height)))
+                        .or(inherited_height)
+                    {
+                        let y = height * crate::units::METRES_PER_UNIT;
+                        for position in &mut surface.arrays.positions {
+                            position[1] = y;
+                        }
+                    }
+                    if let Some(material) = lod_view
+                        .lod_water
+                        .and_then(|raw| self.order.winner(self.order.resolve(lod_owner.file, raw)))
+                    {
+                        surface.arrays.material.water =
+                            Some(super::water::water_material_from(material));
+                    }
+                    surface.arrays.material.water.get_or_insert_with(|| {
+                        crate::mesh::WaterMaterial {
+                            opacity: u8::MAX,
+                            ..crate::mesh::WaterMaterial::default()
+                        }
+                    });
+                    surfaces.push(surface);
+                }
+            }
+        }
+        Ok(surfaces)
     }
 
     /// Build generated or archived BTR bytes through the same surface path
@@ -249,7 +433,8 @@ impl DataSource {
     /// placements. Returns `None` if neither source yields geometry. BTO
     /// geometry is grouped by worldspace and block, so each returned surface
     /// keeps the resolved worldspace as its form identity while the caller
-    /// keeps resident mesh instances keyed by `LodBlockCoord`.
+    /// keeps resident mesh instances keyed by `LodBlockCoord`. Archived BTO
+    /// shapes already carry their world translation and level scale, unlike BTR.
     pub fn load_object_lod_block(
         &self,
         world: GlobalFormId,
@@ -269,20 +454,11 @@ impl DataSource {
         if meshes.is_empty() {
             return Ok(None);
         }
-        let origin = block.origin_cell();
-        let placement = NifTransform {
-            translation: NifVec3::new(
-                origin.x as f32 * CELL_UNITS,
-                origin.y as f32 * CELL_UNITS,
-                0.0,
-            ),
-            ..NifTransform::IDENTITY
-        };
         let mut surfaces = Vec::with_capacity(meshes.len());
         let mut approx_bytes = 0u64;
         for shape in &meshes {
             approx_bytes += shape.approx_bytes();
-            let data = super::mesh_data_from(shape, &placement.then(&shape.transform));
+            let data = super::mesh_data_from(shape, &shape.transform);
             let arrays = build_surface(&data, MeshOptions::default())?;
             let textures = self.textures.resolve(&self.vfs, &arrays.material);
             surfaces.push(LoadedSurface {

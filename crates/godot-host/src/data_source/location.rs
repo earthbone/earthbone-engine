@@ -48,6 +48,11 @@ impl PreparedCell {
                 (0, material.glow_texture(), textures.glow.as_deref()),
                 (
                     0,
+                    Some("textures/terrain/noise.dds"),
+                    textures.terrain_noise.as_deref(),
+                ),
+                (
+                    0,
                     material
                         .effect
                         .as_ref()
@@ -102,6 +107,7 @@ fn texture_payload_bytes(texture: &super::TextureData) -> usize {
 impl DataSource {
     /// Prepare visible geometry and matching collision for a logical destination.
     /// The exterior radius is bounded to prevent an accidental unbounded load.
+    /// A small world selects all its grid cells instead of a radius square.
     pub fn load_location(
         &self,
         cell: GlobalFormId,
@@ -136,23 +142,20 @@ impl DataSource {
                 (position[0] / CELL_UNITS).floor() as i32,
                 (position[1] / CELL_UNITS).floor() as i32,
             );
-            let select = |world| {
-                let mut cells = Vec::new();
-                for dy in -radius..=radius {
-                    for dx in -radius..=radius {
-                        let (Some(x), Some(y)) =
-                            (origin.0.checked_add(dx), origin.1.checked_add(dy))
-                        else {
-                            continue;
-                        };
-                        if let Some(id) = index.exterior_cell(world, x, y) {
-                            cells.push(ExteriorCell { x, y, id });
-                        }
-                    }
-                }
-                cells
-            };
+            let cells = self.exterior_cells_at(world, origin, radius);
             let land_parent = self.land_parent_of(world);
+            let parent_cells = land_parent
+                .map(|parent| {
+                    cells
+                        .iter()
+                        .filter_map(|cell| {
+                            index
+                                .exterior_cell(parent, cell.x, cell.y)
+                                .map(|id| ExteriorCell { id, ..*cell })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             let block = ExteriorBlock {
                 world,
                 world_editor_id: self
@@ -161,9 +164,9 @@ impl DataSource {
                     .and_then(soe_esm::Record::editor_id),
                 origin,
                 radius,
-                cells: select(world),
+                cells,
                 land_parent,
-                parent_cells: land_parent.map(select).unwrap_or_default(),
+                parent_cells,
             };
             if !block.cells.iter().any(|c| (c.x, c.y) == origin) {
                 return Err(DataSourceError::CellNotFound(format!(
@@ -383,6 +386,34 @@ mod hst_08_tests {
             instance_transform: None,
             mesh_identity: None,
         }
+    }
+
+    #[test]
+    fn rnd_26_stream_budget_counts_shared_terrain_noise_once() {
+        let texture = Arc::new(TextureData::Rgba8(soe_dds::Image {
+            width: 1,
+            height: 1,
+            depth: 1,
+            rgba: vec![128; 4],
+        }));
+        let mut surfaces = vec![surface(Arc::clone(&texture)), surface(texture)];
+        for surface in &mut surfaces {
+            surface.textures.terrain_noise = surface.textures.diffuse.take();
+            surface.arrays.material.diffuse = None;
+        }
+        let mut cell = PreparedCell {
+            id: GlobalFormId { file: 0, object: 2 },
+            loaded: LoadedCell {
+                stats: CellStats::default(),
+                surfaces,
+            },
+            colliders: Vec::new(),
+        };
+        let with_noise = cell.stream_cost().bytes;
+        for surface in &mut cell.loaded.surfaces {
+            surface.textures.terrain_noise = None;
+        }
+        assert_eq!(with_noise - cell.stream_cost().bytes, 4);
     }
 
     #[test]

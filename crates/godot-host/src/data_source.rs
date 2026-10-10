@@ -67,6 +67,8 @@ mod prf_20_tests;
 #[cfg(test)]
 mod rnd_20_tests;
 #[cfg(test)]
+mod rnd_27_tests;
+#[cfg(test)]
 mod rnd_32_tests;
 #[cfg(test)]
 mod rnd_33_tests;
@@ -131,6 +133,8 @@ pub enum DataSourceError {
     Nif(#[from] soe_nif::Error),
     #[error("{0}")]
     Mesh(#[from] MeshError),
+    #[error("{0}")]
+    TreeLod(#[from] crate::tree_lod::TreeLodError),
     #[error("{0}")]
     Dds(#[from] soe_dds::Error),
     #[error("{0}")]
@@ -254,6 +258,8 @@ pub struct SurfaceTextures {
     pub normal: Option<Arc<TextureData>>,
     pub glow: Option<Arc<TextureData>>,
     pub greyscale: Option<Arc<TextureData>>,
+    /// Shared linear mask for BSLightingShaderType 18 landscape LOD.
+    pub terrain_noise: Option<Arc<TextureData>>,
 }
 
 pub struct LoadedCell {
@@ -1645,6 +1651,10 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         },
         shader_flags_1: m.flags1,
         shader_flags_2: m.flags2,
+        landscape_lod_noise: matches!(
+            m.kind,
+            soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::LodLandscapeNoise)
+        ),
         alpha,
         double_sided: m.double_sided,
         water: None,

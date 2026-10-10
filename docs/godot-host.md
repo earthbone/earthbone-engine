@@ -1657,9 +1657,9 @@ The nearest-first planning follows the cell ordering in OpenMW's
 distance ordering and adds the per-tick work caps described above.
 
 `CellStreamerNode::stream_object_lod` reads and draws existing BTO object LOD
-blocks from `meshes/terrain/<world>/Objects`. It uses the world's LOD settings
-for the block anchor and level, and the same capped distance streamer and byte
-budget as BTR terrain LOD. Blocks inside the full resolution radius are not
+blocks from `meshes/terrain/<world>/Objects`. Archived paths supply available
+levels and block coordinates. It uses the same capped distance streamer and
+byte budget as BTR terrain LOD. Blocks inside the full resolution radius are not
 requested. Each rendered block remains keyed by its worldspace and
 `LodBlockCoord`, and release or budget eviction frees its instances. Use
 `update_object_lod` to move the BTO streamer as the focus changes, and
@@ -1671,8 +1671,8 @@ placed-reference identities.
 block coordinates in the `blocks` field as space-separated
 `level:x:y` entries, alongside drawn instance and triangle counts. The live
 RND-10 renderer check streams a radius-2 exterior area and real BTR and BTO
-blocks in the same scenario, then checks that the LOD block squares do not
-cover any coordinate in that near area. This exercises the handoff through
+blocks in the same scenario, then checks terrain's loaded-cell mask and that
+object LOD block squares do not cover any coordinate in that near area. This exercises the handoff through
 `RenderingServer` instances without treating BTO surfaces as individual
 placed references.
 
@@ -1684,15 +1684,17 @@ identity. xEdit `Core/wbDefinitionsTES5.pas` defines the two independent flags,
 and `Core/wbLOD.pas` supplies block alignment and settings. The NIF block
 layouts are documented by local `nifxml/nif.xml`.
 
-The default LOD radius is 16 cells. The exported full-resolution exclusion
+The default LOD radius is 96 cells. The exported full-resolution exclusion
 radius is clamped to at least the near streamer's two-cell unload radius,
 covering cells retained by hysteresis. Both radii and an approximate byte
 budget per LOD stream are exported on the player. Each player update advances
-both LOD streams at the current cell coordinate. Blocks overlapping the
-full-resolution exclusion are released immediately, ahead of near uploads,
+both LOD streams at the current cell coordinate. Object blocks overlapping
+the full-resolution exclusion are released immediately, ahead of near uploads,
 while distant releases retain their per-update quota. A worldspace change
-starts both streams for the destination world, and leaving exterior gameplay
-clears both streams. Residency and handoff operate on whole BTR and BTO blocks.
+starts terrain, object and tree streams for the destination world. Leaving
+exterior gameplay clears all three streams. Object and tree residency operate
+on whole blocks. Terrain residency retains whole BTR blocks, while handoff
+masks individual loaded LAND cells within resident blocks.
 `set_terrain_lod_visible` toggles resident terrain instances without changing
 near geometry or object LOD, for capture comparisons. The gate diagnostic
 returns both ends of its teleport link, allowing the check to move from
@@ -1704,11 +1706,143 @@ the same frozen view with terrain LOD hidden and visible, requiring at least
 500 terrain-contributed pixels in the middle third of the image. Captures go
 to `godot/.godot/rnd-19-whiterun-exterior-lod.png` and its `-no-terrain.png`
 control. It crosses into Tamriel, checks a configured 12-cell LOD radius,
-moves six cells, verifies resident LOD blocks change without overlapping
-retained full cells, and returns to the interior to verify both streams clear.
+moves six cells, verifies resident blocks change and terrain retains a
+loaded-cell mask while object blocks exclude retained full cells, and returns to the interior to verify both streams clear.
 The Rust `rnd_19_` tests run this installed-data capture, survey WRLD flags,
 and exercise independent land/LOD inheritance, nested parents, invalid
 parents, focus movement, radius validation and immediate near handoff.
+
+Landscape LOD materials with both `Model_Space_Normals` and `LOD_Landscape`
+use a lit spatial shader. The LOD diffuse texture is sampled as sRGB and the
+normal texture as linear RGB encoding Skyrim X, Z, Y. The shader converts
+that direction to Godot X, Y, negative Z and then to view space. It uses the
+same scenario lights, ambient environment and record fog pass as loaded LAND.
+Shader type 18 also applies the authored landscape noise operation to linear
+albedo, using the shared `textures/terrain/noise.dds` mask tiled three times
+over the block. Ordinary type 9 landscape LOD does not apply that mask.
+A missing normal texture
+leaves the converted mesh normal in use. Material cache identity includes
+the normal-space and noise choices, so an ordinary mesh using the same texture paths
+does not reuse the LOD shader. Geometry remains in RenderingServer instances.
+
+The normal swizzle follows the local Community Shaders
+`package/Shaders/Lighting.hlsl` `MODELSPACENORMALS`, `LODLANDSCAPE` and
+`LODLANDNOISE` branches, including `GetLodLandBlendParameter` and
+`GetLodLandBlendMultiplier`. CommonLibSSE-NG's
+`BSLightingShaderMaterialLODLandscape.h` identifies feature 18 and its separate
+noise texture. The installed Tamriel BTRs select that feature, and the installed
+texture archive supplies `textures/terrain/noise.dds`. Missing noise leaves
+the diffuse unmodulated. The shared mask participates in the prepared-cell
+upload and interior-prefetch texture byte budgets.
+`nifxml/nif.xml` defines the two flags, and xEdit's `Worldspace browser.pas`
+`LODTextureFileName` supplies Skyrim's diffuse and `_n.dds` naming. OpenMW's
+`components/nifosg/nifloader.cpp` leaves this landscape shader unhandled, and
+Godotwind's Terrain3D shader consumes a different terrain format. The host
+therefore applies these semantics in its own Godot material.
+
+`set_loaded_terrain_visible` toggles loaded LAND batches for capture masks,
+retaining placed objects and collision. `loaded_terrain_meshes` exposes those
+mesh resources for edge and material inspection. `godot/rnd_26_lod_lighting.gd` compares
+the shipped BTR material against a standard material under six normal
+directions, ambient light, fog, rotated geometry and a missing normal map.
+Dark and bright albedos with three constant noise masks verify the linear
+noise operation before lighting.
+It then looks south from Whiterun's gate wall. The capture loads a complete
+radius-two LAND ring through `stream_exterior` and the adjoining BTR ring,
+because the gameplay one-cell load ring does not fill its two-cell LOD
+exclusion. Independent LAND and BTR visibility captures identify the two
+sides at the projected shared cell boundary, excluding foreground hill crests.
+At least 40 columns must contribute,
+with mean linear luminance ratio at most 1.35 and difference at most 0.08.
+The captures and process log are stored under `godot/.godot/rnd_26-*`.
+This material change does not change the gameplay ring's geometry coverage.
+
+## Whiterun and small worldspaces, RND-27
+
+Gameplay destination selection uses the shared CellIndex. WRLD DATA Small World
+selects every authored grid cell in that worldspace, sorted south to north then
+west to east. Destination loading adds the world's persistent cell once, separately
+from grid cells. This matters for Whiterun's persistent CELL, whose XCLC does
+not make it a grid cell. Parent LAND is requested at each selected coordinate
+when PNAM Use Land Data is set. Child LAND takes precedence as before.
+The `stream_exterior` inspection API retains its explicit radius square.
+
+PlayerNode retains a small world's complete renderer and collision resources
+while walking inside it and updates the logical focus cell without removing
+city cells. Leaving the worldspace replaces those resources. Ordinary exterior
+worlds load a 5 by 5 square, with a two-cell load and unload radius, so the
+default LOD exclusion radius no longer hides a band of cells that was never
+loaded. Tamriel's authored Whiterun LOD placements use the near renderer in
+that square and BTO object LOD beyond it. Parent terrain and object LOD continue
+to follow the independent PNAM Use LOD Data chain.
+
+Every installed grid cell is registered for `exterior_cell_batches` and
+`release_exterior_cell`, including cells installed through gameplay location
+replacement. Departed cells leave that grid lookup. Bulk geometry still uses
+RenderingServer RIDs and this change adds no reference nodes or saved state.
+
+Sources are local UESP `uesp-modfileformat/WRLD.wikitext`, xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas` WRLD DATA and PNAM definitions, and the
+existing RND-19 parent-LOD and block consumer. The renderer uses that consumer
+rather than introducing a separate city mesh loader. RND-27 fixtures cover
+complete small-world selection, persistent-cell separation, ordinary radii,
+invalid destinations and independent parent land and LOD flags. The installed
+record check surveys Whiterun's grid cells and Tamriel's city LOD placements.
+`godot/rnd_27_whiterun_capture.gd` checks gameplay residency, retained city cells
+while moving to the gate, parent LOD instances and replacement on gate crossing.
+It captures the plains from Dragonsreach with and without terrain LOD, requiring
+500 changed pixels, then the city from outside the gate against a control
+without district cells and distant objects, requiring 1,000 changed pixels
+across 120 columns. Captures and the Rust runner's log go under
+`godot/.godot/rnd_27`.
+The capture freezes gameplay and hides CanvasLayer overlays so a cold-load fade
+does not cover the world view.
+
+## Loaded terrain and LOD join, RND-29
+
+Terrain LOD retains BTR blocks touching the near grid. Its coverage follows
+LAND surfaces actually uploaded, including hysteresis-retained cells. Pending
+cells keep their LOD coverage. `terrain_lod_join::join_surface` clips archived
+triangles to cell squares and omits loaded LAND squares. It subdivides exposed
+edges at the loaded 33 by 33 sample spacing and matches their heights, retaining
+BTR texture coordinates, colors, tangents and material. The triangle fan's
+centre keeps its BTR height. Distant blocks outside the near boundary retain
+their original geometry. Changed LAND coverage rebuilds only touching blocks
+and their neighbours from retained source surfaces. Departed cells regain LOD
+coverage in the same cell-delta application. The recorded byte budget includes
+retained source arrays and joined upload arrays, and releases distant blocks
+when their combined cost exceeds the cap. Bulk geometry uses server RIDs.
+
+`terrain_lod_stats.covered_cells` lists masked coordinates as `x:y` entries.
+`set_terrain_lod_debug_color` gives resident LOD a flat magenta override for
+capture checks. `set_terrain_lod_visible` retains its existing visibility toggle.
+
+Distant water is built as cell-sized planes at the same resolved XCLW or
+inherited DNAM height as loaded water. CELL and WRLD No LOD Water flags omit
+planes. WRLD NAM3 selects the distant material when it resolves. The renderer
+masks these planes inside loaded LAND cells without moving their water heights
+to LAND edge heights. It does not use one uniform NAM4 plane across cells with
+different recorded water heights.
+
+The layout source is xEdit `Core/wbLOD.pas`, `BlockForCell` and `LoadFromData`,
+and `Core/wbDefinitionsTES5.pas`, CELL and WRLD water fields and flags.
+`Core/wbDefinitionsCommon.pas` defines NAM3 and NAM4. OpenMW's
+`components/terrain/buffercache.cpp` connects different edge resolutions with
+triangle fans. Its regular-grid index buffers do not fit archived irregular
+BTR triangles, so the host clips those triangles before joining their edges.
+
+`rnd_29_terrain_join` tests cell coverage, all four height seams, unload
+restoration, preserved attributes, pending cells, water heights and malformed
+inputs. Synthetic records cover inherited water heights and both No LOD Water
+flags. The installed-data survey reads cell water heights around Whiterun and
+the western coast. `rnd_29_terrain_join_capture` runs a windowed plains view
+with an orthographic camera and a magenta coverage control. It requires zero
+LOD pixels inside loaded cells, zero background pixels in the five-cell
+boundary area, and at least 1000 LOD pixels outside. Clearing the near grid
+must restore at least 1000 LOD pixels inside its former coverage. A second
+normal view stands 1.7 metres above the installed LAND centre sample and looks
+south across the plains. Captures and logs are written under
+`godot/.godot/rnd-29-*`.
 
 ## Mesh
 
@@ -6345,6 +6479,60 @@ pass twelve NIF cases and four host cases with installed data.
 Controller layout and sampling references are recorded in `docs/nif.md`.
 Object animation uses no new dependency. Collision remains on its existing
 record-backed host path and does not follow these visual bone poses.
+
+## Distant scenery, RND-28
+
+PlayerNode streams archived BTO objects and BTT trees alongside BTR terrain.
+The load-order VFS supplies each world's available block levels, including
+loose overrides. Selection uses coarse blocks farther away and descends into
+finer archived blocks within twice the coarse block's cell span. Selected
+levels never cover the same block square. A missing finer level retains the
+available coarse block. Near coverage excludes whole blocks, and retained
+full cells outside the near radius also exclude their blocks. Selection is
+cached until the focus or retained-cell set changes. Updates cap new block
+loads, release obsolete level choices immediately and enforce the recorded
+mesh byte budget. Worldspace inheritance follows WRLD's Use LOD Data flag.
+World changes replace all three streams, and interiors and node teardown free
+their RenderingServer instances. Scenery adds no per-reference scene nodes.
+
+BTO meshes apply their authored NIF transforms once. Unlike BTR terrain,
+archived object shapes already contain the block translation and level scale.
+Adding the terrain block translation moves objects away from their cells.
+BTT positions are absolute world coordinates. Its type groups index the
+world's LST table by the stored type index. The table supplies billboard
+width, height and atlas rectangle. Each reference builds two perpendicular,
+two-sided quads with authored rotation and scale, using the world's
+`textures/terrain/<world>/trees/<world>treelod.dds` atlas and alpha testing.
+The reader bounds-checks counts and rejects truncated fields, non-finite
+values, invalid dimensions, unknown type indices and trailing LST data.
+BTT trailing data is unused, matching xEdit's reader and several shipped
+Solstheim blocks. UV overscan and mirrored rectangles are preserved. Archived
+reference IDs remain metadata. Render surfaces identify the resolved
+worldspace, as merged BTO surfaces do.
+
+Sources are xEdit `Core/wbLOD.pas`, `TwbLodTES5TreeType`,
+`TwbLodTES5TreeRef`, LST/BTT read and write routines, block naming and atlas
+naming, xEdit `Core/wbDataFormatMisc.pas` array layouts, and
+`nifxml/nif.xml` AV-object transforms and segmented shapes. The
+local UESP WRLD page documents LOD inheritance and distant settings but the
+modfileformat corpus contains no separate LOD file page. The RND-10 source
+name `tes4skyrim terrain_lod.py` is absent from the local corpus. xEdit's
+Windows generator does not fit runtime asset consumption. The host reads
+its output through the existing Rust VFS and Godot mesh pipeline instead.
+
+The `rnd_28_` Rust tests exercise level selection, immediate handoff,
+retained cells, byte eviction, LST/BTT validation and billboard placement.
+The installed-data case checks every shipped Tamriel object level and tree
+block. `godot/rnd_28_player_lod_capture.gd` crosses from Whiterun into Tamriel,
+looks toward the Throat of the World from the plains and freezes gameplay.
+A flat sky isolates silhouette coverage in a terrain-only control. The check
+requires at least 500 object-contributed pixels where that control shows sky
+and at least 25 tree-contributed pixels. It captures terrain-only, object and
+combined images under `godot/.godot`, checks available rendered levels,
+movement, a Solstheim asset switch and full-cell exclusion, then returns
+indoors and quits.
+`set_object_lod_visible` and `set_tree_lod_visible` toggle resident instances
+for these comparisons without changing residency.
 
 ## Audio through cell transitions, AUD-13
 
