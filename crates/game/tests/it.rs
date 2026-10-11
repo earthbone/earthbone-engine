@@ -1573,6 +1573,8 @@ mod scr_67_adversarial;
 mod tool_07_adversarial;
 #[path = "tool_07_breaker2_adversarial.rs"]
 mod tool_07_breaker2_adversarial;
+#[path = "tool_07_breaker3_adversarial.rs"]
+mod tool_07_breaker3_adversarial;
 #[path = "tool_07_breaker_adversarial.rs"]
 mod tool_07_breaker_adversarial;
 #[path = "tool_07_papyrus_file_logs.rs"]
