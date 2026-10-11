@@ -888,10 +888,10 @@ mod mag_38_adversarial;
 mod mag_39_summon_adversarial;
 #[path = "mag_40_adversarial.rs"]
 mod mag_40_adversarial;
-#[path = "mag_40_detect_life.rs"]
-mod mag_40_detect_life;
 #[path = "mag_40_breaker_adversarial.rs"]
 mod mag_40_breaker_adversarial;
+#[path = "mag_40_detect_life.rs"]
+mod mag_40_detect_life;
 #[path = "mag_41_adversarial.rs"]
 mod mag_41_adversarial;
 #[path = "mag_41_breaker_adversarial.rs"]

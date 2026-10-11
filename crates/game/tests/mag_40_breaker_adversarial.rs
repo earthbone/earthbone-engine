@@ -119,3 +119,18 @@ fn mag_40_null_authored_hit_shader_keeps_detection_without_a_shader() {
     assert_eq!(targets[0].actor, id(0x101));
     assert_eq!(targets[0].hit_shader, None);
 }
+
+#[test]
+fn mag_40_rechecks_actor_position_on_repeated_detection_queries() {
+    let mut game = fixture(100, 0.0, 0x400, &[[0.0, 0.0, 0.0], [50.0, 0.0, 0.0]]);
+    cast(&mut game);
+    assert_eq!(game.world_mut().detect_life_targets().unwrap().len(), 1);
+
+    game.world_mut().reference(id(0x101)).unwrap().position = [101.0, 0.0, 0.0];
+    assert!(game.world_mut().detect_life_targets().unwrap().is_empty());
+
+    game.world_mut().reference(id(0x101)).unwrap().position = [100.0, 0.0, 0.0];
+    let targets = game.world_mut().detect_life_targets().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].position, [100.0, 0.0, 0.0]);
+}
