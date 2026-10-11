@@ -505,6 +505,9 @@ reference identities use the live load order's runtime IDs. These channels add
 no saved state. Disarm, dragon soul awards and location discovery remain event
 entry points for gameplay callers, with successful weapon disarms, accepted
 dragon soul changes and first-time map additions already wired to dispatch.
+SHM-22 sends these five live World-produced payloads through a test pipe to
+compiled C++ sinks, which reconstruct and dispatch them through the MIT shim
+event sources. The fixture checks received fields and unsupported hook results.
 Binary hook requests return the requested hook name as an unsupported result
 without changing runtime state. Event payloads, generated C++
 declarations, the CommonLib source-level API, and its contract fixtures are in

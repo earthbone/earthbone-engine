@@ -357,9 +357,13 @@ CommonLib bit values, and the executable quest callback pointer is omitted.
 `EventSource` sends each typed payload to registered sinks in registration
 order and stops when a sink returns `Stop`. `request_hook` returns an explicit
 `Unsupported` error for call-site, branch and vtable hooks. The SHM-22 C++
-fixture routes all five payloads into stateful receiver methods and checks the
-three hook results. It exercises the source-level API contract and does not
-link a plugin to a running game process.
+shim fixture checks the source-level event declarations and rejects the three
+hook kinds. Its game integration fixture registers C++ sinks through the MIT
+source-level API, then forwards payloads emitted by live `World` operations to
+a compiled C++ consumer over a test pipe. The C++ consumer reconstructs each
+payload, dispatches it through its event source and checks the fields seen by
+the sink. This test transport does not define a C ABI or link a plugin to a
+running game process.
 
 The payload field layout was checked against the alandtse
 `TESGrabReleaseEvent.h`, `ItemHarvested.h`, `TESHitEvent.h`,

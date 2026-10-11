@@ -62,6 +62,8 @@ mod shm_16_breaker_2_adversarial;
 mod shm_17_breaker_adversarial;
 #[path = "shm_18_breaker_2_adversarial.rs"]
 mod shm_18_breaker_2_adversarial;
+#[path = "shm_22_breaker_adversarial.rs"]
+mod shm_22_breaker_adversarial;
 
 #[path = "shm_13_adversarial.rs"]
 mod shm_13_adversarial;
