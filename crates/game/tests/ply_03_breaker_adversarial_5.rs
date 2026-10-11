@@ -42,9 +42,18 @@ fn ply_03_checkpoint_comparison_keeps_stage_flags_and_inventory_differences() {
     )
     .unwrap();
     assert!(!report.passed());
-    for field in ["current", "highest", "done", "quest_flags", "player.inventory"] {
+    for field in [
+        "current",
+        "highest",
+        "done",
+        "quest_flags",
+        "player.inventory",
+    ] {
         assert!(
-            report.differences.iter().any(|difference| difference.contains(field)),
+            report
+                .differences
+                .iter()
+                .any(|difference| difference.contains(field)),
             "missing {field}: {:?}",
             report.differences
         );
