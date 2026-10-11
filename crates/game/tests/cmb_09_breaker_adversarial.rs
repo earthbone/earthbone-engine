@@ -216,3 +216,60 @@ fn cmb_09_unowned_outgoing_and_incoming_effects_do_not_change_damage() {
     assert!((result.weapon_damage - 15.0).abs() < 0.001);
     assert!((result.health_damage - 15.0).abs() < 0.001);
 }
+
+#[test]
+fn cmb_09_weapon_tabs_match_the_weapon_form_for_both_damage_entry_points() {
+    let attacker = id(0x900);
+    let target = id(0x901);
+    let baseline = fixture(Vec::new())
+        .melee_hit(hit(attacker, target))
+        .unwrap();
+
+    let mut outgoing = fixture(vec![conditioned_effect(0x810, 35, 2, 3.0, 1, 0xA00)]);
+    outgoing
+        .world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+    let outgoing_result = outgoing.melee_hit(hit(attacker, target)).unwrap();
+
+    let mut incoming = fixture(vec![conditioned_effect(0x812, 36, 2, -4.0, 2, 0xA00)]);
+    incoming
+        .world_mut()
+        .actor(target)
+        .unwrap()
+        .perks
+        .insert(id(0x812));
+    let incoming_result = incoming.melee_hit(hit(attacker, target)).unwrap();
+
+    assert_ne!(outgoing_result.weapon_damage, baseline.weapon_damage);
+    assert_ne!(incoming_result.weapon_damage, baseline.weapon_damage);
+    assert_eq!(outgoing_result.health_damage, outgoing_result.weapon_damage);
+    assert_eq!(incoming_result.health_damage, incoming_result.weapon_damage);
+}
+
+#[test]
+fn cmb_09_non_finite_numeric_effect_rejects_without_committing_hit_damage() {
+    let attacker = id(0x900);
+    let target = id(0x901);
+    let mut game = fixture(vec![perk_effect(0x810, 35, 2, 1, &f32::NAN.to_le_bytes())]);
+    game.world_mut()
+        .actor(attacker)
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+
+    let result = game.melee_hit(hit(attacker, target));
+
+    assert!(result.is_err());
+    assert_eq!(
+        game.world_mut()
+            .actor(target)
+            .unwrap()
+            .values
+            .get("health")
+            .current(),
+        100.0
+    );
+}

@@ -3,14 +3,16 @@
 CMB-09 consumes PRG-08's dispatcher for the ModAttackDamage and
 ModIncomingDamage handlers. It applies supported numeric operations in
 winning-record order, then ascending PRKE priority within a PERK, preserving
-source order for equal priorities. Cross-perk interleaving remains in
-winning-record order. The following research was completed on 2026-09-20.
-Exact vanilla priority direction, equal-priority order and cross-perk
-interleaving remain unverified. This handler places outgoing
-and incoming modifiers before armor and other damage reductions, a local
-execution choice that still needs a reference-runtime trace. CMB-15 depends on
-CMB-09 because skill modifier actor values are inputs to the winning
-skill-boost PERK records.
+source order for equal priorities. Synthetic hit tests verify that policy
+with noncommuting additions and multiplications, including the last
+winning-record modifier. TES5Edit and UESP establish the stored fields and
+section layout, but UESP calls priority ordering an assumption. These tests
+verify engine behavior, not Skyrim's runtime priority direction or cross-PERK
+interleaving. The following research was completed on 2026-09-20. This
+handler places outgoing and incoming modifiers before armor and other damage
+reductions, a local execution choice that still needs a reference-runtime
+trace. CMB-15 depends on CMB-09 because skill modifier actor values are inputs
+to the winning skill-boost PERK records.
 
 ## Established format contract
 
@@ -48,7 +50,8 @@ reports that equal-priority addition and multiplication varied with perk
 acquisition order, while assigning distinct priorities removed the conflict.
 The engine chooses source order for ties to make results deterministic, but
 that choice needs a vanilla capture. Ascending priority is also an engine
-choice pending that capture. The `PRG-08 priority-and-interleave capture`
+choice pending that capture. The CMB-09 tests establish this engine's current
+policy only. The `PRG-08 priority-and-interleave capture`
 should start at damage 10 with Add 3
 and Multiply 2, vary their priorities, then test equal-priority sections in
 both source orders. Repeat across perk acquisition order, remove and re-add,

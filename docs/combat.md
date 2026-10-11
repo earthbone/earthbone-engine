@@ -17,9 +17,12 @@ set actor-value multiplier, multiply actor-value multiplier and multiply by
 one plus actor-value multiplier. Handler data and actor values are validated
 before damage or events commit. Unsupported functions and malformed data
 reject the contact. Eligible operations follow the dispatcher's current
-winning-record load order and each PERK record's section order. Local sources
-do not establish priority ties, acquisition ordering, or exact versus
-cumulative PRKE rank selection, so those remain unverified.
+winning-record load order, then ascending PRKE priority and source order
+within each PERK. CMB-09 hit tests verify outgoing and incoming priority
+ordering and cross-PERK order with noncommuting operations. TES5Edit defines
+the priority field and UESP says its ordering is assumed, so these tests do
+not establish Skyrim's runtime ordering. Local sources also do not establish
+acquisition ordering or exact versus cumulative PRKE rank selection.
 
 The combat-hits worktree builds on the frozen 63-file NPC and death-lifecycle
 review. Game::melee_hit accepts a host-confirmed ordinary melee contact and
