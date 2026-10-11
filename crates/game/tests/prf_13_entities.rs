@@ -118,7 +118,6 @@ fn isolated(test: &str) -> bool {
             "--exact",
             &crate::common::child_test_name(module_path!(), test),
             "--nocapture",
-            "--test-threads=1",
         ])
         .env("SOE_PRF_13_CHILD", "1")
         .output()

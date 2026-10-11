@@ -235,7 +235,8 @@ its elapsed time and count in one output entity.
 The overlay reuses its panel and label and adds no per-reference nodes. No
 saved fields or dependency were added. The windowed `prf_13_` host check
 covers F4, an applied camera switch, presentation latency, an audio start,
-installed render submissions, summary JSON and an overlay capture. It uses
+installed render submissions, plugin running and wait metrics, summary JSON
+and an overlay capture. It uses
 the existing input path and the local Godot RenderingServer signal contract.
 `prf_13_windowed_host_overlay_script_passes_with_synthetic_audio_fixture` in
 `crates/game/tests/prf_13_entities.rs` runs the script in a window against the

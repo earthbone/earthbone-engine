@@ -17,6 +17,8 @@ clock and the existing `Trace` switch. `EntityScope` constructs metadata only
 when capture is enabled. Each scope records calls, inclusive and self time,
 and the work counts charged inside its innermost entity. Nested scopes subtract
 child duration from parent self time. Entity and plugin rankings use self time.
+Plugin summary counters also retain summed inclusive time, wait time and wait
+counts. Inclusive sums can include nested scopes. Self time avoids that overlap.
 The session totals retain every completed scope. The event list retains at
 most `MAX_EVENTS` scopes, dropping the oldest at capacity. The rolling overlay
 selects completions in the preceding wall-clock second from that list.

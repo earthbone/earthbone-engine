@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! PRF-19 transient scheduler diagnostics. CK Utility_Script and OnUpdate
+//! PRF-19 transient scheduler diagnostics and PRF-13 wait attribution.
+//! CK Utility_Script and OnUpdate
 //! define wait domains and event fanout. Counts never alter scheduling or saves.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -237,11 +238,32 @@ impl Vm {
                 _ => 1.0,
             }
             .clamp(0.0, 1.0);
+            let waiting_seconds = seconds * fraction;
             self.health
                 .frame
                 .entry(key(frame))
                 .or_default()
-                .waiting_seconds += seconds * fraction;
+                .waiting_seconds += waiting_seconds;
+            soe_trace::Profile::wait(
+                || {
+                    let script = frame
+                        .script
+                        .as_ref()
+                        .map_or("<native>", |script| script.name.as_str());
+                    let plugin = self
+                        .script_plugins
+                        .get(&script.to_ascii_lowercase())
+                        .map_or("<unknown>", String::as_str);
+                    soe_trace::Entity::new(
+                        "script",
+                        format!("{script}.{}", frame.function.name),
+                        plugin,
+                        "latent_wait",
+                    )
+                },
+                waiting_seconds,
+                0,
+            );
         }
     }
 

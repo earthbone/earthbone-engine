@@ -104,3 +104,43 @@ fn prf_13_rolling_window_expires_without_losing_session_totals() {
     assert!(Profile::last_second().is_empty());
     assert_eq!(Profile::summary().len(), 1);
 }
+
+#[test]
+fn prf_13_plugin_summary_preserves_running_and_latent_wait_metrics() {
+    let _guard = LOCK.lock().unwrap();
+    Profile::disable();
+    Profile::clear();
+    Profile::enable();
+    let actor = Entity::new("actor", "actor_1", "Shared.esp", "planning");
+    let script = Entity::new("script", "Script.Run", "Shared.esp", "execute");
+    {
+        let _actor = EntityScope::new(|| actor.clone(), 1);
+        let _script = EntityScope::new(|| script.clone(), 2);
+        count(Operation::PapyrusInstructions, 3);
+        count(Operation::NativeCalls, 1);
+    }
+    Profile::wait(
+        || Entity::new("script", "Script.Run", "Shared.esp", "latent_wait"),
+        0.25,
+        1,
+    );
+    Profile::disable();
+    let expected = Profile::ranking(&Profile::summary(), "plugin");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("summary.json");
+    Profile::export_summary(&path).unwrap();
+    let summary: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let plugin = summary["traceEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["cat"] == "plugin" && event["name"] == "Shared.esp")
+        .unwrap();
+    assert_eq!(plugin["args"]["total_ns"], expected[0].1.total_ns);
+    assert_eq!(plugin["args"]["self_ns"], expected[0].1.self_ns);
+    assert_eq!(plugin["args"]["calls"], 3);
+    assert_eq!(plugin["args"]["waits"], 1);
+    assert_eq!(plugin["args"]["wait_ns"], 250_000_000);
+    assert_eq!(plugin["args"]["papyrus_instructions"], 3);
+    assert_eq!(plugin["args"]["native_calls"], 1);
+}

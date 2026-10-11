@@ -160,6 +160,8 @@ current directory when unset. Write failures are reported. This process-wide
 capture is independent of world state and adds no saved sections. The
 `prf_13_` integration tests exercise two actors, two scripts, one quest, all
 five predicate categories and installed master record ownership.
+Their isolated child runs select one test and inherit the run's test thread
+count.
 
 ## PRF-24 observation counters
 
