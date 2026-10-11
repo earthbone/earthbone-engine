@@ -3368,12 +3368,23 @@ fn function_value(
         }
         714 => {
             no_parameter(c)?;
-            boolean(
+            let being_ridden = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .being_ridden;
+            let is_mount = world.base_of(subject).is_some_and(|base| {
                 world
-                    .actor(subject)
-                    .ok_or(Error::Form(subject))?
-                    .being_ridden,
-            )
+                    .npc(base)
+                    .and_then(|npc| npc.race)
+                    .and_then(|race| world.resolve_from(base, race))
+                    .and_then(|race| {
+                        world
+                            .form("ActorTypeHorse")
+                            .map(|mount_keyword| world.keywords(race).contains(&mount_keyword))
+                    })
+                    .unwrap_or(false)
+            });
+            boolean(being_ridden && is_mount)
         }
         644 | 684 | 730 => return Err(Error::Unavailable(c.function)),
         other => return Err(Error::Function(other)),

@@ -13,7 +13,9 @@ fn id(object: u32) -> GlobalFormId {
 
 fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800).sub(Tag(*b"RNAM"), 0x820_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag(*b"RACE"), 0x820).sub(Tag(*b"KWDA"), 0x821_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag(*b"KYWD"), 0x821).zsub(Tag(*b"EDID"), "ActorTypeHorse"));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x810));
     plugin.push_top(Record::new(Tag(*b"REFR"), 0x910).sub(Tag(*b"NAME"), 0x810_u32.to_le_bytes()));

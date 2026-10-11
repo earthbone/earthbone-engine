@@ -94,12 +94,15 @@ fn order() -> LoadOrder {
         }
         plugin.push_top(marker);
     }
-    plugin.push_top(placed(*b"ACHR", HORSE, HORSE_BASE, 5.0).sub(
-        T(b"XOWN"), RIDER_BASE.to_le_bytes(),
-    ));
+    plugin.push_top(
+        placed(*b"ACHR", HORSE, HORSE_BASE, 5.0).sub(T(b"XOWN"), RIDER_BASE.to_le_bytes()),
+    );
     let mut order = LoadOrder::new();
     order
-        .add("Ai67Mounted.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .add(
+            "Ai67Mounted.esm",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
         .unwrap();
     order
 }
@@ -152,8 +155,20 @@ fn ai_67_ridden_query_and_mount_flags_survive_world_save_load() {
     let restored_game = Game::new(order());
     restored_game.world_mut().load_state(&saved).unwrap();
     assert_eq!(ridden(&restored_game, id(HORSE)), Ok(true));
-    assert!(restored_game.world().actor_ref(id(ACTOR)).unwrap().riding_mount);
-    assert!(restored_game.world().actor_ref(id(HORSE)).unwrap().being_ridden);
+    assert!(
+        restored_game
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .riding_mount
+    );
+    assert!(
+        restored_game
+            .world()
+            .actor_ref(id(HORSE))
+            .unwrap()
+            .being_ridden
+    );
 }
 
 #[test]
