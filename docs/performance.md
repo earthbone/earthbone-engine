@@ -1320,6 +1320,10 @@ compare the nine synthetic operation medians on the same machine. When
 `SKYRIM_DATA` is set, its two installed asset medians are stored and compared
 as well. It exits nonzero when an operation is more than 15 percent slower or a
 measurement is missing, or when the baseline belongs to another CPU identity.
+The checker validates the baseline envelope and positive integer medians before
+comparison, and rejects a baseline whose synthetic or installed data mode does
+not match the current run. Invalid baseline structure returns a diagnostic
+without a traceback.
 After reviewing a measured change, run `tools/perf.sh refresh` to replace the
 medians for the current CPU. A refresh writes the current host and CPU
 identity into the baseline. Divan 0.1.21 is licensed MIT or Apache-2.0.

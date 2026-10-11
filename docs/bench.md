@@ -10,6 +10,11 @@ PRF-21 is covered by `soe-bench save <file.ess>` and the checks in
 `SOE_TEST_SAVES` names the external save corpus and skip cleanly without it.
 The row formats are described in [performance.md](performance.md).
 
+PRF-15's Divan medians and machine-specific comparisons are documented in
+[performance.md](performance.md). The baseline reader rejects invalid JSON
+structure and data modes that differ from the current synthetic or installed
+run before comparing operation medians.
+
 `soe-bench profile-diff before.json after.json` reads two PRF-13 Chrome
 counter summaries without requiring installed data. It groups entity phases,
 script functions and plugin totals, and compares actors, scripts, quests,
