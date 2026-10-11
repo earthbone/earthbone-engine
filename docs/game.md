@@ -1541,8 +1541,9 @@ Clearing it selects the latest mood. The CK
 `SetExpressionOverride_-_Actor.wikitext` page defines ids 0 through 16, a
 default strength of 100, and a strength range of 0 through 100. It reports that
 female dialogue expressions affect only the eyes and female combat expressions
-do not work properly. The host currently applies named TRI targets uniformly,
-so that reported vanilla exception is outside this implementation. The
+do not work properly. The host leaves existing head weights untouched for
+female combat overrides. Female dialogue eye behavior is outside the head TRI
+target path. The
 override is an actor save section named `ANM-59` and participates in the
 determinism hash. The host maps expression ids to head blend shape names and
 loads matching expression deltas from the head's companion `.tri` file.

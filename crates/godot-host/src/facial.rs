@@ -79,6 +79,15 @@ pub fn bound_actor_expression_weights(
     world
         .facial_expression(actor)
         .map_or_else(BTreeMap::new, |(mood, strength)| {
+            // CK notes that combat expressions do not work on female actors.
+            // An empty update leaves the actor's existing face weights intact.
+            if mood >= 15
+                && world
+                    .actor_appearance(actor)
+                    .is_ok_and(|appearance| appearance.female)
+            {
+                return BTreeMap::new();
+            }
             expression_weights(target_names, mood, strength)
         })
 }
@@ -121,6 +130,40 @@ pub fn apply_expression(values: &mut BTreeMap<String, f32>, mood: u8, strength: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+    use soe_game::{npc, World};
+
+    const fn tag(bytes: &[u8; 4]) -> Tag {
+        Tag::new(bytes)
+    }
+
+    fn female_actor_world() -> (World, GlobalFormId) {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(npc::build_record(
+            0x100,
+            "Female fixture",
+            "Female fixture",
+            npc::Config {
+                flags: npc::flags::FEMALE,
+                ..npc::Config::default()
+            },
+            npc::Stats::default(),
+        ));
+        plugin.push_top(
+            Record::new(tag(b"ACHR"), 0x101)
+                .sub(tag(b"NAME"), 0x100_u32.to_le_bytes())
+                .sub(tag(b"DATA"), vec![0; 24]),
+        );
+        let mut order = LoadOrder::new();
+        order.add("ANM59Female.esm", plugin).unwrap();
+        (
+            World::new(order),
+            GlobalFormId {
+                file: 0,
+                object: 0x101,
+            },
+        )
+    }
 
     #[test]
     fn anm_59_expression_sets_named_target_and_clears_competing_expressions() {
@@ -140,6 +183,30 @@ mod tests {
         let mood = 3_u8;
         let resolved = expression_name(7 + mood).expect("record mood maps to CK mood");
         assert_eq!(resolved, "MoodHappy");
+    }
+
+    #[test]
+    fn anm_59_female_combat_override_leaves_head_unchanged_and_clear_resumes_mood() {
+        let (mut world, actor) = female_actor_world();
+        world.set_actor_value(actor, "mood", 3.0).unwrap();
+        let targets = [
+            "CombatAnger".to_string(),
+            "CombatShout".to_string(),
+            "MoodHappy".to_string(),
+        ];
+
+        world.set_expression_override(actor, 15, 100).unwrap();
+        assert!(bound_actor_expression_weights(&mut world, actor, &targets).is_empty());
+
+        world.clear_expression_override(actor).unwrap();
+        assert_eq!(
+            bound_actor_expression_weights(&mut world, actor, &targets),
+            BTreeMap::from([
+                ("CombatAnger".to_string(), 0.0),
+                ("CombatShout".to_string(), 0.0),
+                ("MoodHappy".to_string(), 1.0),
+            ])
+        );
     }
 }
 

@@ -14,18 +14,16 @@ const ACTOR: u32 = 0x101;
 
 fn female_actor_world() -> (World, GlobalFormId) {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(
-        npc::build_record(
-            NPC,
-            "Female fixture",
-            "Female fixture",
-            npc::Config {
-                flags: npc::flags::FEMALE,
-                ..npc::Config::default()
-            },
-            npc::Stats::default(),
-        ),
-    );
+    plugin.push_top(npc::build_record(
+        NPC,
+        "Female fixture",
+        "Female fixture",
+        npc::Config {
+            flags: npc::flags::FEMALE,
+            ..npc::Config::default()
+        },
+        npc::Stats::default(),
+    ));
     plugin.push_top(
         Record::new(T(b"ACHR"), ACTOR)
             .sub(T(b"NAME"), NPC.to_le_bytes())
@@ -52,7 +50,10 @@ fn anm_59_breaker5_ck_female_combat_expression_does_not_reach_head_weights() {
     for archive in ["Skyrim - Meshes0.bsa", "Skyrim - Meshes1.bsa"] {
         let path = data.join(archive);
         if !path.exists() {
-            eprintln!("{} is absent, skipping installed female head check", path.display());
+            eprintln!(
+                "{} is absent, skipping installed female head check",
+                path.display()
+            );
             return;
         }
         vfs.add_archive_path(Path::new(&path)).unwrap();

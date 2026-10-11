@@ -4893,8 +4893,9 @@ in addition to the submitted weight dictionary. It uses the local Godot
 The CK `SetExpressionOverride_-_Actor.wikitext` page supplies ids 0 through 16,
 strength 0 through 100 and its default strength of 100. It reports that female
 dialogue expressions affect only the eyes and female combat expressions do
-not work properly. The host currently applies the named TRI targets uniformly
-by actor sex, so that reported vanilla exception is outside this row's check.
+not work properly. The host leaves existing head weights untouched for female
+combat expression overrides. Female dialogue eye behavior is not represented
+by the head TRI target path.
 The local nifly `Animation.hpp` describes `NiMorphData` vectors embedded in
 NIFs, which are distinct from Skyrim's external head `.tri` files. The host
 continues to use the existing `soe-nif` head TRI reader for those files.
