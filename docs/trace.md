@@ -17,6 +17,8 @@ clock and the existing `Trace` switch. `EntityScope` constructs metadata only
 when capture is enabled. Each scope records calls, inclusive and self time,
 and the work counts charged inside its innermost entity. Nested scopes subtract
 child duration from parent self time. Entity and plugin rankings use self time.
+Plugin summary counters also retain summed inclusive time, wait time and wait
+counts. Inclusive sums can include nested scopes. Self time avoids that overlap.
 The session totals retain every completed scope. The event list retains at
 most `MAX_EVENTS` scopes, dropping the oldest at capacity. The rolling overlay
 selects completions in the preceding wall-clock second from that list.
@@ -173,6 +175,9 @@ The `prf_12_` unit tests cover complete system reports, exclusive nesting,
 overlapping snapshots, zero frame shares and rolling eviction. The game
 stress check compares recording against a suspended baseline with 1,000
 actors and a declared ratio below 1.01. It requires an optimized build.
+The unwind check enters nested suspension inside an active Papyrus scope,
+then verifies that recording and that scope resume without charging the
+suspended magic scope. Its intentional panic has a test-local clippy allowance.
 
 Timing spans and Chrome trace export are also documented in
 [performance.md](performance.md). `WorkFrame::begin` activates a work window

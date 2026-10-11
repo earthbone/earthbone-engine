@@ -1843,6 +1843,8 @@ mod prf_17_workers;
 
 #[path = "prf_13_adversarial.rs"]
 mod prf_13_adversarial;
+#[path = "prf_13_breaker_adversarial.rs"]
+mod prf_13_breaker_adversarial;
 #[path = "prf_13_entities.rs"]
 mod prf_13_entities;
 #[path = "prf_22_adversarial.rs"]

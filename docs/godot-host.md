@@ -235,7 +235,8 @@ its elapsed time and count in one output entity.
 The overlay reuses its panel and label and adds no per-reference nodes. No
 saved fields or dependency were added. The windowed `prf_13_` host check
 covers F4, an applied camera switch, presentation latency, an audio start,
-installed render submissions, summary JSON and an overlay capture. It uses
+installed render submissions, plugin running and wait metrics, summary JSON
+and an overlay capture. It uses
 the existing input path and the local Godot RenderingServer signal contract.
 `prf_13_windowed_host_overlay_script_passes_with_synthetic_audio_fixture` in
 `crates/game/tests/prf_13_entities.rs` runs the script in a window against the
@@ -357,6 +358,14 @@ No saved state or per-reference node path is added. The monotonic clock follows
 local Godot Time documentation.
 
 ## Per-system frame monitors, PRF-12
+
+`prf_12_monitors_test.gd` reads every system's custom monitor, compares it with
+the last presentation frame and checks the `main_thread_engine` sum. It
+checks F3 visibility, frame shares, summary output and monitor ownership when
+players are added and removed. The summary includes the engine total.
+The Cargo tests in `tests/prf_12_monitors.rs` run the windowed scene when
+`SOE_GODOT_BIN` is set, plus the actual walkthrough when `SKYRIM_DATA` is set.
+They wait for process exit and require a complete per-system exit summary.
 
 PRF-35 adds `magic_frame_breakdown` for the Game magic tick phases and the
 casting and dispatch remainder.
