@@ -1241,6 +1241,19 @@ static contact-query mode. Clearing or replacing the cell releases its bodies
 and drops any hold state. This uses the actor body's existing RID and adds no
 scene node or saved field.
 
+`PlayerNode.grab_actor_spells` lists loaded spells containing MGEF archetype
+45 with their resolved FormIDs, delivery, cast type and maximum effect
+duration. The touch cast path accepts the vanilla self-delivered concentration
+form for this archetype and applies it to the actor selected by the ray. The
+`cast_grab_actor_spell_at_actor` entry point accepts an explicit actor identity
+for scripted runtime callers and applies the same effect path. The
+`mag_66_grab_actor_runtime_test.gd` installed-data run selects one of these
+records and a resident Bannered Mare actor, then uses the explicit-identity
+entry point to cast. It checks the actor's held pose and advances past the
+effect duration. It then checks that the same body returns to rigid mode with
+throw velocity. The wrapper test is
+`mag_66_runtime_holds_throws_and_releases_actor_on_expiry`.
+
 ### Papyrus Debug host requests, SCR-20
 
 `PlayerNode::advance_game` drains the transient `World::debug_host_requests`

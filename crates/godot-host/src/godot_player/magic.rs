@@ -6,7 +6,7 @@
 //! two hand buttons stay visible beside the list rather than gating it.
 
 use godot::prelude::*;
-use soe_esm::GlobalFormId;
+use soe_esm::{GlobalFormId, Tag};
 use soe_game::combat::Hand;
 use soe_physics::{PhysicsWorld, Vec3};
 
@@ -375,6 +375,50 @@ mod tests {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// List loaded targeted spells that contain the Grab Actor archetype.
+    /// Runtime checks can select the installed record without a plugin-specific FormID.
+    #[func]
+    pub fn grab_actor_spells(&self) -> Array<VarDictionary> {
+        let Some(game) = &self.game else {
+            return Array::new();
+        };
+        let world = game.world();
+        let mut spells = Array::new();
+        for (id, _) in world.order().winners_of(Tag::new(b"SPEL")) {
+            let Ok(spell) = world.spell(id) else {
+                continue;
+            };
+            let has_grab_actor = spell.effects.iter().any(|effect| {
+                world
+                    .resolve_from(id, effect.base_effect)
+                    .and_then(|effect_id| world.magic_effect(effect_id).ok())
+                    .is_some_and(|effect| effect.data.archetype == 45)
+            });
+            if !has_grab_actor {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
+            row.set(
+                "duration",
+                i64::from(
+                    spell
+                        .effects
+                        .iter()
+                        .map(|effect| effect.data.duration)
+                        .max()
+                        .unwrap_or_default(),
+                ),
+            );
+            row.set("delivery", i64::from(spell.data.delivery));
+            row.set("cast_type", i64::from(spell.data.cast_type));
+            row.set("editor_id", spell.editor_id.unwrap_or_default());
+            spells.push(&row);
+        }
+        spells
+    }
+
     /// Cast a self-delivered spell through the shared runtime world.
     #[func]
     pub fn cast_spell_on_self(&mut self, spell_file: i32, spell_object: i64) -> bool {
@@ -431,11 +475,16 @@ impl PlayerNode {
             return false;
         };
         let player = game.player();
+        let grab_actor = game.world().is_grab_actor_spell(spell);
         let definition = match game.world_mut().spell(spell) {
-            Ok(definition) if definition.data.delivery == 1 => definition,
+            Ok(definition) if definition.data.delivery == 1 || grab_actor => definition,
             _ => return false,
         };
-        let reach = definition.data.range;
+        let reach = if grab_actor {
+            super::ACTIVATE_REACH
+        } else {
+            definition.data.range
+        };
         if !reach.is_finite() || reach < 0.0 {
             return false;
         }
@@ -464,20 +513,106 @@ impl PlayerNode {
             return false;
         }
         let shared = game.shared_world();
-        let result = shared.borrow_mut().cast_spell(
-            spell,
-            player,
-            Some(player),
-            Some(target),
-            &mut |name, class| game.vm.create_object_of(name, class),
-        );
+        let result = if grab_actor {
+            shared.borrow_mut().cast_grab_actor_spell(
+                spell,
+                player,
+                Some(player),
+                target,
+                &mut |name, class| game.vm.create_object_of(name, class),
+            )
+        } else {
+            shared.borrow_mut().cast_spell(
+                spell,
+                player,
+                Some(player),
+                Some(target),
+                &mut |name, class| game.vm.create_object_of(name, class),
+            )
+        };
         match result {
-            Ok(_) => true,
+            Ok(effects) => {
+                let applied = !effects.is_empty();
+                if applied && grab_actor {
+                    self.update_grab_actor();
+                }
+                applied
+            }
             Err(error) => {
                 soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: touch cast rejected: {error}");
                 false
             }
         }
+    }
+
+    /// Apply a Grab Actor spell to a caller-selected actor identity.
+    #[func]
+    pub fn cast_grab_actor_spell_at_actor(
+        &mut self,
+        spell_file: i32,
+        spell_object: i64,
+        target_file: i32,
+        target_object: i64,
+    ) -> bool {
+        let (Ok(spell_file), Ok(spell_object), Ok(target_file), Ok(target_object)) = (
+            u16::try_from(spell_file),
+            u32::try_from(spell_object),
+            u16::try_from(target_file),
+            u32::try_from(target_object),
+        ) else {
+            return false;
+        };
+        let spell = GlobalFormId {
+            file: spell_file,
+            object: spell_object,
+        };
+        let target = GlobalFormId {
+            file: target_file,
+            object: target_object,
+        };
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let player = game.player();
+        let valid_spell = game.world().is_grab_actor_spell(spell);
+        let living_actor = game
+            .world_mut()
+            .actor(target)
+            .is_some_and(|actor| !actor.dead);
+        let enabled_reference = game.world_mut().reference_enabled(target);
+        if !valid_spell || !living_actor || !enabled_reference {
+            godot_warn!(
+                "PlayerNode: Grab Actor cast eligibility spell={} living_actor={} enabled_reference={}",
+                valid_spell,
+                living_actor,
+                enabled_reference
+            );
+            return false;
+        }
+        let shared = game.shared_world();
+        let result = shared.borrow_mut().cast_grab_actor_spell(
+            spell,
+            player,
+            Some(player),
+            target,
+            &mut |name, class| game.vm.create_object_of(name, class),
+        );
+        let applied = match result {
+            Ok(effects) if !effects.is_empty() => true,
+            Ok(_) => {
+                godot_warn!("PlayerNode: Grab Actor spell produced no active effects");
+                false
+            }
+            Err(error) => {
+                godot_warn!("PlayerNode: Grab Actor cast rejected: {error}");
+                soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: Grab Actor cast rejected: {error}");
+                false
+            }
+        };
+        if applied {
+            self.update_grab_actor();
+        }
+        applied
     }
 
     fn location_target(&self, reach: f32) -> Option<[f32; 3]> {

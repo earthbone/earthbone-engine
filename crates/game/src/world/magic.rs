@@ -399,6 +399,7 @@ struct SoulGem {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CastDelivery {
     Direct,
+    GrabActor,
     ProjectileContact,
     CloakPulse,
     Location,
@@ -1556,6 +1557,62 @@ impl World {
         self.cast_spell_with_execution(spell, source, caster, target, &mut execution)
     }
 
+    /// Apply Grab Actor entries from a self-delivered concentration spell to
+    /// the actor selected by the host. Companion effects remain self-targeted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the spell is not a Grab Actor concentration,
+    /// the target is not an actor, or its effects are unsupported.
+    pub fn cast_grab_actor_spell(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        if !self.is_grab_actor_spell(spell) {
+            return Err(MagicError::Unsupported("Grab Actor spell"));
+        }
+        if self.reference(source).is_none() || self.actor(target).is_none() {
+            return Err(MagicError::Target);
+        }
+        let mut execution = AllocationExecution { alloc };
+        let prepared = self.prepare_spell(
+            spell,
+            source,
+            caster,
+            Some(target),
+            CastOptions {
+                delivery: CastDelivery::GrabActor,
+                location: None,
+                line_of_sight_clear: true,
+            },
+            &mut execution,
+        )?;
+        self.apply_prepared_effects(prepared, &mut |name, class| {
+            execution.create_object(name, class)
+        })
+    }
+
+    /// Whether a self-delivered concentration spell contains an archetype-45
+    /// effect.
+    #[must_use]
+    pub fn is_grab_actor_spell(&self, spell: GlobalFormId) -> bool {
+        let Ok(definition) = self.spell(spell) else {
+            return false;
+        };
+        definition.data.delivery == 0
+            && definition.data.cast_type == 2
+            && !definition.effects.is_empty()
+            && definition.effects.iter().any(|entry| {
+                self.resolve_from(spell, entry.base_effect)
+                    .and_then(|effect| self.magic_effect_definition(effect).ok())
+                    .is_some_and(|effect| effect.data.archetype == 45)
+            })
+    }
+
     fn cast_spell_inner(
         &mut self,
         spell: GlobalFormId,
@@ -2420,7 +2477,7 @@ impl World {
         }
         let concentration = matches!(
             cast_delivery,
-            CastDelivery::Direct | CastDelivery::CloakPulse
+            CastDelivery::Direct | CastDelivery::GrabActor | CastDelivery::CloakPulse
         ) && definition.data.cast_type == 2;
         if (scroll && definition.data.cast_type != 3)
             || (!scroll && !concentration && !matches!(definition.data.cast_type, 0 | 1))
@@ -2428,6 +2485,7 @@ impl World {
             return Err(MagicError::Unsupported("concentration or scroll casting"));
         }
         let target = match definition.data.delivery {
+            0 if cast_delivery == CastDelivery::GrabActor => target.ok_or(MagicError::Target)?,
             0 => source,
             1 => {
                 let target = target.ok_or(MagicError::Target)?;
@@ -2506,6 +2564,11 @@ impl World {
                 .ok_or(MagicError::Missing(spell))?;
             let base = self.magic_effect_definition(effect)?;
             let data = &base.data;
+            let target = if cast_delivery == CastDelivery::GrabActor && data.archetype != 45 {
+                source
+            } else {
+                target
+            };
             if data.archetype == PEAK_VALUE_MODIFIER {
                 self.peak_value_keyword(effect, &base)?;
             }
@@ -2639,7 +2702,9 @@ impl World {
             } else {
                 data.cast_type == definition.data.cast_type
             };
-            if !cast_type_matches || data.delivery != definition.data.delivery {
+            if cast_delivery != CastDelivery::GrabActor
+                && (!cast_type_matches || data.delivery != definition.data.delivery)
+            {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
             }
             let magnitude = if data.flags & NO_MAGNITUDE != 0

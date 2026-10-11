@@ -25,13 +25,13 @@ fn fixture(duration: u32) -> Game {
     let mut effect_data = vec![0; 152];
     put(&mut effect_data, 8, u32::MAX);
     put(&mut effect_data, 64, 45);
-    put(&mut effect_data, 80, 1);
-    put(&mut effect_data, 84, 3);
+    put(&mut effect_data, 80, 2);
+    put(&mut effect_data, 84, 0);
 
     let mut spell_data = vec![0; 36];
     put(&mut spell_data, 8, 0);
-    put(&mut spell_data, 16, 1);
-    put(&mut spell_data, 20, 3);
+    put(&mut spell_data, 16, 2);
+    put(&mut spell_data, 20, 0);
 
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"NPC_"), BASE).sub(T(b"ACBS"), vec![0; 24]));
@@ -73,11 +73,11 @@ fn cast(game: &mut Game) -> EffectId {
     let shared = game.shared_world();
     let result = shared
         .borrow_mut()
-        .cast_spell(
+        .cast_grab_actor_spell(
             id(SPELL),
             id(SOURCE),
             Some(id(CASTER)),
-            Some(id(TARGET)),
+            id(TARGET),
             &mut |_, _| {
                 game.vm
                     .create_object_of("GrabActorEffect", "ActiveMagicEffect")
