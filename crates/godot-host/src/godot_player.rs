@@ -1585,6 +1585,90 @@ impl PlayerNode {
             .is_ok()
     }
 
+    /// Find a loaded vanilla humanoid actor other than the player.
+    ///
+    /// The result is `[file, object, female]`, or an empty array when the
+    /// loaded world has no actor using the vanilla human skeleton.
+    #[func]
+    pub fn debug_first_loaded_humanoid_npc(&mut self) -> PackedInt64Array {
+        let mut result = PackedInt64Array::new();
+        let Some(game) = self.game.as_mut() else {
+            return result;
+        };
+        let player = game.player();
+        for actor in game.world_mut().loaded_actors() {
+            if actor == player {
+                continue;
+            }
+            let Ok(Some(rig)) = game.world_mut().actor_animation_rig(actor) else {
+                continue;
+            };
+            let humanoid = rig.skeleton.as_deref().is_some_and(|path| {
+                path.replace('\\', "/")
+                    .to_ascii_lowercase()
+                    .ends_with("character assets/skeleton.hkx")
+            });
+            if humanoid {
+                result.push(i64::from(actor.file));
+                result.push(i64::from(actor.object));
+                result.push(if rig.female { 1 } else { 0 });
+                break;
+            }
+        }
+        result
+    }
+
+    /// Set a loaded actor's facial expression override for host checks.
+    #[func]
+    pub fn debug_set_actor_expression_override(
+        &mut self,
+        file: i32,
+        object: i64,
+        mood: i32,
+        strength: i32,
+    ) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .set_expression_override(GlobalFormId { file, object }, mood, strength)
+            .is_ok()
+    }
+
+    /// Clear a loaded actor's facial expression override for host checks.
+    #[func]
+    pub fn debug_clear_actor_expression_override(&mut self, file: i32, object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .clear_expression_override(GlobalFormId { file, object })
+            .is_ok()
+    }
+
+    /// Set a loaded actor's record-backed mood value for host checks.
+    #[func]
+    pub fn debug_set_actor_expression_mood(&mut self, file: i32, object: i64, mood: f32) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .set_actor_value(GlobalFormId { file, object }, "mood", mood)
+            .is_ok()
+    }
+
     /// Read one reference's current simulated placement in Skyrim units.
     #[func]
     pub fn gameplay_reference_pose(&self, file: i32, object: i64) -> VarDictionary {
