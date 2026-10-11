@@ -7,41 +7,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-fn optimized_binary() -> PathBuf {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    // Cargo names itself in CARGO for the tests it runs. Using that path keeps
-    // the nested build on the toolchain of the outer run and out of any PATH
-    // wrapper that serializes builds, which a test holding a slot would wait on.
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let build = Command::new(cargo)
-        .current_dir(root)
-        .args([
-            "build",
-            "-p",
-            "soe-bench",
-            "--release",
-            "--bin",
-            "soe-bench",
-            "--message-format=json",
-        ])
-        .output()
-        .expect("build optimized stress child");
-    assert!(
-        build.status.success(),
-        "{}",
-        String::from_utf8_lossy(&build.stderr)
-    );
-    String::from_utf8_lossy(&build.stdout)
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .find_map(|row| {
-            (row["reason"] == "compiler-artifact" && row["target"]["name"] == "soe-bench")
-                .then(|| row["executable"].as_str().map(PathBuf::from))
-                .flatten()
-        })
-        .expect("Cargo reports the optimized executable path")
-}
-
 fn cold_sample(binary: &Path) -> serde_json::Value {
     let logs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../performance-results/tst-18");
     std::fs::create_dir_all(&logs).expect("create stress log directory");
@@ -118,9 +83,10 @@ fn check_sample(sample: &serde_json::Value) {
 }
 
 #[test]
+#[ignore = "requires an optimized build and an idle machine, see docs/performance-limits.md"]
 fn tst_18_prf_07_runner_asserts_thousand_actor_p99_and_worst_limits() {
-    let binary = optimized_binary();
-    check_sample(&cold_sample(&binary));
+    let binary = Path::new(env!("CARGO_BIN_EXE_soe-bench"));
+    check_sample(&cold_sample(binary));
     let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
         "../../performance-results/tst-18-runner-{}",
         std::process::id()

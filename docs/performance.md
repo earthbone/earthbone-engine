@@ -436,7 +436,7 @@ paths and native presenter measurements are implemented.
 
 ## TST-18 gameplay frame gates
 
-The non-ignored `tst_18_` timing checks use fixed limits: p99 at most 16.7 ms and
+The `tst_18_` timing checks use fixed limits: p99 at most 16.7 ms and
 every measured frame at most 33 ms. Limits are checked directly in Rust and
 in the Godot script, with no environment override. These headless gameplay
 measurements include simulation and host callbacks, with no GPU throughput
@@ -471,9 +471,10 @@ work-count check includes the first package tick and permits at most 4,000
 triangle examinations per tick. The optimized PRF-07 test measures a cold
 120-tick window including the first package tick, then checks the Python
 runner's 120-tick window after one warm-up tick. Both assert numeric p99 and
-worst against the same limits, with process RSS below 2,048 MiB. The ordinary
-test builds its optimized child through Cargo, retaining the configured build
-flags and target directory.
+worst against the same limits, with process RSS below 2,048 MiB. The timing
+test is ignored in the ordinary workspace gate and uses Cargo's benchmark
+executable from the explicitly selected optimized profile. It does not start
+a nested build. Run it as documented in [performance-limits.md](performance-limits.md).
 Every actor selects its expected procedure. Travel actors must advance. Both
 reports are checked for numeric timings, graph size and package
 evaluations. The cold child has a 120-second deadline and is killed and reaped

@@ -60,6 +60,8 @@ godot = ["dep:godot"]
 profile-memory = []
 # Adds the SCR-24 synthetic renderer driver used by the live Godot regression.
 scr-24-test = ["godot"]
+# Adds the synthetic installed-data driver used by the CMB-37 host regression.
+cmb-37-test = ["godot"]
 # Uses ffmpeg as the host's xWMA decoder instead of the default in-process
 # decoder. Kept for comparison with `soe-audio`'s native implementation.
 xwma-ffmpeg = ["soe-audio/xwma-ffmpeg"]

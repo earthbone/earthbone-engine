@@ -115,7 +115,7 @@ Their frame budgets require an optimized build on an otherwise idle machine,
 with no concurrent tests. Run it explicitly:
 
 ```text
-rtk proxy cargo test -p soe-bench --profile thin prf_07 -- --ignored --test-threads=1
+rtk proxy cargo test -p soe-bench --profile thin --test prf_07_adversarial -- --ignored
 ```
 
 Windowed host runs, with an installed Godot binary:
