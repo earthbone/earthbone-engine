@@ -414,10 +414,12 @@ impl PlayerNode {
             return false;
         };
         let configs = game.mcm_configs();
+        self.mcm_page = crate::mcm_menu::ConfigPage::from_game(game);
         let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
             return false;
         };
         let selected = self.mcm_config;
+        let option_page = self.mcm_page.clone();
         let base = self.base().clone();
         let _guard = self.base_mut();
         for mut child in content.get_children().iter_shared() {
@@ -452,8 +454,24 @@ impl PlayerNode {
                 button.connect("pressed", &callback);
                 rows.add_child(&button);
             }
+            if let Some(page) = &option_page {
+                crate::mcm_menu::render_rows(&mut rows, page, &base.callable("mcm_select_option"));
+            }
         }
         true
+    }
+
+    pub(super) fn refresh_mcm_options(&mut self) {
+        if self.menu.title() != Some("Mod Configuration") || self.mcm_config.is_none() {
+            return;
+        }
+        let page = self
+            .game
+            .as_mut()
+            .and_then(crate::mcm_menu::ConfigPage::from_game);
+        if page != self.mcm_page {
+            self.mcm_content();
+        }
     }
 
     fn dialogue_content(&mut self) -> bool {
@@ -605,6 +623,7 @@ impl PlayerNode {
             game.mcm_close();
         }
         self.mcm_config = None;
+        self.mcm_page = None;
         if closing_dialogue {
             self.stop_dialogue_voice();
             if let Some(game) = self.game.as_mut() {
@@ -825,7 +844,86 @@ impl PlayerNode {
             return false;
         }
         self.mcm_config = None;
+        self.mcm_page = None;
+        if let Some(game) = self.game.as_mut() {
+            game.mcm_begin();
+        }
         self.mcm_content()
+    }
+
+    /// Load a standalone MCM plugin and its loose scripts for host checks.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_load_mcm_fixture(&mut self, directory: GString) -> bool {
+        let directory = std::path::PathBuf::from(directory.to_string());
+        let result = std::fs::read(directory.join("Ui05Config.esm"))
+            .ok()
+            .and_then(|bytes| soe_esm::Plugin::parse(&bytes).ok());
+        let Some(plugin) = result else {
+            return false;
+        };
+        let mut order = soe_esm::LoadOrder::new();
+        if order.add("Ui05Config.esm", plugin).is_err() {
+            return false;
+        }
+        let mut game = soe_game::Game::new(order);
+        if !game
+            .load_scripts_from_data(&directory)
+            .scripts_failed
+            .is_empty()
+        {
+            return false;
+        }
+        let report = game.start();
+        if !report.scripts_missing.is_empty() {
+            return false;
+        }
+        self.game = Some(game);
+        true
+    }
+
+    /// Inspect callbacks and registration from the standalone UI-05 script.
+    #[func]
+    pub fn debug_mcm_fixture_state(&mut self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let Some(game) = self.game.as_mut() else {
+            return result;
+        };
+        let object = game.object_of_form(GlobalFormId {
+            file: 0,
+            object: 0x800,
+        });
+        for name in [
+            "init_count",
+            "register_count",
+            "reset_count",
+            "open_count",
+            "close_count",
+            "sequence",
+            "last_page",
+            "selection_count",
+            "selected_option",
+        ] {
+            match game.vm.get_var(object, "Ui05ExecutableChild", name) {
+                Some(soe_papyrus::Value::Int(value)) => {
+                    result.set(name, value);
+                }
+                Some(soe_papyrus::Value::Str(value)) => {
+                    result.set(name, value.as_ref());
+                }
+                _ => {}
+            }
+        }
+        let errors: PackedStringArray = game
+            .vm
+            .log
+            .messages()
+            .into_iter()
+            .filter(|message| message.starts_with("error:"))
+            .map(GString::from)
+            .collect();
+        result.set("errors", &errors);
+        result
     }
 
     /// Open one registered script config and render its declared pages.
@@ -854,9 +952,33 @@ impl PlayerNode {
         let Ok(index) = usize::try_from(index) else {
             return false;
         };
-        self.game
+        let selected = self
+            .game
             .as_mut()
-            .is_some_and(|game| game.mcm_select_page(index))
+            .is_some_and(|game| game.mcm_select_page(index));
+        selected && self.mcm_content()
+    }
+
+    /// Select a visible enabled text or toggle row and refresh script-authored values.
+    #[func]
+    pub fn mcm_select_option(&mut self, id: i64) -> bool {
+        if self.menu.title() != Some("Mod Configuration") {
+            return false;
+        }
+        let (Some(form), Ok(id)) = (self.mcm_config, u32::try_from(id)) else {
+            return false;
+        };
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Some(mut page) = crate::mcm_menu::ConfigPage::from_game(game) else {
+            return false;
+        };
+        let selected = page.select(game, form, id);
+        if selected {
+            self.mcm_content();
+        }
+        selected
     }
 
     /// Open a conversation with a reference through the shared Game and show its choices.
