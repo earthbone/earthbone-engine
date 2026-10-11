@@ -16,14 +16,10 @@ fn hst_19_host_writes_decodable_png_to_unicode_path() {
         return;
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output_path = std::env::temp_dir().join(format!(
-        "soe-hst19-雪 capture-{}.png",
-        std::process::id()
-    ));
-    let script_path = std::env::temp_dir().join(format!(
-        "soe-hst19-雪-capture-{}.gd",
-        std::process::id()
-    ));
+    let output_path =
+        std::env::temp_dir().join(format!("soe-hst19-雪 capture-{}.png", std::process::id()));
+    let script_path =
+        std::env::temp_dir().join(format!("soe-hst19-雪-capture-{}.gd", std::process::id()));
     let script = r#"extends SceneTree
 var failures := 0
 func _initialize() -> void:
