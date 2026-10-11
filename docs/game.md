@@ -8165,14 +8165,17 @@ malformed graph policy, effect execution or menu behavior.
 ## Perk entry-point dispatch (PRG-08)
 
 `EntryPointDispatcher` registers handlers by entry-point ID and visits an
-actor's owned winning PERK records in load-order order. NPC base PRKR entries
-also supply owned identities. All actors use the highest owned rank in that
-PERK's NNAM chain. Within each PERK it filters out complex
-entries above that rank, then orders eligible entries by ascending PRKE
-priority. Equal priorities retain their source order. The invocation carries
-the entry's one-based PRKE rank, priority, and EPFT/EPFD data. Priority direction, tie
-behavior and cross-perk interleaving still need a vanilla capture. The local
-sources do not establish exact versus cumulative effect-rank selection.
+actor's owned winning PERK records in resolved FormID order. NPC base PRKR
+entries also supply owned identities. All actors use the highest owned rank
+in that PERK's NNAM chain. Within each PERK it filters out complex entries
+above that rank, then orders eligible entries by ascending PRKE priority.
+Equal priorities retain their source order. The invocation carries the
+entry's one-based PRKE rank, priority, and EPFT/EPFD data. The installed
+vanilla record survey verifies that combat PERKs contain differing priorities,
+ties within one PERK, and entries across multiple PERKs. It does not observe
+Skyrim's execution. Priority direction, tie behavior and cross-perk
+interleaving still need a runtime capture. The local sources do not establish
+exact versus cumulative effect-rank selection.
 
 Each PRKC tab evaluates its own CTDA conditions against the matching supplied
 tab subject. Conditions within a tab use the shared evaluator's file-order

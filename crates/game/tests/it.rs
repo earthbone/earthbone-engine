@@ -1110,6 +1110,8 @@ mod prg_07_character_level;
 mod prg_08_adversarial;
 #[path = "prg_08_breaker_adversarial.rs"]
 mod prg_08_breaker_adversarial;
+#[path = "prg_08_vanilla.rs"]
+mod prg_08_vanilla;
 #[path = "prg_09_adversarial.rs"]
 mod prg_09_adversarial;
 #[path = "prg_09_breaker_adversarial.rs"]

@@ -2,13 +2,15 @@
 
 CMB-09 consumes PRG-08's dispatcher for the ModAttackDamage and
 ModIncomingDamage handlers. It applies supported numeric operations in
-winning-record order, then ascending PRKE priority within a PERK, preserving
-source order for equal priorities. Synthetic hit tests verify that policy
-with noncommuting additions and multiplications, including the last
-winning-record modifier. TES5Edit and UESP establish the stored fields and
-section layout, but UESP calls priority ordering an assumption. These tests
-verify engine behavior, not Skyrim's runtime priority direction or cross-PERK
-interleaving. The following research was completed on 2026-09-20. This
+resolved PERK FormID order, then ascending PRKE priority within a PERK,
+preserving source order for equal priorities. Synthetic hit tests verify that
+policy with noncommuting additions and multiplications. TES5Edit and UESP
+establish the stored fields and section layout, but UESP calls priority
+ordering an assumption. The PRG-08 installed-data survey confirms differing
+priorities, same-PERK ties and cross-PERK entries exist in the five vanilla
+masters. It does not observe Skyrim's execution, priority direction, tie
+behavior or cross-PERK interleaving. The following research was completed on
+2026-09-20. This
 handler places outgoing and incoming modifiers before armor and other damage
 reductions, a local execution choice that still needs a reference-runtime
 trace. CMB-15 depends on CMB-09 because skill modifier actor values are inputs
