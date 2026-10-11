@@ -891,16 +891,17 @@ the `soe-physics` `SimpleWorld` solver.
 `PlayerNode` raycasts from the eye along the camera look direction on each
 advance and stores the first hit reference in the shared game world. The ray
 uses the host physics space, including resident rigid clutter and static
-obstructions. Game Papyrus globals `GetCurrentCrosshairRef` and
-`GetPlayerGrabbedRef` return those current host values. HST-22 supplies the
-held-Activate path below. The grabbed reference is cleared when the cell is
-replaced. These values are transient and are not saved.
-The local CK `Game_Script` page documents both getters and their reference
-results.
+obstructions. `GetCurrentCrosshairRef` returns this current hit and
+`GetPlayerGrabbedRef` returns the held reference, each as a Papyrus form object
+or `None`. The local CK `Game_Script` page documents both getters and their
+reference results. HST-22 supplies the held-Activate path below. The grabbed
+reference is cleared when the cell is replaced. These values are transient and
+are not saved.
 
 `hst_18_installed_host_crosshair_grab_and_papyrus_getters_track_each_frame`
-uses the installed Bannered Mare tankard to check the live ray, the held
-physics reference, release, and both Papyrus getters through `PlayerNode`.
+uses the installed Bannered Mare tankard to check the live ray across frames,
+the held physics reference, release, and both Papyrus getters through
+`PlayerNode`.
 `debug_reference_native` invokes only these two Game getters and reports the
 resolved reference identity for host diagnostics.
 

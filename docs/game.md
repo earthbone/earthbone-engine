@@ -2465,8 +2465,8 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.QuitToMainMenu` | Quiet stub for returning to the main menu. |
 | `Game.SetSittingRotation` | Quiet stub. CK takes the rotation value. |
 | `Game.StartTitleSequence` | Quiet stub. CK takes a sequence name. |
-| `Game.GetCurrentCrosshairRef` | Quiet stub. The CK Game class page has no entry. |
-| `Game.GetPlayerGrabbedRef` | Quiet stub for the currently grabbed reference. |
+| `Game.GetCurrentCrosshairRef` | Returns the reference reported under the host crosshair, or `None`. |
+| `Game.GetPlayerGrabbedRef` | Returns the reference held by the host player, or `None`. |
 | `Game.FindClosestActor` | Quiet stub. CK takes a position and radius. |
 | `Game.FindRandomActor` | Quiet stub. CK takes a position and radius. |
 | `Game.FindClosestReferenceOfType` | Quiet stub. CK takes a base form, position and radius. |
