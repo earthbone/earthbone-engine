@@ -1340,7 +1340,55 @@ also checks the start and stop requests and authored membrane settings.
 `FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and
 passes the changed geometry through the same axis conversion, bounds and surface validation
 as streamed meshes. Normals are generated from the changed geometry. The caller resolves
-the NPC's `PNAM` head-part links and maps `NAM9` values to morph names.
+the part's named morph weights when using this lower-level operation.
+
+`facegen::generate_npc_head` reads a winning NPC's `PNAM` links and `NAM9`
+sliders from the load order. Each link resolves in the winning record's source
+file, including an HDPT's `HNAM` extra parts. Results follow the declared part
+order and depth-first extras, emitting shared parts once and rejecting cycles.
+The supplied VFS resolves `MODL` and the chargen TRI declared by `NAM0=2` and
+`NAM1`. Expression TRI declarations do not supply chargen geometry. The
+chargen TRI must match exactly one NIF shape's base positions within 0.0001
+game units. Other shapes keep their geometry.
+
+`nam9_morph_weights` converts signed sliders to lower or upper named targets
+with absolute weights. Zero and FaceData's maximum-float default sentinel
+select no target. Each part applies the targets present in its own TRI. The
+generated result retains the resolved HDPT identity, a renderer-neutral mesh
+and converted surface arrays. NIF topology, UVs, transform, material and skin
+metadata remain attached to the mesh. Changed geometry regenerates surface
+normals. Missing assets, malformed records and invalid TRI geometry return
+errors before any mesh collection is returned.
+
+`SoeFormTable::generate_npc_head` exposes this operation to the editor. It
+builds an asset VFS from the open document's associated archives in load-order
+sequence and the supplied loose Data directory, then uploads the resulting
+surfaces as ArrayMesh resources. It creates no per-reference scene nodes.
+The operation returns an empty collection on failure and records the diagnostic
+in `last_error`. It generates preview geometry without writing a FaceGen NIF.
+
+The record layout follows local xEdit's NPC_ and HDPT definitions. Slider
+order follows `skse64/skse64/GameData.h`'s `FaceMorphList`, and signed target
+selection follows `SKSE64Plugins/skee64/FaceMorphInterface.cpp`'s
+`ApplyMorph`. CommonLib's `TESNPC::FaceData` defines the default sentinel.
+TiltedEvolution's `FaceGenSystem` resolves head-part records before finding
+geometry, but calls the original engine for face rendering. The independent
+TRI reader follows BodySlide's `TriHeadFile::Read`. PyNifly is absent from the
+named local corpus. These sources supply contracts, with no copied source.
+
+`crates/godot-host/tests/edt_22_npc_head.rs` exercises winning NPC and HDPT
+overrides with a different master order, declared chargen assets, signed NAM9
+weights, extras, geometry conversion and rejection paths. A multi-shape NIF
+case binds the TRI to the unique matching shape and preserves the other
+shape's geometry. A loose overlay case checks the supplied VFS's precedence.
+Its installed-data case generates Lydia's declared head parts.
+Its windowed Godot case runs
+`godot/edt_22_facegen_mesh_test.gd`, checks uploaded vertices and topology,
+compares the base and generated silhouettes and renders an independent mesh
+from the expected vertices and indices. It captures a temporary PNG and quits.
+The render thresholds are at least 3,000 lit pixels, 100 changed silhouette
+pixels and at most eight pixels differing from the expected mesh's silhouette.
+Both environment-dependent cases skip when their input variable is absent.
 
 ### Actor expression targets, ANM-59
 
