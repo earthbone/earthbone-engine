@@ -36,17 +36,17 @@ fn prf_21_cli_plugin_rows_match_saved_sections() {
     };
 
     let source = std::fs::read(&path).unwrap();
-    let (save, _) = Save::parse_profiled(&source)
-        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    let expected_changes: BTreeMap<_, _> = save
-        .change_form_sizes_by_plugin()
-        .into_iter()
-        .fold(BTreeMap::new(), |mut totals, row| {
-            let total = totals.entry(row.plugin).or_insert((0, 0));
-            total.0 += row.count;
-            total.1 += row.bytes;
-            totals
-        });
+    let (save, _) =
+        Save::parse_profiled(&source).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let expected_changes: BTreeMap<_, _> =
+        save.change_form_sizes_by_plugin()
+            .into_iter()
+            .fold(BTreeMap::new(), |mut totals, row| {
+                let total = totals.entry(row.plugin).or_insert((0, 0));
+                total.0 += row.count;
+                total.1 += row.bytes;
+                totals
+            });
     let expected_form_ids: BTreeMap<_, _> = save
         .form_id_array_by_plugin()
         .into_iter()
@@ -70,8 +70,7 @@ fn prf_21_cli_plugin_rows_match_saved_sections() {
         .lines()
         .filter_map(|line| {
             let fields: Vec<_> = line.split_whitespace().collect();
-            (fields.first().copied() == Some("save_section")
-                && fields.get(1) != Some(&"container"))
+            (fields.first().copied() == Some("save_section") && fields.get(1) != Some(&"container"))
                 .then(|| fields.get(2)?.parse::<usize>().ok())
                 .flatten()
         })

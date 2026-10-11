@@ -52,8 +52,8 @@ fn prf_21_cli_plugin_load_rows_match_parse_profile_on_repeated_runs() {
     };
 
     let source = std::fs::read(&path).unwrap();
-    let (save, profile) = Save::parse_profiled(&source)
-        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let (save, profile) =
+        Save::parse_profiled(&source).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let expected: BTreeMap<_, _> = save
         .plugin_load_nanos(&profile)
         .into_iter()
@@ -76,7 +76,7 @@ fn prf_21_cli_plugin_load_rows_match_parse_profile_on_repeated_runs() {
         let report = String::from_utf8(output.stdout).unwrap();
         let actual = reported_plugin_loads(&report);
         assert_eq!(
-            actual.iter().map(|row| row.1.0).sum::<usize>(),
+            actual.iter().map(|row| row.1 .0).sum::<usize>(),
             save.change_forms.len(),
             "plugin load counts must cover each decoded change form: {}",
             path.display()
@@ -110,7 +110,9 @@ fn prf_21_cli_plugin_load_rows_match_parse_profile_on_repeated_runs() {
             .map(|(plugin, row)| (plugin.clone(), row.0))
             .collect::<BTreeMap<_, _>>();
         assert!(
-            prior_counts.replace(counts.clone()).is_none_or(|prior| prior == counts),
+            prior_counts
+                .replace(counts.clone())
+                .is_none_or(|prior| prior == counts),
             "repeated reports must preserve plugin counts: {}",
             path.display()
         );
