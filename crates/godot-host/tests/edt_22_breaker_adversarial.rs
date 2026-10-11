@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_godot_host::facegen::build_head_part_surface;
+use soe_esm::records::npc::FACE_MORPH_COUNT;
+use soe_godot_host::facegen::{build_head_part_surface, nam9_morph_weights};
 use soe_nif::{parse_head_tri, Bound, Material, Mesh, Transform};
 
 fn u32le(out: &mut Vec<u8>, value: u32) {
@@ -108,4 +109,35 @@ fn edt_22_repeated_generation_does_not_accumulate_morphs() {
 
     assert_eq!(first.positions, second.positions);
     assert_eq!(source.positions[0], [0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn edt_22_slider_magnitudes_above_one_keep_the_full_extrapolation_weight() {
+    let mut values = [0.0; FACE_MORPH_COUNT];
+    values[0] = -2.25;
+    values[3] = 1.75;
+
+    assert_eq!(
+        nam9_morph_weights(&values).unwrap(),
+        [("NoseShort", 2.25), ("JawWide", 1.75)],
+        "RaceMenu applies whole morphs plus the remaining fractional weight"
+    );
+}
+
+#[test]
+fn edt_22_signed_zero_and_face_data_sentinel_do_not_select_morphs() {
+    let mut values = [0.0; FACE_MORPH_COUNT];
+    values[0] = -0.0;
+    values[18] = f32::from_bits(0x7f7f_ffff);
+
+    assert!(nam9_morph_weights(&values).unwrap().is_empty());
+}
+
+#[test]
+fn edt_22_non_finite_slider_values_are_rejected() {
+    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let mut values = [0.0; FACE_MORPH_COUNT];
+        values[5] = invalid;
+        assert!(nam9_morph_weights(&values).is_err());
+    }
 }
