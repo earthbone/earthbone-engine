@@ -15,6 +15,7 @@ const PACK: u32 = 0x801;
 const BASE: u32 = 0x802;
 const ACTOR: u32 = 0x803;
 const ENABLED: u32 = 0x804;
+const MARKER: u32 = 0x807;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -25,14 +26,31 @@ fn game(first_wait: f32, second_wait: f32) -> Game {
 }
 
 fn game_with_magic(first_wait: f32, second_wait: f32, magic: bool) -> Game {
+    game_with_async(first_wait, second_wait, magic, false, false)
+}
+
+fn game_with_async(
+    first_wait: f32,
+    second_wait: f32,
+    magic: bool,
+    travel: bool,
+    travel_completes: bool,
+) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     let tree = package::close_header(package::build_template(TEMPLATE, "ConcurrentWaits"), None);
     let tree = package::with_float_input(tree, 5, first_wait);
     let tree = package::with_bool_input(tree, 9, false);
     let tree = package::with_float_input(tree, 6, second_wait);
     let tree = package::with_bool_input(tree, 10, true);
+    let tree = if travel {
+        package::with_location_input(tree, 11, package::Location::NearReference(MARKER), 0)
+    } else {
+        tree
+    };
     let tree = package::finish(tree);
-    let mut prcb = (if magic { 3u32 } else { 2u32 }).to_le_bytes().to_vec();
+    let mut prcb = (2 + u32::from(magic) + u32::from(travel))
+        .to_le_bytes()
+        .to_vec();
     prcb.extend_from_slice(&0u32.to_le_bytes());
     let tree = tree.zsub(T(b"ANAM"), "Simultaneous").sub(T(b"PRCB"), prcb);
     let tree = package::with_procedure(tree, "Wait", &[5, 9], false);
@@ -42,6 +60,11 @@ fn game_with_magic(first_wait: f32, second_wait: f32, magic: bool) -> Game {
         package::with_input_name(tree, 0, "Target", true)
     } else {
         package::with_procedure(tree, "Wait", &[6, 10], false)
+    };
+    let tree = if travel {
+        package::with_procedure(tree, "Travel", &[11], travel_completes)
+    } else {
+        tree
     };
     plugin.push_top(tree);
     let enabled = Condition {
@@ -84,6 +107,16 @@ fn game_with_magic(first_wait: f32, second_wait: f32, magic: bool) -> Game {
             .sub(T(b"NAME"), BASE.to_le_bytes())
             .sub(T(b"DATA"), data),
     );
+    if travel {
+        let mut position = vec![0; 24];
+        position[..4].copy_from_slice(&100.0f32.to_le_bytes());
+        plugin.push_top(
+            Record::new(T(b"REFR"), MARKER)
+                .sub(T(b"NAME"), 0x808u32.to_le_bytes())
+                .sub(T(b"DATA"), position),
+        );
+        plugin.push_top(Record::new(T(b"STAT"), 0x808).zsub(T(b"EDID"), "TravelMarker"));
+    }
     plugin.push_top(
         Record::new(T(b"GLOB"), ENABLED)
             .sub(T(b"FNAM"), b"f")
@@ -226,4 +259,57 @@ fn ai_14_use_magic_child_runs_once_while_wait_child_uses_shared_clock() {
             .unwrap()
             .active
     );
+}
+
+#[test]
+fn ai_14_travel_child_completes_with_wait_after_one_shared_clock_advance() {
+    let mut game = game_with_async(1.0, 3.0, false, true, false);
+    game.tick(0.25);
+    let ai = game.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
+    assert_eq!(game.world().clock.real_seconds, 0.25);
+    assert_eq!(ai.procedure, soe_game::ai::Procedure::Travel);
+    assert_eq!(ai.wait_until, Some(3.25));
+    assert!(ai.tree.as_ref().unwrap().simultaneous.is_some());
+
+    let saved = game.save_state().unwrap();
+    let mut restored = game_with_async(1.0, 3.0, false, true, false);
+    restored.load_state(&saved).unwrap();
+    restored.tick(10.0);
+    let ai = restored.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
+    assert_eq!(restored.world().clock.real_seconds, 10.25);
+    assert!(ai.tree.as_ref().unwrap().finished);
+    assert_eq!(ai.completed.get(&id(PACK)), Some(&0));
+    assert!(restored.world().reference_ref(id(ACTOR)).unwrap().position[0] > 0.0);
+}
+
+#[test]
+fn ai_14_cancelling_travel_group_discards_route_and_wait_deadline() {
+    let mut game = game_with_async(1.0, 3.0, false, true, false);
+    game.tick(0.25);
+    game.world_mut().set_global(id(ENABLED), 0.0);
+    assert_eq!(
+        game.world_mut()
+            .evaluate_package(id(ACTOR), &mut |_, _| panic!("no script binding")),
+        None
+    );
+    let ai = game.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
+    assert!(ai.tree.is_none());
+    assert_eq!(ai.wait_until, None);
+    assert!(!game
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .completed
+        .contains_key(&id(PACK)));
+}
+
+#[test]
+fn ai_14_successful_travel_child_completes_group_before_longer_waits() {
+    let mut game = game_with_async(10.0, 20.0, false, true, true);
+    game.tick(1.0);
+    let ai = game.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
+    assert!(ai.tree.as_ref().unwrap().finished);
+    assert_eq!(ai.completed.get(&id(PACK)), Some(&0));
+    assert_eq!(game.world().clock.real_seconds, 1.0);
 }
