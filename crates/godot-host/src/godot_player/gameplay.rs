@@ -38,6 +38,164 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    /// Invoke a character-generation cache native for host integration checks.
+    pub(super) fn invoke_chargen_native_for_check(&mut self, name: &GString) -> bool {
+        let name = name.to_string();
+        if !matches!(name.as_str(), "PrecacheCharGen" | "PrecacheCharGenClear") {
+            return false;
+        }
+        let script_name = "SoeUi17ChargenHostCheck";
+        let bytes = ScriptBuilder::new(script_name, "Form")
+            .function(
+                FunctionBuilder::new("Run", "None")
+                    .global()
+                    .local("result", "None")
+                    .ins(CallStatic, vec![s("Game"), s(&name), ident("result")])
+                    .build(),
+            )
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.load_script(&bytes) {
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: failed to load UI-17 host check script: {error}");
+            return false;
+        }
+        let thread = match game.vm.call_global(script_name, "Run", &[]) {
+            Ok(thread) => thread,
+            Err(error) => {
+                soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: Game.{name} host check failed: {error}");
+                return false;
+            }
+        };
+        if !game.run_until_idle(64) || game.vm.thread_result(thread) != Some(Value::None) {
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: Game.{name} host check did not complete");
+            return false;
+        }
+        self.apply_host_requests();
+        self.dispatch_menu_requests();
+        true
+    }
+
+    fn ensure_title_sequence_player(&mut self) -> Gd<godot::classes::AnimationPlayer> {
+        if let Some(player) = &self.title_sequence_player {
+            return player.clone();
+        }
+        let mut player = godot::classes::AnimationPlayer::new_alloc();
+        player.set_name("TitleSequencePlayer");
+        self.base_mut().add_child(&player);
+        self.title_sequence_player = Some(player.clone());
+        player
+    }
+
+    fn play_title_sequence(&mut self, name: &str) -> bool {
+        let mut player = self.ensure_title_sequence_player();
+        if !player.has_animation(name) {
+            player.stop();
+            return false;
+        }
+        player.play_ex().name(name).done();
+        player.is_playing()
+    }
+
+    fn stop_title_sequence(&mut self) {
+        if let Some(player) = self.title_sequence_player.as_mut() {
+            player.stop();
+        }
+    }
+}
+
+#[godot_api(secondary)]
+impl PlayerNode {
+    /// Register a Godot animation under a title sequence name.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn register_title_sequence(
+        &mut self,
+        name: GString,
+        animation: Gd<godot::classes::Animation>,
+    ) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let mut player = self.ensure_title_sequence_player();
+        let mut library = if player.has_animation_library("") {
+            let Some(library) = player.get_animation_library("") else {
+                return false;
+            };
+            library
+        } else {
+            let library = godot::classes::AnimationLibrary::new_gd();
+            if player.add_animation_library("", &library) != godot::global::Error::OK {
+                return false;
+            }
+            library
+        };
+        let animation_name = StringName::from(&name);
+        library.add_animation(&animation_name, &animation) == godot::global::Error::OK
+    }
+
+    /// Report whether the main menu title sequence animation is playing.
+    #[func]
+    pub fn is_title_sequence_playing(&self) -> bool {
+        self.title_sequence_player
+            .as_ref()
+            .is_some_and(|player| player.is_playing())
+    }
+
+    /// Return the playhead position of the active title sequence animation.
+    #[func]
+    pub fn title_sequence_playback_position(&self) -> f64 {
+        self.title_sequence_player
+            .as_ref()
+            .map_or(0.0, |player| player.get_current_animation_position())
+    }
+}
+
+impl PlayerNode {
+    pub(super) fn capture_screenshot_path(&mut self, path: &str) -> bool {
+        let script_name = "SoeHostHst19ScreenshotProbe";
+        let run = FunctionBuilder::new("Run", "None")
+            .global()
+            .param("path", "String")
+            .ins(
+                CallStatic,
+                vec![
+                    s("Debug"),
+                    s("TakeScreenshot"),
+                    ident("::nonevar"),
+                    ident("path"),
+                ],
+            )
+            .build();
+        let bytes = ScriptBuilder::new(script_name, "None")
+            .function(run)
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.load_script(&bytes) {
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: failed to load screenshot probe: {error}");
+            return false;
+        }
+        let thread = match game
+            .vm
+            .call_global(script_name, "Run", &[Value::string(path)])
+        {
+            Ok(thread) => thread,
+            Err(error) => {
+                soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: failed to run screenshot probe: {error}");
+                return false;
+            }
+        };
+        game.run_until_idle(64);
+        if game.vm.thread_result(thread) != Some(Value::None) {
+            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: screenshot probe did not complete");
+            return false;
+        }
+        self.capture_screenshot_requests()
+    }
+
     /// Invoke an Actor menu native through Papyrus for installed host checks.
     pub(super) fn invoke_actor_menu_native_for_check(
         &mut self,
@@ -281,6 +439,7 @@ impl PlayerNode {
         self.clear_player_input();
         self.refresh_image_space();
         self.main_menu.leave();
+        self.stop_title_sequence();
         let installed = self.sync_game_pose();
         self.sync_reference_collision();
         installed
@@ -424,36 +583,7 @@ impl PlayerNode {
         if let Some(trainer) = training_request {
             self.open_training_menu(trainer);
         }
-        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
-            std::mem::take(&mut game.world_mut().menu_requests)
-        });
-        for request in requests {
-            match request {
-                soe_game::world::MenuRequest::PrecacheCharGen => {
-                    if let (Some(game), Some(streamer)) =
-                        (self.game.as_ref(), self.game_streamer.as_mut())
-                    {
-                        streamer.bind_mut().precache_chargen(game);
-                    }
-                }
-                soe_game::world::MenuRequest::PrecacheCharGenClear => {
-                    if let Some(streamer) = self.game_streamer.as_mut() {
-                        streamer.bind_mut().precache_chargen_clear();
-                    }
-                }
-                soe_game::world::MenuRequest::Race => {
-                    self.show_race_menu();
-                }
-                // CONTEXT: Valid trainers use the pending request consumed above.
-                soe_game::world::MenuRequest::Training(_) => {}
-                soe_game::world::MenuRequest::Barter(actor) => {
-                    self.open_barter_menu(actor);
-                }
-                soe_game::world::MenuRequest::ActorInventory(actor) => {
-                    self.open_container_menu(actor);
-                }
-            }
-        }
+        self.dispatch_menu_requests();
         if let Some(game) = &mut self.game {
             let requests = game.world_mut().take_game_ui_requests();
             for request in requests {
@@ -575,6 +705,9 @@ impl PlayerNode {
             .as_mut()
             .map(|game| game.world_mut().take_screenshot_requests())
             .unwrap_or_default();
+        if requests.is_empty() {
+            return false;
+        }
         let mut succeeded = true;
         for path in requests {
             let Some(viewport) = self.base().get_viewport() else {
@@ -600,6 +733,39 @@ impl PlayerNode {
         succeeded
     }
 
+    fn dispatch_menu_requests(&mut self) {
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().menu_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::MenuRequest::PrecacheCharGen => {
+                    if let (Some(game), Some(streamer)) =
+                        (self.game.as_ref(), self.game_streamer.as_mut())
+                    {
+                        streamer.bind_mut().precache_chargen(game);
+                    }
+                }
+                soe_game::world::MenuRequest::PrecacheCharGenClear => {
+                    if let Some(streamer) = self.game_streamer.as_mut() {
+                        streamer.bind_mut().precache_chargen_clear();
+                    }
+                }
+                soe_game::world::MenuRequest::Race => {
+                    self.show_race_menu();
+                }
+                // CONTEXT: Valid trainers use the pending request consumed above.
+                soe_game::world::MenuRequest::Training(_) => {}
+                soe_game::world::MenuRequest::Barter(actor) => {
+                    self.open_barter_menu(actor);
+                }
+                soe_game::world::MenuRequest::ActorInventory(actor) => {
+                    self.open_container_menu(actor);
+                }
+            }
+        }
+    }
+
     fn apply_host_requests(&mut self) {
         let requests = self
             .game
@@ -612,11 +778,15 @@ impl PlayerNode {
                 }
                 soe_game::world::HostRequest::StartTitleSequence(name) => {
                     self.enter_main_menu();
-                    self.main_menu.start_sequence(name.clone());
-                    self.base_mut().emit_signal(
-                        "title_sequence_started",
-                        &[godot::builtin::Variant::from(GString::from(name.as_str()))],
-                    );
+                    if self.play_title_sequence(&name) {
+                        self.main_menu.start_sequence(name.clone());
+                        self.base_mut().emit_signal(
+                            "title_sequence_started",
+                            &[godot::builtin::Variant::from(GString::from(name.as_str()))],
+                        );
+                    } else {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: title sequence animation is not registered: {name}");
+                    }
                 }
                 soe_game::HostRequest::CameraFirstPerson => {
                     crate::camera::apply_game_camera_request(&mut self.rig, true);
@@ -791,6 +961,7 @@ impl PlayerNode {
         self.actor_bodies.free();
         self.character = None;
         self.main_menu.enter();
+        self.stop_title_sequence();
         self.base_mut().emit_signal("returned_to_main_menu", &[]);
     }
     fn prefetch_nearby_interior(&mut self, delta: f64) {

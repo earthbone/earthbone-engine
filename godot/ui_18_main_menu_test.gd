@@ -29,6 +29,18 @@ func _run() -> void:
 	_check(player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) > 0,
 		"player collision did not load")
 	_check(player.call("start_gameplay"), "game runtime did not start")
+	var title_animation := Animation.new()
+	title_animation.set_length(2.0)
+	var animation_probe := Node3D.new()
+	animation_probe.name = "TitleSequenceProbe"
+	player.add_child(animation_probe)
+	var title_track := title_animation.add_track(Animation.TYPE_VALUE)
+	title_animation.track_set_path(title_track, NodePath("TitleSequenceProbe:position"))
+	title_animation.track_insert_key(title_track, 0.0, Vector3.ZERO)
+	title_animation.track_insert_key(title_track, 2.0, Vector3(0.0, 20.0, 0.0))
+	_check(player.call("register_title_sequence", "MQ101Intro", title_animation),
+		"host did not register the title animation")
+	player.get_node("TitleSequencePlayer").root_node = NodePath("..")
 
 	var returned: Array[bool] = []
 	var titles: Array[String] = []
@@ -39,9 +51,15 @@ func _run() -> void:
 	_check(player.call("is_main_menu"), "title sequence did not enter the main menu")
 	_check(player.call("active_title_sequence") == "MQ101Intro",
 		"host did not retain the requested title sequence")
+	_check(player.call("is_title_sequence_playing"), "AnimationPlayer did not start the title sequence")
 	_check(titles == ["MQ101Intro"], "host did not emit the named title sequence")
 	_check(returned.size() == 1, "title sequence did not return from gameplay")
 	_check(player.call("gameplay_cell").is_empty(), "title sequence retained the active cell")
+	for frame in 4:
+		await process_frame
+	_check(player.call("title_sequence_playback_position") > 0.0,
+		"title sequence playhead did not advance")
+	_check(animation_probe.position.y > 0.0, "title animation did not animate its host target")
 
 	_check(player.call("use_streamer_data", streamer), "player could not reattach game records")
 	_check(player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) > 0,
@@ -52,6 +70,7 @@ func _run() -> void:
 		"QuitToMainMenu was not invoked")
 	_check(player.call("is_main_menu"), "quit did not return to the main menu")
 	_check(player.call("active_title_sequence").is_empty(), "quit retained the prior title sequence")
+	_check(not player.call("is_title_sequence_playing"), "quit did not stop title sequence playback")
 	_check(player.call("gameplay_cell").is_empty(), "quit retained the active cell")
 	_check(returned.size() == 2, "quit did not emit the return signal")
 	_check(not player.call("is_menu_open"), "quit left a modal menu open")

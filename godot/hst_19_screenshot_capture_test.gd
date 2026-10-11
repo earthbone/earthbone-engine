@@ -1,8 +1,8 @@
 extends SceneTree
 
-## HST-19 headless check: call the Papyrus Debug.TakeScreenshot native through
+## HST-19 host check: call the Papyrus Debug.TakeScreenshot native through
 ## PlayerNode and confirm the host writes a PNG from the active viewport.
-## Run with SKYRIM_DATA set and the GDExtension built.
+## Run with SKYRIM_DATA set after building the release GDExtension.
 
 const CELL := "WhiterunBanneredMare"
 var failures := 0
@@ -17,10 +17,13 @@ func _check(ok: bool, message: String) -> void:
 
 func _run() -> void:
 	var data := OS.get_environment("SKYRIM_DATA")
-	if data.is_empty() or not ClassDB.class_exists("PlayerNode"):
-		print("SKYRIM_DATA not set or extension not loaded, skipping")
-		print("RESULT: PASS hst_19 screenshot capture (skipped)")
-		quit(0)
+	if data.is_empty():
+		printerr("SKYRIM_DATA is required for the installed host capture")
+		quit(1)
+		return
+	if not ClassDB.class_exists("PlayerNode"):
+		printerr("PlayerNode extension class is not available")
+		quit(1)
 		return
 
 	var streamer: Node3D = ClassDB.instantiate("CellStreamerNode")
@@ -31,7 +34,6 @@ func _run() -> void:
 
 	var player: Node3D = ClassDB.instantiate("PlayerNode")
 	player.set("capture_mouse", false)
-	player.set("auto_step", false)
 	get_root().add_child(player)
 	_check(player.call("use_streamer_data", streamer), "shared data failed")
 	_check(player.call("enter_cell", CELL, 0.0, 0.0, 500.0) > 0, "player collision failed")
@@ -39,8 +41,12 @@ func _run() -> void:
 
 	await process_frame
 	await process_frame
-	var path := OS.get_user_data_dir().path_join("hst_19_capture.png")
+	var path := "/tmp/hst_19_capture_%d.png" % OS.get_process_id()
 	_check(player.call("take_screenshot", path), "Papyrus screenshot request failed")
+	for _frame in range(120):
+		if FileAccess.file_exists(path):
+			break
+		await process_frame
 	_check(FileAccess.file_exists(path), "host did not create the requested path")
 	if FileAccess.file_exists(path):
 		var bytes := FileAccess.get_file_as_bytes(path)

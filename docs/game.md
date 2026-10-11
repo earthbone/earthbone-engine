@@ -1001,8 +1001,8 @@ transient profiler. Stop calls write Chrome trace JSON profile files, with
 per-function VM instruction time and call counts, under the configured profile
 directory. Script profiling uses the supplied script name, case-insensitively.
 Stack profiling uses the current Papyrus thread. A failed file write is added
-to the Papyrus log. `Debug.TakeScreenshot` remains a stub because the game
-native layer has no host frame-capture request path.
+to the Papyrus log. `Debug.TakeScreenshot` queues its path for the host to
+capture from the active viewport.
 
 **Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`. While
 enabled, incoming player health damage is ignored by melee, magic and
@@ -8830,9 +8830,9 @@ active viewport or a path that Godot cannot write is reported to the Godot
 log.
 
 `hst_19_screenshot_request.rs` calls the native through a Papyrus probe and
-checks that the path is queued once and consumed. The headless Godot check is
+checks that the path is queued once and consumed. The Godot check is
 `godot/hst_19_screenshot_capture_test.gd`. It requires installed data to start
-the host gameplay runtime and checks the resulting PNG file.
+the host gameplay runtime, then checks the resulting PNG in a windowed run.
 
 ## Equipment conditions, AI-49
 

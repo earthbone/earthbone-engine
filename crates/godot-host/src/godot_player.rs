@@ -25,9 +25,9 @@ use std::time::Duration;
 use godot::builtin::Rid;
 use godot::classes::control::{LayoutPreset, MouseFilter};
 use godot::classes::{
-    Camera3D, CanvasLayer, ColorRect, Engine, INode3D, Input, InputEventJoypadButton,
-    InputEventJoypadMotion, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap,
-    Node3D, RenderingServer, SphereMesh, StandardMaterial3D,
+    AnimationPlayer, Camera3D, CanvasLayer, ColorRect, Engine, INode3D, Input,
+    InputEventJoypadButton, InputEventJoypadMotion, InputEventKey, InputEventMouseButton,
+    InputEventMouseMotion, InputMap, Node3D, RenderingServer, SphereMesh, StandardMaterial3D,
 };
 use godot::global::{JoyAxis, JoyButton, Key, MouseButton};
 use godot::prelude::*;
@@ -194,6 +194,7 @@ pub struct PlayerNode {
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
+    title_sequence_player: Option<Gd<AnimationPlayer>>,
     loaded_cell: Option<GlobalFormId>,
     last_work_counts: soe_trace::WorkCounts,
     door_fade: DoorFade,
@@ -340,6 +341,7 @@ impl INode3D for PlayerNode {
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
+            title_sequence_player: None,
             loaded_cell: None,
             last_work_counts: soe_trace::WorkCounts::default(),
             door_fade: DoorFade::default(),
@@ -803,6 +805,13 @@ impl PlayerNode {
         self.invoke_main_menu_native_for_check(&name, &sequence)
     }
 
+    /// Invoke a character-generation cache native for host integration checks.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_chargen_native(&mut self, name: GString) -> bool {
+        self.invoke_chargen_native_for_check(&name)
+    }
+
     /// Start a Papyrus `WaitForAnimationEvent` call for a host integration check.
     #[allow(clippy::needless_pass_by_value)]
     #[func]
@@ -910,6 +919,27 @@ impl PlayerNode {
                 false
             }
         }
+    }
+
+    /// Bind a loaded head mesh to an actor's effective expression in the shared world.
+    #[func]
+    pub fn bind_actor_expression_head(
+        &mut self,
+        mut visual: Gd<crate::godot_actor::SkinnedActorNode>,
+        file: i32,
+        object: i64,
+    ) -> bool {
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let actor = soe_esm::GlobalFormId { file, object };
+        visual
+            .bind_mut()
+            .bind_facial_expression(game.shared_world(), actor);
+        true
     }
 
     /// Queue the same source-to-actor impulse used by ObjectReference.PushActorAway.
@@ -1521,6 +1551,40 @@ impl PlayerNode {
             .is_ok()
     }
 
+    /// Set the player's facial expression override for a host integration check.
+    #[func]
+    pub fn debug_set_player_expression_override(&mut self, mood: i32, strength: i32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        game.world_mut()
+            .set_expression_override(player, mood, strength)
+            .is_ok()
+    }
+
+    /// Clear the player's facial expression override for a host integration check.
+    #[func]
+    pub fn debug_clear_player_expression_override(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        game.world_mut().clear_expression_override(player).is_ok()
+    }
+
+    /// Set the player's record-backed mood value for a host integration check.
+    #[func]
+    pub fn debug_set_player_expression_mood(&mut self, mood: f32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        game.world_mut()
+            .set_actor_value(player, "mood", mood)
+            .is_ok()
+    }
+
     /// Read one reference's current simulated placement in Skyrim units.
     #[func]
     pub fn gameplay_reference_pose(&self, file: i32, object: i64) -> VarDictionary {
@@ -1655,19 +1719,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn take_screenshot(&mut self, path: GString) -> bool {
-        let Some(game) = self.game.as_mut() else {
-            return false;
-        };
-        if let Err(error) = game.vm.call_global(
-            "Debug",
-            "TakeScreenshot",
-            &[soe_papyrus::Value::string(&path.to_string())],
-        ) {
-            soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode: Debug.TakeScreenshot failed: {error}");
-            return false;
-        }
-        game.run_until_idle(64);
-        self.capture_screenshot_requests()
+        self.capture_screenshot_path(&path.to_string())
     }
 
     /// Current derived image-space stack for host diagnostics.

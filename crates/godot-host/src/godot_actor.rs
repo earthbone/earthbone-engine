@@ -79,6 +79,11 @@ struct AppearanceBinding {
     animation_cursor: AnimationEventCursor,
 }
 
+struct FacialBinding {
+    world: Rc<RefCell<soe_game::World>>,
+    actor: soe_esm::GlobalFormId,
+}
+
 /// A graph event derived from the bound actor's shared stagger deadline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StaggerGraphEvent {
@@ -161,6 +166,7 @@ pub struct SkinnedActorNode {
     vm: Option<Interpreter<'static>>,
     surfaces: Vec<ActorSurface>,
     appearance: Option<AppearanceBinding>,
+    facial_binding: Option<FacialBinding>,
     /// One instance and one skeleton per shape. They cannot share a skeleton:
     /// a shape's vertex bone indices address its **own** bone list, so two
     /// shapes naming different bones would read each other's transforms.
@@ -172,6 +178,7 @@ pub struct SkinnedActorNode {
     skins: Vec<Affine>,
     uploaded_skins: Vec<Transform3D>,
     stats: VarDictionary,
+    applied_expression_weights: std::collections::BTreeMap<String, f32>,
     elapsed: f64,
     invisible: bool,
     ragdoll_map: Option<RagdollBoneMap>,
@@ -188,6 +195,7 @@ impl INode3D for SkinnedActorNode {
             vm: None,
             surfaces: Vec::new(),
             appearance: None,
+            facial_binding: None,
             shapes: Vec::new(),
             meshes: Vec::new(),
             materials: Vec::new(),
@@ -195,6 +203,7 @@ impl INode3D for SkinnedActorNode {
             skins: Vec::new(),
             uploaded_skins: Vec::new(),
             stats: VarDictionary::new(),
+            applied_expression_weights: std::collections::BTreeMap::new(),
             elapsed: 0.0,
             invisible: false,
             ragdoll_map: None,
@@ -494,21 +503,31 @@ impl SkinnedActorNode {
             .as_ref()
             .map_or_else(|| self.actor_placement(), LiveRagdoll::actor_transform);
         let mut server = RenderingServer::singleton();
-        let facial_expression = self
-            .appearance
-            .as_ref()
-            .and_then(|binding| binding.world.borrow_mut().facial_expression(binding.actor));
-        let target = facial_expression.and_then(|(mood, _)| crate::facial::expression_name(mood));
+        let expression_weights =
+            self.facial_binding
+                .as_ref()
+                .map_or_else(Default::default, |binding| {
+                    let mut world = binding.world.borrow_mut();
+                    let target_names = self
+                        .surfaces
+                        .iter()
+                        .flat_map(|surface| &surface.expression_shapes)
+                        .map(|shape| shape.name.clone())
+                        .collect::<Vec<_>>();
+                    crate::facial::bound_actor_expression_weights(
+                        &mut world,
+                        binding.actor,
+                        &target_names,
+                    )
+                });
+        let mut applied_expression_weights = std::collections::BTreeMap::new();
         self.uploaded_skins.clear();
         for (surface, rids) in self.surfaces.iter().zip(&self.shapes) {
             server.instance_set_transform(rids.instance, placement);
             for (index, shape) in surface.expression_shapes.iter().enumerate() {
-                let weight = if Some(shape.name.as_str()) == target {
-                    f32::from(facial_expression.map_or(0, |(_, strength)| strength)) / 100.0
-                } else {
-                    0.0
-                };
+                let weight = expression_weights.get(&shape.name).copied().unwrap_or(0.0);
                 server.instance_set_blend_shape_weight(rids.instance, index as i32, weight);
+                applied_expression_weights.insert(shape.name.clone(), weight);
             }
             if let Err(e) =
                 skinning_transforms_into(&surface.map, &surface.skin, &self.model, &mut self.skins)
@@ -533,12 +552,23 @@ impl SkinnedActorNode {
                 self.uploaded_skins.push(pose);
             }
         }
+        self.applied_expression_weights = applied_expression_weights;
     }
 
     /// What the load found: shape, bone and clip counts. Empty before a load.
     #[func]
     pub fn stats(&self) -> VarDictionary {
         self.stats.clone()
+    }
+
+    /// Read the expression weights last submitted to this actor's head meshes.
+    #[func]
+    pub fn debug_expression_weights(&self) -> VarDictionary {
+        let mut weights = VarDictionary::new();
+        for (name, weight) in &self.applied_expression_weights {
+            weights.set(name.clone(), *weight);
+        }
+        weights
     }
 
     /// Show or hide this rig's RenderingServer instances with first-person geometry.
@@ -852,14 +882,23 @@ impl SkinnedActorNode {
             AnimationEventCursor::at_end(&world.animation_requests)
         };
         self.appearance = Some(AppearanceBinding {
-            world,
+            world: Rc::clone(&world),
             source,
             actor,
             cache,
             stagger: StaggerTracker::default(),
             animation_cursor,
         });
+        self.facial_binding = Some(FacialBinding { world, actor });
         Ok(())
+    }
+
+    pub(crate) fn bind_facial_expression(
+        &mut self,
+        world: Rc<RefCell<soe_game::World>>,
+        actor: soe_esm::GlobalFormId,
+    ) {
+        self.facial_binding = Some(FacialBinding { world, actor });
     }
 
     fn refresh_appearance(&mut self) {

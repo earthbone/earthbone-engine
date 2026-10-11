@@ -895,6 +895,14 @@ obstructions. Game Papyrus globals `GetCurrentCrosshairRef` and
 `GetPlayerGrabbedRef` return those current host values. HST-22 supplies the
 held-Activate path below. The grabbed reference is cleared when the cell is
 replaced. These values are transient and are not saved.
+The local CK `Game_Script` page documents both getters and their reference
+results.
+
+`hst_18_installed_host_crosshair_grab_and_papyrus_getters_track_each_frame`
+uses the installed Bannered Mare tankard to check the live ray, the held
+physics reference, release, and both Papyrus getters through `PlayerNode`.
+`debug_reference_native` invokes only these two Game getters and reports the
+resolved reference identity for host diagnostics.
 
 The host also sends the active first-person POV to Game each camera-control
 sync. CTDA function 391 reads this value, and function 463 compares its REFR
@@ -1011,11 +1019,15 @@ This does not upload preview meshes or apply morphs to a rendered actor.
 
 The SCR-30 cache tests check retained file and byte counts, clear every cache
 counter after a cache load, and load installed head-part models and
-morph files when `SKYRIM_DATA` is set. The training presentation test checks
-the offer values used for the trainer heading and purchase button, including
-an unavailable trainer. The camera visibility test checks the value passed to
-the rendered actor instances for first and third person. These Rust checks do
-not inspect pixels from a live player appearance.
+morph files when `SKYRIM_DATA` is set. The headless
+`godot/ui_17_chargen_cache_test.gd` check invokes both Game natives through the
+player request path and reads the attached streamer's file, model, morph,
+missing-path and byte counters before and after the requests. It opens the race
+menu after precaching and confirms the assets remain resident. The training
+presentation test checks the offer values used for the trainer heading and
+purchase button, including an unavailable trainer. The camera visibility test
+checks the value passed to the rendered actor instances for first and third
+person. These Rust checks do not inspect pixels from a live player appearance.
 
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
@@ -4856,11 +4868,17 @@ rejected. Paths use the data source VFS and its file overlay.
 
 `facial::expression_weights` maps CK expression ids 0 through 16 to the
 corresponding named head blend shape and returns weights for available
-expression names only. `apply_expression` sets the selected shape to the
-requested percentage and zeros competing expression shapes while preserving
-other morph values. The actor NIF pipeline does not currently load Skyrim
-`.tri` targets or upload Godot blend shape arrays, so this mapping is not yet
-connected to a rendered vanilla head.
+expression names only. `bound_actor_expression_weights` reads the effective
+expression from the bound actor in the shared world and resolves those weights
+for the head's available targets. `SkinnedActorNode` submits the selected
+weight and clears competing expression targets on each pose update, while
+preserving unrelated morphs. The actor NIF pipeline loads matching `.tri`
+expression deltas and uploads them as Godot blend shapes.
+`SkinnedActorNode.debug_expression_weights` reports the latest submitted
+target values. `PlayerNode` exposes debug setters used by the bound-head
+integration check to change and clear the player's override through the shared
+world. `bind_actor_expression_head` connects a loaded head mesh to the actor's
+effective expression without replacing the mesh.
 The installed body/hand/null refresh fixture measured a 8.2 us cached view against
 the declared 2 ms budget. This measures record resolution, not rendered frame time.
 
@@ -5435,11 +5453,13 @@ The Game globals `QuitToMainMenu` and `StartTitleSequence` queue transient
 host requests on the shared World. PlayerNode consumes them after a gameplay
 tick. Returning to the main menu closes any modal menu, drops the active Game,
 streaming source, cell and host physics resources, and emits
-`returned_to_main_menu`. `is_main_menu` reports this state. Starting a title
-sequence first enters the main menu, stores the requested name as the active
-sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
-returns that name or an empty string when none is active. A plain return clears
-any active sequence. Starting a new game leaves the main menu state.
+`returned_to_main_menu`. `is_main_menu` reports this state. A title sequence
+starts only when a Godot `Animation` has been registered under its name with
+`register_title_sequence`. PlayerNode plays the matching animation through its
+child `AnimationPlayer`, stores the active name and emits
+`title_sequence_started(name)`. `is_title_sequence_playing` and
+`title_sequence_playback_position` report playback state. A plain return and
+starting a new game stop playback and clear the active name.
 
 The Creation Kit `engine-refs/ck-wiki/Game_Script.wikitext` says
 `QuitToMainMenu` forces the game back to the main menu and
@@ -5450,12 +5470,11 @@ requests. `QuitToMainMenu` clears a current sequence, while
 
 `PlayerNode.debug_invoke_main_menu_native` invokes either of those two Game
 globals through the active VM and consumes the resulting host request. The
-host emits `title_sequence_started(name)` for the menu presenter and exposes
-the active name through `active_title_sequence`. The Godot check
-`godot/ui_18_main_menu_test.gd` starts a live runtime, verifies the title
-sequence signal and menu state, reattaches the data source, and verifies that
-quitting closes gameplay and clears the sequence. Run it with installed game
-data and the built extension:
+Godot check `godot/ui_18_main_menu_test.gd` registers a two second animation,
+starts it through the Papyrus native, verifies its playhead and animated
+PlayerNode property advance after gameplay is released, then checks that
+quitting clears the active sequence and stops playback. Run it with installed
+game data and the built extension:
 
 ```text
 SOE_GODOT_BIN --path godot --script ui_18_main_menu_test.gd --resolution 640x360
@@ -5515,8 +5534,10 @@ color and radius. The node loads a NIF by path and selects an emitter by name.
 The `PlayerNode` gameplay tick drains transient screenshot paths queued by
 `Debug.TakeScreenshot` and saves the active viewport image as PNG. The node's
 `take_screenshot(path)` entry point calls the same Papyrus native and services
-its request immediately. `godot/hst_19_screenshot_capture_test.gd`
-checks that this path writes a PNG under Godot headless with installed data.
+its request immediately. `godot/hst_19_screenshot_capture_test.gd` checks the
+resulting PNG in a 640 by 360 windowed Godot run with installed data. The
+`hst_19_windowed_godot_saves_the_papyrus_requested_frame` host test launches
+that check and requires it to report success.
 
 ## Per-cell occluders, RND-07
 
