@@ -825,7 +825,83 @@ impl PlayerNode {
             return false;
         }
         self.mcm_config = None;
+        if let Some(game) = self.game.as_mut() {
+            game.mcm_begin();
+        }
         self.mcm_content()
+    }
+
+    /// Load a standalone MCM plugin and its loose scripts for host checks.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_load_mcm_fixture(&mut self, directory: GString) -> bool {
+        let directory = std::path::PathBuf::from(directory.to_string());
+        let result = std::fs::read(directory.join("Ui05Config.esm"))
+            .ok()
+            .and_then(|bytes| soe_esm::Plugin::parse(&bytes).ok());
+        let Some(plugin) = result else {
+            return false;
+        };
+        let mut order = soe_esm::LoadOrder::new();
+        if order.add("Ui05Config.esm", plugin).is_err() {
+            return false;
+        }
+        let mut game = soe_game::Game::new(order);
+        if !game
+            .load_scripts_from_data(&directory)
+            .scripts_failed
+            .is_empty()
+        {
+            return false;
+        }
+        let report = game.start();
+        if !report.scripts_missing.is_empty() {
+            return false;
+        }
+        self.game = Some(game);
+        true
+    }
+
+    /// Inspect callbacks and registration from the standalone UI-05 script.
+    #[func]
+    pub fn debug_mcm_fixture_state(&mut self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let Some(game) = self.game.as_mut() else {
+            return result;
+        };
+        let object = game.object_of_form(GlobalFormId {
+            file: 0,
+            object: 0x800,
+        });
+        for name in [
+            "init_count",
+            "register_count",
+            "reset_count",
+            "open_count",
+            "close_count",
+            "sequence",
+            "last_page",
+        ] {
+            match game.vm.get_var(object, "Ui05ExecutableChild", name) {
+                Some(soe_papyrus::Value::Int(value)) => {
+                    result.set(name, value);
+                }
+                Some(soe_papyrus::Value::Str(value)) => {
+                    result.set(name, value.as_ref());
+                }
+                _ => {}
+            }
+        }
+        let errors: PackedStringArray = game
+            .vm
+            .log
+            .messages()
+            .into_iter()
+            .filter(|message| message.starts_with("error:"))
+            .map(GString::from)
+            .collect();
+        result.set("errors", &errors);
+        result
     }
 
     /// Open one registered script config and render its declared pages.
@@ -854,9 +930,11 @@ impl PlayerNode {
         let Ok(index) = usize::try_from(index) else {
             return false;
         };
-        self.game
+        let selected = self
+            .game
             .as_mut()
-            .is_some_and(|game| game.mcm_select_page(index))
+            .is_some_and(|game| game.mcm_select_page(index));
+        selected && self.mcm_content()
     }
 
     /// Open a conversation with a reference through the shared Game and show its choices.
