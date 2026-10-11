@@ -959,6 +959,14 @@ DMDL through `World::destruction_model`. Clearing destruction removes the
 replacement and reveals the base model. Releasing the owning cell or clearing
 the streamer frees its replacement mesh and instance RIDs.
 
+The `cmb-37-test` feature adds a regression driver that selects an installed
+modeled REFR, damages its DEST stages in a World, and runs the same
+RenderingServer overlay sync used for resident references.
+`cmb_37_windowed_reference_damage_replaces_its_model` checks that damage
+selects a stage and that the host creates replacement instances for its DMDL.
+The format fields follow local xEdit `wbDefinitionsTES5.pas`. CK's
+`DamageObject` page states that it applies damage and may fire stage events.
+
 ### Character race and sex selection, UI-07
 
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex
@@ -1637,6 +1645,15 @@ per update. It reports the successfully entered cell count to the shared `Game` 
 Papyrus budget usage. Papyrus reads the latest count through
 `Utility.GetCurrentBudget` and compares it with the configured cap through
 `OverBudget`. The counter resets to zero at the start of each host update.
+
+The direct gameplay adapter publishes exterior cell arrivals and departures
+to `Game::update_streaming_cells` after `CellStreamerNode` applies the resource
+delta. Initial neighboring cells use `Game::attach_streaming_cells`, and the
+old exterior ring uses `Game::detach_streaming_cells` when its host resources
+leave. The game derives reference 3D residency from those cell IDs, so a cell
+prefetch alone does not report loaded 3D. `ObjectReference.Is3DLoaded` then
+reports the residency state, including references culled by room bounds, until
+their cell leaves the streamer.
 
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under
@@ -2699,8 +2716,11 @@ animation graphs are not instantiated by this bridge.
 
 `PlayerNode.gameplay_animation_events` returns the source file and object IDs
 and event name for each graph event delivered to the active Game. The ANM-58
-Godot integration test emits the rig signal after binding and checks that the
-event reaches this world log.
+Godot integration test starts a Papyrus `WaitForAnimationEvent` through the
+host diagnostic methods, emits the bound rig's signal, and checks that the wait
+returns true. It starts a second wait and checks that the graph unload signal
+returns false. The diagnostic methods expose the VM thread result to that
+integration check.
 
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local
@@ -4344,12 +4364,19 @@ option types, disabled and hidden flags, page-strided option IDs, 128 positions
 per page and selection event shape. Godot Controls replace its Scaleform
 presentation under the project intent. The UI-11 VM fixture adds text and
 toggle rows, changes toggle enabled state and checks that one enabled selection
-delivers one `OnOptionSelect` callback. A separate source fixture reads the
+delivers one `OnOptionSelect` callback. The
+`ui_11_runs_unmodified_skyui_manager_and_base_pex_fixture` test loads both
+unmodified scripts from `SOE_SKYUI_CONFIG_BASE_PEX` and
+`SOE_SKYUI_CONFIG_MANAGER_PEX`. It runs the base script's page callback and
+option constructors, updates its option flags, rejects a disabled toggle, then
+sends the manager's option event and checks that the base script reaches the
+config callback once with its page-strided option ID. The execution check skips
+when either compiled PEX is unavailable. A separate source fixture reads the
 unmodified `SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` files, checking the
 text and toggle constructors, flag packing, page-strided selection callback
 and manager forwarding. Set `SOE_SKYUI_CONFIG_BASE` and
-`SOE_SKYUI_CONFIG_MANAGER` to use different source paths. The full upstream
-scripts are not compiled or executed by the Papyrus VM fixture. The host menu
+`SOE_SKYUI_CONFIG_MANAGER` to use different source paths. Script execution
+remains unverified when the compiled PEX files are absent. The host menu
 manager and Scaleform APIs remain outside this path.
 
 ### MCM slider and menu dialogs, UI-12
