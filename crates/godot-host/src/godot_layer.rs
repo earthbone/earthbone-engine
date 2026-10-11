@@ -1402,9 +1402,7 @@ impl CellStreamerNode {
             };
             let iso = Iso::placement(placement.position, placement.rotation, placement.scale);
             let model = world.destruction_model(reference);
-            let visible = placement.visible
-                && model.is_none()
-                && !crate::godot_physics::is_opened_door(world, reference);
+            let visible = placement.visible && model.is_none();
             let key = (visible, iso, model);
             if self.ref_cache.get(&reference) != Some(&key) {
                 changed.insert(reference);
@@ -1564,6 +1562,12 @@ impl CellStreamerNode {
                 }
             }
         }
+        for (&reference, door) in &self.doors {
+            self.resident_references.insert(reference, door.cell);
+            if !self.reference_changes.is_watched(reference) {
+                self.reference_changes.watch(world, reference);
+            }
+        }
         for &reference in self.deferred_references.keys() {
             if !self.reference_changes.is_watched(reference) {
                 self.reference_changes.watch(world, reference);
@@ -1576,8 +1580,9 @@ impl CellStreamerNode {
                 self.reference_changes.unwatch(*reference);
             }
         }
-        self.ref_cache
-            .retain(|reference, _| self.reference_index.contains_key(reference));
+        self.ref_cache.retain(|reference, _| {
+            self.reference_index.contains_key(reference) || self.doors.contains_key(reference)
+        });
     }
 
     /// Capture plain cell IDs for worker initialization, in stable FormID order.
@@ -3837,6 +3842,7 @@ impl CellStreamerNode {
                 rid,
                 mesh,
                 original,
+                submitted: Transform3D::IDENTITY,
                 triangles: surface.arrays.triangle_count(),
             });
             self.bounds = Some(self.bounds.map_or(surface.arrays.bounds, |bounds| {
@@ -3845,6 +3851,7 @@ impl CellStreamerNode {
         }
         door.apply();
         self.doors.insert(id, door);
+        self.reference_index_dirty = true;
     }
 
     fn free_doors(&mut self, departed: &[GlobalFormId]) {
@@ -3854,6 +3861,7 @@ impl CellStreamerNode {
             .filter(|(_, door)| departed.is_empty() || departed.contains(&door.cell))
             .map(|(id, _)| *id)
             .collect();
+        self.reference_index_dirty |= !stale.is_empty();
         for id in stale {
             if let Some(door) = self.doors.remove(&id) {
                 door.free();

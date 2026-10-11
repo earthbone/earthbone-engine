@@ -3855,6 +3855,39 @@ door. These measure held-pose presentation calls with GDScript dispatch,
 not the full host frame or moving-mesh server submission cost. Door surfaces
 remain server resources. The path adds no dependencies or saved fields.
 
+### Door presentation checks, HST-27
+
+Resident doors retain their geometry while opening, open and closing.
+Resident-door poses survive ordinary batch-index rebuilds. The presentation
+cache follows effective enable state, rather than treating an opened door
+as a hidden reference. Door watches leave with their resident cell. Collision
+still follows open state through the existing World query. Door surfaces retain the exact transform
+submitted to RenderingServer. `door_state.world_vertices` transforms the
+uploaded mesh vertices with that submission for placement checks.
+
+The swing applies a local quarter-turn about the reference placement origin,
+then cancels the placement already baked into world-space arrays. Local arrays use an identity
+cancellation. This keeps placement from being applied twice and preserves the
+existing HST-21 quarter-turn fallback. The whole resident model rotates about
+the reference origin, without evaluating authored per-leaf Open/Close tracks.
+Its source remains local OpenMW
+`apps/openmw/mwworld/worldimp.cpp`, `World::rotateDoor`. CK
+`SetOpen_-_ObjectReference.wikitext` supplies the open-state contract.
+The host does not use godotwind's portal-specific mesh hiding.
+
+The `hst_27_` transform tests cover translated, rotated and scaled placements
+through both swing directions and local geometry. The installed-data scene
+activates a Bannered Mare swing door and both directions of the Bannered Mare
+and Breezehome load doors. It captures closed, opening, open, closing and
+returned leaves, isolates each leaf on a render layer, compares it with its
+RIDs temporarily hidden, and checks uploaded vertices against a radius
+computed independently from the original record and mesh, with a 0.01-metre
+tolerance. The visible-pixel threshold is 100, fixed before the run. The scene
+advances the load-door fade before capturing its destination.
+Captures and process logs are under `target/hst_27`. The test quits its Godot
+process and requires a successful exit. No saved state, dependency or
+per-reference node path is added.
+
 ### Cold door fade fallback (2026-09-20)
 
 Door texture preparation now has a 50 ms budget fixed before measurement.
