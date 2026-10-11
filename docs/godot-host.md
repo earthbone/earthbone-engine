@@ -1641,14 +1641,16 @@ The `addons/soe_reference_gizmo` editor dock opens plugin paths through
 callback calls `commit_gizmo_transform`, which forwards position and rotation to
 `SoeReferenceTransformEditor::set_reference_transform` and then to
 `EditorDocument::set_reference_transform`. The record remains the source used for plugin
-output. Undo calls the document edit log and reloads the proxy pose from the winning record.
+output. The handle projects screen rays onto a camera-facing plane using world coordinates,
+updates and redraws the proxy while dragging, and passes the editor restore value through
+cancel. Undo calls the document edit log and reloads the proxy pose from the winning record.
 The Save plugin button writes the active plugin. This creates one proxy node for the selected
 reference only. Ordinary cell rendering remains RID-backed.
 
 Godot's local `tutorials/plugins/editor/3d_gizmos.rst` and
 `classes/class_editornode3dgizmoplugin.rst` specify the handle callbacks and restore value
 used by this adapter. `godot/edt_14_gizmo_test.gd` exercises the gizmo callback adapter and
-proxy update in Godot. The editor crate tests verify the record operation, undo, and saved
+proxy update in Godot. The editor host test verifies drag movement, record edit, undo and saved
 `REFR` placement. Reference selection from the cell tree and automatic replacement of the
 streamed cell preview after a placement edit are not implemented by this milestone.
 

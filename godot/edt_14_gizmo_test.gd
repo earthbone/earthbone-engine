@@ -1,7 +1,7 @@
 extends SceneTree
 
 const TargetScript = preload("res://addons/soe_reference_gizmo/reference_target.gd")
-const GizmoScript = preload("res://addons/soe_reference_gizmo/gizmo_plugin.gd")
+const ReferenceHandle = preload("res://addons/soe_reference_gizmo/reference_handle.gd")
 
 
 class FakeDocument extends RefCounted:
@@ -20,21 +20,22 @@ class FakeDocument extends RefCounted:
 
 
 func _initialize() -> void:
+	await process_frame
 	var document := FakeDocument.new()
 	var target := TargetScript.new()
 	target.form_id = "1:000800"
 	target.editor_document = document
+	root.add_child(target)
 	assert(target.load_record_transform())
-	var restore := {"position": target.position, "rotation": target.rotation}
+	var restore := {"position": target.record_position, "rotation": target.record_rotation}
 	var moved_position := Vector3(40.0, -5.0, 12.0)
 	var moved_rotation := Vector3(0.4, 0.5, 0.6)
-	var gizmo = GizmoScript.new()
-	assert(gizmo.commit_target_transform(target, moved_position, moved_rotation, restore, false))
+	assert(ReferenceHandle.commit_target_transform(target, moved_position, moved_rotation, restore, false))
 	assert(document.edits == 1)
 	assert(document.current_position == moved_position)
-	assert(target.position == moved_position)
-	assert(gizmo.commit_target_transform(target, moved_position, moved_rotation, restore, true))
-	assert(target.position == restore.position)
-	assert(target.rotation == restore.rotation)
+	assert(target.global_position == moved_position)
+	assert(ReferenceHandle.commit_target_transform(target, moved_position, moved_rotation, restore, true))
+	assert(target.global_position == restore.position)
+	assert(target.record_rotation == restore.rotation)
 	print("edt_14_gizmo_test: PASS")
 	quit(0)

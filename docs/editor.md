@@ -366,16 +366,19 @@ does not create overrides for references owned by another plugin. The Godot cell
 not enumerate references from its streamed cell preview. The separate selected-reference dock
 opens an `EditorDocument`, adds one proxy Node3D for the supplied FormID, and registers an
 `EditorNode3DGizmoPlugin` for that proxy. A gizmo handle commit calls the proxy adapter, which
-passes the position and rotation into this operation. The dock's undo action restores the
-document and reloads the proxy transform from the winning record. Saving writes the changed
-active plugin. Bulk cell rendering continues to use RenderingServer instances. Only the
+projects the handle ray onto a camera-facing plane in world space, updates the proxy while the
+handle moves, and passes the committed position and rotation into this operation. Cancel and
+undo restore the proxy and redraw its gizmo. Saving writes the changed active plugin. The
+selected-reference proxy is separate from the streamed cell preview, so edits do not refresh
+that preview yet. Bulk cell rendering continues to use RenderingServer instances. Only the
 currently edited reference has a scene proxy.
 
 The 24-byte position and rotation layout follows `REFR`'s `wbVec3PosRot(DATA)` in local
 `TES5Edit/Core/wbDefinitionsTES5.pas`. Godot's `tutorials/plugins/editor/3d_gizmos.rst` and
 `classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values. The
-integration check invokes the same callback adapter used by `_commit_handle` and checks the
-record edit, undo and serialized placement through the editor document tests.
+Godot integration check exercises the handle's screen-ray movement adapter, commit adapter,
+record edit, undo and serialized placement. It does not synthesize mouse input in the Godot
+editor or verify refresh of the cell editor's streamed preview.
 
 `EditorDocument::stat_model_field` reads `STAT.MODL` through the typed
 `soe-esm::records::stat::Static` view and returns the value with the file name of the winning

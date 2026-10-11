@@ -2,6 +2,7 @@
 extends EditorNode3DGizmoPlugin
 
 const ReferenceTarget = preload("res://addons/soe_reference_gizmo/reference_target.gd")
+const ReferenceHandle = preload("res://addons/soe_reference_gizmo/reference_handle.gd")
 
 
 func _init() -> void:
@@ -30,23 +31,14 @@ func _get_handle_name(_gizmo: EditorNode3DGizmo, _handle_id: int, _secondary: bo
 
 func _get_handle_value(gizmo: EditorNode3DGizmo, _handle_id: int, _secondary: bool) -> Variant:
 	var target := gizmo.get_node_3d() as ReferenceTarget
-	return {"position": target.position, "rotation": target.rotation}
+	return {"position": target.record_position, "rotation": target.record_rotation}
 
 
 func _set_handle(gizmo: EditorNode3DGizmo, _handle_id: int, _secondary: bool, camera: Camera3D, screen_pos: Vector2) -> void:
 	var target := gizmo.get_node_3d() as ReferenceTarget
-	var origin := camera.project_ray_origin(screen_pos)
-	var direction := camera.project_ray_normal(screen_pos)
-	var plane := Plane(-camera.global_basis.z, target.global_position)
-	var hit: Variant = plane.intersects_ray(origin, direction)
-	if hit is Vector3:
-		target.global_position = hit
+	ReferenceHandle.drag_target_to_screen(target, camera, screen_pos)
 
 
 func _commit_handle(gizmo: EditorNode3DGizmo, _handle_id: int, _secondary: bool, restore: Variant, cancel: bool) -> void:
 	var target := gizmo.get_node_3d() as ReferenceTarget
-	commit_target_transform(target, target.position, target.rotation, restore, cancel)
-
-
-func commit_target_transform(target: Node3D, next_position: Vector3, next_rotation: Vector3, restore: Variant, cancel: bool) -> bool:
-	return (target as ReferenceTarget).commit_gizmo_transform(next_position, next_rotation, restore, cancel)
+	ReferenceHandle.commit_target_transform(target, target.global_position, target.record_rotation, restore, cancel)
