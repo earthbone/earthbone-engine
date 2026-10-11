@@ -33,8 +33,14 @@ fn sav_70_form_flag_alone_is_not_a_typed_pcon_or_parw_payload() {
     assert!(!header.carries_reference_data);
     assert_eq!(header.bytes_consumed, placement_len);
     assert_eq!(header.data_bytes().unwrap(), pcon.data[..placement_len]);
-    assert_eq!(&pcon.data[header.bytes_consumed..], &[0xA1, 0xB2, 0xC3, 0xD4]);
-    assert_eq!(header.bytes_consumed + header.remaining_bytes, pcon.data.len());
+    assert_eq!(
+        &pcon.data[header.bytes_consumed..],
+        &[0xA1, 0xB2, 0xC3, 0xD4]
+    );
+    assert_eq!(
+        header.bytes_consumed + header.remaining_bytes,
+        pcon.data.len()
+    );
 
     let parw_data = [0xA1, 0xB2, 0xC3, 0xD4];
     let parw = ChangeForm {

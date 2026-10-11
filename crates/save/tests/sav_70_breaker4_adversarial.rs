@@ -33,11 +33,7 @@ fn sav_70_pcon_havok_precedes_opaque_reference_flag_suffix() {
     data.extend([0x00, 0xA1, 0xB2, 0xC3]);
     let form = ChangeForm {
         form: reference(0x400A00),
-        change_flags: flags::MOVE
-            | flags::HAVOK
-            | flags::FORM
-            | flags::BASE
-            | flags::SCALE,
+        change_flags: flags::MOVE | flags::HAVOK | flags::FORM | flags::BASE | flags::SCALE,
         type_field: 42,
         version: 0,
         uncompressed_len: 0,
@@ -53,7 +49,10 @@ fn sav_70_pcon_havok_precedes_opaque_reference_flag_suffix() {
         form.data[..header.bytes_consumed]
     );
     assert_eq!(&form.data[header.bytes_consumed..], &[0xA1, 0xB2, 0xC3]);
-    assert_eq!(header.bytes_consumed + header.remaining_bytes, form.data.len());
+    assert_eq!(
+        header.bytes_consumed + header.remaining_bytes,
+        form.data.len()
+    );
 }
 
 #[test]
@@ -103,7 +102,10 @@ fn sav_70_external_reference_prefixes_and_player_positions_round_trip() {
                 header.data_bytes().unwrap(),
                 payload[..header.bytes_consumed]
             );
-            assert_eq!(header.bytes_consumed + header.remaining_bytes, payload.len());
+            assert_eq!(
+                header.bytes_consumed + header.remaining_bytes,
+                payload.len()
+            );
             if save.resolve(form.form) == Some(0x14) {
                 let placement = header.initial.placement().unwrap();
                 assert_eq!(
