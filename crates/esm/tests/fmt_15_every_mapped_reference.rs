@@ -26,6 +26,8 @@ const SCALAR_LINKS: &[(&[u8; 4], &[u8; 4])] = &[
     (b"WRLD", b"ZNAM"),
     (b"LCTN", b"PNAM"),
     (b"LCTN", b"MNAM"),
+    (b"NPC_", b"PNAM"),
+    (b"EQUP", b"PNAM"),
     (b"REFR", b"NAME"),
     (b"REFR", b"XOWN"),
     (b"REFR", b"XLCN"),

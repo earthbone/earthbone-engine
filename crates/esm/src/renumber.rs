@@ -358,6 +358,8 @@ fn form_id_field(record: Tag, field: Tag) -> bool {
         (b"WRLD", b"ZNAM"),
         (b"LCTN", b"PNAM"),
         (b"LCTN", b"MNAM"),
+        (b"NPC_", b"PNAM"),
+        (b"EQUP", b"PNAM"),
         (b"REFR", b"NAME"),
         (b"REFR", b"XOWN"),
         (b"REFR", b"XLCN"),
@@ -420,7 +422,7 @@ fn form_id_field(record: Tag, field: Tag) -> bool {
 
 fn remap_vmad(data: &mut [u8], mapping: &HashMap<u32, u32>, quest_fragments: bool) -> Result<()> {
     let mut cursor = VmadCursor { data, pos: 0 };
-    cursor.skip(2)?; // VMAD version
+    let version = cursor.u16()?;
     let object_format = cursor.u16()?;
     if object_format != 1 && object_format != 2 {
         return Err(Error::Invalid(format!(
@@ -428,7 +430,7 @@ fn remap_vmad(data: &mut [u8], mapping: &HashMap<u32, u32>, quest_fragments: boo
         )));
     }
     let mut offsets = Vec::new();
-    remap_scripts(&mut cursor, object_format, &mut offsets)?;
+    remap_scripts(&mut cursor, version, object_format, &mut offsets)?;
     if quest_fragments && cursor.pos < cursor.data.len() {
         remap_quest_fragments(&mut cursor, object_format, &mut offsets)?;
         if cursor.pos != cursor.data.len() {
@@ -447,18 +449,23 @@ fn remap_vmad(data: &mut [u8], mapping: &HashMap<u32, u32>, quest_fragments: boo
 
 fn remap_scripts(
     cursor: &mut VmadCursor<'_>,
+    version: u16,
     object_format: u16,
     offsets: &mut Vec<usize>,
 ) -> Result<()> {
     let scripts = cursor.u16()?;
     for _ in 0..scripts {
         cursor.string()?;
-        cursor.skip(1)?; // script flags
+        if version >= 4 {
+            cursor.skip(1)?; // script status
+        }
         let properties = cursor.u16()?;
         for _ in 0..properties {
             cursor.string()?;
             let kind = cursor.u8()?;
-            cursor.skip(1)?; // property flags
+            if version >= 4 {
+                cursor.skip(1)?; // property status
+            }
             match kind {
                 0 => {}
                 1 => object(cursor, object_format, offsets)?,
@@ -516,14 +523,14 @@ fn remap_quest_fragments(
     let aliases = cursor.u16()?;
     for _ in 0..aliases {
         object(cursor, object_format, offsets)?;
-        cursor.skip(2)?; // alias VMAD version
+        let alias_version = cursor.u16()?;
         let alias_object_format = cursor.u16()?;
         if alias_object_format != 1 && alias_object_format != 2 {
             return Err(Error::Invalid(format!(
                 "unsupported VMAD alias object format {alias_object_format}"
             )));
         }
-        remap_scripts(cursor, alias_object_format, offsets)?;
+        remap_scripts(cursor, alias_version, alias_object_format, offsets)?;
     }
     Ok(())
 }
