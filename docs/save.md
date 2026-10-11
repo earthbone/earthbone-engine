@@ -564,7 +564,7 @@ reserves IDs from the saved counter, all change forms and the FormID array.
 The pass refuses an already populated reference or actor table. It queues no
 events and makes no actor-template selections. Restored references have no
 inventory until a later inventory pass applies base contents and saved deltas.
-Actor values, saved enable/delete masks, ownership and other extra data, Havok,
+Actor values, saved delete flags, ownership and other extra data, Havok,
 animation and script bindings are also still unapplied. Created NPC base forms
 need their own restoration pass. The report retains counts and flags for these
 requirements, while the original Save retains the payload bytes. An engine
@@ -816,14 +816,6 @@ extras and inventory. The strict 60-save contents survey now passes with zero
 decoder errors. See [the Stacked follow-up](save-package-data.md#stacked-boundary-correction-2026-10-02)
 for the observed layout and source limits.
 
-## Reference mask semantics, SAV-15
-
-The runtime retains both `CHANGE_FORM_FLAGS` words in the restore report. For
-the observed Skyrim SE tuple of ESS header version 12, form version 78 and
-change-form version 78, the placement pass leaves disabled and persistent
-properties derived from the winning record. Other tuples with a mask fail
-before reference state is inserted.
-
 ## CELL, LCTN and ECZN application, SAV-28
 
 `World::restore_vanilla_spatial_records` applies CELL common flags, cell
@@ -836,38 +828,45 @@ Overrides use the existing SOEW record table and survive engine save/load.
 This does not assign runtime meanings to the LCTN keyword/cleared data or the
 ECZN zone/game data.
 
-`sav_54_reference_mask_words_leave_enable_and_persistence_authored` checks
-that neither word changes the loader's enable or persistence values for the
-accepted tuple, including after engine save/load. This establishes the current
-implementation contract only. It is not independent evidence of Skyrim's
-operation, and the accepted tuple is the only mask-bearing version tuple in
-the surveyed corpus.
+## Reference mask implementation and evidence, SAV-54
 
-Local xEdit `Core/wbDefinitionsTES5Saves.pas`, at
-`wbUnionCHANGE_FORM_FLAGS`, names a 32-bit Mask Invert Flags followed by a
-16-bit Mask Set unk010. The first word is retained without applying it because
-the available sources do not establish how either word changes runtime flags.
-The second word is also preserved. FallrimTools
-`src/main/java/resaver/ess/ChangeFormFlags.java` reads and writes the words
-as FLAGS and UNKNOWN without applying them. UESP's local
-`REFR_Changeform.wikitext` links a ChangeFlags page absent from the corpus.
-The online page and MediaWiki API could not be retrieved during this audit.
+`World::restore_vanilla_reference_placements` retains both
+`CHANGE_FORM_FLAGS` words in its report. The current engine XORs the first
+word with winning-record flags when deriving enable and persistence state.
+Deleted winning records stay disabled. The second word has no effect on
+these two properties and is retained without an assigned runtime meaning.
+The resulting properties use the existing reference-state save layout.
+No new saved field or section is added by this follow-up.
 
-The supported tuple is bounded by the local 60-save corpus, which contains
-the observed masks only with those three version values. xEdit supplies the
-operation label, not an independent version table. Synthetic tests exercise
-all authored combinations of the two relevant flags for REFR and ACHR and
-check that the second word does not change the result. A gated comparison
-uses a reference's authored flags from installed Skyrim.esm as its controlled
-input. This validates the engine's application against real vanilla record
-bits, but does not claim a game-generated before-and-after save comparison.
+The importer accepts a mask when the ESS header version is at least 12,
+the file form version is at least 77 and the change-form version matches it.
+There is no upper version bound. The form-version field is an unsigned byte,
+so the accepted file/change-form versions run from 77 to 255. This is the
+engine's acceptance rule, not an independently established Skyrim operation
+table. The parser's minima in `crates/save/src/header.rs` and
+`crates/save/src/lib.rs` explain the rule, but do not prove mask semantics.
 
-The existing `all_external_reference_headers_reencode_and_compare_player_locations`
-test now reports mask counts after re-encoding the complete typed prefix.
-All seven reference-header tests pass with the 60-save corpus supplied.
-All 1,154,526 prefixes reproduce their bytes exactly. Of 328,337 masks,
-276,805 belong to REFR and 51,532 to ACHR. Every observed mask has save-header
-version 12, form version 78 and change-form version 78.
+The local source review gives the following evidence:
+
+| Source | What it establishes | What it does not establish |
+|---|---|---|
+| xEdit `Core/wbDefinitionsTES5Saves.pas`, `wbUnionCHANGE_FORM_FLAGS` | Bit zero selects a 32-bit Mask Invert Flags followed by a 16-bit Mask Set unk010 | Runtime application of both words or a version table |
+| FallrimTools `src/main/java/resaver/ess/ChangeFormFlags.java` | `FLAGS` and `UNKNOWN` are read and written verbatim | Either word's operation on live flags |
+| CommonLibSSE-NG `src/RE/T/TESObjectREFR.cpp`, `IsDisabled` and `IsPersistent` | Live queries test the initially-disabled and persistent form bits | How an ESS mask produces those flags |
+| CommonLibSSE-NG `include/RE/T/TESObjectREFR.h`, `LoadGame` | A declaration of the original runtime's loader entry point | A public loader body applying the words |
+| UESP `REFR_Changeform.wikitext` and `ACHR_Changeform.wikitext` | The shared form-flags field is selected by the change flag | Its linked ChangeFlags page is absent from the local corpus |
+
+A bounded search of the local OpenSkyrim, skymp and TiltedEvolution sources
+found no loader body connecting these two saved words to runtime flags.
+The UESP ChangeFlags web page returned HTTP 403 during this follow-up.
+These searches add no independent operation evidence. The Pascal and Java
+readers are not Rust libraries, so the existing Rust decoder remains in use.
+No reference code is copied and no dependency is added.
+
+The earlier external survey re-encoded all 1,154,526 typed reference prefixes
+exactly. It found 328,337 masks, including 276,805 REFR and 51,532 ACHR masks.
+All observed tuples were ESS header version 12, file form version 78 and
+change-form version 78. These are prior measurements, not a rerun here.
 
 | Observed bits in the first word | Entries |
 |---|---|
@@ -876,40 +875,70 @@ version 12, form version 78 and change-form version 78.
 | Bit 11 alone | 147,495 |
 | Both | 49,135 |
 
-There are 826,189 references without a form-mask field. The second word is
-nonzero in 68,235 masks, with observed values 0x0001, 0x0004, 0x0008,
-0x0010, 0x0040, 0x0048 and 0x0050. These observations establish layout
-coverage. The first word is applied only to the two runtime properties
-described above. The second word remains opaque.
+There were 826,189 references without a form-mask field. The second word was
+nonzero in 68,235 masks, with values 0x0001, 0x0004, 0x0008, 0x0010,
+0x0040, 0x0048 and 0x0050. Counts and exact re-encoding establish layout
+coverage. They do not observe the loaded game's enable or persistence state.
 
-The runtime consumer audit found that `World::load_ref_record` derives enable
-and persistence state from the winning plugin, while `World::unload_cell` and
-`World::is_persistent_child` consume those values. Restored mask results flow
-through those existing properties and are retained by engine save/load.
+`sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
+checks the current engine behavior for ESS header versions 12 and 13 with
+form versions 77 and 78, all authored enable/persistence combinations, varied
+values in both words, persistence queries and SOEW save/load.
+`sav_54_every_accepted_form_version_retains_both_mask_words` passes synthetic
+fixtures through `Save::write`, `Save::parse` and reference restoration for
+every form version from 77 to 255 with header versions 12, 13 and the largest
+32-bit value. It checks preservation of both words, not Skyrim operation.
+`sav_54_engine_isolates_each_mask_word_at_every_accepted_form_version` checks
+the engine's enable and persistence states through the same public ESS parser
+at those versions. Each relevant first-word bit is varied separately with
+the second word zero. Second-word values overlapping either runtime bit and
+the all-bits value are varied with the first word zero. All four authored
+states are checked. These remain synthetic expectations about this engine.
+`sav_54_late_unsupported_mask_version_leaves_the_world_unchanged` puts an
+unsupported header, file or change version on a late mask and checks that
+restoration fails without changing the world, including earlier references.
 
-SAV-54 checked xEdit `Core/wbDefinitionsTES5Saves.pas`, FallrimTools
-`ChangeFormFlags.java` and CommonLibSSE-NG `TESObjectREFR.cpp`. xEdit defines
-the first word as `Mask Invert Flags` and the second as `Mask Set unk010`, with
-the same six-byte payload selected by `ChangedFlag00Decider`. FallrimTools
-reads and writes both words without applying them. CommonLib checks the
-authored runtime bits used for disabled and persistent state, but its public
-code does not connect those checks to saved words.
+The installed-record test
+`sav_54_installed_reference_mask_words_apply_before_and_after_across_versions`
+uses authored flags from Skyrim.esm as input to a synthetic fixture.
+Its before-and-after states come from this engine, not the original runtime.
+It cannot independently establish that the second word leaves these properties
+unchanged or that the first word uses XOR in every accepted version.
+SAV-54's independent evidence requirement is still unmet.
 
-The engine XORs the first word with the winning record flags, then derives
-reference enable and persistence from the result. It preserves the second
-word without assigning it runtime meaning. `sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
-checks all four authored combinations, varied saved words, ESS header versions
-12 and 13, form versions 77 and 78, persistence queries and SOEW save/load.
-The reference restore accepts ESS versions from 12 and matching file/change-form
-versions from 77, following the parser's supported minima. The corpus survey
-covers only ESS 12 with form and change-form version 78. xEdit labels the first
-word `Mask Invert Flags`. FallrimTools and CommonLib do not document application
-of the second word or confirm this operation across all accepted versions.
-The SAV-54 gated installed-record test takes authored flags from Skyrim.esm,
-checks the reference state before restore, and checks enable and persistence
-after restore for both mask words across the accepted version tuples. This is
-a controlled loader observation, not a game-generated before-and-after save
-pair. The second word remains unknown outside these two runtime properties.
+Untested in this follow-up: the package test and clippy commands were
+interrupted with exit status 130 after dependency compilation produced no
+further output for an extended wait. No test completed. The synthetic cases
+added by this draft or used for its runtime check are:
+
+- `sav_54_public_save_round_trip_keeps_both_words_and_the_opaque_suffix`
+- `sav_54_public_save_round_trip_keeps_payload_when_mask_flag_is_absent`
+- `sav_54_every_accepted_form_version_retains_both_mask_words`
+- `sav_54_engine_isolates_each_mask_word_at_every_accepted_form_version`
+- `sav_54_late_unsupported_mask_version_leaves_the_world_unchanged`
+- `sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
+
+The lead can run these cases and the package lint with:
+
+```text
+rtk cargo test -p soe-game --test it sav_54
+rtk cargo clippy -p soe-game --all-targets -- -D warnings
+```
+
+Also untested in light mode:
+`sav_54_installed_reference_mask_words_apply_before_and_after_across_versions`.
+The lead can run it with SKYRIM_DATA set using:
+
+```text
+rtk cargo test -p soe-game --test it sav_54_installed_reference_mask_words_apply_before_and_after_across_versions
+```
+
+Independent completion needs public loader code applying both words with
+version guards, or externally captured original-runtime observations paired
+with the corresponding ESS masks and authored records. Such observations
+must isolate changes to each word and record enable and persistence before
+and after loading. Relabeling a synthetic fixture or copying authored bits
+from Skyrim.esm does not supply those observations.
 
 ## ARMO, WEAP and AMMO change coverage
 

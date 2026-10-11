@@ -297,6 +297,118 @@ fn sav_54_installed_reference_mask_words_apply_before_and_after_across_versions(
     }
 }
 
+#[test]
+fn sav_54_every_accepted_form_version_retains_both_mask_words() {
+    let target = id(0, 0xA00);
+    for save_version in [12, 13, u32::MAX] {
+        for form_version in 77..=u8::MAX {
+            let mut save = fixture();
+            // CONTEXT: Version 77 has no light-plugin table.
+            save.form_id_array[1] = 0x0100_0900;
+            save.light_plugins.clear();
+            save.header.version = save_version;
+            save.form_version = form_version;
+            set_form_mask(&mut save.change_forms[1], 0x89AB_CDEF, 0xFEDC, form_version);
+            let parsed = Save::parse(&save.write().unwrap()).unwrap();
+            let mut world = World::new(fixture_order());
+            let report = world.restore_vanilla_reference_placements(&parsed).unwrap();
+            assert_eq!(
+                report.remaining[&target].form_flags,
+                Some((0x89AB_CDEF, 0xFEDC)),
+                "ESS {save_version}, form {form_version}"
+            );
+        }
+    }
+}
+
+#[test]
+fn sav_54_engine_isolates_each_mask_word_at_every_accepted_form_version() {
+    let disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
+    let persistent = soe_esm::plugin::flags::PERSISTENT;
+    let target = id(0, 0xA00);
+    // CONTEXT: These expectations describe this engine, not an independent
+    // observation of the original runtime's loading operation.
+    for save_version in [12, 13, u32::MAX] {
+        for form_version in 77..=u8::MAX {
+            for (authored, enabled, retained) in [
+                (0, true, false),
+                (disabled, false, false),
+                (persistent, true, true),
+                (disabled | persistent, false, true),
+            ] {
+                for (mask, second, expected) in [
+                    (0, 0, (enabled, retained)),
+                    (disabled, 0, (!enabled, retained)),
+                    (persistent, 0, (enabled, !retained)),
+                    (disabled | persistent, 0, (!enabled, !retained)),
+                    (0, disabled as u16, (enabled, retained)),
+                    (0, persistent as u16, (enabled, retained)),
+                    (0, u16::MAX, (enabled, retained)),
+                ] {
+                    let mut save = fixture();
+                    save.form_id_array[1] = 0x0100_0900;
+                    save.light_plugins.clear();
+                    save.header.version = save_version;
+                    save.form_version = form_version;
+                    set_form_mask(&mut save.change_forms[1], mask, second, form_version);
+                    let parsed = Save::parse(&save.write().unwrap()).unwrap();
+                    let mut world = World::new(fixture_order_with_flags(authored));
+                    world.restore_vanilla_reference_placements(&parsed).unwrap();
+                    let state = world.reference_ref(target).unwrap();
+                    assert_eq!(
+                        (state.enabled, state.persistent),
+                        expected,
+                        "ESS {save_version}, form {form_version}, authored {authored:#x}, words {mask:#x}/{second:#x}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn sav_54_late_unsupported_mask_version_leaves_the_world_unchanged() {
+    for (save_version, form_version, change_version) in [
+        (11, 78, 78),
+        (12, 76, 76),
+        (12, 78, 77),
+        (12, 77, 78),
+        (13, u8::MAX, 78),
+    ] {
+        let mut save = fixture();
+        save.header.version = save_version;
+        save.form_version = form_version;
+        let late = save.change_forms.last_mut().unwrap();
+        let boundary = late
+            .reference_header(form_version)
+            .unwrap()
+            .unwrap()
+            .bytes_consumed;
+        late.change_flags |= change_flags::FORM;
+        late.version = change_version;
+        late.data.splice(
+            boundary..boundary,
+            u32::MAX
+                .to_le_bytes()
+                .into_iter()
+                .chain(u16::MAX.to_le_bytes()),
+        );
+        let mut world = World::new(fixture_order());
+        let before = world.save_state();
+        let error = world
+            .restore_vanilla_reference_placements(&save)
+            .unwrap_err();
+        assert!(
+            matches!(error, RestoreError::WorldReference { .. })
+                && error
+                    .to_string()
+                    .contains("matching supported form versions"),
+            "ESS {save_version}, form {form_version}, change {change_version}: {error}"
+        );
+        assert_eq!(world.save_state(), before);
+    }
+}
+
 fn change(
     raw: u32,
     actor: bool,
