@@ -418,13 +418,12 @@ fn execute(game: &mut Game, step: &Step, report: &mut Report) -> Result<(), Stri
             }
         }
         Step::ExpectNoVmError => {
-            if let Some(entry) = game
-                .vm
-                .log
-                .entries
-                .iter()
-                .find(|entry| entry.message.starts_with("error:"))
-            {
+            if let Some(entry) = game.vm.log.entries.iter().find(|entry| {
+                entry
+                    .message
+                    .get(..6)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("error:"))
+            }) {
                 Err(format!("Papyrus VM {}: {}", entry.time, entry.message))
             } else {
                 Ok(())
