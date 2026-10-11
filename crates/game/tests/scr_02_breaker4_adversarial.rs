@@ -16,22 +16,22 @@ fn scr_02_enable_ai_default_reenables_after_disable() {
         crate::natives_dlc::call(&mut game, &actor, "EnableAI", &[Value::Bool(false)]),
         Value::None
     );
-    assert!(game.world().actor(actor_id).unwrap().ai_disabled);
+    assert!(game.world_mut().actor(actor_id).unwrap().ai_disabled);
 
     assert_eq!(
         crate::natives_dlc::call(&mut game, &actor, "EnableAI", &[]),
         Value::None
     );
-    assert!(!game.world().actor(actor_id).unwrap().ai_disabled);
+    assert!(!game.world_mut().actor(actor_id).unwrap().ai_disabled);
 
     assert_eq!(
         crate::natives_dlc::call(&mut game, &actor, "EnableAI", &[Value::Bool(false)]),
         Value::None
     );
-    assert!(game.world().actor(actor_id).unwrap().ai_disabled);
+    assert!(game.world_mut().actor(actor_id).unwrap().ai_disabled);
     assert_eq!(
         crate::natives_dlc::call(&mut game, &actor, "EnableAI", &[Value::Bool(true)]),
         Value::None
     );
-    assert!(!game.world().actor(actor_id).unwrap().ai_disabled);
+    assert!(!game.world_mut().actor(actor_id).unwrap().ai_disabled);
 }

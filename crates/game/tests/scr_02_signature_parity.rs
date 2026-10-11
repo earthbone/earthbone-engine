@@ -23,10 +23,9 @@ fn assert_complete_signature(declaration: &str, class: &str, method: &str) {
         .strip_suffix(')')
         .unwrap_or_else(|| panic!("{class}.{method} has no closing parenthesis: {declaration}"));
     let head: Vec<_> = signature.0.split_whitespace().collect();
-    assert_eq!(
+    assert!(
         head.last()
             .is_some_and(|declared| declared.eq_ignore_ascii_case(method)),
-        true,
         "signature method name for {class}.{method}"
     );
     let return_type = match head.len() {
@@ -129,13 +128,13 @@ fn scr_02_enable_ai_uses_the_vanilla_true_default() {
         crate::natives_dlc::call(&mut game, &actor, "EnableAI", &[]),
         Value::None
     );
-    assert!(!game.world().actor(actor_id).unwrap().ai_disabled);
+    assert!(!game.world_mut().actor(actor_id).unwrap().ai_disabled);
 
     assert_eq!(
         crate::natives_dlc::call(&mut game, &actor, "EnableAI", &[Value::Bool(false)]),
         Value::None
     );
-    assert!(game.world().actor(actor_id).unwrap().ai_disabled);
+    assert!(game.world_mut().actor(actor_id).unwrap().ai_disabled);
 }
 
 #[test]
@@ -161,13 +160,13 @@ fn scr_02_allow_flying_methods_use_ck_defaults_and_none_returns() {
             Value::None,
             "{method} returns None when using its default arguments"
         );
-        assert!(game.world().actor(actor_id).unwrap().allow_flying);
+        assert!(game.world_mut().actor(actor_id).unwrap().allow_flying);
 
         assert_eq!(
             crate::natives_dlc::call(&mut game, &actor, method, &[Value::Bool(false)]),
             Value::None,
             "{method} returns None with an explicit argument"
         );
-        assert!(!game.world().actor(actor_id).unwrap().allow_flying);
+        assert!(!game.world_mut().actor(actor_id).unwrap().allow_flying);
     }
 }

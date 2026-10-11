@@ -53,9 +53,12 @@ fn call(game: &mut Game, target: GlobalFormId, name: &str, args: &[Value]) -> Va
 fn sit_transition_does_not_override_wants_to_sit_before_arrival() {
     let mut game = fixture();
     let actor = id(0x801);
-    let state = game.world_mut().actor(actor).unwrap();
-    state.ai.procedure = Procedure::Sit;
-    state.ai.arrived = false;
+    {
+        let mut world = game.world_mut();
+        let state = world.actor(actor).unwrap();
+        state.ai.procedure = Procedure::Sit;
+        state.ai.arrived = false;
+    }
     game.world_mut()
         .set_actor_sit_wants_to_stand(actor, true)
         .unwrap();

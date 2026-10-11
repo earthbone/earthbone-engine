@@ -62,12 +62,13 @@ fn scr_02_actorbase_set_essential_rejects_missing_or_wrong_typed_argument() {
         Value::None
     );
     assert!(!game.world_mut().actor_base(base).unwrap().essential);
-    assert!(game
-        .traces()
-        .iter()
-        .filter(|trace| trace.contains("ActorBase.SetEssential expects one Bool"))
-        .count()
-        >= 2);
+    assert!(
+        game.traces()
+            .iter()
+            .filter(|trace| trace.contains("ActorBase.SetEssential expects one Bool"))
+            .count()
+            >= 2
+    );
 }
 
 #[test]

@@ -21,7 +21,7 @@ fn scr_02_set_allow_flying_ex_uses_first_argument_and_returns_none() {
         ),
         Value::None
     );
-    assert!(!game.world().actor(actor_id).unwrap().allow_flying);
+    assert!(!game.world_mut().actor(actor_id).unwrap().allow_flying);
 
     assert_eq!(
         crate::natives_dlc::call(
@@ -32,5 +32,5 @@ fn scr_02_set_allow_flying_ex_uses_first_argument_and_returns_none() {
         ),
         Value::None
     );
-    assert!(game.world().actor(actor_id).unwrap().allow_flying);
+    assert!(game.world_mut().actor(actor_id).unwrap().allow_flying);
 }

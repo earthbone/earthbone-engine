@@ -15,12 +15,8 @@ fn id(object: u32) -> GlobalFormId {
 fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
-    plugin.push_top(
-        Record::new(Tag(*b"ACHR"), 0x801).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
-    );
-    plugin.push_top(
-        Record::new(Tag(*b"ACHR"), 0x803).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x801).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x803).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"MISC"), 0x802));
     let mut order = LoadOrder::new();
     order.add("Scr11Breaker6.esm", plugin).unwrap();
@@ -94,7 +90,12 @@ fn scr_11_set_look_at_rejects_non_reference_without_replacing_target() {
     let mut game = fixture();
     let actor = id(0x801);
     let initial = Value::Object(game.object_of_form(actor));
-    call(&mut game, actor, "SetLookAt", &[initial, Value::Bool(false)]);
+    call(
+        &mut game,
+        actor,
+        "SetLookAt",
+        &[initial, Value::Bool(false)],
+    );
     assert_eq!(game.world_mut().actor_look_at(actor), Some((actor, false)));
 
     let misc_form = Value::Object(game.object_of_form(id(0x802)));
