@@ -369,6 +369,26 @@ impl PlayerNode {
             self.game = previous_game;
             self.automatic_detection = previous_detection;
         }
+        if attached {
+            self.weapon_holds = [None, None];
+            for visual in [
+                self.player_appearance.clone(),
+                self.first_person_appearance.clone(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if visual.is_instance_valid()
+                    && !self.bind_actor_appearance(
+                        visual,
+                        i32::from(player.file),
+                        i64::from(player.object),
+                    )
+                {
+                    soe_trace::error!(target: "host::player", system = "host::player", "restored player appearance could not be rebound");
+                }
+            }
+        }
         attached
     }
 
@@ -690,12 +710,21 @@ impl PlayerNode {
             .set_camera_yaw_offset_degrees(self.camera_state.sitting_rotation_degrees());
         if let Some(visual) = &mut self.player_appearance {
             if visual.is_instance_valid() {
-                visual.bind_mut().set_first_person_geometry_visible(
-                    self.camera_state
-                        .rendered_first_person_geometry_visible(self.rig.mode),
-                );
+                visual
+                    .bind_mut()
+                    .set_first_person_geometry_visible(self.rig.mode == super::CameraMode::Third);
             } else {
                 self.player_appearance = None;
+            }
+        }
+        if let Some(visual) = &mut self.first_person_appearance {
+            if visual.is_instance_valid() {
+                visual.bind_mut().set_first_person_geometry_visible(
+                    self.rig.mode == super::CameraMode::First
+                        && self.camera_state.first_person_geometry_visible(),
+                );
+            } else {
+                self.first_person_appearance = None;
             }
         }
     }

@@ -178,6 +178,30 @@ impl AppearanceCache {
         skeleton: &Skeleton,
     ) -> Result<Option<AppearanceUpdate>, ActorError> {
         let appearance = world.actor_appearance(actor)?;
+        self.prepare_appearance(appearance, vfs, skeleton)
+    }
+
+    /// Assemble only first-person addon models, retaining the same live selection rules.
+    pub fn prepare_first_person(
+        &mut self,
+        world: &mut soe_game::World,
+        actor: soe_esm::GlobalFormId,
+        vfs: &Vfs,
+        skeleton: &Skeleton,
+    ) -> Result<Option<AppearanceUpdate>, ActorError> {
+        let mut appearance = world.actor_appearance(actor)?;
+        for part in &mut appearance.parts {
+            part.model.clone_from(&part.first_person_model);
+        }
+        self.prepare_appearance(appearance, vfs, skeleton)
+    }
+
+    fn prepare_appearance(
+        &mut self,
+        appearance: soe_game::appearance::ActorAppearance,
+        vfs: &Vfs,
+        skeleton: &Skeleton,
+    ) -> Result<Option<AppearanceUpdate>, ActorError> {
         if self.last_attempt.as_ref() == Some(&appearance) {
             return Ok(None);
         }
@@ -331,6 +355,48 @@ impl ActorAssets {
         Ok(assets)
     }
 
+    /// Load the player's first-person character under the selected race project root.
+    /// The first-person character file names its own rig and behavior graph.
+    pub fn load_player_first_person(
+        world: &mut soe_game::World,
+        actor: soe_esm::GlobalFormId,
+        vfs: &Vfs,
+    ) -> Result<ActorAssets, ActorError> {
+        let mut assets = Self::load_for_actor(world, actor, vfs)?;
+        let root = format!("{}_1stperson/", actor_root(&assets.behavior_path));
+        let character_path = format!("{root}characters/firstperson.hkx");
+        let bytes = read(vfs, &character_path)?;
+        let character =
+            CharacterData::from_packfile(&packfile(&bytes, &character_path)?).map_err(|error| {
+                ActorError::Project {
+                    path: character_path,
+                    reason: error.to_string(),
+                }
+            })?;
+        let skeleton_path = rooted_asset_path(&root, &character.rig_name);
+        let behavior_path = rooted_asset_path(&root, &character.behavior_filename);
+        let (skeleton, _) = Self::load_skeleton_at(vfs, &skeleton_path)?;
+        let (mut graph, unresolved_references) = Self::load_graph(vfs, &behavior_path)?;
+        let (clips, missing_clips) = Self::load_clips(vfs, &graph, &root);
+        crate::combat::contact_annotation_triggers(&mut graph, &clips);
+        let mut appearance = world.actor_appearance(actor)?;
+        for part in &mut appearance.parts {
+            part.model.clone_from(&part.first_person_model);
+        }
+        assets.surfaces = Self::appearance_surfaces(vfs, &appearance, &skeleton)?;
+        assets.skeleton = skeleton;
+        assets.skeleton_path = skeleton_path;
+        assets.skeleton_model_path = format!("{root}skeleton.nif");
+        assets.behavior_path = behavior_path;
+        assets.graph = graph;
+        assets.clips = clips;
+        assets.ragdoll = None;
+        assets.missing_clips = missing_clips;
+        assets.unresolved_references = unresolved_references;
+        Self::extend_race_bones(vfs, &mut assets)?;
+        Ok(assets)
+    }
+
     /// Load a sex-specific rig and appearance from a winning RACE record.
     pub fn load_for_race(
         vfs: &Vfs,
@@ -471,12 +537,12 @@ impl ActorAssets {
     }
 
     fn extend_race_bones(vfs: &Vfs, assets: &mut ActorAssets) -> Result<(), ActorError> {
-        let missing: std::collections::BTreeSet<_> = assets
+        let mut missing: std::collections::BTreeSet<_> = assets
             .surfaces
             .iter()
             .flat_map(|surface| surface.map.unmatched.iter().cloned())
             .collect();
-        if missing.is_empty() {
+        if missing.is_empty() && !vfs.exists(&assets.skeleton_model_path) {
             return Ok(());
         }
         let bytes = read(vfs, &assets.skeleton_model_path)?;
@@ -484,6 +550,27 @@ impl ActorAssets {
             path: assets.skeleton_model_path.clone(),
             source,
         })?;
+        let mut nodes = std::collections::BTreeMap::new();
+        let mut visited = std::collections::BTreeSet::new();
+        for root in &file.roots {
+            collect_rig_nodes(&file, *root, None, &mut visited, &mut nodes);
+        }
+        for name in [
+            "WeaponSword",
+            "WeaponDagger",
+            "WeaponAxe",
+            "WeaponMace",
+            "WeaponBack",
+            "WeaponBow",
+            "ShieldBack",
+        ] {
+            if nodes.contains_key(name) && assets.skeleton.bone_index(name).is_none() {
+                missing.insert(name.to_string());
+            }
+        }
+        if missing.is_empty() {
+            return Ok(());
+        }
         extend_skeleton(&mut assets.skeleton, &file, &missing)
             .map_err(|bones| ActorError::RigMismatch { bones })?;
         for surface in &mut assets.surfaces {
@@ -807,6 +894,15 @@ impl ActorAssets {
                 path: mesh_path.to_string(),
             });
         }
+        let textures = crate::data_source::resolve_material_textures(
+            vfs,
+            &out.iter()
+                .map(|surface| surface.arrays.material.clone())
+                .collect::<Vec<_>>(),
+        );
+        for (surface, textures) in out.iter_mut().zip(textures) {
+            surface.textures = textures;
+        }
         let materials: Vec<_> = out
             .iter()
             .map(|surface| surface.arrays.material.clone())
@@ -1072,7 +1168,7 @@ fn nif_transform_to_hkx(transform: &NifTransform) -> soe_hkx::QsTransform {
 }
 
 fn actor_root(behavior_path: &str) -> String {
-    if let Some(at) = behavior_path.rfind("/behaviors/") {
+    if let Some(at) = behavior_path.to_ascii_lowercase().rfind("/behaviors/") {
         behavior_path[..=at].to_string()
     } else {
         behavior_path.rfind('/').map_or_else(

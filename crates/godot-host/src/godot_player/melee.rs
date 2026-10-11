@@ -12,6 +12,169 @@ use super::PlayerNode;
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    pub(super) fn route_weapon_input(&mut self, input: &crate::input::InputState, delta: f32) {
+        for (index, hand, pressed, held) in [
+            (
+                0,
+                Hand::Left,
+                input.left_attack_pressed,
+                input.left_attack_held,
+            ),
+            (
+                1,
+                Hand::Right,
+                input.right_attack_pressed,
+                input.right_attack_held,
+            ),
+        ] {
+            let equipped = self.game.as_mut().is_some_and(|game| {
+                let actor = game.player();
+                let mut world = game.world_mut();
+                world.hand_spell(actor, hand).is_none() && world.hand_weapon(actor, hand).is_some()
+            });
+            if !equipped {
+                self.weapon_holds[index] = None;
+                continue;
+            }
+            if pressed {
+                self.weapon_holds[index] = Some(0.0);
+            }
+            if let Some(elapsed) = self.weapon_holds[index] {
+                let elapsed = elapsed + delta.max(0.0);
+                if !held || elapsed >= 0.3 {
+                    self.weapon_holds[index] = None;
+                    self.attack_with_hand(hand == Hand::Left, held);
+                } else {
+                    self.weapon_holds[index] = Some(elapsed);
+                }
+            }
+        }
+    }
+}
+
+#[godot_api(secondary)]
+impl PlayerNode {
+    /// Request an ordinary or power attack from either equipped weapon hand.
+    #[func]
+    pub fn attack_with_hand(&mut self, left_hand: bool, power: bool) -> bool {
+        let hand = if left_hand { Hand::Left } else { Hand::Right };
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let actor = game.player();
+        let result = if power {
+            self.melee_contact.begin_power(game, actor, hand)
+        } else {
+            self.melee_contact.begin(game, actor, hand)
+        };
+        if result.is_err() {
+            return false;
+        }
+        self.last_melee_target = None;
+        self.last_melee_obstruction = None;
+        let event = match (left_hand, power) {
+            (false, false) => "attackStart",
+            (true, false) => "attackStartLeftHand",
+            (false, true) => "attackPowerStartInPlace",
+            (true, true) => "attackPowerStartInPlaceLeftHand",
+        };
+        for visual in [
+            &mut self.player_appearance,
+            &mut self.first_person_appearance,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            visual.bind_mut().send_graph_event(event.into());
+        }
+        true
+    }
+
+    /// Assign a known spell to a hand through the same shared-world path as the magic menu.
+    #[func]
+    pub fn equip_player_spell(&mut self, file: i32, object: i64, left_hand: bool) -> bool {
+        let (Ok(file), Ok(object), Some(game)) =
+            (u16::try_from(file), u32::try_from(object), &mut self.game)
+        else {
+            return false;
+        };
+        let actor = game.player();
+        game.world_mut()
+            .equip_hand_spell(
+                actor,
+                if left_hand { Hand::Left } else { Hand::Right },
+                GlobalFormId { file, object },
+            )
+            .is_ok()
+    }
+
+    /// Clear the selected player's spell or weapon through shared equipment transactions.
+    #[func]
+    pub fn unequip_player_hand(&mut self, left_hand: bool) -> bool {
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let actor = game.player();
+        let hand = if left_hand { Hand::Left } else { Hand::Right };
+        let mut world = game.world_mut();
+        if let Some(spell) = world.hand_spell(actor, hand) {
+            return world.unequip_hand_spell(actor, hand, spell).is_ok();
+        }
+        if let Some(weapon) = world.hand_weapon(actor, hand) {
+            return world.unequip_item(actor, weapon).is_ok();
+        }
+        true
+    }
+    /// Feed the player body's authored contact pose into CMB-03 once per swing.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn player_weapon_contact(
+        &mut self,
+        name: GString,
+        left_hand: bool,
+        pose: Transform3D,
+    ) -> bool {
+        let hand = if left_hand { Hand::Left } else { Hand::Right };
+        if self
+            .melee_contact
+            .armed()
+            .is_none_or(|(_, armed)| armed != hand)
+        {
+            return false;
+        }
+        self.melee_bone_contact(name, pose)
+    }
+
+    /// Change the shared player's weapon-ready state and request its authored transition.
+    #[func]
+    pub fn toggle_weapon_ready(&mut self) -> bool {
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let actor = game.player();
+        let drawn = {
+            let mut world = game.world_mut();
+            let Some(state) = world.actor(actor) else {
+                return false;
+            };
+            state.weapon_drawn = !state.weapon_drawn;
+            state.weapon_drawn
+        };
+        if let Some(visual) = &mut self.player_appearance {
+            visual
+                .bind_mut()
+                .send_graph_event(if drawn { "WeapEquip" } else { "Unequip" }.into());
+        }
+        if !drawn {
+            self.melee_contact.cancel();
+        }
+        if let Some(visual) = &mut self.first_person_appearance {
+            visual
+                .bind_mut()
+                .send_graph_event(if drawn { "WeapEquip" } else { "Unequip" }.into());
+        }
+        drawn
+    }
     /// Request a World death for a resident actor and remove its contact capsule.
     #[func]
     pub fn kill_actor(&mut self, file: i32, object: i64) -> bool {
@@ -289,9 +452,23 @@ impl PlayerNode {
         self.last_melee_target = None;
         self.last_melee_obstruction = None;
         let Some(game) = &mut self.game else { return };
-        if let Err(error) = Self::arm_melee_swing_from_input(game, &mut self.melee_contact, pressed)
-        {
-            soe_trace::error!(target: "host::melee", system = "host::melee", "PlayerNode: {error}");
+        let actor = game.player();
+        if game.world().hand_spell(actor, Hand::Right).is_some() {
+            return;
+        }
+        match Self::arm_melee_swing_from_input(game, &mut self.melee_contact, pressed) {
+            Ok(true) => {
+                if let Some(visual) = &mut self.player_appearance {
+                    visual.bind_mut().send_graph_event("attackStart".into());
+                }
+                if let Some(visual) = &mut self.first_person_appearance {
+                    visual.bind_mut().send_graph_event("attackStart".into());
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                soe_trace::error!(target: "host::melee", system = "host::melee", "PlayerNode: {error}");
+            }
         }
     }
 

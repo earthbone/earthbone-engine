@@ -561,3 +561,35 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     assert!(game.world_mut().load_state(&invalid).is_err());
     assert_eq!(game.world().state_hash(), before);
 }
+
+#[test]
+fn hst_25_left_hand_contact_uses_its_equipped_weapon_once() {
+    let mut game = fixture();
+    let mut contact = MeleeContact::default();
+    contact.begin(&game, id(0x14), Hand::Left).unwrap();
+    let hit = contact
+        .event(&mut game, "HitFrame", |_| Ok(Some(id(0x900))))
+        .unwrap()
+        .unwrap();
+    assert_eq!(hit.health_damage, 10.0);
+    assert!(contact
+        .event(&mut game, "HitFrame", |_| panic!("second contact"))
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn hst_25_power_contact_reaches_the_game_power_attack_validation() {
+    let mut game = fixture();
+    let mut contact = MeleeContact::default();
+    contact.begin_power(&game, id(0x14), Hand::Right).unwrap();
+    let error = contact
+        .event(&mut game, "HitFrame", |_| Ok(Some(id(0x900))))
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        Error::Unsupported("attacker has no race for power attack data")
+    ));
+    assert!(contact.armed().is_none());
+    assert_eq!(game.world_mut().actor_value(id(0x900), "health"), 100.0);
+}

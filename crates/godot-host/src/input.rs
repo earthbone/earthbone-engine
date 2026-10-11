@@ -569,6 +569,8 @@ pub struct InputState {
     pub sneak_pressed: bool,
     pub activate_pressed: bool,
     pub toggle_pov_pressed: bool,
+    /// Draw or sheathe on the Ready Weapon press edge.
+    pub ready_weapon_pressed: bool,
     pub toggle_always_run_pressed: bool,
     /// The player's left attack input is held.
     pub left_attack_held: bool,
@@ -612,6 +614,7 @@ impl InputState {
             sneak_pressed: pressed(Action::Sneak),
             activate_pressed: pressed(Action::Activate),
             toggle_pov_pressed: pressed(Action::TogglePov),
+            ready_weapon_pressed: pressed(Action::ReadyWeapon),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
             right_attack_pressed: pressed(Action::RightAttack),
             left_attack_held: now(Action::LeftAttackBlock),

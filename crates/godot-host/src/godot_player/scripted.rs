@@ -182,6 +182,7 @@ impl PlayerNode {
     /// Clear the transient command queue and log without changing World.
     #[func]
     pub fn clear_player_input(&mut self) {
+        self.weapon_holds = [None, None];
         self.player_input = Driver::default();
     }
 
