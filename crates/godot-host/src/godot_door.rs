@@ -18,6 +18,7 @@ pub(super) struct DoorSurface {
     pub mesh: Gd<ArrayMesh>,
     pub original: Transform3D,
     pub triangles: usize,
+    pub submitted: Transform3D,
 }
 
 pub(super) struct ResidentDoor {
@@ -72,9 +73,9 @@ impl ResidentDoor {
         self.node.set_transform(transform);
         self.node.set_visible(self.visible);
         let mut server = RenderingServer::singleton();
-        for surface in &self.surfaces {
-            server
-                .instance_set_transform(surface.rid, transform * surface.original.affine_inverse());
+        for surface in &mut self.surfaces {
+            surface.submitted = surface_transform(transform, surface.original);
+            server.instance_set_transform(surface.rid, surface.submitted);
             server.instance_set_visible(surface.rid, self.visible);
         }
     }
@@ -95,6 +96,15 @@ impl ResidentDoor {
         if let Some(bounds) = bounds {
             state.set("local_bounds", bounds);
         }
+        let mut vertices = PackedVector3Array::new();
+        for surface in &self.surfaces {
+            let arrays = surface.mesh.surface_get_arrays(0);
+            let positions: PackedVector3Array = arrays.at(0).to();
+            for point in positions.as_slice() {
+                vertices.push(surface.submitted * *point);
+            }
+        }
+        state.set("world_vertices", &vertices);
         state.set("surfaces", self.surfaces.len() as i64);
         let instances: Array<Rid> = self.surfaces.iter().map(|surface| surface.rid).collect();
         state.set("instances", &instances);
@@ -119,6 +129,10 @@ pub(super) fn pose_transform(iso: Iso) -> Transform3D {
     ))
 }
 
+fn surface_transform(hinge_pose: Transform3D, baked_placement: Transform3D) -> Transform3D {
+    hinge_pose * baked_placement.affine_inverse()
+}
+
 fn advance_swing(fraction: f32, target: f32, delta: f32) -> f32 {
     if !delta.is_finite() || delta <= 0.0 {
         return fraction;
@@ -132,7 +146,38 @@ fn advance_swing(fraction: f32, target: f32, delta: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::advance_swing;
+    use super::{advance_swing, surface_transform};
+    use godot::prelude::*;
+
+    #[test]
+    fn hst_27_baked_leaf_stays_at_the_hinge_through_all_swing_states() {
+        let placement = Transform3D::new(
+            Basis::from_axis_angle(Vector3::UP, 0.7).scaled(Vector3::splat(0.75)),
+            Vector3::new(2500.0, 27.0, -900.0),
+        );
+        let leaf = Vector3::new(1.0, 1.5, 0.1);
+        let radius = (placement.basis * leaf).length();
+        for fraction in [0.0, 0.25, 0.5, 1.0, 0.5, 0.0] {
+            let swing = Transform3D::new(
+                Basis::from_axis_angle(Vector3::UP, fraction * std::f32::consts::FRAC_PI_2),
+                Vector3::ZERO,
+            );
+            let rendered = surface_transform(placement * swing, placement) * (placement * leaf);
+            assert!(rendered.distance_to(placement.origin) <= radius + 0.001);
+            assert!(rendered.distance_to(placement * (swing * leaf)) < 0.001);
+        }
+    }
+
+    #[test]
+    fn hst_27_local_leaf_applies_the_reference_placement_once() {
+        let placement = Transform3D::new(
+            Basis::from_axis_angle(Vector3::UP, 1.2),
+            Vector3::new(-1200.0, 50.0, 800.0),
+        );
+        let leaf = Vector3::new(1.0, 1.0, 0.0);
+        let rendered = surface_transform(placement, Transform3D::IDENTITY) * leaf;
+        assert!(rendered.distance_to(placement * leaf) < 0.001);
+    }
 
     #[test]
     fn hst_21_swing_reverses_without_restarting_and_holds_endpoints() {
