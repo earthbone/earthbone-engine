@@ -86,3 +86,104 @@ fn scr_25_jail_default_arguments_remove_inventory_and_request_real_jail() {
     assert_eq!(game.world_mut().item_count(player, gold), 0);
     assert!(errors(&game).is_empty(), "{:?}", errors(&game));
 }
+
+#[test]
+fn scr_25_jail_false_real_jail_option_keeps_player_in_current_cell() {
+    let mut game = game();
+    let guards = obj(&mut game, "GuardsFaction");
+    let faction = game.form("GuardsFaction").expect("fixture faction");
+    let player = game.world_mut().player();
+    let original_cell = game.world().loaded_cell();
+    game.world_mut()
+        .faction(faction)
+        .unwrap()
+        .crime_gold_nonviolent = 1;
+
+    call(
+        &mut game,
+        &guards,
+        "SendPlayerToJail",
+        &[Value::Bool(false), Value::Bool(false)],
+    );
+
+    assert_eq!(game.world().loaded_cell(), original_cell);
+    assert_eq!(
+        game.world().reference_ref(player).unwrap().cell,
+        original_cell
+    );
+    assert!(errors(&game).is_empty(), "{:?}", errors(&game));
+}
+
+#[test]
+fn scr_25_assault_alarm_without_a_witness_logs_error_without_recording_crime() {
+    let mut game = game();
+    let guards = obj(&mut game, "GuardsFaction");
+    let faction = game.form("GuardsFaction").expect("fixture faction");
+    let witness = game.form("GuardRef").expect("fixture guard");
+    let before_bounty = game
+        .world_mut()
+        .faction(faction)
+        .unwrap()
+        .crime_gold_violent;
+
+    call(&mut game, &guards, "SendAssaultAlarm", &[]);
+
+    assert!(
+        game.vm.log.contains("SendAssaultAlarm:"),
+        "missing witness must be reported in the native log"
+    );
+    assert!(!game.world_mut().actor_is_alarmed(witness));
+    assert!(game
+        .world_mut()
+        .actor(witness)
+        .unwrap()
+        .witnessed_crimes
+        .is_empty());
+    assert_eq!(
+        game.world_mut()
+            .faction(faction)
+            .unwrap()
+            .crime_gold_violent,
+        before_bounty
+    );
+}
+
+#[test]
+fn scr_25_jail_untracked_faction_logs_error_without_serving_sentence() {
+    let mut game = game();
+    let guards = obj(&mut game, "GuardsFaction");
+    let faction = game.form("GuardsFaction").expect("fixture faction");
+    let player = game.world_mut().player();
+    let original_cell = game.world().reference_ref(player).unwrap().cell;
+    let original_position = game.world().reference_ref(player).unwrap().position;
+    {
+        let mut world = game.world_mut();
+        let state = world.faction(faction).unwrap();
+        state.tracks_crime = false;
+        state.crime_gold_nonviolent = 50;
+    }
+
+    call(
+        &mut game,
+        &guards,
+        "SendPlayerToJail",
+        &[Value::Bool(true), Value::Bool(true)],
+    );
+
+    assert!(
+        game.vm.log.contains("SendPlayerToJail:"),
+        "untracked faction must be reported in the native log"
+    );
+    {
+        let mut world = game.world_mut();
+        let state = world.faction(faction).unwrap();
+        assert_eq!(state.crime_gold_nonviolent, 50);
+        let player_state = world.actor(player).unwrap();
+        assert_eq!(player_state.days_in_jail, 0);
+        assert!(!player_state.arrested);
+    }
+    let world = game.world();
+    let player_ref = world.reference_ref(player).unwrap();
+    assert_eq!(player_ref.cell, original_cell);
+    assert_eq!(player_ref.position, original_position);
+}

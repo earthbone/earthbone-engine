@@ -4065,13 +4065,7 @@ fn faction(vm: &mut Vm, w: &Shared) {
             .args
             .get(1)
             .is_none_or(|value| matches!(value, Value::None) || value.as_bool());
-        if real_jail {
-            call.log.push(
-                call.time,
-                "Faction.SendPlayerToJail: jail placement is not implemented",
-            );
-        }
-        if let Err(error) = world.send_player_to_jail(me, remove_inventory) {
+        if let Err(error) = world.send_player_to_jail(me, remove_inventory, real_jail) {
             call.log
                 .push(call.time, format!("Faction.SendPlayerToJail: {error}"));
         }
