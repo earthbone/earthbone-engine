@@ -14,12 +14,10 @@ fn id(object: u32) -> GlobalFormId {
 fn world_with_cell_data(data: &[u8]) -> World {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"WRLD"), 1));
-    let mut cell = Record::new(Tag(*b"CELL"), 2)
-        .sub(Tag(*b"DATA"), data)
-        .sub(
-            Tag(*b"XCLC"),
-            [0_i32.to_le_bytes(), 0_i32.to_le_bytes()].concat(),
-        );
+    let mut cell = Record::new(Tag(*b"CELL"), 2).sub(Tag(*b"DATA"), data).sub(
+        Tag(*b"XCLC"),
+        [0_i32.to_le_bytes(), 0_i32.to_le_bytes()].concat(),
+    );
     cell.placement.world = Some(1);
     cell.placement.group = Some(GroupKind::WorldChildren(1));
     plugin.push_top(cell);
