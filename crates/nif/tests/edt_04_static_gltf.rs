@@ -91,7 +91,10 @@ fn edt_04_static_gltf_geometry_and_material_links_survive_nif_export() {
     assert_eq!(roundtrip[0].positions, mesh.positions);
     assert_eq!(roundtrip[0].indices, mesh.indices);
     assert_eq!(roundtrip[0].uvs, mesh.uvs);
-    assert_eq!(roundtrip[0].material.diffuse(), mesh.material.diffuse());
+    assert_eq!(
+        roundtrip[0].material.diffuse(),
+        Some("textures/diffuse.png")
+    );
     let Block::LightingShader(shader) = &file.blocks[1] else {
         panic!("expected lighting shader block")
     };

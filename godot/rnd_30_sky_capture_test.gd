@@ -187,6 +187,9 @@ func rnd_30_installed_whiterun_mountain_and_sky_texel_masks() -> void:
 	check(sky.records.set_weather("SkyrimCloudy", true) and sky.refresh(), "vanilla cloudy WTHR")
 	check(int(streamer.call("terrain_lod_stats").get("instances", 0)) > 0, "installed BTR mountains")
 	await capture("whiterun_cloudy")
+	# CONTEXT: Freeze object motion and shader TIME so the captures isolate sky changes.
+	scene.process_mode = Node.PROCESS_MODE_DISABLED
+	Engine.time_scale = 0.0
 	# CONTEXT: A depth mask makes terrain and sky classifications independent of their colors.
 	sky.fog_pass.hide()
 	sky.environment.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED

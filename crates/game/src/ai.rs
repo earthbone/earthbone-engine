@@ -1195,7 +1195,8 @@ fn switch_to_inner(
     }
     let running = ai.package;
     if let Some(a) = world.actor(actor) {
-        a.flying = ai.procedure == Procedure::Hover;
+        a.flying =
+            ai.procedure == Procedure::Hover || (a.flying && a.forced_landing_marker.is_some());
         a.ai = ai;
     }
     running

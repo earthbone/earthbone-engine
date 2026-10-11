@@ -13,6 +13,7 @@ fn hst_10_reference_request_keeps_full_form_identity_and_is_taken_once() {
     };
     let requests = vec![AnimationRequest {
         target: reference,
+        partner: None,
         animation: "Open".to_owned(),
     }];
     let mut cursor = AnimationEventCursor::beginning();
@@ -33,6 +34,7 @@ fn hst_10_same_object_number_on_actor_does_not_match_reference_request() {
     };
     let requests = vec![AnimationRequest {
         target: reference,
+        partner: None,
         animation: "Open".to_owned(),
     }];
     let mut actor_cursor = AnimationEventCursor::beginning();
