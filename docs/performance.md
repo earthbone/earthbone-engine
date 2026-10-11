@@ -1937,9 +1937,17 @@ limits are fixed before running the scenarios:
 
 The orbit fixture keeps AI-25's authored bounds, height, arc samples and
 movement. Triangle candidates use the graph's bounds tree at triangle level.
-A full scan of its 8,192 triangles for every orbit sample exceeds its
-triangle limit by hundreds of times. The gate checks work rather than CPU
-speed. A* remains synchronous, with no scheduling or path-budget change.
+A companion test executes the production chord and arc predicates with the
+exhaustive locator from `3cfb4c4e1^`. It compares every selected triangle with
+indexed lookup across three frames and requires exhaustive work to exceed
+the same 8,000 triangle limit by at least 100 times. The gate checks work
+rather than CPU speed. Orbit sampling does not change path scheduling or
+per-request budgets.
+
+The three-frame comparison reports peaks of 888 indexed triangle tests and
+3,620,864 exhaustive triangle tests. Both runs select the same triangles.
+The installed five-master NAVM case and the 60-tick Game orbit case pass
+their declared work limits.
 
 The stress CLI prints `work_peak_<operation> <count> count` after each
 measurement window. These are per-counter maxima across measured ticks,
