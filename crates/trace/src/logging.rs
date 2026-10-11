@@ -10,7 +10,7 @@ use std::fmt::{self, Write as _};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Instant;
 
 use tracing::field::{Field, Visit};
@@ -25,6 +25,7 @@ const FILE_BYTES: u64 = 4 * 1024 * 1024;
 const FILE_BACKUPS: usize = 5;
 
 static GLOBAL: OnceLock<LogControl> = OnceLock::new();
+static CONTROLS: OnceLock<Mutex<Vec<Weak<Mutex<State>>>>> = OnceLock::new();
 
 /// A collapsed log line. Timestamps are milliseconds since subscriber creation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,6 +168,10 @@ pub fn subscriber(
         sink: Arc::new(sink),
         epoch: Instant::now(),
     };
+    if let Ok(mut controls) = CONTROLS.get_or_init(|| Mutex::new(Vec::new())).lock() {
+        controls.retain(|control| control.strong_count() != 0);
+        controls.push(Arc::downgrade(&control.state));
+    }
     let subscriber = Registry::default()
         .with(filter_layer)
         .with(LogLayer(control.clone()));
@@ -366,17 +371,44 @@ impl LogControl {
 }
 
 pub(crate) fn hitch_window(start: Instant, end: Instant) -> Vec<HitchLog> {
-    // CONTEXT: Snapshot the recording thread's subscriber before moving the
-    // capture to the writer, which has a different default subscriber.
-    tracing::dispatcher::get_default(|dispatch| {
-        dispatch
-            .downcast_ref::<LogLayer>()
-            .map_or_else(Vec::new, |layer| {
-                layer
-                    .0
-                    .select_window(|entry| (start..=end).contains(&entry.at))
+    let Ok(mut controls) = CONTROLS.get_or_init(|| Mutex::new(Vec::new())).lock() else {
+        return Vec::new();
+    };
+    controls.retain(|control| control.strong_count() != 0);
+    let mut lines: BTreeMap<(u64, String), HitchLog> = BTreeMap::new();
+    for entry in controls
+        .iter()
+        .filter_map(Weak::upgrade)
+        .filter_map(|state| {
+            state.lock().ok().map(|state| {
+                state
+                    .history
+                    .iter()
+                    .filter(|entry| (start..=end).contains(&entry.at))
+                    .cloned()
+                    .collect::<Vec<_>>()
             })
-    })
+        })
+        .flatten()
+    {
+        let line = &entry.line;
+        let bucket = (line.first_ms / 1000, key(line));
+        let saved = lines.entry(bucket).or_insert_with(|| {
+            let mut copy = entry.clone();
+            copy.line.count = 0;
+            copy
+        });
+        if entry.at < saved.at {
+            saved.at = entry.at;
+            saved.thread = entry.thread;
+            saved.line.first_ms = line.first_ms;
+        }
+        saved.line.last_ms = saved.line.last_ms.max(line.last_ms);
+        saved.line.count = saved.line.count.saturating_add(line.count);
+    }
+    let mut entries = lines.into_values().collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.at);
+    entries
 }
 
 fn key(line: &LogLine) -> String {
