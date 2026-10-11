@@ -269,6 +269,7 @@ impl DataSource {
                 Ok(LoadedStatic::Surfaces {
                     built,
                     instance_transform,
+                    animations,
                     ..
                 }) => {
                     build.placed += 1;
@@ -279,6 +280,7 @@ impl DataSource {
                             .as_ref()
                             .map(|base| Arc::<str>::from(format!("{base}#{shape_index}")));
                         build.surfaces.push(LoadedSurface {
+                            animation: animations.get(shape_index).cloned().flatten(),
                             reference: *grass_id,
                             arrays,
                             textures,

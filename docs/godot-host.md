@@ -2132,10 +2132,10 @@ nonzero values and 0.03 for dark values. No proprietary asset is embedded.
 ## Emissive materials, RND-06 (2026-09-20)
 
 The host carries BSLightingShaderProperty emissive RGB and multiplier into
-Godot materials. Slot two is loaded as a glow texture only when
-`SLSF2_Glow_Map` is set. The slot has other uses on skin and hair shaders,
-so its presence alone does not enable glow. Authored emission without a glow
-map remains a constant color.
+Godot materials. Slot two is loaded as a glow texture when `SLSF2_Glow_Map` is
+set. The slot has other uses on skin and hair shaders, so its presence alone
+does not enable glow. Authored emission without a glow map remains a constant
+color, except for the `_g.dds` `Own_Emit` convention documented under RND-24.
 
 The local references are `nifxml/nif.xml` for the slot and flag,
 `OpenMW/components/nifosg/nifloader.cpp` for emissive color and multiplier,
@@ -2173,13 +2173,64 @@ full gate passed 1,197 top-level Rust tests and eleven Python tests, with
 all optional tools present. The determinism tests also run three child
 process checks, which are excluded from that top-level count.
 
+## Emission flag and glow-map mask, RND-24
+
+`MaterialDesc::emits_light` requires positive authored emission and either
+`SLSF1_Own_Emit` or `SLSF2_Glow_Map`. The standard and decal materials
+multiply enabled emission by the glow texture when one resolves.
+`SLSF2_Glow_Map` activates slot two directly. The installed Bannered Mare
+`CandleHornChandelier01.nif` instead has `SLSF1_Own_Emit`, a clear glow-map
+flag, and `HornCandles01_g.dds` in slot two. For this authored convention,
+`Own_Emit` plus a slot-two path ending in `_g.dds` also activates the texture
+mask. Other slot-two paths remain unused for emission. `Own_Emit` without a
+glow texture emits its constant authored color. Materials with emissive
+values but neither flag do not emit. The NIF reader already preserves both
+flags and the slot. Their bit definitions were checked against
+`engine-refs/nifly/include/Shaders.hpp` and the local `uesp-modfileformat`
+`TXST.wikitext` slot table, so no parser changes were needed.
+
+`rnd_24_emission_requires_own_emit_or_glow_map_and_glow_uses_slot_two` checks
+both enabling flags, the `_g.dds` Own_Emit convention and that an unrelated
+use of slot two is not treated as a glow map. The installed-data test checks
+that the Bannered Mare cell places the chandelier and that its emissive
+surfaces have a usable mask texture. `godot/rnd_24_emission_capture_test.gd`
+renders the installed Bannered Mare chandelier with Godot's production
+material path. It checks the glow map leaves most chandelier surface pixels
+dark while candle pixels remain bright.
+
+## Tree materials and texture paths, RND-31
+
+The NIF mesh material reader normalizes texture-set and effect-shader paths
+before the host resolves them. It lowercases and changes backslashes to
+forward slashes, discards any build or data prefix before the first
+`textures/` component, and prepends `textures/` when that component is absent.
+Texture misses keep the checker fallback. The first warning for each
+mesh-and-texture pair names both paths.
+
+Materials carrying `SLSF2_Tree_Anim` use a shader material that samples the
+authored diffuse and normal textures. Its vertex stage uses the red vertex
+color as the sway weight. Its fragment stage applies `NiAlphaProperty` cutout
+thresholds, and its culling mode follows the material's double-sided flag.
+Other tree material fields continue through the ordinary NIF material path.
+Placed `TREE` records resolve their `MODL` path through the same cell model
+pipeline used by static references.
+
+The installed RND-31 survey scans NIFs visible through the install's BSA
+archives and loose data directory, checks normalized referenced paths against
+that view, reports references unavailable in that view, and verifies named
+tree roots and animated cutout, two-sided surfaces across the mesh corpus. It
+also checks that rooted animated tree surfaces and the Tundra Driftwood tree
+have resolved diffuse and normal maps. The NIF normalization follows nifly's
+`TrimTexturePaths` and its path-trimming test. Nifly's
+`Nodes.hpp` names the tree node classes. OpenMW's local NIF loader was checked
+for scene handling but does not supply Skyrim tree shader semantics.
+
 ## Materials (2026-09-17)
 
 `soe-dds` is now a `godot-host` dependency. `data_source.rs` resolves each surface's
-`MaterialDesc` into decoded textures. A NIF material's `diffuse` and `normal` fields already
-carry the full `textures\...` path (checked against the `nif` crate's own fixtures), so no
-prefix is added, only `soe_bsa`'s normal casing and separator handling, which `Vfs::read`
-already does internally. The read goes through the same `Vfs` the meshes use, so a loose file
+`MaterialDesc` into decoded textures. NIF material `diffuse` and `normal` fields carry
+normalized `textures/...` paths. `Vfs::read` handles case and separator normalization as
+well. The read goes through the same `Vfs` the meshes use, so a loose file
 in the `Data` folder overrides an archive's copy of the same texture. `load_texture` reads the
 bytes and decodes the top mip with `soe_dds::Dds::parse` and `.decode(0, 0)` to an RGBA8
 `Image`. `MaterialCache`, built once per `stream_cell_id` call and keyed on the lowercased
@@ -6403,6 +6454,72 @@ The batched door hides while open. Movement-body visibility uses effective
 enable state and does not remove a static door body solely because it opened.
 Query bodies additionally hide opened doors. Change notification retains this
 existing handoff. Door node lifetime and open-door capsule passage belong to HST-21.
+
+## Object controller rendering, RND-23
+
+Cell loading retains live NIF controller assets for animated object surfaces.
+Those surfaces use local geometry outside static batching and MultiMesh
+instancing. Each shape has a RenderingServer instance and a private material,
+with a RenderingServer skeleton when the NIF supplies skin bones. Shapes of
+one placement share their immutable controller asset. CellStreamerNode advances
+object transforms, skin poses and material parameters every frame. It adds no
+per-reference scene nodes. Animated shapes are excluded from stationary cell
+occluders.
+
+Skin transforms combine the sampled model-space bone with its NIF inverse
+bind in the mesh's bone order, using the existing host axis and bind-matrix
+conversion. Reference movement updates the visual placement from World.
+Reference disable and destruction selection hide the original visual.
+Reference enable uses the same live loader. Clear, cell departure and tree
+exit release instances, skeletons and private materials. Inventory previews
+and destruction overlays retain their frozen mesh path.
+
+Successful player activation tries authored Open, Activate, Trigger, Pull,
+Push, Down, On, Forward and Play sequences before the older swinging-door
+node path. Game animation requests target the same resolved form identity and
+start matching named sequences. Each shape maintains its own cursor into the
+game's animation request log. The host changes no saved fields and registers
+no save section. Playback clocks and poses are transient rendering state.
+
+Animated shader instances update UV offsets and scales, alpha, emissive color
+and strength, and effect falloff values. They start from the NIF's authored
+UV and alpha defaults, and sampling leaves other placements' materials
+unchanged. Lighting materials use the existing shader-material texture,
+glow and environment path. Effect materials use the RND-22 shader.
+
+`tests/rnd_23_object_animation.rs` verifies skin transforms, material ownership
+and installed controller retention. `tests/rnd_23_capture.gd` draws a Whiterun
+banner through the production RID path at two fixed playback times, compares
+uploaded transforms and rendered pixels, saves both captures under target,
+and checks zero added scene children and resource release. Run it with the
+built extension and the installed-data variable:
+
+```text
+$SOE_GODOT_BIN --path godot --resolution 640x360 --script "$PWD/crates/godot-host/tests/rnd_23_capture.gd"
+```
+
+The installed-data capture on Godot 4.4.1 with software Vulkan samples the
+banner at 0.1 and 0.7 seconds. It reports eight uploaded transforms, a maximum
+transform difference of 0.025225, 19,151 visible pixels and 17,279 changed
+pixels. The same run starts a chest's Open sequence through activation,
+observes its changed pose, starts Close and rejects an unknown sequence.
+It checks resource release and exits with status zero. The Rust row tests
+pass twelve NIF cases and four host cases with installed data.
+
+Controller layout and sampling references are recorded in `docs/nif.md`.
+Object animation uses no new dependency. Collision remains on its existing
+record-backed host path and does not follow these visual bone poses.
+
+The RID update path uses the pure `ObjectAnimationClock::update` sampler.
+Its elapsed counter is f64, skips nonfinite or negative frame deltas and
+resets when a named sequence starts. The counter saturates at the largest
+finite f32 sampling time. Host unit tests exercise 30 simulated minutes with
+steps cycling from 1 to 500 milliseconds, all three cycle modes, invalid
+deltas, reset and small-step clock advancement after a billion seconds.
+Instance and bone submission loops are bounded by loaded resource counts.
+The reported `AnimatedObjects::update` freeze symbol is absent from this
+checkout. No live capture or installed-data reproduction was run for this
+timing audit.
 
 ## Distant scenery, RND-28
 

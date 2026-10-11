@@ -91,7 +91,7 @@ fn scr_15_get_voice_recovery_time_reads_the_actor_deadline() {
 }
 
 #[test]
-fn scr_15_play_idle_with_target_routes_to_actor_and_rejects_bad_forms() {
+fn scr_15_play_idle_with_target_routes_to_caller_and_rejects_bad_forms() {
     let mut game = game();
     let idle = Value::Object(game.object_of_form(id(0x901)));
     let target = Value::Object(game.object_of_form(id(0x902)));
@@ -108,6 +108,7 @@ fn scr_15_play_idle_with_target_routes_to_actor_and_rejects_bad_forms() {
         game.world().animation_requests,
         [soe_game::world::AnimationRequest {
             target: id(0x900),
+            partner: Some(id(0x902)),
             animation: "TestIdle".into(),
         }]
     );
@@ -126,6 +127,7 @@ fn scr_15_play_idle_with_target_routes_to_actor_and_rejects_bad_forms() {
         game.world().animation_requests,
         [soe_game::world::AnimationRequest {
             target: id(0x900),
+            partner: None,
             animation: "TestIdle".into(),
         }]
     );

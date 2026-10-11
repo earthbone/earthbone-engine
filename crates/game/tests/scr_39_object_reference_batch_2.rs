@@ -87,6 +87,7 @@ fn scr_39_animation_and_wait_waits_for_the_named_graph_event() {
         game.world().animation_requests,
         vec![soe_game::world::AnimationRequest {
             target: id(REFERENCE),
+            partner: None,
             animation: "Open".to_owned(),
         }]
     );

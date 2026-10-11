@@ -80,6 +80,7 @@ fn scr_15_paired_idle_is_dispatched_to_the_initiating_actor() {
         game.world().animation_requests,
         [soe_game::world::AnimationRequest {
             target: id(0x900),
+            partner: Some(id(0x902)),
             animation: "TestPairedIdle".into(),
         }],
         "CK says the idle plays on this actor; the argument is its paired target"
