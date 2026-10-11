@@ -705,10 +705,16 @@ executor, and advances another 30 minutes of game time at 1/60-second steps.
 It checks finite actor and player transforms after every tick, rejects Papyrus
 VM errors and compares repeated reports for the same seed. Navigation checks
 the player's path against NAVM surfaces through the existing PLY-02 executor.
-`ply_05_installed_city_cells_are_available_for_headless_soak` is gated by
-`SKYRIM_DATA` and confirms the installed Whiterun and Riverwood exterior cells
-resolve. The current soak does not yet drive the installed city records or
-compare actor heights against exterior terrain.
+`ply_05_installed_city_bot_walks_each_city_and_checks_terrain_clearance` is
+gated by `SKYRIM_DATA`. It builds a connected NAVM route in each installed
+exterior city, walks the player route, and advances 30 minutes of game time.
+Loaded actors are checked against decoded LAND heights, finite transforms,
+Papyrus errors, and a ten-second stuck interval. The test uses the cell's own
+winning LAND record and does not compare actors standing indoors with terrain.
+`ply_05_installed_city_bot_opens_doors_activates_objects_and_starts_conversations`
+uses installed references in both cities and requires an opened door, an
+activated object, and a started actor conversation in each. The checks run
+headless and do not measure host animations or rendered movement.
 
 ### AI-driven player routes and workstation commands, PLY-06
 

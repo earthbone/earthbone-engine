@@ -1078,6 +1078,8 @@ mod ply_03_adversarial;
 mod ply_03_main_quest_replay;
 #[path = "ply_05_adversarial.rs"]
 mod ply_05_adversarial;
+#[path = "ply_05_installed_city_soak.rs"]
+mod ply_05_installed_city_soak;
 #[path = "prf_09_adversarial.rs"]
 mod prf_09_adversarial;
 #[path = "prf_09_profiling.rs"]
