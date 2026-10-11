@@ -1221,6 +1221,8 @@ renderer has no foot-IK solver, so this setting does not change rendered
 poses. `Debug.ShowRefPosition(reference)` accepts a
 resolved placed reference, records its identity once, and logs an invalid
 reference when the object does not resolve to a placed reference.
+The live Godot test `godot/scr_23_debug_natives_test.gd` checks that the host
+installs a marker RID for a loaded named reference.
 `Debug.PlayerMoveToAndWait(editorId)` resolves the destination reference,
 queues a host move, and suspends the Papyrus thread. The Godot host applies the
 placement and resolves the wait with 0 after destination resources install.
@@ -1236,6 +1238,10 @@ functions are absent from the corpus. Host rendering displays each requested
 reference position as a small emissive sphere using `RenderingServer` instances.
 Foot IK remains a presentation gap because no solver or ground-contact input is
 available in the actor renderer.
+
+SetFootIK's renderer behavior is a separate prerequisite: the current actor
+renderer has no IK solver or ground-contact input. The native currently stores
+the requested setting without changing actor poses.
 
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first

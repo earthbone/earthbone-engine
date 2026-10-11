@@ -1263,8 +1263,11 @@ requested reference and frees the instances when the player node exits.
 `Debug.PlayerMoveToAndWait` requests are applied to the shared World before
 `sync_game_pose`. The latent Papyrus call resolves with 0 after the host has
 installed the destination, or -1 if the move cannot be applied or installed.
-`Debug.SetFootIK` is retained in World, but actor rendering does not yet apply
-foot inverse kinematics.
+`godot/scr_23_debug_natives_test.gd` invokes the registered Papyrus natives
+against a named Bannered Mare reference, then checks its live marker RID and
+the player's installed destination placement. `SetFootIK` remains a World
+setting only. The actor renderer has no foot IK solver or ground-contact input
+to apply it to rendered poses.
 
 `Game.ShakeController` queues a transient controller-shake request. The
 player adapter sends its left and right strengths and duration to every

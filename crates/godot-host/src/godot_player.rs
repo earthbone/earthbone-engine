@@ -1645,6 +1645,62 @@ impl PlayerNode {
         game.world_mut().is_staggered(GlobalFormId { file, object })
     }
 
+    /// Return a placed reference's editor id for integration checks.
+    #[func]
+    pub fn gameplay_reference_editor_id(&mut self, file: i32, object: i64) -> GString {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return GString::new();
+        };
+        self.game
+            .as_mut()
+            .and_then(|game| {
+                game.world_mut()
+                    .record(GlobalFormId { file, object })
+                    .and_then(|record| record.editor_id())
+            })
+            .map_or_else(GString::new, |editor_id| GString::from(&editor_id))
+    }
+
+    /// Return named references from the current cell for native integration checks.
+    #[func]
+    pub fn gameplay_named_references(&mut self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell)) = (&mut self.game, self.loaded_cell) else {
+            return Array::new();
+        };
+        let mut world = game.world_mut();
+        let mut result = Array::new();
+        for id in world.cell_references(cell) {
+            let Some(editor_id) = world.editor_id(id) else {
+                continue;
+            };
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
+            row.set("editor_id", &GString::from(&editor_id));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Invoke a Debug native and inspect its effect in a live host check.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn scr_23_invoke_debug_native(
+        &mut self,
+        name: GString,
+        argument: GString,
+        file: i32,
+        object: i64,
+    ) -> bool {
+        self.invoke_scr_23_debug_native(&name.to_string(), &argument.to_string(), file, object)
+    }
+
+    /// Return the number of live reference-position marker instances.
+    #[func]
+    pub fn scr_23_debug_marker_count(&self) -> i64 {
+        self.debug_marker_instance_count() as i64
+    }
+
     /// Count this reference's movement and Godot query collision bodies.
     #[func]
     pub fn reference_collision_bodies(&self, file: i32, object: i64) -> VarDictionary {
