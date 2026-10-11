@@ -405,6 +405,12 @@ sample priming offset in 32 sample steps and samples every eighth PCM value. It 
 native result is non-silent and has the container's sample rate and channel count. This verifies
 one vanilla line, not every entry in the archive.
 
+On 2026-10-09, both default-build single-line checks passed against the installed archive. The
+archive-order line scored 1.000 and the sorted-first line scored 0.992. The eight-line survey
+scored at least 0.986, with each line decoded twice to check repeatability. The native decoder
+does not use the `xwma-ffmpeg` feature. The ffmpeg executable is used only as the comparison
+reference in these tests.
+
 The open path, end to end on one real line: the vanilla xWMA decodes to 2.136 s, the same line
 re-encoded to Ogg Vorbis decodes through `lewton` to 2.136 s at 44,100 Hz, and re-encoded to Ogg
 Opus decodes through `opus-decoder` to 2.154 s at 48,000 Hz, Opus always resampling to 48 kHz and
