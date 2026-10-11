@@ -49,12 +49,21 @@ fn hst_18_clearing_crosshair_does_not_clear_grabbed_reference() {
 
     game.world_mut().set_crosshair_reference(Some(crosshair));
     game.world_mut().set_grabbed_reference(Some(grabbed));
-    assert_eq!(read_ref(&mut game, "GetCurrentCrosshairRef"), Value::Object(crosshair_object));
-    assert_eq!(read_ref(&mut game, "GetPlayerGrabbedRef"), Value::Object(grabbed_object));
+    assert_eq!(
+        read_ref(&mut game, "GetCurrentCrosshairRef"),
+        Value::Object(crosshair_object)
+    );
+    assert_eq!(
+        read_ref(&mut game, "GetPlayerGrabbedRef"),
+        Value::Object(grabbed_object)
+    );
 
     game.world_mut().set_crosshair_reference(None);
     for _ in 0..3 {
         assert_eq!(read_ref(&mut game, "GetCurrentCrosshairRef"), Value::None);
-        assert_eq!(read_ref(&mut game, "GetPlayerGrabbedRef"), Value::Object(grabbed_object));
+        assert_eq!(
+            read_ref(&mut game, "GetPlayerGrabbedRef"),
+            Value::Object(grabbed_object)
+        );
     }
 }
