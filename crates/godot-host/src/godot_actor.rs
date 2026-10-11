@@ -84,6 +84,38 @@ struct FacialBinding {
     actor: soe_esm::GlobalFormId,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum HostMagicReport<T> {
+    Invalid,
+    Clear,
+    Value(T),
+}
+
+fn ward_state_from_host(value: i32) -> HostMagicReport<u32> {
+    match value {
+        -1 => HostMagicReport::Clear,
+        0..=2 => HostMagicReport::Value(value as u32),
+        _ => HostMagicReport::Invalid,
+    }
+}
+
+fn shout_variation_from_host(value: i32) -> HostMagicReport<i32> {
+    match value {
+        -1 => HostMagicReport::Clear,
+        0..=2 => HostMagicReport::Value(value),
+        _ => HostMagicReport::Invalid,
+    }
+}
+
+fn dual_casting_from_host(value: i32) -> HostMagicReport<bool> {
+    match value {
+        -1 => HostMagicReport::Clear,
+        0 => HostMagicReport::Value(false),
+        1 => HostMagicReport::Value(true),
+        _ => HostMagicReport::Invalid,
+    }
+}
+
 /// A graph event derived from the bound actor's shared stagger deadline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StaggerGraphEvent {
@@ -213,6 +245,7 @@ impl INode3D for SkinnedActorNode {
 
     fn exit_tree(&mut self) {
         if let Some(binding) = &self.appearance {
+            clear_magic_animation_state(binding);
             binding
                 .world
                 .borrow_mut()
@@ -439,6 +472,63 @@ impl SkinnedActorNode {
                 .vm
                 .as_mut()
                 .is_some_and(|vm| vm.variables.set_by_name(&name.to_string(), value))
+    }
+
+    /// Feed the current ward graph state into the bound actor. Use -1 when
+    /// the host has no current report, or 0, 1 or 2 for the CK ward states.
+    #[func]
+    pub fn report_ward_state(&mut self, state: i32) -> bool {
+        let state = match ward_state_from_host(state) {
+            HostMagicReport::Invalid => return false,
+            HostMagicReport::Clear => None,
+            HostMagicReport::Value(state) => Some(state),
+        };
+        let Some(binding) = &self.appearance else {
+            return false;
+        };
+        binding
+            .world
+            .borrow_mut()
+            .set_ward_state(binding.actor, state)
+            .is_ok()
+    }
+
+    /// Feed whether the bound actor's graph currently reports dual casting.
+    /// Use -1 when the host has no report, 0 for false and 1 for true.
+    #[func]
+    pub fn report_dual_casting(&mut self, state: i32) -> bool {
+        let dual_casting = match dual_casting_from_host(state) {
+            HostMagicReport::Invalid => return false,
+            HostMagicReport::Clear => None,
+            HostMagicReport::Value(dual_casting) => Some(dual_casting),
+        };
+        let Some(binding) = &self.appearance else {
+            return false;
+        };
+        binding
+            .world
+            .borrow_mut()
+            .set_dual_casting(binding.actor, dual_casting)
+            .is_ok()
+    }
+
+    /// Feed the current shout voice variation. Use -1 when no shout variation
+    /// is reported, or 0, 1 or 2 for the three authored variations.
+    #[func]
+    pub fn report_shout_variation(&mut self, variation: i32) -> bool {
+        let variation = match shout_variation_from_host(variation) {
+            HostMagicReport::Invalid => return false,
+            HostMagicReport::Clear => None,
+            HostMagicReport::Value(variation) => Some(variation),
+        };
+        let Some(binding) = &self.appearance else {
+            return false;
+        };
+        binding
+            .world
+            .borrow_mut()
+            .set_shout_variation(binding.actor, variation)
+            .is_ok()
     }
 
     /// Advance by `delta` seconds and push the new pose. `_process` calls
@@ -734,6 +824,13 @@ impl SkinnedActorNode {
     }
 }
 
+fn clear_magic_animation_state(binding: &AppearanceBinding) {
+    let mut world = binding.world.borrow_mut();
+    let _ = world.set_ward_state(binding.actor, None);
+    let _ = world.set_dual_casting(binding.actor, None);
+    let _ = world.set_shout_variation(binding.actor, None);
+}
+
 impl SkinnedActorNode {
     fn sync_invisibility(&mut self) {
         let invisible = self
@@ -1019,6 +1116,39 @@ mod invisibility_tests {
     #[test]
     fn mag_34_visible_actor_keeps_skinned_actor_instances_visible() {
         assert!(visible_for_invisibility(false));
+    }
+}
+
+#[cfg(test)]
+mod ai_60_host_magic_feed_tests {
+    use super::{
+        dual_casting_from_host, shout_variation_from_host, ward_state_from_host, HostMagicReport,
+    };
+
+    #[test]
+    fn ai_60_host_ward_feed_accepts_defined_states_and_clear() {
+        assert_eq!(ward_state_from_host(-1), HostMagicReport::Clear);
+        assert_eq!(ward_state_from_host(0), HostMagicReport::Value(0));
+        assert_eq!(ward_state_from_host(1), HostMagicReport::Value(1));
+        assert_eq!(ward_state_from_host(2), HostMagicReport::Value(2));
+        assert_eq!(ward_state_from_host(3), HostMagicReport::Invalid);
+    }
+
+    #[test]
+    fn ai_60_host_voice_feed_accepts_defined_variations_and_clear() {
+        assert_eq!(shout_variation_from_host(-1), HostMagicReport::Clear);
+        assert_eq!(shout_variation_from_host(0), HostMagicReport::Value(0));
+        assert_eq!(shout_variation_from_host(1), HostMagicReport::Value(1));
+        assert_eq!(shout_variation_from_host(2), HostMagicReport::Value(2));
+        assert_eq!(shout_variation_from_host(3), HostMagicReport::Invalid);
+    }
+
+    #[test]
+    fn ai_60_host_dual_cast_feed_distinguishes_false_from_unreported() {
+        assert_eq!(dual_casting_from_host(-1), HostMagicReport::Clear);
+        assert_eq!(dual_casting_from_host(0), HostMagicReport::Value(false));
+        assert_eq!(dual_casting_from_host(1), HostMagicReport::Value(true));
+        assert_eq!(dual_casting_from_host(2), HostMagicReport::Invalid);
     }
 }
 

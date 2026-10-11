@@ -1569,8 +1569,11 @@ The condition ids and parameter types follow local xEdit
 `TES5Edit/Core/wbDefinitionsTES5.pas`. The ward enum is also defined there.
 CommonLibSSE-NG's `Actor::IsDualCasting` reads the high-process flag, which
 supports treating this as animation/process state. The local CK dump has no
-condition pages for these three natives, so shout variation's numeric value is
-passed through as reported by the host without interpreting its range.
+condition pages for these three natives. The host feed accepts shout variation
+values 0 through 2 and uses -1 to clear the report, following
+`TESShout::VariationIDs` in CommonLibSSE-NG. The vanilla master behavior graph
+does not expose these values, so an animation/process controller must report
+them through the bound actor rig.
 
 **Follower services.** `World::recruit_follower` validates the actor,
 service faction and follow package. It enables teammate status and the
