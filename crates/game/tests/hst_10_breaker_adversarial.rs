@@ -114,6 +114,7 @@ fn play_animation_accepts_actor_targets_and_preserves_form_identity() {
         game.world().animation_requests,
         [soe_game::world::AnimationRequest {
             target: actor,
+            partner: None,
             animation: "IdleForceDefaultState".to_owned(),
         }]
     );
@@ -143,6 +144,7 @@ fn play_animation_and_wait_resolves_the_actor_thread_once() {
         game.world().animation_requests,
         [soe_game::world::AnimationRequest {
             target: actor,
+            partner: None,
             animation: "IdleForceDefaultState".to_owned(),
         }]
     );

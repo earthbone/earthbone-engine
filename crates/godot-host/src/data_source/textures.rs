@@ -344,6 +344,19 @@ impl TextureCache {
         }
     }
 
+    pub(super) fn warn_missing_surface_once(&self, mesh: &str, path: &str) {
+        let key = format!("surface:{mesh}:{}", soe_bsa::normalize(path));
+        if self
+            .warned
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key)
+        {
+            soe_trace::warn!(target: "host::textures", system = "host::textures", mesh, path,
+                "mesh diffuse texture is missing from the load order VFS");
+        }
+    }
+
     pub(super) fn counters(&self) -> TextureCounters {
         TextureCounters {
             decoded: self.decoded.load(Ordering::Relaxed),
@@ -458,24 +471,58 @@ mod tests {
         fn exit(&self, _: &soe_trace::tracing::span::Id) {}
 
         fn event(&self, event: &soe_trace::tracing::Event<'_>) {
-            struct Fields(String);
+            struct Fields {
+                mesh: String,
+                path: String,
+            }
             impl soe_trace::tracing::field::Visit for Fields {
                 fn record_debug(
                     &mut self,
                     field: &soe_trace::tracing::field::Field,
                     value: &dyn std::fmt::Debug,
                 ) {
-                    if field.name() == "path" {
-                        self.0 = format!("{value:?}");
+                    match field.name() {
+                        "mesh" => self.mesh = format!("{value:?}"),
+                        "path" => self.path = format!("{value:?}"),
+                        _ => {}
                     }
                 }
             }
             if event.metadata().target() == "host::textures" {
-                let mut fields = Fields(String::new());
+                let mut fields = Fields {
+                    mesh: String::new(),
+                    path: String::new(),
+                };
                 event.record(&mut fields);
-                self.0.lock().unwrap().push(fields.0);
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("{} {}", fields.mesh, fields.path));
             }
         }
+    }
+
+    #[test]
+    fn rnd_31_missing_surface_warning_names_mesh_and_path_once() {
+        let cache = TextureCache::default();
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let dispatch = soe_trace::tracing::Dispatch::new(WarningCapture(Arc::clone(&lines)));
+        soe_trace::tracing::dispatcher::with_default(&dispatch, || {
+            cache
+                .warn_missing_surface_once("meshes/trees/pine.nif#1", "textures/trees/missing.dds");
+            cache.warn_missing_surface_once(
+                "meshes/trees/pine.nif#1",
+                r"Textures\Trees\Missing.DDS",
+            );
+            cache
+                .warn_missing_surface_once("meshes/trees/pine.nif#2", "textures/trees/missing.dds");
+        });
+        let lines = lines.lock().unwrap();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("meshes/trees/pine.nif#1"));
+        assert!(lines[0].contains("textures/trees/missing.dds"));
+        assert!(lines[1].contains("meshes/trees/pine.nif#2"));
+        assert!(lines[1].contains("textures/trees/missing.dds"));
     }
 
     #[test]

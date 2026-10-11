@@ -165,15 +165,26 @@ impl MaterialDesc {
             .flatten()
     }
 
-    /// Slot two is a glow map only with SLSF2_Glow_Map. Skin uses the same slot.
+    /// Slot two is a glow map with SLSF2_Glow_Map. Some Own_Emit candle
+    /// materials omit that flag but name their emission texture with `_g`.
     pub fn glow_texture(&self) -> Option<&str> {
-        (self.shader_flags_2 & soe_nif::blocks::flags2::GLOW_MAP != 0)
+        let glow_flag = self.shader_flags_2 & soe_nif::blocks::flags2::GLOW_MAP != 0;
+        let own_emit_texture = self.shader_flags_1 & soe_nif::blocks::flags1::OWN_EMIT != 0
+            && self
+                .glow
+                .as_deref()
+                .is_some_and(|path| path.to_ascii_lowercase().ends_with("_g.dds"));
+        (glow_flag || own_emit_texture)
             .then_some(self.glow.as_deref())
             .flatten()
     }
 
     pub fn emits_light(&self) -> bool {
-        self.emissive_multiple > 0.0 && self.emissive_color.iter().any(|channel| *channel > 0.0)
+        let emission_flag = self.shader_flags_1 & soe_nif::blocks::flags1::OWN_EMIT != 0
+            || self.shader_flags_2 & soe_nif::blocks::flags2::GLOW_MAP != 0;
+        emission_flag
+            && self.emissive_multiple > 0.0
+            && self.emissive_color.iter().any(|channel| *channel > 0.0)
     }
 
     /// Decals need a depth offset, with their authored depth test/write flags.
@@ -207,6 +218,7 @@ pub struct MaterialKey {
     pub glow: Option<String>,
     pub emissive_color: [u32; 3],
     pub emissive_multiple: u32,
+    tree_animated: bool,
     alpha: AlphaMode,
     double_sided: bool,
     decal_depth: Option<(bool, bool)>,
@@ -229,6 +241,7 @@ impl From<&MaterialDesc> for MaterialKey {
             glow: material.glow_texture().map(str::to_lowercase),
             emissive_color: material.emissive_color.map(f32::to_bits),
             emissive_multiple: material.emissive_multiple.to_bits(),
+            tree_animated: material.shader_flags_2 & soe_nif::blocks::flags2::TREE_ANIM != 0,
             alpha: material.alpha,
             double_sided: material.double_sided,
             decal_depth: material.decal_depth(),
@@ -765,6 +778,57 @@ mod material_key_tests {
         let mut lower = base.clone();
         lower.glow = lower.glow.map(|path| path.to_lowercase());
         assert_eq!(MaterialKey::from(&base), MaterialKey::from(&lower));
+    }
+
+    #[test]
+    fn rnd_24_emission_requires_own_emit_or_glow_map_and_glow_uses_slot_two() {
+        use soe_nif::blocks::{flags1, flags2};
+
+        let authored = MaterialDesc {
+            emissive_color: [1.0, 0.5, 0.25],
+            emissive_multiple: 2.0,
+            ..Default::default()
+        };
+        assert!(!authored.emits_light());
+        assert_eq!(authored.glow_texture(), None);
+
+        let own_emit = MaterialDesc {
+            shader_flags_1: flags1::OWN_EMIT,
+            ..authored.clone()
+        };
+        assert!(own_emit.emits_light());
+        assert_eq!(own_emit.glow_texture(), None);
+
+        let glow_map = MaterialDesc {
+            glow: Some("textures\\candle_g.dds".into()),
+            shader_flags_2: flags2::GLOW_MAP,
+            ..authored.clone()
+        };
+        assert!(glow_map.emits_light());
+        assert_eq!(glow_map.glow_texture(), Some("textures\\candle_g.dds"));
+
+        let own_emit_texture = MaterialDesc {
+            glow: Some("textures\\candles_g.dds".into()),
+            shader_flags_1: flags1::OWN_EMIT,
+            ..authored.clone()
+        };
+        assert!(own_emit_texture.emits_light());
+        assert_eq!(
+            own_emit_texture.glow_texture(),
+            Some("textures\\candles_g.dds")
+        );
+
+        let unused_slot = MaterialDesc {
+            glow: Some("textures\\subsurface.dds".into()),
+            ..authored
+        };
+        let no_glow_flag = MaterialDesc {
+            shader_flags_1: flags1::OWN_EMIT,
+            shader_flags_2: 0,
+            ..unused_slot
+        };
+        assert_eq!(no_glow_flag.glow_texture(), None);
+        assert!(no_glow_flag.emits_light(), "SLSF1_Own_Emit remains active");
     }
 
     #[test]

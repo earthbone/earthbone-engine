@@ -139,6 +139,10 @@ pub struct EffectParams {
     pub clamp_mode: u8,
     pub source_texture: String,
     pub greyscale_texture: String,
+    pub env_map_texture: String,
+    pub normal_texture: String,
+    pub env_mask_texture: String,
+    pub env_map_scale: f32,
     pub base_color: [f32; 4],
     pub base_color_scale: f32,
     pub falloff_start_angle: f32,
@@ -152,8 +156,8 @@ pub struct EffectParams {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Material {
     pub kind: MaterialKind,
-    /// Texture paths as written, relative to `Data\textures` with
-    /// backslashes. Slot meaning is fixed by Skyrim, see the accessors.
+    /// Texture paths normalized to lowercase forward slashes under
+    /// `textures/`. Slot meaning is fixed by Skyrim, see the accessors.
     pub textures: Vec<String>,
     pub flags1: u32,
     pub flags2: u32,
@@ -275,7 +279,10 @@ impl Material {
     fn from_lighting(p: &LightingShader, textures: Vec<String>) -> Material {
         let mut m = Material {
             kind: MaterialKind::Lighting(p.shader_type),
-            textures,
+            textures: textures
+                .into_iter()
+                .map(|path| normalize_texture_path(&path))
+                .collect(),
             flags1: p.flags1,
             flags2: p.flags2,
             uv_offset: p.uv_offset,
@@ -294,20 +301,26 @@ impl Material {
     }
 
     fn from_effect(p: &EffectShader) -> Material {
+        let source_texture = normalize_texture_path(&p.source_texture);
+        let greyscale_texture = normalize_texture_path(&p.greyscale_texture);
         let mut m = Material {
             kind: MaterialKind::Effect,
             emissive_color: [p.base_color[0], p.base_color[1], p.base_color[2]],
             emissive_multiple: p.base_color_scale,
             alpha: p.base_color[3],
-            textures: vec![p.source_texture.clone()],
+            textures: vec![source_texture.clone()],
             flags1: p.flags1,
             flags2: p.flags2,
             uv_offset: p.uv_offset,
             uv_scale: p.uv_scale,
             effect: Some(EffectParams {
                 clamp_mode: p.clamp_mode,
-                source_texture: p.source_texture.clone(),
-                greyscale_texture: p.greyscale_texture.clone(),
+                source_texture,
+                greyscale_texture,
+                env_map_texture: normalize_texture_path(&p.env_map_texture),
+                normal_texture: normalize_texture_path(&p.normal_texture),
+                env_mask_texture: normalize_texture_path(&p.env_mask_texture),
+                env_map_scale: p.env_map_scale,
                 base_color: p.base_color,
                 base_color_scale: p.base_color_scale,
                 falloff_start_angle: p.falloff_start_angle,
@@ -336,6 +349,25 @@ impl Material {
                 threshold: a.threshold as f32 / 255.0,
             });
         }
+    }
+}
+
+/// Normalize a NIF texture path to the game's virtual `textures/` namespace.
+/// nifly's `TrimTexturePaths` removes the authored data/build prefix. VFS
+/// lookup then uses case-insensitive forward-slash paths.
+fn normalize_texture_path(path: &str) -> String {
+    let normalized = path.trim().replace('\\', "/").to_lowercase();
+    if normalized.is_empty() {
+        return normalized;
+    }
+    let texture_component = if normalized.starts_with("textures/") {
+        Some(0)
+    } else {
+        normalized.find("/textures/").map(|index| index + 1)
+    };
+    match texture_component {
+        Some(index) => normalized[index..].to_string(),
+        None => format!("textures/{normalized}"),
     }
 }
 
@@ -705,4 +737,64 @@ pub fn meshes_under_children(file: &NifFile, node: BlockRef) -> Result<Vec<Mesh>
         w.walk(child, &Transform::IDENTITY)?;
     }
     Ok(w.out)
+}
+
+#[cfg(test)]
+mod rnd_31_tests {
+    use super::{normalize_texture_path, EffectShader, Material};
+
+    #[test]
+    fn rnd_31_normalizes_nif_texture_prefixes_and_separators() {
+        assert_eq!(
+            normalize_texture_path("skyrimhd/build/pc/data/textures/landscape/trees/bark.dds"),
+            "textures/landscape/trees/bark.dds"
+        );
+        assert_eq!(
+            normalize_texture_path("Data/textures/actors/tree.dds"),
+            "textures/actors/tree.dds"
+        );
+        assert_eq!(
+            normalize_texture_path(r"TEXTURES\Trees\Leaves.DDS"),
+            "textures/trees/leaves.dds"
+        );
+        assert_eq!(
+            normalize_texture_path("Trees/Leaves.DDS"),
+            "textures/trees/leaves.dds"
+        );
+        assert_eq!(
+            normalize_texture_path("nottextures/Leaves.DDS"),
+            "textures/nottextures/leaves.dds"
+        );
+        assert_eq!(normalize_texture_path("  "), "");
+    }
+
+    #[test]
+    fn rnd_31_normalizes_texture_set_and_effect_shader_slots() {
+        let lighting = super::LightingShader::default();
+        let texture_set = vec![
+            r"build\data\textures\trees\bark.dds".into(),
+            r"Data\textures\trees\bark_n.dds".into(),
+            "trees/branches.dds".into(),
+        ];
+        let material = Material::from_lighting(&lighting, texture_set);
+        assert_eq!(material.diffuse(), Some("textures/trees/bark.dds"));
+        assert_eq!(material.normal(), Some("textures/trees/bark_n.dds"));
+        assert_eq!(material.glow(), Some("textures/trees/branches.dds"));
+
+        let effect = EffectShader {
+            source_texture: r"build\pc\data\textures\effects\source.dds".into(),
+            greyscale_texture: r"Data\textures\effects\palette.dds".into(),
+            env_map_texture: r"textures\effects\cube.dds".into(),
+            normal_texture: "effects/normal.dds".into(),
+            env_mask_texture: "data/textures/effects/mask.dds".into(),
+            ..Default::default()
+        };
+        let material = Material::from_effect(&effect);
+        let params = material.effect.unwrap();
+        assert_eq!(params.source_texture, "textures/effects/source.dds");
+        assert_eq!(params.greyscale_texture, "textures/effects/palette.dds");
+        assert_eq!(params.env_map_texture, "textures/effects/cube.dds");
+        assert_eq!(params.normal_texture, "textures/effects/normal.dds");
+        assert_eq!(params.env_mask_texture, "textures/effects/mask.dds");
+    }
 }

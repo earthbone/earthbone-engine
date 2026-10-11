@@ -89,7 +89,7 @@ for this row but is not present in the local reference corpus.
 - `bone_weights` and `bone_indices`, four per vertex, indexing `skin.bones`.
 - `skin`: skeleton root, per-bone name, node reference and inverse bind
   transform.
-- `material`: shader kind, texture slots by Skyrim meaning (diffuse, normal,
+- `material`: shader kind, normalized texture slots by Skyrim meaning (diffuse, normal,
   glow, height, environment, environment mask, inner layer, backlight), the
   flag-derived booleans a renderer acts on (double sided, vertex colors,
   vertex alpha, model-space normals, shadows, depth write and test, decal),
@@ -101,6 +101,21 @@ for this row but is not present in the local reference corpus.
 Conventions are the file's: right-handed, Z up, game units, DirectX UV
 origin. Converting to a host's axes is the host's job and is documented at
 the top of `mesh.rs`.
+
+Texture-set and effect-shader paths are trimmed, lowercased, and converted to
+forward slashes while the neutral mesh material is built. The first
+`textures/` component begins the resolved path. A path without that component
+gets the `textures/` prefix. Empty slots stay empty. This follows nifly's
+`NifFile::TrimTexturePaths` behavior and its `Trim texture paths` test in
+`tests/TestNifFile.cpp`. Nifly's `Nodes.hpp` declares `BSTreeNode` and
+`BSLeafAnimNode` as NiNode-derived scene nodes. OpenMW's local
+`components/nifosg/nifloader.cpp` was checked for scene and material handling,
+but it does not implement Skyrim's tree-animation shader behavior.
+
+`SLSF2_Tree_Anim` remains in the material's second shader flag word. The host
+uses it to choose a tree shader which samples diffuse and normal maps, applies
+the authored alpha test and culling mode, and offsets vertices over time by
+their red vertex-color value.
 
 ## Static glTF import and Skyrim SE export
 
@@ -199,13 +214,12 @@ that instant, blending rotation, translation and scale key tracks with a
 cubic Hermite for quadratic keys and slerp for rotation, falling back per
 channel to the interpolator's default value when a track has no keys.
 
-Open items, read against `../engine-refs/openmw`'s `components/nif`:
+Controller details, read against `../engine-refs/openmw`'s `components/nif`:
 
-- TBC (Kochanek-Bartels) tangent generation is not implemented. A
-  Tbc-interpolated key falls back to linear interpolation between its
-  neighbours instead of a true Kochanek-Bartels spline. TBC keys are rare on
-  Skyrim SE statics, a legacy 3ds Max and Blender authoring feature, so this
-  is scoped out rather than built and left unverified.
+- TBC float and vector tracks generate Kochanek-Bartels tangents using
+  tension, bias and continuity and their neighbouring keys. Quadratic and
+  TBC tracks use cubic Hermite interpolation. Quaternion tracks use slerp,
+  matching OpenMW's quaternion evaluator.
 - `XyzRotation` tracks compose the three per-axis key groups in a fixed X
   then Y then Z order. nif.xml carries no field for axis composition order at
   our version, so this follows OpenMW's own fallback case rather than a
@@ -380,3 +394,61 @@ OpenMW's `components/nif/property.hpp`, and `nifxml/nif.xml`.
 
 `rnd_22_effect_material` tests decode an independent effect fixture and survey
 installed mist, window glow and light beam meshes through `SKYRIM_DATA`.
+
+## Object animation playback, RND-23
+
+`object_animation::ObjectAnimation::from_file` resolves active
+`NiControllerManager` sequence links, their named geometry or property targets,
+and autonomous transform and shader controllers. The additional animation
+blocks retain their bytes in `Block::Unknown` and are decoded on demand.
+Sequence and controller lengths, counts, string indices and executable links
+are checked before sampling. Hierarchy traversal rejects cycles and dangling
+scene links. The decoder accepts all 22,047 NIFs in the two vanilla mesh
+archives in the installed-data test.
+
+Every manager selects Default, Idle or Loop by name, then its first looping
+sequence. `sample` uses the selected sequence's frequency, start time and
+cycle mode. Named sequences use case-insensitive lookup and replace idle
+sampling. Manager-controlled tracks read their interpolators from sequence
+links rather than the controller's blend-interpolator link. Targets below
+animated parents inherit the sampled parent pose. Invalid interpolator
+channels marked with negative FLT_MAX retain the authored transform channel.
+Autonomous controllers retain their frequency, phase, cycle and backwards
+playback flags.
+
+The property sampler supports alpha, emissive color and strength, UV offset,
+scale and rotation, and effect-shader falloff values. It reads effect and
+lighting shader float and color controller layouts, NiAlphaController and
+NiTextureTransformController. NiMultiTargetTransformController target arrays
+and BSLagBoneController's three scalar fields are length checked. Cumulative
+looping sequences carry completed root-transform deltas into
+subsequent loops. Lag-bone procedural displacement is not applied by this
+sampler. Unsupported interpolator types remain opaque.
+
+Layouts and variable codes follow local nifly `include/Animation.hpp`,
+`src/Animation.cpp` and nifxml `nif.xml`. Time mapping and interpolation follow
+OpenMW `components/nifosg/controller.cpp` and `components/nif/nifkey.hpp`.
+These C++ implementations are references for the existing Rust key tracks and
+mesh output, rather than linked dependencies. `rnd_23_object_animation`
+checks autonomous and manager playback, cycles, activation sequence names,
+interpolation, invalid defaults, shader channels and malformed sequence data.
+The installed survey samples banners, candles, windmills, water wheels,
+chests and levers.
+
+The 2026-10-11 timing audit found no unbounded sampling loop in this source.
+Key bracketing scans at most the track's key count. Channel, sequence and
+hierarchy passes use loaded vector lengths. Root accumulation uses binary
+exponentiation, shifting its u64 count once per iteration, at most 64 times.
+Time wrapping uses a closed form. The reported freeze symbols
+`evaluate_transforms` and `sample_transform` do not exist in this checkout,
+so the release hang's cause is not established by this audit.
+
+`evaluate_time` now uses f64 clock arithmetic and `rem_euclid` for loop and
+reverse cycles. Nonfinite times, phase, bounds or frequency hold the finite
+start pose, or time zero when start is invalid. Durations and frequencies
+at most 0.000001 also hold the start pose, including negative values.
+Cumulative sequences use the same clock validation. Valid endpoint,
+clamp, phase, backwards and root accumulation semantics remain covered by
+the synthetic RND-23 tests. Separate cases cover empty, single and duplicate
+keys, invalid timing values, a billion elapsed seconds and extreme finite
+clock inputs, each with a one-second execution budget and all three cycles.

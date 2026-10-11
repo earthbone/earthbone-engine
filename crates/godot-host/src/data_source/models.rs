@@ -64,6 +64,8 @@ pub(crate) fn model_for(record: &Record) -> Option<String> {
         soe_esm::records::gras::Grass::from_record(record)
             .ok()?
             .model?
+    } else if record.tag == Tag::new(b"TREE") {
+        soe_esm::cursor::zstring(record.find(Tag::new(b"MODL"))?)
     } else {
         return None;
     };
@@ -102,6 +104,7 @@ mod tests {
     fn static_furniture_container_and_door_models_share_selection() {
         for kind in [
             tag::STAT,
+            Tag::new(b"TREE"),
             Tag::new(b"FURN"),
             Tag::new(b"CONT"),
             Tag::new(b"DOOR"),
@@ -202,5 +205,27 @@ mod rnd_17_tests {
         let record = Record::new(Tag::new(b"ACTI"), 1).zsub(b"MODL", "Barricade.nif");
         assert_eq!(model_for(&record).as_deref(), Some("Barricade.nif"));
         assert_eq!(model_for(&record.with_flags(1 << 23)), None);
+    }
+}
+
+#[cfg(test)]
+mod rnd_31_tests {
+    use super::*;
+
+    #[test]
+    fn rnd_31_tree_records_select_their_authored_model_path() {
+        let tree = Record::new(Tag::new(b"TREE"), 1).zsub(b"MODL", r"Landscape\Trees\Pine01.nif");
+        assert_eq!(
+            model_for(&tree).as_deref(),
+            Some(r"Landscape\Trees\Pine01.nif")
+        );
+        assert_eq!(
+            render_model_for(&tree).as_deref(),
+            Some(r"Landscape\Trees\Pine01.nif")
+        );
+        assert_eq!(
+            render_model_for(&tree.with_flags(1 << 23)).as_deref(),
+            Some(r"Landscape\Trees\Pine01.nif")
+        );
     }
 }
