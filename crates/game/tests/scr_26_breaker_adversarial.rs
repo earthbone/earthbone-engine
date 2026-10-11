@@ -21,7 +21,7 @@ fn fixture() -> Game {
     );
     plugin.push_top(
         Record::new(Tag::new(b"GMST"), 4)
-            .zsub(Tag::new(b"EDID"), "fCameraShakeDuration")
+            .zsub(Tag::new(b"EDID"), "fCameraShakeTime")
             .sub(Tag::new(b"DATA"), 1.25f32.to_le_bytes()),
     );
     let mut order = LoadOrder::new();
@@ -62,13 +62,16 @@ fn global(game: &mut Game, name: &str, args: &[Value]) -> Value {
 }
 
 #[test]
-fn scr_26_breaker_shake_uses_the_two_declared_arguments_and_setting_duration() {
+fn scr_26_breaker_shake_uses_the_three_declared_arguments_and_setting_duration() {
     let mut game = fixture();
-    let source = Value::Object(game.object_of_form(id(1)));
-    global(&mut game, "ShakeCamera", &[source, Value::Float(0.5)]);
+    global(
+        &mut game,
+        "ShakeCamera",
+        &[Value::None, Value::Float(0.5), Value::Float(0.0)],
+    );
     let shakes = &game.world().camera_shakes;
     assert_eq!(shakes.len(), 1);
-    assert_eq!(shakes[0].source, id(1));
+    assert_eq!(shakes[0].source, game.world().player());
     assert_eq!(shakes[0].strength, 0.5);
     assert_eq!(shakes[0].duration, 1.25);
 }
@@ -101,17 +104,33 @@ fn scr_26_breaker_shake_rejects_missing_extra_and_wrong_typed_arguments() {
     global(
         &mut game,
         "ShakeCamera",
-        &[source.clone(), Value::Float(0.5), Value::Float(0.25)],
+        &[
+            source.clone(),
+            Value::Float(0.5),
+            Value::Float(0.25),
+            Value::Float(0.1),
+        ],
     );
     global(
         &mut game,
         "ShakeCamera",
         &[source.clone(), Value::string("strong")],
     );
+    global(
+        &mut game,
+        "ShakeCamera",
+        &[source.clone(), Value::Float(0.5), Value::string("long")],
+    );
     global(&mut game, "ShakeCamera", &[Value::None, Value::Float(0.5)]);
 
-    assert!(game.world().camera_shakes.is_empty());
-    assert_eq!(game.world().native_errors.len(), 5);
+    assert_eq!(game.world().camera_shakes.len(), 3);
+    assert_eq!(game.world().camera_shakes[0].source, game.world().player());
+    assert_eq!(game.world().camera_shakes[0].strength, 0.5);
+    assert_eq!(game.world().camera_shakes[1].source, id(1));
+    assert_eq!(game.world().camera_shakes[1].strength, 0.5);
+    assert_eq!(game.world().camera_shakes[2].source, game.world().player());
+    assert_eq!(game.world().camera_shakes[2].strength, 0.5);
+    assert_eq!(game.world().native_errors.len(), 3);
 }
 
 #[test]

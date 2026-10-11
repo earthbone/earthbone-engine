@@ -3146,14 +3146,16 @@ fn game(vm: &mut Vm, w: &Shared) {
         b(world.player_is_sungazing())
     });
     global!(vm, w, "Game", "ShakeCamera", |world, call| {
-        if call.args.len() != 2 {
+        if call.args.len() > 3 {
             world.report_native_error(
                 "Game.ShakeCamera",
-                "expected an ObjectReference source and a Float strength".into(),
+                "expected at most an ObjectReference source, Float strength, and Float duration"
+                    .into(),
             );
             return none();
         }
         let source = match call.args.first() {
+            None | Some(Value::None) => Some(world.player()),
             Some(Value::Object(object)) => world.form_of(*object).filter(|id| {
                 world.record(*id).is_some_and(|record| {
                     (record.tag == Tag(*b"REFR") || record.tag == Tag(*b"ACHR"))
@@ -3170,6 +3172,7 @@ fn game(vm: &mut Vm, w: &Shared) {
             return none();
         };
         let strength = match call.args.get(1) {
+            None => 0.5,
             Some(Value::Float(value)) => *value,
             Some(Value::Int(value)) => *value as f32,
             _ => {
@@ -3177,9 +3180,22 @@ fn game(vm: &mut Vm, w: &Shared) {
                 return none();
             }
         };
-        let duration = world
-            .game_setting("fCameraShakeDuration")
-            .map_or(0.25, |value| value.as_float());
+        let requested_duration = match call.args.get(2) {
+            None => 0.0,
+            Some(Value::Float(value)) => *value,
+            Some(Value::Int(value)) => *value as f32,
+            _ => {
+                world.report_native_error("Game.ShakeCamera", "expected a Float duration".into());
+                return none();
+            }
+        };
+        let duration = if requested_duration == 0.0 {
+            world
+                .game_setting("fCameraShakeTime")
+                .map_or(0.25, |value| value.as_float())
+        } else {
+            requested_duration
+        };
         if !strength.is_finite() || !duration.is_finite() || duration < 0.0 {
             world.report_native_error(
                 "Game.ShakeCamera",

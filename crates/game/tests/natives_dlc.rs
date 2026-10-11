@@ -1610,13 +1610,13 @@ fn scr_26_game_sky_and_camera_bindings() {
         &mut g,
         "Game",
         "ShakeCamera",
-        &[player.clone(), Value::Float(1.5)],
+        &[player.clone(), Value::Float(1.5), Value::Float(0.7)],
     );
     let shakes = g.world().camera_shakes.clone();
     assert_eq!(shakes.len(), 1);
     assert_eq!(shakes[0].source, form(&g, "PlayerRef"));
     assert_eq!(shakes[0].strength, 1.0);
-    assert_eq!(shakes[0].duration, 0.25);
+    assert_eq!(shakes[0].duration, 0.7);
     call_global(
         &mut g,
         "Game",
@@ -1630,13 +1630,13 @@ fn scr_26_game_sky_and_camera_bindings() {
         &mut g,
         "Game",
         "ShakeCamera",
-        &[Value::Int(1), Value::Float(0.5)],
+        &[Value::None, Value::Float(f32::NAN), Value::Float(0.5)],
     );
     call_global(
         &mut g,
         "Game",
         "ShakeCamera",
-        &[player, Value::Float(f32::NAN)],
+        &[Value::None, Value::Float(0.5), Value::Float(-1.0)],
     );
     assert_eq!(g.world().camera_shakes.len(), 2);
     assert_eq!(g.world().native_errors.len(), 2);

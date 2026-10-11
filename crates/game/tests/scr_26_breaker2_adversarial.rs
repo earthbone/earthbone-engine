@@ -15,7 +15,7 @@ fn fixture() -> Game {
     plugin.push_top(Record::new(Tag::new(b"REFR"), 1));
     plugin.push_top(
         Record::new(Tag::new(b"GMST"), 4)
-            .zsub(Tag::new(b"EDID"), "fCameraShakeDuration")
+            .zsub(Tag::new(b"EDID"), "fCameraShakeTime")
             .sub(Tag::new(b"DATA"), 1.25f32.to_le_bytes()),
     );
     let mut order = LoadOrder::new();
@@ -40,7 +40,12 @@ fn global(game: &mut Game, args: &[Value]) {
         operands.push(ident(&parameter));
     }
     let bytes = ScriptBuilder::new(&script, "")
-        .function(function.ins(CallStatic, operands).ins(Return, vec![]).build())
+        .function(
+            function
+                .ins(CallStatic, operands)
+                .ins(Return, vec![])
+                .build(),
+        )
         .bytes();
     game.load_script(&bytes).unwrap();
     let thread = game.vm.call_global(&script, "Run", args).unwrap();
@@ -49,7 +54,7 @@ fn global(game: &mut Game, args: &[Value]) {
 }
 
 #[test]
-fn scr_26_null_source_uses_player_location_and_default_strength() {
+fn scr_26_null_source_uses_player_and_default_strength_and_duration() {
     let mut game = fixture();
     let player = game.world_mut().player();
     global(
@@ -68,10 +73,7 @@ fn scr_26_null_source_uses_player_location_and_default_strength() {
 fn scr_26_explicit_duration_overrides_the_game_setting() {
     let mut game = fixture();
     let source = Value::Object(game.object_of_form(id(1)));
-    global(
-        &mut game,
-        &[source, Value::Float(0.75), Value::Float(0.4)],
-    );
+    global(&mut game, &[source, Value::Float(0.75), Value::Float(0.4)]);
 
     let shakes = &game.world().camera_shakes;
     assert_eq!(shakes.len(), 1);

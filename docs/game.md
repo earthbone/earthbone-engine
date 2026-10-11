@@ -1173,15 +1173,15 @@ angular tolerance. The named tests pin the current runtime choices. A
 source-backed or measured vanilla model for the radius and tolerance remains
 prerequisite work for claiming exact Skyrim compatibility.
 
-`Game.ShakeCamera(ObjectReference, Float)` accepts exactly the two arguments
-in the CK signature. It queues a transient request for a live reference, clamps
-finite strength to 0 through 1 and uses `fCameraShakeDuration`, falling back to
-0.25 seconds, for the host request duration. Wrong argument counts, invalid
-source references and non-float strength values report native errors and queue
+`Game.ShakeCamera(ObjectReference = None, Float = 0.5, Float = 0.0)` accepts
+the three optional arguments in the CK signature. A None source uses the
+player. The native queues a transient request, clamps finite strength to 0
+through 1 and uses `fCameraShakeTime` when duration is zero, falling back to
+0.25 seconds. More than three arguments, invalid references, non-numeric
+values and negative or non-finite values report native errors and queue
 nothing. Camera requests are transient and are not saved. The local CK
-`Game_Script.wikitext` defines the signature and says the camera shakes from the
-source location with the supplied strength. The duration setting and strength
-clamp are runtime behavior, not details stated by that page.
+`Game_Script.wikitext` defines the signature, defaults, source behavior and
+strength clamp. The fallback duration is runtime behavior.
 
 ### Debug natives, SCR-20
 
@@ -1626,8 +1626,9 @@ The CK `SendAssaultAlarm_-_Actor.wikitext` page describes the actor alarm as
 simulating an assault by the player. `Faction.SendPlayerToJail` routes its
 receiver faction through the existing sentence accounting API. The vanilla
 PSC declares the inventory and real-jail flags. Inventory removal is applied
-when requested. Real-jail travel still produces a trace because jail-marker
-travel is not implemented.
+when requested. Real-jail travel moves the player to the receiver faction's
+resolved `JAIL` marker after a positive sentence. Missing markers leave the
+player in place.
 
 **LeveledSpell and Location native contracts.** `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`
 checks the registered methods for `LeveledItem`, `LeveledActor`,
@@ -2022,7 +2023,7 @@ comments. No bindings in this inventory are globals.
 | Faction.SetPlayerEnemy | Sets the player-enemy flag. The argument defaults true. |
 | Faction.IsFactionInCrimeGroup | Takes another faction and checks it against this faction's `CRGR` shared-crime FLST. It now resolves the winning FACT record and the winning list entries. |
 | Faction.SendAssaultAlarm | Selects the nearest built actor in the faction and records a player assault through the crime system. A missing witness or untracked faction is traced. |
-| Faction.SendPlayerToJail | Serves the receiver faction's bounty through jail sentence accounting and marks the player arrested after a positive sentence. Jail travel and belongings storage are not implemented. |
+| Faction.SendPlayerToJail | Serves the receiver faction's bounty through jail sentence accounting, applies the inventory and real-jail options, and marks the player arrested after a positive sentence. |
 | Faction.ModReaction | Takes another faction and a signed delta, then saturating-adds it to this faction's reaction toward it. |
 | ReferenceAlias.ForceRefIfEmpty | Takes an ObjectReference, tries to fill only an empty alias and returns whether it filled it. It is registered on ReferenceAlias, not Alias, so LocationAlias does not inherit it. |
 
