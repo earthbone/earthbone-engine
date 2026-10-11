@@ -19,7 +19,10 @@ fn fixture() -> (World, GlobalFormId) {
     let mut order = LoadOrder::new();
     order.add("Base.esm", base).unwrap();
     order.add("Update.esm", update).unwrap();
-    let actor = GlobalFormId { file: 0, object: 0x801 };
+    let actor = GlobalFormId {
+        file: 0,
+        object: 0x801,
+    };
     (World::new(order), actor)
 }
 
@@ -40,7 +43,9 @@ fn null_and_stale_reference_pointers_fail_without_creating_a_reference() {
     let (mut world, actor) = fixture();
     assert!(world.commonlib_reference_ptr(ObjectRefPtr(None)).is_none());
     assert!(world
-        .commonlib_reference_ptr(ObjectRefPtr(Some(soe_commonlib_shim::refr::ObjectRefHandle(0xDEAD_BEEF))))
+        .commonlib_reference_ptr(ObjectRefPtr(Some(
+            soe_commonlib_shim::refr::ObjectRefHandle(0xDEAD_BEEF)
+        )))
         .is_none());
     assert!(world.commonlib_reference(actor).is_some());
 }

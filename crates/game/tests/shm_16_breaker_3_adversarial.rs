@@ -41,7 +41,10 @@ fn light_forms_and_tesfile_indices_round_trip_through_live_data_handler() {
     let light = data.lookup(FormId(0xFE00_0010)).unwrap();
     assert_eq!(light.form_type(), FormType(*b"MISC"));
     assert_eq!(light.editor_id(), Some("Light"));
-    assert_eq!(data.forms_of_type(FormType(*b"MISC")), [FormId(0x800), FormId(0xFE00_0010)]);
+    assert_eq!(
+        data.forms_of_type(FormType(*b"MISC")),
+        [FormId(0x800), FormId(0xFE00_0010)]
+    );
     assert_eq!(data.file(0).unwrap().regular_index, Some(0));
     assert_eq!(data.file(1).unwrap().light_index, Some(0));
     assert_eq!(data.file(2), None);
@@ -50,8 +53,14 @@ fn light_forms_and_tesfile_indices_round_trip_through_live_data_handler() {
 #[test]
 fn reference_pointer_reads_current_transform_flags_and_cell() {
     let mut world = World::new(fixture_order());
-    let reference_id = GlobalFormId { file: 0, object: 0x801 };
-    let cell_id = GlobalFormId { file: 0, object: 0x802 };
+    let reference_id = GlobalFormId {
+        file: 0,
+        object: 0x801,
+    };
+    let cell_id = GlobalFormId {
+        file: 0,
+        object: 0x802,
+    };
     let state = world.reference(reference_id).unwrap();
     state.position = [21.0, -3.0, 7.5];
     state.rotation = [0.25, 0.5, 0.75];
@@ -69,13 +78,19 @@ fn reference_pointer_reads_current_transform_flags_and_cell() {
     assert!(reference.is_deleted());
     let pointer = reference.pointer();
     drop(reference);
-    assert_eq!(world.commonlib_reference_ptr(pointer).unwrap().form_id(), FormId(0x801));
+    assert_eq!(
+        world.commonlib_reference_ptr(pointer).unwrap().form_id(),
+        FormId(0x801)
+    );
 }
 
 #[test]
 fn weapon_state_and_actor_snapshot_follow_repeated_live_changes() {
     let mut world = World::new(fixture_order());
-    let actor_id = GlobalFormId { file: 0, object: 0x801 };
+    let actor_id = GlobalFormId {
+        file: 0,
+        object: 0x801,
+    };
     for (drawn, expected) in [(false, 0), (true, 3), (false, 0), (true, 3)] {
         world.actor(actor_id).unwrap().weapon_drawn = drawn;
         let actor = world.commonlib_actor(actor_id).unwrap();
