@@ -441,9 +441,11 @@ What each node does:
   `SynchronizedClipScene` coordinates two actor clip clocks through ordered,
   shared named markers. The host supplies each clip's marker times, chooses
   the lead actor, advances the scene once per frame, then sets each wrapped
-  clip's synchronized time before updating its interpreter. Cancel returns
-  both actor ids and makes the scene inactive. The host clears the synchronized
-  time override on each interpreter when the scene ends or is cancelled.
+  clip's synchronized time before updating its interpreter. Completion exposes
+  the final shared marker for one update before the scene becomes inactive.
+  Cancel returns both actor ids and makes the scene inactive. The host clears
+  the synchronized time override on each interpreter when the scene ends or is
+  cancelled.
   `cancel_and_clear_interpreter_times` cancels the scene, clears both
   interpreter overrides and returns both actor ids. The runtime can use
   `cancel_clear_and_release_host_locks` to clear both overrides and call its

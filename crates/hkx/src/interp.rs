@@ -259,17 +259,21 @@ impl SynchronizedClipScene {
     }
 
     /// Advance the shared lead clock once per frame. Returns false after the
-    /// last common marker has been reached or the scene has been cancelled.
+    /// final marker has been exposed or the scene has been cancelled.
     pub fn advance(&mut self, dt: f32) -> bool {
         if !self.active || !dt.is_finite() || dt < 0.0 {
             return false;
         }
-        self.elapsed += dt;
         let end = self
             .marker_time(self.lead, self.common_markers.len() - 1)
             .unwrap_or(0.0);
-        self.active = self.elapsed < end - self.marker_time(self.lead, 0).unwrap_or(0.0);
-        self.active
+        let duration = end - self.marker_time(self.lead, 0).unwrap_or(0.0);
+        if self.elapsed >= duration {
+            self.active = false;
+            return false;
+        }
+        self.elapsed += dt.min(duration - self.elapsed);
+        true
     }
 
     /// Current clip-local time for an actor, aligned at every shared marker.

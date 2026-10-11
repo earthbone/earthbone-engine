@@ -63,7 +63,12 @@ fn completed_pair_exposes_endpoint_then_stops_and_returns_both_actor_ids() {
     )
     .unwrap();
 
-    assert!(!scene.advance(5.0));
+    assert!(scene.advance(5.0));
+    assert_eq!(
+        [scene.time_for(4), scene.time_for(8)],
+        [Some(5.0), Some(9.0)]
+    );
+    assert!(!scene.advance(0.0));
     assert_eq!([scene.time_for(4), scene.time_for(8)], [None, None]);
     assert_eq!(scene.cancel(), [4, 8]);
     assert_eq!([scene.time_for(4), scene.time_for(8)], [None, None]);
@@ -107,7 +112,12 @@ fn cancellation_after_end_releases_each_participant_once() {
         8,
     )
     .unwrap();
-    assert!(!scene.advance(1.0));
+    assert!(scene.advance(1.0));
+    assert_eq!(
+        [scene.time_for(4), scene.time_for(8)],
+        [Some(1.0), Some(4.0)]
+    );
+    assert!(!scene.advance(0.0));
     let mut released = Vec::new();
 
     let actors = scene.cancel_clear_and_release_host_locks(
