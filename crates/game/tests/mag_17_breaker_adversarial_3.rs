@@ -20,7 +20,10 @@ fn mag_17_location_cast_rejects_range_that_overflows_unit_conversion() {
         &mut |name, class| game.vm.create_object_of(name, class),
     );
 
-    assert!(result.is_err(), "unrepresentable world-space range is invalid");
+    assert!(
+        result.is_err(),
+        "unrepresentable world-space range is invalid"
+    );
     assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(game.world_mut().actor_value(id(SOURCE), "health"), 100.0);
 }

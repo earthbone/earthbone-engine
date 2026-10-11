@@ -44,7 +44,10 @@ fn mag_17_location_cast_rejects_missing_source_without_mutation() {
         &mut |name, class| game.vm.create_object_of(name, class),
     );
 
-    assert!(result.is_err(), "a location cast needs a live source reference");
+    assert!(
+        result.is_err(),
+        "a location cast needs a live source reference"
+    );
     assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(game.world_mut().actor_value(id(SOURCE), "health"), 100.0);
 }
@@ -66,7 +69,10 @@ fn mag_17_location_cast_rejects_other_delivery_modes_without_mutation() {
         &mut |name, class| game.vm.create_object_of(name, class),
     );
 
-    assert!(result.is_err(), "only Target Location delivery accepts a position");
+    assert!(
+        result.is_err(),
+        "only Target Location delivery accepts a position"
+    );
     assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(game.world_mut().actor_value(id(SOURCE), "health"), 100.0);
 }
@@ -88,7 +94,10 @@ fn mag_17_location_cast_rejects_obstruction_without_mutation() {
         &mut |name, class| game.vm.create_object_of(name, class),
     );
 
-    assert!(result.is_err(), "an obstructed location cannot receive the cast");
+    assert!(
+        result.is_err(),
+        "an obstructed location cannot receive the cast"
+    );
     assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(game.world_mut().actor_value(id(SOURCE), "health"), 100.0);
 }
@@ -110,7 +119,10 @@ fn mag_17_location_cast_uses_three_dimensional_range() {
         &mut |name, class| game.vm.create_object_of(name, class),
     );
 
-    assert!(result.is_err(), "the diagonal point is beyond one foot in 3D");
+    assert!(
+        result.is_err(),
+        "the diagonal point is beyond one foot in 3D"
+    );
     assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(game.world_mut().actor_value(id(SOURCE), "health"), 100.0);
 }
