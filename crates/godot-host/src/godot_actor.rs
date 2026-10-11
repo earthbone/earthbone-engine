@@ -167,7 +167,6 @@ pub struct SkinnedActorNode {
     presented_actor: Option<soe_esm::GlobalFormId>,
     presented_placement: Option<soe_game::world::RefPlacement>,
     presentation_hidden: bool,
-    presented_at: Option<std::time::Instant>,
     presented_moving: bool,
     presented_turning: i8,
     pose_us: f64,
@@ -202,7 +201,6 @@ impl INode3D for SkinnedActorNode {
             presented_actor: None,
             presented_placement: None,
             presentation_hidden: false,
-            presented_at: None,
             presented_moving: false,
             presented_turning: 0,
             pose_us: 0.0,
@@ -900,33 +898,21 @@ impl SkinnedActorNode {
         }
     }
 
-    pub(crate) fn present(&mut self, placement: soe_game::world::RefPlacement, hidden: bool) {
-        let now = std::time::Instant::now();
-        if let (Some(previous), Some(at), Some(vm)) = (
-            self.presented_placement,
-            self.presented_at,
+    pub(crate) fn present(
+        &mut self,
+        placement: soe_game::world::RefPlacement,
+        hidden: bool,
+        delta: f32,
+    ) {
+        if let (Some(motion), Some(vm)) = (
+            self.presented_placement
+                .and_then(|previous| crate::actor::NpcMotion::between(previous, placement, delta)),
             self.vm.as_mut(),
         ) {
-            let distance = previous
-                .position
-                .iter()
-                .zip(placement.position)
-                .map(|(a, b)| (a - b).powi(2))
-                .sum::<f32>()
-                .sqrt();
-            let delta = now.duration_since(at).as_secs_f32().max(0.0001);
-            let speed = distance / delta;
+            let speed = motion.speed;
+            let turn = motion.turn;
             vm.variables.set_by_name("Speed", speed);
-            let heading = placement.rotation[2];
-            let dx = placement.position[0] - previous.position[0];
-            let dy = placement.position[1] - previous.position[1];
-            let direction = if speed > 0.1 {
-                wrap_angle(dx.atan2(dy) - heading).to_degrees()
-            } else {
-                0.0
-            };
-            let turn = wrap_angle(heading - previous.rotation[2]).to_degrees() / delta;
-            vm.variables.set_by_name("Direction", direction);
+            vm.variables.set_by_name("Direction", motion.direction);
             vm.variables.set_by_name("TurnDelta", turn);
             vm.set_character_position(placement.position);
             let turning = if turn.abs() <= 0.1 {
@@ -961,7 +947,6 @@ impl SkinnedActorNode {
                 self.presented_moving = moving;
             }
         }
-        self.presented_at = Some(now);
         self.presented_placement = Some(placement);
         self.presentation_hidden = hidden || !placement.visible;
         let mut server = RenderingServer::singleton();
@@ -1247,19 +1232,11 @@ impl SkinnedActorNode {
 }
 
 fn placement_transform(placement: soe_game::world::RefPlacement) -> Transform3D {
-    let placed = crate::units::placement_to_godot(
-        crate::units::skyrim_euler_matrix(placement.rotation),
-        placement.position,
-        placement.scale,
-    );
+    let placed = crate::actor::npc_transform(placement);
     to_transform3d(&Affine {
         basis: placed.basis,
         origin: [placed.origin.x, placed.origin.y, placed.origin.z],
     })
-}
-
-fn wrap_angle(value: f32) -> f32 {
-    (value + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
 }
 
 fn visible_for_invisibility(invisible: bool) -> bool {

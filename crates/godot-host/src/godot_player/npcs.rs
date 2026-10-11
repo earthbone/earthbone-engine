@@ -144,7 +144,7 @@ fn prepare(source: &DataSource, appearance: &ActorAppearance, rigs: &RigCache) -
 }
 
 impl PlayerNode {
-    pub(super) fn sync_npc_actors(&mut self) {
+    pub(super) fn sync_npc_actors(&mut self, delta: f32) {
         let _scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         let started = Instant::now();
         let Some(source) = self.data_source.as_ref().map(Arc::clone) else {
@@ -330,7 +330,8 @@ impl PlayerNode {
                             if !node.is_inside_tree() {
                                 parent.add_child(&node);
                             }
-                            node.bind_mut().present(placement, self.npc_actors.hidden);
+                            node.bind_mut()
+                                .present(placement, self.npc_actors.hidden, 0.0);
                             let result = node.bind_mut().install_presented_actor(
                                 id,
                                 rig,
@@ -367,7 +368,8 @@ impl PlayerNode {
                         id,
                     );
                 }
-                node.bind_mut().present(placement, self.npc_actors.hidden);
+                node.bind_mut()
+                    .present(placement, self.npc_actors.hidden, delta);
                 if let Some(pair) = &self.simulation_pair {
                     for request in resident
                         .animation_cursor
@@ -419,11 +421,29 @@ impl PlayerNode {
         }).collect()
     }
 
+    /// Selected packages and route state for resident NPCs in inline gameplay.
+    #[func]
+    pub fn npc_package_states(&self) -> Array<VarDictionary> {
+        let Some(game) = &self.game else {
+            return Array::new();
+        };
+        let world = game.world();
+        self.npc_actors.residents.keys().filter_map(|id| {
+            let actor = world.actor_ref(*id)?;
+            Some(vdict! { "actor" => id.to_string().as_str(),
+                "package" => actor.ai.package.and_then(|package| world.editor_id(package)).unwrap_or_default().as_str(),
+                "procedure" => format!("{:?}", actor.ai.procedure).as_str(),
+                "path_points" => actor.ai.path.len() as i64,
+                "speed" => actor.ai.speed,
+                "arrived" => actor.ai.arrived })
+        }).collect()
+    }
+
     /// Hide all NPC RIDs for a paired capture without changing gameplay state.
     #[func]
     pub fn set_npc_visuals_hidden(&mut self, hidden: bool) {
         self.npc_actors.hidden = hidden;
-        self.sync_npc_actors();
+        self.sync_npc_actors(0.0);
     }
 
     /// Number of enabled resident ACHRs expected and currently drawn.

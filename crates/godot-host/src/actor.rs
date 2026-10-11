@@ -43,6 +43,61 @@ pub const MASTER_BEHAVIOR: &str = "behaviors/0_master.hkx";
 /// Vanilla one-handed melee behavior, with authored attack markers.
 pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
 
+/// Render transform supplied by the shared world's actor placement.
+pub fn npc_transform(placement: soe_game::world::RefPlacement) -> crate::units::GodotTransform {
+    crate::units::placement_to_godot(
+        crate::units::skyrim_euler_matrix(placement.rotation),
+        placement.position,
+        placement.scale,
+    )
+}
+
+/// Authored locomotion inputs derived from consecutive rendered placements.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NpcMotion {
+    /// Skyrim units per second.
+    pub speed: f32,
+    /// Degrees relative to the actor's heading.
+    pub direction: f32,
+    /// Heading change in degrees per second.
+    pub turn: f32,
+}
+
+impl NpcMotion {
+    /// Sample movement using the render clock. Invalid deltas produce no sample.
+    pub fn between(
+        previous: soe_game::world::RefPlacement,
+        current: soe_game::world::RefPlacement,
+        delta: f32,
+    ) -> Option<Self> {
+        if !delta.is_finite() || delta <= 0.0 {
+            return None;
+        }
+        let displacement: [f32; 3] =
+            std::array::from_fn(|axis| current.position[axis] - previous.position[axis]);
+        let speed = displacement
+            .iter()
+            .map(|value| value * value)
+            .sum::<f32>()
+            .sqrt()
+            / delta;
+        let wrap = |angle: f32| {
+            (angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+        };
+        let direction = if speed > 0.1 {
+            wrap(displacement[0].atan2(displacement[1]) - current.rotation[2]).to_degrees()
+        } else {
+            0.0
+        };
+        let turn = wrap(current.rotation[2] - previous.rotation[2]).to_degrees() / delta;
+        Some(Self {
+            speed,
+            direction,
+            turn,
+        })
+    }
+}
+
 /// What went wrong assembling a character.
 #[derive(Debug, thiserror::Error)]
 pub enum ActorError {
@@ -1072,7 +1127,7 @@ fn nif_transform_to_hkx(transform: &NifTransform) -> soe_hkx::QsTransform {
 }
 
 fn actor_root(behavior_path: &str) -> String {
-    if let Some(at) = behavior_path.rfind("/behaviors/") {
+    if let Some(at) = behavior_path.to_ascii_lowercase().rfind("/behaviors/") {
         behavior_path[..=at].to_string()
     } else {
         behavior_path.rfind('/').map_or_else(
@@ -1599,5 +1654,32 @@ mod tests {
             rooted_asset_path(CHARACTER_ROOT, "behaviors/mt_behavior.hkx"),
             "meshes/actors/character/behaviors/mt_behavior.hkx"
         );
+    }
+}
+
+#[cfg(test)]
+mod hst_29_paths {
+    use super::{actor_root, behavior_reference_path};
+
+    #[test]
+    fn hst_29_vanilla_mixed_case_behavior_root_resolves_child_graph() {
+        let master = "meshes/Actors/Character/Behaviors/0_Master.hkx";
+        assert_eq!(actor_root(master), "meshes/Actors/Character/");
+        assert_eq!(
+            behavior_reference_path(master, r"Behaviors\mt_behavior.hkx"),
+            "meshes/Actors/Character/Behaviors/mt_behavior.hkx"
+        );
+    }
+
+    #[test]
+    fn hst_29_behavior_root_preserves_creature_and_lowercase_paths() {
+        for root in ["meshes/actors/character/", "meshes/actors/wolf/"] {
+            let master = format!("{root}behaviors/master.hkx");
+            assert_eq!(actor_root(&master), root);
+            assert_eq!(
+                behavior_reference_path(&master, r"Behaviors\idle.hkx"),
+                format!("{root}Behaviors/idle.hkx")
+            );
+        }
     }
 }

@@ -75,6 +75,56 @@ bones, Hulda's face tint and a changing idle pose. It also checks that movement
 enters a walk clip and returns to idle. The capture checks uploaded head and
 eye meshes, Hulda's hair and rendered bone changes across one second.
 
+## NPC package presentation, HST-29
+
+PlayerNode submits the shared Game actor placement to resident NPC RIDs on every
+render frame. Threaded gameplay uses the snapshot adapter's interpolated
+placement. `actor::npc_transform` carries the reference position, Euler heading
+and scale through the existing Skyrim-to-Godot conversion. `NpcMotion::between`
+uses the render frame delta for Speed, heading-relative Direction and wrapped
+TurnDelta. A zero, negative or nonfinite delta leaves graph inputs unchanged.
+Visibility-only reconciliation supplies zero delta. Animation processing retains
+the race-selected behavior graph and clips, with movement and turn events at
+transitions and idle playback when stationary. These are presentation samples,
+not another authoritative actor position or new saved state. This adds no nodes
+beyond HST-23's existing control node and RID geometry.
+
+The source contracts are the existing game package driver, its linked-marker
+Patrol implementation and the HKX interpreter. The local serde-hkx
+`hkbCharacterStringData.json` describes character animation and property names.
+The local `hkbBehaviorReferenceGenerator.json` identifies referenced graph names.
+Behavior-root lookup ignores directory case, so the capitalized Behaviors path
+from vanilla RACE records resolves references under the actor root. It does not
+append a second Behaviors directory. Path tests cover human and creature roots.
+The existing loaders supply those assets and properties without a new parser,
+dependency or alternate animation library.
+
+`hst_29_npc_motion` drives a synthetic Patrol package through movement, marker
+dwell and completion. It uses the same transform and motion samplers as the node
+and requires no more than eight units of placement error on each frame. Separate
+checks cover the render delta, wrapped heading and invalid deltas. An installed
+Hulda rig check samples idle, verifies changing leg bones during walk playback
+and requires stopping to return to idle.
+`godot/tst_19_npc_checks.gd` requires each one-second pair of resident animated
+NPC uploaded skin transforms to change and measures at least 64 units of NPC displacement within 30 seconds,
+with a locomotion clip active during the observation. The installed-data
+`hst_29_walkthrough_test.gd` runs those PLAY_PATH npc.pose and npc.moves checks in
+the Bannered Mare for three minutes with SOE_PLAY_PATH=gate, checking visual
+placement against Game every frame. If the inn's first 30-second window has no
+qualifying movement, it activates the exit and starts another movement window
+in Whiterun after the inn nodes depart and every new resident NPC finishes
+loading. Pose comparisons continue across both locations.
+It runs normal gameplay, leaves package
+selection to Game and quits with a failing exit status if its checks fail.
+The reusable NPC probe can also be sampled by route scripts at each stop.
+`npc_package_states` reads selected packages, procedure names, route lengths,
+speeds and arrival flags for resident NPCs in inline gameplay.
+The runner retains the child process, drains its output and uses the six-minute
+scene watchdog and a fifteen-minute process bound that includes slot waiting.
+If the inherited extension configuration names the HST-23 scratch
+library, it creates an ignored target symlink to the current release library,
+leaving the configuration unchanged.
+
 ## Snapshot adapter, PRF-37 draft
 
 `PlayerNode::start_threaded_gameplay` starts a worker-owned Game using the
