@@ -9,6 +9,32 @@ mod ui_11_fixture;
 use soe_esm::GlobalFormId;
 use soe_papyrus::Value;
 
+fn protocol_selection_count(game: &mut soe_game::Game) -> Value {
+    let object = game.object_of_form(FORM);
+    game.vm
+        .get_var(object, "SKI_ConfigBase", "selection_count")
+        .unwrap()
+}
+
+#[test]
+fn ui_11_breaker_rejects_selection_when_page_has_no_rows() {
+    let mut game = super::ui_11_mcm::protocol_game();
+
+    assert!(game.mcm_options().is_empty());
+    assert!(!game.mcm_select_option(FORM, 0x100));
+    assert_eq!(protocol_selection_count(&mut game), Value::Int(0));
+}
+
+#[test]
+fn ui_11_breaker_rejects_selection_after_config_closes() {
+    let mut game = super::ui_11_mcm::protocol_game();
+    game.mcm_close();
+
+    assert!(game.mcm_options().is_empty());
+    assert!(!game.mcm_select_option(FORM, 0x100));
+    assert_eq!(protocol_selection_count(&mut game), Value::Int(0));
+}
+
 fn fixture() -> Option<ui_05_fixture::Fixture> {
     if std::env::var_os("SOE_TEST_SKYUI").is_none()
         && std::env::var_os("SOE_SKYUI_CONFIG_BASE_PEX").is_none()
