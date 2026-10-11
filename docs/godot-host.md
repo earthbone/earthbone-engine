@@ -3111,7 +3111,10 @@ and sitting offset for host inspection. When a skinned appearance is bound to
 the player, the geometry flag controls its RenderingServer instances in first
 person. Third-person view keeps the player appearance visible. The
 `hst_17_camera_controls.rs` test exercises the state readbacks and verifies
-the third-person camera yaw and position respond to the sitting offset.
+the third-person camera yaw and position respond to the sitting offset. Its
+combined host-state check applies a target pose, sitting offset and geometry
+flag together, then reads their effects from the camera anchor, eye and
+first-person visibility decision.
 `SkinnedActorNode.set_first_person_geometry_visible` applies the same visibility
 change to every shape instance in its rig. The windowed
 `godot/hst_17_geometry_visibility_test.gd` check loads the installed vanilla
