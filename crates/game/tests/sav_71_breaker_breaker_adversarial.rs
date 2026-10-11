@@ -138,3 +138,46 @@ fn sav_71_second_loaded_reset_clears_changes_made_after_first_reset() {
     assert!(!reset.deleted);
     assert_eq!(reset.inventory.count(id(1, PATCH_ITEM)), 5);
 }
+
+#[test]
+fn sav_71_empty_winning_container_override_clears_loaded_inventory() {
+    let mut master = Plugin::new(FileHeader::default());
+    master.push_top(Record::new(Tag(*b"CELL"), CELL));
+    master.push_top(Record::new(Tag(*b"MISC"), ITEM));
+    master.push_top(Record::new(Tag(*b"CONT"), BASE).sub(
+        Tag(*b"CNTO"),
+        [ITEM.to_le_bytes(), 2_i32.to_le_bytes()].concat(),
+    ));
+    let mut reference = Record::new(Tag(*b"REFR"), REFERENCE)
+        .sub(Tag(*b"NAME"), BASE.to_le_bytes())
+        .sub(Tag(*b"DATA"), vec![0; 24]);
+    reference.placement.cell = Some(CELL);
+    master.push_top(reference);
+
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Reset.esm".into()],
+        ..FileHeader::default()
+    });
+    patch.push_top(Record::new(Tag(*b"CONT"), BASE));
+    let mut load_order = LoadOrder::new();
+    load_order.add("Reset.esm", master).unwrap();
+    load_order.add("EmptyResetPatch.esp", patch).unwrap();
+    let order = Arc::new(load_order);
+
+    let mut changed = World::from_shared_order(order.clone());
+    assert!(changed
+        .reference(id(0, REFERENCE))
+        .unwrap()
+        .inventory
+        .add(id(0, ITEM), 9)
+        .is_ok());
+    let mut loaded = World::from_shared_order(order);
+    loaded.load_state(&changed.save_state()).unwrap();
+
+    assert!(loaded.reset_reference(id(0, REFERENCE), None));
+    assert!(loaded
+        .reference_ref(id(0, REFERENCE))
+        .unwrap()
+        .inventory
+        .is_empty());
+}
