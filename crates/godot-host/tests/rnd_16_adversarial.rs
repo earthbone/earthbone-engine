@@ -19,7 +19,8 @@ fn rnd_16_far_level_must_stay_strictly_under_one_pixel() {
 
 #[test]
 fn rnd_16_matching_pending_requests_share_one_build() {
-    let key = LoadOrderHash::from_content_fingerprint([0x5a; 32]).with_block(0x0100_0001, 8, -4, 12);
+    let key =
+        LoadOrderHash::from_content_fingerprint([0x5a; 32]).with_block(0x0100_0001, 8, -4, 12);
     let builds = Arc::new(AtomicUsize::new(0));
     let (release, wait) = mpsc::channel();
     let mut cache = LodBuildCache::default();

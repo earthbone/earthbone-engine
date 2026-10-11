@@ -5165,7 +5165,7 @@ unchanged.
 
 `silhouette_error_pixels` measures the maximum displacement of the four
 projected bounds edges in pixels. `select_far_level` chooses the coarsest
-candidate below the configured error limit and ignores non-finite
+candidate strictly below the configured error limit and ignores non-finite
 measurements. `CellStreamerNode::lod_cycle` requests paired object and terrain
 products on a worker, keyed by the resolved ESM fingerprint, world and block.
 With add-on plugins loaded, both products are built from winning records. With

@@ -194,10 +194,10 @@ fn rnd_16_generated_block_cache_rebuilds_for_content_and_block_changes() {
 }
 
 #[test]
-fn rnd_16_reference_switches_to_coarsest_far_level_at_the_pixel_limit() {
+fn rnd_16_reference_switches_to_coarsest_far_level_under_the_pixel_limit() {
     let reference = [10.0, 20.0, 110.0, 120.0];
     let errors = [0.0, 0.35, 0.8, 1.0];
-    assert_eq!(select_far_level(errors, 1.0), Some(LodLevel::L32));
+    assert_eq!(select_far_level(errors, 1.0), Some(LodLevel::L16));
     let under_pixel = [10.4, 20.2, 110.7, 119.5];
     let over_pixel = [10.4, 20.2, 111.1, 119.5];
     assert!(silhouette_error_pixels(reference, under_pixel) < 1.0);
