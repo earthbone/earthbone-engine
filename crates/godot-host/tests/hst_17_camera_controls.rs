@@ -57,6 +57,33 @@ fn hst_17_host_sitting_rotation_offsets_third_person_camera() {
 }
 
 #[test]
+fn hst_17_host_controls_reach_camera_pose_and_geometry_visibility() {
+    let target = GlobalFormId {
+        file: 4,
+        object: 0x5678,
+    };
+    let target_feet = Vec3::new(120.0, -80.0, 24.0);
+    let mut state = CameraHostState::default();
+    state.apply(CameraControls {
+        target: Some(target),
+        first_person_geometry: false,
+        sitting_rotation_degrees: 90.0,
+    });
+
+    let (anchor, height) = state.anchor(Vec3::ZERO, 128.0, Some((target, target_feet, 176.0)));
+    assert_eq!((anchor, height), (target_feet, 176.0));
+    assert!(!state.rendered_first_person_geometry_visible(CameraMode::First));
+    assert!(state.rendered_first_person_geometry_visible(CameraMode::Third));
+
+    let mut rig = CameraRig::default().with_mode(CameraMode::Third);
+    rig.set_camera_yaw_offset_degrees(state.sitting_rotation_degrees());
+    let eye = rig.eye(anchor, height, None);
+    assert!((eye.yaw - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+    assert!((eye.position.x - (anchor.x - rig.boom_length())).abs() < 1e-4);
+    assert_eq!(state.target(), Some(target));
+}
+
+#[test]
 fn scr_30_host_applies_game_camera_target_and_geometry_controls() {
     let actor = GlobalFormId {
         file: 3,
