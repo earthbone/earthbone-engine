@@ -833,8 +833,13 @@ outdoor WTHR lighting.
 The MUST track lookup and non-positional `SoundBank::play_ambience` entry
 point remain available. `tests/aud_09_godot_ambience.rs` uses a generated WAV
 fixture to check that entry point's AudioStreamPlayer start and release in a
-windowed 640 by 360 process. PlayerNode uses the ambient SNDR descriptors
-connected by AUD-11 below.
+windowed 640 by 360 process. The same test file runs
+`godot/aud_09_player_cell_test.gd` with installed data. It starts gameplay in
+WhiterunBanneredMare, changes the PlayerNode to WhiterunOrigin, and checks
+that destination ambience starts and the departed descriptor players stop.
+Direct `PlayerNode::enter_cell` changes during a live Game synchronize cell
+ambience and music. PlayerNode uses the ambient SNDR descriptors connected by
+AUD-11 below.
 
 ## Walkthrough audio, AUD-11
 

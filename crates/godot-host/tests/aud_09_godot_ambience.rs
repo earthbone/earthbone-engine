@@ -100,3 +100,38 @@ fn aud_09_godot_ambience_starts_and_stops_on_cell_transition() {
         "Godot ambience test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }
+
+#[test]
+fn aud_09_playernode_cell_change_starts_and_releases_ambience() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    };
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from) else {
+        eprintln!("skipping: SOE_GODOT_BIN is not set");
+        return;
+    };
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace = manifest.join("../..");
+    let project = workspace.join("godot");
+    let extension = workspace.join("target/release/libsoe_godot_host.so");
+    assert!(
+        extension.exists(),
+        "build the release GDExtension before running this test"
+    );
+
+    let output = Command::new(godot)
+        .args(["--path"])
+        .arg(&project)
+        .args(["--windowed", "--resolution", "640x360", "--script"])
+        .arg(project.join("aud_09_player_cell_test.gd"))
+        .env("SKYRIM_DATA", data)
+        .output()
+        .expect("Godot PlayerNode ambience process starts");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() && stdout.contains("AUD-09 RESULT: PASS"),
+        "PlayerNode ambience transition failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}

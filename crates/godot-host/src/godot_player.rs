@@ -1144,6 +1144,7 @@ impl PlayerNode {
             soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: no cell named {editor_id}");
             return -1;
         };
+        let changed_cell = self.loaded_cell != Some(cell_id);
         let collision = match source.collide_cell_id(cell_id) {
             Ok(c) => c,
             Err(e) => {
@@ -1179,6 +1180,10 @@ impl PlayerNode {
         if let Some(game) = &mut self.game {
             game.world_mut().set_grabbed_reference(None);
             game.world_mut().set_crosshair_reference(None);
+        }
+        if changed_cell && self.game.is_some() {
+            self.sync_cell_ambience(cell_id);
+            self.sync_cell_music(cell_id);
         }
         self.motion = CameraMotion::new(self.feet(), self.capsule_height());
         self.update_camera();
