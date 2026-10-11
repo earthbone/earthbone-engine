@@ -12,13 +12,10 @@ const TROLL_BEHAVIOR: &str = "meshes/actors/troll/behaviors/trollbehavior.hkx";
 #[test]
 fn anm_50_breaker2_installed_guard_trace_covers_both_bounds_and_direction_alternatives() {
     let data = std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA is required");
-    let archive = soe_bsa::Archive::open(
-        &std::path::Path::new(&data).join("Skyrim - Animations.bsa"),
-    )
-    .expect("animation archive opens");
-    let bytes = archive
-        .read(TROLL_BEHAVIOR)
-        .expect("troll behavior exists");
+    let archive =
+        soe_bsa::Archive::open(&std::path::Path::new(&data).join("Skyrim - Animations.bsa"))
+            .expect("animation archive opens");
+    let bytes = archive.read(TROLL_BEHAVIOR).expect("troll behavior exists");
     let packfile = Packfile::parse(&bytes).expect("troll behavior parses");
     let graph = BehaviorGraph::from_packfile(&packfile).expect("troll behavior decodes");
 

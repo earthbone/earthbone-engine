@@ -13,8 +13,7 @@ fn guarded(source: &str) -> soe_hkx::behavior::BehaviorGraph {
         &Packfile::parse(&bytes).expect("fixture parses"),
     )
     .expect("fixture graph decodes");
-    let NodeKind::StateMachine(machine) = &mut graph.nodes[graph.root.expect("root").0].kind
-    else {
+    let NodeKind::StateMachine(machine) = &mut graph.nodes[graph.root.expect("root").0].kind else {
         panic!("fixture root is not a state machine");
     };
     machine.states[0].transitions[0].condition = Some(Condition::Expression(source.into()));
@@ -40,8 +39,11 @@ fn inverse_trig_matches_havok_domain_edges_for_both_signs_and_units() {
         let mut vm = Interpreter::new(&graph, &clips, Vec::new());
         vm.send_event(1);
         vm.update(0.0);
-        assert_eq!(vm.current_state(vm.active_states()[0].0), Some(1), "{source}");
+        assert_eq!(
+            vm.current_state(vm.active_states()[0].0),
+            Some(1),
+            "{source}"
+        );
         assert!(vm.unsupported().conditions.is_empty(), "{source}");
     }
 }
-

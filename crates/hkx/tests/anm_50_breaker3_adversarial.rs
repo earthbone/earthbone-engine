@@ -13,10 +13,9 @@ fn installed_troll_expression_condition_is_preserved_on_its_authored_start_state
         eprintln!("SKYRIM_DATA not set, skipping installed troll condition check");
         return;
     };
-    let archive = soe_bsa::Archive::open(
-        &std::path::Path::new(&data).join("Skyrim - Animations.bsa"),
-    )
-    .expect("animation archive opens");
+    let archive =
+        soe_bsa::Archive::open(&std::path::Path::new(&data).join("Skyrim - Animations.bsa"))
+            .expect("animation archive opens");
     let bytes = archive
         .read("meshes/actors/troll/behaviors/trollbehavior.hkx")
         .expect("troll behavior exists");
