@@ -77,6 +77,55 @@ impl PlayerNode {
         true
     }
 
+    /// Invoke a Game actor native through Papyrus for host integration checks.
+    pub(super) fn invoke_game_actor_native_for_check(
+        &mut self,
+        name: &GString,
+        target_name: &GString,
+    ) -> bool {
+        let name = name.to_string();
+        if name != "ShowTrainingMenu" {
+            return false;
+        }
+        let target_name = target_name.to_string();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Some(target) = game.world().form(&target_name) else {
+            return false;
+        };
+        if game.world_mut().actor(target).is_none() {
+            return false;
+        }
+        let script_name = "SoeScr30TrainingHostCheck";
+        let bytes = ScriptBuilder::new(script_name, "Form")
+            .function(
+                FunctionBuilder::new("Run", "None")
+                    .global()
+                    .param("target", "Actor")
+                    .local("result", "None")
+                    .ins(
+                        CallStatic,
+                        vec![
+                            s("Game"),
+                            s("ShowTrainingMenu"),
+                            ident("result"),
+                            ident("target"),
+                        ],
+                    )
+                    .build(),
+            )
+            .bytes();
+        if game.load_script(&bytes).is_err() {
+            return false;
+        }
+        let target = Value::Object(game.object_of_form(target));
+        let Ok(thread) = game.vm.call_global(script_name, "Run", &[target]) else {
+            return false;
+        };
+        game.run_until_idle(64) && game.vm.thread_result(thread) == Some(Value::None)
+    }
+
     fn ensure_title_sequence_player(&mut self) -> Gd<godot::classes::AnimationPlayer> {
         if let Some(player) = &self.title_sequence_player {
             return player.clone();
