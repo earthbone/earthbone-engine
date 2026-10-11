@@ -62,6 +62,7 @@ const NO_DEATH_DISPEL: u32 = 1 << 28;
 const WEAPON_BOUND: u32 = 1 << 13;
 const ETHEREALIZE: u32 = 41;
 const SPAWN_SCRIPTED_REF: u32 = 43;
+const SKYRIM_UNITS_PER_FOOT: f32 = 21.333_334;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const PARALYSIS_ARCHETYPE: u32 = 21;
@@ -2474,8 +2475,11 @@ impl World {
                     .map(|(a, b)| (a - b) * (a - b))
                     .sum::<f32>()
                     .sqrt();
-                if !distance.is_finite() || distance > definition.data.range || !line_of_sight_clear
-                {
+                let range = definition.data.range * SKYRIM_UNITS_PER_FOOT;
+                if !range.is_finite() {
+                    return Err(MagicError::Number);
+                }
+                if !distance.is_finite() || distance > range || !line_of_sight_clear {
                     return Err(MagicError::Target);
                 }
                 source

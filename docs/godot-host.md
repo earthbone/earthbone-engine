@@ -4099,12 +4099,16 @@ freeing it releases the guard. Flight creation and movement are not covered.
 
 `selected_location_position()` returns the first static geometry hit along the
 camera look ray in Godot metres. `cast_location_spell_at_look(spell_file,
-spell_object)` sends that same hit point to the shared cast path. The explicit
+spell_object)` uses the authored SPIT range in feet, converted to 21.333
+Skyrim units per foot for the `PhysicsWorld` ray, then sends that hit point to
+the shared cast path. The explicit
 `cast_location_spell(spell_file, spell_object, x, y, z)` entry point accepts a
 Skyrim world position. Both check the segment from the player's eye to the
-point, allowing a hit at the endpoint and rejecting an earlier obstruction.
-Missing physics data rejects the cast. The world checks the authored SPIT
-range and centers each effect's area at the selected point.
+point in `PhysicsWorld` coordinates, allowing a hit at the endpoint and
+rejecting an earlier obstruction. Missing physics data rejects the cast. The
+world checks the authored SPIT range in Skyrim units and centers each effect's
+area at the selected point. The display point conversion follows the axis and
+scale mapping in `units.rs`.
 
 `godot/mag_17_location_selection_test.gd` loads the installed Bannered Mare,
 checks that the live camera ray selects loaded geometry, and casts the vanilla

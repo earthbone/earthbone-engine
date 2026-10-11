@@ -5403,11 +5403,20 @@ and rejects the cast when the host reports an obstructed line to that point.
 Each effect applies to enabled, undeleted actor references inside its authored
 EFIT area around the selected point. A zero area selects only actors at the
 exact point. xEdit's SPIT definition and the local UESP SPEL format page name
-Target Location as delivery 4 and Range as valid for this delivery. The host
-collision result is supplied by `godot-host` and is not saved. Cloak effects
-are the concentration exception: their associated aimed or target spell runs
-once per second while the cloak is active. Their saved pulse phase and owned
-effect identities are described under Cloak, MAG-56.
+Target Location as delivery 4 and Range as valid for this delivery. The
+runtime interprets the authored range as feet and converts it to Skyrim units
+at 21.333 units per foot before comparing it with reference positions. The
+host collision result is supplied by `godot-host` and is not saved. Cloak
+effects are the concentration exception: their associated aimed or target
+spell runs once per second while the cloak is active. Their saved pulse phase
+and owned effect identities are described under Cloak, MAG-56.
+
+The local CK `OnSpellCast_-_ObjectReference.wikitext` documents cast-event
+timing, not target-location geometry. `DoCombatSpellApply_-_Actor.wikitext`
+describes range-independent application for Target Actor spells, a separate
+delivery value. Neither page defines target-location range units or obstruction
+checks. The host uses loaded collision geometry and the same feet-to-Skyrim
+unit conversion as the world range check.
 
 Etherealize is MGEF archetype 41. The Creation Kit's
 [Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect) says the archetype

@@ -14,6 +14,8 @@ use crate::magic_menu;
 
 use super::PlayerNode;
 
+const SKYRIM_UNITS_PER_FOOT: f32 = 21.333_334;
+
 fn touch_ray(transform: Transform3D, reach: f32) -> Option<(Vector3, Vector3)> {
     if !reach.is_finite() || reach < 0.0 || !transform.origin.is_finite() {
         return None;
@@ -24,6 +26,14 @@ fn touch_ray(transform: Transform3D, reach: f32) -> Option<(Vector3, Vector3)> {
     }
     let end = transform.origin + direction.normalized() * (reach * crate::units::METRES_PER_UNIT);
     Some((transform.origin, end))
+}
+
+fn location_cast_reach(range_feet: f32) -> Option<f32> {
+    if !range_feet.is_finite() || range_feet < 0.0 {
+        return None;
+    }
+    let reach = range_feet * SKYRIM_UNITS_PER_FOOT;
+    reach.is_finite().then_some(reach)
 }
 
 fn grab_actor_throw_impulse(direction: Vec3) -> Option<Vector3> {
@@ -318,12 +328,22 @@ impl PlayerNode {
 
 #[cfg(test)]
 mod tests {
-    use super::{grab_actor_hold_position, grab_actor_throw_impulse, select_telekinesis_target};
+    use super::{
+        grab_actor_hold_position, grab_actor_throw_impulse, location_cast_reach,
+        select_telekinesis_target,
+    };
     use soe_esm::GlobalFormId;
     use soe_physics::Vec3;
 
     fn id(object: u32) -> GlobalFormId {
         GlobalFormId { file: 1, object }
+    }
+
+    #[test]
+    fn mag_17_fire_rune_range_selects_geometry_within_twenty_feet() {
+        assert!((location_cast_reach(20.0).unwrap() - 426.666_7).abs() < 0.001);
+        assert!(location_cast_reach(f32::NAN).is_none());
+        assert!(location_cast_reach(-1.0).is_none());
     }
 
     #[test]
@@ -519,7 +539,7 @@ impl PlayerNode {
             .and_then(|game| game.world_mut().spell(spell).ok())
             .filter(|definition| definition.data.delivery == 4)
             .map(|definition| definition.data.range);
-        let Some(reach) = reach else {
+        let Some(reach) = reach.and_then(location_cast_reach) else {
             return false;
         };
         let Some([x, y, z]) = self.location_target(reach) else {

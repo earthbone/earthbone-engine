@@ -8,14 +8,14 @@ fn mag_17_location_cast_accepts_a_point_exactly_at_authored_range() {
     let mut game = game(
         effect(5, -1),
         vec![spell(SPELL, 1, 4, 20.0, 0)],
-        &[(SOURCE, [0.0, 0.0, 0.0]), (OTHER, [12.0, 16.0, 0.0])],
+        &[(SOURCE, [0.0, 0.0, 0.0]), (OTHER, [426.666_7, 0.0, 0.0])],
     );
 
     let result = game.shared_world().borrow_mut().cast_spell_at_location(
         id(SPELL),
         id(SOURCE),
         Some(id(SOURCE)),
-        [12.0, 16.0, 0.0],
+        [426.666_7, 0.0, 0.0],
         true,
         &mut |name, class| game.vm.create_object_of(name, class),
     );
@@ -56,7 +56,7 @@ fn mag_17_location_cast_rejects_point_past_authored_range_atomically() {
         id(SPELL),
         id(SOURCE),
         Some(id(SOURCE)),
-        [20.01, 0.0, 0.0],
+        [426.676_7, 0.0, 0.0],
         true,
         &mut |name, class| game.vm.create_object_of(name, class),
     );
