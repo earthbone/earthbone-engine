@@ -244,3 +244,47 @@ fn prf_30_done_check_unavailable_render_attribution_has_reasons() {
         );
     }
 }
+
+#[test]
+fn prf_30_godot_monitor_and_viewport_counts_are_nonnegative() {
+    let Some((success, output)) = run_godot("prf_30_godot_render_report_test.gd") else {
+        return;
+    };
+    assert!(success, "installed render report failed: {output}");
+    let report = output
+        .lines()
+        .find_map(|line| line.strip_prefix("SOE_FRAME_REPORT "))
+        .expect("exit frame report");
+    let report: serde_json::Value = serde_json::from_str(report).expect("valid frame report JSON");
+    let godot = report.get("godot").expect("Godot metrics");
+    for field in [
+        "fps",
+        "objects",
+        "nodes",
+        "orphan_nodes",
+        "objects_in_frame",
+        "primitives_in_frame",
+        "draw_calls_in_frame",
+        "physics_2d_active_objects",
+        "physics_2d_collision_pairs",
+        "physics_2d_islands",
+        "physics_3d_active_objects",
+        "physics_3d_collision_pairs",
+        "physics_3d_islands",
+    ] {
+        assert!(
+            godot[field].as_f64().is_some_and(|value| value >= 0.0),
+            "Godot monitor {field} is missing or negative: {godot}"
+        );
+    }
+    for pass in ["visible", "shadow", "canvas"] {
+        for field in ["objects", "primitives", "draw_calls"] {
+            assert!(
+                godot[pass][field]
+                    .as_f64()
+                    .is_some_and(|value| value >= 0.0),
+                "viewport {pass} {field} is missing or negative: {godot}"
+            );
+        }
+    }
+}
