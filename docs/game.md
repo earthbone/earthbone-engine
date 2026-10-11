@@ -964,8 +964,10 @@ RenderingServer path while the reference is resident.
 `GetCurrentDestructionStage` returns `-1` before a stage and the
 zero-based DSTD position afterward. `ClearDestruction` restores full health,
 clears the destroyed flag and returns the stage to `-1` without queuing a
-stage-change event. The CK page reports that cleared destruction effects do
-not return after later damage, so the reference retains a cleared marker.
+stage-change event. The CK getter page identifies `-1` as the undamaged value,
+which is also the value returned after clearing. The CK clear page reports that
+cleared destruction effects do not return after later damage, so the reference
+retains a cleared marker.
 Health and stage are saved in the reference-level `CMB-37` section. SCR-40
 stores that marker and `SetNoFavorAllowed` state in a separate reference
 section. `SetNoFavorAllowed` defaults to true and controls whether a follower

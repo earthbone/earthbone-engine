@@ -106,6 +106,24 @@ fn cmb_37_clear_destruction_restores_health_stage_model_and_enable_state() {
 }
 
 #[test]
+fn cmb_37_get_current_destruction_stage_reports_minus_one_after_clear() {
+    let mut game = game();
+    let player = game.player();
+    let reference = game.world_mut().place_at(id(BASE), player, false);
+    deal(&mut game, reference, 80.0);
+    assert_eq!(game.world_mut().destruction_stage(reference), 1);
+
+    game.world_mut()
+        .clear_destruction(reference, &mut |_, _| ObjectId(1));
+
+    assert_eq!(
+        game.world_mut().destruction_stage(reference),
+        -1,
+        "the method backing GetCurrentDestructionStage returns the undamaged value after clear"
+    );
+}
+
+#[test]
 fn cmb_37_destruction_health_and_stage_survive_save_round_trip() {
     let mut runtime = game();
     let player = runtime.player();
