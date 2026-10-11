@@ -167,7 +167,7 @@ fn scr_21_dump_alias_data_rejects_a_non_quest_form() {
 }
 
 #[test]
-fn scr_21_dump_alias_data_uses_alias_log_without_polluting_papyrus_log() {
+fn scr_21_dump_alias_data_logs_each_alias_fill() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
         Record::new(Tag(*b"QUST"), 0x801)
@@ -217,6 +217,17 @@ fn scr_21_dump_alias_data_uses_alias_log_without_polluting_papyrus_log() {
     game.vm.call_global(script, "Run", &[quest]).unwrap();
     game.run_until_idle(64);
 
-    assert!(game.vm.log.messages().is_empty());
-    assert_eq!(game.world_mut().quest_state(quest_id).unwrap().aliases[&7], None);
+    assert_eq!(
+        game.vm
+            .log
+            .messages()
+            .iter()
+            .filter(|message| { message.to_string().contains("Debug.DumpAliasData: 7 empty") })
+            .count(),
+        2
+    );
+    assert_eq!(
+        game.world_mut().quest_state(quest_id).unwrap().aliases[&7],
+        None
+    );
 }
