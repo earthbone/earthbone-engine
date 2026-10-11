@@ -873,6 +873,20 @@ impl PlayerNode {
         }
     }
 
+    /// Invoke the SCR-28 Game presentation natives for a live host check.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_scr_28_native(
+        &mut self,
+        name: GString,
+        fading_out: bool,
+        black: bool,
+        delay: f32,
+        duration: f32,
+    ) -> bool {
+        self.invoke_scr_28_native_for_check(&name, fading_out, black, delay, duration)
+    }
+
     /// Connect an already loaded character rig to this gameplay world's live
     /// skin and equipment records. Reuses the existing character node.
     #[func]
