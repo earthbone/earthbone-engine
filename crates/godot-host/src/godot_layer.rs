@@ -4532,6 +4532,32 @@ pub fn material_from(material: &MaterialDesc, textures: &SurfaceTextures) -> Gd<
     material_for(&mut MaterialMap::new(), material, textures)
 }
 
+/// FaceGen RGB tint multiplies the head diffuse without replacing its detail.
+pub(crate) fn face_material_from(
+    material: &MaterialDesc,
+    textures: &SurfaceTextures,
+    tint_path: &str,
+    tint: &crate::data_source::TextureData,
+) -> Gd<Material> {
+    let mut shader = godot::classes::Shader::new_gd();
+    shader.set_code("shader_type spatial;\nuniform sampler2D diffuse_map : source_color;\nuniform sampler2D tint_map : source_color;\nuniform sampler2D normal_map : hint_normal;\nvoid fragment() { ALBEDO = texture(diffuse_map, UV).rgb * texture(tint_map, UV).rgb; NORMAL_MAP = texture(normal_map, UV).rgb; ROUGHNESS = 0.8; }\n");
+    let mut mat = godot::classes::ShaderMaterial::new_gd();
+    mat.set_shader(&shader);
+    let mut cache = std::collections::HashMap::new();
+    if let Some(texture) = albedo_texture(&mut cache, material, textures) {
+        mat.set_shader_parameter("diffuse_map", &texture.to_variant());
+    }
+    if let Some(texture) = cached_texture(&mut cache, Some(tint_path), tint) {
+        mat.set_shader_parameter("tint_map", &texture.to_variant());
+    }
+    if let Some(normal) = &textures.normal {
+        if let Some(texture) = cached_texture(&mut cache, material.normal.as_deref(), normal) {
+            mat.set_shader_parameter("normal_map", &texture.to_variant());
+        }
+    }
+    mat.upcast()
+}
+
 fn material_with_textures(
     material: &MaterialDesc,
     textures: &SurfaceTextures,

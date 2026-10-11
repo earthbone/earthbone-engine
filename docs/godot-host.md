@@ -16,6 +16,15 @@ Race and sex select the animation project and skeleton. The existing appearance
 selector supplies skin, SPID-distributed skin and worn outfit addons. Both
 gameplay startup paths apply mod-data files from the VFS loose roots before
 scripts start. HDPT models and their extra parts are assembled on that same rig.
+Exported FaceGen geometry is read from the traits source's defining plugin and
+local NPC ID. Its shape names match selected HDPT editor IDs, so covered hair
+stays hidden and edited parts retain their selected models. Exported faces
+retain their authored diffuse texture, multiplied by the separate exported
+FaceTint texture in a head shader. HairTint and SkinTint RGB values remain
+material color multipliers. The host uses the parsed dynamic position buffer
+for BSDynamicTriShape heads rather than their zero packed positions.
+Rigid head parts use the existing single-weight attachment path at
+`NPC Head [Head]`.
 Rigid shield shapes retain their authored model transform and attach to the
 race rig's left-hand weapon bone through a single skin weight. CommonLib's
 `BipedObjects.h` identifies shield slot 9. The existing host weapon-bone
@@ -29,6 +38,12 @@ project paths selected by the race and sex. One completed character upload is
 installed per render frame. Inline appearance selection refreshes every 250
 milliseconds, while placement and visibility follow every frame. Movement sets
 the graph's Speed variable and sends moveStart or moveStop at transitions.
+NPC interpreters retain character-file property defaults, set live sex and
+NPC inputs, and sample an idle before the first upload. Streamed nodes enable
+processing after installation. Runtime movement supplies heading-relative
+Direction and TurnDelta, with turnStart, turnStop and turn direction events.
+Threaded snapshots carry the world's ordered animation request log. Each
+resident visual consumes its requests once, including across skipped ticks.
 
 Rig ownership retains an Arc for the interpreter's private borrow and drops that
 interpreter before replacing or releasing the Arc. Cell unload no longer leaks a
@@ -45,11 +60,20 @@ Local xEdit ACHR, NPC_, HDPT and RACE definitions and OpenMW's
 `apps/openmw/mwrender/esm4npcanimation.cpp` supply the record selection rules.
 The existing NIF/HKX readers and RenderingServer path are reused. OpenMW's scene
 objects do not fit this host's server RID geometry ownership.
+Nifly's `src/Geometry.cpp::BSDynamicTriShape::Sync` and head-part conversion in
+`src/NifFile.cpp` describe dynamic head geometry and eye data. Serde-hkx's
+`assets/classes/hkbStateMachine.json` and `hkbCharacterStringData.json` provide
+the authored start-state and character asset contracts. These are read through
+the existing engine readers, with no additional parser or dependency.
 
 `hst_23_characters` tests compare installed Hulda and Whiterun guard captures
 with NPC RIDs hidden, check enable/disable, cell unload/reload and runtime
 placement. `hst_23_frame_budget_test.gd` runs TST-18's Whiterun radius-one
 workload with skinned NPCs and reports node reconciliation and pose costs.
+The installed head test requires nonzero head, eye and hair geometry, mapped
+bones, Hulda's face tint and a changing idle pose. It also checks that movement
+enters a walk clip and returns to idle. The capture checks uploaded head and
+eye meshes, Hulda's hair and rendered bone changes across one second.
 
 ## Snapshot adapter, PRF-37 draft
 

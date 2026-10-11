@@ -13,6 +13,7 @@ use soe_esm::GlobalFormId;
 use soe_game::appearance::ActorAppearance;
 
 use crate::actor::{ActorAssets, ActorSurface};
+use crate::animation_dispatch::AnimationEventCursor;
 use crate::data_source::DataSource;
 use crate::godot_actor::SkinnedActorNode;
 
@@ -62,6 +63,7 @@ struct Resident {
     pending: Option<mpsc::Receiver<Prepared>>,
     node: Option<Gd<SkinnedActorNode>>,
     error: Option<String>,
+    animation_cursor: AnimationEventCursor,
 }
 
 /// Render resources and decoded rig cache. All gameplay state is supplied by World.
@@ -275,6 +277,12 @@ impl PlayerNode {
                     pending: None,
                     node: None,
                     error: None,
+                    animation_cursor: self
+                        .simulation_pair
+                        .as_ref()
+                        .map_or_else(AnimationEventCursor::beginning, |pair| {
+                            AnimationEventCursor::at_end(&pair.current.animation_requests)
+                        }),
                 });
             if resident.appearance != *appearance {
                 resident.appearance.clone_from(appearance);
@@ -360,6 +368,14 @@ impl PlayerNode {
                     );
                 }
                 node.bind_mut().present(placement, self.npc_actors.hidden);
+                if let Some(pair) = &self.simulation_pair {
+                    for request in resident
+                        .animation_cursor
+                        .take_for(&pair.current.animation_requests, id)
+                    {
+                        node.bind_mut().send_presented_animation(&request);
+                    }
+                }
             }
         }
         soe_trace::metric_set(
@@ -380,12 +396,15 @@ impl PlayerNode {
     #[func]
     pub fn npc_visuals(&self) -> Array<VarDictionary> {
         self.npc_actors.residents.iter().map(|(id, resident)| {
-            let (shapes, bones, position, node_id) = resident.node.as_ref().map_or((0, 0, Vector3::ZERO, 0), |node| {
+            let (shapes, bones, position, node_id, head, hair, eyes) = resident.node.as_ref().map_or((0, 0, Vector3::ZERO, 0, 0, 0, 0), |node| {
                 let node = node.bind();
                 let stats = node.stats();
                 (stats.get("shapes").and_then(|value| value.try_to::<i64>().ok()).unwrap_or(0),
                  stats.get("mesh_bones").and_then(|value| value.try_to::<i64>().ok()).unwrap_or(0),
-                 node.presented_position(), node.node_identity())
+                 node.presented_position(), node.node_identity(),
+                 stats.get("head_meshes").and_then(|value| value.try_to::<i64>().ok()).unwrap_or(0),
+                 stats.get("hair_meshes").and_then(|value| value.try_to::<i64>().ok()).unwrap_or(0),
+                 stats.get("eye_meshes").and_then(|value| value.try_to::<i64>().ok()).unwrap_or(0))
             });
             let editor_id = self.data_source.as_ref().and_then(|source| source.order().winner(*id))
                 .and_then(soe_esm::Record::editor_id).unwrap_or_default();
@@ -393,6 +412,7 @@ impl PlayerNode {
                 "shapes" => shapes, "bones" => bones, "position" => position,
                 "node_id" => node_id, "pending" => resident.pending.is_some(),
                 "head_parts" => resident.appearance.head_parts.len() as i64,
+                "head_meshes" => head, "hair_meshes" => hair, "eye_meshes" => eyes,
                 "armor_parts" => resident.appearance.parts.len() as i64,
                 "pose_us" => resident.node.as_ref().map_or(0.0, |node| node.bind().pose_us()),
                 "error" => resident.error.as_deref().unwrap_or("") }

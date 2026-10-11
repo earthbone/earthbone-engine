@@ -147,6 +147,7 @@ pub struct SkinnedActorNode {
     presentation_hidden: bool,
     presented_at: Option<std::time::Instant>,
     presented_moving: bool,
+    presented_turning: i8,
     pose_us: f64,
     presented_appearance: Option<soe_game::appearance::ActorAppearance>,
     surfaces: Vec<ActorSurface>,
@@ -179,6 +180,7 @@ impl INode3D for SkinnedActorNode {
             presentation_hidden: false,
             presented_at: None,
             presented_moving: false,
+            presented_turning: 0,
             pose_us: 0.0,
             presented_appearance: None,
             assets: None,
@@ -329,8 +331,24 @@ impl SkinnedActorNode {
                 server.skeleton_bone_set_transform(skeleton, i as i32, Transform3D::IDENTITY);
             }
             let mut mesh = actor_array_mesh_from(&surface.arrays, &surface.expression_shapes);
-            let material =
-                crate::godot_layer::material_from(&surface.arrays.material, &surface.textures);
+            let material = if let Some((path, tint)) = &surface.face_tint {
+                crate::godot_layer::face_material_from(
+                    &surface.arrays.material,
+                    &surface.textures,
+                    path,
+                    tint,
+                )
+            } else {
+                crate::godot_layer::material_from(&surface.arrays.material, &surface.textures)
+            };
+            if let Some([r, g, b]) = surface.tint_color {
+                if let Ok(mut standard) = material
+                    .clone()
+                    .try_cast::<godot::classes::StandardMaterial3D>()
+                {
+                    standard.set_albedo(Color::from_rgb(r, g, b));
+                }
+            }
             mesh.surface_set_material(0, &material);
             let instance = soe_trace::Profile::render_submission(|| {
                 server.instance_create2(mesh.get_rid(), scenario)
@@ -348,6 +366,15 @@ impl SkinnedActorNode {
     }
 
     fn update_surface_stats(&mut self) {
+        for (name, part_type) in [("head_meshes", 1), ("eye_meshes", 2), ("hair_meshes", 3)] {
+            self.stats.set(
+                name,
+                self.surfaces
+                    .iter()
+                    .filter(|surface| surface.head_part_type == Some(part_type))
+                    .count() as i64,
+            );
+        }
         self.stats.set("shapes", self.surfaces.len() as i64);
         self.stats.set("invisible", self.invisible);
         self.stats.set("skeletons", self.surfaces.len() as i64);
@@ -719,11 +746,19 @@ impl SkinnedActorNode {
         // interpreter borrows it, and replacing or dropping the owner first
         // drops the interpreter. No borrowed interpreter escapes this node.
         let borrowed = unsafe { &*Arc::as_ptr(owner) };
-        self.vm = Some(Interpreter::new(
-            &borrowed.graph,
-            &borrowed.clips,
-            borrowed.skeleton.reference_pose.clone(),
-        ));
+        self.vm = Some(if self.presented_actor.is_some() {
+            borrowed.npc_interpreter(
+                self.presented_appearance
+                    .as_ref()
+                    .is_some_and(|appearance| appearance.female),
+            )
+        } else {
+            Interpreter::new(
+                &borrowed.graph,
+                &borrowed.clips,
+                borrowed.skeleton.reference_pose.clone(),
+            )
+        });
         self.stats
             .set("skeleton_bones", borrowed.skeleton.bones.len() as i64);
         self.stats
@@ -756,12 +791,16 @@ impl SkinnedActorNode {
         let Some(assets) = self.assets.as_deref() else {
             return Err("missing actor rig".into());
         };
-        to_model_space_into(
-            &assets.skeleton,
-            &assets.skeleton.reference_pose,
-            &mut self.model,
-        )
-        .map_err(|error| error.to_string())?;
+        let pose = if let Some(vm) = self.vm.as_mut() {
+            vm.update(0.0);
+            vm.pose()
+        } else {
+            &assets.skeleton.reference_pose
+        };
+        to_model_space_into(&assets.skeleton, pose, &mut self.model)
+            .map_err(|error| error.to_string())?;
+        self.playing = true;
+        self.base_mut().set_process(true);
         self.replace_surfaces(surfaces)
     }
 
@@ -808,6 +847,12 @@ impl SkinnedActorNode {
         self.pose_us
     }
 
+    pub(crate) fn send_presented_animation(&mut self, event: &str) {
+        if let Some(vm) = self.vm.as_mut() {
+            vm.send_event_named(event);
+        }
+    }
+
     pub(crate) fn present(&mut self, placement: soe_game::world::RefPlacement, hidden: bool) {
         let now = std::time::Instant::now();
         if let (Some(previous), Some(at), Some(vm)) = (
@@ -822,8 +867,37 @@ impl SkinnedActorNode {
                 .map(|(a, b)| (a - b).powi(2))
                 .sum::<f32>()
                 .sqrt();
-            let speed = distance / now.duration_since(at).as_secs_f32().max(0.0001);
+            let delta = now.duration_since(at).as_secs_f32().max(0.0001);
+            let speed = distance / delta;
             vm.variables.set_by_name("Speed", speed);
+            let heading = placement.rotation[2];
+            let dx = placement.position[0] - previous.position[0];
+            let dy = placement.position[1] - previous.position[1];
+            let direction = if speed > 0.1 {
+                wrap_angle(dx.atan2(dy) - heading).to_degrees()
+            } else {
+                0.0
+            };
+            let turn = wrap_angle(heading - previous.rotation[2]).to_degrees() / delta;
+            vm.variables.set_by_name("Direction", direction);
+            vm.variables.set_by_name("TurnDelta", turn);
+            vm.set_character_position(placement.position);
+            let turning = if turn.abs() <= 0.1 {
+                0
+            } else if turn > 0.0 {
+                1
+            } else {
+                -1
+            };
+            if self.presented_turning != turning {
+                if turning == 0 {
+                    vm.send_event_named("turnStop");
+                } else {
+                    vm.send_event_named(if turning > 0 { "turnRight" } else { "turnLeft" });
+                    vm.send_event_named("turnStart");
+                }
+                self.presented_turning = turning;
+            }
             let moving = speed > 0.1;
             if self.presented_moving != moving {
                 let requested = if moving { "moveStart" } else { "moveStop" };
@@ -1126,6 +1200,10 @@ fn placement_transform(placement: soe_game::world::RefPlacement) -> Transform3D 
         basis: placed.basis,
         origin: [placed.origin.x, placed.origin.y, placed.origin.z],
     })
+}
+
+fn wrap_angle(value: f32) -> f32 {
+    (value + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
 }
 
 fn visible_for_invisibility(invisible: bool) -> bool {

@@ -151,6 +151,11 @@ fn hst_23_outfit_sex_head_extras_and_covered_hair_come_from_records() {
         [id(0x822), id(0x823)]
     );
     assert_eq!(appearance.skin, Some(id(0x810)));
+    let face = appearance.facegen.unwrap();
+    assert_eq!(
+        (face.plugin.as_str(), face.object),
+        ("Characters.esm", 0x830)
+    );
 }
 
 #[test]
@@ -393,6 +398,8 @@ fn hst_23_winning_head_models_and_extra_parts_resolve_override_namespaces() {
     let view =
         ActorAppearance::from_order(&order, Some(id(0x830)), None, &BTreeSet::new()).unwrap();
     assert_eq!(view.head_parts[0].model.as_deref(), Some("override.nif"));
+    let face = view.facegen.as_ref().unwrap();
+    assert_eq!((face.plugin.as_str(), face.object), ("Base.esm", 0x830));
     assert_eq!(
         view.head_parts[1].form,
         GlobalFormId {
@@ -425,6 +432,7 @@ fn hst_23_trait_templates_supply_their_heads_and_sex() {
     let view =
         ActorAppearance::from_order(&order, Some(id(0x830)), None, &BTreeSet::new()).unwrap();
     assert!(view.female);
+    assert_eq!(view.facegen.as_ref().unwrap().object, 0x831);
     assert_eq!(
         view.head_parts[0].model.as_deref(),
         Some("template_head.nif")

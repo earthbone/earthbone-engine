@@ -35,6 +35,15 @@ pub struct ActorAppearance {
     pub skin: Option<GlobalFormId>,
     pub parts: Vec<ArmorPart>,
     pub head_parts: Vec<HeadPart>,
+    /// Resolved traits source for exported NPC FaceGen assets, absent after edits.
+    pub facegen: Option<FaceGen>,
+}
+
+/// Exported face assets use the defining plugin and local NPC object ID.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FaceGen {
+    pub plugin: String,
+    pub object: u32,
 }
 
 /// A selected HDPT model, including its attached extra parts.
@@ -42,6 +51,7 @@ pub struct ActorAppearance {
 pub struct HeadPart {
     pub form: GlobalFormId,
     pub part_type: u32,
+    pub name: String,
     pub model: Option<String>,
 }
 
@@ -224,6 +234,19 @@ impl Records<'_> {
         base: Option<GlobalFormId>,
         overrides: &BTreeMap<u32, GlobalFormId>,
     ) -> Result<()> {
+        if let Some(base) = base.filter(|_| overrides.is_empty()) {
+            let record = self.record(base, T(b"NPC_"))?;
+            if self.record_link(record, base, T(b"RNAM"))? == appearance.race {
+                appearance.facegen = self
+                    .order()
+                    .files()
+                    .get(usize::from(base.file))
+                    .map(|file| FaceGen {
+                        plugin: file.name.clone(),
+                        object: base.object,
+                    });
+            }
+        }
         let mut selected: Vec<_> = overrides.values().copied().collect();
         if let Some(base) = base {
             let record = self.record(base, T(b"NPC_"))?;
@@ -285,6 +308,7 @@ impl Records<'_> {
         parts.push(HeadPart {
             form,
             part_type: field.u32()?,
+            name: record.editor_id().unwrap_or_default(),
             model: model(record, *b"MODL"),
         });
         for bytes in record.all(T(b"HNAM")) {

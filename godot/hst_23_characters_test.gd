@@ -1,7 +1,9 @@
 extends "res://walkthrough.gd"
 
 ## HST-23 thresholds declared before capture: every enabled resident ACHR draws,
-## target rigs have bones and head parts, at least 100 target pixels change,
+## target rigs have uploaded head and eye meshes, Hulda has hair and a changing
+## pose over one second with at least one changed target pixel,
+## at least 100 target pixels change when actors are hidden,
 ## runtime/render placement error is below 0.001 metres and nodes are released.
 const METRES_PER_UNIT := 0.0142875
 var failures := 0
@@ -69,6 +71,9 @@ func _capture_actor(identity: Dictionary, name: String, outside: bool) -> void:
     _check(not visual.is_empty(), name + " is resident")
     if visual.is_empty(): return
     _check(visual.shapes >= 3 and visual.bones > 0 and visual.head_parts > 0 and visual.armor_parts > 0, name + " is a complete skinned character")
+    _check(visual.head_meshes > 0 and visual.eye_meshes > 0, name + " has uploaded head and eye meshes")
+    if name == "hulda":
+        _check(visual.hair_meshes > 0, "Hulda has an uploaded hair mesh")
     var center: Vector3 = visual.position + Vector3.UP * 0.85
     if outside:
         var feet: Vector3 = player.call("position")
@@ -87,6 +92,23 @@ func _capture_actor(identity: Dictionary, name: String, outside: bool) -> void:
         _check(clearance > 1.0, "Hulda camera has a clear view")
     camera.look_at(center)
     camera.current = true
+    if name == "hulda":
+        var first_image := await _capture("hulda_pose_0")
+        var actor: Node = instance_from_id(visual.node_id)
+        var first: Array = actor.call("uploaded_skin_poses")
+        await create_timer(1.0).timeout
+        var later_image := await _capture("hulda_pose_1")
+        var later: Array = actor.call("uploaded_skin_poses")
+        var changed := false
+        _check(first.size() == later.size() and not first.is_empty(), "Hulda retains uploaded bones")
+        for i in mini(first.size(), later.size()):
+            var before: Transform3D = first[i]
+            var after: Transform3D = later[i]
+            changed = changed or not before.is_equal_approx(after)
+        _check(changed, "Hulda's rendered pose changes across one second")
+        var pose_pixels := _target_pixels(first_image, later_image, camera.unproject_position(center))
+        _check(pose_pixels >= 1, "Hulda's animated capture changes target pixels: " + str(pose_pixels))
+        print("HST-23 Hulda pose_pixels=", pose_pixels)
     for node: Node in player.get_children():
         if node.get_class() == "SkinnedActorNode": node.set("playing", false)
     var visible := await _capture(name + "_visible")

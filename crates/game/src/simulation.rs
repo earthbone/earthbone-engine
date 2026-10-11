@@ -109,6 +109,8 @@ pub struct Snapshot {
     pub actors: BTreeMap<GlobalFormId, RefPlacement>,
     pub contacts: Arc<Vec<crate::world::ContactActor>>,
     pub appearances: Arc<BTreeMap<GlobalFormId, crate::appearance::ActorAppearance>>,
+    /// Append-only graph requests retain ordering when presentation skips ticks.
+    pub animation_requests: Arc<Vec<crate::world::AnimationRequest>>,
     pub sky: Option<crate::world::sky::SkyFrame>,
     pub evaluations: usize,
     pub systems: soe_trace::FrameSample,
@@ -338,6 +340,7 @@ fn run(
     let mut contacts = Arc::new(Vec::new());
     let mut sky = None;
     let mut appearances = Arc::new(BTreeMap::new());
+    let mut animation_requests = Arc::new(Vec::new());
     let player = game.player();
     while !stop.load(Ordering::Acquire) {
         let now = Instant::now();
@@ -422,6 +425,9 @@ fn run(
         };
         let seconds = world.clock.real_seconds;
         let evaluations = world.ai.evaluations;
+        if animation_requests.len() != world.animation_requests.len() {
+            animation_requests = Arc::new(world.animation_requests.clone());
+        }
         drop(world);
         drop(scope);
         let produced_at = Instant::now();
@@ -442,6 +448,7 @@ fn run(
             actors,
             contacts: Arc::clone(&contacts),
             appearances: Arc::clone(&appearances),
+            animation_requests: Arc::clone(&animation_requests),
             sky: sky.clone(),
             evaluations,
             systems: frame.finish(),
@@ -490,6 +497,7 @@ mod tests {
             )]),
             contacts: Arc::new(Vec::new()),
             appearances: Arc::new(BTreeMap::new()),
+            animation_requests: Arc::new(Vec::new()),
             sky: None,
             evaluations: 0,
             systems: soe_trace::FrameSample::default(),
