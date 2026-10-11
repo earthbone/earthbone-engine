@@ -31,9 +31,8 @@ fn edt_22_missing_deleted_and_wrong_type_npcs_are_rejected() {
         Err(FaceGenError::InvalidRecord { form: NPC, .. })
     ));
 
-    let deleted = load_order([Record::new(b"NPC_", 0x900).with_flags(
-        soe_esm::plugin::flags::DELETED,
-    )]);
+    let deleted =
+        load_order([Record::new(b"NPC_", 0x900).with_flags(soe_esm::plugin::flags::DELETED)]);
     assert!(matches!(
         generate_npc_head(&deleted, &assets, NPC),
         Err(FaceGenError::InvalidRecord { form: NPC, .. })
