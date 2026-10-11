@@ -29,7 +29,11 @@ fn graph() -> Vec<u8> {
     let infos = b.array_structs(data, 32, 6, 2);
     b.set_i8(infos, 4, 4);
     b.set_i8(infos + 6, 4, 4);
-    b.array_i32(values, 16, &[0.0f32.to_bits() as i32, 0.0f32.to_bits() as i32]);
+    b.array_i32(
+        values,
+        16,
+        &[0.0f32.to_bits() as i32, 0.0f32.to_bits() as i32],
+    );
 
     let root = b.object("hkbModifierGenerator", 96);
     b.ptr(graph, 128, root);
