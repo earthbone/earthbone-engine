@@ -864,6 +864,16 @@ form flags, zero-byte value and full-name markers, unnamed flags and remaining
 payload bytes. xEdit defines no application operation for the mask, so this
 pass retains it without changing record flags. SOEW version 37 saves this
 metadata, and earlier versions remain readable.
+
+Saved REFR and ACHR form flags XOR the authored record flags with xEdit's
+`Mask Invert Flags` word before deriving runtime enable and persistence. A
+deleted winning record remains disabled. The second `Mask Set unk010` word is
+retained in the restore report and does not affect those two runtime properties.
+The reference-mask path accepts ESS versions 12 and 13 with matching
+change-form/form versions 77 or 78. Versioned synthetic cases and a gated
+installed Skyrim.esm record case check state before and after restoration.
+FallrimTools preserves both words without applying them, and CommonLib exposes
+the authored runtime flag queries without connecting them to save masks.
 `Game::restore_vanilla_world_and_vm` runs
 the supported restore passes in dependency order and restores the prior SOEG
 snapshot if any pass fails. The passes cover globals, NPC and
@@ -1124,9 +1134,24 @@ actor itself detach it. `SetLookAt` stores its placed-reference target and
 pathing argument, and `ClearLookAt` clears the target. The actor section
 `SCR-11` persists these relationships and they are included in the
 determinism hash. `World::actor_vehicle` and `World::actor_look_at` expose the
-values. Vehicle-follow movement and forced-look rendering are not connected to
-the host, so these native effects currently expose the requested relationships
-without moving or turning the actor.
+values. `World::tick_actor_script_relationships` applies target movement and yaw
+changes to the actor's shared reference placement. It rotates the actor's
+vehicle-relative offset with the target, updates its cell when the target has a
+cell, turns the actor toward a live look target, and supplies the target to the
+AI movement step when the look request enables pathing. That step routes toward
+the live target, updates its route when the target moves and stops within its
+arrival radius. Disabling or changing a pathing request clears the prior forced
+route. The AI tick applies the relationship update, and the host observes
+changed actor placement through the existing reference change path. Save
+loading clears the transient vehicle motion baseline so the first post-load
+tick uses restored placements.
+
+The bindings follow the local CK `SetVehicle_-_Actor.wikitext`,
+`GetSitState_-_Actor.wikitext` and `GetFlyingState_-_Actor.wikitext` pages, plus
+the `Actor_Script.wikitext` signatures and descriptions. The CK sources define
+the vehicle attach/detach contract and flying-state codes. The engine keeps
+sit transition animation states unavailable because the host does not report
+them.
 
 **Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
 current time-driven sun position in Skyrim units, on the runtime's 100,000-unit
@@ -1713,22 +1738,33 @@ and behavior remain owned by SCR-16. They also have no `Trespass` declaration,
 whose behavior remains owned by SCR-15. Both absent contracts are recorded in
 the manifest.
 
+The SCR-02 contract-shape regression compares the local `EquipItem` CK
+declaration, including its `Form` and `Bool` parameter types, both false
+defaults and its `None` return, with the native invocation. Calling the native
+with only the required item exercises those defaults: it equips the item,
+emits the ordinary equip notification and returns `None`. `SCR-74` owns the
+prevent-removal and silent-message behavior and tests those explicit arguments.
+
 `Actor.KeepOffsetFromActor` stores the target, required body-space XYZ offset,
 optional XYZ angles and catch-up/follow radii on the calling actor. Omitted
 optional arguments use the CK defaults. Targets must be actors, all numeric
 values must be finite, and the catch-up radius must be at least the
 nonnegative follow radius.
-`ClearKeepOffsetFromActor` removes that request. `SetForcedLandingMarker`
-stores a resolved reference on the actor, and accepts `None` to clear it.
-These values persist in the actor section named `SCR-14`. The package/host
-movement path does not yet consume Papyrus offset requests, and the flight
-system does not yet consume forced landing markers.
+`ClearKeepOffsetFromActor` removes that request. AI movement rotates the
+body-space XYZ offset by the target's yaw, applies its relative XYZ angles,
+stops inside the follow radius and selects run speed outside the catch-up
+radius. `SetForcedLandingMarker` stores a resolved reference on the actor, and
+accepts `None` to clear it. When a Hover flight package ends, AI movement routes
+the actor to that marker and retains the in-flight state until it arrives.
+Arrival at an earlier package destination does not suppress the landing route.
+These values persist in the actor section named `SCR-14`.
 The local CK pages `KeepOffsetFromActor - Actor`,
 `ClearKeepOffsetFromActor - Actor` and `GetEquippedWeapon - Actor` define
-the offset and weapon argument contracts. `Actor_Script.wikitext` names the
-shield and forced-marker signatures, while the local corpus has no dedicated
-pages for those two functions. `ClearForcedLandingMarker - Actor` says that
-clearing is equivalent to assigning `None`.
+the offset and weapon argument contracts. `Actor_Script.wikitext` defines the
+forced-marker contract and names the shield signature, while the local corpus
+has no dedicated pages for those two functions.
+`ClearForcedLandingMarker - Actor` says that clearing is equivalent to
+assigning `None`.
 
 The SCR-10 tests cover the state codes and argument boundaries described
 above. `HasLOS` does not query collision geometry, and `PathToReference` does
@@ -3143,9 +3179,13 @@ entries, and the existing xEdit PACK and shared spell APIs.
 
 `Actor.GetVoiceRecoveryTime` reads the remaining duration from that actor's
 real-seconds deadline. `Actor.PlayIdleWithTarget` queues the idle's editor ID
-for the calling actor and returns false for a missing idle or invalid target
-reference. A target is validated but is not yet routed to paired animation
-playback. `Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
+on the calling actor and retains the explicit paired reference in
+`AnimationRequest.partner`. `None` leaves the partner override unset. It
+returns false for a missing idle or invalid partner reference. The host sends
+the event to the caller's graph. Partner alignment is not performed by this
+bridge. The local CK `PlayIdleWithTarget_-_Actor.wikitext` defines the caller
+and partner roles.
+`Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
 hands, source 2 from the actor's other-spell slot, and source 3 from its
 instant-spell slot. The latter slots persist in the actor section named
 `SCR-15`. `Actor.Dismount` returns true only when it clears a set mounted flag.
@@ -3153,8 +3193,8 @@ instant-spell slot. The latter slots persist in the actor section named
 CK pages consulted for these bindings are `GetEquippedSpell_-_Actor`,
 `GetVoiceRecoveryTime_-_Actor`, `PlayIdleWithTarget_-_Actor` and
 `Dismount_-_Actor`. The CK snapshot has no `Trespass_-_Actor` page. The
-existing world model does not provide paired-idle target routing or host mount
-placement, and these calls do not create crime witness events.
+host mount placement is not provided, and these calls do not create crime
+witness events.
 
 Nested `Sequence` branches finish after their children, and `Repeat when
 Complete` restarts only the branch carrying that flag. `Success Completes
@@ -6496,10 +6536,11 @@ the shared appearance view described below. SPID `Skin` distributions are
 selected before the NPC's direct skin and the race fallback when assembling an
 actor's appearance. The selected `ARMO` keeps its resolved `GlobalFormId`, and
 its armor addons enter the same body-part selection as an authored skin. The
-load pass resolves distributions by NPC base. Deterministic SPID rules are
-evaluated as each actor is built, with the seed combining the parsed entry
-value, save character ID and actor runtime FormID. The seeded Xoshiro256**
-draw follows CLibUtil `rng.hpp`, which SPID uses through `LookupFilters.cpp`.
+load pass resolves distributions by NPC base. Fractional deterministic SPID
+rules are evaluated as each actor is built, with the seed combining the parsed
+entry value, save character ID and actor runtime FormID. The seeded
+Xoshiro256** draw follows CLibUtil `rng.hpp`, which SPID uses through
+`LookupFilters.cpp`.
 A host can set this input directly with `World::set_player_character_id`.
 It is runtime metadata and is not serialized by the engine.
 

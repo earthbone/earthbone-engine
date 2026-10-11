@@ -122,8 +122,8 @@ fn a_bs_tri_shape_scene_loads_to_one_mesh() {
     let mat = &m.material;
     assert_eq!(mat.kind, MaterialKind::Lighting(ShaderType::EnvironmentMap));
     assert_eq!(mat.extra, ShaderExtra::EnvironmentMapScale(0.5));
-    assert_eq!(mat.diffuse(), Some("textures\\clutter\\bucket01.dds"));
-    assert_eq!(mat.normal(), Some("textures\\clutter\\bucket01_n.dds"));
+    assert_eq!(mat.diffuse(), Some("textures/clutter/bucket01.dds"));
+    assert_eq!(mat.normal(), Some("textures/clutter/bucket01_n.dds"));
     assert_eq!(mat.glow(), None);
     assert!(mat.double_sided && mat.vertex_colors && mat.cast_shadows && mat.environment_mapping);
     assert!(!mat.vertex_alpha);
@@ -358,13 +358,13 @@ fn an_effect_shader_becomes_an_effect_material() {
     let m = &file.meshes().unwrap()[0];
     assert!(m.normals.is_empty() && m.tangents.is_empty() && m.colors.is_empty());
     assert_eq!(m.material.kind, MaterialKind::Effect);
-    assert_eq!(m.material.diffuse(), Some("textures\\effects\\glow.dds"));
+    assert_eq!(m.material.diffuse(), Some("textures/effects/glow.dds"));
     assert!(m.material.double_sided);
     let e = m.material.effect.as_ref().unwrap();
     assert_eq!(e.base_color, [1.0, 0.5, 0.25, 1.0]);
     assert_eq!(e.base_color_scale, 2.0);
     assert_eq!(e.falloff_stop_opacity, 0.25);
-    assert_eq!(e.greyscale_texture, "textures\\effects\\grey.dds");
+    assert_eq!(e.greyscale_texture, "textures/effects/grey.dds");
     assert_eq!(e.lighting_influence, 1.0);
 }
 
@@ -385,7 +385,7 @@ fn fallout4_geometry_loads_with_half_positions() {
     let file = parse(&w.finish()).unwrap();
     let m = &file.meshes().unwrap()[0];
     assert_eq!(m.positions[2], [1.0, 1.0, 0.0]);
-    assert_eq!(m.material.diffuse(), Some("textures\\a.dds"));
+    assert_eq!(m.material.diffuse(), Some("textures/a.dds"));
     assert_eq!(m.material.kind, MaterialKind::Lighting(ShaderType::Default));
 }
 

@@ -121,7 +121,7 @@ fn fmt_07_texture_path_with_0x80_9f_byte_round_trips_through_windows1252() {
         .material
         .diffuse()
         .expect("a diffuse texture path");
-    assert_eq!(diffuse, "textures\\clutter\\bucket\u{02C6}.dds");
+    assert_eq!(diffuse, "textures/clutter/bucket\u{02C6}.dds");
     assert!(
         !diffuse.contains('\u{0088}'),
         "diffuse path decoded as Latin-1 instead of Windows-1252: {diffuse:?}"

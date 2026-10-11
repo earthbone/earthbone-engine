@@ -38,6 +38,68 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    /// Invoke an Actor menu native through Papyrus for installed host checks.
+    pub(super) fn invoke_actor_menu_native_for_check(
+        &mut self,
+        name: &GString,
+        target_name: &GString,
+        force: bool,
+    ) -> bool {
+        let name = name.to_string();
+        let target_name = target_name.to_string();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let target = if target_name.is_empty() {
+            game.player()
+        } else {
+            let Some(target) = game.world().form(&target_name) else {
+                return false;
+            };
+            target
+        };
+        if !matches!(name.as_str(), "ShowBarterMenu" | "OpenInventory")
+            || game.world_mut().actor(target).is_none()
+        {
+            return false;
+        }
+        let script_name = format!("SoeScr13{name}HostCheck");
+        let mut function = FunctionBuilder::new("Run", "None")
+            .global()
+            .param("target", "Actor")
+            .local("result", "None");
+        let mut operands = vec![s(&name), ident("target"), ident("result")];
+        let args = if name == "OpenInventory" {
+            function = function.param("force", "Bool");
+            operands.push(ident("force"));
+            vec![Value::Bool(force)]
+        } else {
+            Vec::new()
+        };
+        let bytes = ScriptBuilder::new(&script_name, "Form")
+            .function(
+                function
+                    .ins(CallMethod, operands)
+                    .ins(Return, Vec::new())
+                    .build(),
+            )
+            .bytes();
+        if game.load_script(&bytes).is_err() {
+            return false;
+        }
+        let target = Value::Object(game.object_of_form(target));
+        let mut arguments = vec![target];
+        arguments.extend(args);
+        let Ok(thread) = game.vm.call_global(&script_name, "Run", &arguments) else {
+            return false;
+        };
+        if !game.run_until_idle(64) || game.vm.thread_result(thread) != Some(Value::None) {
+            return false;
+        }
+        self.apply_host_requests();
+        true
+    }
+
     /// Invoke either main-menu Game native for host integration checks.
     pub(super) fn invoke_main_menu_native_for_check(
         &mut self,
@@ -837,6 +899,10 @@ impl PlayerNode {
             self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
         }
         if activated {
+            let _ = self
+                .game_streamer
+                .as_mut()
+                .is_some_and(|streamer| streamer.bind_mut().activate_object_animation(target));
             self.sync_door_presentation();
         }
         activated

@@ -229,7 +229,8 @@ Automatic animation playback does not yet consume that path.
 
 Distribution is keyed by `NPC_` base rather than applied to loaded actors,
 because an actor's state is built from its base on first use. A reference that
-loads an hour later still receives what its base was given.
+loads later still receives what its base was given. Fractional deterministic
+SPID chances are evaluated for the individual actor during that build.
 
 A swap is not a load time event at all. The reference it names may not exist
 yet, so the swap is held and `RefState`'s base is rewritten when the reference

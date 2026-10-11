@@ -18,6 +18,7 @@ fn opaque_surface(id: u32, triangles: usize) -> LoadedSurface {
         ..MeshData::default()
     };
     LoadedSurface {
+        animation: None,
         reference: GlobalFormId {
             file: 0,
             object: id,

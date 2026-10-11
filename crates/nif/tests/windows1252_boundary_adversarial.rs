@@ -156,8 +156,8 @@ fn two_texture_slots_with_different_high_bytes_decode_independently() {
     let diffuse = meshes[0].material.diffuse().expect("diffuse path present");
     let normal = meshes[0].material.normal().expect("normal path present");
 
-    assert_eq!(diffuse, "textures\\armor\\steel\\\u{201C}d.dds");
-    assert_eq!(normal, "textures\\armor\\steel\\\u{201D}n.dds");
+    assert_eq!(diffuse, "textures/armor/steel/\u{201C}d.dds");
+    assert_eq!(normal, "textures/armor/steel/\u{201D}n.dds");
     assert!(
         !diffuse.contains('\u{201D}'),
         "diffuse should not carry the normal slot's quote"

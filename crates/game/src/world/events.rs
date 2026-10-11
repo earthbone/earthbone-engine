@@ -147,8 +147,19 @@ impl World {
 
     /// Queue a graph event for the exact placed reference that owns it.
     pub fn request_animation(&mut self, target: GlobalFormId, animation: &str) {
+        self.request_paired_animation(target, animation, None);
+    }
+
+    /// Queue an idle on its initiating reference with an optional partner override.
+    pub fn request_paired_animation(
+        &mut self,
+        target: GlobalFormId,
+        animation: &str,
+        partner: Option<GlobalFormId>,
+    ) {
         self.animation_requests.push(AnimationRequest {
             target,
+            partner,
             animation: animation.to_string(),
         });
     }

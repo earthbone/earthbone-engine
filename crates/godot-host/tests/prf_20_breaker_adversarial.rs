@@ -41,6 +41,7 @@ fn prf_20_breaker_texture_inventory_counts_distinct_assets_and_all_cubemap_faces
         bytes: vec![0; 8],
     });
     let surfaces = ["textures/a.dds", "textures/b.dds"].map(|path| LoadedSurface {
+        animation: None,
         reference: GlobalFormId { file: 0, object: 1 },
         arrays: build_surface(
             &MeshData {

@@ -12,6 +12,7 @@ uniform float lighting_influence = 0.0;
 uniform float alpha_threshold = 0.0;
 uniform vec2 uv_offset = vec2(0.0);
 uniform vec2 uv_scale = vec2(1.0);
+uniform float uv_rotation = 0.0;
 uniform bvec2 wrap_uv = bvec2(true);
 varying float angle_opacity;
 void vertex() {
@@ -27,7 +28,10 @@ void vertex() {
     }
 }
 void fragment() {
-    vec2 uv = UV * uv_scale + uv_offset;
+    vec2 uv = UV * uv_scale;
+    float c = cos(uv_rotation);
+    float s = sin(uv_rotation);
+    uv = mat2(vec2(c, s), vec2(-s, c)) * (uv - vec2(0.5)) + vec2(0.5) + uv_offset;
     if (!wrap_uv.x) { uv.x = clamp(uv.x, 0.000001, 0.999999); }
     if (!wrap_uv.y) { uv.y = clamp(uv.y, 0.000001, 0.999999); }
     vec4 texel = texture(source_texture, uv);
