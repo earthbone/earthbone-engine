@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::LoadOrder;
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallStatic, Return};
@@ -30,21 +30,45 @@ fn read_ref(game: &mut Game, name: &str) -> Value {
 
 #[test]
 fn hst_18_reference_natives_reflect_repeated_host_updates_and_clear() {
-    let mut game = Game::new(LoadOrder::new());
-    let reference = game.world_mut().player();
-    let object = game.object_of_form(reference);
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag::new(b"REFR"), 0x123));
+    plugin.push_top(Record::new(Tag::new(b"REFR"), 0x456));
+    let mut order = LoadOrder::new();
+    order.add("HostRefs.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let crosshair = GlobalFormId {
+        file: 0,
+        object: 0x123,
+    };
+    let grabbed = GlobalFormId {
+        file: 0,
+        object: 0x456,
+    };
+    let crosshair_object = game.object_of_form(crosshair);
+    let grabbed_object = game.object_of_form(grabbed);
     assert_eq!(read_ref(&mut game, "GetCurrentCrosshairRef"), Value::None);
     assert_eq!(read_ref(&mut game, "GetPlayerGrabbedRef"), Value::None);
 
-    game.world_mut().set_crosshair_reference(Some(reference));
-    game.world_mut().set_grabbed_reference(Some(reference));
+    game.world_mut().set_crosshair_reference(Some(crosshair));
+    game.world_mut().set_grabbed_reference(Some(grabbed));
     assert_eq!(
         read_ref(&mut game, "GetCurrentCrosshairRef"),
-        Value::Object(object)
+        Value::Object(crosshair_object)
     );
     assert_eq!(
         read_ref(&mut game, "GetPlayerGrabbedRef"),
-        Value::Object(object)
+        Value::Object(grabbed_object)
+    );
+
+    game.world_mut().set_crosshair_reference(Some(grabbed));
+    game.world_mut().set_grabbed_reference(Some(crosshair));
+    assert_eq!(
+        read_ref(&mut game, "GetCurrentCrosshairRef"),
+        Value::Object(grabbed_object)
+    );
+    assert_eq!(
+        read_ref(&mut game, "GetPlayerGrabbedRef"),
+        Value::Object(crosshair_object)
     );
 
     game.world_mut().set_crosshair_reference(None);
