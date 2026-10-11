@@ -8737,7 +8737,9 @@ empty, so the importer does not map payload bytes onto plugin subrecords or
 claim subtype fields are implemented. PCON placement is also decoded by the
 reference reconstruction path. PARW placement stays opaque because xEdit
 omits type 47 from its initial-data dispatch and FallrimTools uses its raw
-fallback.
+fallback. Papyrus `Game.GetSavedProjectilePayload(Form)` independently reads
+the retained bytes as a lowercase hexadecimal string. It returns an empty
+string when the form has no restored projectile payload.
 
 ## Scripted knockback and ragdoll requests, CMB-38
 

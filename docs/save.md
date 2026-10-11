@@ -48,7 +48,9 @@ with those flags set. Both envelope
 flags and exact stored payload bytes reach
 the game's record-backed projectile query and SAV-24 world section. PCON's
 remaining subtype bytes stay opaque. See [saved projectile layouts](save-projectile-layouts.md)
-for the source review and remaining evidence requirement.
+for the source review. Papyrus `Game.GetSavedProjectilePayload(Form)` returns
+the retained payload as lowercase hexadecimal text, including for PARW, whose
+subtype layout remains undefined by the inspected sources.
 
 The container format is documented and has a mature open implementation,
 so both were read first. SCEN runtime field widths were inferred from the

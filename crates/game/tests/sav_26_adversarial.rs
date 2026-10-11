@@ -4,8 +4,45 @@
 //! Adversarial checks for SAV-26 PCON and PARW restoration.
 
 use crate::vanilla_save::{id, reference, references};
-use soe_game::{world::ProjectileRecordExtra, World};
+use soe_game::{world::ProjectileRecordExtra, Game, World};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::Opcode::{CallStatic, Return};
+use soe_papyrus::Value;
 use soe_save::{reference::flags as change_flags, ChangeForm};
+
+fn papyrus_projectile_payload(game: &mut Game, projectile: soe_esm::GlobalFormId) -> String {
+    let function = FunctionBuilder::new("Read", "String")
+        .global()
+        .param("projectile", "Form")
+        .local("payload", "String")
+        .ins(
+            CallStatic,
+            vec![
+                s("Game"),
+                s("GetSavedProjectilePayload"),
+                ident("payload"),
+                ident("projectile"),
+            ],
+        )
+        .ins(Return, vec![ident("payload")])
+        .build();
+    game.load_script(
+        &ScriptBuilder::new("Sav26ProjectileProbe", "")
+            .function(function)
+            .bytes(),
+    )
+    .unwrap();
+    let form = Value::Object(game.object_of_form(projectile));
+    let thread = game
+        .vm
+        .call_global("Sav26ProjectileProbe", "Read", &[form])
+        .unwrap();
+    assert!(game.run_until_idle(64));
+    match game.vm.thread_result(thread).unwrap() {
+        Value::Str(payload) => payload.to_string(),
+        value => panic!("expected payload string, got {value:?}"),
+    }
+}
 
 fn typed_change(raw: u32, type_index: u8, flags: u32, data: Vec<u8>) -> ChangeForm {
     ChangeForm {
@@ -136,4 +173,25 @@ fn sav_26_parw_bytes_do_not_interrupt_pcon_placement_restore() {
         [1.0, 2.0, 3.0]
     );
     assert!(world.reference_ref(id(0, 0xA03)).is_none());
+}
+
+#[test]
+fn sav_26_papyrus_native_reads_parw_payload_after_engine_reload() {
+    let mut game = Game::new(references::fixture_order());
+    let mut save = references::fixture();
+    save.change_forms.push(typed_change(
+        0x400A03,
+        47,
+        change_flags::MOVE,
+        vec![0xB1, 0x00, 0xFE],
+    ));
+    game.world_mut().restore_vanilla_projectiles(&save).unwrap();
+    let parw = id(0, 0xA03);
+
+    assert_eq!(papyrus_projectile_payload(&mut game, parw), "b100fe");
+
+    let bytes = game.save_state().unwrap();
+    let mut loaded = Game::new(references::fixture_order());
+    loaded.load_state(&bytes).unwrap();
+    assert_eq!(papyrus_projectile_payload(&mut loaded, parw), "b100fe");
 }
