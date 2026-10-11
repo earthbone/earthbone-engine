@@ -30,7 +30,7 @@ fn change(form: u32, flags: u32, ty: u8, data: Vec<u8>) -> ChangeForm {
 }
 
 #[test]
-fn pcon_ignores_reference_flag_payloads_and_keeps_the_tail() {
+fn sav_70_pcon_ignores_reference_flag_payloads_and_keeps_the_tail() {
     let mut data = vec![];
     placement(&mut data, 0x400800);
     data.extend([0xA5, 0xFE, 0xFF, 0xFF, 0x7F, 0x11, 0x22]);
@@ -55,7 +55,7 @@ fn pcon_ignores_reference_flag_payloads_and_keeps_the_tail() {
 }
 
 #[test]
-fn pcon_only_consumes_havok_when_flagged_and_rejects_truncation() {
+fn sav_70_pcon_only_consumes_havok_when_flagged_and_rejects_truncation() {
     let mut ordinary = vec![];
     placement(&mut ordinary, 0x400800);
     ordinary.extend([0x03, 0xAA, 0xBB]);
@@ -72,7 +72,7 @@ fn pcon_only_consumes_havok_when_flagged_and_rejects_truncation() {
 }
 
 #[test]
-fn parw_remains_fully_opaque_for_created_and_movement_flags() {
+fn sav_70_parw_remains_fully_opaque_for_created_and_movement_flags() {
     let data = [0x00, 0xFF, 0x80, 0x01, 0xAA];
     let form = change(
         0x800ABC,
@@ -98,7 +98,7 @@ fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn all_external_reference_headers_reencode_and_player_positions_match() {
+fn sav_70_adversarial_external_reference_headers_reencode_and_player_positions_match() {
     let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
         eprintln!("SOE_TEST_SAVES unset, skipping reference header corpus");
         return;
