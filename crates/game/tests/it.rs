@@ -1419,6 +1419,8 @@ mod scr_29_game_native_contracts;
 mod scr_30_adversarial;
 #[path = "scr_30_breaker_adversarial.rs"]
 mod scr_30_breaker_adversarial;
+#[path = "scr_30_breaker_2_adversarial.rs"]
+mod scr_30_breaker_2_adversarial;
 #[path = "scr_30_game_natives.rs"]
 mod scr_30_game_natives;
 #[path = "scr_31_adversarial.rs"]
