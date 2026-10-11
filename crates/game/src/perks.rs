@@ -125,8 +125,9 @@ impl EntryPointDispatcher {
         self.handlers.insert(entry_point, handler);
     }
 
-    /// Evaluate rank-eligible entries by winning-record, ascending priority,
-    /// then source order. Conditions are evaluated before their handlers run.
+    /// Evaluate rank-eligible entries by resolved PERK FormID, ascending
+    /// priority within each PERK, then source order for ties. Conditions are
+    /// evaluated before their handlers run.
     ///
     /// # Errors
     ///
@@ -153,9 +154,9 @@ impl EntryPointDispatcher {
     }
 }
 
-/// Collect eligible entry-point operations by winning-record, ascending
-/// priority, then source order. Priority direction and cross-perk ordering
-/// have not been confirmed against the reference runtime.
+/// Collect eligible entry-point operations by resolved PERK FormID,
+/// ascending priority within each PERK, then source order for ties. Priority
+/// direction and cross-perk ordering have not been confirmed against Skyrim.
 ///
 /// # Errors
 /// Malformed sections, missing tab subjects and unsupported conditions.
