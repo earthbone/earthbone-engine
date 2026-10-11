@@ -955,8 +955,11 @@ so a form with no script still answers its class's natives. The VM gained
 **Destructible references.** `ObjectReference.DamageObject` reads the base
 record's DEST header and ordered DSTD stages. Damage lowers reference-owned
 destruction health, advances every crossed percentage threshold, and queues
-`OnDestructionStageChanged` with the prior and current stage numbers. DSTD flags can cap damage,
-disable the reference, mark it destroyed, or ignore external damage. The
+`OnDestructionStageChanged` with the prior and current stage numbers. DSTD
+flags can cap damage at their health threshold, disable the reference, mark it
+destroyed, or stop external damage at the preceding stage threshold. These
+flags apply when one hit crosses several stages as well as across separate
+hits. The
 `World::destruction_model` returns the latest nonzero-stage DMDL through the
 current stage, so later stages without a replacement keep the last model. The
 Godot host hides the base model and draws that stage model through its

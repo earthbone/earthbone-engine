@@ -23,7 +23,11 @@ fn stage(percent: u8, flags: u8) -> Vec<u8> {
 fn game(stages: &[(u8, u8)]) -> Game {
     let mut base = Record::new(T(b"ACTI"), BASE).sub(
         T(b"DEST"),
-        [100i32.to_le_bytes().as_slice(), &[stages.len() as u8, 0, 0, 0]].concat(),
+        [
+            100i32.to_le_bytes().as_slice(),
+            &[stages.len() as u8, 0, 0, 0],
+        ]
+        .concat(),
     );
     for (percent, flags) in stages {
         base = base
