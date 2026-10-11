@@ -99,6 +99,22 @@ fn fixture_order(leveled: bool) -> Arc<LoadOrder> {
 }
 
 #[test]
+fn sav_71_fixed_equality_fixtures_follow_winning_container_contents() {
+    let fixed = fixture_order(false);
+    assert_eq!(
+        crate::common::installed::fixed_container_references(&fixed).collect::<Vec<_>>(),
+        vec![id(REFERENCE), id(TARGET)],
+        "fixed fixtures use the winning base override in its source namespace"
+    );
+    let leveled = fixture_order(true);
+    assert_eq!(
+        crate::common::installed::fixed_container_references(&leveled).count(),
+        0,
+        "a winning base with LVLI contents cannot compare independent reset draws"
+    );
+}
+
+#[test]
 fn sav_71_loaded_reset_restores_winning_record_and_clears_runtime_changes() {
     let order = fixture_order(false);
     let mut world = World::from_shared_order(order.clone());
