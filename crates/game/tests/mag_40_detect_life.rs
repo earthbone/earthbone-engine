@@ -23,10 +23,26 @@ fn condition(function: u16, parameter: u32, expected: f32) -> Vec<u8> {
     data
 }
 
-fn fixture(cast_type: u32) -> Game {
+fn fixture(cast_type: u32, magnitude: f32, area: u32) -> Game {
+    fixture_with_condition(cast_type, magnitude, area, 136, 0x101, 1.0)
+}
+
+fn fixture_with_condition(
+    cast_type: u32,
+    magnitude: f32,
+    area: u32,
+    function: u16,
+    parameter: u32,
+    expected: f32,
+) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(T(b"NPC_"), 0x500).sub(T(b"ACBS"), vec![0; 24]));
+    plugin.push_top(
+        Record::new(T(b"NPC_"), 0x500)
+            .sub(T(b"ACBS"), vec![0; 24])
+            .sub(T(b"KWDA"), 0x600u32.to_le_bytes()),
+    );
     plugin.push_top(Record::new(T(b"NPC_"), 0x501).sub(T(b"ACBS"), vec![0; 24]));
+    plugin.push_top(Record::new(T(b"KYWD"), 0x600).zsub(T(b"EDID"), "ActorTypeUndead"));
     for (form, position) in [
         (0x100, [0.0_f32, 0.0, 0.0]),
         (0x101, [100.0, 0.0, 0.0]),
@@ -54,7 +70,7 @@ fn fixture(cast_type: u32) -> Game {
     plugin.push_top(
         Record::new(T(b"MGEF"), 0x200)
             .sub(T(b"DATA"), data)
-            .sub(T(b"CTDA"), condition(136, 0x101, 1.0)),
+            .sub(T(b"CTDA"), condition(function, parameter, expected)),
     );
     plugin.push_top(Record::new(T(b"EFSH"), 0x400));
     let mut spit = vec![0; 36];
@@ -66,8 +82,8 @@ fn fixture(cast_type: u32) -> Game {
             .sub(
                 T(b"EFIT"),
                 [
-                    500.0f32.to_le_bytes().to_vec(),
-                    0u32.to_le_bytes().to_vec(),
+                    magnitude.to_le_bytes().to_vec(),
+                    area.to_le_bytes().to_vec(),
                     5u32.to_le_bytes().to_vec(),
                 ]
                 .concat(),
@@ -101,7 +117,7 @@ fn cast_detection(game: &mut Game) -> Result<(), MagicError> {
 
 #[test]
 fn mag_40_active_detect_life_selects_only_live_actors_in_range_with_authored_shader() {
-    let mut game = fixture(2);
+    let mut game = fixture(2, 500.0, 0);
     cast_detection(&mut game).unwrap();
     let targets = game.world_mut().detect_life_targets().unwrap();
     assert_eq!(
@@ -116,8 +132,67 @@ fn mag_40_active_detect_life_selects_only_live_actors_in_range_with_authored_sha
 }
 
 #[test]
+fn mag_40_authored_effect_area_supplies_range_when_detect_life_magnitude_is_zero() {
+    let mut game = fixture(2, 0.0, 200);
+    cast_detection(&mut game).unwrap();
+
+    let targets = game.world_mut().detect_life_targets().unwrap();
+
+    assert!(
+        targets.iter().any(|target| target.actor == id(0x101)),
+        "EFIT area should supply the live range"
+    );
+}
+
+#[test]
+fn mag_40_authored_effect_area_takes_precedence_over_magnitude() {
+    let mut game = fixture(2, 500.0, 100);
+    cast_detection(&mut game).unwrap();
+    game.world_mut().reference(id(0x101)).unwrap().position = [150.0, 0.0, 0.0];
+
+    assert!(
+        game.world_mut().detect_life_targets().unwrap().is_empty(),
+        "a target beyond EFIT area should not pass by magnitude fallback"
+    );
+}
+
+#[test]
+fn mag_40_detect_life_honors_hostility_condition_against_player() {
+    let mut game = fixture_with_condition(2, 500.0, 0, 719, 0, 0.0);
+    cast_detection(&mut game).unwrap();
+    let player = game.player();
+    {
+        let mut world = game.world_mut();
+        let actor = world.actor(id(0x101)).unwrap();
+        actor.in_combat = true;
+        actor.combat_target = Some(player);
+    }
+
+    let targets = game.world_mut().detect_life_targets().unwrap();
+    assert!(
+        targets.iter().all(|target| target.actor != id(0x101)),
+        "IsHostileToActor must reject the actor currently targeting the player"
+    );
+}
+
+#[test]
+fn mag_40_detect_life_honors_undead_actor_condition() {
+    let mut game = fixture_with_condition(2, 500.0, 0, 715, 0, 1.0);
+    cast_detection(&mut game).unwrap();
+
+    let targets = game.world_mut().detect_life_targets().unwrap();
+
+    assert_eq!(
+        targets.len(),
+        1,
+        "IsUndead should select only the undead actor"
+    );
+    assert_eq!(targets[0].actor, id(0x101));
+}
+
+#[test]
 fn mag_40_detect_life_has_no_presentation_after_its_active_effect_ends() {
-    let mut game = fixture(2);
+    let mut game = fixture(2, 500.0, 0);
     cast_detection(&mut game).unwrap();
     let effect = game.world().active_effects().next().unwrap().id;
     let shared = game.shared_world();
@@ -131,7 +206,7 @@ fn mag_40_detect_life_has_no_presentation_after_its_active_effect_ends() {
 
 #[test]
 fn mag_40_detect_life_concentration_stays_active_until_dispelled() {
-    let mut game = fixture(2);
+    let mut game = fixture(2, 500.0, 0);
     cast_detection(&mut game).unwrap();
     game.tick(6.0);
     assert_eq!(game.world().active_effects().count(), 1);
@@ -193,5 +268,45 @@ fn mag_40_vanilla_detect_life_effects_link_authored_hit_shaders() {
     assert!(
         linked_shaders > 0,
         "installed Detect Life MGEFs should link at least one authored shader"
+    );
+}
+
+#[test]
+fn mag_40_godot_renders_authored_detect_life_shader_while_effect_is_active() {
+    let (Some(data), Some(godot)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_GODOT_BIN"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_GODOT_BIN not set, skipping MAG-40 Godot visual check");
+        return;
+    };
+    let project = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot");
+    let extension = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/release/libsoe_godot_host.so");
+    assert!(
+        extension.exists(),
+        "build soe-godot-host with --release before the MAG-40 Godot visual check"
+    );
+    let scratch = std::env::temp_dir().join(format!("mag-40-godot-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let output = std::process::Command::new(godot)
+        .args(["--path"])
+        .arg(&project)
+        .args(["--windowed", "--resolution", "640x360", "--script"])
+        .arg("mag_40_detect_life_test.gd")
+        .env("SKYRIM_DATA", data)
+        .env("XDG_DATA_HOME", scratch.join("user"))
+        .output()
+        .expect("Godot process starts");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let _ = std::fs::remove_dir_all(&scratch);
+    assert!(
+        output.status.success() && stdout.contains("RESULT: PASS MAG-40 Detect Life visual"),
+        "Godot Detect Life visual check failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("SCRIPT ERROR"),
+        "Godot reported a script error\n{stderr}"
     );
 }
