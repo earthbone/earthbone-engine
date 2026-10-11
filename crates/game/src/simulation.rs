@@ -105,8 +105,12 @@ pub struct Snapshot {
     pub produced_at: Instant,
     pub interval: Duration,
     pub behind_for: Duration,
+    pub player: GlobalFormId,
     pub actors: BTreeMap<GlobalFormId, RefPlacement>,
     pub contacts: Arc<Vec<crate::world::ContactActor>>,
+    pub appearances: Arc<BTreeMap<GlobalFormId, crate::appearance::ActorAppearance>>,
+    /// Append-only graph requests retain ordering when presentation skips ticks.
+    pub animation_requests: Arc<Vec<crate::world::AnimationRequest>>,
     pub sky: Option<crate::world::sky::SkyFrame>,
     pub evaluations: usize,
     pub systems: soe_trace::FrameSample,
@@ -335,6 +339,9 @@ fn run(
     let mut sequence = 0;
     let mut contacts = Arc::new(Vec::new());
     let mut sky = None;
+    let mut appearances = Arc::new(BTreeMap::new());
+    let mut animation_requests = Arc::new(Vec::new());
+    let player = game.player();
     while !stop.load(Ordering::Acquire) {
         let now = Instant::now();
         if now < next {
@@ -386,8 +393,17 @@ fn run(
             game.tick_scheduled(dt, menu_mode, ai_seconds, script_budget);
         });
         if ai_seconds.is_some() || sequence == 0 {
+            let player = game.player();
             let mut world = game.world_mut();
             contacts = Arc::new(world.contact_actors());
+            appearances = Arc::new(contacts.iter().filter(|contact| contact.actor != player)
+                .filter_map(|contact| match world.actor_appearance(contact.actor) {
+                    Ok(appearance) => Some((contact.actor, appearance)),
+                    Err(error) => {
+                        soe_trace::error!(target: "simulation::appearance", system = "host::actor", "{}: {error}", contact.actor);
+                        None
+                    }
+                }).collect());
             sky = world
                 .loaded_cell()
                 .and_then(|cell| world.sky_frame(cell).ok().flatten());
@@ -396,7 +412,11 @@ fn run(
         let world = game.world();
         let actors = contacts
             .iter()
-            .filter_map(|actor| Some((actor.actor, world.ref_placement(actor.actor)?)))
+            .filter_map(|actor| {
+                let mut placement = world.ref_placement(actor.actor)?;
+                placement.visible &= !world.is_invisible(actor.actor);
+                Some((actor.actor, placement))
+            })
             .collect();
         let workers = if ai_seconds.is_none() || world.ai.planning_workers().jobs == 0 {
             Duration::ZERO
@@ -405,6 +425,9 @@ fn run(
         };
         let seconds = world.clock.real_seconds;
         let evaluations = world.ai.evaluations;
+        if animation_requests.len() != world.animation_requests.len() {
+            animation_requests = Arc::new(world.animation_requests.clone());
+        }
         drop(world);
         drop(scope);
         let produced_at = Instant::now();
@@ -421,8 +444,11 @@ fn run(
             produced_at,
             interval,
             behind_for,
+            player,
             actors,
             contacts: Arc::clone(&contacts),
+            appearances: Arc::clone(&appearances),
+            animation_requests: Arc::clone(&animation_requests),
             sky: sky.clone(),
             evaluations,
             systems: frame.finish(),
@@ -456,6 +482,10 @@ mod tests {
             produced_at: now,
             interval: Duration::from_millis(20),
             behind_for: Duration::ZERO,
+            player: GlobalFormId {
+                file: 0,
+                object: 0x14,
+            },
             actors: BTreeMap::from([(
                 id(),
                 RefPlacement {
@@ -466,6 +496,8 @@ mod tests {
                 },
             )]),
             contacts: Arc::new(Vec::new()),
+            appearances: Arc::new(BTreeMap::new()),
+            animation_requests: Arc::new(Vec::new()),
             sky: None,
             evaluations: 0,
             systems: soe_trace::FrameSample::default(),

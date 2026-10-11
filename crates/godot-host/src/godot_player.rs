@@ -56,6 +56,7 @@ mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
+mod npcs;
 mod profiling;
 mod quick_loot;
 mod race;
@@ -167,6 +168,7 @@ pub struct PlayerNode {
     animation_source: Option<GlobalFormId>,
     /// The existing skinned node bound to the player's own appearance.
     player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
+    npc_actors: npcs::NpcActors,
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     debug_ref_markers: BTreeMap<GlobalFormId, Rid>,
     debug_ref_marker_mesh: Option<Gd<SphereMesh>>,
@@ -316,6 +318,7 @@ impl INode3D for PlayerNode {
             player_input: soe_game::player_input::Driver::default(),
             animation_source: None,
             player_appearance: None,
+            npc_actors: npcs::NpcActors::default(),
             pending_debug_latents: Vec::new(),
             debug_ref_markers: BTreeMap::new(),
             debug_ref_marker_mesh: None,
@@ -580,6 +583,7 @@ impl INode3D for PlayerNode {
     fn process(&mut self, delta: f64) {
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         self.present_simulation();
+        self.sync_npc_actors();
         self.flush_reference_sync();
         self.last_physics_queries = soe_trace::physics_query_stats();
         soe_trace::reset_physics_queries();
@@ -666,6 +670,8 @@ impl INode3D for PlayerNode {
             godot_error!("hitch export: {error}");
         }
         self.release_carry();
+        self.npc_actors.clear();
+        self.npc_actors.wait_for_loads();
         self.restore_catchup_cap();
         self.simulation = None;
         self.simulation_pair = None;

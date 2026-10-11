@@ -1,5 +1,28 @@
 # soe-game: the runtime form table and the first natives
 
+## Streamed character appearance, HST-23
+
+`ActorAppearance` includes selected HDPT models alongside the existing skin and
+worn armor addons. Runtime head-part overrides precede NPC PNAM selections,
+which precede the race's sex-specific HEAD defaults. One primary part per type
+survives. HNAM extra parts are included once, even when links cycle. Worn hair
+slots suppress hair. These views add no saved fields.
+
+The derived view carries HDPT editor IDs and the defining plugin and local
+object ID of the traits source for FaceGen lookup. Runtime head-part edits or
+a changed race suppress the old exported face. Overrides retain the defining
+plugin identity, and trait templates select the template's face assets.
+
+The layouts come from local `TES5Edit/Core/wbDefinitionsTES5.pas`, ACHR, NPC_,
+HDPT and RACE. NPC-first head selection and covered hair follow local
+`openmw/apps/openmw/mwrender/esm4npcanimation.cpp`. Head selection is derived
+here because the host and worker use the same runtime overrides and load-order
+resolution. The host's existing asset readers handle those selected models.
+Simulation snapshots include derived appearances for enabled contact actors,
+refreshed with contacts at the AI cadence. Invisibility is included in their
+presentation visibility. World remains the owner of equipment, skin, position,
+AI packages and enable state.
+
 ## Fixed simulation owner, PRF-37 draft
 
 `simulation::Simulation` constructs Game and its native closures on one named
@@ -12,7 +35,9 @@ AI activation and greeting decisions follow the AI cadence. The existing
 actor driver supplies its current process policy, without a second actor store.
 
 Snapshots contain loaded actor placements, contact presentations, sky state,
-package evaluation counts and tick/worker timings. Consecutive immutable
+package evaluation counts, ordered animation requests and tick/worker timings.
+The request log is shared until it changes, and host actor cursors retain event
+order when rendering skips simulation ticks. Consecutive immutable
 snapshots are published together with a nonblocking mutex exchange. A retained
 reader cannot be overwritten. Contention keeps the previously published pair.
 Interpolation clamps between those consecutive placements and wraps angles

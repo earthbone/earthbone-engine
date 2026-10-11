@@ -1,5 +1,80 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Streamed skinned NPCs, HST-23
+
+`PlayerNode` reconciles enabled ACHRs from World's contact view with rendered
+cell residency. Interior residency records installed cells even when they have
+no static geometry. Each gets one `SkinnedActorNode` control node. Its surfaces,
+mesh instances and skeletons use RenderingServer RIDs. Actors follow the runtime
+position, rotation and controller scale each frame. The threaded adapter uses
+interpolated snapshot placements and derived appearances instead of borrowing
+the worker's World. A disabled actor or one whose rendered cell leaves residency
+releases its node and RIDs. Returning creates a new view of the retained World
+state.
+
+Race and sex select the animation project and skeleton. The existing appearance
+selector supplies skin, SPID-distributed skin and worn outfit addons. Both
+gameplay startup paths apply mod-data files from the VFS loose roots before
+scripts start. HDPT models and their extra parts are assembled on that same rig.
+Exported FaceGen geometry is read from the traits source's defining plugin and
+local NPC ID. Its shape names match selected HDPT editor IDs, so covered hair
+stays hidden and edited parts retain their selected models. Exported faces
+retain their authored diffuse texture, multiplied by the separate exported
+FaceTint texture in a head shader. HairTint and SkinTint RGB values remain
+material color multipliers. The host uses the parsed dynamic position buffer
+for BSDynamicTriShape heads rather than their zero packed positions.
+Rigid head parts use the existing single-weight attachment path at
+`NPC Head [Head]`.
+Rigid shield shapes retain their authored model transform and attach to the
+race rig's left-hand weapon bone through a single skin weight. CommonLib's
+`BipedObjects.h` identifies shield slot 9. The existing host weapon-bone
+selector follows `activeragdoll/src/utils.cpp::GetWeaponNode`, which names
+`SHIELD` for the left hand.
+Missing assets and unmatched bones produce a reported loader error rather than a
+substitute body. Rig decoding and mesh/texture decoding use rayon workers.
+Cached rigs include every node in the race skeleton NIF so later outfits can
+bind additional authored bones. Immutable rigs are shared by the skeleton and
+project paths selected by the race and sex. One completed character upload is
+installed per render frame. Inline appearance selection refreshes every 250
+milliseconds, while placement and visibility follow every frame. Movement sets
+the graph's Speed variable and sends moveStart or moveStop at transitions.
+NPC interpreters retain character-file property defaults, set live sex and
+NPC inputs, and sample an idle before the first upload. Streamed nodes enable
+processing after installation. Runtime movement supplies heading-relative
+Direction and TurnDelta, with turnStart, turnStop and turn direction events.
+Threaded snapshots carry the world's ordered animation request log. Each
+resident visual consumes its requests once, including across skipped ticks.
+
+Rig ownership retains an Arc for the interpreter's private borrow and drops that
+interpreter before replacing or releasing the Arc. Cell unload no longer leaks a
+rig allocation. The rig cache is cleared when the data source changes. Shutdown
+waits for outstanding decode jobs before releasing the host. Inline characters
+bind to the shared World for existing graph-event, stagger, facial and death
+hooks. `npc_visuals` reports identities, skinned surfaces, bones, head parts,
+loader errors, node identities and presentation positions. `npc_visual_counts`
+compares enabled resident ACHRs with drawn, pending and failed views.
+`set_npc_visuals_hidden` hides the RIDs for paired captures without changing
+World. The animation_actors gauge counts the resident loaded character nodes.
+
+Local xEdit ACHR, NPC_, HDPT and RACE definitions and OpenMW's
+`apps/openmw/mwrender/esm4npcanimation.cpp` supply the record selection rules.
+The existing NIF/HKX readers and RenderingServer path are reused. OpenMW's scene
+objects do not fit this host's server RID geometry ownership.
+Nifly's `src/Geometry.cpp::BSDynamicTriShape::Sync` and head-part conversion in
+`src/NifFile.cpp` describe dynamic head geometry and eye data. Serde-hkx's
+`assets/classes/hkbStateMachine.json` and `hkbCharacterStringData.json` provide
+the authored start-state and character asset contracts. These are read through
+the existing engine readers, with no additional parser or dependency.
+
+`hst_23_characters` tests compare installed Hulda and Whiterun guard captures
+with NPC RIDs hidden, check enable/disable, cell unload/reload and runtime
+placement. `hst_23_frame_budget_test.gd` runs TST-18's Whiterun radius-one
+workload with skinned NPCs and reports node reconciliation and pose costs.
+The installed head test requires nonzero head, eye and hair geometry, mapped
+bones, Hulda's face tint and a changing idle pose. It also checks that movement
+enters a walk clip and returns to idle. The capture checks uploaded head and
+eye meshes, Hulda's hair and rendered bone changes across one second.
+
 ## Snapshot adapter, PRF-37 draft
 
 `PlayerNode::start_threaded_gameplay` starts a worker-owned Game using the
@@ -21,7 +96,7 @@ immutable snapshot pair and interpolate actor transforms. The streamer applies
 them to existing MultiMesh and array-mesh resources without reading World.
 Existing actor body synchronization uses snapshot contact shapes. SkyRecords
 reads the published sky rather than constructing a gameplay World on the
-main thread. No per-reference nodes or runtime dependencies are added.
+main thread. Character control nodes follow the HST-23 presentation path above.
 
 `simulation_status` reports readiness, initialization errors, tick count,
 actor count, package evaluations, tick wall time, PRF-17 search-worker busy
