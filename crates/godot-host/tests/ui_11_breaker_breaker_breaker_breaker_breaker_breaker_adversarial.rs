@@ -74,10 +74,7 @@ fn ui_11_empty_text_and_unchecked_toggle_keep_authored_values_and_order() {
             value: String::new()
         }
     );
-    assert_eq!(
-        page.rows()[1].kind,
-        OptionKind::Toggle { checked: false }
-    );
+    assert_eq!(page.rows()[1].kind, OptionKind::Toggle { checked: false });
     assert_eq!(page.rows()[0].label, "");
     assert_eq!(page.rows()[1].label, "設定");
 }
@@ -129,10 +126,13 @@ fn ui_11_repeated_selection_sends_one_page_strided_callback_each_time() {
     let mut page = ConfigPage::new(0x1234);
     let id = page.add_toggle("Enabled", false, 0).unwrap();
 
-    assert_eq!(id, 0x1234_00);
+    assert_eq!(id, 0x0012_3400);
     assert!(page.select(&mut game, form, id));
     assert_eq!(variable(&mut game, "selection_count"), Value::Int(1));
-    assert_eq!(variable(&mut game, "selected_option"), Value::Int(0x1234_00));
+    assert_eq!(
+        variable(&mut game, "selected_option"),
+        Value::Int(0x0012_3400)
+    );
     assert!(page.select(&mut game, form, id));
     assert_eq!(variable(&mut game, "selection_count"), Value::Int(2));
 }
