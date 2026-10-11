@@ -418,6 +418,7 @@ impl World {
         report.references = references.len();
         self.created_base_records.extend(created_records);
         self.refs.extend(references);
+        *self.contact_references.get_mut() = super::contact::ContactReferences::default();
         self.ai.mark_all_nav_doors();
         *self.light_references.get_mut() = super::light_references::LightReferences::default();
         self.player = Some(player);

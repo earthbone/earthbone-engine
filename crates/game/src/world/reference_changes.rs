@@ -129,6 +129,8 @@ pub(super) struct State {
 
 impl World {
     pub(super) fn invalidate_reference(&self, id: GlobalFormId) {
+        self.contact_references.borrow_mut().invalidate(id);
+        self.light_references.borrow_mut().invalidate(id);
         let mut changes = self.reference_changes.borrow_mut();
         let mut pending = vec![id];
         let mut seen = BTreeSet::new();

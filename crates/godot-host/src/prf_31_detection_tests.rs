@@ -16,6 +16,7 @@ fn fixture() -> World {
     ambient[..3].copy_from_slice(&[60, 60, 60]);
     plugin.push_top(Record::new(T(b"CELL"), 1).sub(b"XCLL", ambient));
     plugin.push_top(Record::new(T(b"CELL"), 4));
+    plugin.push_top(Record::new(T(b"STAT"), 8));
     for (object, radius, color, flags, fade) in [
         (2, 100, 255, 0, 1.0_f32),
         (5, 200, 60, 4, 2.0),
@@ -85,6 +86,32 @@ fn prf_31_spatial_light_matches_full_scan_and_current_reference_state() {
     world.reference(spawned).unwrap().enabled = false;
     compare(&world);
     world.reference(spawned).unwrap().deleted = true;
+    compare(&world);
+}
+
+#[test]
+fn prf_31_spatial_light_matches_full_scan_after_runtime_base_changes() {
+    let mut world = fixture();
+    let reference = world.place_at(id(8), id(12), false);
+    let compare = |world: &World| {
+        let samples = LightSamples::new(world, &[id(1), id(4)]);
+        for cell in [id(1), id(4)] {
+            for point in [[0.0; 3], [99.0, 0.0, 0.0], [5000.0, 0.0, 0.0]] {
+                assert_eq!(
+                    samples.level(cell, point),
+                    full_scan_light_level(world, cell, point)
+                );
+            }
+        }
+    };
+    compare(&world);
+    world.reference(reference).unwrap().base = Some(id(2));
+    compare(&world);
+    world.reference(id(12)).unwrap().base = None;
+    compare(&world);
+    world.reference(reference).unwrap().cell = Some(id(4));
+    compare(&world);
+    world.reference(id(12)).unwrap().base = Some(id(2));
     compare(&world);
 }
 

@@ -372,10 +372,12 @@ persistent cells of one worldspace share that space. Their existing loss and rec
 timers then advance without creating awareness for distant strangers.
 
 `World::light_references_in_cell` caches authored LIGH reference identities
-per cell and tracks instantiated light identities, including runtime spawns.
-It reads current reference cells when returning its sorted list, so moved
-lights leave their authored cell and enter their destination. Disabled and
-deleted identities remain in the list, visibility is read by the sampler.
+per cell and groups instantiated light identities by their current cell,
+including runtime spawns. Shared reference invalidation refreshes only changed
+memberships, including base changes and cell moves. An unchanged cell query
+reads that cell's light identities without scanning loaded lights in other
+cells. Moved lights leave their authored cell and enter their destination.
+Disabled and deleted identities remain in the list, visibility is read by the sampler.
 Cell prefetch builds membership before detection. Native-save load and vanilla
 reference restoration invalidate this derived index. The cache adds no saved
 fields. REFR/NAME and LIGH identity come from local
@@ -8561,6 +8563,14 @@ authored grouping, so attaching it does not make distant actors across that
 worldspace physically resident. Parent-cell identity remains unchanged.
 The existing `CellIndex` supplies XCLC coordinates and world persistent-cell
 identity, following local UESP `CELL.wikitext` and the winning record hierarchy.
+Contact placement queries retain a transient sorted index of actor reference
+FormIDs. Reference invalidation queues membership checks for changed forms,
+including runtime spawns, actor-flag changes and removed references. Unchanged
+queries read only the indexed actors instead of scanning scenery references.
+Cell prefetch prepares membership before detection. Native world restoration
+and vanilla reference import discard the index and derive it from restored
+references. Current placement, scale, enable state and attachment are still
+read from the shared world on every query. The index adds no saved fields.
 `cell_coordinate_space` provides that worldspace identity for exterior pair
 selection and aging of distant known pairs. Interiors keep separate cell spaces.
 The local CK `Is3DLoaded`, `OnCellAttach` and `IsDisabled` pages distinguish
