@@ -1889,3 +1889,7 @@ mod scr_75_global_property;
 mod aud_13_weather_music;
 #[path = "scr_53_breaker3_adversarial.rs"]
 mod scr_53_breaker3_adversarial;
+#[path = "scr_53_breaker4_adversarial.rs"]
+mod scr_53_breaker4_adversarial;
+#[path = "scr_54_breaker4_adversarial.rs"]
+mod scr_54_breaker4_adversarial;

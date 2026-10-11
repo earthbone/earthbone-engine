@@ -182,6 +182,9 @@ impl World {
         if !matches!(self.tag_of(source), Some(tag) if tag == T(b"REFR") || tag == T(b"ACHR")) {
             return Err(crate::combat::FireError::Source);
         }
+        if !self.reference_enabled(source) {
+            return Err(crate::combat::FireError::Source);
+        }
         let weapon_record = self
             .record(weapon)
             .filter(|record| record.tag == T(b"WEAP") && !record.is_deleted())
@@ -265,6 +268,7 @@ impl World {
         }
         let (origin, rotation) = self
             .reference(source)
+            .filter(|reference| !reference.deleted)
             .map(|reference| (reference.position, reference.rotation))
             .ok_or(crate::combat::FireError::Source)?;
         if !origin

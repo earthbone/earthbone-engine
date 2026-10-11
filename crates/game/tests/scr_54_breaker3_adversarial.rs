@@ -19,7 +19,9 @@ fn malformed_acceleration_flag_does_not_commit_the_valid_override_flag() {
     let mut order = LoadOrder::new();
     order.add("Scr54MalformedAcceleration.esp", plugin).unwrap();
     let mut game = Game::new(order);
-    game.world_mut().set_active_weather(id(1), true, false).unwrap();
+    game.world_mut()
+        .set_active_weather(id(1), true, false)
+        .unwrap();
     let previous = game.world().weather_request();
 
     let script = ScriptBuilder::new("Scr54MalformedAcceleration", "")
