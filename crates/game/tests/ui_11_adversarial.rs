@@ -4,14 +4,14 @@
 use soe_esm::GlobalFormId;
 use soe_papyrus::Value;
 
-use crate::support::ui_11_fixture;
+use crate::support::{ui_05_fixture as compiled, ui_11_fixture};
 
 fn value(game: &mut soe_game::Game, name: &str) -> Value {
     let object = game.object_of_form(GlobalFormId {
         file: 0,
-        object: ui_11_fixture::CONFIG,
+        object: compiled::CONFIG,
     });
-    game.vm.get_var(object, ui_11_fixture::CHILD, name).unwrap()
+    game.vm.get_var(object, compiled::CHILD, name).unwrap()
 }
 
 #[test]
@@ -22,7 +22,7 @@ fn ui_11_page_ids_reject_stale_page_selections() {
     let mut game = fixture.game();
     let form = GlobalFormId {
         file: 0,
-        object: ui_11_fixture::CONFIG,
+        object: compiled::CONFIG,
     };
 
     assert!(game.mcm_open(form));
@@ -33,7 +33,7 @@ fn ui_11_page_ids_reject_stale_page_selections() {
             .iter()
             .map(|option| option.index)
             .collect::<Vec<_>>(),
-        [0, 1, 4]
+        [0, 1, 2, 3, 4]
     );
     assert!(!game.mcm_select_option(form, 0x100));
     assert!(game.mcm_select_option(form, 0x200));
@@ -51,13 +51,15 @@ fn ui_11_config_registration_and_callbacks_are_idempotent_per_open() {
     let mut game = fixture.game();
     let form = GlobalFormId {
         file: 0,
-        object: ui_11_fixture::CONFIG,
+        object: compiled::CONFIG,
     };
 
     for _ in 0..3 {
         assert_eq!(game.mcm_configs().len(), 1);
     }
+    assert_eq!(value(&mut game, "register_count"), Value::Int(1));
     assert!(game.mcm_open(form));
+    assert_eq!(value(&mut game, "open_count"), Value::Int(1));
     assert!(game.mcm_select_page(0));
     assert!(game.mcm_select_option(form, 0x100));
     assert_eq!(value(&mut game, "selection_count"), Value::Int(1));
@@ -77,7 +79,7 @@ fn ui_11_selection_rejects_missing_form_and_out_of_range_id() {
     let mut game = fixture.game();
     let form = GlobalFormId {
         file: 0,
-        object: ui_11_fixture::CONFIG,
+        object: compiled::CONFIG,
     };
 
     assert!(!game.mcm_select_option(form, 0x100));

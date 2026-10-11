@@ -136,12 +136,11 @@ impl Presentation {
                     option.string_value = value.to_string();
                 }
             }
-            ("optionCursor.numValue", [value @ (Value::Float(_) | Value::Int(_))]) => {
-                if value.as_float().is_finite() {
-                    if let Some(option) = self.cursor.and_then(|index| self.options.get_mut(index))
-                    {
-                        option.number_value = value.as_float();
-                    }
+            ("optionCursor.numValue", [value @ (Value::Float(_) | Value::Int(_))])
+                if value.as_float().is_finite() =>
+            {
+                if let Some(option) = self.cursor.and_then(|index| self.options.get_mut(index)) {
+                    option.number_value = value.as_float();
                 }
             }
             _ => {}
@@ -351,7 +350,7 @@ impl Game {
                 .any(|option| {
                     option.index == id % 0x100
                         && matches!(option.option_type, 2 | 3)
-                        && option.flags & 3 == 0
+                        && option.flags.trailing_zeros() >= 2
                 });
             if !selectable {
                 return false;

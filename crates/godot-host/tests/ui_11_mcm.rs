@@ -387,6 +387,67 @@ fn ui_11_runs_unmodified_skyui_manager_and_base_pex_fixture() {
 }
 
 #[test]
+fn ui_11_unmodified_skyui_state_options_project_sparse_ids_and_callback_once() {
+    let Some(fixture) = executable::load_state_options() else {
+        return;
+    };
+    let mut game = fixture.game();
+    let form = GlobalFormId {
+        file: 0,
+        object: ui_05_fixture::CONFIG,
+    };
+    assert!(game.mcm_open(form));
+    assert!(game.mcm_select_page(0));
+    let mut page = ConfigPage::from_game(&mut game).unwrap();
+    assert_eq!(
+        page.rows().iter().map(|row| row.id).collect::<Vec<_>>(),
+        [0x100, 0x102]
+    );
+    let object = game.object_of_form(form);
+    let old_state = game.vm.state_of(object, ui_05_fixture::CHILD);
+    for (id, counter) in [(0x100, "text_state_count"), (0x102, "toggle_state_count")] {
+        assert!(page.select(&mut game, form, id));
+        assert_eq!(
+            game.vm.get_var(object, ui_05_fixture::CHILD, counter),
+            Some(Value::Int(1))
+        );
+        assert_eq!(game.vm.state_of(object, ui_05_fixture::CHILD), old_state);
+        assert!(!page.select(&mut game, form, id));
+        assert_eq!(
+            game.vm.get_var(object, ui_05_fixture::CHILD, counter),
+            Some(Value::Int(1))
+        );
+    }
+    let updated = ConfigPage::from_game(&mut game).unwrap();
+    assert_eq!(
+        updated.rows()[0].kind,
+        OptionKind::Text {
+            value: "Selected".into()
+        }
+    );
+    assert_eq!(
+        updated.rows()[1].kind,
+        OptionKind::Toggle { checked: false }
+    );
+    assert!(updated.rows().iter().all(|row| !row.enabled()));
+    assert_eq!(
+        game.vm
+            .get_var(object, ui_05_fixture::CHILD, "selection_count"),
+        Some(Value::Int(0))
+    );
+    assert!(
+        !game
+            .vm
+            .log
+            .messages()
+            .iter()
+            .any(|message| message.starts_with("error:") || message.contains(" ERROR:")),
+        "{:?}",
+        game.vm.log.messages()
+    );
+}
+
+#[test]
 fn ui_11_windowed_unmodified_scripts_render_update_and_callback_once() {
     let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
         return;

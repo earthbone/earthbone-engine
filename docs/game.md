@@ -830,9 +830,9 @@ in invocation order. `mcm_options` returns the resulting presentation data,
 including empty slots, packed types, labels, string and numeric values and
 flags. `setOptionFlags` updates the addressed slot. `UI.SetInt` selects the
 option cursor, and `UI.SetString` and `UI.SetFloat` update its displayed
-values. Invalid cursors and incomplete or oversized buffer flushes preserve
-the current rows. Array inputs are copied when called. Closing or switching
-configs clears the presentation. These are transient script requests and
+values. Non-finite numeric updates, invalid cursors and incomplete or oversized
+buffer flushes preserve the current rows. Array inputs are copied when called.
+Closing or switching configs clears the presentation. These are transient script requests and
 add no saved state or section.
 
 `mcm_select_option` rejects hidden, disabled, empty, unknown and stale-page
@@ -857,6 +857,15 @@ same external-script loader as UI-05. It also accepts the UI-05 base PEX path
 beside its manager and parent. The config child calls public option methods.
 The test checks construction, enable and disable updates, callback counts,
 page IDs, value updates and VM errors. It skips when no compiled input is set.
+It selects both text and toggle rows and checks one callback per selection.
+`ui_11_unmodified_skyui_state_options_update_and_restore_state_once` uses the
+same original framework with a child that calls `AddTextOptionST` and
+`AddToggleOptionST`. Its top-to-bottom cursor leaves an empty slot between
+the options. The check covers `OnSelectST` routing, state-local value and flag
+setters, restoration of the previous script state and rejection after a row
+is disabled. Ordinary `OnOptionSelect` remains uncalled for these state rows.
+The synthetic text/toggle selection check verifies that each press dispatches
+one callback and preserves values until the script updates them.
 
 ### Furniture activation, HST-09
 

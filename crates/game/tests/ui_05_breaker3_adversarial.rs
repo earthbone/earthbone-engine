@@ -19,9 +19,8 @@ fn ui_05_reselecting_config_closes_then_reinitializes_its_page() {
         object: compiled::CONFIG,
     };
     let object = game.object_of_form(form);
-    let value = |game: &soe_game::Game, name: &str| {
-        game.vm.get_var(object, compiled::CHILD, name).unwrap()
-    };
+    let value =
+        |game: &soe_game::Game, name: &str| game.vm.get_var(object, compiled::CHILD, name).unwrap();
 
     assert!(game.mcm_open(form));
     assert!(game.mcm_select_page(1));

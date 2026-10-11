@@ -261,6 +261,31 @@ fn ui_11_selection_rejects_disabled_hidden_stale_and_unknown_ids() {
 }
 
 #[test]
+fn ui_11_text_and_toggle_dispatch_once_per_press_without_changing_values() {
+    let mut game = protocol_game();
+    present(&mut game);
+    invoke(
+        &mut game,
+        "InvokeIntA",
+        "setOptionFlags",
+        array(ElementKind::Int, &[Value::Int(1), Value::Int(4)]),
+    );
+    let before = game.mcm_options();
+    for (count, id) in [(1, 0x100), (2, 0x101), (3, 0x101)] {
+        assert!(game.mcm_select_option(FORM, id));
+        assert_eq!(
+            counter(&mut game, "SKI_ConfigBase", "selection_count"),
+            Value::Int(count)
+        );
+        assert_eq!(
+            counter(&mut game, "SKI_ConfigBase", "selected_option"),
+            Value::Int(id as i32)
+        );
+        assert_eq!(game.mcm_options(), before);
+    }
+}
+
+#[test]
 fn ui_11_bad_updates_and_flushes_preserve_current_rows() {
     let mut game = protocol_game();
     present(&mut game);
@@ -292,6 +317,16 @@ fn ui_11_bad_updates_and_flushes_preserve_current_rows() {
     );
     invoke(&mut game, "InvokeInt", "flushOptionBuffers", Value::Int(5));
     assert_eq!(game.mcm_options(), before);
+    invoke(&mut game, "SetInt", "optionCursorIndex", Value::Int(1));
+    for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        invoke(
+            &mut game,
+            "SetFloat",
+            "optionCursor.numValue",
+            Value::Float(value),
+        );
+        assert_eq!(game.mcm_options(), before);
+    }
 }
 
 #[test]
@@ -371,13 +406,23 @@ fn ui_11_unmodified_skyui_pex_adds_updates_and_selects_once() {
         counter(&mut game, compiled::CHILD, "selection_count"),
         Value::Int(1)
     );
+    assert!(game.mcm_select_option(FORM, 0x101));
+    assert_eq!(
+        counter(&mut game, compiled::CHILD, "selection_count"),
+        Value::Int(2)
+    );
+    assert_eq!(
+        counter(&mut game, compiled::CHILD, "selected_option"),
+        Value::Int(0x101)
+    );
+    assert_eq!(game.mcm_options()[1].number_value, 0.0);
     assert!(game.mcm_select_page(1));
     assert_eq!(game.mcm_page_number(), Some(2));
     assert!(!game.mcm_select_option(FORM, 0x100));
     assert!(game.mcm_select_option(FORM, 0x200));
     assert_eq!(
         counter(&mut game, compiled::CHILD, "selection_count"),
-        Value::Int(2)
+        Value::Int(3)
     );
     assert_eq!(
         counter(&mut game, compiled::CHILD, "selected_option"),
@@ -390,6 +435,59 @@ fn ui_11_unmodified_skyui_pex_adds_updates_and_selects_once() {
             .messages()
             .iter()
             .any(|message| message.starts_with("error:")),
+        "{:?}",
+        game.vm.log.messages()
+    );
+}
+
+#[test]
+fn ui_11_unmodified_skyui_state_options_update_and_restore_state_once() {
+    let Some(fixture) = ui_11_fixture::load_state_options() else {
+        return;
+    };
+    let mut game = fixture.game();
+    assert!(game.mcm_open(FORM));
+    assert!(game.mcm_select_page(0));
+    let options = game.mcm_options();
+    assert_eq!(
+        options
+            .iter()
+            .map(|row| (row.index, row.option_type))
+            .collect::<Vec<_>>(),
+        [(0, 2), (1, 0), (2, 3)]
+    );
+    let object = game.object_of_form(FORM);
+    let old_state = game.vm.state_of(object, compiled::CHILD);
+    for (id, counter_name) in [(0x100, "text_state_count"), (0x102, "toggle_state_count")] {
+        assert!(game.mcm_select_option(FORM, id));
+        assert_eq!(
+            counter(&mut game, compiled::CHILD, counter_name),
+            Value::Int(1)
+        );
+        assert_eq!(game.vm.state_of(object, compiled::CHILD), old_state);
+        assert!(!game.mcm_select_option(FORM, id));
+        assert_eq!(
+            counter(&mut game, compiled::CHILD, counter_name),
+            Value::Int(1)
+        );
+    }
+    assert_eq!(
+        counter(&mut game, compiled::CHILD, "selection_count"),
+        Value::Int(0)
+    );
+    let options = game.mcm_options();
+    assert_eq!(
+        (options[0].string_value.as_str(), options[0].flags),
+        ("Selected", 1)
+    );
+    assert_eq!((options[2].number_value, options[2].flags), (0.0, 1));
+    assert!(
+        !game
+            .vm
+            .log
+            .messages()
+            .iter()
+            .any(|message| message.starts_with("error:") || message.contains(" ERROR:")),
         "{:?}",
         game.vm.log.messages()
     );

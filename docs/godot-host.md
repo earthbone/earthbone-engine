@@ -4398,6 +4398,8 @@ projection when selecting a config or page and refreshes changed presentation
 data each frame. Script flag and value updates rebuild the controls. A toggle
 press leaves the final checked state to the script's numeric value. Selection
 checks current game presentation even when a caller holds an older host page.
+Control construction snapshots the projected page before acquiring Godot's
+mutable base guard.
 These controls belong to the open menu and add no per-reference nodes.
 
 The local SkyUI `SKI_ConfigBase.psc` header and source define the text/toggle
@@ -4413,6 +4415,11 @@ the public text, toggle, cursor, flag and value methods. Host rows come from
 those calls rather than manually reconstructed options. The test checks sparse
 IDs, hidden and disabled rows, updated flags and values, and one callback.
 The UI-05 base PEX path beside its manager and parent is also supported.
+`ui_11_unmodified_skyui_state_options_project_sparse_ids_and_callback_once`
+projects text and toggle state options created by the same original framework.
+It checks top-to-bottom cursor IDs, one `OnSelectST` call for each row,
+restoration of the script state, state-local flag and value updates and
+rejection by a stale host page after the script disables a row.
 A separate source fixture reads the
 unmodified `SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` files, checking the
 text and toggle constructors, flag packing, page-strided selection callback
@@ -4421,7 +4428,9 @@ and manager forwarding. Set `SOE_SKYUI_CONFIG_BASE` and
 `ui_11_windowed_unmodified_scripts_render_update_and_callback_once` loads
 the same compiled fixture through PlayerNode, clicks the production buttons,
 checks control labels, checked and enabled state, sparse callback IDs, rejection
-and callback count, then captures the viewport and quits. It requires
+and one callback for each text and toggle press. The toggle check restores the
+script-authored value after the control is pressed. It then captures the
+viewport and quits. It requires
 `SOE_GODOT_BIN` and compiled SkyUI inputs. Build the extension and import the
 project before running it. Capture and output go to `target/ui_11_host`.
 The sources also include local SkyUI `src/ModConfigPanel/ConfigPanel.as` and

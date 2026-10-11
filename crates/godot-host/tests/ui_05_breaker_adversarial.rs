@@ -21,24 +21,40 @@ fn fixture() -> crate::compiled::Fixture {
         ..Default::default()
     };
     plugin.push_top(
-        quest::build_record(CONFIG, "Ui05HostConfigQuest", quest_flags::START_GAME_ENABLED)
-            .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST"))),
+        quest::build_record(
+            CONFIG,
+            "Ui05HostConfigQuest",
+            quest_flags::START_GAME_ENABLED,
+        )
+        .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST"))),
     );
-    let mut base = ScriptBuilder::new("SKI_ConfigBase", "Quest")
+    let base = ScriptBuilder::new("SKI_ConfigBase", "Quest")
         .auto_property("ModName", "String", s(""))
         .auto_property("Pages", "String[]", soe_papyrus::asm::none())
         .function(
             FunctionBuilder::new("OnInit", "None")
-                .ins(CallMethod, vec![s("OnConfigInit"), ident("self"), ident("::nonevar")])
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigInit"), ident("self"), ident("::nonevar")],
+                )
                 .build(),
         )
         .function(
             FunctionBuilder::new("OpenConfig", "None")
                 .ins(
                     CallMethod,
-                    vec![s("SetPage"), ident("self"), ident("::nonevar"), s(""), i(-1)],
+                    vec![
+                        s("SetPage"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        s(""),
+                        i(-1),
+                    ],
                 )
-                .ins(CallMethod, vec![s("OnConfigOpen"), ident("self"), ident("::nonevar")])
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigOpen"), ident("self"), ident("::nonevar")],
+                )
                 .build(),
         )
         .function(
@@ -47,13 +63,21 @@ fn fixture() -> crate::compiled::Fixture {
                 .param("index", "Int")
                 .ins(
                     CallMethod,
-                    vec![s("OnPageReset"), ident("self"), ident("::nonevar"), ident("page")],
+                    vec![
+                        s("OnPageReset"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        ident("page"),
+                    ],
                 )
                 .build(),
         )
         .function(
             FunctionBuilder::new("CloseConfig", "None")
-                .ins(CallMethod, vec![s("OnConfigClose"), ident("self"), ident("::nonevar")])
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigClose"), ident("self"), ident("::nonevar")],
+                )
                 .build(),
         );
     let base_bytes = base.bytes();
@@ -82,10 +106,8 @@ fn fixture() -> crate::compiled::Fixture {
         ("OnConfigOpen", "open_count", 2),
         ("OnConfigClose", "close_count", 3),
     ] {
-        let mut callback = FunctionBuilder::new(event, "None").ins(
-            IAdd,
-            vec![ident(count), ident(count), i(1)],
-        );
+        let mut callback =
+            FunctionBuilder::new(event, "None").ins(IAdd, vec![ident(count), ident(count), i(1)]);
         if event == "OnPageReset" {
             callback = callback
                 .param("page", "String")
@@ -100,7 +122,10 @@ fn fixture() -> crate::compiled::Fixture {
     }
     crate::compiled::Fixture {
         plugin,
-        scripts: vec![("SKI_ConfigBase".into(), base_bytes), (CHILD.into(), child.bytes())],
+        scripts: vec![
+            ("SKI_ConfigBase".into(), base_bytes),
+            (CHILD.into(), child.bytes()),
+        ],
     }
 }
 
@@ -141,6 +166,13 @@ fn ui_05_godot_renders_declared_pages_in_script_order() {
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "{}\n{stdout}\n{stderr}", output.status);
-    assert!(stdout.contains("PASS ui_05 windowed MCM lifecycle"), "{stdout}\n{stderr}");
+    assert!(
+        output.status.success(),
+        "{}\n{stdout}\n{stderr}",
+        output.status
+    );
+    assert!(
+        stdout.contains("PASS ui_05 windowed MCM lifecycle"),
+        "{stdout}\n{stderr}"
+    );
 }

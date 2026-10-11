@@ -419,6 +419,7 @@ impl PlayerNode {
             return false;
         };
         let selected = self.mcm_config;
+        let option_page = self.mcm_page.clone();
         let base = self.base().clone();
         let _guard = self.base_mut();
         for mut child in content.get_children().iter_shared() {
@@ -453,7 +454,7 @@ impl PlayerNode {
                 button.connect("pressed", &callback);
                 rows.add_child(&button);
             }
-            if let Some(page) = &self.mcm_page {
+            if let Some(page) = &option_page {
                 crate::mcm_menu::render_rows(&mut rows, page, &base.callable("mcm_select_option"));
             }
         }

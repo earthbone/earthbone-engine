@@ -82,6 +82,16 @@ func _run() -> void:
 	_check(not player.call("mcm_select_option", 0x100), "disabled text selected again")
 	state = player.call("debug_mcm_fixture_state")
 	_check(state.get("selection_count") == 1, "rejected selection delivered a callback")
+	if toggle != null:
+		toggle.set_pressed_no_signal(true)
+		toggle.emit_signal("pressed")
+	await process_frame
+	await process_frame
+	state = player.call("debug_mcm_fixture_state")
+	_check(state.get("selection_count") == 2, "toggle press did not deliver exactly one callback")
+	_check(state.get("selected_option") == 0x101, "toggle callback lost page ID")
+	toggle = _option(player, "Enabled")
+	_check(toggle != null and not toggle.button_pressed, "script toggle value was replaced by the control")
 	_check(state.get("errors", PackedStringArray()).is_empty(), "VM reported option errors")
 	await RenderingServer.frame_post_draw
 	var image := get_root().get_texture().get_image()

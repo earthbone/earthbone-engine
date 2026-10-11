@@ -11,11 +11,99 @@ use super::ui_05_fixture::{self as compiled, Fixture, CHILD};
 pub fn load() -> Option<Fixture> {
     let mut fixture = compiled::load()?;
     fixture.scripts.retain(|(name, _)| name != CHILD);
-    fixture.scripts.push((CHILD.into(), child()));
+    fixture.scripts.push((CHILD.into(), child().bytes()));
     Some(fixture)
 }
 
-fn child() -> Vec<u8> {
+pub fn load_state_options() -> Option<Fixture> {
+    let mut fixture = load()?;
+    let mut script = child().function(
+        FunctionBuilder::new("OnPageReset", "None")
+            .param("page", "String")
+            .ins(
+                CallMethod,
+                vec![
+                    s("SetCursorFillMode"),
+                    ident("self"),
+                    ident("::nonevar"),
+                    i(2),
+                ],
+            )
+            .ins(
+                CallMethod,
+                vec![
+                    s("AddTextOptionST"),
+                    ident("self"),
+                    ident("::nonevar"),
+                    s("TextState"),
+                    s("State text"),
+                    s("Ready"),
+                    i(0),
+                ],
+            )
+            .ins(
+                CallMethod,
+                vec![
+                    s("AddToggleOptionST"),
+                    ident("self"),
+                    ident("::nonevar"),
+                    s("ToggleState"),
+                    s("State toggle"),
+                    b(true),
+                    i(0),
+                ],
+            )
+            .build(),
+    );
+    for (state, counter, setter, value) in [
+        (
+            "TextState",
+            "text_state_count",
+            "SetTextOptionValueST",
+            s("Selected"),
+        ),
+        (
+            "ToggleState",
+            "toggle_state_count",
+            "SetToggleOptionValueST",
+            b(false),
+        ),
+    ] {
+        script = script.variable(counter, "Int", i(0)).function_in(
+            state,
+            FunctionBuilder::new("OnSelectST", "None")
+                .ins(IAdd, vec![ident(counter), ident(counter), i(1)])
+                .ins(
+                    CallMethod,
+                    vec![
+                        s(setter),
+                        ident("self"),
+                        ident("::nonevar"),
+                        value,
+                        b(false),
+                        s(""),
+                    ],
+                )
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("SetOptionFlagsST"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        i(1),
+                        b(false),
+                        s(""),
+                    ],
+                )
+                .build(),
+        );
+    }
+    fixture.scripts.retain(|(name, _)| name != CHILD);
+    fixture.scripts.push((CHILD.into(), script.bytes()));
+    Some(fixture)
+}
+
+fn child() -> ScriptBuilder {
     let mut script = ScriptBuilder::new(CHILD, "SKI_ConfigBase")
         .variable("text_id", "Int", i(-1))
         .variable("toggle_id", "Int", i(-1))
@@ -198,5 +286,5 @@ fn child() -> Vec<u8> {
                 .build(),
         );
     }
-    script.bytes()
+    script
 }
