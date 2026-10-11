@@ -51,7 +51,7 @@ fn prf_17_normal_papyrus_dispatch_stays_on_the_calling_thread() {
 }
 
 #[test]
-fn prf_17_game_tick_runs_papyrus_tasklets_on_a_worker_thread() {
+fn prf_17_game_tick_keeps_papyrus_tasklets_on_the_calling_thread() {
     let caller = std::thread::current().id();
     let observed = Rc::new(RefCell::new(None::<ThreadId>));
     let mut game = Game::new(LoadOrder::new());
@@ -86,5 +86,5 @@ fn prf_17_game_tick_runs_papyrus_tasklets_on_a_worker_thread() {
     game.tick(1.0 / 60.0);
 
     let observed = observed.borrow().expect("native ran");
-    assert_ne!(observed, caller, "Papyrus tasklet ran on the caller thread");
+    assert_eq!(observed, caller, "Papyrus tasklet left the caller thread");
 }
