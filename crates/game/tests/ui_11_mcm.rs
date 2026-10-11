@@ -27,7 +27,13 @@ fn array(kind: ElementKind, values: &[Value]) -> Value {
     Value::Array(array)
 }
 
-fn protocol_game() -> Game {
+pub(super) fn protocol_game() -> Game {
+    let mut game = protocol_game_unopened();
+    assert!(game.mcm_open(FORM));
+    game
+}
+
+pub(super) fn protocol_game_unopened() -> Game {
     let vmad = Vmad {
         scripts: vec![ScriptEntry::new("SKI_ConfigBase")],
         ..Default::default()
@@ -87,7 +93,6 @@ fn protocol_game() -> Game {
     }
     game.load_script(&script.bytes()).unwrap();
     game.start();
-    assert!(game.mcm_open(FORM));
     game
 }
 

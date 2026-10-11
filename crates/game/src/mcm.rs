@@ -337,24 +337,22 @@ impl Game {
         let original = self
             .vm
             .has_script_method(object, "SKI_ConfigBase", "OnConfigManagerReady");
-        if original || !self.mcm_bridge.borrow().presentation.options.is_empty() {
-            if self.mcm_active != Some(form) || self.mcm_page_number() != Some(id / 0x100) {
-                return false;
-            }
-            let selectable = self
-                .mcm_bridge
-                .borrow()
-                .presentation
-                .options
-                .iter()
-                .any(|option| {
-                    option.index == id % 0x100
-                        && matches!(option.option_type, 2 | 3)
-                        && option.flags.trailing_zeros() >= 2
-                });
-            if !selectable {
-                return false;
-            }
+        if self.mcm_active != Some(form) || self.mcm_page_number() != Some(id / 0x100) {
+            return false;
+        }
+        let selectable = self
+            .mcm_bridge
+            .borrow()
+            .presentation
+            .options
+            .iter()
+            .any(|option| {
+                option.index == id % 0x100
+                    && matches!(option.option_type, 2 | 3)
+                    && option.flags.trailing_zeros() >= 2
+            });
+        if !selectable {
+            return false;
         }
         if !original {
             return !self
