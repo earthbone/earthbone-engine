@@ -253,6 +253,14 @@ branch layouts. The authored contact bridge reaches the shared Game through
 animation events. Live host collision synchronization and attack input are
 separate unfinished rows. See [combat](combat.md) and BACKLOG.csv.
 
+Actor initialization applies RACE skill boosts through the fixed-level
+auto-calculated CLAS skill formula. Manual actors retain DNAM skill values plus
+their offsets. Their stored values survive SOEW reload without rerunning the
+seed calculation. The installed-data and synthetic tests cover both paths, but
+the supplied save corpus has no comparable manual NPC skill overrides. Manual
+NPC race-bonus behavior in the original game remains unobserved. The sources
+and limits are recorded in [actor-values](actor-values.md).
+
 Crate `crates/game`. Round 2 of `ENGINE-PLAN.md`, written 2026-09-14. The map's
 week 6 to 9 gate.
 

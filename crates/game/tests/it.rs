@@ -1120,6 +1120,8 @@ mod prg_08_vanilla;
 mod prg_09_adversarial;
 #[path = "prg_09_breaker_adversarial.rs"]
 mod prg_09_breaker_adversarial;
+#[path = "prg_09_breaker_adversarial_2.rs"]
+mod prg_09_breaker_adversarial_2;
 #[path = "prg_09_race_skill_initialization.rs"]
 mod prg_09_race_skill_initialization;
 #[path = "prg_10_adversarial.rs"]

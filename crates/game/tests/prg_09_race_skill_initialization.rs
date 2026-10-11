@@ -64,7 +64,23 @@ fn prg_09_manual_spawn_preserves_the_authored_skill_cache() {
     let mut world = game.world_mut();
     let actor = world.place_at(id(0, 0x800), player, false);
 
-    assert_eq!(world.base_actor_value(actor, "heavyarmor"), 40.0);
+    let initial = world.initial_actor_values(id(0, 0x800)).unwrap();
+    let initial_heavy_armor = initial
+        .iter()
+        .find(|(name, _)| name == "heavyarmor")
+        .unwrap()
+        .1;
+    let race_record = world.record(id(0, 0x700)).unwrap();
+    let race = soe_game::race::Attributes::from_record(race_record)
+        .unwrap()
+        .unwrap();
+    let boost = race
+        .skill_boosts
+        .iter()
+        .find_map(|&(actor_value, boost)| (actor_value == 11).then_some(boost))
+        .unwrap();
+    assert_eq!(initial_heavy_armor, 40.0);
+    assert_ne!(initial_heavy_armor, 40.0 + f32::from(boost));
     assert_eq!(world.base_actor_value(actor, "heavyarmor"), 40.0);
 }
 
@@ -80,6 +96,9 @@ fn prg_09_manual_skill_cache_survives_world_reload_without_reapplication() {
     world.load_state(&saved).unwrap();
 
     assert_eq!(world.base_actor_value(actor, "heavyarmor"), 40.0);
+
+    let second = world.place_at(id(0, 0x800), player, false);
+    assert_eq!(world.base_actor_value(second, "heavyarmor"), 40.0);
 }
 
 #[test]
