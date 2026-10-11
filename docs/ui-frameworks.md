@@ -244,14 +244,20 @@ executes the surrounding script.
 | Focus management | `gfx.managers.FocusHandler.instance.setFocus`, `getFocus` | Maintain focus across lists, cards, dialogs, and menu transitions |
 | Input adaptation | `gfx.managers.InputDelegate.instance.enableControlFixup`, `isGamepad`, `inputToNav` | Translate Godot input events and controller layouts into the navigation events expected by the SWF |
 | Controls and events | `gfx.controls.Button`, `gfx.controls.ButtonGroup`, `gfx.controls.ScrollBar`, `gfx.events.EventDispatcher` | Supply compatible components and event ordering for scripts that construct or extend them |
-| Scaleform text and mouse extensions | `TextField.SetText`, `MovieClip` platform/button helpers, mouse callbacks | Audit each used extension against Ruffle and implement the missing behavior without changing menu semantics |
+| Scaleform text and mouse extensions | `TextField.SetText` is absent from Ruffle AVM1; the source also uses MovieClip and mouse APIs | Implement `SetText` and test MovieClip and mouse behavior against the source menus |
 
 This inventory is a source-level compatibility map, not a claim that stock
-Ruffle lacks every similarly named Adobe Flash feature. The exact missing
-method set must be checked against a pinned Ruffle revision during the first
-prototype. Ruffle's current project description says ActionScript 1 and 2 are
-supported, while Scaleform's own reference describes its extensions as
-Scaleform-only APIs.
+Ruffle lacks every similarly named Adobe Flash feature. The API surface was
+checked against Ruffle nightly 2026-10-09 at commit `fbb4ce8`. Its AVM1 global
+registration has no `gfx` namespace, so the listed `gfx.io`, `gfx.ui`,
+`gfx.managers`, `gfx.controls` and `gfx.events` symbols are absent from stock
+Ruffle. The same revision's AVM1 `TextField` implementation has no `SetText`
+member, so `TextField.SetText` is a missing Scaleform extension. This check
+does not mark standard Flash methods such as `MovieClip.gotoAndStop` as
+missing. The pinned source links are [AVM1 globals](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals.rs)
+and [AVM1 TextField](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals/text_field.rs).
+Ruffle's project description says ActionScript 1 and 2 are supported, while
+Scaleform's reference describes its extensions as Scaleform-only APIs.
 
 ### GameDelegate calls by vanilla source class
 
@@ -327,10 +333,13 @@ and diagnostics.
   callback and namespace inventory.
 - [Ruffle](https://github.com/ruffle-rs/ruffle), for its project description
   and ActionScript 1 and 2 support statement.
+- Ruffle nightly 2026-10-09, commit `fbb4ce8`, for the pinned AVM1 global and
+  TextField surface audit.
 - [Ruffle pull request 9090](https://github.com/ruffle-rs/ruffle/pull/9090),
   for the `GFX` and `CFX` header signature change.
-- The research lead at `research/engine-map/leads/ui-scaleform.md` and the
-  local Ruffle clone were unavailable in this checkout. Method-level API gaps
-  therefore remain unverified against a pinned Ruffle revision.
+- The research lead at `research/engine-map/leads/ui-scaleform.md` was read.
+  The local Ruffle clone was absent, so the pinned upstream source links above
+  were used for the AVM1 namespace and `TextField.SetText` check. Compatibility
+  behavior still needs a runtime prototype and menu tests.
 - Scaleform extension behavior is described as a compatibility target from
   source usage. Verify each method against primary references during UI-28.

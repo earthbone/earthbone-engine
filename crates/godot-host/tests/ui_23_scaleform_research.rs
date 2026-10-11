@@ -97,6 +97,28 @@ fn ui_23_scaleform_research_documents_tags_and_extensions() {
 }
 
 #[test]
+fn ui_23_ruffle_api_gaps_are_checked_at_a_pinned_revision() {
+    let doc = std::fs::read_to_string(repo_root().join("docs/ui-frameworks.md")).unwrap();
+    for required in [
+        "Ruffle nightly 2026-10-09 at commit `fbb4ce8`",
+        "Its AVM1 global registration has no `gfx` namespace",
+        "`gfx.io`, `gfx.ui`,",
+        "`gfx.managers`, `gfx.controls` and `gfx.events`",
+        "The same revision's AVM1 `TextField` implementation has no `SetText`",
+        "`TextField.SetText` is a missing Scaleform extension",
+        "This check does not mark standard Flash methods such as `MovieClip.gotoAndStop` as",
+        "https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals.rs",
+        "https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals/text_field.rs",
+    ] {
+        assert!(
+            doc.contains(required),
+            "Ruffle API audit is missing {required}"
+        );
+    }
+    assert!(!doc.contains("Method-level API gaps\n  therefore remain unverified"));
+}
+
+#[test]
 fn ui_23_scaleform_research_covers_vanilla_delegate_calls() {
     let source_root = action_script_root();
     if !source_root.exists() {
