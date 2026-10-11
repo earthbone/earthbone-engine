@@ -205,7 +205,7 @@ the repository or run by the engine.
 
 ### Scaleform surface found in the source
 
-The supplied SkyUI Community ActionScript tree contains 153 `.as` files. A
+The supplied SkyUI Community ActionScript tree contains 152 `.as` files. A
 literal scan finds 470 `gfx.io.GameDelegate` operations, 337 `call` sites and
 133 `addCallBack` sites. The scripts refer to five `gfx` namespace roots:
 `io` (470 references), `ui` (140), `managers` (69), `events` (26), and
