@@ -142,3 +142,30 @@ fn sprite_without_end_still_requires_its_declared_frame_count() {
     tag(1, &[], &mut tags);
     assert!(convert(&movie(1, &tags)).is_err());
 }
+
+#[test]
+fn ui_23_gfx_and_cfx_headers_decode_like_fws_and_cws() {
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let fws = movie(1, &[1, 0, 0, 0]);
+    let expected = convert(&fws).unwrap();
+    let mut gfx = fws.clone();
+    gfx[..3].copy_from_slice(b"GFX");
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&fws[8..]).unwrap();
+    let compressed = encoder.finish().unwrap();
+    let mut cws = b"CWS".to_vec();
+    cws.push(fws[3]);
+    cws.extend_from_slice(&fws[4..8]);
+    cws.extend_from_slice(&compressed);
+    let mut cfx = cws.clone();
+    cfx[..3].copy_from_slice(b"CFX");
+
+    for (name, bytes) in [("FWS", fws), ("GFX", gfx), ("CWS", cws), ("CFX", cfx)] {
+        let actual = convert(&bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!(actual, expected, "{name} changed the decoded movie");
+    }
+}
