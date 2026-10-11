@@ -126,8 +126,18 @@ fn prepare(source: &DataSource, appearance: &ActorAppearance, rigs: &RigCache) -
             rig
         }
     };
-    let surfaces = ActorAssets::appearance_surfaces(source.vfs(), appearance, &rig.skeleton)
-        .map_err(|error| error.to_string())?;
+    let race_record = source.order().winner(race).ok_or("NPC race is missing")?;
+    let mouth_targets = crate::facial::mouth_targets(
+        &soe_esm::records::race::Race::from_record(race_record)
+            .map_err(|error| error.to_string())?,
+    );
+    let surfaces = ActorAssets::appearance_surfaces_with_mouth(
+        source.vfs(),
+        appearance,
+        &rig.skeleton,
+        &mouth_targets,
+    )
+    .map_err(|error| error.to_string())?;
     if surfaces.is_empty() {
         return Err("NPC appearance contains no skinned surfaces".into());
     }
@@ -142,6 +152,28 @@ fn prepare(source: &DataSource, appearance: &ActorAppearance, rigs: &RigCache) -
 }
 
 impl PlayerNode {
+    pub(super) fn sync_dialogue_mouth(&mut self) {
+        let speaker = self.game.as_ref().and_then(|game| {
+            game.world()
+                .dialogue_session()
+                .and_then(|session| session.current_info.map(|_| session.speaker))
+        });
+        let weights = self
+            .sound_bank
+            .as_ref()
+            .map(|bank| bank.bind().dialogue_mouth_weights())
+            .unwrap_or_default();
+        for (id, resident) in &mut self.npc_actors.residents {
+            if let Some(node) = &mut resident.node {
+                node.bind_mut().set_dialogue_mouth(if speaker == Some(*id) {
+                    weights.as_slice()
+                } else {
+                    &[]
+                });
+            }
+        }
+    }
+
     pub(super) fn sync_npc_actors(&mut self) {
         let _scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         let started = Instant::now();

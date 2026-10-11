@@ -1,5 +1,35 @@
 # soe-game: the runtime form table and the first natives
 
+## Player NPC conversations, HST-28
+
+Player-input actor activation uses `begin_player_dialogue`. An active Hello
+to this player from the activated speaker retains its selected INFO and response
+cursor when the menu opens. Activation of a different speaker selects its Hello
+through the existing dialogue conditions and priorities.
+
+`Game::begin_player_dialogue` checks the actor's live availability and selects
+an eligible Misc Hello through the existing quest and INFO condition evaluator.
+Quest priority, topic priority and FormID order rank greetings. Selection uses
+the existing response, fragment and history path. Completing the greeting
+returns to the existing conditional topic choices. The response preview
+queries the choices following the current INFO without advancing its cursor
+or dispatching its end fragment. An actor without any
+eligible greeting or topic leaves no conversation open.
+
+`player_dialogue_available` rejects disabled or activation-blocked references,
+dead, unconscious or combat actors, actors with dialogue disabled, participants
+in a running scene and an already active nonambient conversation. Explicit
+faction enemies of the player also fail the check. Ambient chatter can be
+interrupted through the existing dialogue completion path.
+
+Local xEdit DIAL definitions and UESP's DIAL page identify Misc Hello as
+category 7 with subtype 79 or HELO. The local CK `AllowPCDialogue` and `Activate`
+pages supply the actor override and blocked-activation semantics. This entry
+point reuses the engine's record selector rather than adding a host topic list.
+
+`hst_28_` tests cover conditional greetings, topics, responses, Goodbye closure,
+unavailable speakers and empty dialogue. No saved fields are added.
+
 ## Streamed character appearance, HST-23
 
 `ActorAppearance` includes selected HDPT models alongside the existing skin and

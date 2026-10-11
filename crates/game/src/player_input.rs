@@ -401,7 +401,7 @@ impl Game {
                     return Err(Error::Activation(*target));
                 }
                 if actor {
-                    self.begin_dialogue(*target, player)?;
+                    self.begin_player_dialogue(*target)?;
                     Ok(format!("conversation {target}"))
                 } else {
                     Ok(format!("activated {target}"))

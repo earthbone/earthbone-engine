@@ -77,6 +77,7 @@ struct AppearanceBinding {
     cache: crate::actor::AppearanceCache,
     stagger: StaggerTracker,
     animation_cursor: AnimationEventCursor,
+    mouth_targets: Vec<String>,
 }
 
 /// A graph event derived from the bound actor's shared stagger deadline.
@@ -164,6 +165,7 @@ pub struct SkinnedActorNode {
     stats: VarDictionary,
     elapsed: f64,
     invisible: bool,
+    mouth_weights: Vec<f32>,
     ragdoll_map: Option<RagdollBoneMap>,
     ragdoll: Option<LiveRagdoll>,
 }
@@ -194,6 +196,7 @@ impl INode3D for SkinnedActorNode {
             stats: VarDictionary::new(),
             elapsed: 0.0,
             invisible: false,
+            mouth_weights: Vec::new(),
             ragdoll_map: None,
             ragdoll: None,
         }
@@ -236,6 +239,32 @@ impl INode3D for SkinnedActorNode {
 
 #[godot_api]
 impl SkinnedActorNode {
+    /// Mouth morph weights applied to this character's uploaded head surfaces.
+    #[func]
+    pub fn dialogue_mouth_state(&self) -> VarDictionary {
+        let mut state = VarDictionary::new();
+        let Some(binding) = &self.appearance else {
+            return state;
+        };
+        for shape in self
+            .surfaces
+            .iter()
+            .flat_map(|surface| &surface.expression_shapes)
+        {
+            if binding.mouth_targets.contains(&shape.name) {
+                state.set(
+                    shape.name.as_str(),
+                    crate::facial::mouth_weight(
+                        &shape.name,
+                        &binding.mouth_targets,
+                        &self.mouth_weights,
+                    ),
+                );
+            }
+        }
+        state
+    }
+
     /// Authored graph events emitted after the corresponding pose is installed.
     #[signal]
     pub fn animation_event(name: GString);
@@ -502,6 +531,12 @@ impl SkinnedActorNode {
             for (index, shape) in surface.expression_shapes.iter().enumerate() {
                 let weight = if Some(shape.name.as_str()) == target {
                     f32::from(facial_expression.map_or(0, |(_, strength)| strength)) / 100.0
+                } else if let Some(binding) = &self.appearance {
+                    crate::facial::mouth_weight(
+                        &shape.name,
+                        &binding.mouth_targets,
+                        &self.mouth_weights,
+                    )
                 } else {
                     0.0
                 };
@@ -779,6 +814,13 @@ impl SkinnedActorNode {
             return;
         }
         let animation_cursor = AnimationEventCursor::at_end(&world.borrow().animation_requests);
+        let mouth_targets = {
+            let mut world = world.borrow_mut();
+            let race = world.actor(actor).and_then(|actor| actor.race);
+            race.and_then(|race| world.record(race))
+                .and_then(|record| soe_esm::records::race::Race::from_record(record).ok())
+                .map_or_else(Vec::new, |race| crate::facial::mouth_targets(&race))
+        };
         self.appearance = Some(AppearanceBinding {
             world,
             source,
@@ -786,7 +828,17 @@ impl SkinnedActorNode {
             cache: crate::actor::AppearanceCache::default(),
             stagger: StaggerTracker::default(),
             animation_cursor,
+            mouth_targets,
         });
+    }
+
+    pub(crate) fn set_dialogue_mouth(&mut self, weights: &[f32]) {
+        if self.mouth_weights == weights {
+            return;
+        }
+        self.mouth_weights.clear();
+        self.mouth_weights.extend_from_slice(weights);
+        self.push_pose();
     }
 
     pub(crate) fn appearance_outdated(
@@ -1010,6 +1062,7 @@ impl SkinnedActorNode {
             cache,
             stagger: StaggerTracker::default(),
             animation_cursor,
+            mouth_targets: Vec::new(),
         });
         Ok(())
     }
