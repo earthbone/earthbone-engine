@@ -58,7 +58,11 @@ fn cmb_27_magnitude_change_restarts_active_reaction_even_without_deadline_change
         Some((StaggerGraphEvent::Start, 2.0))
     );
 
-    shared.borrow_mut().actor(id(0x900)).unwrap().stagger_magnitude = 5.0;
+    shared
+        .borrow_mut()
+        .actor(id(0x900))
+        .unwrap()
+        .stagger_magnitude = 5.0;
     assert_eq!(
         tracker.poll(&mut shared.borrow_mut(), id(0x900)),
         Some((StaggerGraphEvent::Start, 5.0))
