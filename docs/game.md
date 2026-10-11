@@ -315,6 +315,10 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
+
+`Game::save_state_profiled` returns the same SOEG bytes as `save_state` and
+reports encoded size and elapsed write time for the world, Papyrus VM and
+outer save envelope. The benchmark uses these rows for native save inputs.
 - `world/shim_extras`: CommonLib extra-data views over reference XLIB, XLIG,
   map-marker records, authored XLKR links and loaded linked-reference state,
   teleport destinations, inventory outfit/poison extras and resolved XAPR

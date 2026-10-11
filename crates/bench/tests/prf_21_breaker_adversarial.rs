@@ -3,6 +3,34 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
+
+fn native_save_path() -> &'static Path {
+    static PATH: OnceLock<PathBuf> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let data = PathBuf::from(std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA is set"));
+        let mut order = soe_esm::LoadOrder::new();
+        for name in [
+            "Skyrim.esm",
+            "Update.esm",
+            "Dawnguard.esm",
+            "HearthFires.esm",
+            "Dragonborn.esm",
+        ] {
+            let plugin = soe_esm::read_plugin(data.join(name))
+                .unwrap()
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            order.add(name, plugin).unwrap();
+        }
+        let game = soe_game::Game::new(order);
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!("prf-21-native-{}.soeg", std::process::id()));
+        std::fs::write(&path, game.save_state().unwrap()).unwrap();
+        path
+    })
+    .as_path()
+}
 
 fn first_save(root: &Path) -> Option<PathBuf> {
     let mut pending = vec![root.to_path_buf()];
@@ -62,5 +90,74 @@ fn prf_21_breaker_cli_reports_plugin_and_section_times_and_papyrus_script_owners
         missing.is_empty(),
         "missing report fields: {}",
         missing.join(", ")
+    );
+}
+
+#[test]
+fn prf_21_breaker_native_cli_reports_load_time_for_each_named_section() {
+    let path = native_save_path();
+    let output = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
+        .args(["--runs", "1", "save", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "soe-bench native save failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    let missing_sections = ["world", "papyrus_vm", "envelope"]
+        .into_iter()
+        .filter(|section| {
+            !text
+                .lines()
+                .any(|line| line.starts_with(&format!("save_section_load_ns {section} ")))
+        })
+        .collect::<Vec<_>>();
+    let has_plugin_rows = text.lines().any(|line| {
+        ["save_plugin_", "save_papyrus_script "]
+            .iter()
+            .any(|prefix| line.starts_with(prefix))
+    });
+    assert!(
+        missing_sections.is_empty() && has_plugin_rows,
+        "native report omits load timing for {missing_sections:?} and has_plugin_rows={has_plugin_rows}"
+    );
+}
+
+#[test]
+fn prf_21_breaker_native_section_sizes_partition_the_file() {
+    let path = native_save_path();
+    let output = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
+        .args(["--runs", "1", "save", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "soe-bench native save failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    let section_bytes: usize = text
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            (fields.next()? == "save_section")
+                .then(|| fields.nth(1)?.parse::<usize>().ok())
+                .flatten()
+        })
+        .sum();
+    let file_bytes = text
+        .lines()
+        .find_map(|line| {
+            let mut fields = line.split_whitespace();
+            (fields.next()? == "save_file_bytes")
+                .then(|| fields.next()?.parse::<usize>().ok())
+                .flatten()
+        })
+        .expect("native report includes file size");
+    assert_eq!(
+        section_bytes, file_bytes,
+        "native named sections must partition the serialized save"
     );
 }

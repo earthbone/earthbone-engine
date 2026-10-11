@@ -60,7 +60,10 @@ pub use error::{Error, Result};
 pub use globals::{GlobalVariable, GlobalVariables};
 pub use header::{Compression, Header};
 pub use papyrus::Papyrus;
-pub use profile::{PapyrusScriptSize, ParseProfile, PluginFormIds, PluginLoad, SectionProfile};
+pub use profile::{
+    PapyrusScriptSize, ParseProfile, PluginFormIds, PluginLoad, SectionProfile, WriteProfile,
+    WriteSectionProfile,
+};
 pub use quest::FormFlags;
 pub use table::{FileLocationTable, GlobalData};
 
@@ -339,10 +342,15 @@ impl Save {
     /// names, so the bytes match only when that scheme is deterministic. LZ4
     /// block is, which is what Special Edition uses.
     pub fn write(&self) -> Result<Vec<u8>> {
+        self.write_profiled().map(|(bytes, _)| bytes)
+    }
+
+    /// Rebuild the file and measure the bytes and encode time of each body section.
+    pub fn write_profiled(&self) -> Result<(Vec<u8>, WriteProfile)> {
         let mut out = Vec::new();
         self.header.write(&mut out);
 
-        let body = self.write_body();
+        let (body, profile) = self.write_body_profiled();
         match self.header.compression {
             Compression::None => out.extend_from_slice(&body),
             scheme => {
@@ -355,7 +363,7 @@ impl Save {
                 out.extend_from_slice(&compressed);
             }
         }
-        Ok(out)
+        Ok((out, profile))
     }
 
     /// Write an ESS through validated atomic replacement.
@@ -386,45 +394,74 @@ impl Save {
     }
 
     fn write_body(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.push(self.form_version);
+        self.write_body_profiled().0
+    }
 
-        let mut plugin_info = Vec::new();
-        plugin_info.push(self.plugins.len() as u8);
-        for plugin in &self.plugins {
-            plugin.write(&mut plugin_info);
-        }
-        if self.form_version >= ESL_FORM_VERSION {
-            plugin_info.extend_from_slice(&(self.light_plugins.len() as u16).to_le_bytes());
-            for plugin in &self.light_plugins {
+    fn write_body_profiled(&self) -> (Vec<u8>, WriteProfile) {
+        use std::time::Instant;
+        let mut profile = WriteProfile::default();
+        let mut out = Vec::new();
+        let mut section = |name: &'static str, write: &mut dyn FnMut(&mut Vec<u8>)| {
+            let start = out.len();
+            let clock = Instant::now();
+            write(&mut out);
+            profile.sections.push(WriteSectionProfile {
+                name,
+                bytes: out.len() - start,
+                nanos: u64::try_from(clock.elapsed().as_nanos()).unwrap_or(u64::MAX),
+            });
+        };
+        section("plugin_info", &mut |out| {
+            out.push(self.form_version);
+
+            let mut plugin_info = Vec::new();
+            plugin_info.push(self.plugins.len() as u8);
+            for plugin in &self.plugins {
                 plugin.write(&mut plugin_info);
             }
+            if self.form_version >= ESL_FORM_VERSION {
+                plugin_info.extend_from_slice(&(self.light_plugins.len() as u16).to_le_bytes());
+                for plugin in &self.light_plugins {
+                    plugin.write(&mut plugin_info);
+                }
+            }
+            out.extend_from_slice(&(plugin_info.len() as u32).to_le_bytes());
+            out.extend_from_slice(&plugin_info);
+        });
+        section("location_table", &mut |out| self.location_table.write(out));
+        for (name, blocks) in [("table_1", &self.table_1), ("table_2", &self.table_2)] {
+            section(name, &mut |out| {
+                for block in blocks {
+                    block.write(out);
+                }
+            });
         }
-        out.extend_from_slice(&(plugin_info.len() as u32).to_le_bytes());
-        out.extend_from_slice(&plugin_info);
-        self.location_table.write(&mut out);
-        for block in &self.table_1 {
-            block.write(&mut out);
-        }
-        for block in &self.table_2 {
-            block.write(&mut out);
-        }
-        for form in &self.change_forms {
-            form.write(&mut out);
-        }
-        for block in &self.table_3 {
-            block.write(&mut out);
-        }
-        out.extend_from_slice(&(self.form_id_array.len() as u32).to_le_bytes());
-        for form in &self.form_id_array {
-            out.extend_from_slice(&form.to_le_bytes());
-        }
-        out.extend_from_slice(&(self.visited_worldspaces.len() as u32).to_le_bytes());
-        for world in &self.visited_worldspaces {
-            out.extend_from_slice(&world.to_le_bytes());
-        }
-        out.extend_from_slice(&self.unknown_3);
-        out
+        section("change_forms", &mut |out| {
+            for form in &self.change_forms {
+                form.write(out);
+            }
+        });
+        section("table_3", &mut |out| {
+            for block in &self.table_3 {
+                block.write(out);
+            }
+        });
+        section("form_id_array", &mut |out| {
+            out.extend_from_slice(&(self.form_id_array.len() as u32).to_le_bytes());
+            for form in &self.form_id_array {
+                out.extend_from_slice(&form.to_le_bytes());
+            }
+        });
+        section("visited_worldspaces", &mut |out| {
+            out.extend_from_slice(&(self.visited_worldspaces.len() as u32).to_le_bytes());
+            for world in &self.visited_worldspaces {
+                out.extend_from_slice(&world.to_le_bytes());
+            }
+        });
+        section("unknown_3", &mut |out| {
+            out.extend_from_slice(&self.unknown_3);
+        });
+        (out, profile)
     }
 
     /// Turns a save reference into the FormID the running game would use.
