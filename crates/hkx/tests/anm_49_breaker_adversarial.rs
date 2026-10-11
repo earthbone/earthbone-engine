@@ -73,3 +73,29 @@ fn seeded_random_functions_stay_within_authored_bounds() {
         "valid bounded random guards should be supported"
     );
 }
+
+#[test]
+fn inverse_trig_clamps_both_signs_at_and_just_inside_havok_domain_limit() {
+    let clips = ClipLibrary::new();
+    for source in [
+        "asin(1) > 1.57",
+        "asin(-1) < -1.57",
+        "acos(1) == 0",
+        "acos(-1) > 3.14",
+        "asind(1.00099) == 90",
+        "asind(-1.00099) == -90",
+        "acosd(1.00099) == 0",
+        "acosd(-1.00099) == 180",
+    ] {
+        let graph = guarded(source);
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.send_event(1);
+        vm.update(0.0);
+        assert_eq!(
+            vm.current_state(vm.active_states()[0].0).unwrap(),
+            1,
+            "expected the Havok inverse-trig clamp: {source}"
+        );
+        assert!(vm.unsupported().conditions.is_empty(), "{source}");
+    }
+}
