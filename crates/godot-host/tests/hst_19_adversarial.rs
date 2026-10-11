@@ -10,9 +10,10 @@ fn hst_19_rendered_papyrus_request_writes_png_to_requested_path() {
         eprintln!("SKYRIM_DATA unset, skipping HST-19 host adversarial check");
         return;
     };
-    let godot = std::env::var_os("SOE_GODOT_BIN")
-        .map(PathBuf::from)
-        .expect("SOE_GODOT_BIN must point to the provided Godot runtime");
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from) else {
+        eprintln!("SOE_GODOT_BIN unset, skipping HST-19 host adversarial check");
+        return;
+    };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = Command::new(godot)
         .args(["--path"])
