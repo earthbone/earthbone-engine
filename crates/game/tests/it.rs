@@ -10,6 +10,9 @@ mod support;
 #[path = "prf_31_adversarial.rs"]
 mod prf_31_adversarial;
 
+#[path = "prf_31_breaker_adversarial.rs"]
+mod prf_31_breaker_adversarial;
+
 #[path = "prf_36_ai.rs"]
 mod prf_36_ai;
 
