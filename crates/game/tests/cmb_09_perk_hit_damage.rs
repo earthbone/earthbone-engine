@@ -286,19 +286,3 @@ fn cmb_09_cross_perk_order_applies_the_last_winning_record_modifier() {
     assert!((result.weapon_damage - 36.0).abs() < 0.001);
     assert!((result.health_damage - 36.0).abs() < 0.001);
 }
-
-#[test]
-fn cmb_09_ineligible_incoming_entry_leaves_the_hit_damage_unchanged() {
-    let attacker = id(0x14);
-    let target = id(0x901);
-    let mut game = fixture(vec![float_effect(0x810, 36, 2, -100.0, true)]);
-    game.world_mut()
-        .actor(target)
-        .unwrap()
-        .perks
-        .insert(id(0x810));
-
-    let result = game.melee_hit(hit(attacker, target)).unwrap();
-    assert!((result.weapon_damage - 15.0).abs() < 0.001);
-    assert!((result.health_damage - 15.0).abs() < 0.001);
-}

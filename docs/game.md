@@ -8186,8 +8186,9 @@ The combat entry points `ModAttackDamage` (35) and `ModIncomingDamage` (36)
 are consumed by `World::melee_hit`. CMB-09 applies supported numeric functions
 to the staged weapon damage, with outgoing effects before incoming effects.
 Their condition tabs are owner/weapon/target and owner/attacker/weapon,
-respectively. False entry conditions skip their effect. Malformed function
-payloads, unknown actor values, unsupported functions and condition errors
+respectively. Function 4 adds a random amount from its authored range. False
+entry conditions skip their effect. Malformed function payloads, unknown actor
+values, unsupported functions and condition errors
 reject the hit before health or events change. This path retains
 winning-record order, followed by ascending priority and source order for ties
 within each PERK. These ordering choices have not been compared with the

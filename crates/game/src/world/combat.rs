@@ -1009,6 +1009,25 @@ impl World {
                     }
                     (invocation.function, f64::from(value))
                 }
+                4 => {
+                    if invocation.data_type != Some(2) || invocation.data.len() != 8 {
+                        return Err(Error::Unsupported("malformed perk damage function data"));
+                    }
+                    let min = f32::from_le_bytes(
+                        invocation.data[0..4]
+                            .try_into()
+                            .map_err(|_| Error::Number)?,
+                    );
+                    let max = f32::from_le_bytes(
+                        invocation.data[4..8]
+                            .try_into()
+                            .map_err(|_| Error::Number)?,
+                    );
+                    if !min.is_finite() || !max.is_finite() {
+                        return Err(Error::Number);
+                    }
+                    (invocation.function, f64::from(self.random_float(min, max)))
+                }
                 6 | 7 => (invocation.function, 0.0),
                 5 | 12..=14 => {
                     if invocation.data_type != Some(2) || invocation.data.len() != 8 {
@@ -1050,7 +1069,7 @@ impl World {
             for &(function, amount) in &operations {
                 value = match function {
                     1 | 12 => amount,
-                    2 | 5 => value + amount,
+                    2 | 4 | 5 => value + amount,
                     3 | 13 => value * amount,
                     6 => value.abs(),
                     7 => -value.abs(),
