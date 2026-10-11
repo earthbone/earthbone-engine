@@ -1225,8 +1225,9 @@ immediately releases any host body held by Telekinesis.
 integration checks. The move call accepts a position in Skyrim units. The
 release call restores rigid simulation at the body's current pose.
 `godot/mag_41_telekinesis_host_test.gd` uses the Bannered Mare's installed
-movable-reference body to check host movement and resumed rigid simulation
-after the release path.
+movable-reference body to check that a move request reaches the sampled body
+pose within 0.5 Skyrim units, then checks focus-loss release and resumed rigid
+simulation.
 
 ### Grab Actor, MAG-66
 

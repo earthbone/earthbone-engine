@@ -14,6 +14,10 @@ path = "src/lib.rs"
 name = "it"
 path = "tests/it.rs"
 
+[[test]]
+name = "mag_41_breaker_2_adversarial"
+path = "tests/mag_41_breaker_2_adversarial.rs"
+
 [features]
 save-fault-tests = ["soe-save/fault-injection"]
 

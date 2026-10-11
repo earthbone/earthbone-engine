@@ -896,6 +896,8 @@ mod mag_41_adversarial;
 mod mag_41_breaker_adversarial;
 #[path = "mag_41_breaker_extra_adversarial.rs"]
 mod mag_41_breaker_extra_adversarial;
+#[path = "mag_41_breaker_2_adversarial.rs"]
+mod mag_41_breaker_2_adversarial;
 #[path = "mag_42_adversarial.rs"]
 mod mag_42_adversarial;
 #[path = "mag_43_adversarial.rs"]

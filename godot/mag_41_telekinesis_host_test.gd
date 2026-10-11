@@ -56,13 +56,17 @@ func mag_41_host_body_moves_and_releases_after_interruption() -> void:
 	if not streamer.call("telekinesis_move_reference", file, object, moved):
 		_fail("host body move failed")
 		return
-	await physics_frame
-	var after_move: Array = streamer.call("movable_reference_poses")
+	var after_move: Array = []
 	var moved_pose := Vector3.ZERO
-	for pose: Dictionary in after_move:
-		if pose["file"] == file and pose["object"] == object:
-			moved_pose = pose["position"]
-	var movement_observed := moved_pose.distance_to(initial) >= 1.0
+	for frame in 5:
+		await physics_frame
+		after_move = streamer.call("movable_reference_poses")
+		for pose: Dictionary in after_move:
+			if pose["file"] == file and pose["object"] == object:
+				moved_pose = pose["position"]
+				break
+		if moved_pose.distance_to(moved) <= 0.5:
+			break
 	# Focus loss releases the held body through the shared PlayerNode streamer.
 	player.call("input_focus_lost")
 	PhysicsServer3D.body_apply_central_impulse(body, Vector3(0.0, 2.0, 0.0))
@@ -77,8 +81,8 @@ func mag_41_host_body_moves_and_releases_after_interruption() -> void:
 		_fail("released rigid body did not resume simulation")
 		return
 	print("RESULT: PASS mag_41 interruption release and rigid simulation")
-	if not movement_observed:
-		_fail("host move request did not change the observed pose: initial=" + str(initial)
+	if moved_pose.distance_to(moved) > 0.5:
+		_fail("host body did not reach its requested position: initial=" + str(initial)
 			+ " requested=" + str(moved) + " observed=" + str(moved_pose))
 		return
 	print("RESULT: PASS mag_41 host body movement and interruption release")
