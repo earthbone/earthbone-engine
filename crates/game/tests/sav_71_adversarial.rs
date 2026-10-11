@@ -4,7 +4,10 @@
 use std::sync::Arc;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{inventory::{Extra, Field, StackSource}, World};
+use soe_game::{
+    inventory::{Extra, Field, StackSource},
+    World,
+};
 
 const CELL: u32 = 0x100;
 const TARGET_CELL: u32 = 0x101;
