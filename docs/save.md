@@ -862,8 +862,8 @@ uses a reference's authored flags from installed Skyrim.esm as its controlled
 input. This validates the engine's application against real vanilla record
 bits, but does not claim a game-generated before-and-after save comparison.
 
-The existing `all_external_reference_headers_reencode_and_compare_player_locations`
-test now reports mask counts after re-encoding the complete typed prefix.
+The `sav_70_all_external_reference_headers_reencode_and_compare_player_locations`
+test reports mask counts after re-encoding the complete typed prefix.
 All seven reference-header tests pass with the 60-save corpus supplied.
 All 1,154,526 prefixes reproduce their bytes exactly. Of 328,337 masks,
 276,805 belong to REFR and 51,532 to ACHR. Every observed mask has save-header
