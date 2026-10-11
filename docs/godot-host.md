@@ -1,5 +1,48 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## NPC grounding, HST-30
+
+Living NPCs use transient `SimpleWorld` capsules over the same installed static
+collision as the player. Interior collision requires the controller's loaded
+cell. Exterior actors resolve their current XY grid through the source's cell
+index, including actors whose reference belongs to a persistent parent cell,
+and require that grid in the controller's collision ring. Render residency
+alone does not authorize an NPC placement. A new capsule snaps downward from
+the shared reference position to collision within 128 units. Capsule dimensions
+and step height use the contact view's resolved race, NPC and reference scale.
+
+After the inline Game tick, horizontal placement changes become capsule
+velocity. Gravity and the existing player stair and slope controller resolve
+the move in substeps. The host writes the resulting pose to the existing World
+reference, which supplies both animation presentation and Jolt contact bodies.
+Player physics advances only its own capsule. Disabled, departed, held and
+ragdoll actors release their walking capsule. A replaced collision world drops
+all old capsule handles. Cell changes, scale changes and successive source
+placement displacements greater than 128 units recreate the capsule and repeat
+spawn snapping. Falling beneath an unchanged snapshot does not restart gravity.
+The threaded adapter resolves snapshot positions for presentation without
+writing to the worker's World. `npc_grounding_status` reports living rendered
+NPC capsules, floor contact, nearby collision heights and the underfoot NAVM
+triangle's plane height in Skyrim units.
+
+This reuses `soe-physics`, rather than introducing another solver or a
+`CharacterBody3D` node per NPC. Godotwind's local
+`src/core/character/controller/move_container.gd` and
+`controller/moves/walk_move.gd` separate horizontal intent from gravity and
+perform one controller update. Its node controller does not fit this host's
+existing player capsule and RID contact ownership. No additional per-reference
+nodes or saved fields are added.
+
+`hst_30_grounding` checks deferred collision, the 128-unit snap bound, gravity,
+stairs, slopes, scale, teleport and departure handling. Its installed-data case
+uses Bannered Mare ACHRs. `godot/tst_19_play_path.gd` adds `npc.grounded` for
+`SOE_PLAY_PATH=gate`, checking NPCs at the inn, city, gate and plains stops
+against the 32-unit below-ground limit and saving windowed captures.
+The grounding harness bounds distant LOD to one cell beyond the two-cell
+collision radius and advances two seconds of simulation in four rendered
+batches at each stop. It reports asset loading failures separately from the
+capsule height checks.
+
 ## Streamed skinned NPCs, HST-23
 
 `PlayerNode` reconciles enabled ACHRs from World's contact view with rendered

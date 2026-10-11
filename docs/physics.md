@@ -232,6 +232,14 @@ trigger volumes.
 Not in this world: rigid body simulation, constraints, ragdolls, friction,
 continuous collision, keyframed movers. Those are Jolt's.
 
+`SimpleWorld::step_character` advances one capsule against the current static
+collision, rebuilding the broad-phase grid after edits. It rejects non-finite
+or non-positive time without changing characters. HST-30 uses this entry point
+to resolve NPC movement after the AI tick while retaining the player's separate
+physics update. It uses the same gravity, penetration, step and slope rules as
+`PhysicsWorld::step`, without advancing the other capsules. The controller
+layout and algorithm remain those described above.
+
 ## Tests
 
 ### Surface materials for footsteps (2026-09-19)

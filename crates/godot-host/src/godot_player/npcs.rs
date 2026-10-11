@@ -16,6 +16,7 @@ use crate::actor::{ActorAssets, ActorSurface};
 use crate::animation_dispatch::AnimationEventCursor;
 use crate::data_source::DataSource;
 use crate::godot_actor::SkinnedActorNode;
+use soe_physics::Vec3;
 
 use super::PlayerNode;
 
@@ -144,6 +145,105 @@ fn prepare(source: &DataSource, appearance: &ActorAppearance, rigs: &RigCache) -
 }
 
 impl PlayerNode {
+    fn npc_collision_cell(&self, cell: GlobalFormId, position: [f32; 3]) -> Option<GlobalFormId> {
+        self.world.as_ref()?;
+        let source = self.data_source.as_ref()?;
+        if let Some(world) = source.exterior_world(cell) {
+            let coord = crate::streaming::CellCoord::containing(crate::units::SkyrimPos::new(
+                position[0],
+                position[1],
+                position[2],
+            ));
+            let cell = source.cell_index().exterior_cell(world, coord.x, coord.y)?;
+            return self
+                .exterior
+                .as_ref()
+                .and_then(|exterior| exterior.cells.contains_key(&cell).then_some(cell));
+        }
+        (self.loaded_cell == Some(cell)).then_some(cell)
+    }
+
+    pub(super) fn sync_npc_grounding(&mut self, delta: f32) {
+        let _scope = soe_trace::SystemScope::new(soe_trace::System::Physics);
+        let contacts = if let Some(game) = &self.game {
+            let mut world = game.world_mut();
+            let player = world.player();
+            world
+                .contact_actors()
+                .into_iter()
+                .filter(|contact| {
+                    contact.actor != player
+                        && !self.actor_bodies.controls_motion(contact.actor)
+                        && world.actor_ref(contact.actor).is_none_or(|actor| {
+                            !crate::ragdoll::actor_uses_ragdoll(
+                                actor.dead,
+                                actor.unconscious,
+                                actor.ragdoll_forced,
+                            )
+                        })
+                        && world.grabbed_reference() != Some(contact.actor)
+                })
+                .collect::<Vec<_>>()
+        } else if let Some(pair) = &self.simulation_pair {
+            pair.current
+                .contacts
+                .iter()
+                .filter_map(|contact| {
+                    if contact.actor == pair.current.player {
+                        return None;
+                    }
+                    let placement = pair.placement(contact.actor, std::time::Instant::now())?;
+                    placement.visible.then_some(soe_game::world::ContactActor {
+                        position: placement.position,
+                        ..*contact
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let prepared: Vec<_> = contacts
+            .into_iter()
+            .map(|contact| {
+                let cell = self.npc_collision_cell(contact.cell, contact.position);
+                (contact, cell)
+            })
+            .collect();
+        let Some(physics) = &mut self.world else {
+            return;
+        };
+        let mut retained = std::collections::BTreeSet::new();
+        for (contact, cell) in prepared {
+            // CONTEXT: A presentation-only sync must not erase a native's new
+            // placement before the next physics tick consumes it as intent.
+            if delta == 0.0
+                && cell.is_some()
+                && self
+                    .npc_grounding
+                    .character(physics, contact.actor)
+                    .is_some()
+            {
+                retained.insert(contact.actor);
+                continue;
+            }
+            if let Some(position) = self.npc_grounding.update(
+                physics,
+                contact.actor,
+                cell,
+                contact.position,
+                contact.scale,
+                delta,
+            ) {
+                retained.insert(contact.actor);
+                if let Some(game) = &self.game {
+                    game.world_mut()
+                        .set_host_actor_pose(contact.actor, position, contact.rotation);
+                }
+            }
+        }
+        self.npc_grounding.retain(physics, &retained);
+    }
+
     pub(super) fn sync_npc_actors(&mut self, delta: f32) {
         let _scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         let started = Instant::now();
@@ -171,6 +271,17 @@ impl PlayerNode {
                 }
                 if let Some(mut placement) = pair.placement(contact.actor, started) {
                     placement.scale = contact.scale;
+                    if let Some(character) = self
+                        .world
+                        .as_ref()
+                        .and_then(|world| self.npc_grounding.character(world, contact.actor))
+                    {
+                        placement.position = [
+                            character.position.x,
+                            character.position.y,
+                            character.position.z,
+                        ];
+                    }
                     placements.insert(contact.actor, placement);
                 }
             }
@@ -225,11 +336,12 @@ impl PlayerNode {
                 })
             };
             cell.is_some_and(|cell| {
-                self.game_streamer.as_ref().is_some_and(|streamer| {
-                    streamer
-                        .bind()
-                        .actor_cell_is_resident(cell, placement.position)
-                })
+                self.npc_collision_cell(cell, placement.position).is_some()
+                    && self.game_streamer.as_ref().is_some_and(|streamer| {
+                        streamer
+                            .bind()
+                            .actor_cell_is_resident(cell, placement.position)
+                    })
             })
         });
         self.npc_actors.expected = placements
@@ -394,6 +506,50 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Living resident NPC capsule positions and nearby collision support, in game units.
+    #[func]
+    pub fn npc_grounding_status(&self) -> Array<VarDictionary> {
+        let Some(physics) = &self.world else {
+            return Array::new();
+        };
+        let world = self.game.as_ref().map(soe_game::Game::world);
+        self.npc_actors
+            .residents
+            .keys()
+            .filter_map(|actor| {
+                let character = self.npc_grounding.character(physics, *actor)?;
+                let position = character.position;
+                let mut row = vdict! {
+                    "file" => i64::from(actor.file), "object" => i64::from(actor.object),
+                    "position" => Vector3::new(position.x, position.y, position.z),
+                    "on_ground" => character.on_ground,
+                };
+                if let Some(height) = crate::npc_grounding::support_height(physics, position) {
+                    row.set("ground_z", height);
+                    row.set("below_ground", height - position.z);
+                }
+                if let Some(height) = world.as_ref().and_then(|world| {
+                    let graph = world.ai.nav_graph()?;
+                    let node = graph.locate([position.x, position.y, position.z])?;
+                    let mesh = graph.mesh(node.mesh);
+                    let [a, b, c] = graph.triangle(node).vertices.map(|index| {
+                        let point = mesh.vertices[index as usize];
+                        Vec3::new(point[0], point[1], point[2])
+                    });
+                    let normal = (b - a).cross(c - a);
+                    (normal.z.abs() > 1e-6).then(|| {
+                        a.z - (normal.x * (position.x - a.x) + normal.y * (position.y - a.y))
+                            / normal.z
+                    })
+                }) {
+                    row.set("navmesh_z", height);
+                    row.set("below_navmesh", height - position.z);
+                }
+                Some(row)
+            })
+            .collect()
+    }
+
     /// Resident NPC identities, skinned surface counts, transforms and loader failures.
     #[func]
     pub fn npc_visuals(&self) -> Array<VarDictionary> {

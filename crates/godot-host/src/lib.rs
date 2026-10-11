@@ -52,6 +52,7 @@ pub mod mcm_menu;
 pub mod mesh;
 pub mod nif_effect;
 pub mod nordic_theme;
+pub mod npc_grounding;
 pub mod object_animation;
 pub mod objective_map;
 pub mod quest_journal;

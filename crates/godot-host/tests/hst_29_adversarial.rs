@@ -3,12 +3,12 @@
 
 //! Edge cases for host locomotion inputs derived from World placements.
 
-use soe_game::world::RefPlacement;
-use soe_godot_host::actor::{npc_transform, NpcMotion};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Schedule};
+use soe_game::world::RefPlacement;
 use soe_game::Game;
+use soe_godot_host::actor::{npc_transform, NpcMotion};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: GlobalFormId = GlobalFormId {
@@ -56,8 +56,14 @@ fn patrol_game() -> Game {
         Some(0x800),
     )));
     plugin.push_top(
-        npc::build_record(0x802, "Walker", "Walker", Config::default(), Stats::default())
-            .sub(T(b"PKID"), 0x801u32.to_le_bytes()),
+        npc::build_record(
+            0x802,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), 0x801u32.to_le_bytes()),
     );
     let mut actor_data = vec![0; 24];
     actor_data[20..24].copy_from_slice(&std::f32::consts::FRAC_PI_2.to_le_bytes());
@@ -84,7 +90,7 @@ fn patrol_game() -> Game {
     order
         .add("Patrol.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
         .unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     assert!(game.world_mut().drive_actor(ACTOR));
     game
 }
@@ -124,7 +130,10 @@ fn hst_29_patrol_host_transform_tracks_game_each_frame() {
         }
         previous = current;
     }
-    assert!(moving_frames > 60, "Patrol must move during the observed frames");
+    assert!(
+        moving_frames > 60,
+        "Patrol must move during the observed frames"
+    );
 }
 
 #[test]
@@ -157,7 +166,11 @@ fn hst_29_transform_preserves_world_position_and_heading() {
     assert!((position.x - source.position[0]).abs() < 0.001);
     assert!((position.y - source.position[1]).abs() < 0.001);
     assert!((position.z - source.position[2]).abs() < 0.001);
-    let forward = [transform.basis[0][2], transform.basis[1][2], transform.basis[2][2]];
+    let forward = [
+        transform.basis[0][2],
+        transform.basis[1][2],
+        transform.basis[2][2],
+    ];
     assert!(forward[0] < -0.99);
 }
 
