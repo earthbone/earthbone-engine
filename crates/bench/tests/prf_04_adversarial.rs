@@ -43,7 +43,7 @@ fn prf_04_soak_within_rss_growth_budget_has_no_leak_verdict() {
 }
 
 #[test]
-fn prf_04_soak_over_rss_growth_budget_is_a_leak_breach() {
+fn prf_04_soak_over_rss_growth_budget_is_reported_for_investigation() {
     run_python(
         "from types import SimpleNamespace\nargs = SimpleNamespace(mode='soak', backend='cpu', duration=86400, p99_ms=16.7, worst_ms=33.0, max_backlog=0, max_video_mib=4096.0, max_allocations=100000, max_growth_mib=64.0)\nsamples = [dict(p99_ms=1.0, worst_ms=2.0, backlog_peak=0, video_mib=0.0, peak_allocations=1, peak_allocation_bytes=10, rss_mib=100.0, elapsed_s=100.0), dict(p99_ms=1.0, worst_ms=2.0, backlog_peak=0, video_mib=0.0, peak_allocations=1, peak_allocation_bytes=10, rss_mib=164.01, elapsed_s=200.0)]\nreasons, invalid = perf.assess(samples, args)\nassert reasons == ['RSS growth 64.010 MiB exceeds 64.0'], reasons\nassert invalid is False",
     );

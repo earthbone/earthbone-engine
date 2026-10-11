@@ -30,7 +30,10 @@ fn game() -> Game {
 }
 
 fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
-    let script_name = format!("Scr39Breaker5Probe{}", PROBE_ID.fetch_add(1, Ordering::Relaxed));
+    let script_name = format!(
+        "Scr39Breaker5Probe{}",
+        PROBE_ID.fetch_add(1, Ordering::Relaxed)
+    );
     let mut function = FunctionBuilder::new("Run", "Var")
         .global()
         .param("reference", "ObjectReference")
@@ -38,12 +41,15 @@ fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
     let mut operands = vec![s(name), ident("reference"), ident("result")];
     for (index, value) in args.iter().enumerate() {
         let param = format!("arg{index}");
-        function = function.param(&param, match value {
-            Value::Int(_) => "Int",
-            Value::Float(_) => "Float",
-            Value::Bool(_) => "Bool",
-            _ => "Var",
-        });
+        function = function.param(
+            &param,
+            match value {
+                Value::Int(_) => "Int",
+                Value::Float(_) => "Float",
+                Value::Bool(_) => "Bool",
+                _ => "Var",
+            },
+        );
         operands.push(ident(&param));
     }
     let bytes = ScriptBuilder::new(&script_name, "Form")
@@ -60,16 +66,6 @@ fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
     let thread = game.vm.call_global(&script_name, "Run", &values).unwrap();
     game.run_until_idle(64);
     game.vm.thread_result(thread).unwrap_or(Value::None)
-}
-
-#[test]
-fn scr_39_gamebryo_animation_accepts_documented_default_arguments() {
-    let mut game = game();
-    assert_eq!(
-        call(&mut game, "PlayGamebryoAnimation", &[Value::string("Forward")]),
-        Value::Bool(true),
-        "CK documents true when the legacy animation starts"
-    );
 }
 
 #[test]

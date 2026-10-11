@@ -4,11 +4,11 @@
 //! SCR-39 checks for deterministic current-scene selection.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::ObjectId;
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
-use soe_game::Game;
 
 const FIRST_SCENE: u32 = 0x800;
 const SECOND_SCENE: u32 = 0x810;
@@ -86,16 +86,14 @@ fn current_scene_chooses_lowest_form_id_when_active_scenes_share_an_actor() {
     let actor = Value::Object(game.object_of_form(id(ACTOR_REF)));
     let thread = game
         .vm
-        .call_global(
-            "Scr39SceneOrderProbe",
-            "Run",
-            &[actor],
-        )
+        .call_global("Scr39SceneOrderProbe", "Run", &[actor])
         .unwrap();
     game.run_until_idle(64);
 
     assert_eq!(
-        game.vm.thread_result(thread).and_then(|value| value.as_object()),
+        game.vm
+            .thread_result(thread)
+            .and_then(|value| value.as_object()),
         Some(game.object_of_form(id(FIRST_SCENE)))
     );
 }

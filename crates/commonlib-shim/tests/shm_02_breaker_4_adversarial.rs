@@ -42,7 +42,11 @@ int main()
     )
     .unwrap();
     let built = compile(&cpp, &binary);
-    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
     let run = Command::new(binary).output().unwrap();
     assert!(run.status.success());
     fs::remove_dir_all(dir).unwrap();
