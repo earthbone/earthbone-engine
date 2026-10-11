@@ -589,6 +589,7 @@ impl INode3D for PlayerNode {
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         self.present_simulation();
         self.sync_npc_actors();
+        self.sync_dialogue_mouth();
         self.flush_reference_sync();
         self.last_physics_queries = soe_trace::physics_query_stats();
         soe_trace::reset_physics_queries();

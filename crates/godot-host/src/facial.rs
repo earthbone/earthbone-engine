@@ -7,8 +7,8 @@
 //! FaceGen TRI vertex deltas.
 //!
 //! `soe-nif::tri` parses Skyrim FaceGen `.tri` morph deltas. The actor surface
-//! loader and Godot server mesh path do not apply those deltas as blend shapes,
-//! so the viseme path returns evaluated poses for its caller.
+//! loader uploads expression and mouth deltas as blend shapes. Native LIP
+//! weights address the race's PHTN targets, in the order declared by xEdit.
 
 use soe_audio::viseme::{morph_weights, Shape, VisemeTrack};
 use soe_esm::{records::race::Race, GlobalFormId};
@@ -102,6 +102,62 @@ pub fn expression_name_for_target(name: &str) -> Option<&'static str> {
         .find(|target| *target == name)
 }
 
+/// Mouth target names declared by the local xEdit RACE PHWT definition.
+pub fn is_mouth_target(name: &str) -> bool {
+    [
+        "Aah",
+        "BigAah",
+        "BMP",
+        "ChJsh",
+        "DST",
+        "Eee",
+        "Eh",
+        "FV",
+        "I",
+        "K",
+        "N",
+        "Oh",
+        "OohQ",
+        "R",
+        "TH",
+        "W",
+        "LipBigAah",
+        "LipDST",
+        "LipEee",
+        "LipFV",
+        "LipK",
+        "LipL",
+        "LipR",
+        "LipTh",
+    ]
+    .contains(&name)
+}
+
+/// Use authored names, or xEdit's humanoid PHWT order when PHTN is absent.
+pub fn mouth_targets(race: &Race) -> Vec<String> {
+    if !race.phoneme_targets.is_empty() {
+        return race.phoneme_targets.clone();
+    }
+    [
+        "Aah", "BigAah", "BMP", "ChJsh", "DST", "Eee", "Eh", "FV", "I", "K", "N", "Oh", "OohQ",
+        "R", "TH", "W",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
+/// Match a named head morph to the race's native LIP target order.
+pub fn mouth_weight(name: &str, targets: &[String], weights: &[f32]) -> f32 {
+    targets
+        .iter()
+        .position(|target| target == name)
+        .and_then(|index| weights.get(index))
+        .copied()
+        .filter(|weight| weight.is_finite())
+        .unwrap_or(0.0)
+}
+
 /// Apply expression weights to existing values, preserving unrelated targets.
 pub fn apply_expression(values: &mut BTreeMap<String, f32>, mood: u8, strength: u8) {
     let Some(chosen) = expression_name(mood) else {
@@ -121,6 +177,28 @@ pub fn apply_expression(values: &mut BTreeMap<String, f32>, mood: u8, strength: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hst_28_lip_weights_follow_race_target_order_and_reset() {
+        let targets = vec!["BMP".to_owned(), "Aah".to_owned()];
+        assert_eq!(mouth_weight("Aah", &targets, &[0.25, 0.75]), 0.75);
+        assert_eq!(mouth_weight("BMP", &targets, &[]), 0.0);
+        assert_eq!(mouth_weight("MoodHappy", &targets, &[0.25, 0.75]), 0.0);
+        assert_eq!(mouth_weight("Aah", &targets, &[0.25, f32::NAN]), 0.0);
+        assert!(targets.iter().all(|target| is_mouth_target(target)));
+        assert_eq!(
+            mouth_weight("ModMouth", &["ModMouth".to_owned()], &[0.5]),
+            0.5
+        );
+        let mut race =
+            Race::from_record(&soe_esm::Record::new(soe_esm::tag::RACE, 1)).expect("empty race");
+        let defaults = mouth_targets(&race);
+        assert_eq!(defaults.len(), 16);
+        assert_eq!(defaults[0], "Aah");
+        assert_eq!(defaults[15], "W");
+        race.phoneme_targets = targets.clone();
+        assert_eq!(mouth_targets(&race), targets);
+    }
 
     #[test]
     fn anm_59_expression_sets_named_target_and_clears_competing_expressions() {

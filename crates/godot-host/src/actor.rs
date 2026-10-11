@@ -684,6 +684,15 @@ impl ActorAssets {
         appearance: &soe_game::appearance::ActorAppearance,
         skeleton: &Skeleton,
     ) -> Result<Vec<ActorSurface>, ActorError> {
+        Self::appearance_surfaces_with_mouth(vfs, appearance, skeleton, &[])
+    }
+
+    pub(crate) fn appearance_surfaces_with_mouth(
+        vfs: &Vfs,
+        appearance: &soe_game::appearance::ActorAppearance,
+        skeleton: &Skeleton,
+        mouth_targets: &[String],
+    ) -> Result<Vec<ActorSurface>, ActorError> {
         let mut surfaces = Vec::new();
         for part in &appearance.parts {
             let Some(model) = &part.model else { continue };
@@ -707,6 +716,7 @@ impl ActorAssets {
                 skeleton,
                 part.authored_slots & !part.visible_slots,
                 attachment,
+                &[],
             )?);
         }
         let mut exported = if let Some(face) = &appearance.facegen {
@@ -715,7 +725,14 @@ impl ActorAssets {
                 face.plugin, face.object
             );
             if vfs.exists(&path) {
-                Self::load_attached_surfaces(vfs, &path, skeleton, 0, Some("NPC Head [Head]"))?
+                Self::load_attached_surfaces(
+                    vfs,
+                    &path,
+                    skeleton,
+                    0,
+                    Some("NPC Head [Head]"),
+                    mouth_targets,
+                )?
             } else {
                 Vec::new()
             }
@@ -742,6 +759,7 @@ impl ActorAssets {
                         skeleton,
                         0,
                         Some("NPC Head [Head]"),
+                        mouth_targets,
                     )?;
                 }
             }
@@ -783,7 +801,7 @@ impl ActorAssets {
         skeleton: &Skeleton,
         hidden_slots: u32,
     ) -> Result<Vec<ActorSurface>, ActorError> {
-        Self::load_attached_surfaces(vfs, mesh_path, skeleton, hidden_slots, None)
+        Self::load_attached_surfaces(vfs, mesh_path, skeleton, hidden_slots, None, &[])
     }
 
     fn load_attached_surfaces(
@@ -792,6 +810,7 @@ impl ActorAssets {
         skeleton: &Skeleton,
         hidden_slots: u32,
         attachment: Option<&str>,
+        mouth_targets: &[String],
     ) -> Result<Vec<ActorSurface>, ActorError> {
         let bytes = read(vfs, mesh_path)?;
         let file = soe_nif::parse(&bytes).map_err(|source| ActorError::Nif {
@@ -849,7 +868,8 @@ impl ActorAssets {
                 path: mesh_path.to_string(),
                 source,
             })?;
-            let expression_shapes = expression_shapes(vfs, mesh_path, mesh, &arrays)?;
+            let expression_shapes =
+                expression_shapes(vfs, mesh_path, mesh, &arrays, mouth_targets)?;
             if let Some(indices) = visible_indices(&file, mesh, hidden_slots).map_err(|reason| {
                 ActorError::Partitions {
                     path: mesh_path.to_owned(),
@@ -958,10 +978,11 @@ fn expression_shapes(
     mesh_path: &str,
     mesh: &soe_nif::Mesh,
     base: &SurfaceArrays,
+    mouth_targets: &[String],
 ) -> Result<Vec<ExpressionShape>, ActorError> {
     let is_head = mesh_path.to_ascii_lowercase().contains("head")
         || mesh.name.to_ascii_lowercase().contains("head");
-    if !is_head {
+    if !is_head && mouth_targets.is_empty() {
         return Ok(Vec::new());
     }
     let tri_path = std::path::Path::new(mesh_path).with_extension("tri");
@@ -979,7 +1000,10 @@ fn expression_shapes(
     let mut shapes = Vec::new();
     for morph in tri.morphs() {
         let name = morph.name().trim_end_matches('\0');
-        if crate::facial::expression_name_for_target(name).is_none() {
+        if crate::facial::expression_name_for_target(name).is_none()
+            && !crate::facial::is_mouth_target(name)
+            && !mouth_targets.iter().any(|target| target == name)
+        {
             continue;
         }
         let positions = tri
@@ -1591,7 +1615,7 @@ mod tests {
                 translation: soe_nif::types::Vec3::new(10.0, 20.0, 30.0),
                 ..NifTransform::IDENTITY
             },
-            bound: soe_nif::types::Bound::default(),
+            bound: Default::default(),
             positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
             normals: Vec::new(),
             tangents: Vec::new(),
@@ -1602,7 +1626,7 @@ mod tests {
             bone_weights: Vec::new(),
             bone_indices: Vec::new(),
             skin: None,
-            material: soe_nif::mesh::Material::default(),
+            material: Default::default(),
         };
         let surface = rigid_surface(&mesh, "SHIELD", &skeleton).unwrap();
         assert_eq!(surface.map.matched(), 1);

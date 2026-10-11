@@ -70,6 +70,9 @@ impl PlayerNode {
     }
 
     pub(super) fn advance_ambient_dialogue(&mut self) {
+        if self.menu.title() == Some("Dialogue") {
+            return;
+        }
         let ambient = self
             .game
             .as_ref()
@@ -117,12 +120,12 @@ impl PlayerNode {
         }
     }
 
-    pub(super) fn present_player_input_dialogue(&mut self) {
-        if self
+    pub(super) fn present_player_input_dialogue(&mut self, activation: bool) {
+        let greeting = self
             .game
             .as_ref()
-            .is_some_and(|game| game.ambient_dialogue())
-        {
+            .is_some_and(|game| game.ambient_dialogue());
+        if greeting && !activation {
             return;
         }
         if self.ambient_response.take().is_some() {
@@ -151,6 +154,9 @@ impl PlayerNode {
         if let Some(Some(line)) = line {
             self.play_dialogue_voice(&line);
             self.dialogue_response_content(line.text.as_deref().unwrap_or(""));
+            if greeting {
+                self.greeting_topic_content();
+            }
         } else {
             self.dialogue_content();
         }
@@ -456,6 +462,31 @@ impl PlayerNode {
         true
     }
 
+    fn greeting_topic_content(&mut self) {
+        let entries = self
+            .game
+            .as_mut()
+            .and_then(|game| dialogue_menu::greeting_entries(game).ok())
+            .unwrap_or_default();
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return;
+        };
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        for entry in entries {
+            let mut button = Button::new_alloc();
+            button.set_text(&entry.label);
+            button.connect(
+                "pressed",
+                &base.callable("select_dialogue_topic").bindv(&varray![
+                    i64::from(entry.topic.file),
+                    i64::from(entry.topic.object),
+                ]),
+            );
+            content.add_child(&button);
+        }
+    }
+
     fn dialogue_content(&mut self) -> bool {
         if self.menu.title() != Some("Dialogue") {
             return false;
@@ -504,6 +535,35 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Current record-backed conversation and choices for host diagnostics.
+    #[func]
+    pub fn dialogue_state(&mut self) -> VarDictionary {
+        let mut state = VarDictionary::new();
+        let Some(game) = &mut self.game else {
+            return state;
+        };
+        let Some(session) = game.world().dialogue_session().cloned() else {
+            return state;
+        };
+        state.set("speaker_file", i64::from(session.speaker.file));
+        state.set("speaker_object", i64::from(session.speaker.object));
+        state.set("ambient", game.ambient_dialogue());
+        state.set("available", game.player_dialogue_available(session.speaker));
+        if let Ok(Some(line)) = game.dialogue_line() {
+            state.set("text", line.text.as_deref().unwrap_or(""));
+            state.set("info_object", i64::from(line.info.object));
+        }
+        let mut topics = Array::<VarDictionary>::new();
+        if let Ok(entries) = dialogue_menu::greeting_entries(game) {
+            for entry in entries {
+                topics.push(&vdict! { "file" => i64::from(entry.topic.file), "object" => i64::from(entry.topic.object), "label" => entry.label.as_str() });
+            }
+        }
+        state.set("topics", &topics);
+        state.set("voice_slot", self.dialogue_voice_slot.unwrap_or(-1));
+        state
+    }
+
     /// Select and play one eligible MUSC track for the current player.
     #[func]
     pub fn select_music_type(&mut self, file: i64, object: i64, draw: f64) -> bool {
@@ -897,10 +957,9 @@ impl PlayerNode {
         let Some(game) = self.game.as_mut() else {
             return false;
         };
-        let listener = game.player();
-        if game.begin_dialogue(speaker, listener).is_err() {
+        let Ok(greeting) = game.begin_player_dialogue(speaker) else {
             return false;
-        }
+        };
         if self.ambient_response.take().is_some() {
             self.stop_dialogue_voice();
         }
@@ -910,7 +969,17 @@ impl PlayerNode {
             }
             return false;
         }
-        if self.dialogue_content() {
+        let presented = if let Some(line) = greeting {
+            self.play_dialogue_voice(&line);
+            let shown = self.dialogue_response_content(line.text.as_deref().unwrap_or(""));
+            if shown {
+                self.greeting_topic_content();
+            }
+            shown
+        } else {
+            self.dialogue_content()
+        };
+        if presented {
             true
         } else {
             self.close_menu();
@@ -931,6 +1000,30 @@ impl PlayerNode {
         let Some(game) = self.game.as_mut() else {
             return false;
         };
+        if game.ambient_dialogue() {
+            let eligible = game
+                .dialogue_choices_after_response()
+                .is_ok_and(|choices| choices.available.iter().any(|choice| choice.topic == topic));
+            if !eligible {
+                return false;
+            }
+            let mut visited = std::collections::BTreeSet::new();
+            loop {
+                let cursor = game.world().dialogue_session().and_then(|session| {
+                    session
+                        .current_info
+                        .map(|info| (info, session.response_index))
+                });
+                if !visited.insert(cursor) {
+                    return false;
+                }
+                match game.advance_dialogue() {
+                    Ok(None) => break,
+                    Ok(Some(_)) => {}
+                    Err(_) => return false,
+                }
+            }
+        }
         let Ok(Some(line)) = dialogue_menu::choose(game, topic) else {
             return false;
         };

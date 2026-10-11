@@ -1078,7 +1078,7 @@ impl PlayerNode {
                 &[Variant::from("load_door"), Variant::from("activation")],
             );
         }
-        let (activated, show_container, show_crafting, lockpick_request) = {
+        let (activated, show_container, show_crafting, show_dialogue, lockpick_request) = {
             let Some(game) = &mut self.game else {
                 return false;
             };
@@ -1103,6 +1103,10 @@ impl PlayerNode {
                 (container, blocked)
             };
             let creation_bench = crate::crafting_menu::is_creation_bench(game, target);
+            let actor = game
+                .world()
+                .reference_ref(target)
+                .is_some_and(|reference| reference.is_actor);
             let lockpick = game.world().form("Lockpick");
             let key = game.world().key(target);
             let has_key = key.is_some_and(|key| game.world_mut().item_count(player, key) > 0);
@@ -1124,6 +1128,7 @@ impl PlayerNode {
                 activated,
                 activated && container && !blocked && opened,
                 activated && creation_bench && !blocked,
+                activated && actor && !blocked,
                 lockpick_request,
             )
         };
@@ -1139,6 +1144,8 @@ impl PlayerNode {
             self.open_container_menu(target);
         } else if show_crafting {
             self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
+        } else if show_dialogue {
+            self.open_dialogue_menu(i64::from(target.file), i64::from(target.object));
         }
         self.present_game_menu_requests();
         if activated {

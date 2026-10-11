@@ -1,5 +1,36 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## NPC activation dialogue, HST-28
+
+An E-key tap on a resident actor uses the existing collision ray and game
+activation path, including OnActivate and activation blocking. Successful
+actor activation opens the modal dialogue presenter through
+`Game::begin_player_dialogue`. The presenter plays and displays the selected
+greeting alongside the game's conditional topic buttons. Selecting a button
+acknowledges the greeting and rechecks its conditions in Game, then displays
+and plays the returned response. Continue handles subsequent responses and
+Goodbye. Close cancels the conversation and voice and restores play input.
+The HUD shows Talk and the NPC's record name for an available focused actor.
+
+SoundBank resolves and decodes the existing voice asset and samples its LIP
+track against the voice player's clock. The streamed speaker receives those
+weights through its existing SkinnedActorNode. Race PHTN names map the track
+onto uploaded TRI mouth morphs, alongside the existing expression morphs.
+Races without PHTN use xEdit's sixteen humanoid PHWT target names in file order,
+including NordRace, whose absent mapping is covered by the audio survey.
+Other NPCs retain neutral mouth weights. Completion or interruption clears
+the weights. The loader recognizes the humanoid and Lip-prefixed mouth names
+in local xEdit's RACE PHWT definition, plus each streamed race's PHTN names.
+The existing audio, TRI and server mesh
+implementations are reused. This adds no reference nodes or saved fields.
+
+`hst_28_dialogue` runs a SKYRIM_DATA-gated headless Bannered Mare check. It
+targets drawn Hulda with the crosshair, injects E, checks her greeting, voice
+and mouth weights, selects an offered topic and verifies its response and
+return to play. `dialogue_state` exposes the shared conversation for host
+diagnostics. `SkinnedActorNode::dialogue_mouth_state` reports the mouth morph
+weights sent to its head surfaces.
+
 ## Streamed skinned NPCs, HST-23
 
 `PlayerNode` reconciles enabled ACHRs from World's contact view with rendered
