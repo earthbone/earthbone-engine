@@ -24,6 +24,7 @@ func _frames(count: int) -> void:
 
 
 func _run() -> void:
+	print("CMB_27 stage=startup")
 	var data := OS.get_environment("SKYRIM_DATA")
 	if data.is_empty():
 		printerr("FAIL: CMB-27 requires SKYRIM_DATA")
@@ -40,6 +41,7 @@ func _run() -> void:
 	_check(player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) > 0,
 		"initial cell failed")
 	_check(player.call("start_gameplay"), "gameplay startup failed")
+	print("CMB_27 stage=gameplay_started")
 	_check(player.call("equip_melee_weapon", 0, IRON_WARHAMMER, false), "iron warhammer not equipped")
 	await _frames(2)
 	player.call("sync_contact_actors")
@@ -59,6 +61,7 @@ func _run() -> void:
 	_check(visual.call("load_character", data, BODY), "human graph failed to load")
 	_check(player.call("bind_actor_appearance", visual, target.file, target.object),
 		"target rig did not bind to the shared World")
+	print("CMB_27 stage=actor_bound")
 	for i in 30:
 		visual.call("advance", 1.0 / 60.0)
 	_check(visual.call("set_graph_variable", "iRightHandType", 1.0),
@@ -108,6 +111,7 @@ func _run() -> void:
 	_check(returned, "bound graph did not return to locomotion after the World deadline")
 	_check(is_equal_approx(player.call("gameplay_actor_value", target.file, target.object, "health"), health_after_hit),
 		"stagger expiry changed health after the hit")
+	print("CMB_27 stage=reaction_returned")
 	visual.queue_free()
 	player.queue_free()
 	streamer.queue_free()
