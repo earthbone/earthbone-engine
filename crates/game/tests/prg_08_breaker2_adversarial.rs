@@ -62,7 +62,11 @@ fn prg_08_stored_effect_rank_zero_runs_for_first_owned_rank() {
     order.add("RankZero.esm", plugin).unwrap();
     let mut game = Game::new(order);
     let actor = game.world_mut().player();
-    game.world_mut().actor(actor).unwrap().perks.insert(id(PERK));
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .insert(id(PERK));
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, value_handler);
 
@@ -91,7 +95,11 @@ fn prg_08_false_entry_condition_prevents_handler_execution() {
     order.add("FalseCondition.esm", plugin).unwrap();
     let mut game = Game::new(order);
     let actor = game.world_mut().player();
-    game.world_mut().actor(actor).unwrap().perks.insert(id(PERK));
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .insert(id(PERK));
     game.world_mut()
         .set_actor_value(actor, "health", 17.0)
         .unwrap();
@@ -120,7 +128,11 @@ fn prg_08_dispatch_reads_the_winning_perk_record() {
     order.add("Patch.esp", patch).unwrap();
     let mut game = Game::new(order);
     let actor = game.world_mut().player();
-    game.world_mut().actor(actor).unwrap().perks.insert(id(PERK));
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .insert(id(PERK));
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, value_handler);
 
@@ -145,7 +157,11 @@ fn prg_08_missing_required_section_end_marker_is_rejected() {
     order.add("MalformedPerk.esm", plugin).unwrap();
     let mut game = Game::new(order);
     let actor = game.world_mut().player();
-    game.world_mut().actor(actor).unwrap().perks.insert(id(PERK));
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .insert(id(PERK));
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, value_handler);
 
@@ -167,7 +183,11 @@ fn prg_08_unknown_perk_section_type_is_rejected_explicitly() {
     order.add("UnknownSection.esm", plugin).unwrap();
     let mut game = Game::new(order);
     let actor = game.world_mut().player();
-    game.world_mut().actor(actor).unwrap().perks.insert(id(PERK));
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .insert(id(PERK));
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, value_handler);
 
