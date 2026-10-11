@@ -37,8 +37,8 @@ fn write_wave(path: &Path, seconds: f32) {
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&data_size.to_le_bytes());
     for frame in 0..frames {
-        let sample = ((frame as f32 * 220.0 * std::f32::consts::TAU / rate as f32).sin()
-            * 8_000.0) as i16;
+        let sample =
+            ((frame as f32 * 220.0 * std::f32::consts::TAU / rate as f32).sin() * 8_000.0) as i16;
         bytes.extend_from_slice(&sample.to_le_bytes());
     }
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -149,7 +149,9 @@ func run() -> void:
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success()
-            && stdout.contains("aud_12_failed_music_and_ambience_replacements_keep_current_tracks: PASS"),
+            && stdout.contains(
+                "aud_12_failed_music_and_ambience_replacements_keep_current_tracks: PASS"
+            ),
         "AUD-12 failed replacement check failed\n{stdout}\n{stderr}"
     );
 }
@@ -174,7 +176,9 @@ fn installed_tracks(data: &Path) -> Vec<String> {
         }
     }
     let mut vfs = Vfs::new();
-    if vfs.add_archive_path(&data.join("Skyrim - Sounds.bsa")).is_err()
+    if vfs
+        .add_archive_path(&data.join("Skyrim - Sounds.bsa"))
+        .is_err()
         || vfs.add_loose_root(data).is_err()
     {
         return Vec::new();
@@ -182,7 +186,12 @@ fn installed_tracks(data: &Path) -> Vec<String> {
     let source = SoundSource::new(&vfs);
     let mut paths: Vec<_> = order
         .winners_of(Tag(*b"MUST"))
-        .filter_map(|(_, record)| record.subrecords.iter().find(|sub| sub.tag == Tag(*b"ANAM")))
+        .filter_map(|(_, record)| {
+            record
+                .subrecords
+                .iter()
+                .find(|sub| sub.tag == Tag(*b"ANAM"))
+        })
         .filter_map(|sub| source.resolve(&zstring(&sub.data)))
         .collect();
     paths.sort_unstable();
@@ -212,7 +221,11 @@ fn aud_12_installed_prf12_changes_tracks_and_measures_each_transition() {
         return;
     };
     let paths = installed_tracks(&data);
-    assert_eq!(paths.len(), 2, "installed data must provide two short xWMA tracks");
+    assert_eq!(
+        paths.len(),
+        2,
+        "installed data must provide two short xWMA tracks"
+    );
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let extension = workspace.join("target/release/libsoe_godot_host.so");
     if !extension.exists() {
@@ -233,7 +246,9 @@ fn aud_12_installed_prf12_changes_tracks_and_measures_each_transition() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success()
-            && stdout.contains("aud_12_installed_walkthrough_music_starts_and_changes_under_two_ms: PASS"),
+            && stdout.contains(
+                "aud_12_installed_walkthrough_music_starts_and_changes_under_two_ms: PASS"
+            ),
         "installed AUD-12 transition check failed\n{stdout}\n{stderr}"
     );
 }
