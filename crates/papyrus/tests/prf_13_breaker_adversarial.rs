@@ -37,8 +37,14 @@ fn prf_13_concurrent_latent_waits_accumulate_per_function_and_stop_at_deadline()
     vm.advance_clocks(0.25, 0.0, true);
     vm.advance_clocks(0.25, 0.0, false);
     vm.advance_clocks(0.25, 0.0, false);
-    assert_eq!(vm.thread_state(first), Some(soe_papyrus::vm::ThreadState::Runnable));
-    assert_eq!(vm.thread_state(second), Some(soe_papyrus::vm::ThreadState::Runnable));
+    assert_eq!(
+        vm.thread_state(first),
+        Some(soe_papyrus::vm::ThreadState::Runnable)
+    );
+    assert_eq!(
+        vm.thread_state(second),
+        Some(soe_papyrus::vm::ThreadState::Runnable)
+    );
     vm.advance_clocks(4.0, 0.0, false);
     Profile::disable();
 

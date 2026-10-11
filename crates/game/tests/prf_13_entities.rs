@@ -233,6 +233,7 @@ fn prf_13_two_actors_two_scripts_one_quest_and_all_condition_callers() {
             assert!(
                 rows.iter().any(|(entity, stats)| entity.kind == "actor"
                     && entity.id == id(actor).to_string()
+                    && entity.plugin == "Profile.esm"
                     && entity.phase == phase
                     && stats.calls > 0
                     && stats.total_ns > 0),
@@ -247,6 +248,7 @@ fn prf_13_two_actors_two_scripts_one_quest_and_all_condition_callers() {
             .unwrap();
         assert_eq!(execute.0.plugin, plugin);
         assert_eq!(execute.1.calls, 1);
+        assert!(execute.1.total_ns > 0);
         assert_eq!(execute.1.work.get(Operation::PapyrusInstructions), 2);
         assert_eq!(execute.1.work.get(Operation::NativeCalls), 1);
         let wait = rows
@@ -265,9 +267,18 @@ fn prf_13_two_actors_two_scripts_one_quest_and_all_condition_callers() {
     assert!(empty.1.total_ns > 0);
     for phase in ["stage_changes", "alias_fills"] {
         assert!(rows.iter().any(|(entity, stats)| entity.kind == "quest"
+            && entity.id == id(0x900).to_string()
+            && entity.plugin == "Profile.esm"
             && entity.phase == phase
-            && stats.calls > 0));
+            && stats.calls > 0
+            && stats.total_ns > 0));
     }
+    assert!(rows.iter().any(|(entity, stats)| entity.kind == "quest"
+        && entity.id == id(0x900).to_string()
+        && entity.plugin == "Profile.esm"
+        && entity.phase == "condition_evaluations"
+        && stats.calls > 0
+        && stats.total_ns > 0));
     for phase in [
         "dialogue_topics",
         "perk_entry_points",
@@ -279,6 +290,8 @@ fn prf_13_two_actors_two_scripts_one_quest_and_all_condition_callers() {
             rows.iter().any(|(entity, stats)| entity.kind == "condition"
                 && entity.phase == phase
                 && entity.plugin == "Profile.esm"
+                && stats.calls > 0
+                && stats.total_ns > 0
                 && stats.work.get(Operation::Conditions) == 1),
             "missing {phase}"
         );
@@ -289,6 +302,38 @@ fn prf_13_two_actors_two_scripts_one_quest_and_all_condition_callers() {
     assert_eq!(Profile::ranking(&rows, "actor").len(), 2);
     assert_eq!(Profile::ranking(&rows, "script").len(), 2);
     assert_eq!(Profile::ranking(&rows, "quest").len(), 1);
+    let plugins = Profile::ranking(&rows, "plugin");
+    for plugin in ["Profile.esm", "First.esp", "Second.esp"] {
+        let stats = &plugins.iter().find(|(name, _)| name == plugin).unwrap().1;
+        let owned = rows
+            .iter()
+            .filter(|(entity, _)| entity.plugin == plugin)
+            .map(|(_, stats)| stats);
+        assert_eq!(
+            stats.calls,
+            owned.clone().map(|stats| stats.calls).sum::<u64>()
+        );
+        assert_eq!(
+            stats.self_ns,
+            owned.clone().map(|stats| stats.self_ns).sum::<u64>()
+        );
+        for operation in [
+            Operation::PapyrusInstructions,
+            Operation::NativeCalls,
+            Operation::Conditions,
+            Operation::RecordLookups,
+        ] {
+            assert_eq!(
+                stats.work.get(operation),
+                owned
+                    .clone()
+                    .map(|stats| stats.work.get(operation))
+                    .sum::<u64>(),
+                "{plugin} lost {} attribution",
+                operation.name()
+            );
+        }
+    }
     if let Some(directory) = std::env::var_os("SOE_PRF_13_FIXTURE") {
         crate::ply_01_player_input::export_window_fixture(std::path::Path::new(&directory));
     }

@@ -30,8 +30,7 @@ fn prf_13_plugin_export_aggregates_nested_entities_without_double_counting_self_
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("summary.json");
     Profile::export_summary(&path).unwrap();
-    let summary: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let summary: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let plugin_row = summary["traceEvents"]
         .as_array()
         .unwrap()
