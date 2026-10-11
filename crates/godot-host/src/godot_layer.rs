@@ -45,6 +45,8 @@ use crate::units::{
 };
 use soe_physics::{Iso, Vec3};
 
+mod object_animation;
+
 fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
     let encoded = u64::try_from(encoded).ok()?;
     let file = u16::try_from(encoded >> 32).ok()?;
@@ -304,6 +306,7 @@ fn lod_stats(lod: Option<&TerrainLodState>) -> VarDictionary {
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
 /// a triangle back to the form that placed it.
 struct Instance {
+    animation: Option<object_animation::RuntimeSurface>,
     cell: GlobalFormId,
     bounds: crate::mesh::Aabb,
     rid: Rid,
@@ -674,6 +677,7 @@ impl INode3D for CellStreamerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        self.advance_object_animations(delta as f32);
         self.advance_doors(delta as f32);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let Some(focus) = self.focus.as_ref() else {
@@ -1422,8 +1426,46 @@ impl CellStreamerNode {
                 touched_instances.extend(members.iter().map(|(instance, _)| *instance));
             }
         }
-        for index in touched_instances {
-            let instance = &mut self.instances[index];
+        for (index, instance) in self.instances.iter_mut().enumerate() {
+            if let Some(animation) = &mut instance.animation {
+                if let BatchTable::Triangles(members) = &instance.table {
+                    if let Some(member) = members.first() {
+                        if let Some(placement) = world.ref_placement(member.reference) {
+                            let iso = Iso::placement(
+                                placement.position,
+                                placement.rotation,
+                                placement.scale,
+                            );
+                            animation.surface.placement = soe_nif::Transform {
+                                rotation: soe_nif::Mat33 {
+                                    rows: iso.rotation.rows,
+                                },
+                                translation: soe_nif::Vec3::new(
+                                    placement.position[0],
+                                    placement.position[1],
+                                    placement.position[2],
+                                ),
+                                scale: placement.scale,
+                            };
+                            server.instance_set_visible(
+                                instance.rid,
+                                placement.visible
+                                    && world.destruction_model(member.reference).is_none(),
+                            );
+                            for name in animation
+                                .events
+                                .take_for(&world.animation_requests, member.reference)
+                            {
+                                animation.play(&name);
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            if !touched_instances.contains(&index) {
+                continue;
+            }
             let BatchTable::Triangles(members) = &instance.table else {
                 if let (BatchTable::Instances(members), InstanceMesh::Multi(multi)) =
                     (&instance.table, &mut instance.mesh)
@@ -1796,6 +1838,73 @@ mod mag_14_tests {
 
 #[godot_api]
 impl CellStreamerNode {
+    /// Advance object RID animation by an explicit interval for deterministic capture.
+    #[func]
+    pub fn step_object_animations(&mut self, seconds: f64) {
+        self.advance_object_animations(seconds as f32);
+    }
+
+    /// Start an authored sequence on every animated shape of one form.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn play_object_sequence(&mut self, file: i32, object: i64, name: GString) -> i32 {
+        let Some(reference) = script_reference(file, object) else {
+            return 0;
+        };
+        let mut count = 0;
+        for instance in &mut self.instances {
+            let BatchTable::Triangles(members) = &instance.table else {
+                continue;
+            };
+            if members.iter().any(|m| m.reference == reference) {
+                if let Some(animation) = &mut instance.animation {
+                    count += i32::from(animation.play(&name.to_string()));
+                }
+            }
+        }
+        count
+    }
+
+    /// Start the activation sequence through the same path as player activation.
+    #[func]
+    pub fn activate_object(&mut self, file: i32, object: i64) -> bool {
+        script_reference(file, object)
+            .is_some_and(|reference| self.activate_object_animation(reference))
+    }
+
+    /// Uploaded object and bone poses for capture assertions.
+    #[func]
+    pub fn object_animation_transforms(&self) -> Array<Transform3D> {
+        self.instances
+            .iter()
+            .filter_map(|i| i.animation.as_ref())
+            .flat_map(|a| a.last_transforms.iter().copied())
+            .collect()
+    }
+
+    /// Draw a model at the origin through the production object RID path.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn stream_animated_model(&mut self, model: GString) -> i32 {
+        let Some(source) = self.data_source.clone() else {
+            return 0;
+        };
+        let Some(scenario) = self.scenario() else {
+            return 0;
+        };
+        let Ok(loaded) = source.animated_model_surfaces(&model.to_string()) else {
+            return 0;
+        };
+        let mut count = 0;
+        for surface in loaded {
+            if surface.animation.is_some() {
+                self.add_animated_surface(GlobalFormId { file: 0, object: 0 }, &surface, scenario);
+                count += 1;
+            }
+        }
+        count
+    }
+
     /// Return the winning cell's authored XCLL and inherited LTMP lighting.
     #[allow(clippy::needless_pass_by_value)]
     #[func]
@@ -3497,13 +3606,24 @@ impl CellStreamerNode {
         if self.cell_occluders {
             self.add_cell_occluder(cell, &ordinary, scenario);
         }
+        for surface in &ordinary {
+            if surface.animation.is_some() {
+                self.add_animated_surface(cell, surface, scenario);
+                totals.instances += 1;
+            }
+        }
         let (groups, remainder) = instancing_candidates(&ordinary);
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
             totals.instances += 1;
         }
-        let remainder: Vec<LoadedSurface> =
-            remainder.into_iter().map(|i| ordinary[i].clone()).collect();
+        let remainder: Vec<LoadedSurface> = remainder
+            .into_iter()
+            .filter_map(|i| {
+                let surface = &ordinary[i];
+                surface.animation.is_none().then(|| surface.clone())
+            })
+            .collect();
         if self.batch_surfaces {
             let (batches, stats) = batch_surfaces(&remainder);
             totals.largest_batch = totals.largest_batch.max(stats.largest_batch_surfaces);
@@ -3671,6 +3791,7 @@ impl CellStreamerNode {
         });
         self.reference_index_dirty = true;
         self.instances.push(Instance {
+            animation: None,
             cell,
             bounds: arrays.bounds,
             rid,
@@ -3717,6 +3838,7 @@ impl CellStreamerNode {
         let table = BatchTable::Instances(group.members.iter().map(|m| m.reference).collect());
         self.reference_index_dirty = true;
         self.instances.push(Instance {
+            animation: None,
             cell,
             bounds,
             rid,
@@ -4149,6 +4271,24 @@ struct MaterialMap {
     materials: std::collections::HashMap<crate::mesh::MaterialKey, Gd<Material>>,
     textures: std::collections::HashMap<String, Gd<ImageTexture>>,
     cubemaps: std::collections::HashMap<String, Gd<Cubemap>>,
+    /// Compiled shader resources by source. Materials with identical code
+    /// share one `Shader`, so the renderer builds one pipeline per variant
+    /// instead of one per material.
+    shaders: std::collections::HashMap<String, Gd<Shader>>,
+}
+
+/// One shared `Shader` per distinct source text.
+fn shader_for_code(
+    shaders: &mut std::collections::HashMap<String, Gd<Shader>>,
+    code: String,
+) -> Gd<Shader> {
+    if let Some(existing) = shaders.get(&code) {
+        return existing.clone();
+    }
+    let mut shader = Shader::new_gd();
+    shader.set_code(&code);
+    shaders.insert(code, shader.clone());
+    shader
 }
 
 impl MaterialMap {
@@ -4172,16 +4312,79 @@ fn material_for(
     let material: Gd<Material> = if let Some(water) = &desc.water {
         water_material(water).upcast()
     } else if let Some(effect) = &desc.effect {
-        nif_effect_material(desc, effect, textures, &mut cache.textures).upcast()
+        nif_effect_material(
+            desc,
+            effect,
+            textures,
+            &mut cache.textures,
+            &mut cache.shaders,
+        )
+        .upcast()
+    } else if tree_anim_material(desc)
+        && desc.decal_depth().is_none()
+        && desc.environment_texture().is_none()
+    {
+        tree_material(desc, textures, &mut cache.textures).upcast()
     } else if desc.landscape_lod_normals() {
         landscape_lod_material(desc, textures, &mut cache.textures).upcast()
     } else if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
-        decal_material(desc, textures, &mut cache.textures, &mut cache.cubemaps).upcast()
+        decal_material(
+            desc,
+            textures,
+            &mut cache.textures,
+            &mut cache.cubemaps,
+            &mut cache.shaders,
+        )
+        .upcast()
     } else {
         material_with_textures(desc, textures, &mut cache.textures).upcast()
     };
     cache.materials.insert(key, material.clone());
     material
+}
+
+fn tree_material(
+    desc: &MaterialDesc,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+) -> Gd<ShaderMaterial> {
+    let mut shader = Shader::new_gd();
+    shader.set_code(&tree_shader_code(desc));
+    let mut material = ShaderMaterial::new_gd();
+    material.set_shader(&shader);
+    if let Some(texture) = albedo_texture(cache, desc, textures) {
+        material.set_shader_parameter("albedo_texture", &texture.to_variant());
+    }
+    if let Some(data) = &textures.normal {
+        if let Some(texture) = cached_texture(cache, desc.normal.as_deref(), data) {
+            material.set_shader_parameter("normal_texture", &texture.to_variant());
+            material.set_shader_parameter("has_normal", &true.to_variant());
+        }
+    }
+    material
+}
+
+fn tree_shader_code(desc: &MaterialDesc) -> String {
+    let alpha = match desc.alpha {
+        AlphaMode::Opaque => String::new(),
+        AlphaMode::Blend => "ALPHA = color.a;".to_string(),
+        AlphaMode::Cutout(threshold) => format!(
+            "if (color.a < {:.8}) {{ discard; }}",
+            f32::from(threshold) / 255.0
+        ),
+    };
+    let cull = if desc.double_sided {
+        "cull_disabled"
+    } else {
+        "cull_back"
+    };
+    format!(
+        "shader_type spatial;\nrender_mode {cull};\nuniform sampler2D albedo_texture : source_color, filter_linear_mipmap_anisotropic, repeat_enable;\nuniform sampler2D normal_texture : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;\nuniform bool has_normal = false;\nvoid vertex() {{ float sway = COLOR.r; float phase = TIME * 1.7 + VERTEX.x * 0.013 + VERTEX.y * 0.009; VERTEX.x += sin(phase) * sway * 0.035; VERTEX.y += cos(phase * 0.73) * sway * 0.018; }}\nvoid fragment() {{ vec4 color = texture(albedo_texture, UV) * COLOR; ALBEDO = color.rgb; if (has_normal) {{ NORMAL_MAP = texture(normal_texture, UV).rgb; }} {alpha} }}"
+    )
+}
+
+fn tree_anim_material(desc: &MaterialDesc) -> bool {
+    desc.shader_flags_2 & soe_nif::blocks::flags2::TREE_ANIM != 0
 }
 
 fn landscape_lod_material(
@@ -4227,9 +4430,9 @@ fn nif_effect_material(
     effect: &crate::mesh::EffectMaterial,
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &mut std::collections::HashMap<String, Gd<Shader>>,
 ) -> Gd<ShaderMaterial> {
-    let mut shader = Shader::new_gd();
-    shader.set_code(&crate::nif_effect::shader(desc, effect));
+    let shader = shader_for_code(shaders, crate::nif_effect::shader(desc, effect));
     let mut material = ShaderMaterial::new_gd();
     material.set_shader(&shader);
     let p = &effect.params;
@@ -4327,9 +4530,9 @@ fn decal_material(
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
     cubemaps: &mut std::collections::HashMap<String, Gd<Cubemap>>,
+    shaders: &mut std::collections::HashMap<String, Gd<Shader>>,
 ) -> Gd<ShaderMaterial> {
-    let mut shader = Shader::new_gd();
-    shader.set_code(&decal_shader(desc));
+    let shader = shader_for_code(shaders, decal_shader(desc));
     let mut material = ShaderMaterial::new_gd();
     material.set_shader(&shader);
     if desc.decal_depth().is_some() {
@@ -4344,16 +4547,18 @@ fn decal_material(
             material.set_shader_parameter("has_normal", &true.to_variant());
         }
     }
-    let color = Color::from_rgb(
-        desc.emissive_color[0],
-        desc.emissive_color[1],
-        desc.emissive_color[2],
-    );
-    material.set_shader_parameter("emission_color", &color.to_variant());
-    material.set_shader_parameter("emission_strength", &desc.emissive_multiple.to_variant());
-    if let Some(data) = &textures.glow {
-        if let Some(texture) = cached_texture(cache, desc.glow_texture(), data) {
-            material.set_shader_parameter("glow_texture", &texture.to_variant());
+    if desc.emits_light() {
+        let color = Color::from_rgb(
+            desc.emissive_color[0],
+            desc.emissive_color[1],
+            desc.emissive_color[2],
+        );
+        material.set_shader_parameter("emission_color", &color.to_variant());
+        material.set_shader_parameter("emission_strength", &desc.emissive_multiple.to_variant());
+        if let Some(data) = &textures.glow {
+            if let Some(texture) = cached_texture(cache, desc.glow_texture(), data) {
+                material.set_shader_parameter("glow_texture", &texture.to_variant());
+            }
         }
     }
     if let (Some(path), Some(data)) = (desc.environment_texture(), &textures.environment) {
@@ -4397,7 +4602,7 @@ fn decal_shader(desc: &MaterialDesc) -> String {
     let test = if test { "" } else { ", depth_test_disabled" };
     let alpha = match desc.alpha {
         AlphaMode::Opaque => String::new(),
-        AlphaMode::Blend => "ALPHA = color.a;".into(),
+        AlphaMode::Blend => "ALPHA = color.a * material_alpha;".into(),
         // Debug keeps the decimal point on whole values. Display prints a
         // threshold of 255 as `1`, an int literal the shader compiler rejects
         // against the float alpha.
@@ -4406,6 +4611,11 @@ fn decal_shader(desc: &MaterialDesc) -> String {
     let offset = if desc.decal_depth().is_some() {
         "float slope = max(abs(dFdx(FRAGCOORD.z)), abs(dFdy(FRAGCOORD.z)));
     DEPTH = min(1.0, FRAGCOORD.z + 0.65 * slope + 0.0000001);"
+    } else {
+        ""
+    };
+    let emission = if desc.emits_light() {
+        "EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, UV).rgb;"
     } else {
         ""
     };
@@ -4423,6 +4633,16 @@ uniform sampler2D environment_mask : hint_default_white, filter_linear_mipmap_an
 uniform float environment_scale = 1.0;
 uniform bool has_environment = false;
 uniform bool has_environment_mask = false;
+uniform vec2 uv_offset = vec2(0.0);
+uniform vec2 uv_scale = vec2(1.0);
+uniform float uv_rotation = 0.0;
+uniform float material_alpha = 1.0;
+void vertex() {{
+    vec2 centered = UV * uv_scale - vec2(0.5);
+    float c = cos(uv_rotation);
+    float s = sin(uv_rotation);
+    UV = mat2(vec2(c, s), vec2(-s, c)) * centered + vec2(0.5) + uv_offset;
+}}
 void fragment() {{
     vec4 color = texture(albedo_texture, UV);
     ALBEDO = color.rgb;
@@ -4435,7 +4655,7 @@ void fragment() {{
         vec3 tangent_normal = vec3(tangent_xy, sqrt(max(0.0, 1.0 - dot(tangent_xy, tangent_xy))));
         reflection_normal = normalize(mat3(TANGENT, BINORMAL, NORMAL) * tangent_normal);
     }}
-    EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, UV).rgb;
+    {emission}
     if (has_environment) {{
         float mask = has_environment_mask ? texture(environment_mask, UV).r : normal_sample.a;
         vec3 world_reflection = mat3(INV_VIEW_MATRIX) * reflect(-VIEW, reflection_normal);
@@ -4983,5 +5203,30 @@ mod decal_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod rnd_31_tree_tests {
+    use super::{tree_anim_material, tree_shader_code, AlphaMode, MaterialDesc};
+    use soe_nif::blocks::flags2;
+
+    #[test]
+    fn rnd_31_tree_shader_uses_vertex_color_alpha_cutout_and_two_sided_faces() {
+        let ordinary = MaterialDesc::default();
+        assert!(!tree_anim_material(&ordinary));
+        let tree = MaterialDesc {
+            shader_flags_2: flags2::TREE_ANIM,
+            alpha: AlphaMode::Cutout(128),
+            double_sided: true,
+            ..MaterialDesc::default()
+        };
+        assert!(tree_anim_material(&tree));
+        let shader = tree_shader_code(&tree);
+        assert!(shader.contains("render_mode cull_disabled"));
+        assert!(shader.contains("float sway = COLOR.r"));
+        assert!(shader.contains("VERTEX.x += sin(phase) * sway"));
+        assert!(shader.contains("if (color.a < 0.501960"));
+        assert!(shader.contains("has_normal"));
     }
 }

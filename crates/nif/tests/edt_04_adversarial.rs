@@ -56,10 +56,10 @@ fn edt_04_all_supported_material_texture_links_survive_export() {
     let bytes = export_nif(&imported).expect("export NIF");
     let file = soe_nif::parse(&bytes).expect("parse exported NIF");
     let mesh = file.meshes().expect("read exported shapes").remove(0);
-    assert_eq!(mesh.material.textures[0], "textures\\diffuse.dds");
-    assert_eq!(mesh.material.textures[1], "textures\\normal.dds");
-    assert_eq!(mesh.material.textures[2], "textures\\glow.dds");
-    assert_eq!(mesh.material.textures[7], "textures\\specular.dds");
+    assert_eq!(mesh.material.textures[0], "textures/diffuse.dds");
+    assert_eq!(mesh.material.textures[1], "textures/normal.dds");
+    assert_eq!(mesh.material.textures[2], "textures/glow.dds");
+    assert_eq!(mesh.material.textures[7], "textures/specular.dds");
     fs::remove_dir_all(dir).expect("remove fixture directory");
 }
 

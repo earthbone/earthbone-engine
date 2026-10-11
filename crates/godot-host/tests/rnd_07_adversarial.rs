@@ -18,6 +18,7 @@ fn surface(id: u32, triangles: usize, alpha: AlphaMode) -> LoadedSurface {
         ..MeshData::default()
     };
     LoadedSurface {
+        animation: None,
         reference: GlobalFormId {
             file: 0,
             object: id,
