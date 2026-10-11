@@ -1,7 +1,7 @@
 extends SceneTree
 
 ## Gameplay integration prototype. Requires SKYRIM_DATA and the release extension.
-## WASD move, mouse looks, Space jumps, Ctrl sneaks, F changes camera, Esc exits.
+## WASD move, mouse looks, Space jumps, Ctrl sneaks, F changes camera, Esc pauses.
 const Warmup := preload("res://render_warmup.gd")
 const SystemOverlay := preload("res://system_overlay.gd")
 const RecordSky := preload("res://record_sky.gd")
@@ -119,7 +119,7 @@ func _start() -> void:
 		return
 	loading_label.queue_free()
 	loading_label = null
-	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, F3 system timings, Esc exit")
+	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, F3 system timings, Esc pause")
 	loaded = true
 	if OS.get_environment("SOE_AUD_11_TEST") == "1":
 		await _run_aud_11_check()
@@ -179,7 +179,7 @@ func _configure_player() -> void:
 
 func _process(_delta: float) -> bool:
 	if is_instance_valid(loading_label):
-		loading_label.text = "%s... %.1f s\nEsc exits" % [loading_phase, (Time.get_ticks_msec() - startup_msec) / 1000.0]
+		loading_label.text = "%s... %.1f s" % [loading_phase, (Time.get_ticks_msec() - startup_msec) / 1000.0]
 	if loaded:
 		frames += 1
 		var capture := OS.get_environment("SOE_CAPTURE_PATH")
@@ -187,7 +187,4 @@ func _process(_delta: float) -> bool:
 			var error := get_root().get_texture().get_image().save_png(capture)
 			print("CAPTURE: ", capture, " error=", error)
 			quit(0 if error == OK else 1)
-	if Input.is_key_pressed(KEY_ESCAPE):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		quit(0)
 	return false
