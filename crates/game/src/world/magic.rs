@@ -2565,7 +2565,7 @@ impl World {
             let base = self.magic_effect_definition(effect)?;
             let data = &base.data;
             let target = if cast_delivery == CastDelivery::GrabActor && data.archetype != 45 {
-                source
+                caster.unwrap_or(source)
             } else {
                 target
             };
