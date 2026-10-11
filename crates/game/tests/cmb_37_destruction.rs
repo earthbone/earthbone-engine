@@ -38,7 +38,7 @@ fn plugin() -> Plugin {
     plugin
 }
 
-fn game() -> Game {
+fn fixture() -> Game {
     let mut order = LoadOrder::new();
     order.add("Cmb37.esm", plugin()).unwrap();
     Game::new(order)
@@ -52,7 +52,7 @@ fn deal(game: &mut Game, reference: GlobalFormId, damage: f32) {
 
 #[test]
 fn cmb_37_damage_crosses_thresholds_emits_events_and_selects_stage_models() {
-    let mut game = game();
+    let mut game = fixture();
     let player = game.player();
     let reference = game.world_mut().place_at(id(BASE), player, false);
     assert_eq!(game.world_mut().destruction_stage(reference), -1);
@@ -83,7 +83,7 @@ fn cmb_37_damage_crosses_thresholds_emits_events_and_selects_stage_models() {
 
 #[test]
 fn cmb_37_clear_destruction_restores_health_stage_model_and_enable_state() {
-    let mut game = game();
+    let mut game = fixture();
     let player = game.player();
     let reference = game.world_mut().place_at(id(BASE), player, false);
     deal(&mut game, reference, 80.0);
@@ -96,25 +96,55 @@ fn cmb_37_clear_destruction_restores_health_stage_model_and_enable_state() {
     let mut world = game.world_mut();
     let state = world.reference(reference).unwrap();
     assert!(!state.destroyed && state.enabled);
+    assert_eq!(state.destruction_health, Some(100.0));
     drop(world);
-    assert!(!game.world().pending.iter().any(|pending| matches!(
+    let save = game.world().save_state();
+    let mut restored = fixture();
+    restored.world_mut().load_state(&save).unwrap();
+    deal(&mut restored, reference, 50.0);
+    assert_eq!(restored.world_mut().destruction_stage(reference), -1);
+    assert_eq!(
+        restored
+            .world_mut()
+            .reference(reference)
+            .unwrap()
+            .destruction_health,
+        Some(100.0)
+    );
+    assert!(!restored.world().pending.iter().any(|pending| matches!(
         pending,
-        Pending::Event { name, args, .. }
-            if name == "OnDestructionStageChanged"
-                && args == &[soe_papyrus::Value::Int(1), soe_papyrus::Value::Int(-1)]
+        Pending::Event { name, .. } if name == "OnDestructionStageChanged"
     )));
 }
 
 #[test]
+fn cmb_37_get_current_destruction_stage_reports_minus_one_after_clear() {
+    let mut game = fixture();
+    let player = game.player();
+    let reference = game.world_mut().place_at(id(BASE), player, false);
+    deal(&mut game, reference, 80.0);
+    assert_eq!(game.world_mut().destruction_stage(reference), 1);
+
+    game.world_mut()
+        .clear_destruction(reference, &mut |_, _| ObjectId(1));
+
+    assert_eq!(
+        game.world_mut().destruction_stage(reference),
+        -1,
+        "the method backing GetCurrentDestructionStage returns the undamaged value after clear"
+    );
+}
+
+#[test]
 fn cmb_37_destruction_health_and_stage_survive_save_round_trip() {
-    let mut runtime = game();
+    let mut runtime = fixture();
     let player = runtime.player();
     let reference = runtime.world_mut().place_at(id(BASE), player, false);
     deal(&mut runtime, reference, 30.0);
     let expected_model = runtime.world().destruction_model(reference);
     let save = runtime.world().save_state();
 
-    let mut restored = game();
+    let mut restored = fixture();
     restored.world_mut().load_state(&save).unwrap();
     assert_eq!(restored.world_mut().destruction_stage(reference), 0);
     assert_eq!(

@@ -955,8 +955,11 @@ so a form with no script still answers its class's natives. The VM gained
 **Destructible references.** `ObjectReference.DamageObject` reads the base
 record's DEST header and ordered DSTD stages. Damage lowers reference-owned
 destruction health, advances every crossed percentage threshold, and queues
-`OnDestructionStageChanged` with the prior and current stage numbers. DSTD flags can cap damage,
-disable the reference, mark it destroyed, or ignore external damage. The
+`OnDestructionStageChanged` with the prior and current stage numbers. DSTD
+flags can cap damage at their health threshold, disable the reference, mark it
+destroyed, or stop external damage at the preceding stage threshold. These
+flags apply when one hit crosses several stages as well as across separate
+hits. The
 `World::destruction_model` returns the latest nonzero-stage DMDL through the
 current stage, so later stages without a replacement keep the last model. The
 Godot host hides the base model and draws that stage model through its
@@ -964,8 +967,10 @@ RenderingServer path while the reference is resident.
 `GetCurrentDestructionStage` returns `-1` before a stage and the
 zero-based DSTD position afterward. `ClearDestruction` restores full health,
 clears the destroyed flag and returns the stage to `-1` without queuing a
-stage-change event. The CK page reports that cleared destruction effects do
-not return after later damage, so the reference retains a cleared marker.
+stage-change event. The CK getter page identifies `-1` as the undamaged value,
+which is also the value returned after clearing. The CK clear page reports that
+cleared destruction effects do not return after later damage, so the reference
+retains a cleared marker.
 Health and stage are saved in the reference-level `CMB-37` section. SCR-40
 stores that marker and `SetNoFavorAllowed` state in a separate reference
 section. `SetNoFavorAllowed` defaults to true and controls whether a follower
