@@ -5655,8 +5655,11 @@ node for the host, with no node per placed reference.
 
 `SoeLogBridge::log_window` and `dump_log_window` expose inclusive logging-clock
 windows, including the current pending bucket, for hitch captures. PRF-18's
-automatic recorder is absent in this checkout. The host regression checks the
-window export directly rather than claiming automatic hitch capture.
+automatic recorder snapshots the shared subscriber's log history for its
+five-second history and one-second tail. Its Chrome trace contains structured
+log events and a matching `.log` sidecar under `user://hitches`. Selection uses
+exact `Instant` boundaries independently of the bridge's millisecond clock.
+The host routing regression also checks an explicit log-window export.
 The `tool_06_godot_routing_and_editor_debugger` test runs a windowed scene and
 an editor scene with `SOE_GODOT_BIN`, asserting error/warning routing, output,
 file context, repeated counts, release-level elision, console reload and F3

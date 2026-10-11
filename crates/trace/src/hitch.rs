@@ -143,6 +143,7 @@ impl Recorder {
             .collect();
         let capture = Capture {
             events,
+            logs: crate::logging::hitch_window(pending.cutoff, end),
             cutoff: pending.cutoff,
             end,
             trigger: pending.trigger,
@@ -159,6 +160,7 @@ impl Recorder {
 
 struct Capture {
     events: Vec<Event>,
+    logs: Vec<crate::logging::HitchLog>,
     cutoff: Instant,
     end: Instant,
     trigger: Instant,
@@ -218,6 +220,34 @@ impl Capture {
                 json.push_str("}}");
             }
         }
+        for (index, entry) in self.logs.iter().enumerate() {
+            if !self.events.is_empty() || index != 0 {
+                json.push(',');
+            }
+            let line = &entry.line;
+            let _ = write!(
+                json,
+                "{{\"name\":\"log\",\"cat\":\"log\",\"ph\":\"i\",\"s\":\"g\",\"ts\":{:.3},\"pid\":{},\"tid\":{},\"args\":{{\"level\":\"{}\",\"target\":\"{}\",\"count\":{},\"fields\":{{",
+                entry.at.duration_since(self.cutoff).as_secs_f64() * 1e6,
+                std::process::id(),
+                entry.thread,
+                line.level,
+                crate::json_escape(&line.target),
+                line.count,
+            );
+            for (index, (name, value)) in line.fields.iter().enumerate() {
+                if index != 0 {
+                    json.push(',');
+                }
+                let _ = write!(
+                    json,
+                    "\"{}\":\"{}\"",
+                    crate::json_escape(name),
+                    crate::json_escape(value)
+                );
+            }
+            json.push_str("}}}");
+        }
         let _ = writeln!(
             json,
             "],\"hitch\":{{\"trigger_us\":{:.3},\"frame_ms\":{:.3},\"overwritten_events\":{}}}}}",
@@ -248,6 +278,11 @@ impl Capture {
         );
         std::fs::write(&path, json)?;
         std::fs::write(directory.join(format!("{stem}.txt")), &summary)?;
+        let mut logs = String::from("PRF-18 logs in the captured window\n");
+        for entry in &self.logs {
+            let _ = writeln!(logs, "{}", entry.line);
+        }
+        std::fs::write(path.with_extension("log"), logs)?;
         crate::info!(target: "trace::hitch", system = "trace", "{}", summary.trim_end());
         Ok(path)
     }
@@ -439,6 +474,7 @@ mod tests {
         let now = Instant::now();
         let capture = Capture {
             events: vec![event],
+            logs: Vec::new(),
             cutoff: now,
             end: now,
             trigger: now,
@@ -458,6 +494,65 @@ mod tests {
             duration_ns: 1,
             kind: Kind::Span(system),
         }
+    }
+
+    #[test]
+    fn tool_06_hitch_capture_without_logging_subscriber_exports_empty_logs() {
+        tracing::subscriber::with_default(tracing::subscriber::NoSubscriber::default(), || {
+            let start = Instant::now();
+            let mut recorder = Recorder::new();
+            recorder.frame(50_000_000, &WorkCounts::default(), start);
+            let capture = recorder.take_ready(start + AFTER).unwrap();
+            assert!(capture.logs.is_empty());
+            let directory = tempfile::tempdir().unwrap();
+            let path = capture.write(directory.path()).unwrap();
+            let json: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert!(json["traceEvents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|event| event["cat"] != "log"));
+            assert_eq!(
+                std::fs::read_to_string(path.with_extension("log"))
+                    .unwrap()
+                    .lines()
+                    .count(),
+                1
+            );
+        });
+    }
+
+    #[test]
+    fn tool_06_hitch_snapshot_survives_writer_delay_and_reports_log_io_errors() {
+        let (subscriber, control) = crate::logging::subscriber("info", None, |_| {}).unwrap();
+        let capture = tracing::subscriber::with_default(subscriber, || {
+            crate::warn!(target: "papyrus", script = "Tool06", "before capture");
+            let start = Instant::now();
+            let mut recorder = Recorder::new();
+            recorder.frame(50_000_000, &WorkCounts::default(), start);
+            recorder.take_ready(start + AFTER).unwrap()
+        });
+        drop(control);
+        let directory = tempfile::tempdir().unwrap();
+        let path = capture.write(directory.path()).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let log = json["traceEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|event| event["cat"] == "log")
+            .unwrap();
+        assert_eq!(log["args"]["fields"]["message"], "before capture");
+        assert_eq!(log["args"]["fields"]["script"], "Tool06");
+        let sidecar = path.with_extension("log");
+        assert!(std::fs::read_to_string(&sidecar)
+            .unwrap()
+            .contains("before capture"));
+        std::fs::remove_file(&sidecar).unwrap();
+        std::fs::create_dir(&sidecar).unwrap();
+        assert!(capture.write(directory.path()).is_err());
     }
 
     #[test]
