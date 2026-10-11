@@ -2,7 +2,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{
+    records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+};
+use soe_game::conditions;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Schedule};
 use soe_game::{Game, World};
@@ -112,6 +116,53 @@ fn game(with_horse: bool, owned: bool) -> Game {
     let game = Game::new(order(with_horse, owned));
     assert!(game.world_mut().drive_actor(id(ACTOR)));
     game
+}
+
+fn is_being_ridden(game: &Game, subject: GlobalFormId) -> Result<bool, conditions::Error> {
+    let condition = Condition {
+        flags: 0,
+        comparison: Comparison::Number(1.0),
+        function: 714,
+        parameters: [0, 0],
+        run_on: 0,
+        reference: 0,
+        parameter_3: -1,
+        strings: [None, None],
+    };
+    conditions::evaluate_one(
+        &mut game.world_mut(),
+        &game.vm,
+        conditions::Context {
+            owner: id(RIDER_BASE),
+            subject,
+            target: None,
+            quest: None,
+            tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
+        },
+        &condition,
+    )
+}
+
+#[test]
+fn ai_67_mounted_patrol_drives_is_being_ridden_through_mount_and_dismount() {
+    let mut game = game(true, true);
+    assert_eq!(is_being_ridden(&game, id(HORSE)), Ok(false));
+
+    game.tick(0.0);
+    assert_eq!(is_being_ridden(&game, id(HORSE)), Ok(true));
+    assert!(game.world().actor_ref(id(ACTOR)).unwrap().riding_mount);
+
+    game.world_mut().reference(id(HORSE)).unwrap().owner = None;
+    game.tick(0.25);
+    assert_eq!(is_being_ridden(&game, id(HORSE)), Ok(false));
+    assert!(!game.world().actor_ref(id(ACTOR)).unwrap().riding_mount);
 }
 
 #[test]

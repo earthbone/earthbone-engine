@@ -368,6 +368,7 @@ fn follow_mount(world: &mut World, ai: &mut AiState, actor: GlobalFormId) {
         .is_some_and(|state| !state.dead && !state.unconscious);
     let available = owned && horse_available && rider_available;
     if !available {
+        let _ = world.set_mount_rider(actor, mount, false);
         if let Some(state) = &mut ai.patrol {
             state.mount = None;
         }
@@ -385,7 +386,14 @@ fn follow_mount(world: &mut World, ai: &mut AiState, actor: GlobalFormId) {
     }
 }
 
-fn fail(ai: &mut AiState, reason: &'static str) {
+pub(super) fn release_mount(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
+    if let Some(mount) = ai.patrol.as_ref().and_then(|state| state.mount) {
+        let _ = world.set_mount_rider(actor, mount, false);
+    }
+}
+
+fn fail(world: &mut World, actor: GlobalFormId, ai: &mut AiState, reason: &'static str) {
+    release_mount(world, actor, ai);
     ai.procedure = Procedure::Unsupported(reason.into());
     ai.patrol = None;
     ai.destination = None;
@@ -400,7 +408,7 @@ pub(super) fn begin(
     params: Result<Parameters, &'static str>,
 ) {
     if let Err(reason) = start(world, actor, ai, params) {
-        fail(ai, reason);
+        fail(world, actor, ai, reason);
     }
 }
 
@@ -464,6 +472,11 @@ fn start(
         dwell_until: used_terminal.then_some(world.clock.real_seconds),
         mount,
     });
+    if let Some(mount) = mount {
+        if world.set_mount_rider(actor, mount, true).is_err() {
+            return Err("Patrol mount actor state unavailable");
+        }
+    }
     ai.arrived = used_terminal;
     Ok(())
 }
@@ -531,11 +544,11 @@ pub(super) fn tick(world: &mut World, actor: GlobalFormId, ai: &mut AiState, all
         return;
     }
     if let Err(reason) = advance(world, actor, ai, alloc) {
-        fail(ai, reason);
+        fail(world, actor, ai, reason);
     }
 }
 
-pub(super) fn prepare(world: &mut World, ai: &mut AiState) {
+pub(super) fn prepare(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
     let result = ai
         .patrol
         .as_ref()
@@ -555,7 +568,7 @@ pub(super) fn prepare(world: &mut World, ai: &mut AiState) {
             Ok(())
         });
     if let Err(reason) = result {
-        fail(ai, reason);
+        fail(world, actor, ai, reason);
     }
 }
 

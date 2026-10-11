@@ -4391,7 +4391,9 @@ or light-level context.
 and the actor has not arrived. `IsPathing` uses that same pending waypoint
 state. `IsAllowedToFly` reads the actor's `SetAllowFlying` flag. `IsBeingRidden`
 reads the mount actor flag. `World::set_mount_rider` updates that flag together
-with the rider's `riding_mount` flag when gameplay reports a mount or dismount.
+with the rider's `riding_mount` flag when a mounted Patrol package selects its
+owned horse, when that horse becomes unavailable, or when the package is
+replaced. The mounted Patrol path also moves the horse with the rider.
 `IsInFurnitureState`, `GetPathingCurrentSpeedAngle` and `IsOnFlyingMount` return
 an unavailable-state diagnostic. xEdit supplies their function and parameter
 definitions, but the engine has no furniture animation, axis-angle or flying
@@ -4619,9 +4621,9 @@ For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
 `IsBeingRidden_-_Actor.wikitext`, which defines it as a zero-parameter actor
 query. `IsBeingRidden` (714) reads `ActorState::being_ridden`. The named
-`AI-67` actor save section retains that flag. Gameplay reports mount and
-dismount transitions through `World::set_mount_rider`, which updates the rider
-and mount flags together. GetGraphVariableInt (675) reads
+`AI-67` actor save section retains that flag. Mounted Patrol gameplay reports
+mount and dismount transitions through `World::set_mount_rider`, which updates
+the rider and mount flags together. GetGraphVariableInt (675) reads
 a named integer in the actor's live graph state, case-insensitively, and
 reports missing names and non-actor subjects. Its integer state is transient
 host input and is not saved.
