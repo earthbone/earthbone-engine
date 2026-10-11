@@ -1024,10 +1024,15 @@ morph files when `SKYRIM_DATA` is set. The headless
 player request path and reads the attached streamer's file, model, morph,
 missing-path and byte counters before and after the requests. It opens the race
 menu after precaching and confirms the assets remain resident. The training
-presentation test checks the offer values used for the trainer heading and
-purchase button, including an unavailable trainer. The camera visibility test
-checks the value passed to the rendered actor instances for first and third
-person. These Rust checks do not inspect pixels from a live player appearance.
+presentation Rust test checks the offer values used for the trainer heading
+and purchase button, including an unavailable trainer. The cache host check
+also advances three gameplay frames after closing the race menu and confirms
+that file, model and morph counts and byte accounting remain resident. The
+`godot/scr_30_training_render_test.gd` check invokes `Game.ShowTrainingMenu`
+through Papyrus for the loaded Hulda actor and checks the visible Training
+panel, scroll container and rendered message or offer controls. The camera
+visibility test checks the value passed to rendered actor instances for first
+and third person. These checks inspect controls and state, not screenshot pixels.
 
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
@@ -3106,7 +3111,10 @@ and sitting offset for host inspection. When a skinned appearance is bound to
 the player, the geometry flag controls its RenderingServer instances in first
 person. Third-person view keeps the player appearance visible. The
 `hst_17_camera_controls.rs` test exercises the state readbacks and verifies
-the third-person camera yaw and position respond to the sitting offset.
+the third-person camera yaw and position respond to the sitting offset. Its
+combined host-state check applies a target pose, sitting offset and geometry
+flag together, then reads their effects from the camera anchor, eye and
+first-person visibility decision.
 `SkinnedActorNode.set_first_person_geometry_visible` applies the same visibility
 change to every shape instance in its rig. The windowed
 `godot/hst_17_geometry_visibility_test.gd` check loads the installed vanilla

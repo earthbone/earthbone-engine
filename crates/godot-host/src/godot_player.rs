@@ -2106,6 +2106,13 @@ impl PlayerNode {
         self.invoke_actor_menu_native_for_check(&name, &target_name, force)
     }
 
+    /// Run Game.ShowTrainingMenu through Papyrus for the SCR-30 host check.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_game_actor_native(&mut self, name: GString, target_name: GString) -> bool {
+        self.invoke_game_actor_native_for_check(&name, &target_name)
+    }
+
     /// Return the pending lockpick target and authored lock level for the UI.
     #[func]
     pub fn pending_lockpick(&self) -> VarDictionary {

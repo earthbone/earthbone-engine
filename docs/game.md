@@ -1337,7 +1337,9 @@ residency and byte accounting. These requests add no saved state.
 actor form when the argument resolves to an actor reference. Invalid or missing
 arguments return quietly without a request. Valid trainers also queue the
 UI-16 presenter request. The host opens that menu once and consumes the typed
-request without presenting it again.
+request without presenting it again. The SCR-30 Godot host check calls this
+global through Papyrus for a loaded actor and inspects the visible Training
+panel and its rendered offer or unavailable message.
 
 **Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
 faction charges for murder, assault, trespass, pickpocketing, theft

@@ -186,10 +186,10 @@ mod tests {
 
     #[test]
     fn scr_30_chargen_cache_loads_and_clears_vanilla_assets() {
-        let Ok(data_dir) = std::env::var("SKYRIM_DATA") else {
+        let Some(data_dir) = std::env::var_os("SKYRIM_DATA") else {
             return;
         };
-        let source = DataSource::open(std::path::Path::new(&data_dir)).unwrap();
+        let source = DataSource::open(&std::path::PathBuf::from(data_dir)).unwrap();
         let game = Game::from_shared_order(source.shared_order());
         let cache = ChargenCache::load(&source, &game).unwrap();
         assert!(

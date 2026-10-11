@@ -50,6 +50,17 @@ func _run() -> void:
 	_check(streamer.call("chargen_resident_count") == files,
 		"race menu opened after chargen assets left residency")
 	player.call("close_menu")
+	for _frame in range(3):
+		player.call("advance", 1.0 / 60.0)
+		await process_frame
+	_check(streamer.call("chargen_resident_count") == files,
+		"chargen files did not remain resident across host frames")
+	_check(streamer.call("chargen_model_count") == models,
+		"chargen models did not remain resident across host frames")
+	_check(streamer.call("chargen_morph_count") == morphs,
+		"chargen morphs did not remain resident across host frames")
+	_check(streamer.call("chargen_resident_bytes") == bytes,
+		"chargen byte accounting changed while assets remained cached")
 
 	_check(player.call("debug_invoke_chargen_native", "PrecacheCharGenClear"),
 		"PrecacheCharGenClear request did not complete")
