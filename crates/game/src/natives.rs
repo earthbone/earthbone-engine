@@ -3012,8 +3012,17 @@ fn game(vm: &mut Vm, w: &Shared) {
         none()
     });
     global!(vm, w, "Game", "FadeOutGame", |world, call| {
-        let seconds_before_fade = call.arg(2).as_float();
-        let fade_duration = call.arg(3).as_float();
+        let [Value::Bool(fading_out), Value::Bool(black), Value::Float(seconds_before_fade), Value::Float(fade_duration)] =
+            call.args.as_slice()
+        else {
+            call.log.push(
+                call.time,
+                "Game.FadeOutGame: expected Bool, Bool, Float, Float arguments".to_string(),
+            );
+            return none();
+        };
+        let seconds_before_fade = *seconds_before_fade;
+        let fade_duration = *fade_duration;
         if !seconds_before_fade.is_finite()
             || !fade_duration.is_finite()
             || seconds_before_fade < 0.0
@@ -3026,8 +3035,8 @@ fn game(vm: &mut Vm, w: &Shared) {
             return none();
         }
         world.host_requests.push(HostRequest::FadeOutGame {
-            fading_out: call.arg(0).as_bool(),
-            black: call.arg(1).as_bool(),
+            fading_out: *fading_out,
+            black: *black,
             seconds_before_fade,
             fade_duration,
         });

@@ -41,4 +41,30 @@ fn scr_28_fade_rejects_missing_and_wrong_typed_signature_arguments() {
     );
 
     assert!(game.world().host_requests.is_empty());
+    assert_eq!(
+        game.traces()
+            .iter()
+            .filter(|trace| trace.contains("Game.FadeOutGame: expected Bool, Bool, Float, Float"))
+            .count(),
+        2
+    );
+
+    invoke(
+        &mut game,
+        &[
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Float(0.25),
+            Value::Float(0.75),
+        ],
+    );
+    assert_eq!(
+        game.world().host_requests,
+        [HostRequest::FadeOutGame {
+            fading_out: false,
+            black: true,
+            seconds_before_fade: 0.25,
+            fade_duration: 0.75,
+        }]
+    );
 }
