@@ -5108,7 +5108,7 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     // search permissions, which need the same flight the flag waits on.
     for name in ["SetAllowFlying", "SetAllowFlyingEx"] {
         method!(vm, w, "Actor", name, |world, call, me| {
-            let allowed = call.arg(0).as_bool();
+            let allowed = call.args.first().is_none_or(Value::as_bool);
             if let Some(a) = world.actor(me) {
                 a.allow_flying = allowed;
             }
@@ -5205,7 +5205,7 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     // "Enables or disables this actor's AI." Stored inverted so an actor
     // nobody touched still thinks.
     method!(vm, w, "Actor", "EnableAI", |world, call, me| {
-        let enable = call.arg(0).as_bool();
+        let enable = call.args.first().is_none_or(Value::as_bool);
         if let Some(a) = world.actor(me) {
             a.ai_disabled = !enable;
         }

@@ -1719,6 +1719,7 @@ restraint, and active magic. The concrete contract differences found were:
 | Actor.SetForcedLandingMarker | Store the reference an actor should use when it lands. | Retain the selected reference in shared actor state. | SCR-14. |
 | Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | HasLOS accepts finite positions for references in the same cell. PathToReference returns true only for a valid speed and an already reached target. | SCR-10. |
 | Actor.IsFlying | Reports the actor's flight state. | Reads live movement flight flags or the Hover package procedure. | SCR-10. |
+| Actor.SetAllowFlying and SetAllowFlyingEx | `abAllowed` defaults to true. SetAllowFlyingEx also defaults `abAllowCrash` to true and `abAllowSearch` to false. Both return None. | Both methods use true when `abAllowed` is omitted and return None. The crash and search options are not represented in actor state. | The local CK pages `SetAllowFlying_-_Actor.wikitext` and `SetAllowFlyingEx_-_Actor.wikitext` define the signatures and defaults. SCR-10 owns the unmodeled flight behavior. |
 | Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | GetSleepState maps the sleep procedure and sleeping flag to 0, 2 or 3. | SCR-10 and SCR-11. |
 | Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | The actor retains protected equipped forms, rejects replacement and direct unequip for them, and queues an `Equipped <name>` notification unless silent. `UnequipAll` and `RemoveAllItems` clear the protection. Actor protection survives save/load in the `SCR-74` actor section. | The local CK `EquipItem` and `UnequipItem` pages specify the replacement, removal, and bulk-removal rules. |
 
@@ -1751,6 +1752,18 @@ defaults and its `None` return, with the native invocation. Calling the native
 with only the required item exercises those defaults: it equips the item,
 emits the ordinary equip notification and returns `None`. `SCR-74` owns the
 prevent-removal and silent-message behavior and tests those explicit arguments.
+The SCR-02 signature test parses every direct Actor and ActiveMagicEffect
+registry binding against the complete CK or shipped PSC declaration in the
+contract fixture, including parameter types, optional values and return type.
+Vanilla `Actor.psc` declares `EnableAI(bool abEnable = true)`. The native uses
+that default when invoked without an argument, and returns `None` for both the
+default and explicit-argument calls.
+The CK pages `SetAllowFlying_-_Actor.wikitext` and
+`SetAllowFlyingEx_-_Actor.wikitext` declare a true default for `abAllowed`.
+Both natives now use that default and return `None` for omitted and explicit
+arguments. `SetAllowFlyingEx` currently retains only `abAllowed`; its crash
+landing and search options are not represented by actor state and remain
+assigned to SCR-10 with the other unmodeled flight behavior.
 
 `Actor.KeepOffsetFromActor` stores the target, required body-space XYZ offset,
 optional XYZ angles and catch-up/follow radii on the calling actor. Omitted
