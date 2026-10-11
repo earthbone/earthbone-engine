@@ -6,7 +6,10 @@
 use crate::vanilla_save::{id, reference, references};
 use soe_game::Game;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
-use soe_papyrus::{Opcode::{CallStatic, Return}, Value};
+use soe_papyrus::{
+    Opcode::{CallStatic, Return},
+    Value,
+};
 use soe_save::ChangeForm;
 
 fn read_payload(game: &mut Game, form: soe_esm::GlobalFormId) -> String {

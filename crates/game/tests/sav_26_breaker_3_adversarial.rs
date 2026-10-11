@@ -6,7 +6,10 @@
 use crate::vanilla_save::{id, reference, references};
 use soe_game::{world::ProjectileRecordExtra, Game};
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
-use soe_papyrus::{Opcode::{CallStatic, Return}, Value};
+use soe_papyrus::{
+    Opcode::{CallStatic, Return},
+    Value,
+};
 use soe_save::ChangeForm;
 
 fn read_payload(game: &mut Game, form: soe_esm::GlobalFormId) -> String {
@@ -83,10 +86,8 @@ fn sav_26_runtime_query_round_trips_every_opaque_payload_byte_for_both_types() {
 #[test]
 fn sav_26_empty_opaque_payload_remains_a_restored_record_after_engine_reload() {
     let mut save = references::fixture();
-    save.change_forms.extend([
-        change(0x400A02, 42, vec![]),
-        change(0x400A03, 47, vec![]),
-    ]);
+    save.change_forms
+        .extend([change(0x400A02, 42, vec![]), change(0x400A03, 47, vec![])]);
     let mut game = Game::new(references::fixture_order());
     game.world_mut().restore_vanilla_projectiles(&save).unwrap();
 

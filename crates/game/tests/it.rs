@@ -1195,10 +1195,12 @@ mod sav_20_adversarial;
 mod sav_24_adversarial;
 #[path = "sav_26_adversarial.rs"]
 mod sav_26_adversarial;
-#[path = "sav_26_breaker_adversarial.rs"]
-mod sav_26_breaker_adversarial;
 #[path = "sav_26_breaker_2_adversarial.rs"]
 mod sav_26_breaker_2_adversarial;
+#[path = "sav_26_breaker_3_adversarial.rs"]
+mod sav_26_breaker_3_adversarial;
+#[path = "sav_26_breaker_adversarial.rs"]
+mod sav_26_breaker_adversarial;
 #[path = "sav_28_adversarial.rs"]
 mod sav_28_adversarial;
 #[path = "sav_28_spatial_restore.rs"]
