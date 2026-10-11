@@ -3538,7 +3538,7 @@ fn utility(vm: &mut Vm, w: &Shared, budget_usage: &Rc<BudgetUsage>) {
     global!(vm, w, "Utility", "GetCurrentRealTime", |world, _call| f(
         world.clock.real_seconds as f32
     ));
-    global!(vm, w, "Utility", "GetBudgetCount", |_world, call| {
+    global!(vm, w, "Utility", "GetBudgetCount", |world, call| {
         if !call.args.is_empty() {
             call.log.push(
                 call.time,
@@ -3549,13 +3549,18 @@ fn utility(vm: &mut Vm, w: &Shared, budget_usage: &Rc<BudgetUsage>) {
             );
             return none();
         }
-        call.log.push(
-            call.time,
-            "error: Utility.GetBudgetCount: memory tracking is unavailable",
-        );
-        none()
+        match world.memory_tracker.budget_count() {
+            Some(count) => i(count),
+            None => {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetBudgetCount: call GetCurrentMemory first",
+                );
+                none()
+            }
+        }
     });
-    global!(vm, w, "Utility", "GetBudgetName", |_world, call| {
+    global!(vm, w, "Utility", "GetBudgetName", |world, call| {
         if call.args.len() != 1 {
             call.log.push(
                 call.time,
@@ -3573,14 +3578,20 @@ fn utility(vm: &mut Vm, w: &Shared, budget_usage: &Rc<BudgetUsage>) {
             );
             return s("");
         };
-        if usize::try_from(*index).is_err() {
+        if *index < 0 {
             return s("");
         }
-        call.log.push(
-            call.time,
-            "error: Utility.GetBudgetName: memory tracking is unavailable",
-        );
-        s("")
+        match world.memory_tracker.budget_name(*index) {
+            Some(name) => s(name),
+            None if !world.memory_tracker.is_initialized() => {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetBudgetName: call GetCurrentMemory first",
+                );
+                s("")
+            }
+            None => s(""),
+        }
     });
     let current_budget_usage = Rc::clone(budget_usage);
     vm.natives.register_global(
@@ -3652,9 +3663,7 @@ fn utility(vm: &mut Vm, w: &Shared, budget_usage: &Rc<BudgetUsage>) {
             b(usage > limit)
         }),
     );
-    // Memory tracking depends on a process-wide allocator service that is not
-    // available to the shared World.
-    global!(vm, w, "Utility", "GetCurrentMemory", |_world, call| {
+    global!(vm, w, "Utility", "GetCurrentMemory", |world, call| {
         if !call.args.is_empty() {
             call.log.push(
                 call.time,
@@ -3665,11 +3674,7 @@ fn utility(vm: &mut Vm, w: &Shared, budget_usage: &Rc<BudgetUsage>) {
             );
             return none();
         }
-        call.log.push(
-            call.time,
-            "error: Utility.GetCurrentMemory: memory tracking is unavailable",
-        );
-        none()
+        i(world.memory_tracker.current_memory())
     });
     global!(vm, w, "Utility", "GameTimeToString", |_world, call| s(
         &GameClock::format_game_time(call.arg(0).as_float())

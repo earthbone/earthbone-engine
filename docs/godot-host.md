@@ -283,10 +283,10 @@ overrides and raw TES4 records. Decoded header metadata, group tables and shared
 load-order indices are outside these record-body totals. The implementation
 uses the existing ESM structs rather than a second record store.
 
-Debug builds use a counting Rust System allocator. Optimized profiling builds
-enable it with `--features profile-memory`. The allocator adds an aligned owner
-prefix, preserves that owner across reallocation and frees on other threads,
-and leaves Godot's own heap outside the counters. PlayerNode's
+All builds use a counting Rust System allocator. The allocator adds an aligned
+owner prefix, preserves that owner across reallocation and frees on other
+threads, and leaves Godot's own heap outside the counters. This adds a small
+header and counter updates to Rust allocations. PlayerNode's
 `system_frame_breakdown` includes `live_bytes` and `allocations` for every
 system in the last completed presentation frame. Reallocations count as calls.
 Unscoped allocations use `other`. No saved state or per-reference nodes were
