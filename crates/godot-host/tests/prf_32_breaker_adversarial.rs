@@ -37,6 +37,12 @@ fn bannered_mare_repairs_are_valid_and_diagnostics_identify_each_source_once() {
         !repairs.is_empty(),
         "the installed cell did not exercise a repaired convex hull:\n{log}"
     );
+    assert!(
+        repairs
+            .iter()
+            .any(|line| line.contains("input_vertices=44")),
+        "the installed cell did not repair the logged 44-vertex hull:\n{log}"
+    );
     let mut sources = HashSet::new();
     for line in repairs {
         let source = match line.split_once("mesh node ") {
