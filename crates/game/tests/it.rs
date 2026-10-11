@@ -575,6 +575,8 @@ mod cmb_37_destruction;
 
 #[path = "cmb_37_breaker3_adversarial.rs"]
 mod cmb_37_breaker3_adversarial;
+#[path = "cmb_37_breaker4_adversarial.rs"]
+mod cmb_37_breaker4_adversarial;
 #[path = "cmb_38_adversarial.rs"]
 mod cmb_38_adversarial;
 #[path = "cmb_38_breaker2_adversarial.rs"]
