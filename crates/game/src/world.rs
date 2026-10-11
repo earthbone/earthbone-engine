@@ -851,6 +851,7 @@ pub struct World {
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
     refs: HashMap<GlobalFormId, RefState>,
+    contact_references: std::cell::RefCell<contact::ContactReferences>,
     /// Last observed vehicle placement for transient actor attachment updates.
     actor_vehicle_poses: HashMap<GlobalFormId, (GlobalFormId, [f32; 3], [f32; 3])>,
     reference_changes: std::cell::RefCell<reference_changes::State>,
@@ -1248,6 +1249,7 @@ impl World {
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),
+            contact_references: std::cell::RefCell::default(),
             actor_vehicle_poses: HashMap::new(),
             reference_changes: std::cell::RefCell::default(),
             translation_candidates: BTreeSet::new(),

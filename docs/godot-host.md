@@ -730,6 +730,9 @@ Moved and spawned lights use their current shared placement.
 body synchronization, sampling and world evaluation. `detection_worldspace`
 reports the active exterior worldspace's editor ID for the walking check.
 Body synchronization and detection reuse one resident actor-placement list.
+The shared world's transient actor FormID index avoids scanning non-actor
+runtime references to build that list. Changed membership is refreshed through
+reference invalidation, while placement and visibility remain shared state.
 No per-reference scene nodes are added.
 
 PRF-31 selects living actors in attached cells before resolving controller
@@ -6165,6 +6168,15 @@ WhiterunWorld and 30 seconds in Tamriel. It samples every physics frame for two 
 NPCs and movement in both worldspaces, and rejects every
 complete detection update over the fixed 2,000-microsecond budget. Each run
 quits after reporting its sample count, maximum and over-budget count.
+The route retains its heading while moving, turns after five simulated seconds,
+and turns sooner when half a simulated second produces less than 25 units of
+horizontal progress. It never teleports the capsule or removes collision.
+Both phases still require more than 100 units of horizontal displacement.
+Every timed sample must produce a resident actor-owned sound observation.
+Over-budget frames print their stage costs. The gated Rust launcher
+`prf_31_installed_windowed_gate_walk_keeps_every_detection_update_under_two_ms`
+waits for the windowed process to exit and requires its successful result.
+The synthetic `prf_31_walk_route_test.gd` checks blocked and moving headings.
 The capsule and exterior residency advance through the host physics and
 streaming paths. NPC placements are held fixed and AI planning and VM ticks
 are omitted. The timing still covers the whole gameplay detection updater.

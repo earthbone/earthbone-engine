@@ -1803,6 +1803,26 @@ limits are unchanged.
 
 ## Detection neighborhoods, PRF-31
 
+The 2026-10-11 follow-up removes another whole-reference scan from actor
+selection. Contact queries retain sorted actor FormIDs and recheck membership
+only for invalidated references. Prefetch prepares that index, and native-save
+restoration and vanilla reference import rebuild it. Current placements and
+effective enable state still come from World. The synthetic
+`prf_31_contact_index_bounds_unchanged_frames_independently_of_scenery` check
+puts 5,000 non-actor references beside one actor. Its fixed work check requires
+60 unchanged queries to perform no additional membership examinations and
+one changed actor to add exactly one examination.
+
+The walking fixture now turns on stalled horizontal progress instead of
+repeatedly pushing along a blocked gate axis. It retains both 100-unit movement
+thresholds, the two 30-second phases and the maximum 2,000-microsecond detection
+limit. Its windowed Rust launcher also rejects script errors and a failed
+process exit. The prior judge's failed windowed sample, 2,616 microseconds and
+13.3 units of Tamriel movement, remains a failed measurement. Light mode
+prevents new installed-data or Godot runs for this follow-up, so the changes
+have no new before/after timings or successful windowed acceptance measurement.
+Earlier measurements below describe their original builds.
+
 The threshold fixed before the first run is 2 ms for the whole of
 `PlayerNode::advance_detection`, including body synchronization, sight rays,
 light lookup and `World::evaluate_detection`. The installed-data checks use

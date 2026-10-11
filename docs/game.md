@@ -8561,6 +8561,14 @@ authored grouping, so attaching it does not make distant actors across that
 worldspace physically resident. Parent-cell identity remains unchanged.
 The existing `CellIndex` supplies XCLC coordinates and world persistent-cell
 identity, following local UESP `CELL.wikitext` and the winning record hierarchy.
+Contact placement queries retain a transient sorted index of actor reference
+FormIDs. Reference invalidation queues membership checks for changed forms,
+including runtime spawns, actor-flag changes and removed references. Unchanged
+queries read only the indexed actors instead of scanning scenery references.
+Cell prefetch prepares membership before detection. Native world restoration
+and vanilla reference import discard the index and derive it from restored
+references. Current placement, scale, enable state and attachment are still
+read from the shared world on every query. The index adds no saved fields.
 `cell_coordinate_space` provides that worldspace identity for exterior pair
 selection and aging of distant known pairs. Interiors keep separate cell spaces.
 The local CK `Is3DLoaded`, `OnCellAttach` and `IsDisabled` pages distinguish
