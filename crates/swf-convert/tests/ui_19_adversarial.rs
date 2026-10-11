@@ -29,7 +29,7 @@ fn skyui_vfs() -> Option<Vfs> {
 }
 
 #[test]
-fn rejects_truncated_and_oversized_swf_headers() {
+fn ui_19_rejects_truncated_and_oversized_swf_headers() {
     assert!(convert(b"FWS\x09\x08").is_err());
     let mut header = b"FWS\x09\0\0\0\0".to_vec();
     header[4..8].copy_from_slice(&(128 * 1024 * 1024u32 + 1).to_le_bytes());
@@ -37,7 +37,7 @@ fn rejects_truncated_and_oversized_swf_headers() {
 }
 
 #[test]
-fn vanilla_interface_movies_have_art_text_and_embedded_glyphs() {
+fn ui_19_vanilla_interface_movies_have_art_text_and_embedded_glyphs() {
     let Some(vfs) = game_vfs() else {
         eprintln!("SKYRIM_DATA unavailable, skipped");
         return;
@@ -77,7 +77,7 @@ fn vanilla_interface_movies_have_art_text_and_embedded_glyphs() {
 }
 
 #[test]
-fn skyui_winning_interface_movies_convert_from_later_archive() {
+fn ui_19_skyui_winning_interface_movies_convert_from_later_archive() {
     let Some(vfs) = skyui_vfs() else {
         eprintln!("SOE_TEST_SKYUI unavailable, skipped");
         return;
