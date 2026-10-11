@@ -71,6 +71,15 @@ func _run() -> void:
 		mesh.surface_set_material(0, material)
 		var instance := RenderingServer.instance_create2(mesh.get_rid(), world.get_world_3d().scenario)
 		instances.append(instance)
+	var expected_arrays: Array = []
+	expected_arrays.resize(Mesh.ARRAY_MAX)
+	expected_arrays[Mesh.ARRAY_VERTEX] = expected
+	expected_arrays[Mesh.ARRAY_INDEX] = PackedInt32Array([0, 2, 1])
+	var expected_mesh := ArrayMesh.new()
+	expected_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, expected_arrays)
+	expected_mesh.surface_set_material(0, material)
+	instances.append(RenderingServer.instance_create2(expected_mesh.get_rid(), world.get_world_3d().scenario))
+	RenderingServer.instance_set_visible(instances[2], false)
 	RenderingServer.instance_set_visible(instances[0], false)
 	await process_frame
 	await RenderingServer.frame_post_draw
@@ -80,8 +89,14 @@ func _run() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	var generated := root.get_texture().get_image()
+	RenderingServer.instance_set_visible(instances[0], false)
+	RenderingServer.instance_set_visible(instances[2], true)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var reference := root.get_texture().get_image()
 	var lit := 0
 	var changed := 0
+	var mismatched := 0
 	for y in generated.get_height():
 		for x in generated.get_width():
 			var current := generated.get_pixel(x, y).r > 0.5
@@ -89,8 +104,10 @@ func _run() -> void:
 				lit += 1
 			if current != (base.get_pixel(x, y).r > 0.5):
 				changed += 1
-	if lit < 3000 or changed < 100:
-		_fail("render thresholds failed: lit=%d changed=%d" % [lit, changed])
+			if current != (reference.get_pixel(x, y).r > 0.5):
+				mismatched += 1
+	if lit < 3000 or changed < 100 or mismatched > 8:
+		_fail("render thresholds failed: lit=%d changed=%d mismatched=%d" % [lit, changed, mismatched])
 		return
 	if generated.save_png(directory.path_join("edt_22_face.png")) != OK:
 		_fail("screenshot write failed")
@@ -98,5 +115,5 @@ func _run() -> void:
 	for instance in instances:
 		RenderingServer.free_rid(instance)
 	instances.clear()
-	print("EDT_22_RENDER_OK lit=%d changed=%d" % [lit, changed])
+	print("EDT_22_RENDER_OK lit=%d changed=%d mismatched=%d" % [lit, changed, mismatched])
 	quit(0)

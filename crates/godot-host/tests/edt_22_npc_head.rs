@@ -31,17 +31,23 @@ const POINTS: [[f32; 3]; 3] = [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 
 const EXPECTED: [[f32; 3]; 3] = [[2.5, 0.0, 5.0], [105.0, 0.0, 5.0], [2.5, 100.0, 10.0]];
 
 fn head_nif(name: &str, points: &[[f32; 3]; 3]) -> Vec<u8> {
+    head_nif_shapes(&[(name, *points)])
+}
+
+fn head_nif_shapes(shapes: &[(&str, [[f32; 3]; 3])]) -> Vec<u8> {
     let mut writer = NifWriter::new(100);
-    let vertices = [
-        TestVertex::at(points[0], [0.0, 0.0]),
-        TestVertex::at(points[1], [1.0, 0.0]),
-        TestVertex::at(points[2], [0.0, 1.0]),
-    ];
-    let data = writer.geometry_data(&vertices, true, &[[0, 1, 2]], None);
-    let data = writer.add("NiTriShapeData", data);
-    let shape = writer.ni_tri_shape(name, data, -1, -1, -1);
-    let shape = writer.add("NiTriShape", shape);
-    writer.roots.push(shape);
+    for (name, points) in shapes {
+        let vertices = [
+            TestVertex::at(points[0], [0.0, 0.0]),
+            TestVertex::at(points[1], [1.0, 0.0]),
+            TestVertex::at(points[2], [0.0, 1.0]),
+        ];
+        let data = writer.geometry_data(&vertices, true, &[[0, 1, 2]], None);
+        let data = writer.add("NiTriShapeData", data);
+        let shape = writer.ni_tri_shape(name, data, -1, -1, -1);
+        let shape = writer.add("NiTriShape", shape);
+        writer.roots.push(shape);
+    }
     writer.finish()
 }
 
@@ -158,11 +164,11 @@ impl Fixture {
         }
     }
 
-    fn record_mut(&mut self, tag: &[u8; 4], id: u32) -> &mut Record {
+    fn record_mut(&mut self, tag: [u8; 4], id: u32) -> &mut Record {
         self.patch
             .records
             .iter_mut()
-            .find(|record| record.tag == Tag(*tag) && record.form_id == id)
+            .find(|record| record.tag == Tag(tag) && record.form_id == id)
             .unwrap()
     }
 }
@@ -262,7 +268,7 @@ fn edt_22_all_nam9_slots_select_signed_targets_and_default_is_neutral() {
 #[test]
 fn edt_22_zero_nam9_restores_declared_geometry() {
     let mut fixture = Fixture::new();
-    *fixture.record_mut(b"NPC_", 0x900) = npc_record(&[0.0; FACE_MORPH_COUNT]);
+    *fixture.record_mut(*b"NPC_", 0x900) = npc_record(&[0.0; FACE_MORPH_COUNT]);
     let generated = generate_npc_head(&fixture.order(), &fixture.assets, NPC).unwrap();
     assert_eq!(generated[0].mesh.positions, POINTS);
     assert!(!generated[0].mesh.normals.is_empty());
@@ -273,12 +279,59 @@ fn edt_22_part_without_selected_targets_keeps_its_geometry() {
     let mut fixture = Fixture::new();
     let mut values = [0.0; FACE_MORPH_COUNT];
     values[11] = 0.5;
-    *fixture.record_mut(b"NPC_", 0x900) = npc_record(&values);
+    *fixture.record_mut(*b"NPC_", 0x900) = npc_record(&values);
     let generated = generate_npc_head(&fixture.order(), &fixture.assets, NPC).unwrap();
     assert_eq!(
         generated[0].mesh.positions, POINTS,
         "absent BrowForward cannot select a different TRI morph"
     );
+}
+
+#[test]
+fn edt_22_only_the_unique_matching_nif_shape_is_morphed() {
+    let fixture = Fixture::new();
+    let mut accessory = POINTS;
+    for point in &mut accessory {
+        point[2] += 20.0;
+    }
+    std::fs::write(
+        fixture.directory.path().join("meshes/Head.nif"),
+        head_nif_shapes(&[("Accessory", accessory), ("Head", POINTS)]),
+    )
+    .unwrap();
+
+    let generated = generate_npc_head(&fixture.order(), &fixture.assets, NPC).unwrap();
+    assert_eq!(generated.len(), 3);
+    assert_eq!(generated[0].form, HEAD);
+    assert_eq!(generated[0].mesh.name, "Accessory");
+    assert_eq!(generated[0].mesh.positions, accessory);
+    assert!(!generated[0].mesh.normals.is_empty());
+    assert_eq!(generated[1].form, HEAD);
+    assert_eq!(generated[1].mesh.name, "Head");
+    assert_eq!(generated[1].mesh.positions, EXPECTED);
+    assert!(generated[1].mesh.normals.is_empty());
+    assert_eq!(generated[1].surface.normals.len(), 3);
+    assert_eq!(generated[2].form, EXTRA);
+}
+
+#[test]
+fn edt_22_head_assets_follow_the_supplied_vfs_precedence() {
+    let mut fixture = Fixture::new();
+    let mut replacement = POINTS;
+    replacement[1][0] += 25.0;
+    let overlay = fixture.directory.path().join("overlay");
+    std::fs::create_dir_all(overlay.join("meshes")).unwrap();
+    std::fs::write(
+        overlay.join("meshes/Extra.nif"),
+        head_nif("ReplacementExtra", &replacement),
+    )
+    .unwrap();
+    fixture.assets.add_loose_root(&overlay).unwrap();
+
+    let generated = generate_npc_head(&fixture.order(), &fixture.assets, NPC).unwrap();
+    assert_eq!(generated[0].mesh.positions, EXPECTED);
+    assert_eq!(generated[1].mesh.name, "ReplacementExtra");
+    assert_eq!(generated[1].mesh.positions, replacement);
 }
 
 #[test]
@@ -302,7 +355,7 @@ fn edt_22_ambiguous_tri_shape_binding_is_rejected() {
 #[test]
 fn edt_22_malformed_nam9_returns_record_error() {
     let mut fixture = Fixture::new();
-    let record = fixture.record_mut(b"NPC_", 0x900);
+    let record = fixture.record_mut(*b"NPC_", 0x900);
     record.subrecords.last_mut().unwrap().data.pop();
     assert!(matches!(
         generate_npc_head(&fixture.order(), &fixture.assets, NPC),
@@ -316,16 +369,16 @@ fn edt_22_bad_links_deleted_parts_and_cycles_return_errors() {
         let mut fixture = Fixture::new();
         match case {
             0 => {
-                fixture.record_mut(b"NPC_", 0x900).subrecords[0].data =
-                    0x999_u32.to_le_bytes().to_vec()
+                fixture.record_mut(*b"NPC_", 0x900).subrecords[0].data =
+                    0x999_u32.to_le_bytes().to_vec();
             }
-            1 => fixture.record_mut(b"HDPT", 0x800).tag = Tag(*b"WEAP"),
-            2 => fixture.record_mut(b"HDPT", 0x800).flags |= soe_esm::plugin::flags::DELETED,
+            1 => fixture.record_mut(*b"HDPT", 0x800).tag = Tag(*b"WEAP"),
+            2 => fixture.record_mut(*b"HDPT", 0x800).flags |= soe_esm::plugin::flags::DELETED,
             3 => fixture
-                .record_mut(b"HDPT", 0x0100_0801)
+                .record_mut(*b"HDPT", 0x0100_0801)
                 .subrecords
                 .push(soe_esm::Subrecord::new(b"HNAM", 0x800_u32.to_le_bytes())),
-            _ => fixture.record_mut(b"NPC_", 0x900).subrecords[0].data = vec![0; 3],
+            _ => fixture.record_mut(*b"NPC_", 0x900).subrecords[0].data = vec![0; 3],
         }
         assert!(
             generate_npc_head(&fixture.order(), &fixture.assets, NPC).is_err(),
@@ -340,10 +393,10 @@ fn edt_22_malformed_asset_declarations_and_mismatched_tri_return_errors() {
         let mut fixture = Fixture::new();
         match case {
             0 => {
-                fixture.record_mut(b"HDPT", 0x800).subrecords.remove(4);
+                fixture.record_mut(*b"HDPT", 0x800).subrecords.remove(4);
             }
             1 => {
-                fixture.record_mut(b"HDPT", 0x800).subrecords.remove(3);
+                fixture.record_mut(*b"HDPT", 0x800).subrecords.remove(3);
             }
             2 => {
                 let mut points = POINTS;

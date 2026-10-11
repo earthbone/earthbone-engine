@@ -75,7 +75,10 @@ impl Fixture {
     fn order(&self) -> LoadOrder {
         let mut order = LoadOrder::new();
         order
-            .add("Fixture.esp", Plugin::parse(&self.plugin.to_bytes()).unwrap())
+            .add(
+                "Fixture.esp",
+                Plugin::parse(&self.plugin.to_bytes()).unwrap(),
+            )
             .unwrap();
         order
     }
@@ -117,7 +120,8 @@ fn edt_22_missing_pnam_and_nam9_produce_no_generated_head_meshes() {
         .iter_mut()
         .find(|record| record.tag.as_bytes() == b"NPC_")
         .unwrap();
-    npc.subrecords.retain(|field| field.tag.as_bytes() != b"PNAM");
+    npc.subrecords
+        .retain(|field| field.tag.as_bytes() != b"PNAM");
 
     let generated = generate_npc_head(&fixture.order(), &fixture.assets, NPC).unwrap();
     assert!(generated.is_empty());

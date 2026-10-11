@@ -1378,13 +1378,17 @@ named local corpus. These sources supply contracts, with no copied source.
 
 `crates/godot-host/tests/edt_22_npc_head.rs` exercises winning NPC and HDPT
 overrides with a different master order, declared chargen assets, signed NAM9
-weights, extras, geometry conversion and rejection paths. Its installed-data
-case generates Lydia's declared head parts. Its windowed Godot case runs
+weights, extras, geometry conversion and rejection paths. A multi-shape NIF
+case binds the TRI to the unique matching shape and preserves the other
+shape's geometry. A loose overlay case checks the supplied VFS's precedence.
+Its installed-data case generates Lydia's declared head parts.
+Its windowed Godot case runs
 `godot/edt_22_facegen_mesh_test.gd`, checks uploaded vertices and topology,
-compares the base and generated silhouettes, captures a temporary PNG and
-quits. The render thresholds are at least 3,000 lit pixels and 100 changed
-silhouette pixels. Both environment-dependent cases skip when their input
-variable is absent.
+compares the base and generated silhouettes and renders an independent mesh
+from the expected vertices and indices. It captures a temporary PNG and quits.
+The render thresholds are at least 3,000 lit pixels, 100 changed silhouette
+pixels and at most eight pixels differing from the expected mesh's silhouette.
+Both environment-dependent cases skip when their input variable is absent.
 
 ### Actor expression targets, ANM-59
 
