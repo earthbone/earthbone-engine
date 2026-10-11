@@ -258,6 +258,43 @@ impl PlayerNode {
         true
     }
 
+    pub(super) fn toggle_gameplay_collisions_for_check(&mut self) -> bool {
+        let bytes = ScriptBuilder::new("SoeScr21CollisionHostCheck", "Form")
+            .function(
+                FunctionBuilder::new("Run", "None")
+                    .global()
+                    .local("result", "None")
+                    .ins(
+                        CallStatic,
+                        vec![s("Debug"), s("ToggleCollisions"), ident("result")],
+                    )
+                    .ins(Return, vec![ident("result")])
+                    .build(),
+            )
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.load_script(&bytes) {
+            soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: failed to load SCR-21 collision check script: {error}");
+            return false;
+        }
+        let thread = match game
+            .vm
+            .call_global("SoeScr21CollisionHostCheck", "Run", &[])
+        {
+            Ok(thread) => thread,
+            Err(error) => {
+                soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: SCR-21 collision toggle failed: {error}");
+                return false;
+            }
+        };
+        if !game.run_until_idle(64) || game.vm.thread_result(thread) != Some(Value::None) {
+            return false;
+        }
+        true
+    }
+
     /// Invoke either main-menu Game native for host integration checks.
     pub(super) fn invoke_main_menu_native_for_check(
         &mut self,

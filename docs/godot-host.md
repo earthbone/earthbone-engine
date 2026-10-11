@@ -884,7 +884,10 @@ applies that value to resident cell collision bodies and the player's query
 bodies by setting their physics collision layer and mask to zero while off,
 then restoring layer and mask one when on. Bodies synchronized after a switch
 receive the current setting on the next host sync. Player movement still uses
-the `soe-physics` `SimpleWorld` solver.
+the `soe-physics` `SimpleWorld` solver. `collision_filter_state` counts resident
+bodies by their live physics layers and masks. The installed-data
+`scr_21_collision_toggle_test.gd` check invokes the Papyrus native and verifies
+the disabled and restored filters on Bannered Mare's resident collision bodies.
 
 ### Crosshair and held references, HST-18
 

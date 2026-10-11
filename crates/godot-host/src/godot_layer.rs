@@ -3069,6 +3069,18 @@ impl CellStreamerNode {
         })
     }
 
+    /// Count resident collision bodies by their live physics filters.
+    #[func]
+    pub fn collision_filter_state(&self) -> VarDictionary {
+        let (total, enabled, disabled, other) = self.collision.collision_filter_counts();
+        let mut state = VarDictionary::new();
+        state.set("total", total as i64);
+        state.set("enabled", enabled as i64);
+        state.set("disabled", disabled as i64);
+        state.set("other", other as i64);
+        state
+    }
+
     /// Last placement applied to a drawn reference, in Skyrim units.
     #[func]
     pub fn rendered_reference_pose(&self, file: i32, object: i64) -> VarDictionary {

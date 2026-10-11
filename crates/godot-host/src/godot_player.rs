@@ -873,6 +873,12 @@ impl PlayerNode {
         }
     }
 
+    /// Invoke the gameplay collision switch for host integration checks.
+    #[func]
+    pub fn debug_toggle_gameplay_collisions(&mut self) -> bool {
+        self.toggle_gameplay_collisions_for_check()
+    }
+
     /// Connect an already loaded character rig to this gameplay world's live
     /// skin and equipment records. Reuses the existing character node.
     #[func]
