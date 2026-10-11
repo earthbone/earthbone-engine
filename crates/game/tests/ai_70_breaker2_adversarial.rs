@@ -65,8 +65,14 @@ fn condition(function: u16, parameter: u32, expected: f32) -> Condition {
 #[test]
 fn ai_70_missing_sight_observation_is_false_and_comparison_can_invert_it() {
     let game = fixture();
-    assert_eq!(evaluate(&game, id(0x900), &condition(27, 0x901, 1.0)), Ok(false));
-    assert_eq!(evaluate(&game, id(0x900), &condition(27, 0x901, 0.0)), Ok(true));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(27, 0x901, 1.0)),
+        Ok(false)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(27, 0x901, 0.0)),
+        Ok(true)
+    );
 }
 
 #[test]
