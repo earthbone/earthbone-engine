@@ -656,8 +656,10 @@ measurement window. Counters do not enter VM saves.
 other messages select info. VM execution errors emit error events with script
 location and thread identity while retaining their original in-memory text.
 The transient subscriber does not change the VM log's saved representation.
-The `tool_06_logging` tests check severity and VM error context. Subscriber
-filtering, counts and file output follow [trace.md](trace.md).
+The `tool_06_logging` tests check severity and VM error context, and
+`tool_07_vm_trace_and_error_reach_tool_06_papyrus_target` checks that script
+traces and VM errors reach target `papyrus`. Subscriber filtering, counts and
+file output follow [trace.md](trace.md).
 
 ## Vanilla Papyrus files, TOOL-07
 
