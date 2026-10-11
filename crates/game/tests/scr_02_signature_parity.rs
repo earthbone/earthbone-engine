@@ -137,3 +137,37 @@ fn scr_02_enable_ai_uses_the_vanilla_true_default() {
     );
     assert!(game.world().actor(actor_id).unwrap().ai_disabled);
 }
+
+#[test]
+fn scr_02_allow_flying_methods_use_ck_defaults_and_none_returns() {
+    let expected = [
+        "Actor|ck-wiki/SetAllowFlying_-_Actor.wikitext|None SetAllowFlying(Bool abAllowed = true)",
+        "Actor|ck-wiki/SetAllowFlyingEx_-_Actor.wikitext|None SetAllowFlyingEx(Bool abAllowed = true, Bool abAllowCrash = true, Bool abAllowSearch = false)",
+    ];
+    for declaration in expected {
+        assert!(
+            CONTRACTS.lines().any(|line| line == declaration),
+            "missing CK signature with defaults: {declaration}"
+        );
+    }
+
+    let mut game = crate::natives_dlc::game();
+    let actor = crate::natives_dlc::obj(&mut game, "VampireRef");
+    let actor_id = crate::natives_dlc::form(&game, "VampireRef");
+
+    for method in ["SetAllowFlying", "SetAllowFlyingEx"] {
+        assert_eq!(
+            crate::natives_dlc::call(&mut game, &actor, method, &[]),
+            Value::None,
+            "{method} returns None when using its default arguments"
+        );
+        assert!(game.world().actor(actor_id).unwrap().allow_flying);
+
+        assert_eq!(
+            crate::natives_dlc::call(&mut game, &actor, method, &[Value::Bool(false)]),
+            Value::None,
+            "{method} returns None with an explicit argument"
+        );
+        assert!(!game.world().actor(actor_id).unwrap().allow_flying);
+    }
+}
