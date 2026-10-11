@@ -14,7 +14,12 @@ fn modifier(object: u32, duration: f32, amount: f32) -> Record {
     header[..4].copy_from_slice(&1_u32.to_le_bytes());
     header[4..8].copy_from_slice(&duration.to_le_bytes());
     let channels = [
-        (*b"TNAM", 176, true, vec![amount, amount / 2.0, amount / 4.0, amount]),
+        (
+            *b"TNAM",
+            176,
+            true,
+            vec![amount, amount / 2.0, amount / 4.0, amount],
+        ),
         (*b"BNAM", 180, false, vec![amount * 8.0]),
         (*b"WNAM", 212, false, vec![amount]),
         (*b"XNAM", 216, false, vec![amount * 140.0]),
