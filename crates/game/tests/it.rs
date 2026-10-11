@@ -442,10 +442,12 @@ mod ai_89_adversarial;
 mod ai_89_mounted_patrol;
 #[path = "ai_90_adversarial.rs"]
 mod ai_90_adversarial;
-#[path = "ai_90_breaker_adversarial.rs"]
-mod ai_90_breaker_adversarial;
 #[path = "ai_90_breaker2_adversarial.rs"]
 mod ai_90_breaker2_adversarial;
+#[path = "ai_90_breaker3_adversarial.rs"]
+mod ai_90_breaker3_adversarial;
+#[path = "ai_90_breaker_adversarial.rs"]
+mod ai_90_breaker_adversarial;
 #[path = "ai_91_adversarial.rs"]
 mod ai_91_adversarial;
 #[path = "ai_91_breaker_adversarial.rs"]

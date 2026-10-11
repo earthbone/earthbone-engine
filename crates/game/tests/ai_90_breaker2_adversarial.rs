@@ -71,8 +71,14 @@ fn patrol(missing_target_input: bool, omit_optionals: bool) -> Game {
         Some(TEMPLATE),
     )));
     plugin.push_top(
-        npc::build_record(BASE, "Walker", "Walker", Config::default(), Stats::default())
-            .sub(T(b"PKID"), PACK.to_le_bytes()),
+        npc::build_record(
+            BASE,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
     plugin.push_top(
         Record::new(T(b"ACHR"), ACTOR)
@@ -95,7 +101,10 @@ fn patrol(missing_target_input: bool, omit_optionals: bool) -> Game {
 fn ai_90_non_sentinel_input_index_without_data_is_unsupported_before_movement() {
     let mut game = patrol(true, false);
     let tick = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| game.tick(1.0)));
-    assert!(tick.is_ok(), "malformed PKC2 input index panicked during tick");
+    assert!(
+        tick.is_ok(),
+        "malformed PKC2 input index panicked during tick"
+    );
     let mut world = game.world_mut();
     let actor = world.reference(id(ACTOR)).unwrap();
     assert_eq!(actor.position[0], 0.0);
@@ -110,7 +119,10 @@ fn ai_90_all_omitted_optionals_keep_finite_route_and_complete() {
     let mut game = patrol(false, true);
     for expected in [110.0, 110.0, 220.0, 220.0] {
         game.tick(1.0);
-        assert_eq!(game.world_mut().reference(id(ACTOR)).unwrap().position[0], expected);
+        assert_eq!(
+            game.world_mut().reference(id(ACTOR)).unwrap().position[0],
+            expected
+        );
     }
     game.tick(1.0);
     let world = game.world();

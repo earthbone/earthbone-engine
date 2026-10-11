@@ -63,8 +63,14 @@ fn game_with_omitted_repeatable() -> Game {
         Some(TEMPLATE),
     )));
     plugin.push_top(
-        npc::build_record(BASE, "Walker", "Walker", Config::default(), Stats::default())
-            .sub(T(b"PKID"), PACK.to_le_bytes()),
+        npc::build_record(
+            BASE,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
     plugin.push_top(
         Record::new(T(b"ACHR"), ACTOR)
@@ -88,7 +94,10 @@ fn ai_90_omitted_repeatable_does_not_inherit_true_template_value() {
     let mut game = game_with_omitted_repeatable();
     for expected in [110.0, 110.0, 220.0, 220.0] {
         game.tick(1.0);
-        assert_eq!(game.world_mut().reference(id(ACTOR)).unwrap().position[0], expected);
+        assert_eq!(
+            game.world_mut().reference(id(ACTOR)).unwrap().position[0],
+            expected
+        );
     }
     let actor = game.world().actor_ref(id(ACTOR)).unwrap();
     assert!(actor.ai.completed.contains_key(&id(PACK)));
