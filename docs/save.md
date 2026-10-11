@@ -72,6 +72,11 @@ plugin of the form the instance runs on, which is the owner a save can name.
 Reference and array data belong to no instance and stay unattributed. The
 `soe-bench save` rows are listed in `docs/performance.md`.
 
+`Save::write_profiled` returns the same encoded ESS bytes as `Save::write` and
+measures output bytes and encode time for each body section. The benchmark
+prints those times as `save_section_save_ns` rows. Native SOEG saves report
+world, Papyrus VM and envelope byte counts with their write times.
+
 ## Sources, and what each gave
 
 - `../engine-refs/uesp-savefile/` holds 37 wikitext pages fetched from the UESP

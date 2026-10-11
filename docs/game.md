@@ -315,6 +315,13 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
+
+`Game::save_state_profiled` returns the same SOEG bytes as `save_state` and
+reports encoded size and elapsed write time for the world, Papyrus VM and
+outer save envelope. `Game::load_state_profiled` reports those section sizes
+and the validation and restore time for each. The benchmark uses these rows
+for native save inputs.
+
 - `world/shim_extras`: CommonLib extra-data views over reference XLIB, XLIG,
   map-marker records, authored XLKR links and loaded linked-reference state,
   teleport destinations, inventory outfit/poison extras and resolved XAPR
@@ -8636,6 +8643,14 @@ after a game tick and presents the skill, current value, tier cap, current
 price and remaining sessions from the same World state used by
 `purchase_training`. The offer remains visible at the skill or session cap,
 while the purchase path rejects it without changing state.
+
+## Real mod data application, MOD-07
+
+The Devious Devices KID rule from `Devious Devices_KID.ini` is applied through
+`Game::apply_mod_data`. Its fixture keeps the source filename and line number,
+and the test checks the added keyword through the same world query used by
+gameplay. The source keyword is supplied by a minimal load-order record so the
+test does not require the external mod installation.
 
 ## Open Animation Replacer selection, ANM-09
 
