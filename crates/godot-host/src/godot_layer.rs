@@ -45,6 +45,8 @@ use crate::units::{
 };
 use soe_physics::{Iso, Vec3};
 
+mod play_path;
+
 fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
     let encoded = u64::try_from(encoded).ok()?;
     let file = u16::try_from(encoded >> 32).ok()?;

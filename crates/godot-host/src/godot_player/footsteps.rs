@@ -177,6 +177,10 @@ impl PlayerNode {
             .world
             .as_ref()
             .and_then(|world| world.raycast(feet + Vec3::Z * 8.0, feet - Vec3::Z * 40.0));
+        let material_hash = i64::from(hit.and_then(|hit| hit.material).unwrap_or_default());
+        self.signals()
+            .footstep_requested()
+            .emit(material_hash, right);
         let Some(hit) = hit.filter(|hit| hit.normal.z > 0.5) else {
             return;
         };
@@ -255,13 +259,20 @@ impl PlayerNode {
             let position =
                 crate::units::SkyrimPos::new(hit.point.x, hit.point.y, hit.point.z).to_godot();
             if let Some(bank) = &mut self.sound_bank {
-                if bank
+                let slot = bank
                     .bind_mut()
-                    .play_prepared(&plan, Vector3::new(position.x, position.y, position.z))
-                    >= 0
-                {
+                    .play_prepared(&plan, Vector3::new(position.x, position.y, position.z));
+                if slot >= 0 {
                     self.footstep_count += 1;
                     game.world_mut().create_detection_event(player, player, 20);
+                    self.base_mut().emit_signal(
+                        "footstep_played",
+                        &[
+                            material_hash.to_variant(),
+                            slot.to_variant(),
+                            right.to_variant(),
+                        ],
+                    );
                 } else {
                     self.footstep_errors += 1;
                     soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep playback failed");

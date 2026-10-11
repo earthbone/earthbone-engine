@@ -1,5 +1,83 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Play path observations, TST-19
+
+`godot/tst_19_play_path.gd` extends the playable walkthrough and reports
+`PLAY_PATH` JSON lines with a check ID, pass flag, verdict, owning row, route
+stop, elapsed time and measured values. It steers keyboard movement with the
+existing NAVM path, activates installed references, selects Hulda's menu
+topic when choices are present, transfers a container item and activates a
+loose item. Missing choices fail the route check. Scene captures
+and skin transforms are observations of the production host resources.
+The run modes, row completion rule and watchdog are described in
+[validation.md](validation.md).
+
+PlayerNode's read-only probes return sorted resident reference identities,
+current World positions, inventory counts, the existing navigation path and
+collision ground material. CellStreamerNode exposes the submitted mesh and
+instance resources, their bounds and reference identities. Its terrain-height
+probe reads the four surrounding uploaded LAND samples rather than raycasting
+the object being checked. SkinnedActorNode exposes its bound reference,
+uploaded shapes and skin transforms. These probes use the authoritative
+World and add no saved fields.
+
+The controller emits `footstep_requested` at its existing cadence and
+`footstep_played` when SoundBank accepts the selected sound. The script routes
+those voice slots through a temporary Godot audio bus and capture effect. It
+checks playback and mixer signal for stone and grass steps, separately from
+music and ambience. The route creates no new per-reference scene nodes.
+
+When `SOE_TEST_SKYUI` or `SOE_TEST_NORDIC` names an installed mod, the runner
+converts its interface art into a cache under its output directory. Loose
+NORDIC files override SkyUI and the vanilla interface archive. The existing
+item presenter reads that cache through `SOE_INTERFACE_CACHE`. Menu checks
+require visible converted art sources and report conversion errors. The
+runner does not commit the installed SWFs or generated art.
+
+The local sources are `godot-docs/classes/class_thread.rst`,
+`godot-docs/classes/class_renderingserver.rst`,
+`godot-docs/tutorials/shaders/shader_reference/spatial_shader.rst` and
+`godot-docs/tutorials/performance/thread_safe_apis.rst` in engine-refs, `walkthrough.gd`, TST-18's frame report,
+PRF-18's hitch recorder, RND-27's installed captures, RND-33's hearth comparison,
+UI-06's rendered HUD and UI-27's container presenter. Existing host resource
+inspection and NAVM pathfinding supply the probes. Pixel comparisons use
+Godot's post-draw images and linear color conversion. The probes reuse
+existing record readers, rendering and navigation. The status reader follows
+the quoted fields without embedded quotes specified for BACKLOG.csv in
+AGENTS.md. No dependency is added.
+
+The gate attempt on 2026-10-11 observed one to three NPC references in view
+with zero drawn actor, head and hair meshes. HST-23 owns those expected
+failures. The route probe measured a 425.165 millisecond frame after warmup,
+owned by PRF-38, and 361 missing compass offsets, provisionally assigned to
+UI-28. The baseline table is `godot/tst_19_expected_failures.json`. The
+2026-10-11 HST-25 to HST-28, RND-37 to RND-39, UI-28 to UI-30, AUD-14 and
+PRF-38 row text is absent from this checkout. Assignments for those rows
+require confirmation against their definitions.
+
+The full gate stopped at the container view when its independent watchdog
+observed a 2006 millisecond stale heartbeat. The runner wrote a backtrace
+marker and reaped the process. Six harness tests passed and the installed
+route test failed. This is an incomplete route validation, rather than an
+accepted three-minute gate. The preliminary action probe transferred a
+container item, picked up the fixed salmon reference, observed ten drawn
+door states, measured a stone footstep at -36.58 dB and crossed the exterior
+door. It did not select a Hulda topic or reach every walk target.
+
+A baseline rerun exited during rendering warmup because pipeline counters
+did not settle within the inherited thirty-second limit. It did not reach
+the play route. The script disconnects the overlay teardown report during
+loading and finalization as well as after successful startup. A standalone
+early-exit probe timed out before teardown, so that cleanup remains
+unverified. The updated script passed its headless predicate test.
+
+Controlled captures temporarily hide live rendering RIDs. Their rendering
+and readback cost is included in frame and stall measurements. The gate has
+not established that this cost stays within its limits. Height checks sample
+resident LAND support, so distant object LOD outside that LAND has no height
+measurement. Full market and gate views, the repeating route, grass audio,
+optional converted menu themes and the ten-minute GPU mode remain unverified.
+
 ## Snapshot adapter, PRF-37 draft
 
 `PlayerNode::start_threaded_gameplay` starts a worker-owned Game using the

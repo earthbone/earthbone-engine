@@ -1,0 +1,22 @@
+{
+  "compass.offset": {
+    "evidence": "2026-10-11, 9a0312a63, windowed route probe: 361 one-degree samples, 361 missing strip offsets and zero changed steps. Owner binding awaits the absent 2026-10-11 row text",
+    "owner": "UI-28"
+  },
+  "frame.max_ms": {
+    "evidence": "2026-10-11, 9a0312a63, windowed 640x360 route probe after the ten-second warmup: 425.165 ms, with additional frames above 50 ms",
+    "owner": "PRF-38"
+  },
+  "npc.drawn": {
+    "evidence": "2026-10-11, 9a0312a63, installed gate at 640x360: one to three NPC references in view, zero drawn actors",
+    "owner": "HST-23"
+  },
+  "npc.head_hair": {
+    "evidence": "2026-10-11, 9a0312a63, installed gate at 640x360: one to three NPC references in view, zero drawn heads and hair meshes",
+    "owner": "HST-23"
+  },
+  "npc.pose": {
+    "evidence": "2026-10-11, 9a0312a63, installed gate at 640x360: zero available one-second pose pairs because placed actors have no uploaded skins",
+    "owner": "HST-23"
+  }
+}
