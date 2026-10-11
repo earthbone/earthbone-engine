@@ -56,9 +56,9 @@ fn prf_30_installed_render_report_reconciles_cells_with_godot_objects() {
         cells, built,
         "resident cell instances do not reconcile with streamer: {report}"
     );
-    assert!(
-        objects > 0.0 && objects <= cells,
-        "in-frame objects must be a culled subset of resident batches: {report}"
+    assert_eq!(
+        cells, objects,
+        "per-cell rendered instances must add up to Godot objects in frame: {report}"
     );
 }
 
@@ -165,6 +165,44 @@ fn prf_30_report_reads_every_builtin_performance_monitor() {
         assert!(
             godot.get(field).is_some(),
             "frame report omits Godot monitor {field}: {godot}"
+        );
+    }
+}
+
+#[test]
+fn prf_30_done_check_render_attribution_is_measured() {
+    let Some((success, output)) = run_godot("prf_30_godot_render_report_test.gd") else {
+        return;
+    };
+    assert!(success, "installed render report failed: {output}");
+    let report = output
+        .lines()
+        .find_map(|line| line.strip_prefix("SOE_FRAME_REPORT "))
+        .expect("exit frame report");
+    let report: serde_json::Value = serde_json::from_str(report).expect("valid frame report JSON");
+    let attribution = &report["godot"]["render_attribution"];
+    for field in [
+        "frustum_culled",
+        "occlusion_culled",
+        "visibility_range_culled",
+        "lod_culled",
+        "unloaded_cell_culled",
+        "lod_switches_per_second",
+        "shadow_casters_per_light",
+        "materials_created_per_frame",
+        "meshes_created_per_frame",
+    ] {
+        assert!(
+            attribution
+                .get(field)
+                .is_some_and(|value| !value.is_null()),
+            "PRF-30 requires measured {field}, got: {attribution}"
+        );
+        assert!(
+            !attribution["unavailable"]
+                .as_object()
+                .is_some_and(|values| values.contains_key(field)),
+            "measured {field} is marked unavailable: {attribution}"
         );
     }
 }
