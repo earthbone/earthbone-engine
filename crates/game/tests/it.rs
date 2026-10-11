@@ -1889,5 +1889,11 @@ mod aud_13_weather_music;
 #[path = "hst_23_characters.rs"]
 mod hst_23_characters;
 
+#[path = "hst_23_adversarial.rs"]
+mod hst_23_adversarial;
 #[path = "hst_26_activation.rs"]
 mod hst_26_activation;
+#[path = "hst_26_adversarial.rs"]
+mod hst_26_adversarial;
+#[path = "hst_28_adversarial.rs"]
+mod hst_28_adversarial;
