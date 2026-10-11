@@ -39,8 +39,7 @@ fn fixture_wave() -> Vec<u8> {
         let sample = if frame < frames / 4 {
             0
         } else {
-            ((frame as f32 * 440.0 * std::f32::consts::TAU / rate as f32).sin() * 12_000.0)
-                as i16
+            ((frame as f32 * 440.0 * std::f32::consts::TAU / rate as f32).sin() * 12_000.0) as i16
         };
         bytes.extend_from_slice(&sample.to_le_bytes());
     }
@@ -53,7 +52,9 @@ fn write_fixture(data: &Path) {
 
     std::fs::create_dir_all(data).expect("fixture data directory is created");
     std::fs::write(
-        data.parent().expect("fixture has a parent").join("Skyrim_Default.ini"),
+        data.parent()
+            .expect("fixture has a parent")
+            .join("Skyrim_Default.ini"),
         "[General]\nsLanguage=ENGLISH\n[Archive]\nsResourceArchiveList=Skyrim - Voices_en0.bsa\n",
     )
     .expect("fixture selects English voices");
