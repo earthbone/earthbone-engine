@@ -124,8 +124,9 @@ Set `SKYRIM_DATA` to the game Data directory and `CHAMPOLLION` to the
 Champollion executable. Differences are written per script to
 `$CARGO_TARGET_DIR/tst-10-champollion-differences.txt`, or to the path in
 `SOE_TST_10_REPORT`. An empty report means the compared inventories agree.
-When either environment variable is unset, the corpus test skips. The assembly
-fields follow Champollion's `AsmCoder` output in
+When `SKYRIM_DATA` is unset, the corpus test skips. When game data is set,
+`CHAMPOLLION` is required so a missing decoder cannot silently skip the
+differential run. The assembly fields follow Champollion's `AsmCoder` output in
 `engine-refs/Champollion/Decompiler/AsmCoder.cpp`. The test uses the decoder as
 an external tool and does not port its implementation.
 
