@@ -875,7 +875,9 @@ The camera renderer applies those values through Godot's `Environment` and
 `CameraAttributesPractical`. An explicit image-space selection takes
 precedence. The image-space path uses the daytime slot at all game hours.
 The RND-18 sky controller separately renders WTHR clouds, colors, ambient
-lighting and transitions through the shared World request.
+lighting and the sampled transition blend. The shared World applies
+`Weather.SetActive` override and acceleration flags before publishing that
+frame, so the host presents the selected weather and its transition.
 
 ### Debug collision switch, SCR-21
 
