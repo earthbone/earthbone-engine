@@ -62,7 +62,7 @@ fn scr_11_sit_flight_and_essential_methods_read_and_write_actor_state() {
     assert_eq!(call(&mut game, actor, "GetSitState", &[]), Value::Int(3));
     game.world_mut().actor(actor).unwrap().flying_state = Some(4);
     assert_eq!(call(&mut game, actor, "GetFlyingState", &[]), Value::Int(4));
-    call(&mut game, actor, "SetEssential", &[Value::Bool(true)]);
+    call(&mut game, id(0x800), "SetEssential", &[Value::Bool(true)]);
     assert!(game.world_mut().actor(actor).unwrap().essential);
     assert!(game.world_mut().actor_base(id(0x800)).unwrap().essential);
 }
