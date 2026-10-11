@@ -40,6 +40,34 @@ pub struct MaterialDesc {
     pub water: Option<WaterMaterial>,
     /// BSEffectShaderProperty fields and its NiAlphaProperty contract.
     pub effect: Option<EffectMaterial>,
+    /// Lighting refraction uses its texture as distortion, never visible color.
+    pub refraction: Option<RefractionMaterial>,
+}
+
+/// BSLightingShaderProperty screen distortion inputs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RefractionMaterial {
+    pub strength: f32,
+    pub alpha: f32,
+    pub uv_offset: [f32; 2],
+    pub uv_scale: [f32; 2],
+    pub clamp_mode: u32,
+}
+
+impl RefractionMaterial {
+    fn key(&self, flags: [u32; 2]) -> [u32; 9] {
+        [
+            self.strength.to_bits(),
+            self.alpha.to_bits(),
+            self.uv_offset[0].to_bits(),
+            self.uv_offset[1].to_bits(),
+            self.uv_scale[0].to_bits(),
+            self.uv_scale[1].to_bits(),
+            self.clamp_mode,
+            flags[0],
+            flags[1],
+        ]
+    }
 }
 
 /// Authored NIF effect shading, independent of the Godot renderer.
@@ -115,6 +143,7 @@ impl Default for MaterialDesc {
             double_sided: false,
             water: None,
             effect: None,
+            refraction: None,
         }
     }
 }
@@ -226,6 +255,7 @@ pub struct MaterialKey {
     /// bits, so two water types never share one material.
     water: Option<(u8, [u32; 9])>,
     effect: Option<EffectKey>,
+    refraction: Option<[u32; 9]>,
     landscape_lod_normals: bool,
     landscape_lod_noise: bool,
 }
@@ -250,6 +280,10 @@ impl From<&MaterialDesc> for MaterialKey {
                 .effect
                 .as_ref()
                 .map(|e| e.key([material.shader_flags_1, material.shader_flags_2])),
+            refraction: material
+                .refraction
+                .as_ref()
+                .map(|r| r.key([material.shader_flags_1, material.shader_flags_2])),
             landscape_lod_normals: material.landscape_lod_normals(),
             landscape_lod_noise: material.landscape_lod_normals() && material.landscape_lod_noise,
         }
