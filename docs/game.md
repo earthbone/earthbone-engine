@@ -1130,9 +1130,10 @@ collision and rendering change detection are documented in
 with a base-data source it updates that source and initialized inheriting
 actors, using the same path as `ActorBase.SetEssential`. Baseless actors update
 their runtime flag. `GetSitState` reports 0 without a Sit procedure, 2 while
-that procedure is approaching furniture, and 3 after arrival. Transient
-animation states 1 and 4 are unavailable because the host does not report sit
-transition animations. `GetFlyingState`
+that procedure is approaching furniture, 3 after arrival, and 4 while its live
+sit animation reports a transition to stand. `World::set_actor_sit_wants_to_stand`
+supplies that transient input, which is not saved. State 1 remains unavailable
+because the host does not report the transition into sitting. `GetFlyingState`
 returns the live movement state when present, otherwise 3 for the AI Hover
 procedure and 0 in other cases.
 

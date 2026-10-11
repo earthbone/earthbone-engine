@@ -141,6 +141,34 @@ fn scr_11_look_at_method_keeps_target_pathing_and_clear_effect() {
 }
 
 #[test]
+fn scr_11_sit_state_reports_live_transition_to_stand() {
+    let mut game = fixture();
+    let actor = id(0x801);
+    game.world_mut().actor(actor).unwrap().ai.procedure = soe_game::ai::Procedure::Sit;
+    game.world_mut().actor(actor).unwrap().ai.arrived = true;
+
+    game.world_mut()
+        .set_actor_sit_wants_to_stand(actor, true)
+        .unwrap();
+    assert_eq!(call(&mut game, actor, "GetSitState", &[]), Value::Int(4));
+
+    game.world_mut()
+        .set_actor_sit_wants_to_stand(actor, false)
+        .unwrap();
+    assert_eq!(call(&mut game, actor, "GetSitState", &[]), Value::Int(3));
+
+    game.world_mut().actor(actor).unwrap().ai.procedure = soe_game::ai::Procedure::None;
+    game.world_mut()
+        .set_actor_sit_wants_to_stand(actor, true)
+        .unwrap();
+    assert_eq!(call(&mut game, actor, "GetSitState", &[]), Value::Int(0));
+    assert!(game
+        .world_mut()
+        .set_actor_sit_wants_to_stand(id(0x999), true)
+        .is_err());
+}
+
+#[test]
 fn scr_11_vehicle_motion_and_look_at_update_shared_actor_placement() {
     let mut game = fixture();
     let actor = id(0x801);
