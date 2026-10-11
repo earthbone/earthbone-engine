@@ -34,10 +34,10 @@ fn aud_10_rejects_stereo_pcm_with_an_incomplete_interleaved_frame() {
 #[test]
 fn aud_10_fixed_info_corpus_keeps_hinted_and_unhinted_cues_within_audio_duration() {
     use soe_audio::viseme::VisemeSource;
-    use soe_audio::wma::{Ffmpeg, decode_with};
+    use soe_audio::wma::{decode_with, Ffmpeg};
     use soe_audio::{Fuz, Xwma};
-    use soe_esm::records::Text;
     use soe_esm::records::gameplay::DialogueInfo;
+    use soe_esm::records::Text;
     use soe_esm::{LoadOrder, Plugin, Tag};
     use std::collections::BTreeMap;
     use std::path::PathBuf;

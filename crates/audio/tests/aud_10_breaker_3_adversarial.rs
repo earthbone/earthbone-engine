@@ -71,7 +71,9 @@ fn aud_10_fixed_info_corpus_keeps_hinted_and_unhinted_tracks_within_bound() {
         else {
             continue;
         };
-        voices.entry((info, response)).or_insert_with(|| name.clone());
+        voices
+            .entry((info, response))
+            .or_insert_with(|| name.clone());
     }
 
     let mut corpus = Vec::new();
@@ -90,7 +92,11 @@ fn aud_10_fixed_info_corpus_keeps_hinted_and_unhinted_tracks_within_bound() {
     }
     corpus.sort_by_key(|line| (line.0, line.1));
     corpus.truncate(8);
-    assert_eq!(corpus.len(), 8, "fixed INFO corpus must contain eight lines");
+    assert_eq!(
+        corpus.len(),
+        8,
+        "fixed INFO corpus must contain eight lines"
+    );
 
     for (_, _, name, response) in corpus {
         let bytes = archive.read(&name).expect("voice line reads");

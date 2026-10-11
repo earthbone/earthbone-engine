@@ -18,6 +18,11 @@ mod prf_36_breaker_adversarial;
 #[path = "aud_11_breaker_adversarial.rs"]
 mod aud_11_breaker_adversarial;
 
+#[path = "aud_05_breaker_adversarial.rs"]
+mod aud_05_breaker_adversarial;
+#[path = "aud_09_breaker_adversarial.rs"]
+mod aud_09_breaker_adversarial;
+
 #[path = "cmb_39_breaker_adversarial.rs"]
 mod cmb_39_breaker_adversarial;
 #[path = "sav_13_adversarial.rs"]

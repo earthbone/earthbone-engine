@@ -51,7 +51,10 @@ fn ffmpeg_samples(bytes: &[u8]) -> Vec<f32> {
     let output = child.wait_with_output().expect("ffmpeg completes");
     assert!(output.status.success(), "ffmpeg decodes xWMA");
     let (whole, tail) = output.stdout.as_chunks::<4>();
-    assert!(tail.is_empty(), "ffmpeg output contains complete float samples");
+    assert!(
+        tail.is_empty(),
+        "ffmpeg output contains complete float samples"
+    );
     whole
         .iter()
         .map(|sample| f32::from_le_bytes(*sample))
@@ -101,12 +104,29 @@ fn aud_02_stereo_vanilla_line_preserves_interleaved_frames_against_ffmpeg() {
     let native = decode_with(&Native, &parsed).unwrap_or_else(|error| panic!("{name}: {error}"));
     let reference = ffmpeg_samples(&bytes);
 
-    assert_eq!(native.channels, 2, "{name}: stereo channel count is retained");
+    assert_eq!(
+        native.channels, 2,
+        "{name}: stereo channel count is retained"
+    );
     assert_eq!(native.sample_rate, parsed.format.sample_rate, "{name}");
-    assert_eq!(native.samples.len() % 2, 0, "{name}: samples contain whole frames");
-    assert!(native.samples.iter().all(|sample| sample.is_finite()), "{name}");
-    assert_eq!(native.samples.len(), reference.len(), "{name}: frame count matches ffmpeg");
-    assert!(correlation(&native.samples, &reference) >= 0.8, "{name}: stereo waveform matches ffmpeg");
+    assert_eq!(
+        native.samples.len() % 2,
+        0,
+        "{name}: samples contain whole frames"
+    );
+    assert!(
+        native.samples.iter().all(|sample| sample.is_finite()),
+        "{name}"
+    );
+    assert_eq!(
+        native.samples.len(),
+        reference.len(),
+        "{name}: frame count matches ffmpeg"
+    );
+    assert!(
+        correlation(&native.samples, &reference) >= 0.8,
+        "{name}: stereo waveform matches ffmpeg"
+    );
 }
 
 #[test]
@@ -125,8 +145,16 @@ fn aud_02_native_decoder_has_no_cross_stream_state_leak() {
 
     let before = Native.decode_xwma(&first).expect("first line decodes");
     let middle = Native.decode_xwma(&second).expect("second line decodes");
-    let after = Native.decode_xwma(&first).expect("first line decodes again");
+    let after = Native
+        .decode_xwma(&first)
+        .expect("first line decodes again");
 
-    assert!(!middle.samples.is_empty(), "second line has decoded samples");
-    assert_eq!(before, after, "intervening stream does not change repeated decode");
+    assert!(
+        !middle.samples.is_empty(),
+        "second line has decoded samples"
+    );
+    assert_eq!(
+        before, after,
+        "intervening stream does not change repeated decode"
+    );
 }

@@ -2,8 +2,8 @@
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use soe_audio::Xwma;
 use soe_audio::wma::{Native, WmaDecoder};
+use soe_audio::Xwma;
 
 #[test]
 fn aud_02_truncated_xwma_prefixes_return_errors_without_panicking() {
@@ -50,8 +50,8 @@ fn max_correlation(left: &[f32], right: &[f32]) -> f64 {
 #[cfg(feature = "xwma-ffmpeg")]
 #[test]
 fn aud_02_vanilla_voice_sample_correlation_meets_the_predeclared_threshold() {
-    use soe_audio::Fuz;
     use soe_audio::wma::decode_with;
+    use soe_audio::Fuz;
     use std::io::Write;
     use std::path::PathBuf;
     use std::process::{Command, Stdio};
