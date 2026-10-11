@@ -33,10 +33,22 @@ fn scr_47_art_request_drain_is_ordered_and_does_not_repeat_old_work() {
     assert_eq!(
         requests,
         vec![
-            SpellArtRequest { spell: first, action: SpellArtAction::Preload },
-            SpellArtRequest { spell: second, action: SpellArtAction::Preload },
-            SpellArtRequest { spell: first, action: SpellArtAction::Unload },
-            SpellArtRequest { spell: second, action: SpellArtAction::Unload },
+            SpellArtRequest {
+                spell: first,
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell: second,
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell: first,
+                action: SpellArtAction::Unload
+            },
+            SpellArtRequest {
+                spell: second,
+                action: SpellArtAction::Unload
+            },
         ]
     );
     assert!(game.world_mut().take_spell_art_requests().is_empty());
@@ -54,8 +66,14 @@ fn scr_47_invalid_art_request_does_not_consume_another_spells_request() {
     assert_eq!(
         game.world_mut().take_spell_art_requests(),
         vec![
-            SpellArtRequest { spell, action: SpellArtAction::Preload },
-            SpellArtRequest { spell, action: SpellArtAction::Unload },
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Unload
+            },
         ]
     );
 }
@@ -72,8 +90,14 @@ fn scr_47_preload_unload_preserve_spell_identity_without_casting() {
     assert_eq!(
         game.world_mut().take_spell_art_requests(),
         vec![
-            SpellArtRequest { spell, action: SpellArtAction::Preload },
-            SpellArtRequest { spell, action: SpellArtAction::Unload },
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Unload
+            },
         ]
     );
 }

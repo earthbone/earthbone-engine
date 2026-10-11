@@ -34,10 +34,22 @@ fn scr_47_spell_art_requests_keep_interleaved_spell_identity_and_order() {
     assert_eq!(
         game.world_mut().take_spell_art_requests(),
         vec![
-            SpellArtRequest { spell: first, action: SpellArtAction::Preload },
-            SpellArtRequest { spell: second, action: SpellArtAction::Preload },
-            SpellArtRequest { spell: first, action: SpellArtAction::Unload },
-            SpellArtRequest { spell: second, action: SpellArtAction::Unload },
+            SpellArtRequest {
+                spell: first,
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell: second,
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell: first,
+                action: SpellArtAction::Unload
+            },
+            SpellArtRequest {
+                spell: second,
+                action: SpellArtAction::Unload
+            },
         ]
     );
     assert!(game.world_mut().take_spell_art_requests().is_empty());
@@ -57,8 +69,14 @@ fn scr_47_invalid_unload_does_not_consume_a_valid_spell_preload() {
     assert_eq!(
         game.world_mut().take_spell_art_requests(),
         vec![
-            SpellArtRequest { spell, action: SpellArtAction::Preload },
-            SpellArtRequest { spell, action: SpellArtAction::Unload },
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Unload
+            },
         ]
     );
 }

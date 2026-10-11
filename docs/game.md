@@ -428,8 +428,10 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   Papyrus call order. `Unload` queues only when this world previously received
   `Preload` for that spell. The Godot host loads models and material textures
   referenced by each spell effect's MGEF casting art, hit art, projectile and
-  explosion records, then releases the retained meshes on `Unload`. The MGEF
-  DATA field locations follow local UESP `MGEF.wikitext`. The local vanilla
+  explosion records, then releases the retained meshes on `Unload`. Projectile
+  records include both `MODL` and `NAM1` muzzle flash models, as documented in
+  local UESP `PROJ.wikitext`. The MGEF DATA field locations follow local UESP
+  `MGEF.wikitext`. The local vanilla
   `Spell.psc` documents these as art-resource operations and warns against
   misuse.
 - `clock`: real seconds drive the scheduler and update timers, game time runs

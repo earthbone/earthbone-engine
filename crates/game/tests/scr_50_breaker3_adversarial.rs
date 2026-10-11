@@ -35,7 +35,10 @@ fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
 #[test]
 fn scr_50_budget_name_requires_memory_initialization_even_for_negative_index() {
     let mut game = Game::new(LoadOrder::new());
-    assert_eq!(call(&mut game, "GetBudgetName", &[Value::Int(-1)]), Value::string(""));
+    assert_eq!(
+        call(&mut game, "GetBudgetName", &[Value::Int(-1)]),
+        Value::string("")
+    );
     assert!(game
         .vm
         .log
@@ -45,7 +48,10 @@ fn scr_50_budget_name_requires_memory_initialization_even_for_negative_index() {
 #[test]
 fn scr_50_bad_current_memory_arity_does_not_initialize_tracker() {
     let mut game = Game::new(LoadOrder::new());
-    assert_eq!(call(&mut game, "GetCurrentMemory", &[Value::Int(1)]), Value::None);
+    assert_eq!(
+        call(&mut game, "GetCurrentMemory", &[Value::Int(1)]),
+        Value::None
+    );
     assert_eq!(call(&mut game, "GetBudgetCount", &[]), Value::None);
     assert!(game
         .vm

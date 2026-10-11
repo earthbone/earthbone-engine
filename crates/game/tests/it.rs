@@ -46,6 +46,8 @@ mod scr_23_breaker_adversarial;
 #[path = "scr_15_breaker3_adversarial.rs"]
 mod scr_15_breaker3_adversarial;
 
+#[path = "scr_47_breaker3_adversarial.rs"]
+mod scr_47_breaker3_adversarial;
 #[path = "scr_47_breaker_adversarial_2.rs"]
 mod scr_47_breaker_adversarial_2;
 
@@ -1508,6 +1510,8 @@ mod scr_50_adversarial;
 mod scr_50_breaker2_adversarial;
 #[path = "scr_50_breaker3_adversarial.rs"]
 mod scr_50_breaker3_adversarial;
+#[path = "scr_50_breaker4_adversarial.rs"]
+mod scr_50_breaker4_adversarial;
 #[path = "scr_50_breaker_adversarial.rs"]
 mod scr_50_breaker_adversarial;
 #[path = "scr_50_utility_runtime_queries.rs"]

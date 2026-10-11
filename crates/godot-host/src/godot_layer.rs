@@ -85,13 +85,22 @@ fn spell_art_model_paths(world: &soe_game::World, spell: GlobalFormId) -> Vec<St
             let Some(art_record) = world.record(art_id) else {
                 continue;
             };
-            let Some(model) = art_record.find(soe_esm::Tag::new(b"MODL")) else {
-                continue;
-            };
-            let model = model.strip_suffix(&[0]).unwrap_or(model);
-            if let Ok(model) = std::str::from_utf8(model) {
-                if !model.is_empty() {
-                    paths.insert(model.to_owned());
+            for field in if art_record.tag.as_bytes() == b"PROJ" {
+                [Some(b"MODL"), Some(b"NAM1")]
+            } else {
+                [Some(b"MODL"), None]
+            }
+            .into_iter()
+            .flatten()
+            {
+                let Some(model) = art_record.find(soe_esm::Tag::new(field)) else {
+                    continue;
+                };
+                let model = model.strip_suffix(&[0]).unwrap_or(model);
+                if let Ok(model) = std::str::from_utf8(model) {
+                    if !model.is_empty() {
+                        paths.insert(model.to_owned());
+                    }
                 }
             }
         }
@@ -504,7 +513,54 @@ mod mag_35_tests {
 mod scr_47_tests {
     use super::spell_art_model_paths;
     use crate::data_source::DataSource;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+    use soe_game::Game;
     use std::path::Path;
+
+    #[test]
+    fn scr_47_preload_models_include_projectile_muzzle_flash_and_explosion() {
+        let mut plugin = Plugin::new(FileHeader::default());
+        let mut spell = Record::new(Tag(*b"SPEL"), 0x800).sub(Tag(*b"SPIT"), vec![0; 36]);
+        spell.subrecords.push(soe_esm::Subrecord::new(
+            Tag(*b"EFID"),
+            0x801u32.to_le_bytes().to_vec(),
+        ));
+        spell
+            .subrecords
+            .push(soe_esm::Subrecord::new(Tag(*b"EFIT"), vec![0; 12]));
+        plugin.push_top(spell);
+
+        let mut mgef_data = vec![0; 0x64];
+        mgef_data[0x5c..0x60].copy_from_slice(&0x802u32.to_le_bytes());
+        mgef_data[0x60..0x64].copy_from_slice(&0x803u32.to_le_bytes());
+        plugin.push_top(Record::new(Tag(*b"MGEF"), 0x801).sub(Tag(*b"DATA"), mgef_data));
+        plugin.push_top(
+            Record::new(Tag(*b"PROJ"), 0x802)
+                .sub(Tag(*b"MODL"), b"projectile.nif\0".to_vec())
+                .sub(Tag(*b"NAM1"), b"muzzle.nif\0".to_vec()),
+        );
+        plugin.push_top(
+            Record::new(Tag(*b"EXPL"), 0x803).sub(Tag(*b"MODL"), b"explosion.nif\0".to_vec()),
+        );
+        let mut order = LoadOrder::new();
+        order.add("Scr47Art.esp", plugin).expect("load fixture");
+        let game = Game::new(order);
+
+        assert_eq!(
+            spell_art_model_paths(
+                game.world(),
+                soe_esm::GlobalFormId {
+                    file: 0,
+                    object: 0x800
+                }
+            ),
+            vec![
+                "explosion.nif".to_owned(),
+                "muzzle.nif".to_owned(),
+                "projectile.nif".to_owned(),
+            ]
+        );
+    }
 
     #[test]
     fn scr_47_vanilla_flames_resolves_preload_models() {

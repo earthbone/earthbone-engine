@@ -1414,7 +1414,9 @@ its presentation update and passes them to the shared cell streamer. Preload
 walks a spell's ordered effects, reads each winning MGEF DATA record, and finds
 the casting art, hit art, projectile and explosion forms. Their `MODL` paths
 are loaded through the game's VFS and the existing NIF mesh and material
-pipeline. The streamer retains each generated mesh per spell. Its material
+pipeline. Projectile records also contribute `NAM1`, the muzzle flash model
+filename from local UESP `PROJ.wikitext`. The streamer retains each generated
+mesh per spell. Its material
 owns the decoded textures for the same lifetime. Unload drops that spell's
 retained meshes and their materials. Repeated preload requests do not create
 duplicate retained entries.

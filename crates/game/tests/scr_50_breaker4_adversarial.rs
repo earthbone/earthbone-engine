@@ -9,7 +9,9 @@ use soe_papyrus::Value;
 
 fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
     let script_name = format!("Scr50Edge{}", game.vm.time().to_bits());
-    let mut function = FunctionBuilder::new("Run", "Var").global().local("result", "Var");
+    let mut function = FunctionBuilder::new("Run", "Var")
+        .global()
+        .local("result", "Var");
     let mut operands = vec![s("Utility"), s(name), ident("result")];
     for (index, _) in args.iter().enumerate() {
         let argument = format!("arg{index}");
@@ -33,7 +35,10 @@ fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
 #[test]
 fn scr_50_negative_budget_name_still_requires_memory_initialization() {
     let mut game = Game::new(LoadOrder::new());
-    assert_eq!(call(&mut game, "GetBudgetName", &[Value::Int(-1)]), Value::string(""));
+    assert_eq!(
+        call(&mut game, "GetBudgetName", &[Value::Int(-1)]),
+        Value::string("")
+    );
     assert!(game
         .vm
         .log
@@ -74,10 +79,9 @@ fn scr_50_frame_rate_queries_reject_arguments_without_sampling_a_frame() {
             .log
             .contains(&format!("Utility.{name} expects 0 argument(s), got 1")));
         assert_eq!(call(&mut game, name, &[]), Value::None);
-        assert!(game
-            .vm
-            .log
-            .contains(&format!("Utility.{name}: beta frame-rate capture is unavailable")));
+        assert!(game.vm.log.contains(&format!(
+            "Utility.{name}: beta frame-rate capture is unavailable"
+        )));
     }
 }
 

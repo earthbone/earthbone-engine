@@ -3578,18 +3578,18 @@ fn utility(vm: &mut Vm, w: &Shared, budget_usage: &Rc<BudgetUsage>) {
             );
             return s("");
         };
+        if !world.memory_tracker.is_initialized() {
+            call.log.push(
+                call.time,
+                "error: Utility.GetBudgetName: call GetCurrentMemory first",
+            );
+            return s("");
+        }
         if *index < 0 {
             return s("");
         }
         match world.memory_tracker.budget_name(*index) {
             Some(name) => s(name),
-            None if !world.memory_tracker.is_initialized() => {
-                call.log.push(
-                    call.time,
-                    "error: Utility.GetBudgetName: call GetCurrentMemory first",
-                );
-                s("")
-            }
             None => s(""),
         }
     });
