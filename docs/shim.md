@@ -444,8 +444,13 @@ SHM-11 C++ fixtures check the world type contract, and game tests exercise its R
 player and process-list reads against synthetic `World` state and through C++ callbacks that query
 a live Rust `World`. SHM-20 compiles the five typed event payload contracts and checks sink dispatch
 against synthetic state fixtures, as well as streaming events from live game producers to generated C++
-event sources. SHM-21 implements five event-state queries on `World` and checks live inventory, actor,
-deletion and furniture state plus unsupported-hook errors. SHM-22 checks the
+event sources. SHM-21 implements five event-state queries on `World`. Its compiled C++ fixture sends
+inventory, death, bleedout, deletion and furniture queries across a pipe, and the game answers each
+request from its current `World`. The C++ payload checks use those returned values, and the fixture
+checks unsupported vtable hooks. The pipe is test transport and does not add a C++ to Rust ABI.
+The event fields and enum values follow the local alandtse headers `TESContainerChangedEvent.h`,
+`TESDeathEvent.h`, `TESEnterBleedoutEvent.h`, `TESFormDeleteEvent.h` and `TESFurnitureEvent.h`.
+SHM-22 checks the
 additional payload contracts, live-state receiver calls and unsupported hook results in Rust and
 C++ fixtures. SHM-23 compiles and runs the quest event payload and verifies the explicit trampoline
 rejection marker. A game integration test streams live quest start and failed-stop events through the
