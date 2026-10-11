@@ -7,6 +7,10 @@ var failures := 0
 
 
 func _initialize() -> void:
+	if not ClassDB.class_exists("PlayerNode"):
+		printerr("PRF-12 FAIL: PlayerNode is missing, build and import the extension")
+		quit(1)
+		return
 	call_deferred("prf_12_godot_monitors_overlay_and_summary")
 
 
@@ -45,7 +49,7 @@ func prf_12_godot_monitors_overlay_and_summary() -> void:
 		player.call("advance", 1.0 / 60.0)
 		await process_frame
 	var rows: Dictionary = player.call("system_frame_breakdown")
-	check(rows.size() == SYSTEMS.size() + HOST_PHASES.size(), "incomplete breakdown")
+	check(rows.size() == SYSTEMS.size() + HOST_PHASES.size() + 1, "incomplete breakdown")
 	prf_34_host_scene_phases_are_exclusive(rows)
 	var share := 0.0
 	for system in SYSTEMS:
@@ -54,6 +58,10 @@ func prf_12_godot_monitors_overlay_and_summary() -> void:
 		check(rows[system].p99_ms >= rows[system].p50_ms and rows[system].worst_ms >= rows[system].p99_ms, "invalid percentiles " + system)
 		share += rows[system].percent
 	check(share <= 100.0001, "nested scopes double count time")
+	var engine_ms := 0.0
+	for system in SYSTEMS:
+		engine_ms += rows[system].ms
+	check(is_equal_approx(engine_ms, rows.main_thread_engine.ms), "engine total differs from system sum")
 	check(rows.input.ms > 0.0 and rows.host_render_submission.ms > 0.0, "host paths not timed")
 	press_f3()
 	check(overlay.panel.visible, "F3 did not open overlay")
@@ -61,6 +69,7 @@ func prf_12_godot_monitors_overlay_and_summary() -> void:
 	check(overlay.panel.visible, "key echo toggled overlay")
 	for system in SYSTEMS + HOST_PHASES:
 		check(overlay.label.text.contains(system), "overlay missing " + system)
+	check(overlay.label.text.contains("Main engine:"), "overlay missing engine total")
 	check(overlay.label.text.contains("%"), "overlay missing frame shares")
 	if DisplayServer.get_name() != "headless":
 		await process_frame
@@ -73,7 +82,7 @@ func prf_12_godot_monitors_overlay_and_summary() -> void:
 	check(not overlay.panel.visible, "F3 did not close overlay")
 	check(overlay.write_summary() == OK, "summary write failed")
 	var summary := FileAccess.get_file_as_string("user://soe-systems.txt")
-	for system in SYSTEMS + HOST_PHASES:
+	for system in SYSTEMS + HOST_PHASES + ["main_thread_engine"]:
 		check(summary.contains(system), "exit summary missing " + system)
 	check(DirAccess.remove_absolute(ProjectSettings.globalize_path("user://soe-systems.txt")) == OK, "could not remove prior summary")
 	player.free()

@@ -358,6 +358,14 @@ local Godot Time documentation.
 
 ## Per-system frame monitors, PRF-12
 
+`prf_12_monitors_test.gd` reads every system's custom monitor, compares it with
+the last presentation frame and checks the `main_thread_engine` sum. It
+checks F3 visibility, frame shares, summary output and monitor ownership when
+players are added and removed. The summary includes the engine total.
+The Cargo tests in `tests/prf_12_monitors.rs` run the windowed scene when
+`SOE_GODOT_BIN` is set, plus the actual walkthrough when `SKYRIM_DATA` is set.
+They wait for process exit and require a complete per-system exit summary.
+
 PRF-35 adds `magic_frame_breakdown` for the Game magic tick phases and the
 casting and dispatch remainder.
 The F3 overlay displays their last, p50, p99 and worst milliseconds, and
@@ -5600,8 +5608,10 @@ recorder for each ordered chunk.
 
 `godot/prf_14_work_test.gd` loads the installed Bannered Mare, compares actual
 instance creation with the streamed count and verifies empty-window reset.
-The Rust wrapper runs it in an isolated project with an explicit extension list,
-loading Cargo's current test-built library rather than a cached release build.
+The Rust wrapper builds and imports the release extension once, runs the script
+in the normal project, then repeats it in an isolated project with an explicit
+extension list and Cargo's current test-built library. It prints both counter
+reports and checks each process exit status and pass marker.
 It is a headless correctness check. The counter paths add no per-reference
 nodes and no saved state. The row uses the existing RenderingServer and
 PhysicsDirectSpaceState3D APIs described in the local Godot class docs.
