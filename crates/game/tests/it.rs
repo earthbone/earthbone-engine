@@ -7,6 +7,9 @@
 mod common;
 mod support;
 
+#[path = "ui_11_mcm.rs"]
+mod ui_11_mcm;
+
 #[path = "ui_05_breaker3_adversarial.rs"]
 mod ui_05_breaker3_adversarial;
 

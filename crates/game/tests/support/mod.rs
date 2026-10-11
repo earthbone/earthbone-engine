@@ -4,3 +4,4 @@
 
 pub(crate) mod magic_adversarial;
 pub(crate) mod ui_05_fixture;
+pub(crate) mod ui_11_fixture;

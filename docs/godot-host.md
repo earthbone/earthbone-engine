@@ -4388,8 +4388,17 @@ from 0 to 127 in the low byte. `set_enabled` changes the disabled flag while
 preserving other option flags. Hidden rows are omitted from presentation, and
 disabled rows remain visible without accepting selection. `render_rows`
 builds native Godot labels, buttons and check buttons. A selected enabled row
-sends one Papyrus `OnOptionSelect(int)` event with its option ID to the
-configured script form.
+uses the game's selection bridge. With the original framework this goes
+through the manager and base script, reaching one config callback with its
+option ID. Minimal synthetic scripts retain direct callback delivery.
+
+`ConfigPage::from_game` projects text and toggle rows from the script's UI
+requests, preserving sparse buffer slots in option IDs. PlayerNode uses this
+projection when selecting a config or page and refreshes changed presentation
+data each frame. Script flag and value updates rebuild the controls. A toggle
+press leaves the final checked state to the script's numeric value. Selection
+checks current game presentation even when a caller holds an older host page.
+These controls belong to the open menu and add no per-reference nodes.
 
 The local SkyUI `SKI_ConfigBase.psc` header and source define the text/toggle
 option types, disabled and hidden flags, page-strided option IDs, 128 positions
@@ -4397,19 +4406,26 @@ per page and selection event shape. Godot Controls replace its Scaleform
 presentation under the project intent. The UI-11 VM fixture adds text and
 toggle rows, changes toggle enabled state and checks that one enabled selection
 delivers one `OnOptionSelect` callback. The
-`ui_11_runs_unmodified_skyui_manager_and_base_pex_fixture` test loads both
-unmodified scripts from `SOE_SKYUI_CONFIG_BASE_PEX` and
-`SOE_SKYUI_CONFIG_MANAGER_PEX`. It runs the base script's page callback and
-option constructors, updates its option flags, rejects a disabled toggle, then
-sends the manager's option event and checks that the base script reaches the
-config callback once with its page-strided option ID. The execution check skips
-when either compiled PEX is unavailable. A separate source fixture reads the
+`ui_11_runs_unmodified_skyui_manager_and_base_pex_fixture` test uses the shared
+UI-05 external loader with `SOE_TEST_SKYUI` set to an extracted mod root or BSA.
+It loads the original base, manager and parent scripts. The config child calls
+the public text, toggle, cursor, flag and value methods. Host rows come from
+those calls rather than manually reconstructed options. The test checks sparse
+IDs, hidden and disabled rows, updated flags and values, and one callback.
+The UI-05 base PEX path beside its manager and parent is also supported.
+A separate source fixture reads the
 unmodified `SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` files, checking the
 text and toggle constructors, flag packing, page-strided selection callback
 and manager forwarding. Set `SOE_SKYUI_CONFIG_BASE` and
-`SOE_SKYUI_CONFIG_MANAGER` to use different source paths. Script execution
-remains unverified when the compiled PEX files are absent. The host menu
-manager and Scaleform APIs remain outside this path.
+`SOE_SKYUI_CONFIG_MANAGER` for the source paths. It skips when either is unset.
+`ui_11_windowed_unmodified_scripts_render_update_and_callback_once` loads
+the same compiled fixture through PlayerNode, clicks the production buttons,
+checks control labels, checked and enabled state, sparse callback IDs, rejection
+and callback count, then captures the viewport and quits. It requires
+`SOE_GODOT_BIN` and compiled SkyUI inputs. Build the extension and import the
+project before running it. Capture and output go to `target/ui_11_host`.
+The sources also include local SkyUI `src/ModConfigPanel/ConfigPanel.as` and
+`OptionsListEntry.as` for buffers, cursor updates and presentation flags.
 
 ### MCM slider and menu dialogs, UI-12
 
@@ -4700,8 +4716,8 @@ The native mod configuration presenter (UI-05) opens through
 `PlayerNode.open_mcm_menu`. It lists registered config quests by their script
 `ModName` and renders buttons for the selected script's `Pages` property.
 Selecting a config or page calls the shared Game MCM lifecycle methods, and
-closing the modal calls `mcm_close`. Page contents and SkyUI's option controls
-are not presented here. The page lifecycle follows the local SkyUI
+closing the modal calls `mcm_close`. UI-11 presents the text and toggle option
+controls from the script's UI requests. The page lifecycle follows the local SkyUI
 `SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` sources.
 
 ## Image-space lifetime stack, MAG-25

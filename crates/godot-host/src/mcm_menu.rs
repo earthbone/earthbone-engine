@@ -258,7 +258,8 @@ pub struct ConfigPage {
 }
 
 impl ConfigPage {
-    /// Create an empty page whose IDs include its zero-based page number.
+    /// Create an empty page with SkyUI's page number, zero for the empty page
+    /// and one for the first named page.
     pub fn new(page: u32) -> Self {
         Self {
             page,
@@ -266,6 +267,33 @@ impl ConfigPage {
             rows: Vec::new(),
             active_dialog: None,
         }
+    }
+
+    /// Project text and toggle options transmitted by the active config.
+    /// Empty slots keep their original indices, including sparse cursor fills.
+    pub fn from_game(game: &mut Game) -> Option<Self> {
+        let page = game.mcm_page_number()?;
+        let mut result = Self::new(page);
+        for option in game.mcm_options() {
+            let kind = match option.option_type {
+                2 => OptionKind::Text {
+                    value: option.string_value,
+                },
+                3 => OptionKind::Toggle {
+                    checked: option.number_value != 0.0,
+                },
+                _ => continue,
+            };
+            let id = page.checked_mul(PAGE_STRIDE)?.checked_add(option.index)?;
+            i32::try_from(id).ok()?;
+            result.rows.push(OptionRow {
+                id,
+                label: option.text,
+                kind,
+                flags: option.flags,
+            });
+        }
+        Some(result)
     }
 
     /// Add a text/value row and return its SkyUI option ID, or `None` at capacity.
@@ -416,6 +444,9 @@ impl ConfigPage {
         };
         if !game.world().order().contains(script) {
             return false;
+        }
+        if matches!(kind, OptionKind::Text { .. } | OptionKind::Toggle { .. }) {
+            return game.mcm_select_option(script, id);
         }
         !game
             .send_event(script, "OnOptionSelect", &[Value::Int(option_id)])

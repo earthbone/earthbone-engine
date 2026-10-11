@@ -27,6 +27,128 @@ pub struct UiCall {
     pub arguments: Vec<Value>,
 }
 
+/// One option transmitted by SkyUI's option buffers to its presenter.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OptionData {
+    /// Original buffer position, including empty and hidden slots.
+    pub index: u32,
+    /// Low byte of SkyUI's packed option type and flags.
+    pub option_type: u8,
+    /// Authored option label.
+    pub text: String,
+    /// Authored string value.
+    pub string_value: String,
+    /// Authored numeric value, including toggle state.
+    pub number_value: f32,
+    /// SkyUI option flags.
+    pub flags: u32,
+}
+
+#[derive(Default)]
+struct Presentation {
+    flags: Vec<Value>,
+    text: Vec<Value>,
+    strings: Vec<Value>,
+    numbers: Vec<Value>,
+    options: Vec<OptionData>,
+    cursor: Option<usize>,
+}
+
+impl Presentation {
+    fn apply(&mut self, call: &UiCall) {
+        let Some(target) = call
+            .target
+            .strip_prefix("_root.ConfigPanelFader.configPanel.")
+        else {
+            return;
+        };
+        if call.menu != "Journal Menu" {
+            return;
+        }
+        let buffer = match target {
+            "setOptionFlagsBuffer" => Some(&mut self.flags),
+            "setOptionTextBuffer" => Some(&mut self.text),
+            "setOptionStrValueBuffer" => Some(&mut self.strings),
+            "setOptionNumValueBuffer" => Some(&mut self.numbers),
+            _ => None,
+        };
+        if let Some(buffer) = buffer {
+            *buffer = call.arguments.iter().take(128).cloned().collect();
+            return;
+        }
+        match (target, call.arguments.as_slice()) {
+            ("flushOptionBuffers", [Value::Int(count)]) if (0..=128).contains(count) => {
+                let options: Option<Vec<_>> = (0..*count as usize)
+                    .map(|index| {
+                        let Value::Int(packed) = self.flags.get(index)? else {
+                            return None;
+                        };
+                        let Value::Str(text) = self.text.get(index)? else {
+                            return None;
+                        };
+                        let string_value = match self.strings.get(index)? {
+                            Value::Str(value) => value.to_string(),
+                            Value::None => String::new(),
+                            _ => return None,
+                        };
+                        let number_value = match self.numbers.get(index)? {
+                            Value::Float(value) => *value,
+                            Value::Int(value) => *value as f32,
+                            _ => return None,
+                        };
+                        if !number_value.is_finite() {
+                            return None;
+                        }
+                        Some(OptionData {
+                            index: index as u32,
+                            option_type: (*packed & 0xff) as u8,
+                            text: text.to_string(),
+                            string_value,
+                            number_value,
+                            flags: ((*packed as u32) >> 8) & 0xff,
+                        })
+                    })
+                    .collect();
+                if let Some(options) = options {
+                    self.options = options;
+                    self.cursor = None;
+                    self.flags.clear();
+                    self.text.clear();
+                    self.strings.clear();
+                    self.numbers.clear();
+                }
+            }
+            ("setOptionFlags", [Value::Int(index), Value::Int(flags)]) => {
+                if let Some(option) = usize::try_from(*index)
+                    .ok()
+                    .and_then(|index| self.options.get_mut(index))
+                {
+                    option.flags = *flags as u32;
+                }
+            }
+            ("optionCursorIndex", [Value::Int(index)]) => {
+                self.cursor = usize::try_from(*index)
+                    .ok()
+                    .filter(|index| *index < self.options.len());
+            }
+            ("optionCursor.strValue", [Value::Str(value)]) => {
+                if let Some(option) = self.cursor.and_then(|index| self.options.get_mut(index)) {
+                    option.string_value = value.to_string();
+                }
+            }
+            ("optionCursor.numValue", [value @ (Value::Float(_) | Value::Int(_))]) => {
+                if value.as_float().is_finite() {
+                    if let Some(option) = self.cursor.and_then(|index| self.options.get_mut(index))
+                    {
+                        option.number_value = value.as_float();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Bridge {
     subscriptions: BTreeMap<(ObjectId, String), String>,
@@ -34,6 +156,7 @@ pub(crate) struct Bridge {
     events: VecDeque<(ObjectId, String, String, f32)>,
     ui: BTreeMap<(String, String), UiCall>,
     menu_open: bool,
+    presentation: Presentation,
 }
 
 impl Bridge {
@@ -135,6 +258,9 @@ pub(crate) fn register(vm: &mut Vm) -> Rc<RefCell<Bridge>> {
         "InvokeIntA",
         "InvokeFloatA",
         "InvokeStringA",
+        "SetInt",
+        "SetFloat",
+        "SetString",
     ] {
         let state = Rc::clone(&bridge);
         vm.natives.register_global(
@@ -152,7 +278,9 @@ pub(crate) fn register(vm: &mut Vm) -> Rc<RefCell<Bridge>> {
                         target: target.to_string(),
                         arguments,
                     };
-                    state.borrow_mut().ui.insert(
+                    let mut state = state.borrow_mut();
+                    state.presentation.apply(&invocation);
+                    state.ui.insert(
                         (invocation.menu.clone(), invocation.target.clone()),
                         invocation,
                     );
@@ -176,6 +304,71 @@ pub struct Config {
 }
 
 impl Game {
+    /// Current native presentation data transmitted by the active config.
+    /// This view is transient and does not replace the config's VM state.
+    pub fn mcm_options(&self) -> Vec<OptionData> {
+        if self.mcm_active.is_none() {
+            return Vec::new();
+        }
+        self.mcm_bridge.borrow().presentation.options.clone()
+    }
+
+    /// Active SkyUI page number, zero for the empty page and one for the
+    /// first named page. Minimal scripts without this variable use zero.
+    pub fn mcm_page_number(&mut self) -> Option<u32> {
+        let object = self.object_of_form(self.mcm_active?);
+        match self.vm.get_var(object, "SKI_ConfigBase", "_currentPageNum") {
+            Some(Value::Int(page)) => u32::try_from(page).ok(),
+            None => Some(0),
+            _ => None,
+        }
+    }
+
+    /// Select a text or toggle option through the original manager when
+    /// present, otherwise deliver the minimal fixture's direct callback.
+    /// Hidden, disabled, stale-page and missing options are rejected.
+    pub fn mcm_select_option(&mut self, form: GlobalFormId, id: u32) -> bool {
+        let Ok(option_id) = i32::try_from(id) else {
+            return false;
+        };
+        if !self.world().order().contains(form) {
+            return false;
+        }
+        let object = self.object_of_form(form);
+        let original = self
+            .vm
+            .has_script_method(object, "SKI_ConfigBase", "OnConfigManagerReady");
+        if original || !self.mcm_bridge.borrow().presentation.options.is_empty() {
+            if self.mcm_active != Some(form) || self.mcm_page_number() != Some(id / 0x100) {
+                return false;
+            }
+            let selectable = self
+                .mcm_bridge
+                .borrow()
+                .presentation
+                .options
+                .iter()
+                .any(|option| {
+                    option.index == id % 0x100
+                        && matches!(option.option_type, 2 | 3)
+                        && option.flags & 3 == 0
+                });
+            if !selectable {
+                return false;
+            }
+        }
+        if !original {
+            return !self
+                .send_event(form, "OnOptionSelect", &[Value::Int(option_id)])
+                .is_empty();
+        }
+        if self.mcm_active != Some(form) {
+            return false;
+        }
+        self.mcm_mod_event(form, "SKICP_optionSelected", "", (id % 0x100) as f32);
+        true
+    }
+
     /// Mark the host's MCM manager ready, register started config quests once,
     /// and read their current page lists.
     /// The entries are projections of attached script properties, not copies
@@ -364,6 +557,7 @@ impl Game {
             return false;
         }
         let object = self.object_of_form(form);
+        self.mcm_bridge.borrow_mut().presentation = Presentation::default();
         if let Some(Value::Int(id)) = self.vm.get_var(object, "SKI_ConfigBase", "_configID") {
             self.mcm_begin();
             self.mcm_mod_event(form, "SKICP_modSelected", "", id as f32);
@@ -414,6 +608,7 @@ impl Game {
 
     /// Close the active config, if any, and deliver `OnConfigClose`.
     pub fn mcm_close(&mut self) {
+        self.mcm_bridge.borrow_mut().presentation = Presentation::default();
         let closed_menu = self.mcm_bridge.borrow().menu_open;
         if closed_menu {
             self.mcm_bridge.borrow_mut().menu_open = false;

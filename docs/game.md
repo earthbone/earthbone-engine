@@ -823,6 +823,41 @@ ID assignment, callback order, page names sent through UI, page selection,
 close and the absence of VM errors. A second execution check exercises the
 original manager's reset. Compiled inputs remain external test data.
 
+### MCM text and toggle presentation, UI-11
+
+The UI bridge consumes SkyUI's four option buffers and `flushOptionBuffers`
+in invocation order. `mcm_options` returns the resulting presentation data,
+including empty slots, packed types, labels, string and numeric values and
+flags. `setOptionFlags` updates the addressed slot. `UI.SetInt` selects the
+option cursor, and `UI.SetString` and `UI.SetFloat` update its displayed
+values. Invalid cursors and incomplete or oversized buffer flushes preserve
+the current rows. Array inputs are copied when called. Closing or switching
+configs clears the presentation. These are transient script requests and
+add no saved state or section.
+
+`mcm_select_option` rejects hidden, disabled, empty, unknown and stale-page
+options from the original framework. It sends `SKICP_optionSelected` with
+the slot index to the subscribed manager. The unmodified manager calls
+`SelectOption`, which restores the page number and dispatches the config's
+callback, including SkyUI state-option dispatch. Minimal synthetic scripts
+retain direct `OnOptionSelect` delivery.
+
+The sources are local SkyUI `dist/Data/Scripts/Source/SKI_ConfigBase.psc`,
+`SKI_ConfigManager.psc` and `src/ModConfigPanel/ConfigPanel.as`. The latter
+defines buffer flushing, flag replacement and cursor updates. Godot renders
+these requests instead of executing the Scaleform panel. The original source
+updates displayed flags through UI calls, so reading its private buffers alone
+does not describe the current presentation.
+
+`ui_11_` synthetic integration tests cover buffer projection, sparse slots,
+ordered flag updates, cursor values, rejected selections and presentation
+cleanup. `ui_11_unmodified_skyui_pex_adds_updates_and_selects_once` loads the
+original base, manager and parent scripts through `SOE_TEST_SKYUI`, using the
+same external-script loader as UI-05. It also accepts the UI-05 base PEX path
+beside its manager and parent. The config child calls public option methods.
+The test checks construction, enable and disable updates, callback counts,
+page IDs, value updates and VM errors. It skips when no compiled input is set.
+
 ### Furniture activation, HST-09
 
 Activating a FURN reference selects the first unreserved Sit marker from its
