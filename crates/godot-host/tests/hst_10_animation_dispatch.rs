@@ -13,14 +13,17 @@ fn hst_10_routes_requests_to_the_matching_actor_only() {
     let events = vec![
         AnimationRequest {
             target: id(1),
+            partner: None,
             animation: "MoveStart".to_string(),
         },
         AnimationRequest {
             target: id(2),
+            partner: None,
             animation: "OpenDoor".to_string(),
         },
         AnimationRequest {
             target: id(1),
+            partner: None,
             animation: "AttackStart".to_string(),
         },
     ];
@@ -36,11 +39,13 @@ fn hst_10_routes_requests_to_the_matching_actor_only() {
 fn hst_10_delivers_a_request_once_and_skips_prebinding_events() {
     let mut events = vec![AnimationRequest {
         target: id(1),
+        partner: None,
         animation: "OldEvent".to_string(),
     }];
     let mut cursor = AnimationEventCursor::at_end(&events);
     events.push(AnimationRequest {
         target: id(1),
+        partner: None,
         animation: "PlayIdle".to_string(),
     });
 

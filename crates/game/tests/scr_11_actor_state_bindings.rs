@@ -139,3 +139,89 @@ fn scr_11_look_at_method_keeps_target_pathing_and_clear_effect() {
         Some((id(0x802), true))
     );
 }
+
+#[test]
+fn scr_11_vehicle_motion_and_look_at_update_shared_actor_placement() {
+    let mut game = fixture();
+    let actor = id(0x801);
+    let target = id(0x802);
+    game.world_mut().reference(actor).unwrap().position = [10.0, 0.0, 0.0];
+    game.world_mut().reference(target).unwrap().position = [0.0, 0.0, 0.0];
+
+    let target_object = Value::Object(game.object_of_form(target));
+    call(&mut game, actor, "SetVehicle", &[target_object]);
+    game.world_mut().reference(target).unwrap().position = [5.0, 0.0, 0.0];
+    game.world_mut().reference(target).unwrap().rotation[2] = std::f32::consts::FRAC_PI_2;
+    game.world_mut().tick_actor_script_relationships();
+    let actor_position = game.world_mut().reference(actor).unwrap().position;
+    assert!(actor_position
+        .iter()
+        .zip([5.0, 10.0, 0.0])
+        .all(|(actual, expected)| (actual - expected).abs() < 0.0001));
+    assert!(
+        (game.world_mut().reference(actor).unwrap().rotation[2] - std::f32::consts::FRAC_PI_2)
+            .abs()
+            < 0.0001
+    );
+
+    call(&mut game, actor, "SetVehicle", &[Value::None]);
+    game.world_mut().reference(target).unwrap().position = [5.0, 10.0, 0.0];
+    let target_object = Value::Object(game.object_of_form(target));
+    call(
+        &mut game,
+        actor,
+        "SetLookAt",
+        &[target_object, Value::Bool(true)],
+    );
+    game.world_mut().reference(target).unwrap().position = [15.0, 10.0, 0.0];
+    game.world_mut().tick_actor_script_relationships();
+    let actor_yaw = game.world_mut().reference(actor).unwrap().rotation[2];
+    assert!(actor_yaw.abs() < 0.0001);
+    let before_pathing = game.world_mut().reference(actor).unwrap().position;
+    game.world_mut()
+        .ai_tick(0.2, &mut |_, _| soe_papyrus::value::ObjectId(0));
+    let after_pathing = game.world_mut().reference(actor).unwrap().position;
+    assert!(after_pathing[0] > before_pathing[0]);
+
+    let target_object = Value::Object(game.object_of_form(target));
+    call(
+        &mut game,
+        actor,
+        "SetLookAt",
+        &[target_object, Value::Bool(false)],
+    );
+    game.world_mut().tick_actor_script_relationships();
+    let before_unpathing = game.world_mut().reference(actor).unwrap().position;
+    game.world_mut()
+        .ai_tick(0.2, &mut |_, _| soe_papyrus::value::ObjectId(0));
+    assert_eq!(
+        game.world_mut().reference(actor).unwrap().position,
+        before_unpathing
+    );
+}
+
+#[test]
+fn scr_11_loaded_vehicle_relation_starts_from_restored_placements() {
+    let game = fixture();
+    let actor = id(0x801);
+    let vehicle = id(0x802);
+    game.world_mut().reference(actor).unwrap().position = [10.0, 0.0, 0.0];
+    game.world_mut().reference(vehicle).unwrap().position = [0.0, 0.0, 0.0];
+    game.world_mut()
+        .set_actor_vehicle(actor, Some(vehicle))
+        .unwrap();
+    game.world_mut().tick_actor_script_relationships();
+    game.world_mut().reference(vehicle).unwrap().position = [5.0, 0.0, 0.0];
+    game.world_mut().tick_actor_script_relationships();
+    let saved = game.world_mut().save_state();
+    game.world_mut().reference(vehicle).unwrap().position = [100.0, 0.0, 0.0];
+    game.world_mut().tick_actor_script_relationships();
+
+    game.world_mut().load_state(&saved).unwrap();
+    let restored = game.world_mut().reference(actor).unwrap().position;
+    game.world_mut().tick_actor_script_relationships();
+    assert_eq!(
+        game.world_mut().reference(actor).unwrap().position,
+        restored
+    );
+}

@@ -14,10 +14,12 @@ fn hst_10_same_object_number_in_another_file_is_not_the_bound_actor() {
     let log = vec![
         AnimationRequest {
             target: id(0, 0x123),
+            partner: None,
             animation: "WrongFile".to_owned(),
         },
         AnimationRequest {
             target: id(1, 0x123),
+            partner: None,
             animation: "RightActor".to_owned(),
         },
     ];
@@ -29,16 +31,19 @@ fn hst_10_same_object_number_in_another_file_is_not_the_bound_actor() {
 fn hst_10_each_actor_cursor_observes_its_own_new_requests_once() {
     let mut log = vec![AnimationRequest {
         target: id(0, 1),
+        partner: None,
         animation: "First".to_owned(),
     }];
     let mut first = AnimationEventCursor::at_end(&log);
     let mut second = AnimationEventCursor::at_end(&log);
     log.push(AnimationRequest {
         target: id(0, 1),
+        partner: None,
         animation: "ActorOne".to_owned(),
     });
     log.push(AnimationRequest {
         target: id(0, 2),
+        partner: None,
         animation: "ActorTwo".to_owned(),
     });
 

@@ -94,6 +94,7 @@ fn scr_16_start_cannibal_requests_action_for_dead_actor_target() {
         game.world().animation_requests,
         vec![soe_game::world::AnimationRequest {
             target: id(ACTOR),
+            partner: None,
             animation: "CannibalStart".to_owned(),
         }]
     );

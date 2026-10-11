@@ -23,7 +23,7 @@ Actor|ck-wiki/Actor_Script.wikitext|DoCombatSpellApply(Spell akSpell, ObjectRefe
 Actor|ck-wiki/Actor_Script.wikitext|DrawWeapon()
 Actor|ck-wiki/Actor_Script.wikitext|EnableAI(Bool abEnable)
 Actor|ck-wiki/Actor_Script.wikitext|EndDeferredKill()
-Actor|ck-wiki/Actor_Script.wikitext|EquipItem(Form akItem, Bool abPreventRemoval, Bool abSlient)
+Actor|ck-wiki/EquipItem_-_Actor.wikitext|None EquipItem(Form akItem, Bool abPreventRemoval = false, Bool abSilent = false)
 Actor|ck-wiki/Actor_Script.wikitext|EquipShout(Shout akShout)
 Actor|ck-wiki/Actor_Script.wikitext|EquipSpell(Spell akSpell, Int aiSource)
 Actor|ck-wiki/Actor_Script.wikitext|EvaluatePackage()

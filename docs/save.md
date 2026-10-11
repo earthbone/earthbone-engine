@@ -900,6 +900,11 @@ versions from 77, following the parser's supported minima. The corpus survey
 covers only ESS 12 with form and change-form version 78. xEdit labels the first
 word `Mask Invert Flags`. FallrimTools and CommonLib do not document application
 of the second word or confirm this operation across all accepted versions.
+The SAV-54 gated installed-record test takes authored flags from Skyrim.esm,
+checks the reference state before restore, and checks enable and persistence
+after restore for both mask words across the accepted version tuples. This is
+a controlled loader observation, not a game-generated before-and-after save
+pair. The second word remains unknown outside these two runtime properties.
 
 ## ARMO, WEAP and AMMO change coverage
 

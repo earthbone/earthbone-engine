@@ -648,6 +648,8 @@ pub struct AnimationWaiter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnimationRequest {
     pub target: GlobalFormId,
+    /// Explicit partner override for an idle played on `target`.
+    pub partner: Option<GlobalFormId>,
     pub animation: String,
 }
 
@@ -849,6 +851,8 @@ pub struct World {
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
     refs: HashMap<GlobalFormId, RefState>,
+    /// Last observed vehicle placement for transient actor attachment updates.
+    actor_vehicle_poses: HashMap<GlobalFormId, (GlobalFormId, [f32; 3], [f32; 3])>,
     reference_changes: std::cell::RefCell<reference_changes::State>,
     translation_candidates: BTreeSet<GlobalFormId>,
     light_references: std::cell::RefCell<light_references::LightReferences>,
@@ -1244,6 +1248,7 @@ impl World {
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),
+            actor_vehicle_poses: HashMap::new(),
             reference_changes: std::cell::RefCell::default(),
             translation_candidates: BTreeSet::new(),
             light_references: std::cell::RefCell::default(),
