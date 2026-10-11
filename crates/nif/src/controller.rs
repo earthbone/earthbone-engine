@@ -206,52 +206,60 @@ pub(crate) fn read_point3_interpolator(s: &mut Stream<'_>) -> Result<Point3Inter
 /// applying frequency and phase and then extrapolating past
 /// `[start_time, stop_time]` per the cycle type. Grounded on OpenMW's
 /// `ControllerFunction::calculate()`, `components/nifosg/controller.cpp`
-/// lines 20-71, mirrored branch for branch: the top-level guard only covers
-/// `t` already inside `[start_time, stop_time]`, and `Loop` and `Reverse`
-/// each carry their own separate `delta <= 0` guard that holds `start_time`
-/// for a degenerate or inverted range, checked before any division by
-/// `delta` runs. `CYCLE_CLAMP` holds the edge pose rather than resetting,
-/// answering the task's open question on clamp semantics.
+/// lines 20-71. Invalid clocks, or durations and frequencies at most one
+/// microsecond or one millionth, hold the finite start pose (zero if the
+/// start is invalid). Valid cycles use a closed form independent of elapsed
+/// time. `CYCLE_CLAMP` holds the edge pose rather than resetting.
 pub fn evaluate_time(time: &TimeController, game_time: f32) -> f32 {
-    let t = time.frequency * game_time + time.phase;
-    let start = time.start_time;
-    let stop = time.stop_time;
-    if t >= start && t <= stop {
-        return t;
+    let Some(t) = controller_clock(time, game_time) else {
+        return if time.start_time.is_finite() {
+            time.start_time
+        } else {
+            0.0
+        };
+    };
+    let start = f64::from(time.start_time);
+    let stop = f64::from(time.stop_time);
+    let span = stop - start;
+    let value = if t >= start && t <= stop {
+        t
+    } else {
+        match time.flags.cycle_type {
+            CycleType::Clamp => t.clamp(start, stop),
+            CycleType::Loop => start + (t - start).rem_euclid(span),
+            CycleType::Reverse => {
+                let remainder = (t - start).rem_euclid(2.0 * span);
+                if remainder <= span {
+                    start + remainder
+                } else {
+                    stop - (remainder - span)
+                }
+            }
+        }
+    };
+    if time.flags.play_backwards {
+        (stop - (value - start)) as f32
+    } else {
+        value as f32
     }
-    match time.flags.cycle_type {
-        CycleType::Clamp => {
-            if t < start {
-                start
-            } else if t > stop {
-                stop
-            } else {
-                t
-            }
-        }
-        CycleType::Loop => {
-            let delta = stop - start;
-            if delta <= 0.0 {
-                return start;
-            }
-            let cycles = (t - start) / delta;
-            let remainder = (cycles - cycles.floor()) * delta;
-            start + remainder
-        }
-        CycleType::Reverse => {
-            let delta = stop - start;
-            if delta <= 0.0 {
-                return start;
-            }
-            let cycles = (t - start) / delta;
-            let remainder = (cycles - cycles.floor()) * delta;
-            if (cycles.floor().abs() as i64) % 2 == 0 {
-                start + remainder
-            } else {
-                stop - remainder
-            }
-        }
+}
+
+pub(crate) fn controller_clock(time: &TimeController, game_time: f32) -> Option<f64> {
+    const MIN_TIMING: f32 = 1e-6;
+    let span = time.stop_time - time.start_time;
+    if !time.start_time.is_finite()
+        || !time.stop_time.is_finite()
+        || !span.is_finite()
+        || span <= MIN_TIMING
+        || !time.frequency.is_finite()
+        || time.frequency <= MIN_TIMING
+        || !time.phase.is_finite()
+        || !game_time.is_finite()
+    {
+        return None;
     }
+    // CONTEXT: f64 keeps finite f32 clock inputs from overflowing before wrapping.
+    Some(f64::from(time.frequency) * f64::from(game_time) + f64::from(time.phase))
 }
 
 /// `KeyType`, `nif.xml` lines 399-406. Storage is `uint`.
@@ -677,19 +685,58 @@ pub(crate) fn evaluate_track<T: Numeric>(group: &KeyGroup<T>, t: f32) -> Option<
                 a.value
             }
         }
-        Interpolation::Linear | Interpolation::Quadratic | Interpolation::Tbc => {
-            // TCB tangent generation is not implemented (see `Key::tbc`'s
-            // doc): a Tbc track interpolates linearly between keys rather
-            // than through the Kochanek-Bartels spline. TBC keys are a
-            // legacy 3ds Max/Blender feature, rare on Skyrim SE statics.
-            if group.interpolation == Interpolation::Quadratic {
-                hermite(a, b, frac)
-            } else {
-                a.value.add(b.value.sub(a.value).scale(frac))
-            }
+        Interpolation::Quadratic => hermite(a, b, frac),
+        Interpolation::Tbc => {
+            let mut a = *a;
+            let mut b = *b;
+            a.out_tan = tbc_tangent(&group.keys, i, true);
+            b.in_tan = tbc_tangent(&group.keys, j, false);
+            hermite(&a, &b, frac)
         }
-        Interpolation::XyzRotation => a.value.add(b.value.sub(a.value).scale(frac)),
+        Interpolation::Linear | Interpolation::XyzRotation => {
+            a.value.add(b.value.sub(a.value).scale(frac))
+        }
     })
+}
+
+fn tbc_tangent<T: Numeric>(keys: &[Key<T>], index: usize, outgoing: bool) -> T {
+    let key = keys[index];
+    let t = 1.0 - key.tbc.tension;
+    let c = key.tbc.continuity;
+    let b = key.tbc.bias;
+    let (left, right) = if outgoing {
+        (t * (1.0 + c) * (1.0 + b), t * (1.0 - c) * (1.0 - b))
+    } else {
+        (t * (1.0 - c) * (1.0 + b), t * (1.0 + c) * (1.0 - b))
+    };
+    if index == 0 {
+        return keys[1]
+            .value
+            .sub(key.value)
+            .scale(f32::midpoint(left, right));
+    }
+    if index + 1 == keys.len() {
+        return key
+            .value
+            .sub(keys[index - 1].value)
+            .scale(f32::midpoint(left, right));
+    }
+    let previous = keys[index - 1];
+    let next = keys[index + 1];
+    let span = next.time - previous.time;
+    if span <= 0.0 {
+        return T::default();
+    }
+    let weight = if outgoing {
+        next.time - key.time
+    } else {
+        key.time - previous.time
+    } / span;
+    key.value
+        .sub(previous.value)
+        .scale(left)
+        .add(next.value.sub(key.value).scale(right))
+        .scale(weight)
 }
 
 /// Evaluate a quaternion key track. Always slerps between the bracketing

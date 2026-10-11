@@ -58,6 +58,7 @@ fn instanced_surface(
     x: f32,
 ) -> LoadedSurface {
     LoadedSurface {
+        animation: None,
         reference: GlobalFormId {
             file: 1,
             object: reference_object,
@@ -337,6 +338,7 @@ fn instancing_candidates_returns_short_groups_and_plain_surfaces_together() {
     // index 0, 1: plain surfaces, never marked for instancing at all.
     for i in 0..2u32 {
         surfaces.push(LoadedSurface {
+            animation: None,
             reference: GlobalFormId { file: 1, object: i },
             arrays: quad_arrays("textures\\plain.dds"),
             textures: SurfaceTextures::default(),
@@ -408,6 +410,7 @@ fn repeated_rock_benchmark_at_threshold_still_favors_instancing() {
             arrays.bounds.min.x += dx;
             arrays.bounds.max.x += dx;
             LoadedSurface {
+                animation: None,
                 reference: GlobalFormId {
                     file: 1,
                     object: i as u32,

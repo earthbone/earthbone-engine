@@ -899,6 +899,10 @@ impl PlayerNode {
             self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
         }
         if activated {
+            let _ = self
+                .game_streamer
+                .as_mut()
+                .is_some_and(|streamer| streamer.bind_mut().activate_object_animation(target));
             self.sync_door_presentation();
         }
         activated

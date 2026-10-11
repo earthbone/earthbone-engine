@@ -108,6 +108,7 @@ fn scr_15_play_idle_with_target_routes_to_caller_and_rejects_bad_forms() {
         game.world().animation_requests,
         [soe_game::world::AnimationRequest {
             target: id(0x900),
+            partner: Some(id(0x902)),
             animation: "TestIdle".into(),
         }]
     );
@@ -126,6 +127,7 @@ fn scr_15_play_idle_with_target_routes_to_caller_and_rejects_bad_forms() {
         game.world().animation_requests,
         [soe_game::world::AnimationRequest {
             target: id(0x900),
+            partner: None,
             animation: "TestIdle".into(),
         }]
     );
