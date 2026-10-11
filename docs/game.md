@@ -356,9 +356,11 @@ for native save inputs.
 - `detection`: the detection value from sneak GMSTs, and stealth-point pools
   shared by every observer of one target. `World::evaluate_detection` checks a
   whole batch of observations before it changes any pool. MGEF Disguise is not
-  executed because its gameplay semantics remain undocumented. xEdit and UESP
-  identify archetype 44 and specify no extra archetype data, while the Creation
-  Kit archetype table describes it as unknown. See
+  executed because its gameplay semantics remain undocumented. xEdit identifies
+  archetype 44 and supplies no associated-item mapping, UESP says it has no extra
+  data, and the local Creation Kit dump has no archetype behavior entry. The
+  runtime rejects it before changing faction state or adding an active effect.
+  See
   [combat AI](combat-ai.md) for the formula sources and what remains.
 
 Detection batches cache each observer's Sneak, Blindness and combat target,
