@@ -912,14 +912,16 @@ fn save(opts: &Options, input: Option<&str>) -> Result<(), String> {
             let mut game = Game::new(read_order_threads(&opts.data, opts.threads)?);
             game.load_scripts_from_data(&opts.data);
             game.bind();
-            let (_, ()) = timed(opts, "save_load", opts.runs, || {
-                game.load_state(&bytes).map_err(|error| error.to_string())
+            let (_, sections) = timed(opts, "save_load", opts.runs, || {
+                game.load_state_profiled(&bytes)
+                    .map_err(|error| error.to_string())
             })?;
+            report_native_load_sections(&sections);
             report_count("save_file_bytes", bytes.len(), "bytes");
             let (written, sections) = game
                 .save_state_profiled()
                 .map_err(|error| error.to_string())?;
-            report_native_save_sections(&sections);
+            report_native_save_times(&sections);
             report_count("save_write_file_bytes", written.len(), "bytes");
             return Ok(());
         }
@@ -1006,10 +1008,23 @@ fn save(opts: &Options, input: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
-fn report_native_save_sections(sections: &[soe_game::save::NativeSaveSection]) {
-    let mut total_nanos = 0_u64;
+fn report_native_load_sections(sections: &[soe_game::save::NativeSaveSection]) {
     for section in sections {
         println!("save_section {} {}", section.name, section.bytes);
+        println!("save_section_load_ns {} {}", section.name, section.nanos);
+    }
+}
+
+fn report_native_save_sections(sections: &[soe_game::save::NativeSaveSection]) {
+    for section in sections {
+        println!("save_section {} {}", section.name, section.bytes);
+    }
+    report_native_save_times(sections);
+}
+
+fn report_native_save_times(sections: &[soe_game::save::NativeSaveSection]) {
+    let mut total_nanos = 0_u64;
+    for section in sections {
         println!("save_section_save_ns {} {}", section.name, section.nanos);
         total_nanos = total_nanos.saturating_add(section.nanos);
     }

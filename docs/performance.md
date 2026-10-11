@@ -1196,7 +1196,8 @@ hold spaces, so a plugin is always the last field of a row.
 - `save_section_save_ns <name> <ns>` reports the ESS encode time for every
   body section. Native SOEG saves report the `world`, `papyrus_vm` and
   `envelope` section sizes and write times, including when the input argument
-  is a native save.
+  is a native save. `save_section_load_ns <name> <ns>` reports their native
+  validation and restore times when loading a native input.
 - `save_papyrus_script <script> <instances> <bytes> <plugin>` is the variable
   data of a script's instances, grouped by the plugin of the form each instance
   runs on. An ESS does not record which plugin ships a script, so the owner is

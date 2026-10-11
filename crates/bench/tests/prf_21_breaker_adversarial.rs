@@ -114,14 +114,9 @@ fn prf_21_breaker_native_cli_reports_load_time_for_each_named_section() {
                 .any(|line| line.starts_with(&format!("save_section_load_ns {section} ")))
         })
         .collect::<Vec<_>>();
-    let has_plugin_rows = text.lines().any(|line| {
-        ["save_plugin_", "save_papyrus_script "]
-            .iter()
-            .any(|prefix| line.starts_with(prefix))
-    });
     assert!(
-        missing_sections.is_empty() && has_plugin_rows,
-        "native report omits load timing for {missing_sections:?} and has_plugin_rows={has_plugin_rows}"
+        missing_sections.is_empty(),
+        "native report omits load timing for {missing_sections:?}"
     );
 }
 
@@ -155,9 +150,44 @@ fn prf_21_breaker_native_section_sizes_partition_the_file() {
                 .then(|| fields.next()?.parse::<usize>().ok())
                 .flatten()
         })
-        .expect("native report includes file size");
+        .expect("native report includes the input file size");
     assert_eq!(
         section_bytes, file_bytes,
-        "native named sections must partition the serialized save"
+        "native named sections must partition the input save"
+    );
+    for section in ["world", "papyrus_vm", "envelope"] {
+        assert!(
+            text.lines()
+                .any(|line| line.starts_with(&format!("save_section_save_ns {section} "))),
+            "native report omits write time for {section}"
+        );
+    }
+}
+
+#[test]
+fn prf_21_breaker_native_cli_does_not_fabricate_plugin_or_papyrus_attribution() {
+    let path = native_save_path();
+    let output = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
+        .args(["--runs", "1", "save", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "soe-bench native save failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !text.lines().any(|line| {
+            [
+                "save_plugin_section ",
+                "save_plugin_load ",
+                "save_papyrus_script ",
+                "save_papyrus_script_plugin ",
+            ]
+            .iter()
+            .any(|prefix| line.starts_with(prefix))
+        }),
+        "an empty native save must not invent plugin or Papyrus attribution"
     );
 }
