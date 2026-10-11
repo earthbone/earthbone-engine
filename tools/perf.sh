@@ -2,9 +2,6 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-if [[ -z "${CARGO_HOME:-}" ]]; then
-  export CARGO_HOME="/tmp/soe-prf15-cargo-home"
-fi
 mode="${1:-check}"
 if [[ "$mode" != check && "$mode" != refresh ]]; then
   printf 'usage: tools/perf.sh [check|refresh]\n' >&2
