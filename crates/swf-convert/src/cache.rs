@@ -14,7 +14,7 @@ use soe_bsa::{Source, Vfs};
 
 use crate::{convert, resource, Error};
 
-const FORMAT: &str = "soe-interface-1";
+const FORMAT: &str = "soe-interface-2";
 
 /// The external JPEXS command used to preserve AS2 source for reference.
 #[derive(Debug, Clone)]

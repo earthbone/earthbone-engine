@@ -42,7 +42,7 @@ fn input(path: &str) -> Option<Vec<u8>> {
 }
 
 #[test]
-fn installed_font3_codes_advances_and_metrics_match_swf_tags() {
+fn ui_19_installed_font3_codes_advances_and_metrics_match_swf_tags() {
     let Some(bytes) = input("interface/fonts_en.swf") else {
         eprintln!("SKYRIM_DATA unavailable, skipped");
         return;
@@ -105,16 +105,18 @@ fn installed_font3_codes_advances_and_metrics_match_swf_tags() {
                 actual_glyph.code
             );
         }
-        assert_eq!(
-            actual.atlas.rgba.len(),
-            (actual.atlas.width * actual.atlas.height * 4) as usize,
-            "font {id} atlas is truncated"
-        );
+        for atlas in &actual.atlases {
+            assert_eq!(
+                atlas.rgba.len(),
+                (atlas.width * atlas.height * 4) as usize,
+                "font {id} atlas is truncated"
+            );
+        }
     }
 }
 
 #[test]
-fn installed_shapes_bitmaps_text_and_sprite_frames_match_tag_ids() {
+fn ui_19_installed_shapes_bitmaps_text_and_sprite_frames_match_tag_ids() {
     let Some(bytes) = input("interface/inventorymenu.swf") else {
         eprintln!("SKYRIM_DATA unavailable, skipped");
         return;
@@ -190,106 +192,110 @@ fn installed_shapes_bitmaps_text_and_sprite_frames_match_tag_ids() {
 }
 
 #[test]
-fn installed_display_list_keeps_authored_names_labels_and_placements() {
-    let Some(bytes) = input("interface/magicmenu.swf") else {
-        eprintln!("SKYRIM_DATA unavailable, skipped");
-        return;
-    };
-    let buffer = swf::decompress_swf(bytes.as_slice()).expect("decompress magicmenu.swf");
-    let source_movie = swf::parse_swf(&buffer).expect("parse magicmenu.swf");
-    let mut tags = Vec::new();
-    visit(&source_movie.tags, &mut tags);
-    let movie = convert(&bytes).expect("magicmenu.swf should convert");
-    let expected_names: BTreeSet<_> = tags
-        .iter()
-        .filter_map(|tag| match *tag {
-            Tag::PlaceObject(place) if matches!(place.action, PlaceObjectAction::Place(_)) => place
-                .name
-                .map(|name| name.to_string_lossy(swf::SwfStr::encoding_for_version(movie.version))),
-            _ => None,
-        })
-        .collect();
-    let actual_names: BTreeSet<_> = movie
-        .timelines
-        .values()
-        .flat_map(|timeline| &timeline.frames)
-        .flat_map(|frame| &frame.display_list)
-        .filter_map(|instance| instance.name.clone())
-        .collect();
-    assert!(
-        !expected_names.is_empty(),
-        "source menu has no named placements"
-    );
-    assert!(
-        expected_names.is_subset(&actual_names),
-        "some authored instance names are absent"
-    );
-    let expected_labels: BTreeSet<_> = tags
-        .iter()
-        .filter_map(|tag| {
-            if let Tag::FrameLabel(label) = *tag {
-                Some(
-                    label
-                        .label
-                        .to_string_lossy(swf::SwfStr::encoding_for_version(movie.version)),
-                )
-            } else {
-                None
-            }
-        })
-        .collect();
-    let actual_labels: BTreeSet<_> = movie
-        .timelines
-        .values()
-        .flat_map(|timeline| &timeline.frames)
-        .flat_map(|frame| &frame.labels)
-        .cloned()
-        .collect();
-    assert_eq!(
-        actual_labels, expected_labels,
-        "authored frame labels differ"
-    );
-    let expected_transforms: Vec<_> = tags
-        .iter()
-        .filter_map(|tag| match *tag {
-            Tag::PlaceObject(place) if matches!(place.action, PlaceObjectAction::Place(_)) => {
-                place.matrix.map(|matrix| {
-                    let mut transform = [
-                        matrix.a.to_f64(),
-                        matrix.b.to_f64(),
-                        matrix.c.to_f64(),
-                        matrix.d.to_f64(),
-                        matrix.tx.get() as f64,
-                        matrix.ty.get() as f64,
-                    ];
-                    transform[4] /= 20.0;
-                    transform[5] /= 20.0;
-                    transform
-                })
-            }
-            _ => None,
-        })
-        .collect();
-    let actual_transforms: Vec<_> = movie
-        .timelines
-        .values()
-        .flat_map(|timeline| &timeline.frames)
-        .flat_map(|frame| &frame.display_list)
-        .map(|instance| instance.transform)
-        .collect();
-    for expected in expected_transforms {
+fn ui_19_installed_display_list_keeps_authored_names_labels_and_placements() {
+    for path in ["interface/inventorymenu.swf", "interface/magicmenu.swf"] {
+        let Some(bytes) = input(path) else {
+            eprintln!("SKYRIM_DATA unavailable, skipped");
+            return;
+        };
+        let buffer = swf::decompress_swf(bytes.as_slice()).expect("decompress installed menu");
+        let source_movie = swf::parse_swf(&buffer).expect("parse installed menu");
+        let mut tags = Vec::new();
+        visit(&source_movie.tags, &mut tags);
+        let movie = convert(&bytes).expect("installed menu should convert");
+        let expected_names: BTreeSet<_> = tags
+            .iter()
+            .filter_map(|tag| match *tag {
+                Tag::PlaceObject(place) if matches!(place.action, PlaceObjectAction::Place(_)) => {
+                    place.name.map(|name| {
+                        name.to_string_lossy(swf::SwfStr::encoding_for_version(movie.version))
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        let actual_names: BTreeSet<_> = movie
+            .timelines
+            .values()
+            .flat_map(|timeline| &timeline.frames)
+            .flat_map(|frame| &frame.display_list)
+            .filter_map(|instance| instance.name.clone())
+            .collect();
         assert!(
-            actual_transforms.iter().any(|actual| actual
-                .iter()
-                .zip(expected)
-                .all(|(left, right)| (left - right).abs() < 0.000_001)),
-            "authored placement transform was lost: {expected:?}"
+            !expected_names.is_empty(),
+            "source menu has no named placements"
         );
+        assert!(
+            expected_names.is_subset(&actual_names),
+            "some authored instance names are absent"
+        );
+        let expected_labels: BTreeSet<_> = tags
+            .iter()
+            .filter_map(|tag| {
+                if let Tag::FrameLabel(label) = *tag {
+                    Some(
+                        label
+                            .label
+                            .to_string_lossy(swf::SwfStr::encoding_for_version(movie.version)),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let actual_labels: BTreeSet<_> = movie
+            .timelines
+            .values()
+            .flat_map(|timeline| &timeline.frames)
+            .flat_map(|frame| &frame.labels)
+            .cloned()
+            .collect();
+        assert_eq!(
+            actual_labels, expected_labels,
+            "authored frame labels differ"
+        );
+        let expected_transforms: Vec<_> = tags
+            .iter()
+            .filter_map(|tag| match *tag {
+                Tag::PlaceObject(place) if matches!(place.action, PlaceObjectAction::Place(_)) => {
+                    place.matrix.map(|matrix| {
+                        let mut transform = [
+                            matrix.a.to_f64(),
+                            matrix.b.to_f64(),
+                            matrix.c.to_f64(),
+                            matrix.d.to_f64(),
+                            matrix.tx.get() as f64,
+                            matrix.ty.get() as f64,
+                        ];
+                        transform[4] /= 20.0;
+                        transform[5] /= 20.0;
+                        transform
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        let actual_transforms: Vec<_> = movie
+            .timelines
+            .values()
+            .flat_map(|timeline| &timeline.frames)
+            .flat_map(|frame| &frame.display_list)
+            .map(|instance| instance.transform)
+            .collect();
+        for expected in expected_transforms {
+            assert!(
+                actual_transforms.iter().any(|actual| actual
+                    .iter()
+                    .zip(expected)
+                    .all(|(left, right)| (left - right).abs() < 0.000_001)),
+                "authored placement transform was lost: {expected:?}"
+            );
+        }
     }
 }
 
 #[test]
-fn cache_rebuilds_for_new_winning_bytes_and_preserves_as2_reference() {
+fn ui_19_cache_rebuilds_for_new_winning_bytes_and_preserves_as2_reference() {
     let Some(data) = data_dir() else {
         eprintln!("SKYRIM_DATA unavailable, skipped");
         return;
@@ -364,7 +370,7 @@ fn cache_rebuilds_for_new_winning_bytes_and_preserves_as2_reference() {
 }
 
 #[test]
-fn skyui_archive_winners_convert_and_keep_source_definitions() {
+fn ui_19_skyui_archive_winners_convert_and_keep_source_definitions() {
     let Some(vfs) = skyui_vfs() else {
         eprintln!("SOE_TEST_SKYUI or installed vanilla data unavailable, skipped");
         return;
@@ -455,7 +461,7 @@ fn skyui_archive_winners_convert_and_keep_source_definitions() {
 }
 
 #[test]
-fn failed_swf_conversion_leaves_no_published_generation() {
+fn ui_19_failed_swf_conversion_leaves_no_published_generation() {
     let temp = tempfile::tempdir_in("/tmp").expect("temporary test root");
     let loose = temp.path().join("loose");
     std::fs::create_dir_all(loose.join("interface")).expect("create loose interface");
