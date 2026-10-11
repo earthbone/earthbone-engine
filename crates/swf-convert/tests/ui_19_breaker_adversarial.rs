@@ -241,6 +241,23 @@ func check():
 }
 
 #[test]
+fn ui_19_root_swf_requires_a_well_formed_end_tag() {
+    let mut header = swf::Header::default_with_swf_version(9);
+    header.num_frames = 1;
+    let mut missing_end = Vec::new();
+    swf::write::write_swf_raw_tags(&header, &[0x40, 0x00], &mut missing_end).unwrap();
+
+    header.num_frames = 0;
+    let mut end_with_payload = Vec::new();
+    swf::write::write_swf_raw_tags(&header, &[0x01, 0x00, 0xff], &mut end_with_payload).unwrap();
+
+    assert!(
+        convert(&missing_end).is_err() && convert(&end_with_payload).is_err(),
+        "root SWF accepted missing End or End with a payload"
+    );
+}
+
+#[test]
 fn ui_19_full_winning_load_order_builds_cache_and_keeps_real_as2_sources() {
     let Some(data) = std::env::var_os("SKYRIM_DATA") else {
         return;
