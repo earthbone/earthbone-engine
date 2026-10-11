@@ -328,6 +328,28 @@ impl SynchronizedClipScene {
         actors
     }
 
+    /// Cancel the scene, clear both interpreter overrides and release both
+    /// participants through the host's actor-lock callback.
+    pub fn cancel_clear_and_release_host_locks(
+        &mut self,
+        first: &mut Interpreter<'_>,
+        first_generator: NodeId,
+        second: &mut Interpreter<'_>,
+        second_generator: NodeId,
+        mut release_actor_lock: impl FnMut(u64),
+    ) -> [u64; 2] {
+        let actors = self.cancel_and_clear_interpreter_times(
+            first,
+            first_generator,
+            second,
+            second_generator,
+        );
+        for actor in actors {
+            release_actor_lock(actor);
+        }
+        actors
+    }
+
     pub fn is_active(&self) -> bool {
         self.active
     }
@@ -4937,6 +4959,8 @@ mod tests {
         assert!(second.set_synchronized_clip_time(NodeId(1), 0.5));
         assert_eq!(first.nodes[0].synchronized_time, Some(0.75));
         assert_eq!(second.nodes[0].synchronized_time, Some(0.5));
+        let mut host_locked_actors = std::collections::HashSet::from([7, 9]);
+        let mut released = Vec::new();
 
         let mut scene = SynchronizedClipScene::new(
             7,
@@ -4965,10 +4989,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            scene
-                .cancel_and_clear_interpreter_times(&mut first, NodeId(1), &mut second, NodeId(1),),
+            scene.cancel_clear_and_release_host_locks(
+                &mut first,
+                NodeId(1),
+                &mut second,
+                NodeId(1),
+                |actor| {
+                    assert!(host_locked_actors.remove(&actor));
+                    released.push(actor);
+                },
+            ),
             [7, 9]
         );
+        assert!(host_locked_actors.is_empty());
+        assert_eq!(released, [7, 9]);
         assert_eq!(first.nodes[0].synchronized_time, None);
         assert_eq!(second.nodes[0].synchronized_time, None);
     }

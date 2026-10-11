@@ -445,9 +445,11 @@ What each node does:
   both actor ids and makes the scene inactive. The host clears the synchronized
   time override on each interpreter when the scene ends or is cancelled.
   `cancel_and_clear_interpreter_times` cancels the scene, clears both
-  interpreter overrides and returns both actor ids for the host to unlock.
-  Host lock release remains the caller's responsibility and is not covered by
-  this crate's tests.
+  interpreter overrides and returns both actor ids. The runtime can use
+  `cancel_clear_and_release_host_locks` to clear both overrides and call its
+  actor-lock release callback for each participant during cancellation. The
+  `anm_20_` cancellation test verifies both host locks are removed and both
+  interpreter overrides are cleared.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
 - `hkbEvaluateExpressionModifier`: compiles its expression data at graph
