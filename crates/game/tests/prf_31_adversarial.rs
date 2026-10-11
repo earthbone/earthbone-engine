@@ -37,7 +37,10 @@ fn prf_31_actor_selection_survives_live_eligibility_changes_with_scenery() {
     let mut world = world_with_scenery(5_000);
     let placements = world.contact_actor_placements();
     assert_eq!(
-        placements.iter().map(|actor| actor.actor).collect::<Vec<_>>(),
+        placements
+            .iter()
+            .map(|actor| actor.actor)
+            .collect::<Vec<_>>(),
         [id(3)]
     );
 

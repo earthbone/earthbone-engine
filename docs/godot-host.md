@@ -726,6 +726,9 @@ initial-disable flags, so Enable can turn an initially disabled light on.
 Loading reference state does not override the LIGH Off By Default flag.
 That flag still suppresses the light estimate for an enabled reference.
 Moved and spawned lights use their current shared placement.
+The shared light membership index groups loaded identities by current cell
+and refreshes base and cell membership through reference invalidation.
+Changing a runtime base to or from LIGH is visible on the next sample.
 `PlayerNode::detection_time_usec` measures the whole update, including actor
 body synchronization, sampling and world evaluation. `detection_worldspace`
 reports the active exterior worldspace's editor ID for the walking check.

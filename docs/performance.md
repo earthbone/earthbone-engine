@@ -1813,6 +1813,17 @@ puts 5,000 non-actor references beside one actor. Its fixed work check requires
 60 unchanged queries to perform no additional membership examinations and
 one changed actor to add exactly one examination.
 
+The light membership index also groups loaded identities by cell and refreshes
+only invalidated references. It no longer scans every loaded light for each
+queried cell, and runtime base changes to or from LIGH refresh membership.
+`prf_31_light_membership_bounds_unchanged_frames_and_cell_moves` fixes the work
+threshold before running: 60 queries of both cells with 5,000 scenery references
+add no membership examinations, and moving one light adds exactly one.
+The design retains xEdit REFR/NAME identity and shared World placement. The
+local OpenMW `components/sceneutil/clusteredlighting.hpp` supplies a rendering
+light grid model. Its OSG light payload does not fit this CPU gameplay lookup,
+which stores only derived FormIDs and uses the existing light sampler.
+
 The walking fixture now turns on stalled horizontal progress instead of
 repeatedly pushing along a blocked gate axis. It retains both 100-unit movement
 thresholds, the two 30-second phases and the maximum 2,000-microsecond detection
@@ -1822,6 +1833,104 @@ process exit. The prior judge's failed windowed sample, 2,616 microseconds and
 prevents new installed-data or Godot runs for this follow-up, so the changes
 have no new before/after timings or successful windowed acceptance measurement.
 Earlier measurements below describe their original builds.
+
+### Follow-up local verification
+
+The 2026-10-11 follow-up retains draft commits `836a0228b` and `ab27b7705`
+on `draft8/PRF-31`. Further changes are uncommitted. Installed-data variables
+are unset for local test runs, and the configured build flags and test thread
+count are retained.
+
+| Command | Result |
+| --- | --- |
+| `rtk cargo fmt --all` | Exit 0 |
+| `rtk cargo test -p soe-game --lib prf_31` | Exit 0, 10 passed |
+| `rtk cargo test -p soe-game --test it prf_31` | Exit 0, 7 passed |
+| `rtk cargo test -p soe-game --test it cmb_28_contact_actors` | Exit 0, 11 passed |
+| `rtk ./tools/prose-lint.sh` | Exit 0 |
+| `rtk env cargo clippy -p soe-game --all-targets -- -D warnings` | Interrupted, exit 1 |
+| `rtk env cargo clippy -p soe-godot-host --all-targets -- -D warnings` | Interrupted, exit 1 |
+
+Clippy ran through `rtk env`, with installed-data variables unset. Both package
+checks reached a suspended Cargo process, state T, with no compiler child and
+the build lock held. Cancellation released that lock. The initial RTK game
+check and its queued retry exited 130 when canceled. The later direct game
+and host checks exited 1 when canceled after suspension. These are incomplete
+checks, with no compiler diagnostic or successful clippy result. Rerun the two
+package commands above through `rtk env` when the environment permits them to
+finish.
+
+The full workspace gate is left to the reviewer.
+
+### Untested follow-up checks
+
+Light mode prohibits host test builds, Godot runs and installed-data checks.
+The following cases have no result on this follow-up. Commands are for the
+lead after light mode ends, with installed-data variables set for corpus
+cases. No new successful 2 ms acceptance measurement is claimed.
+
+`rtk cargo test -p soe-godot-host --lib prf_31` runs these untested cases:
+
+- `prf_31_spatial_light_matches_full_scan_and_current_reference_state`
+- `prf_31_spatial_light_matches_full_scan_after_runtime_base_changes`
+- `prf_31_pairs_use_range_and_one_light_sample_per_actor`
+- `prf_31_sound_source_keeps_distant_owner_without_duplicate_pairs`
+- `prf_31_sparse_population_avoids_distant_pair_queries`
+- `prf_31_vanilla_light_results_match_full_scan`
+- `prf_31_range_boundary_and_negative_buckets_keep_near_pairs`
+- `prf_31_invalid_range_performs_no_sight_or_light_queries`
+- `prf_31_candidates_preserve_npc_pairs_away_from_player_and_sound_owner_pose`
+- `prf_31_candidates_follow_cell_and_position_each_frame`
+- `prf_31_candidates_reject_invalid_ranges`
+- `prf_31_vanilla_candidate_observations_match_resident_population`
+- `prf_31_light_sampler_follows_current_enable_parent`
+- `prf_31_vanilla_persistent_actors_require_attached_tamriel_grid`
+- `prf_31_exterior_pairs_share_worldspace_and_keep_original_light_cells`
+
+`rtk cargo test -p soe-godot-host --lib cmb_32` runs these untested existing
+detection checks:
+
+- `cmb_32_occlusion_light_and_sound_change_observations`
+- `cmb_32_cell_change_retains_actor_form_identity`
+- `cmb_32_sound_source_can_have_an_owner_in_another_cell`
+- `cmb_32_cell_ambient_and_placed_light_follow_records`
+- `cmb_32_cell_inherits_ambient_from_lighting_template`
+- `cmb_32_vanilla_light_records_are_read_when_installed`
+
+The existing adversarial targets also remain untested. Each command is
+`rtk cargo test -p soe-godot-host --test TARGET prf_31`, using the named target:
+
+- `prf_31_adversarial`: `prf_31_light_sample_uses_current_enabled_and_moved_reference_state`,
+  `prf_31_malformed_or_nonlight_placed_references_do_not_panic_or_add_light`,
+  `prf_31_spatial_pairs_include_exact_range_and_negative_bucket_boundary`,
+  `prf_31_detection_event_is_sampled_at_its_location_and_owner_can_be_distant`,
+  `prf_31_sparse_actor_neighborhood_never_queries_distant_sight_or_light`
+- `prf_31_breaker_adversarial`: `prf_31_destroyed_runtime_light_stops_contributing`
+- `prf_31_breaker_breaker_adversarial`:
+  `prf_31_sound_from_sibling_exterior_cell_uses_source_and_owner_separately`,
+  `prf_31_equal_coordinates_in_different_worldspaces_do_not_share_sounds`
+- `prf_31_breaker_breaker_breaker_adversarial`:
+  `prf_31_off_by_default_light_stays_off_when_reference_state_is_loaded`,
+  `prf_31_runtime_spawned_light_joins_the_next_cell_sample`,
+  `prf_31_spatial_light_grid_matches_full_scan_at_negative_and_radius_edges`,
+  `prf_31_observation_batch_samples_light_once_per_target_form`
+
+After building with `rtk cargo build -p soe-godot-host --release` and importing
+with `rtk "$SOE_GODOT_BIN" --headless --path godot --import`, run
+`rtk cargo test -p soe-godot-host --test prf_31_walk prf_31`. Both launchers
+remain untested:
+
+- `prf_31_walk_route_turns_on_stalls_without_moving_the_player`
+- `prf_31_installed_windowed_gate_walk_keeps_every_detection_update_under_two_ms`
+
+The existing live checks also remain untested:
+
+- `prf_31_body_sync_preserves_stationary_rids_and_follows_world_changes`, run
+  `rtk "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_31_body_sync_test.gd`
+- `cmb_32_live_detection_test.gd::_run`, run
+  `rtk "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script cmb_32_live_detection_test.gd`
+
+### Earlier measurements
 
 The threshold fixed before the first run is 2 ms for the whole of
 `PlayerNode::advance_detection`, including body synchronization, sight rays,

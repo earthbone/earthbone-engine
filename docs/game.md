@@ -372,10 +372,12 @@ persistent cells of one worldspace share that space. Their existing loss and rec
 timers then advance without creating awareness for distant strangers.
 
 `World::light_references_in_cell` caches authored LIGH reference identities
-per cell and tracks instantiated light identities, including runtime spawns.
-It reads current reference cells when returning its sorted list, so moved
-lights leave their authored cell and enter their destination. Disabled and
-deleted identities remain in the list, visibility is read by the sampler.
+per cell and groups instantiated light identities by their current cell,
+including runtime spawns. Shared reference invalidation refreshes only changed
+memberships, including base changes and cell moves. An unchanged cell query
+reads that cell's light identities without scanning loaded lights in other
+cells. Moved lights leave their authored cell and enter their destination.
+Disabled and deleted identities remain in the list, visibility is read by the sampler.
 Cell prefetch builds membership before detection. Native-save load and vanilla
 reference restoration invalidate this derived index. The cache adds no saved
 fields. REFR/NAME and LIGH identity come from local
