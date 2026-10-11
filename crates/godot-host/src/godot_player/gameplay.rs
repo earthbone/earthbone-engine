@@ -614,6 +614,13 @@ impl PlayerNode {
             }
         }
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let spell_art_requests = game.world_mut().take_spell_art_requests();
+            if !spell_art_requests.is_empty() {
+                let world = game.world();
+                streamer
+                    .bind_mut()
+                    .sync_spell_art_requests(&world, spell_art_requests);
+            }
             let detections = {
                 let mut world = game.world_mut();
                 match crate::detect_life::presentations(&mut world) {

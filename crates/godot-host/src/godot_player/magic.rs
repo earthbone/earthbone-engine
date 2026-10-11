@@ -92,6 +92,49 @@ fn select_telekinesis_target(
 }
 
 impl PlayerNode {
+    fn invoke_scr_47_spell_art_call(
+        &mut self,
+        spell_file: i32,
+        spell_object: i64,
+        preload: bool,
+    ) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(spell_file),
+            u32::try_from(spell_object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        let spell = GlobalFormId { file, object };
+        let method = if preload { "Preload" } else { "Unload" };
+        let script_name = "SoeScr47SpellArtHostCheck";
+        let script = soe_papyrus::asm::ScriptBuilder::new(script_name, "Form")
+            .function(
+                soe_papyrus::asm::FunctionBuilder::new("Run", "None")
+                    .global()
+                    .param("spell", "Form")
+                    .local("result", "None")
+                    .ins(
+                        soe_papyrus::Opcode::CallMethod,
+                        vec![
+                            soe_papyrus::asm::s(method),
+                            soe_papyrus::asm::ident("spell"),
+                            soe_papyrus::asm::ident("result"),
+                        ],
+                    )
+                    .build(),
+            )
+            .bytes();
+        if game.load_script(&script).is_err() {
+            return false;
+        }
+        let args = [soe_papyrus::Value::Object(game.object_of_form(spell))];
+        let Ok(thread) = game.vm.call_global(script_name, "Run", &args) else {
+            return false;
+        };
+        game.run_until_idle(64) && game.vm.thread_result(thread) == Some(soe_papyrus::Value::None)
+    }
+
     fn release_host_grab(&mut self, actor: GlobalFormId, direction: Vec3) {
         let impulse = grab_actor_throw_impulse(direction).unwrap_or(Vector3::UP * 1.5);
         self.actor_bodies.throw_grabbed_actor(actor, impulse);
@@ -375,6 +418,17 @@ mod tests {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Invoke a Spell art Papyrus method for the SCR-47 installed host check.
+    #[func]
+    pub fn scr_47_spell_art_call(
+        &mut self,
+        spell_file: i32,
+        spell_object: i64,
+        preload: bool,
+    ) -> bool {
+        self.invoke_scr_47_spell_art_call(spell_file, spell_object, preload)
+    }
+
     /// Cast a self-delivered spell through the shared runtime world.
     #[func]
     pub fn cast_spell_on_self(&mut self, spell_file: i32, spell_object: i64) -> bool {
