@@ -337,9 +337,10 @@ and diagnostics.
   TextField surface audit.
 - [Ruffle pull request 9090](https://github.com/ruffle-rs/ruffle/pull/9090),
   for the `GFX` and `CFX` header signature change.
-- The research lead at `research/engine-map/leads/ui-scaleform.md` was read.
-  The local Ruffle clone was absent, so the pinned upstream source links above
-  were used for the AVM1 namespace and `TextField.SetText` check. Compatibility
-  behavior still needs a runtime prototype and menu tests.
+- The research lead at `research/engine-map/leads/ui-scaleform.md` and the
+  local Ruffle clone were absent from this checkout. The pinned upstream source
+  links above were checked directly for the AVM1 namespace and `TextField.SetText`
+  findings. Compatibility behavior still needs a runtime prototype and menu
+  tests.
 - Scaleform extension behavior is described as a compatibility target from
   source usage. Verify each method against primary references during UI-28.
