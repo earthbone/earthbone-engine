@@ -16,6 +16,14 @@ use soe_save::{Papyrus, Save};
 use crate::Game;
 
 pub const MAGIC: &[u8; 4] = b"SOEG";
+
+/// One measured top-level section in a native SOEG save.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeSaveSection {
+    pub name: &'static str,
+    pub bytes: usize,
+    pub nanos: u64,
+}
 pub const VERSION: u16 = 2;
 
 /// Dependency identity recorded in a native game save.
@@ -495,17 +503,43 @@ impl Game {
     /// Whatever [`soe_papyrus::Vm::save_state`] returns for a thread it
     /// cannot describe (a frame with no script).
     pub fn save_state(&self) -> Result<Vec<u8>, VmError> {
+        self.save_state_profiled().map(|(bytes, _)| bytes)
+    }
+
+    /// Serialize the save and measure its world, Papyrus and envelope sections.
+    pub fn save_state_profiled(&self) -> Result<(Vec<u8>, Vec<NativeSaveSection>), VmError> {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Save);
         let _span = soe_trace::Span::new("game.save_state", "game");
+        let started = std::time::Instant::now();
         let world_bytes = self.world.borrow().save_state();
+        let mut sections = vec![NativeSaveSection {
+            name: "world",
+            bytes: world_bytes.len(),
+            nanos: elapsed_nanos(started),
+        }];
+        let started = std::time::Instant::now();
         let vm_bytes = self.vm.save_state()?;
+        sections.push(NativeSaveSection {
+            name: "papyrus_vm",
+            bytes: vm_bytes.len(),
+            nanos: elapsed_nanos(started),
+        });
+        let started = std::time::Instant::now();
         let mut out = Writer::new();
         out.out.extend_from_slice(MAGIC);
         out.u16(VERSION);
         current_provenance(self).write(&mut out);
         out.bytes(&world_bytes);
         out.bytes(&vm_bytes);
-        Ok(out.out)
+        sections.push(NativeSaveSection {
+            name: "envelope",
+            bytes: out
+                .out
+                .len()
+                .saturating_sub(world_bytes.len().saturating_add(vm_bytes.len())),
+            nanos: elapsed_nanos(started),
+        });
+        Ok((out.out, sections))
     }
 
     /// Replace the world and VM state with a saved one. Compatible scripts
@@ -519,6 +553,11 @@ impl Game {
     /// A wrong magic or version, a truncated stream, or anything
     /// `World::load_state` or `Vm::load_state` reject.
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), VmError> {
+        self.load_state_profiled(bytes).map(|_| ())
+    }
+
+    /// Load a native save and measure world, Papyrus VM and envelope work.
+    pub fn load_state_profiled(&mut self, bytes: &[u8]) -> Result<Vec<NativeSaveSection>, VmError> {
         let _load = soe_trace::LoadScope::operation(
             "engine_save_load",
             "SOES",
@@ -527,7 +566,22 @@ impl Game {
         let _parse =
             soe_trace::LoadScope::new("engine_save_restore", soe_trace::LoadCause::Parse, "SOES");
         let _span = soe_trace::Span::with_payload("game.load_state", "game", bytes.len() as u64);
-        match self.validate_saved_state(bytes) {
+        let envelope_started = std::time::Instant::now();
+        let (saved, world_bytes, vm_bytes) = read_envelope(bytes)?;
+        check_provenance(&saved, &current_provenance(self))?;
+        let envelope_nanos = elapsed_nanos(envelope_started);
+
+        let world_validation_started = std::time::Instant::now();
+        let world_validation = self.world.borrow().validate_state(world_bytes);
+        let world_validation_nanos = elapsed_nanos(world_validation_started);
+        let vm_validation_started = std::time::Instant::now();
+        let vm_validation = self.vm.validate_state(vm_bytes);
+        let vm_validation_nanos = elapsed_nanos(vm_validation_started);
+        match world_validation {
+            Ok(()) => {}
+            Err(error) => return Err(error),
+        }
+        match vm_validation {
             Ok(())
             | Err(
                 VmError::UnknownScript(_)
@@ -536,15 +590,40 @@ impl Game {
             ) => {}
             Err(error) => return Err(error),
         }
-        let (saved, world_bytes, vm_bytes) = read_envelope(bytes)?;
-        check_provenance(&saved, &current_provenance(self))?;
+
+        let world_started = std::time::Instant::now();
         self.world.borrow_mut().load_state(world_bytes)?;
+        let world_nanos = world_validation_nanos.saturating_add(elapsed_nanos(world_started));
+        let vm_started = std::time::Instant::now();
         self.vm.load_state(vm_bytes)?;
+        let vm_nanos = vm_validation_nanos.saturating_add(elapsed_nanos(vm_started));
         self.bound = None;
         self.bound_cells.clear();
         self.bound_forms.clear();
-        Ok(())
+        Ok(vec![
+            NativeSaveSection {
+                name: "world",
+                bytes: world_bytes.len(),
+                nanos: world_nanos,
+            },
+            NativeSaveSection {
+                name: "papyrus_vm",
+                bytes: vm_bytes.len(),
+                nanos: vm_nanos,
+            },
+            NativeSaveSection {
+                name: "envelope",
+                bytes: bytes
+                    .len()
+                    .saturating_sub(world_bytes.len().saturating_add(vm_bytes.len())),
+                nanos: envelope_nanos,
+            },
+        ])
     }
+}
+
+fn elapsed_nanos(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 impl Game {

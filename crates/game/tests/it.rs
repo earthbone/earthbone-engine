@@ -1025,6 +1025,11 @@ mod mod_09_adversarial;
 mod mod_10_adversarial;
 #[path = "moddata_apply.rs"]
 mod moddata_apply;
+
+#[path = "mod_07_breaker_5_adversarial.rs"]
+mod mod_07_breaker_5_adversarial;
+#[path = "mod_07_breaker_adversarial.rs"]
+mod mod_07_breaker_adversarial;
 #[path = "natives_2.rs"]
 mod natives_2;
 #[path = "natives_dlc.rs"]

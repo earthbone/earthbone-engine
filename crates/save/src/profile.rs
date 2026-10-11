@@ -30,6 +30,20 @@ pub struct ParseProfile {
     pub change_form_nanos: Vec<u64>,
 }
 
+/// Size and encode time of one named region written to an ESS body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WriteSectionProfile {
+    pub name: &'static str,
+    pub bytes: usize,
+    pub nanos: u64,
+}
+
+/// Regions measured while rebuilding an ESS file.
+#[derive(Clone, Debug, Default)]
+pub struct WriteProfile {
+    pub sections: Vec<WriteSectionProfile>,
+}
+
 /// Change form decode work attributed to one plugin.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginLoad {
