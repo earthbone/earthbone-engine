@@ -9299,3 +9299,25 @@ sounds. Equal draws exclude an entry. The parser retains Mutagen's accepted
 layouts are UESP REGN and xEdit's `wbRegionSounds`, with the chance range from
 Mutagen's Skyrim `Region.xml`. The installed city and tundra tests require a
 selected ordinary loop with a draw of 0.25. No ambient state is added to saves.
+
+## Loose-reference pickup ownership, HST-26
+
+Default activation moves loose item references through the existing notified
+reference transaction. Pickup preserves item instance data, disables the
+placed reference and delivers OnContainerChanged, inventory notifications
+and OnActivate. Blocked activation still queues OnActivate without default
+processing. Default-only Papyrus Activate bypasses the block and suppresses
+OnActivate, following the local CK Activate and OnActivate pages.
+
+Pickup ownership reads the explicit reference owner or its cell owner and
+compares the activating actor's base and faction rank. A stolen pickup
+inherits the effective owner into the existing inventory extra list. An
+allowed pickup clears ownership from the received bundle. Ordinary AddItem
+reference transfers retain their existing ownership behavior. This uses the
+existing inventory save layout and adds no saved field or section.
+The ownership path reuses UI-26's QuickLoot IE reference and cell rules.
+BOOK DATA bit 1, Can't be Taken, retains the reference during default
+activation while still sending OnActivate, following local UESP BOOK.
+Successful player BOOK default processing also queues a transient ReadBook
+host request. This includes Papyrus default-only Activate calls. Actor pickups
+do not request a player menu. Menu requests are not saved.

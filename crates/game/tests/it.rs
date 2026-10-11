@@ -1888,3 +1888,6 @@ mod aud_13_weather_music;
 
 #[path = "hst_23_characters.rs"]
 mod hst_23_characters;
+
+#[path = "hst_26_activation.rs"]
+mod hst_26_activation;

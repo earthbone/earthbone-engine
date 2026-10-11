@@ -6858,3 +6858,35 @@ The runners use isolated projects with explicit extension registration, so
 a fresh checkout needs no shared Godot import cache for these checks.
 The fixture scene runs in a window. Their stdout and stderr captures are
 written under `target/aud_13`.
+
+## Walkthrough loose-object activation, HST-26
+
+Starting gameplay installs the streamed cell's PhysicsServer collision when
+it is absent, using its resolved FormID without requiring an editor name.
+This includes loose rigid item bodies, which the static player
+movement world excludes. A previously installed cell retains its bodies and
+poses. The activation ray resolves the first body through the query, streamer
+and actor ownership maps. Tap E uses Game's default activation. A hold whose
+target cannot be carried activates once at the hold threshold. A successful
+carry retains its existing release behavior.
+
+The HUD shows the resolved reference name and Take, Steal, Read, Activate,
+Use or Open beside the crosshair. The prompt ignores mouse input. BOOK
+default processing in Game requests a scrollable Book
+menu with localized FULL and DESC text. Text presentation retains line and
+page breaks and strips font and image tags. It does not render book images.
+ACTI and FURN use the same Game and OnActivate path as other references.
+Both player input and Papyrus book-reading requests reach the menu adapter.
+The activation observer diagnostics read the shared World and Papyrus VM.
+
+Sources are local CK Activate and OnActivate pages, UESP BOOK, and the
+existing HST-22 server bodies and UI-26 ownership transaction. OpenMW
+`apps/openmw/mwgui/formatting.cpp` supplies the book markup comparison. Its
+MyGUI font, image and pagination widgets do not fit this host. The reader
+uses Godot text scrolling with line breaks and plain text instead. No new saved
+field, dependency or per-reference node is added. The headless HST-26 scene
+extends walkthrough.gd, takes a Bannered Mare tankard using mapped E and
+checks inventory, disabled state, prompt and executed OnActivate. It also
+activates an installed book and activator and checks the book menu and their
+Papyrus observers. Rust cases cover all seven requested item tags, ownership,
+blocked processing and default-only native activation.

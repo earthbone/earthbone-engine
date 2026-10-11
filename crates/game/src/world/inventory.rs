@@ -520,6 +520,32 @@ impl World {
         let Some(addition) = self.reference_addition(holder, reference) else {
             return false;
         };
+        self.receive_reference_addition(holder, &addition, alloc)
+    }
+
+    pub(super) fn pickup_reference_notified(
+        &mut self,
+        holder: GlobalFormId,
+        reference: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> bool {
+        let Some(mut addition) = self.reference_addition(holder, reference) else {
+            return false;
+        };
+        if self.loose_item_is_stealing(reference, holder) {
+            addition.bundle.inherit_owner(self.loot_owner(reference));
+        } else {
+            addition.bundle.clear_ownership();
+        }
+        self.receive_reference_addition(holder, &addition, alloc)
+    }
+
+    fn receive_reference_addition(
+        &mut self,
+        holder: GlobalFormId,
+        addition: &ReferenceAddition,
+        alloc: Alloc<'_>,
+    ) -> bool {
         let Some(target) = self.reference(holder) else {
             return false;
         };
@@ -537,7 +563,7 @@ impl World {
             .inventory
             .receive(addition.base, addition.bundle.clone());
         debug_assert!(result.is_ok());
-        self.apply_reference_addition(holder, &addition, alloc);
+        self.apply_reference_addition(holder, addition, alloc);
         true
     }
 
