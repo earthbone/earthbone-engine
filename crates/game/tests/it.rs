@@ -1327,6 +1327,8 @@ mod scr_11_actor_state_bindings;
 mod scr_11_adversarial;
 #[path = "scr_11_breaker2_adversarial.rs"]
 mod scr_11_breaker2_adversarial;
+#[path = "scr_11_breaker4_adversarial.rs"]
+mod scr_11_breaker4_adversarial;
 #[path = "scr_11_breaker_adversarial.rs"]
 mod scr_11_breaker_adversarial;
 #[path = "scr_12_adversarial.rs"]
