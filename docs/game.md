@@ -6738,19 +6738,25 @@ override link after reload.
 
 For reference headers with the generic form-flags bit, the pass retains both
 mask words in its report and XORs the first word with winning-record flags
-before deriving enable and persistence. xEdit names the first word `Mask
-Invert Flags`; the second word is `Mask Set unk010` and remains opaque. The
-pass accepts Special Edition ESS header versions from 12 and matching file and
-change-form versions from 77. Tests compare authored reference state before
-and after restore for header versions 12 and 13, form versions 77 and 78, all
-four authored enable/persistence combinations, and varied values in both saved
-words.
-Deleted winning records remain disabled regardless of this mask.
-The effective persistence value feeds cell-unload retention and
-encounter-zone reset decisions. SOEW version 37 stores it with each reference.
-Older SOEW states derive persistence from the current winning record.
-The test `sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
-checks those before-and-after cases, the persistence query and engine save/load.
+before deriving enable and persistence. xEdit names the first word Mask
+Invert Flags. The second word is Mask Set unk010 and remains opaque.
+Deleted winning records stay disabled regardless of the mask.
+The pass accepts Special Edition ESS header versions from 12 and matching
+file/change-form versions from 77 to 255, without an upper header-version
+bound. These are implementation rules. The named sources do not independently
+establish either word's runtime operation across that accepted range.
+See [save.md](save.md#reference-mask-implementation-and-evidence-sav-54) for
+source paths and the missing SAV-54 evidence.
+
+SOEW version 37 stores effective persistence with each reference. Older SOEW
+states derive persistence from the current winning record. The existing
+`sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
+checks this engine's before-and-after states, persistence queries and
+engine save/load. The follow-up tests round-trip both saved words through the
+public ESS container parser for every accepted form version and check atomic
+rejection of a late unsupported mask version. They do not observe the original
+runtime. The SKYRIM_DATA case uses vanilla authored flags in a synthetic save
+and remains untested in light mode. No saved state is added in this follow-up.
 
 ## Inventory instances and ESS application, work in progress
 
