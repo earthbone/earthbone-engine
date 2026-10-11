@@ -342,6 +342,21 @@ fn vanilla_trace_payload(line: &str) -> Option<&str> {
     {
         return None;
     }
+    let (month, day, year) = (
+        month.parse::<u32>().ok()?,
+        day.parse::<u32>().ok()?,
+        year.parse::<u32>().ok()?,
+    );
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year % 400 == 0 || (year % 4 == 0 && year % 100 != 0) => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if year == 0 || day == 0 || day > days_in_month {
+        return None;
+    }
     let time = time
         .strip_suffix("AM")
         .or_else(|| time.strip_suffix("PM"))?;
@@ -350,11 +365,19 @@ fn vanilla_trace_payload(line: &str) -> Option<&str> {
     let second = seconds.get(3..5)?;
     if seconds.as_bytes().get(2) != Some(&b':')
         || seconds.len() != 5
-        || hour.len() != 2
+        || !(1..=2).contains(&hour.len())
         || !hour.bytes().all(|byte| byte.is_ascii_digit())
         || !minute.bytes().all(|byte| byte.is_ascii_digit())
         || !second.bytes().all(|byte| byte.is_ascii_digit())
     {
+        return None;
+    }
+    let (hour, minute, second) = (
+        hour.parse::<u32>().ok()?,
+        minute.parse::<u32>().ok()?,
+        second.parse::<u32>().ok()?,
+    );
+    if !(1..=12).contains(&hour) || minute > 59 || second > 59 {
         return None;
     }
     Some(&line[close + 2..])
