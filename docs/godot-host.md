@@ -3802,6 +3802,15 @@ during the first fade, verifies each configured fade changes player volume,
 then interrupts the fade and checks that the reused slot no longer has the
 first track assigned. AudioEffectCapture confirms mixer output during playback.
 
+`aud_05_player_music_selection_reaches_godot_with_vanilla_fades` surveys the
+installed base masters for an eligible MUSC track with nonzero authored fades.
+It starts installed gameplay through PlayerNode, selects the record through
+`select_music_type`, checks Godot playback and its fade, and confirms captured
+mixer output. The record fields follow the
+local `TES5Edit/Core/wbDefinitionsTES5.pas` definitions for MUSC and MUST.
+Godot playback uses its `AudioStreamPlayer` players and mixer facilities as
+documented in `godot-docs/classes/class_audioserver.rst`.
+
 ### Asynchronous music and ambience (AUD-12)
 
 Music and ambience requests decode on a worker. The main thread creates the
