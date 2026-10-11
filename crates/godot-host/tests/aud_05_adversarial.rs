@@ -133,6 +133,11 @@ func check(value: bool, message: String) -> void:
     if not value:
         failures += 1
         printerr("FAIL: ", message)
+func wait_ready(bank: Node3D, path: String) -> void:
+    var deadline := Time.get_ticks_msec() + 5_000
+    while str(bank.call("current_music_path")) != path.to_lower() and Time.get_ticks_msec() < deadline:
+        await process_frame
+    check(str(bank.call("current_music_path")) == path.to_lower(), "decode did not become ready: " + path)
 func _initialize() -> void:
     call_deferred("run")
 func wait_for_music_count(bank: Node, expected: int) -> bool:
@@ -154,16 +159,19 @@ func run() -> void:
     check(bank.call("open_data", OS.get_environment("AUD_05_TEST_DATA")), "fixture data opens")
     check(bank.call("play_music_track", "music/end_first.wav", 0.12, 0.12, false), "first track starts")
     check(await wait_for_music_count(bank, 1), "first track decode finishes")
+    await wait_ready(bank, "music/end_first.wav")
     check(bank.call("play_music_track", "music/end_second.wav", 0.12, 0.12, false), "second track starts")
     check(await wait_for_music_count(bank, 2), "second track decode finishes")
+    await wait_ready(bank, "music/end_second.wav")
     check(bank.call("play_music_track", "music/end_third.wav", 0.12, 0.12, false), "third track interrupts fade")
     check(await wait_for_music_count(bank, 3), "third track decode finishes")
-    var latest_data: PackedByteArray = (bank.get_child(16) as AudioStreamPlayer).stream.data
+    await wait_ready(bank, "music/end_third.wav")
+    var latest_stream := (bank.get_child(16) as AudioStreamPlayer).stream
     await create_timer(0.3).timeout
     var first := bank.get_child(16) as AudioStreamPlayer
     var second := bank.get_child(17) as AudioStreamPlayer
     check(first.playing != second.playing, "completed fade leaves exactly one music slot playing")
-    check(first.playing and first.stream.data == latest_data, "latest track remains active after fade completion")
+    check(first.playing and first.stream == latest_stream, "latest track remains active after fade completion")
     bank.queue_free()
     print("RESULT: ", "PASS" if failures == 0 else "FAIL")
     quit(0 if failures == 0 else 1)

@@ -830,11 +830,21 @@ outdoor WTHR lighting.
 
 ## Cell ambience, AUD-09
 
-The MUST track lookup and non-positional `SoundBank::play_ambience` entry
-point remain available. `tests/aud_09_godot_ambience.rs` uses a generated WAV
-fixture to check that entry point's AudioStreamPlayer start and release in a
-windowed 640 by 360 process. PlayerNode uses the ambient SNDR descriptors
-connected by AUD-11 below.
+The player owns one non-positional ambience stream through a Godot
+`AudioStreamPlayer`. On a cell change it queues the first eligible single-track
+path returned by `soe_game::ambience`, retaining the prior stream until the
+replacement is decoded. A cell with no eligible track stops playback and
+cancels its pending decode. Selection reads MUST conditions and palette leaves.
+This uses Godot's audio server path documented by local
+`godot-docs/classes/class_audioserver.rst`. Track looping, crossfades, multiple
+regional sound descriptors and MUSC priority arbitration are not implemented.
+The MUST lookup and `SoundBank::play_ambience` entry point remain available to
+callers. PlayerNode uses the ambient SNDR descriptors connected by AUD-11 below.
+
+`tests/aud_09_godot_ambience.rs` launches Godot with a generated WAV fixture
+and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
+the cell ambience is released. The test uses a windowed 640 by 360 Godot
+process and exits when the transition check finishes.
 
 ## Walkthrough audio, AUD-11
 
@@ -865,6 +875,60 @@ is at or below -60 dB. NPC speech is selected during normal gameplay ticks.
 The windowed `aud_11_` tests launch this check and inspect its result and exit
 status. The vanilla response test resolves and decodes the selected voice
 asset independently. Checks skip when SKYRIM_DATA or SOE_GODOT_BIN is unset.
+
+## Background music and ambience, AUD-12
+
+`SoundBank` queues music and ambience on one Rust decode worker. The worker
+reads the shared VFS and uses the configured `soe_audio` decoder, including
+native xWMA decoding in the default build. Each lane has a request ticket.
+New selections and stop calls invalidate older tickets. The worker discards
+superseded results before caching or delivery, and the host checks tickets
+again when polling. The current stream continues until a replacement is ready
+or its own samples end. Music fades begin when the replacement starts.
+
+The worker shares decoded PCM by resolved, normalized data path in an LRU
+cache capped at 64 MiB of allocated sample storage. Tracks exceeding the cap
+play without entering the cache. Active stream handles, pending completions, queued disposal and the worker's
+current decode are outside that cache budget. Finished and discarded PCM
+buffers return to the worker for disposal, so freeing an uncached long track
+does not run inside a host frame. Changing the data source
+invalidates pending requests and clears playback and both audio caches.
+Dropping the worker closes its channels without joining a long decode on the
+host thread. It exits after the current decode returns.
+
+Godot resources stay on the main thread. Each music slot and the ambience
+player uses a generator with a 0.25 second buffer at the decoded sample rate.
+A feed uploads at most 16,384 stereo frames per pump. Music retains stereo,
+ambience folds channels to mono, and finite tracks stop after their PCM drains.
+Effects, footsteps and voices retain their synchronous WAV and LIP path.
+The existing player pool remains 16 positional players, two music players and
+one ambience player. No per-reference nodes, dependencies or saved state were
+added.
+
+A successful request means it was queued. Missing VFS paths fail immediately.
+Decode failures set `last_error`, log the path and preserve current playback.
+Explicit ambience requests restart the selected path after readiness, while
+`AmbienceOwner` still suppresses repeated cell selections.
+
+The local `openmw/apps/openmw/mwsound/soundmanagerimp.cpp` was read for pending
+music selection. Its OpenAL backend does not fit this host. Buffer ownership,
+sample rate, `push_buffer`, free capacity and underrun counters follow local
+`godot-docs/classes/class_audiostreamgenerator.rst` and
+`class_audiostreamgeneratorplayback.rst`. No OpenMW implementation was copied.
+
+The `aud_12_` worker tests cover both lanes, cancellation during a blocked
+decode, normalized cache reuse, LRU eviction, oversized tracks and failures.
+`aud_12_generator_playback_cache_cancellation_and_errors` checks live stereo
+mixer output, underruns, current-track retention, cache reuse, cancellation,
+finite playback and the unchanged effect and voice path. The installed-data
+`aud_12_installed_walkthrough_music_starts_and_changes_under_two_ms` runs the
+actual walkthrough, retains its automatic music and ambience start, changes
+between two winning vanilla MUST paths and returns to a cached track. It
+checks the PRF-12 audio session maximum against a fixed 2 ms limit and exits.
+Measurements are recorded in [performance.md](performance.md).
+The installed AUD-11 walk still reports zero voices on both the original
+checkout and AUD-12. Idle NPC voice presentation remains outside this change.
+The voice WAV path is exercised directly by the synthetic playback check.
 
 ### Papyrus weather image-space selection, SCR-54
 
@@ -2863,10 +2927,9 @@ audio in Godot is a property of `AudioStreamPlayer3D` and `AudioServer` has no
 RID call that places a sound in space. Nodes are the only route to the
 attenuation the done check asks for.
 
-`AudioStreamWav` carries the samples, not `AudioStreamGenerator`. A generator
-exists for audio that has not been produced yet, pushed a block at a time from a
-callback. Every sound here is fully decoded before it plays, so a generator
-would add a ring buffer and a way to underrun and nothing else.
+Effects and voices use `AudioStreamWav`. Music and ambience use
+`AudioStreamGenerator` with bounded PCM uploads after background decoding,
+as described in AUD-12 above.
 
 ### What the conversion has to do
 

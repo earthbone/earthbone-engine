@@ -1025,6 +1025,65 @@ the failing doubled Game ticks before removing the closed-menu tick.
 
 No vanilla-runtime timing comparison or rendering acceptance was run.
 
+## Background music and ambience, AUD-12, 2026-10-05
+
+The lead's release installed-data check on master plus R-PRF-7 and R-AUD-2
+reported 6,783 ms of main-thread audio in one PRF-12 walkthrough frame when
+music first started. That path decoded the complete native xWMA track and
+built a WAV inside the frame.
+
+The AUD-12 acceptance limit was fixed at 2 ms before its first run. The check
+extends the actual walkthrough, keeps its automatic Bannered Mare music and
+ambience start, then changes between two winning installed MUST paths and
+returns to the first. Godot 4.4.1 ran windowed at 640 by 360 with software
+Vulkan, llvmpipe LLVM 22.1.8. The extension was built in release mode and
+imported before the first run. No compiler ran during the final measurement.
+
+| Revision of the audio path | Worst main-thread audio ms | Result against 2 ms |
+| --- | ---: | --- |
+| Lead's synchronous decode baseline | 6783 | fail |
+| Original checkout a40740b8, 20-second AUD-11 walk | 7466.842232 | fail |
+| Worker decode, main-thread PCM disposal, first run | 3.860314 | fail |
+| Worker decode, main-thread PCM disposal, diagnostic run | 4.186676 | fail |
+| Worker decode and PCM disposal | 0.115918 | pass |
+
+Generator startup diagnostics stayed below 0.5 ms in the second failed run.
+Long tracks exceeding the cache cap still released their PCM on the main
+thread when an outgoing fade finished. Finished, replaced and discarded
+buffers now return to the decode worker for disposal. The final run removed
+the observed spike without changing the acceptance threshold.
+
+The final session summary covers 306 presentation frames. Audio mean was
+0.013251 ms, rolling p50 was 0.009467 ms and rolling p99 was 0.107633 ms.
+The acceptance script observed 268 frames after gameplay became ready, four
+music starts, one ambience start, 12,582,912 cached PCM bytes and a master
+mixer peak of 0.136122. The two transition tracks were
+`music/dlc01/explore/soulcairn/palette/mus_soulcairn_guitarviol_a_01.xwm` and
+`mus_soulcairn_guitarviol_a_02.xwm` in the same directory. Returning to the
+first added no decoder call. The process exited zero after 66.23 seconds,
+including Rust-side record discovery and walkthrough startup.
+
+Run `aud_12_installed_walkthrough_music_starts_and_changes_under_two_ms`
+from `soe-godot-host`'s `aud_12_background_audio` test target with
+`SKYRIM_DATA` and `SOE_GODOT_BIN` set. The script enforces the session maximum,
+checks actual mixer signal and exits after the changes. The worker cache
+limit is 64 MiB of allocated PCM samples. Active tracks, pending completions,
+queued disposal and the current decode are outside that cache budget.
+These frame measurements describe this run and are not a portable scheduler
+guarantee or a measurement of speaker output.
+
+The existing installed AUD-11 walking test fails its voice-count assertion
+on both original checkout `a40740b8` and AUD-12, reporting nine footsteps,
+one music start, one ambience start and zero voices in both runs. The
+original checkout measured 7,466.842232 ms worst audio, while the AUD-12 walk
+measured 13.548742 ms worst audio with synchronous effects retained.
+That walking maximum has no finer phase diagnosis.
+This separate walking check does not pass the AUD-12 music-transition limit.
+The dedicated start/change check above passes that limit. Idle NPC voice
+presentation is an inherited AUD-11 gap, and AUD-12 does not add it.
+The ordinary audio crate suite passed 81 tests, and the selected existing
+host music/ambience checks plus the new playback fixture passed 14 tests.
+
 ## Machine
 
 - AMD Ryzen 9 7900X, 12 cores, 24 threads, up to 5.7 GHz
