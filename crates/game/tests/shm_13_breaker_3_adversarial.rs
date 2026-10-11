@@ -42,8 +42,14 @@ fn favorite_sets_are_per_actor_and_unknown_runtime_ids_are_rejected() {
     assert!(api.set_favorite(a_form, item, true).unwrap());
     assert!(api.is_favorite(a_form, item).unwrap());
     assert!(!api.is_favorite(b_form, item).unwrap());
-    assert!(matches!(api.is_favorite(FormId(0xDEAD_BEEF), item), Err(UnsupportedState::MissingReference)));
-    assert!(matches!(api.set_favorite(a_form, FormId(0xDEAD_BEEF), true), Err(UnsupportedState::MissingReference)));
+    assert!(matches!(
+        api.is_favorite(FormId(0xDEAD_BEEF), item),
+        Err(UnsupportedState::MissingReference)
+    ));
+    assert!(matches!(
+        api.set_favorite(a_form, FormId(0xDEAD_BEEF), true),
+        Err(UnsupportedState::MissingReference)
+    ));
 }
 
 #[test]

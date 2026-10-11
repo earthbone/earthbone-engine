@@ -13,9 +13,7 @@ fn world() -> World {
     plugin.push_top(Record::new(Tag(*b"HAZD"), 0x200));
     plugin.push_top(Record::new(Tag(*b"MISC"), 0x201));
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x202));
-    plugin.push_top(
-        Record::new(Tag(*b"ACHR"), 0x300).sub(Tag(*b"NAME"), 0x202_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x300).sub(Tag(*b"NAME"), 0x202_u32.to_le_bytes()));
     plugin.push_top(
         Record::new(Tag(*b"REFR"), 0x301)
             .sub(Tag(*b"NAME"), 0x201_u32.to_le_bytes())
@@ -62,7 +60,10 @@ fn hazard_view_reads_authored_phzd_transform_without_building_a_reference() {
     let hazard = world.commonlib_hazard(id(0x302)).unwrap();
     assert_eq!(hazard.reference.0, 0x302);
     assert_eq!(hazard.base.0, 0x200);
-    assert_eq!([hazard.position.x, hazard.position.y, hazard.position.z], [11.0, -12.0, 13.5]);
+    assert_eq!(
+        [hazard.position.x, hazard.position.y, hazard.position.z],
+        [11.0, -12.0, 13.5]
+    );
     assert!(hazard.enabled);
 }
 

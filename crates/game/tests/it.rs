@@ -52,6 +52,8 @@ mod shm_11_breaker_2_adversarial;
 mod shm_12_breaker_adversarial;
 #[path = "shm_13_breaker_2_adversarial.rs"]
 mod shm_13_breaker_2_adversarial;
+#[path = "shm_13_breaker_3_adversarial.rs"]
+mod shm_13_breaker_3_adversarial;
 #[path = "shm_13_breaker_adversarial.rs"]
 mod shm_13_breaker_adversarial;
 #[path = "shm_14_breaker_2_adversarial.rs"]
@@ -1646,6 +1648,8 @@ mod shm_10_breaker_adversarial;
 mod shm_11_adversarial;
 #[path = "shm_11_breaker_3_adversarial.rs"]
 mod shm_11_breaker_3_adversarial;
+#[path = "shm_11_breaker_4_adversarial.rs"]
+mod shm_11_breaker_4_adversarial;
 #[path = "shm_11_cpp_live_world.rs"]
 mod shm_11_cpp_live_world;
 
@@ -1691,6 +1695,8 @@ mod shm_16_adversarial;
 mod shm_16_breaker_adversarial;
 #[path = "shm_16_breaker_3_adversarial.rs"]
 mod shm_16_breaker_3_adversarial;
+#[path = "shm_16_breaker_4_adversarial.rs"]
+mod shm_16_breaker_4_adversarial;
 #[path = "shm_16_cpp_live_world.rs"]
 mod shm_16_cpp_live_world;
 #[path = "shm_17_adversarial.rs"]
