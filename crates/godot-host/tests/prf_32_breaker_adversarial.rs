@@ -8,7 +8,7 @@ use std::collections::HashSet;
 mod support;
 
 #[test]
-fn bannered_mare_repairs_are_valid_and_diagnostics_identify_each_source_once() {
+fn prf_32_bannered_mare_repairs_are_valid_and_diagnostics_identify_each_source_once() {
     let Some(output) = support::installed_collision() else {
         return;
     };

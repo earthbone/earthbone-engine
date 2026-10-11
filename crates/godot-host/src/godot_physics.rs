@@ -1888,6 +1888,13 @@ func _initialize():
             "Godot host did not build and use Bannered Mare collision:\n{log}"
         );
         assert!(
+            log.lines().any(|line| {
+                line.contains("repaired convex collision hull for mesh node")
+                    && line.contains("input_vertices=44")
+            }),
+            "Bannered Mare did not submit the observed 44-vertex input hull:\n{log}"
+        );
+        assert!(
             !log.contains("Failed to build Jolt Physics convex polygon shape"),
             "Godot printed a convex shape error:\n{log}"
         );

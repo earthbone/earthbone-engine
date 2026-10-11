@@ -3265,8 +3265,9 @@ the call rather than retrying after Jolt reports an error. The PRF-32 checks a
 synthetic 44-point cloud with interior points and a flat cloud. Its
 installed-data check streams Bannered Mare through the host and runs
 `physics_test.gd`, requiring collision bodies, contact, a repaired 44-vertex
-shape and no Jolt shape error. The synthetic cloud does not reproduce the
-walkthrough's original coordinates.
+input and no Jolt shape error. The synthetic cloud does not reproduce the
+walkthrough's original coordinates. The installed-data check exercises the
+real point set but does not preserve its coordinates as a fixture.
 The installed collision helper builds and registers the release extension.
 Clippy can leave metadata at the debug library path, so existence alone does
 not establish a loadable library.
