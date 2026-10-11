@@ -13,10 +13,8 @@ fn ply_05_disconnected_navmesh_route_fails_without_moving_the_player() {
         reference.position = start;
     }
 
-    let report = crate::ply_02_routes::run(
-        &mut game,
-        "navigate-marker Skyrim.esm:800 0 100 0 120 120",
-    );
+    let report =
+        crate::ply_02_routes::run(&mut game, "navigate-marker Skyrim.esm:800 0 100 0 120 120");
 
     assert!(!report.passed(), "disconnected NAVM unexpectedly passed");
     assert!(

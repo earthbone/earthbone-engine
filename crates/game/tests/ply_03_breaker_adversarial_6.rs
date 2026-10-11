@@ -17,7 +17,9 @@ fn ply_03_no_vm_error_matches_only_case_insensitive_error_prefix() {
         .is_some_and(|failure| failure.contains("native failure")));
 
     let mut game = super::ply_02_routes::game(false);
-    game.vm.log.push(game.vm.time(), "warning: error: native failure");
+    game.vm
+        .log
+        .push(game.vm.time(), "warning: error: native failure");
     let report = play::run(&mut game, &Route::parse("expect-no-vm-error").unwrap());
     assert!(report.passed(), "{}", report.format());
 }

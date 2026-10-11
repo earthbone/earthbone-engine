@@ -84,6 +84,8 @@ mod ply_03_breaker_adversarial_4;
 mod ply_03_breaker_adversarial_5;
 #[path = "ply_03_breaker_adversarial_6.rs"]
 mod ply_03_breaker_adversarial_6;
+#[path = "ply_03_breaker_adversarial_7.rs"]
+mod ply_03_breaker_adversarial_7;
 #[path = "ply_05_breaker_adversarial.rs"]
 mod ply_05_breaker_adversarial;
 #[path = "ply_05_breaker_adversarial_2.rs"]
@@ -92,6 +94,8 @@ mod ply_05_breaker_adversarial_2;
 mod ply_05_breaker_adversarial_3;
 #[path = "ply_05_breaker_adversarial_4.rs"]
 mod ply_05_breaker_adversarial_4;
+#[path = "ply_05_breaker_adversarial_5.rs"]
+mod ply_05_breaker_adversarial_5;
 #[path = "ply_06_breaker_adversarial.rs"]
 mod ply_06_breaker_adversarial;
 #[path = "ply_06_breaker_adversarial_2.rs"]

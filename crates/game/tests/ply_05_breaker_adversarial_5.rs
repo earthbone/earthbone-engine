@@ -14,12 +14,13 @@ fn ply_05_navigation_to_current_position_succeeds_with_zero_tick_budget() {
         reference.position = position;
     }
 
-    let report = crate::ply_02_routes::run(
-        &mut game,
-        "navigate-marker Skyrim.esm:800 100 0 0 120 0",
-    );
+    let report =
+        crate::ply_02_routes::run(&mut game, "navigate-marker Skyrim.esm:800 100 0 0 120 0");
 
     assert!(report.passed(), "{}", report.format());
-    let player = game.world().reference_ref(player).expect("player reference");
+    let player = game
+        .world()
+        .reference_ref(player)
+        .expect("player reference");
     assert_eq!(player.position, position);
 }
