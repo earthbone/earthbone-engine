@@ -104,8 +104,9 @@ rtk proxy env SOE_PLAY_PATH=gate cargo test -p soe-godot-host \
 The main thread writes a heartbeat every frame. An independent Rust thread
 polls it every 25 milliseconds and kills the tracked child after two seconds
 without an update. It writes a `PLAY_PATH_BACKTRACE` marker with the last stop
-and attempts a bounded debugger stack capture. A startup or total timeout also
-terminates the child. A missing heartbeat, completion report or observation is
+and attempts a bounded debugger stack capture, then reads task stacks from
+`/proc/<pid>/task` when the debugger is missing or cannot attach. A startup or
+total timeout also terminates the child. A missing heartbeat, completion report or observation is
 a failure, including when the owning gameplay rows have expected failures.
 The runner reaps Godot and any Xvfb process it created.
 

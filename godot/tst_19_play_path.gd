@@ -187,11 +187,15 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	if not ground.is_empty():
 		target.z = ground.height
 	var points: PackedVector3Array = player.call("play_path_navigation", target)
-	if points.is_empty():
-		points.append(target)
 	var start := Time.get_ticks_msec()
 	var initial: Vector3 = player.call("position")
-	var reached := true
+	var reached := points.size() >= 2
+	if not reached:
+		_key(false)
+		var stationary: Vector3 = player.call("position")
+		_check("route.walk", false, {"destination": str(target), "position": str(stationary), "distance": initial.distance_to(stationary), "path_points": points.size(), "seconds": 0.0, "reason": "NAVM path missing or trivial"})
+		get_tree().quit(1)
+		return false
 	for point in points:
 		while not finished:
 			if sampling:
@@ -211,7 +215,11 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 			break
 	_key(false)
 	var final: Vector3 = player.call("position")
-	_check("route.walk", reached and initial.distance_to(final) > 1.0, {"destination": str(target), "position": str(final), "distance": initial.distance_to(final), "path_points": points.size(), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
+	var distance := initial.distance_to(final)
+	reached = reached and distance > 1.0
+	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
+	if not reached:
+		get_tree().quit(1)
 	return reached
 
 func _reference(predicate: Callable) -> Dictionary:
@@ -694,7 +702,30 @@ func _menu_theme(kind: String) -> void:
 					sources.append(str(node.get("art_source")))
 	var converted := sources.size() > 0 and sources.all(func(source: String) -> bool: return not source.begins_with("res://ui/theme/") and source != "builtin" and not source.is_empty())
 	var error := OS.get_environment("SOE_PLAY_PATH_THEME_ERROR")
-	_check("menu." + kind + "_theme", content != null and content.is_visible_in_tree() and converted and error.is_empty(), {"applicable": true, "theme": selected, "sources": sources, "conversion_error": error})
+	var reference_directory := OS.get_environment("SOE_PLAY_PATH_THEME_REFERENCE")
+	var reference_path := ""
+	var similarity := 0.0
+	var reference_error := "SOE_PLAY_PATH_THEME_REFERENCE is unset"
+	if not reference_directory.is_empty():
+		reference_path = reference_directory.path_join(selected + "-" + kind + ".png")
+		var reference := Image.load_from_file(reference_path)
+		var capture := await _capture()
+		if reference != null and not reference.is_empty() and reference.get_size() == capture.get_size():
+			var matched := 0
+			var sampled := 0
+			for y in range(0, capture.get_height(), 8):
+				for x in range(0, capture.get_width(), 8):
+					var actual := capture.get_pixel(x, y)
+					var expected := reference.get_pixel(x, y)
+					var error_px := absf(actual.r - expected.r) + absf(actual.g - expected.g) + absf(actual.b - expected.b)
+					if error_px <= 0.18:
+						matched += 1
+					sampled += 1
+			similarity = float(matched) / float(sampled) if sampled > 0 else 0.0
+			reference_error = ""
+		else:
+			reference_error = "missing or wrong-sized reference frame"
+	_check("menu." + kind + "_theme", content != null and content.is_visible_in_tree() and converted and error.is_empty() and reference_error.is_empty() and similarity >= 0.80, {"applicable": true, "theme": selected, "sources": sources, "conversion_error": error, "reference": reference_path, "reference_similarity": similarity, "reference_error": reference_error, "sample_step": 8, "pixel_error_limit": 0.18, "similarity_limit": 0.80})
 
 func _install_audio_probe() -> void:
 	audio_bus = AudioServer.bus_count

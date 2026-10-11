@@ -156,6 +156,7 @@ fn validate(stdout: &str, policy: &Value, duration: f64) -> Result<(), String> {
     let mut seen = BTreeSet::new();
     let mut stops = BTreeSet::new();
     let mut at_stop = BTreeSet::new();
+    let mut route_order = Vec::new();
     let mut errors = Vec::new();
     let mut summary = None;
     for line in stdout.lines() {
@@ -166,6 +167,21 @@ fn validate(stdout: &str, policy: &Value, duration: f64) -> Result<(), String> {
             let check = row["check"].as_str().ok_or("missing check id")?;
             let stop = row["stop"].as_str().ok_or("missing route stop")?;
             let passed = row["pass"].as_bool().ok_or("missing pass flag")?;
+            if matches!(
+                check,
+                "route.hulda"
+                    | "route.container"
+                    | "route.loose"
+                    | "route.hearth"
+                    | "route.exit"
+                    | "route.market"
+                    | "route.gate"
+                    | "route.return"
+            ) {
+                if !route_order.iter().any(|(prior, _)| prior == check) {
+                    route_order.push((check.to_owned(), stop.to_owned()));
+                }
+            }
             if !row["value"].is_object()
                 || row["value"]
                     .as_object()
@@ -185,6 +201,66 @@ fn validate(stdout: &str, policy: &Value, duration: f64) -> Result<(), String> {
             if passed && row["status"] != "PASS" {
                 return Err(format!("{check}: inconsistent verdict"));
             }
+            if check == "route.walk" && passed {
+                let distance = row["value"]["distance"].as_f64().unwrap_or(0.0);
+                let path_points = row["value"]["path_points"].as_u64().unwrap_or(0);
+                if distance <= 1.0 || path_points < 2 {
+                    errors.push(format!(
+                        "route.walk at {stop}: successful walk lacks displacement or NAVM path"
+                    ));
+                }
+            }
+            if check.starts_with("menu.") && passed && row["value"]["applicable"] != false {
+                let value = &row["value"];
+                let similarity = value["reference_similarity"].as_f64().unwrap_or(-1.0);
+                if value["reference"].as_str().is_none_or(str::is_empty) || similarity < 0.80 {
+                    errors.push(format!("{check} at {stop}: missing visual reference match"));
+                }
+            }
+        }
+    }
+    let route_checks = [
+        "route.hulda",
+        "route.container",
+        "route.loose",
+        "route.hearth",
+        "route.exit",
+        "route.market",
+        "route.gate",
+        "route.return",
+    ];
+    let present: BTreeSet<_> = route_order
+        .iter()
+        .map(|(check, _)| check.as_str())
+        .collect();
+    let expected: Vec<_> = route_checks
+        .iter()
+        .copied()
+        .filter(|check| present.contains(check))
+        .collect();
+    let ordered: Vec<_> = route_order
+        .iter()
+        .map(|(check, _)| check.as_str())
+        .collect();
+    if ordered != expected {
+        errors.push(format!("route stops are out of order: {ordered:?}"));
+    }
+    for (check, expected_stop) in [
+        ("route.hulda", "hulda"),
+        ("route.container", "container"),
+        ("route.loose", "loose"),
+        ("route.hearth", "hearth"),
+        ("route.exit", "exit"),
+        ("route.market", "market"),
+        ("route.gate", "gate"),
+        ("route.return", "return"),
+    ] {
+        if route_order
+            .iter()
+            .find(|(seen_check, _)| seen_check == check)
+            .is_some_and(|(_, stop)| stop != expected_stop)
+        {
+            errors.push(format!("{check} was reported at the wrong stop"));
         }
     }
     for check in CHECKS {
@@ -321,6 +397,44 @@ fn heartbeat(path: &Path) -> Option<(u64, bool, String)> {
     ))
 }
 
+fn proc_task_stacks(pid: u32) -> String {
+    let tasks = PathBuf::from(format!("/proc/{pid}/task"));
+    let Ok(entries) = fs::read_dir(tasks) else {
+        return format!("PLAY_PATH_BACKTRACE proc stacks unavailable for pid={pid}\n");
+    };
+    let mut output = String::new();
+    let mut tids: Vec<_> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_string_lossy().parse::<u32>().ok())
+        .collect();
+    tids.sort_unstable();
+    for tid in tids {
+        let task = format!("/proc/{pid}/task/{tid}");
+        let name =
+            fs::read_to_string(format!("{task}/comm")).unwrap_or_else(|_| "unknown".to_owned());
+        let wait_channel = fs::read_to_string(format!("{task}/wchan"))
+            .unwrap_or_else(|_| "unavailable".to_owned());
+        let stack = fs::read_to_string(format!("{task}/stack"))
+            .unwrap_or_else(|_| "kernel stack unavailable".to_owned());
+        let _ = writeln!(
+            output,
+            "PLAY_PATH_BACKTRACE tid={tid} name={} wchan={}",
+            name.trim(),
+            wait_channel.trim()
+        );
+        output.push_str(&stack);
+        if !stack.ends_with('\n') {
+            output.push('\n');
+        }
+    }
+    if output.is_empty() {
+        output.push_str(&format!(
+            "PLAY_PATH_BACKTRACE no task stacks found for pid={pid}\n"
+        ));
+    }
+    output
+}
+
 fn watch(
     child: &mut Child,
     heartbeat_path: &Path,
@@ -387,8 +501,16 @@ fn watch(
                     Ok(trace) => {
                         file.write_all(&trace.stdout).unwrap();
                         file.write_all(&trace.stderr).unwrap();
+                        if !trace.status.success() {
+                            file.write_all(proc_task_stacks(child.id()).as_bytes())
+                                .unwrap();
+                        }
                     }
-                    Err(error) => writeln!(file, "PLAY_PATH_BACKTRACE debugger: {error}").unwrap(),
+                    Err(error) => {
+                        writeln!(file, "PLAY_PATH_BACKTRACE debugger: {error}").unwrap();
+                        file.write_all(proc_task_stacks(child.id()).as_bytes())
+                            .unwrap();
+                    }
                 }
                 writeln!(file, "PLAY_PATH {}", json!({"check": "watchdog.max_ms", "status": "FAIL", "pass": false, "owner": "PRF-38", "stop": stage, "value": {"stale_ms": elapsed.as_millis(), "limit_ms": 2000}})).unwrap();
                 terminate(child);

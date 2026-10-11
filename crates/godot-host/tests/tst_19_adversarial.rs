@@ -10,7 +10,14 @@ mod play_path {
         use std::fmt::Write as _;
 
         const STOPS: &[&str] = &[
-            "hulda", "container", "loose", "hearth", "exit", "market", "gate", "return",
+            "hulda",
+            "container",
+            "loose",
+            "hearth",
+            "exit",
+            "market",
+            "gate",
+            "return",
         ];
 
         fn report(rows: &[Value]) -> String {
@@ -46,21 +53,31 @@ mod play_path {
                         .iter()
                         .find(|(route_check, _)| route_check == check)
                         .map_or(STOPS[index % STOPS.len()], |(_, stop)| *stop);
+                    let value = if *check == "route.walk" {
+                        json!({"distance": 25.0, "path_points": 3, "seconds": 1.0})
+                    } else if check.starts_with("menu.") {
+                        json!({"applicable": true, "reference": "reference.png", "reference_similarity": 0.95})
+                    } else {
+                        json!({"sample": 1})
+                    };
                     json!({"check": check, "stop": stop, "status": "PASS", "pass": true,
-                        "owner": "TST-19", "value": {"sample": 1}})
+                        "owner": "TST-19", "value": value})
                 })
                 .collect();
             for stop in STOPS {
-                for check in STOP_CHECKS
-                    .iter()
-                    .chain(if matches!(*stop, "market" | "gate" | "return") {
-                        EXTERIOR_CHECKS
-                    } else {
-                        &[]
-                    })
+                for check in
+                    STOP_CHECKS
+                        .iter()
+                        .chain(if matches!(*stop, "market" | "gate" | "return") {
+                            EXTERIOR_CHECKS
+                        } else {
+                            &[]
+                        })
                 {
-                    rows.push(json!({"check": check, "stop": stop, "status": "PASS", "pass": true,
-                        "owner": "TST-19", "value": {"sample": 1}}));
+                    rows.push(
+                        json!({"check": check, "stop": stop, "status": "PASS", "pass": true,
+                        "owner": "TST-19", "value": {"sample": 1}}),
+                    );
                 }
             }
             rows
@@ -69,13 +86,21 @@ mod play_path {
         #[test]
         fn tst_19_rejects_route_checks_reported_out_of_walk_order() {
             let mut rows = complete_rows();
-            let gate = rows
-                .iter_mut()
-                .find(|row| row["check"] == "route.gate")
+            let gate_index = rows
+                .iter()
+                .position(|row| row["check"] == "route.gate")
                 .unwrap();
-            gate["stop"] = "hulda".into();
+            let gate = rows.remove(gate_index);
+            let hulda_index = rows
+                .iter()
+                .position(|row| row["check"] == "route.hulda")
+                .unwrap();
+            rows.insert(hulda_index, gate);
             let result = validate(&report(&rows), &json!({}), 180.0);
-            assert!(result.is_err(), "route.gate passed before the exterior route");
+            assert!(
+                result.is_err(),
+                "route.gate passed before the exterior route"
+            );
         }
 
         #[test]
@@ -87,7 +112,10 @@ mod play_path {
                 .unwrap();
             walk["value"] = json!({"distance": 0.0, "path_points": 1, "seconds": 0.0});
             let result = validate(&report(&rows), &json!({}), 180.0);
-            assert!(result.is_err(), "zero-distance navigation was accepted as a route");
+            assert!(
+                result.is_err(),
+                "zero-distance navigation was accepted as a route"
+            );
         }
 
         #[test]
@@ -100,7 +128,10 @@ mod play_path {
             theme["value"] = json!({"applicable": true, "theme": "skyui",
                 "sources": ["interface/skyui/inventorylists.swf"]});
             let result = validate(&report(&rows), &json!({}), 180.0);
-            assert!(result.is_err(), "theme source presence was treated as visual match");
+            assert!(
+                result.is_err(),
+                "theme source presence was treated as visual match"
+            );
         }
     }
 }

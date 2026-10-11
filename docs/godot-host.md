@@ -31,8 +31,11 @@ When `SOE_TEST_SKYUI` or `SOE_TEST_NORDIC` names an installed mod, the runner
 converts its interface art into a cache under its output directory. Loose
 NORDIC files override SkyUI and the vanilla interface archive. The existing
 item presenter reads that cache through `SOE_INTERFACE_CACHE`. Menu checks
-require visible converted art sources and report conversion errors. The
-runner does not commit the installed SWFs or generated art.
+compare a captured menu with the corresponding exported reference frame at
+`SOE_PLAY_PATH_THEME_REFERENCE/<theme>-<menu>.png`, sampling every eighth
+pixel and requiring at least 0.80 similarity with a 0.18 RGB error limit.
+Source paths alone do not pass the visual check. The runner does not commit
+the installed SWFs, reference frames or generated art.
 
 The local sources are `godot-docs/classes/class_thread.rst`,
 `godot-docs/classes/class_renderingserver.rst`,
