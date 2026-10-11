@@ -87,7 +87,6 @@ fn sav_27_cell_interior_entries_keep_signed_byte_and_reencode() {
     assert_eq!(entries[1].first, 8);
     assert_eq!(entries[1].second, i8::MIN);
     assert_eq!(decoded.data_bytes(), data);
-
 }
 
 #[test]
@@ -141,10 +140,7 @@ fn sav_27_eczn_lctn_markers_are_zero_width_and_unknown_bits_reject() {
         .encounter_zone_change()
         .unwrap()
         .is_none());
-    assert!(form(6, 0, Vec::new())
-        .location_change()
-        .unwrap()
-        .is_none());
+    assert!(form(6, 0, Vec::new()).location_change().unwrap().is_none());
 }
 
 #[test]
@@ -156,7 +152,11 @@ fn sav_27_corpus_accounts_for_every_spatial_form_and_round_trip() {
     let mut paths = Vec::new();
     collect_ess(Path::new(&root), &mut paths);
     paths.sort();
-    assert!(paths.len() >= 50, "expected broad save corpus, got {}", paths.len());
+    assert!(
+        paths.len() >= 50,
+        "expected broad save corpus, got {}",
+        paths.len()
+    );
 
     let mut counts = [0usize; 3];
     let mut accounted = 0usize;
@@ -179,14 +179,20 @@ fn sav_27_corpus_accounts_for_every_spatial_form_and_round_trip() {
             assert_eq!(round_trip.data, original.data);
             assert_eq!(round_trip.payload().unwrap(), original.payload().unwrap());
             let decoded = match index {
-                0 => original.cell_change().map(|value| value.map(|v| v.data_bytes())),
-                1 => original.location_change().map(|value| value.map(|v| v.data_bytes())),
+                0 => original
+                    .cell_change()
+                    .map(|value| value.map(|v| v.data_bytes())),
+                1 => original
+                    .location_change()
+                    .map(|value| value.map(|v| v.data_bytes())),
                 _ => original
                     .encounter_zone_change()
                     .map(|value| value.map(|v| v.data_bytes())),
             };
             match decoded {
-                Ok(Some(bytes)) => assert_eq!(bytes.as_slice(), original.payload().unwrap().as_ref()),
+                Ok(Some(bytes)) => {
+                    assert_eq!(bytes.as_slice(), original.payload().unwrap().as_ref())
+                }
                 Err(Error::SpatialChange { .. }) => {
                     // Unknown or incomplete source layouts remain accounted raw data.
                 }
@@ -194,6 +200,9 @@ fn sav_27_corpus_accounts_for_every_spatial_form_and_round_trip() {
             }
         }
     }
-    assert!(counts.iter().all(|count| *count > 0), "no records for all types: {counts:?}");
+    assert!(
+        counts.iter().all(|count| *count > 0),
+        "no records for all types: {counts:?}"
+    );
     assert_eq!(accounted, counts.iter().sum::<usize>());
 }
