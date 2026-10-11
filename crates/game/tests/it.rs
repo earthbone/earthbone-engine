@@ -464,6 +464,8 @@ mod anm_58_breaker2_adversarial;
 mod anm_58_breaker_adversarial;
 #[path = "anm_59_breaker_adversarial.rs"]
 mod anm_59_breaker_adversarial;
+#[path = "anm_59_breaker2_adversarial.rs"]
+mod anm_59_breaker2_adversarial;
 #[path = "anm_59_expression.rs"]
 mod anm_59_expression;
 #[path = "atomic_save.rs"]
