@@ -297,10 +297,11 @@ values from shared reference and inventory state. Missing reference IDs are
 read from the reference's resolved XAPR activation-parent records, and invalid
 XAPR targets that are not REFR or ACHR records are rejected. North
 rotation reads the interior CELL default of zero, matching CommonLib when no
-extra is present. Exterior worldspace north rotation is not represented by the
-current runtime records and returns no value. Binary hook requests return a
-diagnostic through `HookRegistry::reject`. Poison counts retain CommonLib's
-unsigned 32-bit range through the Rust and C++ views.
+extra is present. Exterior queries resolve the CELL's owning WRLD through the
+load-order cell index and return the WRLD runtime view's north rotation. The
+WRLD field starts at zero because plugin records do not serialize it. Binary
+hook requests return a diagnostic through `HookRegistry::reject`. Poison
+counts retain CommonLib's unsigned 32-bit range through the Rust and C++ views.
 The first event batch adds typed `DisarmedEvent`, `DragonSoulsGained`,
 `LevelIncrease` and `LocationDiscovery` payloads, with one source for each on
 `ScriptEventSourceHolder`. Payload form identities are the load-order file

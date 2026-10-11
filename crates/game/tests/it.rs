@@ -1638,6 +1638,10 @@ mod shm_09_live_extras;
 mod shm_10_adversarial;
 #[path = "shm_10_breaker_adversarial.rs"]
 mod shm_10_breaker_adversarial;
+#[path = "shm_10_breaker_2_adversarial.rs"]
+mod shm_10_breaker_2_adversarial;
+#[path = "shm_10_north_rotation.rs"]
+mod shm_10_north_rotation;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
 
