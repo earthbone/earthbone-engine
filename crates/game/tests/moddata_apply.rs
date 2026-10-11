@@ -297,6 +297,7 @@ fn mod_07_real_mod_corpus_enters_game_mod_data_pipeline() {
         "the real SPID rules were not read"
     );
     assert!(report.keyword_rules > 0, "the real KID rules were not read");
+    assert!(report.swap_rules > 0, "the real BOS rules were not read");
     assert!(
         report.oar_trees > 0,
         "the real OAR or DAR trees were not retained"
