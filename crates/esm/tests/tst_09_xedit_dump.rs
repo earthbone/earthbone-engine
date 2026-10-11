@@ -237,6 +237,34 @@ fn tst_09_compares_only_record_types_selected_for_the_xedit_dump() {
 }
 
 #[test]
+fn tst_09_includes_each_record_type_selected_for_the_xedit_dump() {
+    let signatures = [
+        ("QUST", *b"QUST"),
+        ("NPC_", *b"NPC_"),
+        ("PACK", *b"PACK"),
+        ("CELL", *b"CELL"),
+        ("REFR", *b"REFR"),
+        ("LVLI", *b"LVLI"),
+    ];
+    let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+    for (index, (_, signature)) in signatures.iter().enumerate() {
+        plugin.push_record(soe_esm::Record::new(
+            soe_esm::Tag::new(signature),
+            u32::try_from(index + 1).unwrap(),
+        ));
+    }
+    plugin.push_record(soe_esm::Record::new(soe_esm::Tag::new(b"STAT"), 99));
+
+    let mut expected_text = String::new();
+    for (index, (signature, _)) in signatures.iter().enumerate() {
+        writeln!(&mut expected_text, "RECORD\t{signature}\t{:08X}", index + 1).unwrap();
+    }
+    let expected = parse_dump(&expected_text).unwrap();
+
+    assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
+}
+
+#[test]
 fn tst_09_lists_record_count_and_identity_differences() {
     let expected = parse_dump("RECORD\tCELL\t00000001\nRECORD\tREFR\t00000002\n").unwrap();
     let actual = parse_dump("RECORD\tCELL\t00000001\nRECORD\tCELL\t00000003\n").unwrap();
