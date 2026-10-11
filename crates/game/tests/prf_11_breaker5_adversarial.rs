@@ -46,7 +46,9 @@ fn prf_11_breaker5_one_node_slices_match_sync_and_consume_result_once() {
     graph.add_mesh_with_adjacency(vertices, &triangles);
     let from = [7.0, 11.0, 0.0];
     let to = [8.0, 12.0, 0.0];
-    let expected = graph.find_path_between(from, to).expect("same-triangle path");
+    let expected = graph
+        .find_path_between(from, to)
+        .expect("same-triangle path");
     let mut search = graph
         .start_path_between(from, to)
         .expect("same-triangle search");
