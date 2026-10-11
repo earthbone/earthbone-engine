@@ -36,7 +36,9 @@ fn game() -> Game {
             ),
     );
     let mut order = LoadOrder::new();
-    order.add("Disguise.esm", plugin).expect("fixture load order");
+    order
+        .add("Disguise.esm", plugin)
+        .expect("fixture load order");
     Game::new(order)
 }
 

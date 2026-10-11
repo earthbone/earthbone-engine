@@ -970,6 +970,8 @@ mod mag_65_adversarial;
 mod mag_65_breaker_adversarial;
 #[path = "mag_65_breaker_breaker_adversarial.rs"]
 mod mag_65_breaker_breaker_adversarial;
+#[path = "mag_65_breaker_breaker_breaker_adversarial.rs"]
+mod mag_65_breaker_breaker_breaker_adversarial;
 #[path = "mag_66_breaker_adversarial.rs"]
 mod mag_66_breaker_adversarial;
 #[path = "mag_66_breaker_breaker_adversarial.rs"]
