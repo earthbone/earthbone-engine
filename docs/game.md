@@ -708,9 +708,11 @@ the player's path against NAVM surfaces through the existing PLY-02 executor.
 `ply_05_installed_city_bot_walks_each_city_and_checks_terrain_clearance` is
 gated by `SKYRIM_DATA`. It builds a connected NAVM route in each installed
 exterior city, walks the player route, and advances 30 minutes of game time.
-Loaded actors are checked against decoded LAND heights, finite transforms,
-Papyrus errors, and a ten-second stuck interval. The test uses the cell's own
-winning LAND record and does not compare actors standing indoors with terrain.
+Loaded actors in the exterior cell must map to a NAVM surface and stay above
+both that surface and decoded LAND heights. The soak also checks finite
+transforms, Papyrus errors, and a ten-second stuck interval. The test uses the
+cell's own winning LAND record and does not compare actors standing indoors
+with terrain.
 `ply_05_installed_city_bot_opens_doors_activates_objects_and_starts_conversations`
 uses installed references in both cities and requires an opened door, an
 activated object, and a started actor conversation in each. The checks run

@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 
 use soe_esm::{
-    GlobalFormId, Tag,
     records::{cell::Cell as CellRecord, land::Land},
+    GlobalFormId, Tag,
 };
 use soe_game::{play, player_input::STEP_SECONDS};
 
@@ -197,13 +197,17 @@ fn ply_05_installed_city_bot_walks_each_city_and_checks_terrain_clearance() {
                 assert!(reference.position.into_iter().all(f32::is_finite));
                 assert!(reference.rotation.into_iter().all(f32::is_finite));
                 if reference.cell == Some(cell) {
-                    if let Some(surface) = navmesh_height(&graph, reference.position) {
-                        assert!(
-                            reference.position[2] + 2.0 >= surface,
-                            "{name}: actor {actor} is below NAVM, z={} surface={surface}",
-                            reference.position[2]
-                        );
-                    }
+                    let surface = navmesh_height(&graph, reference.position).unwrap_or_else(|| {
+                        panic!(
+                            "{name}: actor {actor} is not over a NAVM surface at {:?}",
+                            reference.position
+                        )
+                    });
+                    assert!(
+                        reference.position[2] + 2.0 >= surface,
+                        "{name}: actor {actor} is below NAVM, z={} surface={surface}",
+                        reference.position[2]
+                    );
                     let surface = land_height(
                         &height_grid,
                         reference.position[0],
