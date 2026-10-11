@@ -47,6 +47,18 @@ work are excluded. The overlay and exit summary list simulation tick and
 search-worker busy time separately. Tick time already includes waiting for
 navigation workers, so the worker number must not be added to it.
 
+PRF-30 reads built-in counters from `Performance.get_monitor`, per-pass counts
+from `RenderingServer.viewport_get_render_info`, and enabled viewport CPU and
+GPU render times from `RenderingServer`. Loaded-cell and plugin batch totals
+come from `CellStreamerNode.render_attribution`. The report includes these
+source names alongside the measurements. Godot 4.4 does not expose individual
+frustum, occlusion, visibility-range or LOD cull counts, unloaded-reference
+culls, LOD transition rates or per-light shadow caster counts. Those fields
+remain null with a reason. This host also does not count material or mesh
+resource creation per frame, so those fields remain unavailable rather than
+being inferred from unrelated object or resource totals. This report does not
+claim those counters were measured.
+
 ## AI breakdown and overlay, PRF-27
 
 `PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,

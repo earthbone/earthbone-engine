@@ -105,6 +105,29 @@ fn prf_30_render_report_attributes_each_cull_stage_and_lod_switches() {
             );
         }
     }
+    let sources = attribution
+        .get("sources")
+        .and_then(serde_json::Value::as_object)
+        .expect("measurement sources");
+    for source in [
+        "performance_monitors",
+        "viewport_passes",
+        "render_time_ms",
+        "cell_plugin_batches",
+    ] {
+        assert!(
+            sources.get(source).is_some_and(|value| value.is_string()),
+            "render report omits the source for {source}: {report}"
+        );
+    }
+    assert_eq!(
+        sources["viewport_passes"],
+        "RenderingServer.viewport_get_render_info"
+    );
+    assert_eq!(
+        sources["cell_plugin_batches"],
+        "CellStreamerNode.render_attribution"
+    );
 }
 
 #[test]
