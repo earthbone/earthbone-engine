@@ -8891,6 +8891,10 @@ use the existing reference flags. `ShowAllHidden`, unsupported cast checks
 and non-default equip parameters return explicit unsupported-state errors.
 Supported equipment requests use `World::equip_item`, and dispel requests use
 the shared active-effect removal path.
+SHM-13's compiled C++ fixture dispatches these operations through the MIT
+provider into a live synthetic `World`. It checks favorite and marker writes,
+cast results, active-effect queries, dispel, successful default equipment, and
+rejection of unsupported marker flags and equip parameters.
 
 ## Deterministic tick work, PRF-14
 

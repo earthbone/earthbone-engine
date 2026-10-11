@@ -178,7 +178,9 @@ over the current `World`. Favorite membership is a separate actor-owned set
 and is saved in the named `SHM-13` actor section. Casting checks report an
 active cast, exhausted power recovery and insufficient magicka where those
 states are represented, and return a typed unsupported-state error when the
-spell cost or record cannot be evaluated. Magic-target queries read the
+spell cost or record cannot be evaluated. The source-level
+`CustomReasonNoStart` value is retained in the Rust and C++ enums, but the
+runtime does not currently produce it. Magic-target queries read the
 target's active applications, and spell dispel uses the existing world magic
 path.
 
@@ -189,10 +191,21 @@ operation when parameters match the supported default. Extra-data, slot,
 force, message, sound and count variants return an unsupported-state error.
 The local alandtse CommonLib sources read for this mapping were
 `include/RE/M/MagicFavorites.h`, `MagicSystem.h`, `MagicTarget.h`,
-`include/RE/E/ExtraMapMarker.h` and
-`include/RE/M/MiddleHighProcessData.h`. The MIT Rust provider is the engine
-boundary. The generated C++ headers remain declarations and do not create a
-C ABI or executable singleton access.
+`include/RE/E/ExtraMapMarker.h`, `include/RE/A/ActorEquipManager.h` and
+`include/RE/M/MiddleHighProcessData.h`. They establish the source-level names,
+state ownership and equip request fields. `MagicTarget` exposes active-effect
+membership and dispel operations, while its effect-list and callback hooks are
+not implemented by this runtime. The MIT Rust provider is the engine boundary.
+The generated C++ headers remain declarations and do not create an executable
+singleton or vtable hook.
+
+The compiled `shm_13_cpp_live_magic` game fixture implements the five C++
+contracts with request callbacks. The Rust test process dispatches each request
+through `CommonLibMagic` into the same live `World`, then returns values or
+explicit unsupported-state results. It checks favorite changes, cast results,
+active-effect queries, dispel, marker reads and writes, default equipment, and
+rejection of `ShowAllHidden` and unsupported equip parameters. This is a test
+transport across the MIT provider boundary, not a C++ ABI for shipped plugins.
 
 ## SHM-05 world contracts
 
@@ -404,10 +417,9 @@ The SHM-13 `RE/Magic.h` projects interfaces for favorite forms, cast rejection r
 magic target queries and dispel, map-marker visibility and travel flags, and the supported subset
 of equip parameters. Binary-address calls and vtable patches have explicit unsupported-hook
 values. Equip options outside the supported plain single-item operation are reported through
-`UnsupportedEquipOption`. The C++ fixture checks these declarations with in-process test doubles.
-They do not call the Rust `World` or prove a live engine binding. `game` currently owns actor
-spell hands, active effects, reference map flags and inventory equipment, but this source-level
-shim has no bridge from C++ into that state.
+`UnsupportedEquipOption`. The C++ contract fixture checks declarations, and the game fixture sends
+calls from all five C++ interfaces through the MIT provider to live `World` state. This test
+transport does not provide a binary-compatible CommonLib ABI to existing plugins.
 
 ## Live world views, SHM-16
 
@@ -440,9 +452,10 @@ upstream plugin, whose game interfaces and trampoline hooks have no engine imple
 The SHM-03 test compiles the generated headers, and its game-side test calls the adapter over live
 actor and AI state. SHM-10 compiles an extra-data C++ fixture and checks live game reads in Rust.
 SHM-11 compiles and runs C++ world type calls against live `World` state through a test
-request/reply transport. SHM-13 checks magic contracts with test doubles, not live game state. SHM-14 exercises
-player and process-list reads against synthetic `World` state and through C++ callbacks that query
-a live Rust `World`. SHM-20 compiles the five typed event payload contracts and checks sink dispatch
+request/reply transport. SHM-13 dispatches its five C++ magic interfaces through the MIT provider
+into live synthetic `World` state. SHM-14 exercises player and process-list reads against synthetic
+`World` state and through C++ callbacks that query a live Rust `World`. SHM-20 compiles the five
+typed event payload contracts and checks sink dispatch
 against synthetic state fixtures, as well as streaming events from live game producers to generated C++
 event sources. SHM-21 implements five event-state queries on `World` and checks live inventory, actor,
 deletion and furniture state plus unsupported-hook errors. SHM-22 checks the

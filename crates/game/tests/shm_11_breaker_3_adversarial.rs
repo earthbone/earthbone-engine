@@ -12,14 +12,15 @@ fn id(file: u16, object: u32) -> GlobalFormId {
 #[test]
 fn high_process_projects_runtime_ids_from_a_regular_plugin() {
     let mut order = LoadOrder::new();
-    order.add("Base.esm", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Base.esm", Plugin::new(FileHeader::default()))
+        .unwrap();
 
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag::new(b"NPC_"), 0x800));
     for actor in [0x900, 0x901] {
         plugin.push_top(
-            Record::new(Tag::new(b"ACHR"), actor)
-                .sub(Tag::new(b"NAME"), 0x800_u32.to_le_bytes()),
+            Record::new(Tag::new(b"ACHR"), actor).sub(Tag::new(b"NAME"), 0x800_u32.to_le_bytes()),
         );
     }
     order.add("Actors.esp", plugin).unwrap();
@@ -70,14 +71,20 @@ fn light_plugin_hazard_keeps_packed_id_and_reads_current_reference_state() {
     let first = world.commonlib_hazard(id(1, 0x300)).unwrap();
     assert_eq!(first.reference.0, 0xFE00_0300);
     assert_eq!(first.base.0, 0x200);
-    assert_eq!([first.position.x, first.position.y, first.position.z], [1.0, 2.0, 3.0]);
+    assert_eq!(
+        [first.position.x, first.position.y, first.position.z],
+        [1.0, 2.0, 3.0]
+    );
 
     let placed = world.reference(id(1, 0x301)).unwrap();
     placed.position = [4.0, 5.0, 6.0];
     placed.enabled = false;
     let second = world.commonlib_hazard(id(1, 0x301)).unwrap();
     assert_eq!(second.reference.0, 0xFE00_0301);
-    assert_eq!([second.position.x, second.position.y, second.position.z], [4.0, 5.0, 6.0]);
+    assert_eq!(
+        [second.position.x, second.position.y, second.position.z],
+        [4.0, 5.0, 6.0]
+    );
     assert!(!second.enabled);
 }
 
