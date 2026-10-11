@@ -7,9 +7,9 @@
 
 #[test]
 fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
-    if std::env::var_os("SKYRIM_DATA").is_none() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
         return;
-    }
+    };
     let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
         return;
     };
@@ -17,8 +17,7 @@ fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
     // CONTEXT: Cargo test does not refresh the release library Godot loads.
     let build = std::process::Command::new(env!("CARGO"))
         .current_dir(&workspace)
-        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
-        .arg(workspace.join("target"))
+        .args(["build", "-p", "soe-godot-host", "--release"])
         .output()
         .expect("release extension build starts");
     assert!(
@@ -45,6 +44,8 @@ fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
         .args(["--headless", "--path"])
         .arg(&release_project)
         .args(["--script", "prf_14_work_test.gd"])
+        .env("SKYRIM_DATA", &data)
+        .current_dir(&workspace)
         .output()
         .unwrap();
     let release_stdout = String::from_utf8_lossy(&release_output.stdout);
@@ -99,7 +100,9 @@ fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
         .args(["--headless", "--path"])
         .arg(project.path())
         .args(["--script", "prf_14_work_test.gd"])
+        .env("SKYRIM_DATA", &data)
         .env("XDG_DATA_HOME", project.path())
+        .current_dir(&workspace)
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
