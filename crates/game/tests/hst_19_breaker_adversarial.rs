@@ -56,3 +56,19 @@ fn hst_19_screenshot_paths_survive_unicode_spaces_duplicates_and_queue_drains() 
     );
     assert!(game.world_mut().take_screenshot_requests().is_empty());
 }
+
+#[test]
+fn hst_19_pending_screenshot_requests_are_transient_across_world_save_load() {
+    let mut game = Game::new(LoadOrder::new());
+    request_screenshot(&mut game, "Hst19SaveBreaker", "captures/pending.png");
+
+    let saved = game.world().save_state();
+    let mut restored = Game::new(LoadOrder::new());
+    restored.world_mut().load_state(&saved).unwrap();
+
+    assert!(restored.world_mut().take_screenshot_requests().is_empty());
+    assert_eq!(
+        game.world_mut().take_screenshot_requests(),
+        vec!["captures/pending.png"]
+    );
+}
