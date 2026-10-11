@@ -1760,6 +1760,8 @@ mod tst_12_adversarial;
 mod tst_12_breaker2_adversarial;
 #[path = "tst_12_breaker3_adversarial.rs"]
 mod tst_12_breaker3_adversarial;
+#[path = "tst_12_breaker4_adversarial.rs"]
+mod tst_12_breaker4_adversarial;
 #[path = "tst_12_breaker_adversarial.rs"]
 mod tst_12_breaker_adversarial;
 #[path = "tst_12_mod_corpus.rs"]

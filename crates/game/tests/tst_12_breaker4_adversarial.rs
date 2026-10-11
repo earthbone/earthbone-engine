@@ -13,14 +13,16 @@ fn tst_12_breaker4_resolves_assets_across_the_installed_modlist_case_insensitive
 
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
-        Record::new(Tag::new(b"STAT"), 0x800)
-            .zsub(Tag::new(b"MODL"), "Meshes/Custom/Shared.NIF"),
+        Record::new(Tag::new(b"STAT"), 0x800).zsub(Tag::new(b"MODL"), "Meshes/Custom/Shared.NIF"),
     );
     std::fs::write(plugin_mod.join("Plugin.esp"), plugin.to_bytes()).unwrap();
     std::fs::write(asset_mod.join("meshes/custom/shared.nif"), b"present").unwrap();
 
     let reports = run_corpus(&temp.0);
-    let report = reports.iter().find(|report| report.name == "PluginMod").unwrap();
+    let report = reports
+        .iter()
+        .find(|report| report.name == "PluginMod")
+        .unwrap();
     assert!(report.missing_assets.is_empty(), "{report:?}");
 }
 
