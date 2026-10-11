@@ -195,6 +195,7 @@ fn scr_16_breaker_native_argument_contracts_reject_wrong_arity_without_mutation(
 
     call(&mut game, "UnequipAll", &[Value::Int(1)]);
     call(&mut game, "RemoveAllSpells", &[Value::Int(1)]);
+    call(&mut game, "ClearExtraArrows", &[Value::Int(1)]);
     call(&mut game, "StartCannibal", &[]);
     call(
         &mut game,
@@ -212,6 +213,7 @@ fn scr_16_breaker_native_argument_contracts_reject_wrong_arity_without_mutation(
     for message in [
         "UnequipAll expects no arguments",
         "RemoveAllSpells expects no arguments",
+        "ClearExtraArrows expects no arguments",
         "StartCannibal expects one Actor argument",
         "StartVampireFeed expects one Actor argument",
     ] {
