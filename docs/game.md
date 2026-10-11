@@ -1161,24 +1161,27 @@ sit transition animation states unavailable because the host does not report
 them.
 
 **Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
-current time-driven sun position in Skyrim units, on the runtime's 100,000-unit
-orbit. The model places the sun east at 06:00, overhead at 12:00 and west at
-18:00, relative to the player's current placement. `Game.IsPlayerSungazing`
-compares the host camera direction with the sun direction and returns true
-within the runtime's one-degree angular cutoff. These orbit and cutoff values
-are runtime model choices. The local CK `Game_Script.wikitext` describes the
-coordinate getters and says sungazing checks whether the player looks directly
-at the sun. The shipped `Game.psc` confirms their global signatures. Neither
-source specifies an orbit formula, radius, or angular tolerance. The tests
-`scr_26_sun_orbit_uses_100000_unit_radius_and_clock_cardinals` and
-`scr_26_sungazing_uses_one_degree_angular_cutoff` pin the chosen model.
-`Game.ShakeCamera` queues a transient request for the host. Its source defaults
-to the player, strength defaults to 0.5 and clamps to 0 through 1, and duration
-zero uses `fCameraShakeDuration` or a 0.25-second fallback. Invalid source
-types, non-finite values and negative durations do not queue an effect. These
-camera requests are transient and are not saved. The shipped `Game.psc` and CK
-page define the native signature and description. Shipped script defaults
-provide shake defaults and clamping.
+current time-driven sun position in Skyrim units. The current runtime model
+places the sun east at 06:00, overhead at 12:00 and west at 18:00, relative to
+the player's placement, using a 100,000-unit orbit. `Game.IsPlayerSungazing`
+compares the host camera direction with the sun direction using a one-degree
+angular cutoff. These numeric choices are provisional runtime behavior, not
+values established by the local CK `Game_Script.wikitext`. That source says
+the getters return the sun coordinates and sungazing checks whether the player
+looks directly at the sun. It does not specify an orbit formula, radius or
+angular tolerance. The named tests pin the current runtime choices. A
+source-backed or measured vanilla model for the radius and tolerance remains
+prerequisite work for claiming exact Skyrim compatibility.
+
+`Game.ShakeCamera(ObjectReference, Float)` accepts exactly the two arguments
+in the CK signature. It queues a transient request for a live reference, clamps
+finite strength to 0 through 1 and uses `fCameraShakeDuration`, falling back to
+0.25 seconds, for the host request duration. Wrong argument counts, invalid
+source references and non-float strength values report native errors and queue
+nothing. Camera requests are transient and are not saved. The local CK
+`Game_Script.wikitext` defines the signature and says the camera shakes from the
+source location with the supplied strength. The duration setting and strength
+clamp are runtime behavior, not details stated by that page.
 
 ### Debug natives, SCR-20
 
@@ -2440,11 +2443,9 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.GetPlayersLastRiddenHorse` | Returns the remembered horse, or None. |
 | `Game.AddPerkPoints` | Adds points and clamps the total to 255. |
 | `Game.GetDialogueTarget` | Returns the current player conversation's speaker, or None. This engine extension is not in the CK Game class page. |
-| `Game.IsPlayerSungazing` | Quiet false stub for the CK observation query. |
-| `Game.GetSunPositionX` | Quiet zero stub for the X coordinate. |
-| `Game.GetSunPositionY` | Quiet zero stub for the Y coordinate. |
-| `Game.GetSunPositionZ` | Quiet zero stub for the Z coordinate. |
-| `Game.ShakeCamera` | Queues a source reference, strength and duration for the host camera. |
+| `Game.IsPlayerSungazing` | Compares host camera direction against the runtime sun direction. |
+| `Game.GetSunPositionX/Y/Z` | Return coordinates from the runtime's time-driven sun model. |
+| `Game.ShakeCamera` | Queues the CK source reference and strength for the host camera. |
 | `Game.SendWereWolfTransformation` | Reports werewolf crime through a loaded high-process actor with current Alert or Combat detection. |
 | `Game.ServeTime` | Serves jail time against the player's crime faction when one is set. |
 | `Game.ClearPrison` | Clears the player's arrested flag and cumulative served-day counter. |

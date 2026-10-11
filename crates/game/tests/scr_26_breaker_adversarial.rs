@@ -62,13 +62,13 @@ fn global(game: &mut Game, name: &str, args: &[Value]) -> Value {
 }
 
 #[test]
-fn scr_26_breaker_shake_uses_defaults_and_the_game_setting_for_zero_duration() {
+fn scr_26_breaker_shake_uses_the_two_declared_arguments_and_setting_duration() {
     let mut game = fixture();
-    let player = game.world_mut().player();
-    global(&mut game, "ShakeCamera", &[]);
+    let source = Value::Object(game.object_of_form(id(1)));
+    global(&mut game, "ShakeCamera", &[source, Value::Float(0.5)]);
     let shakes = &game.world().camera_shakes;
     assert_eq!(shakes.len(), 1);
-    assert_eq!(shakes[0].source, player);
+    assert_eq!(shakes[0].source, id(1));
     assert_eq!(shakes[0].strength, 0.5);
     assert_eq!(shakes[0].duration, 1.25);
 }
@@ -80,19 +80,38 @@ fn scr_26_breaker_shake_clamps_strength_at_both_bounds() {
     global(
         &mut game,
         "ShakeCamera",
-        &[source.clone(), Value::Float(-0.25), Value::Float(0.4)],
+        &[source.clone(), Value::Float(-0.25)],
+    );
+    global(&mut game, "ShakeCamera", &[source, Value::Float(1.25)]);
+    let shakes = &game.world().camera_shakes;
+    assert_eq!(shakes.len(), 2);
+    assert_eq!(shakes[0].strength, 0.0);
+    assert_eq!(shakes[0].duration, 1.25);
+    assert_eq!(shakes[1].strength, 1.0);
+    assert_eq!(shakes[1].duration, 1.25);
+}
+
+#[test]
+fn scr_26_breaker_shake_rejects_missing_extra_and_wrong_typed_arguments() {
+    let mut game = fixture();
+    let source = Value::Object(game.object_of_form(id(1)));
+
+    global(&mut game, "ShakeCamera", &[]);
+    global(&mut game, "ShakeCamera", std::slice::from_ref(&source));
+    global(
+        &mut game,
+        "ShakeCamera",
+        &[source.clone(), Value::Float(0.5), Value::Float(0.25)],
     );
     global(
         &mut game,
         "ShakeCamera",
-        &[source, Value::Float(1.25), Value::Float(0.6)],
+        &[source.clone(), Value::string("strong")],
     );
-    let shakes = &game.world().camera_shakes;
-    assert_eq!(shakes.len(), 2);
-    assert_eq!(shakes[0].strength, 0.0);
-    assert_eq!(shakes[0].duration, 0.4);
-    assert_eq!(shakes[1].strength, 1.0);
-    assert_eq!(shakes[1].duration, 0.6);
+    global(&mut game, "ShakeCamera", &[Value::None, Value::Float(0.5)]);
+
+    assert!(game.world().camera_shakes.is_empty());
+    assert_eq!(game.world().native_errors.len(), 5);
 }
 
 #[test]

@@ -135,6 +135,7 @@ fn scr_26_gaze_uses_direction_and_shake_rejects_bad_inputs_without_queueing() {
         &[Value::string("bad source"), Value::Float(0.5)],
     );
     assert!(game.world().camera_shakes.is_empty());
+    assert_eq!(game.world().native_errors.len(), 1);
     let source = Value::Object(game.object_of_form(id(1)));
     global(&mut game, "ShakeCamera", &[source, Value::Float(0.25)]);
     assert_eq!(game.world().camera_shakes.len(), 1);

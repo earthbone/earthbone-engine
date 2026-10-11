@@ -1565,7 +1565,7 @@ fn scr_17_will_intimidate_succeed_applies_perk_range_modifier() {
 }
 
 /// SCR-26: sun queries read calendar and player state, gaze uses the host
-/// camera direction, and ShakeCamera queues the CK-defined effect parameters.
+/// camera direction, and ShakeCamera accepts the two CK-declared arguments.
 #[test]
 fn scr_26_game_sky_and_camera_bindings() {
     let mut g = game();
@@ -1610,18 +1610,18 @@ fn scr_26_game_sky_and_camera_bindings() {
         &mut g,
         "Game",
         "ShakeCamera",
-        &[player.clone(), Value::Float(1.5), Value::Float(0.7)],
+        &[player.clone(), Value::Float(1.5)],
     );
     let shakes = g.world().camera_shakes.clone();
     assert_eq!(shakes.len(), 1);
     assert_eq!(shakes[0].source, form(&g, "PlayerRef"));
     assert_eq!(shakes[0].strength, 1.0);
-    assert_eq!(shakes[0].duration, 0.7);
+    assert_eq!(shakes[0].duration, 0.25);
     call_global(
         &mut g,
         "Game",
         "ShakeCamera",
-        &[Value::None, Value::Float(0.25)],
+        &[player.clone(), Value::Float(0.25)],
     );
     assert_eq!(g.world().camera_shakes.len(), 2);
     assert_eq!(g.world().camera_shakes[1].source, player_id);
@@ -1630,22 +1630,16 @@ fn scr_26_game_sky_and_camera_bindings() {
         &mut g,
         "Game",
         "ShakeCamera",
-        &[Value::Int(1), Value::Float(0.5), Value::Float(0.5)],
+        &[Value::Int(1), Value::Float(0.5)],
     );
     call_global(
         &mut g,
         "Game",
         "ShakeCamera",
-        &[Value::None, Value::Float(f32::NAN), Value::Float(0.5)],
-    );
-    call_global(
-        &mut g,
-        "Game",
-        "ShakeCamera",
-        &[Value::None, Value::Float(0.5), Value::Float(-1.0)],
+        &[player, Value::Float(f32::NAN)],
     );
     assert_eq!(g.world().camera_shakes.len(), 2);
-    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+    assert_eq!(g.world().native_errors.len(), 2);
 }
 
 // ----- the animation graph on a reference -----

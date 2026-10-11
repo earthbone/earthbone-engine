@@ -1405,6 +1405,8 @@ mod scr_25_breaker_adversarial;
 mod scr_26_adversarial;
 #[path = "scr_26_breaker_adversarial.rs"]
 mod scr_26_breaker_adversarial;
+#[path = "scr_26_breaker2_adversarial.rs"]
+mod scr_26_breaker2_adversarial;
 #[path = "scr_27_adversarial.rs"]
 mod scr_27_adversarial;
 #[path = "scr_27_breaker_adversarial.rs"]
