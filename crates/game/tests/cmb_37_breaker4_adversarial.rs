@@ -47,21 +47,26 @@ fn stage() -> Vec<u8> {
 }
 
 #[test]
-fn cmb_37_missing_stage_end_marker_is_rejected_without_state_change() {
+fn cmb_37_optional_stage_end_marker_can_be_omitted() {
     let mut game = fixture(stage(), false);
     let reference = reference(&mut game);
 
     damage(&mut game, reference);
 
-    assert_eq!(game.world_mut().destruction_stage(reference), -1);
+    assert_eq!(game.world_mut().destruction_stage(reference), 0);
     assert_eq!(
         game.world_mut()
             .reference(reference)
             .unwrap()
             .destruction_health,
-        None
+        Some(0.0)
     );
-    assert!(game.world().pending.is_empty());
+    assert!(game.world().pending.iter().any(|pending| matches!(
+        pending,
+        soe_game::Pending::Event { name, args, .. }
+            if name == "OnDestructionStageChanged"
+                && args == &[soe_papyrus::Value::Int(-1), soe_papyrus::Value::Int(0)]
+    )));
 }
 
 #[test]

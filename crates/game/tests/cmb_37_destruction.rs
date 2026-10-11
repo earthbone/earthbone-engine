@@ -88,11 +88,33 @@ fn cmb_37_clear_destruction_restores_health_stage_model_and_enable_state() {
     let reference = game.world_mut().place_at(id(BASE), player, false);
     deal(&mut game, reference, 80.0);
     assert_eq!(game.world_mut().destruction_stage(reference), 1);
+    let events_before_clear = game
+        .world()
+        .pending
+        .iter()
+        .filter(|pending| {
+            matches!(
+                pending,
+                Pending::Event { name, .. } if name == "OnDestructionStageChanged"
+            )
+        })
+        .count();
 
     let mut allocate = |_: &str, _: &str| ObjectId(1);
     game.world_mut().clear_destruction(reference, &mut allocate);
     assert_eq!(game.world_mut().destruction_stage(reference), -1);
     assert_eq!(game.world().destruction_model(reference), None);
+    assert_eq!(
+        game.world()
+            .pending
+            .iter()
+            .filter(|pending| matches!(
+                pending,
+                Pending::Event { name, .. } if name == "OnDestructionStageChanged"
+            ))
+            .count(),
+        events_before_clear
+    );
     let mut world = game.world_mut();
     let state = world.reference(reference).unwrap();
     assert!(!state.destroyed && state.enabled);
@@ -101,6 +123,17 @@ fn cmb_37_clear_destruction_restores_health_stage_model_and_enable_state() {
     let save = game.world().save_state();
     let mut restored = fixture();
     restored.world_mut().load_state(&save).unwrap();
+    let events_before_damage = restored
+        .world()
+        .pending
+        .iter()
+        .filter(|pending| {
+            matches!(
+                pending,
+                Pending::Event { name, .. } if name == "OnDestructionStageChanged"
+            )
+        })
+        .count();
     deal(&mut restored, reference, 50.0);
     assert_eq!(restored.world_mut().destruction_stage(reference), -1);
     assert_eq!(
@@ -111,10 +144,18 @@ fn cmb_37_clear_destruction_restores_health_stage_model_and_enable_state() {
             .destruction_health,
         Some(100.0)
     );
-    assert!(!restored.world().pending.iter().any(|pending| matches!(
-        pending,
-        Pending::Event { name, .. } if name == "OnDestructionStageChanged"
-    )));
+    assert_eq!(
+        restored
+            .world()
+            .pending
+            .iter()
+            .filter(|pending| matches!(
+                pending,
+                Pending::Event { name, .. } if name == "OnDestructionStageChanged"
+            ))
+            .count(),
+        events_before_damage
+    );
 }
 
 #[test]

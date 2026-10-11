@@ -29,7 +29,11 @@ fn fixture(base: Record) -> Game {
 }
 
 fn destructible(stages: &[(u8, u8, Option<&[u8]>)]) -> Record {
-    let dest = [100i32.to_le_bytes().as_slice(), &[stages.len() as u8, 0, 0, 0]].concat();
+    let dest = [
+        100i32.to_le_bytes().as_slice(),
+        &[stages.len() as u8, 0, 0, 0],
+    ]
+    .concat();
     let mut record = Record::new(T(b"ACTI"), BASE).sub(T(b"DEST"), dest);
     for (percent, model_stage, model) in stages {
         record = record.sub(T(b"DSTD"), stage(*percent, *model_stage));
