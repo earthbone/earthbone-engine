@@ -7388,9 +7388,11 @@ vanilla Patrol template. Some branches omit optional inputs using index 255.
 Omitted Repeatable, StartAtNearestPoint, RideHorseIfPossible and StaticPathing
 inputs default to false. Missing PathStart or PointRadius remains unsupported.
 The CK procedure-tree tutorial authors Static Pathing as a boolean input but
-does not describe a separate movement result. This runtime accepts either
-value and follows the same cached navmesh segment route for both. It does not
-model a separate static-path request or dynamic-obstacle replanning.
+does not describe a separate movement result. CommonLibSSE-NG's local RTTI and
+vtable indexes name `MovementMessageSetStaticPath` but do not define the
+request's behavior. This runtime accepts either value and follows the same
+cached navmesh segment route for both. It does not emit that movement message
+or model dynamic-obstacle replanning.
 
 PathStart currently supports a specific reference or the actor's keyword-free
 linked reference. Template overrides retain their defining plugin namespace.
