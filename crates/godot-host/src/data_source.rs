@@ -1204,6 +1204,16 @@ impl DataSource {
                 };
                 let data = mesh_data_from(shape, &combined);
                 let mut arrays = build_surface(&data, MeshOptions::default())?;
+                let controllers = crate::nif_effect_animation::for_shape(&file, shape.block)?;
+                if let Some(effect) = &mut arrays.material.effect {
+                    effect.controllers = controllers;
+                } else if !controllers.is_empty() {
+                    arrays.material.texture_transform = Some(crate::mesh::TextureTransform {
+                        offset: shape.material.uv_offset,
+                        scale: shape.material.uv_scale,
+                        controllers,
+                    });
+                }
                 apply_fire_palette_fallback(&mut arrays.material, fire_palette.as_deref());
                 arrays
             };
@@ -1581,12 +1591,20 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         alpha,
         double_sided: m.double_sided,
         water: None,
+        texture_transform: (m.effect.is_none()
+            && (m.uv_offset != [0.0; 2] || m.uv_scale != [1.0; 2]))
+            .then(|| crate::mesh::TextureTransform {
+                offset: m.uv_offset,
+                scale: m.uv_scale,
+                controllers: Vec::new(),
+            }),
         effect: m.effect.as_ref().map(|params| crate::mesh::EffectMaterial {
             params: params.clone(),
             blend: m.blend,
             alpha_test: m.alpha_test,
             uv_offset: m.uv_offset,
             uv_scale: m.uv_scale,
+            controllers: Vec::new(),
         }),
     }
 }
@@ -1680,3 +1698,6 @@ mod rnd_17_tests;
 
 #[cfg(test)]
 mod rnd_22_tests;
+
+#[cfg(test)]
+mod rnd_39_tests;

@@ -25,6 +25,7 @@ fn material() -> (MaterialDesc, EffectMaterial) {
             alpha_test: None,
             uv_offset: [0.125, 0.25],
             uv_scale: [2.0, 0.5],
+            controllers: Vec::new(),
         },
     )
 }
@@ -34,7 +35,7 @@ fn rnd_22_uv_scale_then_offset_preserves_authored_effect_mapping() {
     let (desc, effect) = material();
     let shader = nif_effect::shader(&desc, &effect);
 
-    assert!(shader.contains("vec2 uv = UV * uv_scale + uv_offset;"));
+    assert!(shader.contains("vec2 uv = UV * animated_scale + animated_offset;"));
 }
 
 #[test]

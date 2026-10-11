@@ -73,6 +73,7 @@ pub struct BatchKey {
     pub has_uvs: bool,
     pub has_colors: bool,
     pub effect: Option<crate::mesh::EffectKey>,
+    pub texture_transform: Option<([u32; 6], String)>,
 }
 
 impl BatchKey {
@@ -98,6 +99,10 @@ impl BatchKey {
             has_tangents: !surface.tangents.is_empty(),
             has_uvs: !surface.uvs.is_empty(),
             has_colors: !surface.colors.is_empty(),
+            texture_transform: m
+                .texture_transform
+                .as_ref()
+                .map(|t| t.key([m.shader_flags_1, m.shader_flags_2])),
             effect: m
                 .effect
                 .as_ref()

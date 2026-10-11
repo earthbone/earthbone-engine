@@ -23,10 +23,11 @@ fn rnd_22_effect_uv_transform_applies_authored_scale_and_offset() {
         alpha_test: None,
         uv_offset: [0.125, 0.25],
         uv_scale: [2.0, 0.5],
+        controllers: Vec::new(),
     };
     let shader = nif_effect::shader(&material, &effect);
 
-    assert!(shader.contains("vec2 uv = UV * uv_scale + uv_offset;"));
+    assert!(shader.contains("vec2 uv = UV * animated_scale + animated_offset;"));
 }
 
 #[test]

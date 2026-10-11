@@ -7,6 +7,12 @@
 use crate::mesh::{EffectMaterial, MaterialDesc};
 use soe_nif::blocks::{flags1, flags2, BlendFactor, TestFunc};
 
+/// Pack NIF clamp bits into Godot's bvec2 uniform integer, x then y.
+/// Godot's shading_language.rst requires an integer instead of Vector2i.
+pub fn wrap_bits(clamp_mode: u8) -> i32 {
+    i32::from(clamp_mode & 2 != 0) | (i32::from(clamp_mode & 1 != 0) << 1)
+}
+
 /// Build the effect shader with authored depth, culling and blend state.
 pub fn shader(desc: &MaterialDesc, effect: &EffectMaterial) -> String {
     let f1 = desc.shader_flags_1;
@@ -58,6 +64,9 @@ pub fn shader(desc: &MaterialDesc, effect: &EffectMaterial) -> String {
     };
     let template = include_str!("nif_effect.gdshader");
     template
+        .replace("$ANIMATION_FUNCTIONS", &crate::nif_effect_animation::functions(&effect.controllers))
+        .replace("$ANIMATION_VERTEX", &crate::nif_effect_animation::assignments(&effect.controllers, true))
+        .replace("$ANIMATION_FRAGMENT", &crate::nif_effect_animation::assignments(&effect.controllers, false))
         .replace("$MODES", &format!("{depth}, {cull}, {blend}{test}"))
         .replace(
             "$SCREEN_UNIFORM",

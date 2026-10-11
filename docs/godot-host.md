@@ -6503,3 +6503,67 @@ The runners use isolated projects with explicit extension registration, so
 a fresh checkout needs no shared Godot import cache for these checks.
 The fixture scene runs in a window. Their stdout and stderr captures are
 written under `target/aud_13`.
+
+## Waterfall texture controllers, RND-39
+
+Effect surfaces carry linked standalone
+`BSEffectShaderPropertyFloatController` tracks through the static surface
+builder. Lighting surfaces also retain static UV offset and scale and apply
+`BSLightingShaderPropertyFloatController` UV channels to diffuse, normal, glow
+and environment-mask sampling through the existing lighting shader.
+The host reads the retained raw controller and `NiFloatInterpolator`
+blocks using `soe-nif::Stream` and the reader's existing `NiFloatData` keys.
+A track retains its frequency, phase, start and stop time, cycle mode,
+backward flag, channel and interpolator default. Inactive and manager-controlled
+tracks do not start. Invalid links, cyclic chains, truncated fields, non-finite
+values and unordered keys return a NIF error before upload.
+
+The effect shader evaluates linear, quadratic and constant float tracks from
+Godot's shader clock. Channels cover UV offsets and scales, alpha, emissive
+multiple and the four falloff values. Controlled falloff angles retain degrees
+in their keys and convert to cosines when assigned to the shader. Static
+property angles are already cosines. UV scale precedes UV offset, so a scrolling
+source texture moves across the authored mesh without changing its placement.
+The effect material retains source and vertex alpha, culling, depth
+state and authored blend factors. NIF clamp flags are reordered into the packed
+integer Godot requires for a `bvec2` uniform. The former `Vector2i` upload
+clamped both axes, pinning falls with negative V coordinates to a texture edge.
+A `One` destination factor uses the existing Godot additive blend path. Surveyed vanilla foam and mist use source alpha
+and inverse source alpha, so they retain alpha mixing. Material and batch keys
+include the generated track functions, keeping surfaces with different rates,
+phases and controlled channels separate.
+No per-reference node or per-frame material upload is added. `animation_time`
+defaults to the automatic shader clock. A nonnegative override samples the same
+track at a fixed time for captures.
+
+Sources are local nifly `include/Animation.hpp`, `src/Animation.cpp` and
+`src/Shaders.cpp`, nifxml `nif.xml`'s effect and lighting variable enums and
+inherited controller fields, and OpenMW `components/nifosg/controller.hpp` and
+`controller.cpp` for clock cycling and interpolation. Community Shaders
+`package/Shaders/Water.hlsl` supplies the separate water-plane normal-scroll
+and flow-map reference. Effect texture scrolling uses the NIF controllers
+rather than a guessed water-plane flow speed. The C++ libraries do not fit
+this Rust host's retained-block interface, so the adapter reuses the Rust
+NIF stream and key data and generates Godot shader evaluation. Local Godot
+`godot-docs/tutorials/shaders/shader_reference/shading_language.rst` supplies
+the boolean-vector uniform upload contract.
+
+The surveyed waterfall bodies use lighting shader UV controllers and their
+foam and mist use effect shader controllers. Both were static in this checkout.
+The clamp upload also suppressed texture detail. These meshes are separate
+from cell water planes and BSWaterShaderProperty.
+
+RND-23 is absent here. Controller managers, named sequence activation,
+color controllers, spline interpolators and TBC float tracks are outside this
+adapter. TBC or XYZ float interpolation returns an explicit error. Godot's automatic shader
+clock wraps at its configured rollover and is independent of the gameplay
+pause clock. This row adds no saved state.
+
+`rnd_39_` tests cover authored UV rate and phase, alpha preservation,
+material and batch separation, inactive tracks, malformed controllers and
+installed Whiterun waterfall assets. The installed survey writes placement
+metadata under `godot/.godot/rnd_39`. The windowed capture runner requires that
+survey first and a built, imported release extension. Its script frames a
+waterfall outlet `0:090D19` beside Whiterun's water grate against the city
+geometry, captures samples half a second apart, and measures downward texture displacement and partial
+backdrop transmission through the production material.
