@@ -40,7 +40,12 @@ fn shm_21_event_queries_distinguish_zero_from_missing_inventory() {
     let container = FormId(world.runtime_id(id(0x910)));
     let item = FormId(world.runtime_id(id(0x801)));
     assert_eq!(world.inventory_count(container, item), Some(0));
-    world.reference(id(0x910)).unwrap().inventory.add(id(0x801), 2).unwrap();
+    world
+        .reference(id(0x910))
+        .unwrap()
+        .inventory
+        .add(id(0x801), 2)
+        .unwrap();
     assert_eq!(world.inventory_count(container, item), Some(2));
     assert_eq!(world.inventory_count(FormId(u32::MAX), item), None);
 }

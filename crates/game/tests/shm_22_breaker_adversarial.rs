@@ -18,9 +18,7 @@ fn put(bytes: &mut [u8], at: usize, value: u32) {
 
 fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(
-        Record::new(Tag(*b"NPC_"), 0x800).sub(Tag(*b"RNAM"), 0x700_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800).sub(Tag(*b"RNAM"), 0x700_u32.to_le_bytes()));
     for actor in [0x900, 0x901] {
         plugin.push_top(
             Record::new(Tag(*b"ACHR"), actor).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
