@@ -338,6 +338,14 @@ load-order version as the winner. Wrye Bash's `[dev]-PBash-Patching-Procedure.md
 patchers that can merge tagged fields, a separate operation from this whole-record conflict
 view. The dock does not run patchers.
 
+`godot/edt_11_override_chain_test.gd` is also called from the forms plugin's EDT-11 editor
+check. With `SKYRIM_DATA` and `SOE_EDT_11_RUNTIME_TEST=1`, the check opens Skyrim.esm,
+Update.esm, Dawnguard.esm, HearthFires.esm and Dragonborn.esm, searches for an overridden
+form, selects its row through the dock handler, and compares every displayed version and
+winner marker with the open form table. The editor exits with a result after the check.
+This verifies selection and display against installed records. It does not implement a
+patcher API or tagged-field merging.
+
 The navmesh document commands edit `NAVM` records already present in the active plugin.
 They add or delete triangles and move existing vertices. Each successful operation records
 an undo snapshot, rebuilds same-mesh triangle adjacency and the NVNM spatial grid, and
