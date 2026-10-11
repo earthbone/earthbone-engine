@@ -8930,6 +8930,11 @@ state keep their saved layout. The design follows the local
 `recastnavigation/Detour/Source/DetourNavMeshQuery.cpp` sliced-query contract,
 implemented on the engine's authored NAVM graph through `soe-navmesh`.
 
+`prf_11_pending_actor_retains_package_step_and_resumes_movement` runs the full
+driver while a search spans multiple ticks. It checks that a pending actor's
+state and position stay unchanged even after periodic evaluation becomes due,
+then checks that movement resumes when the path is ready.
+
 Cell reference lookup reuses the load order's cell index already prepared by
 cell loading, filters to winning REFR and ACHR identities, and returns them
 in FormID order. It does not build a second world-sized index inside sandbox
