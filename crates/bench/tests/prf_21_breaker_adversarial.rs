@@ -5,10 +5,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-fn native_save_path() -> &'static Path {
-    static PATH: OnceLock<PathBuf> = OnceLock::new();
+fn native_save_path() -> Option<&'static Path> {
+    static PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
     PATH.get_or_init(|| {
-        let data = PathBuf::from(std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA is set"));
+        let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+            eprintln!("SKYRIM_DATA unset, skipping PRF-21 native save checks");
+            return None;
+        };
         let mut order = soe_esm::LoadOrder::new();
         for name in [
             "Skyrim.esm",
@@ -27,9 +30,9 @@ fn native_save_path() -> &'static Path {
             .join("../../target")
             .join(format!("prf-21-native-{}.soeg", std::process::id()));
         std::fs::write(&path, game.save_state().unwrap()).unwrap();
-        path
+        Some(path)
     })
-    .as_path()
+    .as_deref()
 }
 
 fn first_save(root: &Path) -> Option<PathBuf> {
@@ -95,7 +98,9 @@ fn prf_21_breaker_cli_reports_plugin_and_section_times_and_papyrus_script_owners
 
 #[test]
 fn prf_21_breaker_native_cli_reports_load_time_for_each_named_section() {
-    let path = native_save_path();
+    let Some(path) = native_save_path() else {
+        return;
+    };
     let output = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
         .args(["--runs", "1", "save", path.to_str().unwrap()])
         .output()
@@ -122,7 +127,9 @@ fn prf_21_breaker_native_cli_reports_load_time_for_each_named_section() {
 
 #[test]
 fn prf_21_breaker_native_section_sizes_partition_the_file() {
-    let path = native_save_path();
+    let Some(path) = native_save_path() else {
+        return;
+    };
     let output = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
         .args(["--runs", "1", "save", path.to_str().unwrap()])
         .output()
@@ -166,7 +173,9 @@ fn prf_21_breaker_native_section_sizes_partition_the_file() {
 
 #[test]
 fn prf_21_breaker_native_cli_does_not_fabricate_plugin_or_papyrus_attribution() {
-    let path = native_save_path();
+    let Some(path) = native_save_path() else {
+        return;
+    };
     let output = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
         .args(["--runs", "1", "save", path.to_str().unwrap()])
         .output()
