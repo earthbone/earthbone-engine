@@ -1291,6 +1291,8 @@ mod scr_02_breaker_adversarial;
 mod scr_02_native_contract_inventory;
 #[path = "scr_02_signature_parity.rs"]
 mod scr_02_signature_parity;
+#[path = "scr_02_breaker4_adversarial.rs"]
+mod scr_02_breaker4_adversarial;
 #[path = "scr_03_adversarial.rs"]
 mod scr_03_adversarial;
 #[path = "scr_03_component.rs"]
