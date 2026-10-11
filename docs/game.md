@@ -444,9 +444,9 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   filenames. Wabbajack's local `README.md` says modlists are reproduced without
   bundling assets, so the sweep reads installed files in place.
   It parses plugins, BSA/BA2 members, NIF, HKX, DDS, PEX, FUZ/LIP, xWMA and
-  WAV containers. Synthetic tests check each finding category and verify
-  findings stay scoped to their owning mod. The external sweep skips when
-  `SOE_MOD_CORPUS` is unset.
+  WAV containers, and decodes standalone Ogg Vorbis or Opus files. Synthetic
+  tests check each finding category and verify findings stay scoped to their
+  owning mod. The external sweep skips when `SOE_MOD_CORPUS` is unset.
 - `Scenario::append_papyrus_log_expectations` adds a vanilla log's ordered
   trace lines as one expectation. Differential reports list every missing
   expected trace and allow extra runtime output. The `tst_11` real-log check
