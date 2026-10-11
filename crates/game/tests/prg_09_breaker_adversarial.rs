@@ -72,7 +72,7 @@ fn skill(values: &[(String, f32)], name: &str) -> f32 {
 }
 
 #[test]
-fn spawned_race_bonus_is_seeded_once_and_save_keeps_actor_changes() {
+fn prg_09_spawned_race_bonus_is_seeded_once_and_save_keeps_actor_changes() {
     let mut game = auto_game(race(0x700, 11, 15), 11, 1);
     let player = game.player();
     let mut world = game.world_mut();
@@ -89,7 +89,7 @@ fn spawned_race_bonus_is_seeded_once_and_save_keeps_actor_changes() {
 }
 
 #[test]
-fn signed_negative_race_bonus_targets_the_authored_skill_slot() {
+fn prg_09_signed_negative_race_bonus_targets_the_authored_skill_slot() {
     let game = auto_game(race(0x700, 23, -5), 23, 1);
     let values = game.world().initial_actor_values(id(0x800)).unwrap();
     assert_eq!(skill(&values, npc::SKILLS[17]), 10.0);
@@ -97,7 +97,7 @@ fn signed_negative_race_bonus_targets_the_authored_skill_slot() {
 }
 
 #[test]
-fn missing_race_record_rejects_autocalculated_skill_seed() {
+fn prg_09_missing_race_record_rejects_autocalculated_skill_seed() {
     let mut class_data = vec![0u8; 35];
     class_data[6 + 5] = 1;
     let mut plugin = Plugin::new(FileHeader::default());
