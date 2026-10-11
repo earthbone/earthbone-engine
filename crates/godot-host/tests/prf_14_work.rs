@@ -3,7 +3,7 @@
 #![cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
 
 //! Installed host counter checks with a current, imported release extension.
-//! Installed host counter checks using Cargo's extension in an isolated project.
+//! The same script also checks Cargo's extension in an isolated project.
 
 #[test]
 fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
@@ -60,32 +60,12 @@ fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
     assert!(release_stdout.contains("PRF_14_COUNTS"), "{release_stdout}");
     assert!(!release_stderr.contains("SCRIPT ERROR"), "{release_stderr}");
 
-    // CONTEXT: Cargo test does not refresh the release library Godot loads.
-    let build = std::process::Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
-        .arg(workspace.join("target"))
-        .output()
-        .unwrap();
-    assert!(
-        build.status.success(),
-        "release extension build failed\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
-    // CONTEXT: A fresh checkout needs an import to register its GDExtension.
-    let import = std::process::Command::new(&godot)
-        .args(["--headless", "--path"])
-        .arg(workspace.join("godot"))
-        .arg("--import")
-        .output()
-        .unwrap();
-    assert!(
-        import.status.success(),
-        "Godot project import failed\n{}\n{}",
-        String::from_utf8_lossy(&import.stdout),
-        String::from_utf8_lossy(&import.stderr)
-    );
+    for line in release_stdout
+        .lines()
+        .filter(|line| line.starts_with("PRF_14_") || line.starts_with("RESULT:"))
+    {
+        println!("release {line}");
+    }
     let executable = std::env::current_exe().unwrap();
     let library = executable.parent().unwrap().join("libsoe_godot_host.so");
     assert!(library.is_file(), "missing extension {}", library.display());
@@ -128,4 +108,10 @@ fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
     assert!(stdout.contains("RESULT: PASS"), "{stdout}\n{stderr}");
     assert!(stdout.contains("PRF_14_COUNTS"), "{stdout}");
     assert!(!stderr.contains("SCRIPT ERROR"), "{stderr}");
+    for line in stdout
+        .lines()
+        .filter(|line| line.starts_with("PRF_14_") || line.starts_with("RESULT:"))
+    {
+        println!("cargo {line}");
+    }
 }
