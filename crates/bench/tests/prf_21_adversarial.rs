@@ -266,3 +266,90 @@ fn prf_21_save_command_attributes_papyrus_bytes_to_script_and_plugin() {
         "Papyrus script rows must include script identity and owning plugin"
     );
 }
+
+#[test]
+fn prf_21_save_command_papyrus_plugin_totals_match_script_owners() {
+    let Some(root) = std::env::var_os("SOE_TEST_SAVES").map(PathBuf::from) else {
+        eprintln!("SOE_TEST_SAVES unset, skipping PRF-21 Papyrus ownership check");
+        return;
+    };
+    let mut paths = Vec::new();
+    collect(&root, &mut paths);
+    paths.sort();
+
+    let (path, expected_scripts) = paths
+        .into_iter()
+        .find_map(|path| {
+            let save =
+                Save::open(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            let papyrus = save.papyrus()?.ok()?;
+            let rows = save.papyrus_script_sizes(&papyrus).unwrap();
+            (!rows.is_empty()).then_some((path, rows))
+        })
+        .expect("the supplied save corpus contains Papyrus script instances");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
+        .args(["save", path.to_str().expect("save path is UTF-8")])
+        .env_remove("SKYRIM_DATA")
+        .output()
+        .expect("soe-bench starts");
+    assert!(
+        output.status.success(),
+        "{}: {}",
+        path.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).expect("soe-bench output is UTF-8");
+
+    let expected_script_rows: BTreeMap<_, _> = expected_scripts
+        .iter()
+        .map(|row| {
+            (
+                (row.plugin.clone(), row.script.clone()),
+                (row.instances, row.bytes),
+            )
+        })
+        .collect();
+    let actual_script_rows: BTreeMap<_, _> = text
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.first().copied() != Some("save_papyrus_script") || fields.len() < 5 {
+                return None;
+            }
+            let instances = fields[2].parse().ok()?;
+            let bytes = fields[3].parse().ok()?;
+            Some((
+                (fields[4..].join(" "), fields[1].to_owned()),
+                (instances, bytes),
+            ))
+        })
+        .collect();
+    assert_eq!(
+        actual_script_rows,
+        expected_script_rows,
+        "{}",
+        path.display()
+    );
+
+    let mut expected_plugins = BTreeMap::<String, (usize, usize)>::new();
+    for row in &expected_scripts {
+        let totals = expected_plugins.entry(row.plugin.clone()).or_default();
+        totals.0 += row.instances;
+        totals.1 += row.bytes;
+    }
+    let actual_plugins: BTreeMap<_, _> = text
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.first().copied() != Some("save_papyrus_script_plugin") || fields.len() < 4 {
+                return None;
+            }
+            Some((
+                fields[3..].join(" "),
+                (fields[1].parse().ok()?, fields[2].parse().ok()?),
+            ))
+        })
+        .collect();
+    assert_eq!(actual_plugins, expected_plugins, "{}", path.display());
+}
