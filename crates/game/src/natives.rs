@@ -4744,6 +4744,11 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         none()
     });
     method!(vm, w, "Actor", "UnequipAll", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.UnequipAll expects no arguments");
+            return none();
+        }
         let items: Vec<_> = world
             .reference(me)
             .map(|reference| reference.inventory.iter().map(|(item, _)| *item).collect())
@@ -4766,7 +4771,12 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
-    method!(vm, w, "Actor", "RemoveAllSpells", |world, _call, me| {
+    method!(vm, w, "Actor", "RemoveAllSpells", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.RemoveAllSpells expects no arguments");
+            return none();
+        }
         if let Some(actor) = world.actor(me) {
             let spells = actor.spells.clone();
             actor.spells.clear();
@@ -4777,6 +4787,13 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         none()
     });
     method!(vm, w, "Actor", "StartVampireFeed", |world, call, me| {
+        if call.args.len() != 1 {
+            call.log.push(
+                call.time,
+                "Actor.StartVampireFeed expects one Actor argument",
+            );
+            return none();
+        }
         if let Some(target) = world.form_arg(&call.arg(0)) {
             if world.actor(target).is_some_and(|actor| actor.ai.sleeping) {
                 let target = world.form_value(Some(target), alloc!(call));
@@ -4786,6 +4803,11 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         none()
     });
     method!(vm, w, "Actor", "StartCannibal", |world, call, me| {
+        if call.args.len() != 1 {
+            call.log
+                .push(call.time, "Actor.StartCannibal expects one Actor argument");
+            return none();
+        }
         if world
             .form_arg(&call.arg(0))
             .and_then(|target| world.actor(target))

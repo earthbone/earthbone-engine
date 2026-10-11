@@ -1909,16 +1909,18 @@ registered by the Papyrus VM rather than `game::natives::register`, so they are
 not part of this registry inventory. Their clock contracts are documented in
 the VM section above.
 
-`Actor.UnequipAll` clears equipped inventory markers, weapon and spell hands,
-and the equipped shout while retaining the actor's known spells and inventory.
-`Actor.RemoveAllSpells` clears known spells and spell hand assignments while
-leaving unrelated equipment in place. `StartVampireFeed` queues the documented
-`OnVampireFeed` event on the calling actor when its target resolves to a
-sleeping actor. `StartCannibal` queues the `CannibalStart` graph event on the
-calling actor when its argument resolves to a dead actor. `ClearExtraArrows`
-is a no-op because the runtime does not model attached-arrow extra data. The
-CK native clears arrows from actor 3D, so host renderer support remains a
-prerequisite for implementing this behavior.
+`Actor.UnequipAll` accepts no arguments and clears equipped inventory markers,
+weapon and spell hands, and the equipped shout while retaining the actor's
+known spells and inventory. `Actor.RemoveAllSpells` accepts no arguments and
+clears known spells and spell hand assignments while leaving unrelated
+equipment in place. `StartVampireFeed` and `StartCannibal` each require one
+Actor argument. They queue the documented `OnVampireFeed` event on the calling
+actor when the target resolves to a sleeping actor, or queue the
+`CannibalStart` graph event when the target resolves to a dead actor. Invalid
+target forms are ignored. `ClearExtraArrows` accepts no arguments, but remains
+a no-op because the runtime does not model attached-arrow extra data. The CK
+native clears arrows from actor 3D. Host attachment state and its removal API
+are a separate prerequisite for completing that behavior.
 
 The SCR-23 Debug natives update runtime debug state or the shared player
 reference. `SetFootIK` stores the requested setting, defaulting to enabled.

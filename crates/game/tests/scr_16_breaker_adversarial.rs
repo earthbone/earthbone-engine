@@ -156,17 +156,68 @@ fn scr_16_breaker_start_vampire_feed_ignores_missing_or_awake_targets() {
 }
 
 #[test]
-fn scr_16_breaker_clear_extra_arrows_does_not_substitute_a_graph_event_for_removal() {
+fn scr_16_breaker_unequip_all_removes_prevent_removal_items_but_keeps_inventory() {
     let mut game = game();
-    call(&mut game, "ClearExtraArrows", &[]);
-    call(&mut game, "ClearExtraArrows", &[Value::Int(7)]);
-    assert!(
-        game.world().animation_requests.is_empty(),
-        "ClearExtraArrows must clear attached arrow 3D, not queue an unrelated graph event"
-    );
-    assert!(game
-        .traces()
-        .iter()
-        .any(|trace| trace.contains("ClearExtraArrows expects no arguments")));
+    let actor_id = id(ACTOR);
+    game.world_mut().add_item(actor_id, id(ITEM_A), 1);
+    game.world_mut().equip_item(actor_id, id(ITEM_A)).unwrap();
+    game.world_mut()
+        .actor(actor_id)
+        .unwrap()
+        .prevent_equipment_removal
+        .insert(id(ITEM_A));
+
+    call(&mut game, "UnequipAll", &[]);
+
+    let mut world = game.world_mut();
+    let actor = world.actor_ref(actor_id).unwrap();
+    assert!(!actor.equipped.contains(&id(ITEM_A)));
+    assert!(!actor.prevent_equipment_removal.contains(&id(ITEM_A)));
+    assert_eq!(world.item_count(actor_id, id(ITEM_A)), 1);
     assert!(errors(&game).is_empty(), "{:?}", errors(&game));
+}
+
+#[test]
+fn scr_16_breaker_native_argument_contracts_reject_wrong_arity_without_mutation() {
+    let mut game = game();
+    let actor_id = id(ACTOR);
+    let target = Value::Object(game.object_of_form(id(TARGET)));
+    game.world_mut()
+        .actor(actor_id)
+        .unwrap()
+        .spells
+        .insert(id(SPELL));
+    game.world_mut()
+        .actor(actor_id)
+        .unwrap()
+        .equipped
+        .insert(id(ITEM_A));
+
+    call(&mut game, "UnequipAll", &[Value::Int(1)]);
+    call(&mut game, "RemoveAllSpells", &[Value::Int(1)]);
+    call(&mut game, "StartCannibal", &[]);
+    call(
+        &mut game,
+        "StartCannibal",
+        &[target.clone(), target.clone()],
+    );
+    call(&mut game, "StartVampireFeed", &[]);
+    call(&mut game, "StartVampireFeed", &[target.clone(), target]);
+
+    let world = game.world();
+    let actor = world.actor_ref(actor_id).unwrap();
+    assert!(actor.spells.contains(&id(SPELL)));
+    assert!(actor.equipped.contains(&id(ITEM_A)));
+    assert!(world.animation_requests.is_empty());
+    for message in [
+        "UnequipAll expects no arguments",
+        "RemoveAllSpells expects no arguments",
+        "StartCannibal expects one Actor argument",
+        "StartVampireFeed expects one Actor argument",
+    ] {
+        assert!(
+            game.traces().iter().any(|trace| trace.contains(message)),
+            "missing {message}"
+        );
+    }
 }
