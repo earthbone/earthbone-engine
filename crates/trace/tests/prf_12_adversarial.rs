@@ -35,9 +35,21 @@ fn prf_12_nested_suspension_restores_only_at_the_outer_boundary() {
 #[test]
 #[allow(clippy::panic, reason = "Exercises recording restoration after unwind")]
 fn prf_12_suspension_restores_recording_after_unwind() {
+    let frame = FrameSnapshot::now();
+    let active = SystemScope::new(System::Papyrus);
     let result = catch_unwind(AssertUnwindSafe(|| {
-        with_timing_suspended(|| panic!("calibration abort"));
+        with_timing_suspended(|| {
+            with_timing_suspended(|| {
+                let _nested = SystemScope::new(System::Magic);
+                panic!("calibration abort");
+            });
+        });
     }));
     assert!(result.is_err());
     assert!(FrameSnapshot::when_recording().is_some());
+    assert_eq!(SystemScope::current_system(), System::Papyrus);
+    drop(active);
+    let sample = frame.finish();
+    assert!(sample.system_ns[System::Papyrus as usize] > 0);
+    assert_eq!(sample.system_ns[System::Magic as usize], 0);
 }
