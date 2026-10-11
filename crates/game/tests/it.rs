@@ -128,6 +128,8 @@ mod ai_14_breaker_adversarial;
 mod ai_14_breaker_adversarial_2;
 #[path = "ai_14_breaker_adversarial_3.rs"]
 mod ai_14_breaker_adversarial_3;
+#[path = "ai_14_breaker_adversarial_4.rs"]
+mod ai_14_breaker_adversarial_4;
 #[path = "ai_14_breaker_breaker_adversarial.rs"]
 mod ai_14_breaker_breaker_adversarial;
 #[path = "ai_14_breaker_breaker_adversarial_2.rs"]
