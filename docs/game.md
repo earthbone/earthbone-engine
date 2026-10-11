@@ -1751,6 +1751,12 @@ defaults and its `None` return, with the native invocation. Calling the native
 with only the required item exercises those defaults: it equips the item,
 emits the ordinary equip notification and returns `None`. `SCR-74` owns the
 prevent-removal and silent-message behavior and tests those explicit arguments.
+The SCR-02 signature test parses every direct Actor and ActiveMagicEffect
+registry binding against the complete CK or shipped PSC declaration in the
+contract fixture, including parameter types, optional values and return type.
+Vanilla `Actor.psc` declares `EnableAI(bool abEnable = true)`. The native uses
+that default when invoked without an argument, and returns `None` for both the
+default and explicit-argument calls.
 
 `Actor.KeepOffsetFromActor` stores the target, required body-space XYZ offset,
 optional XYZ angles and catch-up/follow radii on the calling actor. Omitted
