@@ -1248,8 +1248,9 @@ animation on arbitrary references, and neither native fabricates a graph
 event.
 `PlayGamebryoAnimation` returns false because legacy NIF playback is not
 implemented. It does not report success without starting an animation.
-`SetMotionType` validates the documented motion range and queues the motion
-request for the host. Motion type 7 maps to a kinematic host body.
+`SetMotionType` accepts motion types 1 through 7, defaults `abAllowActivate`
+to true, and queues the motion request for the host. Motion type 7 maps to a
+kinematic host body.
 `ApplyHavokImpulse` rejects zero-length or non-finite direction data,
 logging the Creation Kit Papyrus warning for a zero-length vector. It
 normalizes finite directions without intermediate float overflow and queues

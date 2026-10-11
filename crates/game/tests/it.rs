@@ -1455,6 +1455,8 @@ mod scr_39_breaker_3_adversarial;
 mod scr_39_breaker_adversarial;
 #[path = "scr_39_current_scene.rs"]
 mod scr_39_current_scene;
+#[path = "scr_39_breaker_4_adversarial.rs"]
+mod scr_39_breaker_4_adversarial;
 #[path = "scr_39_object_reference_batch_2.rs"]
 mod scr_39_object_reference_batch_2;
 #[path = "scr_40_adversarial.rs"]
