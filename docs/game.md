@@ -1502,6 +1502,12 @@ draw. SAV-71 checks reset after loading changed references, winning plugin
 overrides, fixed and leveled inventory, actor state and failed cyclic-list
 selection. The installed check samples 32 fixed and 32 leveled containers.
 The two SAV-68 installed equality checks select fixed CNTO containers.
+The synthetic fixture selection check follows winning container overrides
+and excludes bases whose winning inventory contains LVLI entries. The
+[SAV-71 writer reply](sav-71-writer-reply.md) records the reset check results.
+Loaded-reset fixtures also cover inventory items owned by the overriding
+plugin, unresolved optional targets, missing references and changes made
+after an earlier reset.
 
 The SAV-71 historical check found both installed failures already present at
 `3547411b`, before the requested bisect range. All ten SAV-68 checks pass at
