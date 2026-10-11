@@ -23,3 +23,8 @@ fn tst_16_nested_test_name_keeps_every_module_after_the_binary_prefix() {
         "tst_16_breaker_adversarial_2::nested::scenario::case"
     );
 }
+
+#[test]
+fn tst_16_root_test_name_drops_only_the_binary_prefix() {
+    assert_eq!(crate::common::child_test_name("it", "case"), "case");
+}
