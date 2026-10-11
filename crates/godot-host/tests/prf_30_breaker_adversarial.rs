@@ -105,6 +105,29 @@ fn prf_30_render_report_attributes_each_cull_stage_and_lod_switches() {
             );
         }
     }
+    let sources = attribution
+        .get("sources")
+        .and_then(serde_json::Value::as_object)
+        .expect("measurement sources");
+    for source in [
+        "performance_monitors",
+        "viewport_passes",
+        "render_time_ms",
+        "cell_plugin_batches",
+    ] {
+        assert!(
+            sources.get(source).is_some_and(|value| value.is_string()),
+            "render report omits the source for {source}: {report}"
+        );
+    }
+    assert_eq!(
+        sources["viewport_passes"],
+        "RenderingServer.viewport_get_render_info"
+    );
+    assert_eq!(
+        sources["cell_plugin_batches"],
+        "CellStreamerNode.render_attribution"
+    );
 }
 
 #[test]
@@ -142,6 +165,82 @@ fn prf_30_report_reads_every_builtin_performance_monitor() {
         assert!(
             godot.get(field).is_some(),
             "frame report omits Godot monitor {field}: {godot}"
+        );
+    }
+}
+
+#[test]
+fn prf_30_report_includes_each_2d_and_3d_navigation_monitor() {
+    let Some((success, output)) = run_godot("prf_30_godot_render_report_test.gd") else {
+        return;
+    };
+    assert!(success, "installed render report failed: {output}");
+    let report = output
+        .lines()
+        .find_map(|line| line.strip_prefix("SOE_FRAME_REPORT "))
+        .expect("exit frame report");
+    let report: serde_json::Value = serde_json::from_str(report).expect("valid frame report JSON");
+    let godot = report.get("godot").expect("Godot metrics");
+    for field in [
+        "navigation_2d_active_maps",
+        "navigation_2d_regions",
+        "navigation_2d_agents",
+        "navigation_2d_links",
+        "navigation_2d_polygons",
+        "navigation_2d_edges",
+        "navigation_2d_edge_merges",
+        "navigation_2d_edge_connections",
+        "navigation_2d_free_edges",
+        "navigation_2d_obstacles",
+        "navigation_3d_active_maps",
+        "navigation_3d_regions",
+        "navigation_3d_agents",
+        "navigation_3d_links",
+        "navigation_3d_polygons",
+        "navigation_3d_edges",
+        "navigation_3d_edge_merges",
+        "navigation_3d_edge_connections",
+        "navigation_3d_free_edges",
+        "navigation_3d_obstacles",
+    ] {
+        assert!(
+            godot.get(field).is_some(),
+            "frame report omits distinct Godot monitor {field}: {godot}"
+        );
+    }
+}
+
+#[test]
+fn prf_30_done_check_unavailable_render_attribution_has_reasons() {
+    let Some((success, output)) = run_godot("prf_30_godot_render_report_test.gd") else {
+        return;
+    };
+    assert!(success, "installed render report failed: {output}");
+    let report = output
+        .lines()
+        .find_map(|line| line.strip_prefix("SOE_FRAME_REPORT "))
+        .expect("exit frame report");
+    let report: serde_json::Value = serde_json::from_str(report).expect("valid frame report JSON");
+    let attribution = &report["godot"]["render_attribution"];
+    for field in [
+        "frustum_culled",
+        "occlusion_culled",
+        "visibility_range_culled",
+        "lod_culled",
+        "unloaded_cell_culled",
+        "lod_switches_per_second",
+        "shadow_casters_per_light",
+        "materials_created_per_frame",
+        "meshes_created_per_frame",
+    ] {
+        assert!(attribution
+            .get(field)
+            .is_some_and(serde_json::Value::is_null));
+        assert!(
+            attribution["unavailable"][field]
+                .as_str()
+                .is_some_and(|reason| !reason.is_empty()),
+            "unavailable {field} lacks a reason: {attribution}"
         );
     }
 }

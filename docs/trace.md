@@ -173,6 +173,9 @@ The `prf_12_` unit tests cover complete system reports, exclusive nesting,
 overlapping snapshots, zero frame shares and rolling eviction. The game
 stress check compares recording against a suspended baseline with 1,000
 actors and a declared ratio below 1.01. It requires an optimized build.
+The unwind check enters nested suspension inside an active Papyrus scope,
+then verifies that recording and that scope resume without charging the
+suspended magic scope. Its intentional panic has a test-local clippy allowance.
 
 Timing spans and Chrome trace export are also documented in
 [performance.md](performance.md). `WorkFrame::begin` activates a work window
