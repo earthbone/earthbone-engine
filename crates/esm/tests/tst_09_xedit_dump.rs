@@ -44,11 +44,7 @@ pub(crate) fn parse_dump(input: &str) -> Result<Dump, String> {
                 let form_id =
                     parse_hex_u32(form_id).map_err(|e| format!("line {line_number}: {e}"))?;
                 let key = (signature.to_string(), form_id);
-                if dump.records.insert(key.clone(), 1).is_some() {
-                    return Err(format!(
-                        "line {line_number}: duplicate record {signature}:{form_id:08X}"
-                    ));
-                }
+                *dump.records.entry(key).or_default() += 1;
             }
             ["FIELD", signature, form_id, subrecord, ordinal, bytes] => {
                 validate_signature(signature).map_err(|e| format!("line {line_number}: {e}"))?;
@@ -260,6 +256,24 @@ fn tst_09_includes_each_record_type_selected_for_the_xedit_dump() {
         writeln!(&mut expected_text, "RECORD\t{signature}\t{:08X}", index + 1).unwrap();
     }
     let expected = parse_dump(&expected_text).unwrap();
+
+    assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
+}
+
+#[test]
+fn tst_09_counts_repeated_physical_records_with_the_same_form_id() {
+    let manifest = concat!("RECORD\tCELL\t00000001\n", "RECORD\tCELL\t00000001\n",);
+    let expected = parse_dump(manifest).unwrap();
+
+    let mut plugin = Plugin::new(soe_esm::FileHeader::default());
+    let first = plugin.push_record(soe_esm::Record::new(Tag::new(b"CELL"), 1));
+    let second = plugin.push_record(soe_esm::Record::new(Tag::new(b"CELL"), 1));
+    let mut group = soe_esm::Group::new(soe_esm::GroupKind::Top(Tag::new(b"CELL")));
+    group.entries.extend([
+        soe_esm::Entry::Record(first),
+        soe_esm::Entry::Record(second),
+    ]);
+    plugin.groups.push(group);
 
     assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
 }

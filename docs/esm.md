@@ -312,8 +312,9 @@ truncated entries, and all five installed masters.
   `TES5Edit/xDump.dpr` source filters signatures through `DumpRecords`, then writes
   display names, interpreted values and summaries as a nested tree. It does not emit
   raw subrecord bytes, so the xEdit output must be normalized into this manifest before
-  setting the environment variable. The parser test checks all six selected signatures
-  and ignores an unselected `STAT`.
+  setting the environment variable. The manifest parser counts repeated physical record
+  rows that share a FormID. Parser tests check all six selected signatures and ignore an
+  unselected `STAT`.
 
 ## Scripted patch passes
 
