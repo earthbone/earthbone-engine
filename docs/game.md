@@ -876,8 +876,8 @@ Saved REFR and ACHR form flags XOR the authored record flags with xEdit's
 `Mask Invert Flags` word before deriving runtime enable and persistence. A
 deleted winning record remains disabled. The second `Mask Set unk010` word is
 retained in the restore report and does not affect those two runtime properties.
-The reference-mask path accepts ESS versions 12 and 13 with matching
-change-form/form versions 77 or 78. Versioned synthetic cases and a gated
+The reference-mask path accepts ESS header versions from 12 with matching
+change-form/form versions from 77 to 255. Versioned synthetic cases and a gated
 installed Skyrim.esm record case check state before and after restoration.
 FallrimTools preserves both words without applying them, and CommonLib exposes
 the authored runtime flag queries without connecting them to save masks.
@@ -6753,8 +6753,9 @@ states derive persistence from the current winning record. The existing
 `sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
 checks this engine's before-and-after states, persistence queries and
 engine save/load. The follow-up tests round-trip both saved words through the
-public ESS container parser for every accepted form version and check atomic
-rejection of a late unsupported mask version. They do not observe the original
+public ESS container parser for every accepted form version, isolate changes
+to each word when checking enable and persistence, and check atomic rejection
+of a late unsupported mask version. They do not observe the original
 runtime. The SKYRIM_DATA case uses vanilla authored flags in a synthetic save
 and remains untested in light mode. No saved state is added in this follow-up.
 

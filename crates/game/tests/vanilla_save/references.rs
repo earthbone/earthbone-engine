@@ -322,6 +322,51 @@ fn sav_54_every_accepted_form_version_retains_both_mask_words() {
 }
 
 #[test]
+fn sav_54_engine_isolates_each_mask_word_at_every_accepted_form_version() {
+    let disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
+    let persistent = soe_esm::plugin::flags::PERSISTENT;
+    let target = id(0, 0xA00);
+    // CONTEXT: These expectations describe this engine, not an independent
+    // observation of the original runtime's loading operation.
+    for save_version in [12, 13, u32::MAX] {
+        for form_version in 77..=u8::MAX {
+            for (authored, enabled, retained) in [
+                (0, true, false),
+                (disabled, false, false),
+                (persistent, true, true),
+                (disabled | persistent, false, true),
+            ] {
+                for (mask, second, expected) in [
+                    (0, 0, (enabled, retained)),
+                    (disabled, 0, (!enabled, retained)),
+                    (persistent, 0, (enabled, !retained)),
+                    (disabled | persistent, 0, (!enabled, !retained)),
+                    (0, disabled as u16, (enabled, retained)),
+                    (0, persistent as u16, (enabled, retained)),
+                    (0, u16::MAX, (enabled, retained)),
+                ] {
+                    let mut save = fixture();
+                    save.form_id_array[1] = 0x0100_0900;
+                    save.light_plugins.clear();
+                    save.header.version = save_version;
+                    save.form_version = form_version;
+                    set_form_mask(&mut save.change_forms[1], mask, second, form_version);
+                    let parsed = Save::parse(&save.write().unwrap()).unwrap();
+                    let mut world = World::new(fixture_order_with_flags(authored));
+                    world.restore_vanilla_reference_placements(&parsed).unwrap();
+                    let state = world.reference_ref(target).unwrap();
+                    assert_eq!(
+                        (state.enabled, state.persistent),
+                        expected,
+                        "ESS {save_version}, form {form_version}, authored {authored:#x}, words {mask:#x}/{second:#x}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn sav_54_late_unsupported_mask_version_leaves_the_world_unchanged() {
     for (save_version, form_version, change_version) in [
         (11, 78, 78),

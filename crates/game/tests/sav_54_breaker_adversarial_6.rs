@@ -20,10 +20,7 @@ fn sav_54_public_save_round_trip_keeps_both_words_and_the_opaque_suffix() {
 
     assert_eq!(header.form_flags, Some((0x8421_8001, 0xA55A)));
     assert_eq!(header.remaining_bytes, suffix.len());
-    assert_eq!(
-        &change.data[header.bytes_consumed..],
-        suffix.as_slice()
-    );
+    assert_eq!(&change.data[header.bytes_consumed..], suffix.as_slice());
 }
 
 #[test]
@@ -41,8 +38,5 @@ fn sav_54_public_save_round_trip_keeps_payload_when_mask_flag_is_absent() {
 
     assert_eq!(header.form_flags, None);
     assert_eq!(header.remaining_bytes, suffix.len());
-    assert_eq!(
-        &change.data[header.bytes_consumed..],
-        suffix.as_slice()
-    );
+    assert_eq!(&change.data[header.bytes_consumed..], suffix.as_slice());
 }

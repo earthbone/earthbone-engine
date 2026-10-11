@@ -564,7 +564,7 @@ reserves IDs from the saved counter, all change forms and the FormID array.
 The pass refuses an already populated reference or actor table. It queues no
 events and makes no actor-template selections. Restored references have no
 inventory until a later inventory pass applies base contents and saved deltas.
-Actor values, saved enable/delete masks, ownership and other extra data, Havok,
+Actor values, saved delete flags, ownership and other extra data, Havok,
 animation and script bindings are also still unapplied. Created NPC base forms
 need their own restoration pass. The report retains counts and flags for these
 requirements, while the original Save retains the payload bytes. An engine
@@ -888,6 +888,12 @@ values in both words, persistence queries and SOEW save/load.
 fixtures through `Save::write`, `Save::parse` and reference restoration for
 every form version from 77 to 255 with header versions 12, 13 and the largest
 32-bit value. It checks preservation of both words, not Skyrim operation.
+`sav_54_engine_isolates_each_mask_word_at_every_accepted_form_version` checks
+the engine's enable and persistence states through the same public ESS parser
+at those versions. Each relevant first-word bit is varied separately with
+the second word zero. Second-word values overlapping either runtime bit and
+the all-bits value are varied with the first word zero. All four authored
+states are checked. These remain synthetic expectations about this engine.
 `sav_54_late_unsupported_mask_version_leaves_the_world_unchanged` puts an
 unsupported header, file or change version on a late mask and checks that
 restoration fails without changing the world, including earlier references.
@@ -900,8 +906,28 @@ It cannot independently establish that the second word leaves these properties
 unchanged or that the first word uses XOR in every accepted version.
 SAV-54's independent evidence requirement is still unmet.
 
-Untested in light mode: the installed-record test above. The lead can run it
-with installed data using:
+Untested in this follow-up: the package test and clippy commands were
+interrupted with exit status 130 after dependency compilation produced no
+further output for an extended wait. No test completed. The synthetic cases
+added by this draft or used for its runtime check are:
+
+- `sav_54_public_save_round_trip_keeps_both_words_and_the_opaque_suffix`
+- `sav_54_public_save_round_trip_keeps_payload_when_mask_flag_is_absent`
+- `sav_54_every_accepted_form_version_retains_both_mask_words`
+- `sav_54_engine_isolates_each_mask_word_at_every_accepted_form_version`
+- `sav_54_late_unsupported_mask_version_leaves_the_world_unchanged`
+- `sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
+
+The lead can run these cases and the package lint with:
+
+```text
+rtk cargo test -p soe-game --test it sav_54
+rtk cargo clippy -p soe-game --all-targets -- -D warnings
+```
+
+Also untested in light mode:
+`sav_54_installed_reference_mask_words_apply_before_and_after_across_versions`.
+The lead can run it with SKYRIM_DATA set using:
 
 ```text
 rtk cargo test -p soe-game --test it sav_54_installed_reference_mask_words_apply_before_and_after_across_versions
