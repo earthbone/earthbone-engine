@@ -534,6 +534,11 @@ The payloads follow CommonLibSSE-NG-alandtse `include/RE/D/DisarmedEvent.h`,
 `include/RE/L/LocationDiscovery.h` and
 `include/RE/S/ScriptEventSourceHolder.h`. The source-level declarations do
 not reproduce CommonLib pointer layouts or connect directly to a runtime.
+The SHM-19 game fixture subscribes a compiled C++ sink to each generated
+source, forwards payloads emitted by the live `World` over a test pipe, and
+checks the values received by those sinks. It also checks that vtable hook
+requests return an explicit unsupported result. The pipe is test transport,
+not a C++ to Rust ABI.
 
 ## Appendix: the 349 names by group
 
