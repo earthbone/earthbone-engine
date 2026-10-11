@@ -41,7 +41,7 @@ fn collect_saves(path: &Path, saves: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn pcon_each_initial_layout_keeps_unmodeled_fields_in_opaque_suffix() {
+fn sav_70_pcon_each_initial_layout_keeps_unmodeled_fields_in_opaque_suffix() {
     let ignored = flags::FORM | flags::BASE | flags::SCALE;
     let mut moved = vec![];
     placement(&mut moved);
@@ -64,41 +64,59 @@ fn pcon_each_initial_layout_keeps_unmodeled_fields_in_opaque_suffix() {
     let promoted_form = pcon(0x400A00, flags::CELL | ignored, promoted);
 
     for (form, expected, tail) in [
-        (&moved_form, Initial::Moved(soe_save::reference::Placement {
-            cell_or_world: reference(0x400800),
-            position: [1.25, -2.0, 3.5],
-            rotation: [0.0, 0.5, 2.0],
-        }), &[0xA1, 0xB2, 0xC3][..]),
-        (&created_form, Initial::Created {
-            placement: soe_save::reference::Placement {
+        (
+            &moved_form,
+            Initial::Moved(soe_save::reference::Placement {
                 cell_or_world: reference(0x400800),
                 position: [1.25, -2.0, 3.5],
                 rotation: [0.0, 0.5, 2.0],
+            }),
+            &[0xA1, 0xB2, 0xC3][..],
+        ),
+        (
+            &created_form,
+            Initial::Created {
+                placement: soe_save::reference::Placement {
+                    cell_or_world: reference(0x400800),
+                    position: [1.25, -2.0, 3.5],
+                    rotation: [0.0, 0.5, 2.0],
+                },
+                flags: 0x5A,
+                base: reference(0x400900),
             },
-            flags: 0x5A,
-            base: reference(0x400900),
-        }, &[0xD4, 0xE5][..]),
-        (&promoted_form, Initial::Promoted {
-            placement: soe_save::reference::Placement {
-                cell_or_world: reference(0x400800),
-                position: [1.25, -2.0, 3.5],
-                rotation: [0.0, 0.5, 2.0],
+            &[0xD4, 0xE5][..],
+        ),
+        (
+            &promoted_form,
+            Initial::Promoted {
+                placement: soe_save::reference::Placement {
+                    cell_or_world: reference(0x400800),
+                    position: [1.25, -2.0, 3.5],
+                    rotation: [0.0, 0.5, 2.0],
+                },
+                secondary_cell: reference(0x400801),
+                coordinates: [-2, 7],
             },
-            secondary_cell: reference(0x400801),
-            coordinates: [-2, 7],
-        }, &[0xF6, 0x07][..]),
+            &[0xF6, 0x07][..],
+        ),
     ] {
         let header = form.reference_header(78).unwrap().unwrap();
         assert_eq!(header.initial, expected);
         assert!(!header.carries_reference_data);
-        assert_eq!(header.data_bytes().unwrap(), form.data[..header.bytes_consumed]);
+        assert_eq!(
+            header.data_bytes().unwrap(),
+            form.data[..header.bytes_consumed]
+        );
         assert_eq!(&form.data[header.bytes_consumed..], tail);
-        assert_eq!(header.bytes_consumed + header.remaining_bytes, form.data.len());
+        assert_eq!(
+            header.bytes_consumed + header.remaining_bytes,
+            form.data.len()
+        );
     }
 }
 
 #[test]
-fn pcon_all_unmodeled_reference_flag_subsets_round_trip_without_consumption() {
+fn sav_70_pcon_all_unmodeled_reference_flag_subsets_round_trip_without_consumption() {
     let bits = [flags::FORM, flags::BASE, flags::SCALE];
     for subset in 0..8 {
         let ignored = bits
@@ -114,19 +132,22 @@ fn pcon_all_unmodeled_reference_flag_subsets_round_trip_without_consumption() {
         let header = form.reference_header(78).unwrap().unwrap();
         assert_eq!(header.bytes_consumed, prefix_len);
         assert_eq!(header.data_bytes().unwrap(), form.data[..prefix_len]);
-        assert_eq!(&form.data[prefix_len..], &[0xFE, 0xED, subset as u8]);
+        assert_eq!(&form.data[prefix_len..], &[0xFE, 0xED, subset]);
     }
 }
 
 #[test]
-fn pcon_havok_count_width_and_zero_length_are_preserved() {
+fn sav_70_pcon_havok_count_width_and_zero_length_are_preserved() {
     let mut data = vec![];
     placement(&mut data);
     data.extend([0x00, 0xA5]);
     let empty = pcon(0x400A00, flags::MOVE | flags::HAVOK, data);
     let header = empty.reference_header(78).unwrap().unwrap();
     assert_eq!(header.havok.as_ref().unwrap().data, []);
-    assert_eq!(header.data_bytes().unwrap(), empty.data[..header.bytes_consumed]);
+    assert_eq!(
+        header.data_bytes().unwrap(),
+        empty.data[..header.bytes_consumed]
+    );
     assert_eq!(&empty.data[header.bytes_consumed..], &[0xA5]);
 
     let mut data = vec![];
@@ -135,15 +156,15 @@ fn pcon_havok_count_width_and_zero_length_are_preserved() {
     let wide_zero = pcon(0x400A00, flags::MOVE | flags::HAVOK, data);
     let header = wide_zero.reference_header(78).unwrap().unwrap();
     assert_eq!(header.havok.as_ref().unwrap().data, []);
-    assert_eq!(header.data_bytes().unwrap(), wide_zero.data[..header.bytes_consumed]);
     assert_eq!(
-        &wide_zero.data[header.bytes_consumed..],
-        &[0x22, 0x33]
+        header.data_bytes().unwrap(),
+        wide_zero.data[..header.bytes_consumed]
     );
+    assert_eq!(&wide_zero.data[header.bytes_consumed..], &[0x22, 0x33]);
 }
 
 #[test]
-fn external_save_reference_headers_reencode_and_player_positions_match() {
+fn sav_70_external_save_reference_headers_reencode_and_player_positions_match() {
     let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
         eprintln!("SOE_TEST_SAVES unset, skipping reference header corpus");
         return;
