@@ -20,16 +20,17 @@ fn edt_11_chain_resolves_owner_through_reordered_master_table() {
         masters: vec!["Other.esm".to_string(), "Base.esm".to_string()],
         ..Default::default()
     });
-    patch.push_top(
-        Record::new(Tag(*b"STAT"), 0x0100_0800).zsub(Tag(*b"EDID"), "PatchVersion"),
-    );
+    patch.push_top(Record::new(Tag(*b"STAT"), 0x0100_0800).zsub(Tag(*b"EDID"), "PatchVersion"));
 
     std::fs::write(&base_path, base.to_bytes()).unwrap();
     std::fs::write(&other_path, other.to_bytes()).unwrap();
     std::fs::write(&patch_path, patch.to_bytes()).unwrap();
     let document = EditorDocument::open(&[base_path, other_path, patch_path], "Patch.esp").unwrap();
 
-    let chain = document.override_chain(GlobalFormId { file: 0, object: 0x800 });
+    let chain = document.override_chain(GlobalFormId {
+        file: 0,
+        object: 0x800,
+    });
     assert_eq!(chain.len(), 2);
     assert_eq!(chain[0].plugin_name, "Base.esm");
     assert_eq!(chain[0].record.editor_id().as_deref(), Some("BaseVersion"));
@@ -64,7 +65,12 @@ fn edt_11_installed_conflict_chain_follows_plugin_priority() {
         .expect("installed master load order should contain an overridden form");
     let positions = conflict
         .iter()
-        .map(|version| document.load_order().position_of(version.plugin_name).unwrap())
+        .map(|version| {
+            document
+                .load_order()
+                .position_of(version.plugin_name)
+                .unwrap()
+        })
         .collect::<Vec<_>>();
 
     assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));

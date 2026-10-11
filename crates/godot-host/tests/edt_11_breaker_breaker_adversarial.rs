@@ -33,10 +33,22 @@ fn edt_11_same_editor_id_on_different_forms_does_not_join_their_chains() {
     let patch_path = write_plugin(&directory, "Patch.esp", patch);
     let document = EditorDocument::open(&[base_path, patch_path], "Patch.esp").unwrap();
 
-    let changed = document.override_chain(GlobalFormId { file: 0, object: 0x800 });
-    let untouched = document.override_chain(GlobalFormId { file: 0, object: 0x801 });
+    let changed = document.override_chain(GlobalFormId {
+        file: 0,
+        object: 0x800,
+    });
+    let untouched = document.override_chain(GlobalFormId {
+        file: 0,
+        object: 0x801,
+    });
     assert_eq!(changed.len(), 2);
-    assert_eq!(changed.iter().map(|version| version.is_winner).collect::<Vec<_>>(), [false, true]);
+    assert_eq!(
+        changed
+            .iter()
+            .map(|version| version.is_winner)
+            .collect::<Vec<_>>(),
+        [false, true]
+    );
     assert_eq!(untouched.len(), 1);
     assert!(untouched[0].is_winner);
 }
@@ -52,7 +64,10 @@ fn edt_11_same_form_id_keeps_versions_when_editor_id_changes() {
     let patch_path = write_plugin(&directory, "Patch.esp", patch);
     let document = EditorDocument::open(&[base_path, patch_path], "Patch.esp").unwrap();
 
-    let chain = document.override_chain(GlobalFormId { file: 0, object: 0x800 });
+    let chain = document.override_chain(GlobalFormId {
+        file: 0,
+        object: 0x800,
+    });
     assert_eq!(chain.len(), 2);
     assert_eq!(chain[0].record.editor_id().as_deref(), Some("OldName"));
     assert_eq!(chain[1].record.editor_id().as_deref(), Some("NewName"));
