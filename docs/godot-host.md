@@ -5609,8 +5609,12 @@ recorder for each ordered chunk.
 
 `godot/prf_14_work_test.gd` loads the installed Bannered Mare, compares actual
 instance creation with the streamed count and verifies empty-window reset.
-The Rust wrapper runs it in an isolated project with an explicit extension list,
-loading Cargo's current test-built library rather than a cached release build.
+The Rust wrapper builds and imports the release extension once, runs the script
+in the normal project, then repeats it in an isolated project with an explicit
+extension list and Cargo's current test-built library. It prints both counter
+reports and checks each process exit status and pass marker.
+Both launches explicitly pass the gated `SKYRIM_DATA` value. The release build
+inherits Cargo's target directory and build flags from the caller.
 It is a headless correctness check. The counter paths add no per-reference
 nodes and no saved state. The row uses the existing RenderingServer and
 PhysicsDirectSpaceState3D APIs described in the local Godot class docs.

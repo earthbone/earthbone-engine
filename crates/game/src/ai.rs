@@ -64,6 +64,8 @@ pub mod metrics;
 mod movement;
 mod navigation;
 mod patrol;
+#[cfg(test)]
+mod prf_14_tests;
 pub(crate) mod process;
 mod tree;
 pub use navigation::PlanningWorkers;
@@ -3719,6 +3721,26 @@ fn orbit_arc_valid(
     inner: f32,
     outer: f32,
 ) -> bool {
+    orbit_arc_with_locator(
+        &mut |point| graph.locate(point).is_some(),
+        center,
+        radius,
+        start_angle,
+        end_angle,
+        inner,
+        outer,
+    )
+}
+
+fn orbit_arc_with_locator(
+    locate: &mut impl FnMut([f32; 3]) -> bool,
+    center: [f32; 3],
+    radius: f32,
+    start_angle: f32,
+    end_angle: f32,
+    inner: f32,
+    outer: f32,
+) -> bool {
     let arc_length = radius * (end_angle - start_angle).abs();
     let steps = orbit_sample_count(arc_length);
     (0..=steps).all(|step| {
@@ -3730,11 +3752,19 @@ fn orbit_arc_valid(
             center[2],
         ];
         let radius = (point[0] - center[0]).hypot(point[1] - center[1]);
-        (inner - 0.01..=outer + 0.01).contains(&radius) && graph.locate(point).is_some()
+        (inner - 0.01..=outer + 0.01).contains(&radius) && locate(point)
     })
 }
 
 fn orbit_segment_on_navmesh(graph: &NavGraph, from: [f32; 3], to: [f32; 3]) -> bool {
+    orbit_segment_with_locator(&mut |point| graph.locate(point).is_some(), from, to)
+}
+
+fn orbit_segment_with_locator(
+    locate: &mut impl FnMut([f32; 3]) -> bool,
+    from: [f32; 3],
+    to: [f32; 3],
+) -> bool {
     let length = distance(from, to);
     if !length.is_finite() {
         return false;
@@ -3743,7 +3773,7 @@ fn orbit_segment_on_navmesh(graph: &NavGraph, from: [f32; 3], to: [f32; 3]) -> b
     (0..=steps).all(|step| {
         let t = step as f32 / steps as f32;
         let point = std::array::from_fn(|axis| from[axis] + (to[axis] - from[axis]) * t);
-        graph.locate(point).is_some()
+        locate(point)
     })
 }
 
