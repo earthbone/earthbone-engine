@@ -9,7 +9,7 @@ fn configured_path(name: &str) -> Option<PathBuf> {
 }
 
 #[test]
-fn anm_58_godot_animation_signal_reaches_game_world() {
+fn anm_58_godot_signal_resumes_papyrus_wait_and_unload_returns_false() {
     let Some(data) = configured_path("SKYRIM_DATA") else {
         eprintln!("skipping: set SKYRIM_DATA to the installed Skyrim Data folder");
         return;
@@ -51,7 +51,7 @@ fn anm_58_godot_animation_signal_reaches_game_world() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        output.status.success() && stdout.contains("RESULT: PASS anm_58 signal bridge"),
+        output.status.success() && stdout.contains("RESULT: PASS anm_58 signal waits"),
         "Godot ANM-58 signal test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }

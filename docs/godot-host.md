@@ -959,6 +959,14 @@ DMDL through `World::destruction_model`. Clearing destruction removes the
 replacement and reveals the base model. Releasing the owning cell or clearing
 the streamer frees its replacement mesh and instance RIDs.
 
+The `cmb-37-test` feature adds a regression driver that selects an installed
+modeled REFR, damages its DEST stages in a World, and runs the same
+RenderingServer overlay sync used for resident references.
+`cmb_37_windowed_reference_damage_replaces_its_model` checks that damage
+selects a stage and that the host creates replacement instances for its DMDL.
+The format fields follow local xEdit `wbDefinitionsTES5.pas`. CK's
+`DamageObject` page states that it applies damage and may fire stage events.
+
 ### Character race and sex selection, UI-07
 
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex
@@ -1637,6 +1645,15 @@ per update. It reports the successfully entered cell count to the shared `Game` 
 Papyrus budget usage. Papyrus reads the latest count through
 `Utility.GetCurrentBudget` and compares it with the configured cap through
 `OverBudget`. The counter resets to zero at the start of each host update.
+
+The direct gameplay adapter publishes exterior cell arrivals and departures
+to `Game::update_streaming_cells` after `CellStreamerNode` applies the resource
+delta. Initial neighboring cells use `Game::attach_streaming_cells`, and the
+old exterior ring uses `Game::detach_streaming_cells` when its host resources
+leave. The game derives reference 3D residency from those cell IDs, so a cell
+prefetch alone does not report loaded 3D. `ObjectReference.Is3DLoaded` then
+reports the residency state, including references culled by room bounds, until
+their cell leaves the streamer.
 
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under
@@ -2699,8 +2716,11 @@ animation graphs are not instantiated by this bridge.
 
 `PlayerNode.gameplay_animation_events` returns the source file and object IDs
 and event name for each graph event delivered to the active Game. The ANM-58
-Godot integration test emits the rig signal after binding and checks that the
-event reaches this world log.
+Godot integration test starts a Papyrus `WaitForAnimationEvent` through the
+host diagnostic methods, emits the bound rig's signal, and checks that the wait
+returns true. It starts a second wait and checks that the graph unload signal
+returns false. The diagnostic methods expose the VM thread result to that
+integration check.
 
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local
