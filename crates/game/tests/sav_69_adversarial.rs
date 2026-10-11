@@ -42,7 +42,10 @@ fn sav_69_signed_rank_null_lock_key_and_unknown_words_survive_engine_save() {
 
     let report = world.restore_vanilla_reference_extras(&save).unwrap();
     assert_eq!((report.references, report.owners, report.locks), (1, 1, 1));
-    assert_eq!(report.leveled_locks.into_iter().collect::<Vec<_>>(), [id(0, 0xA00)]);
+    assert_eq!(
+        report.leveled_locks.into_iter().collect::<Vec<_>>(),
+        [id(0, 0xA00)]
+    );
     let state = world.reference_ref(id(0, 0xA00)).unwrap();
     assert_eq!(state.owner, Some(id(0, 7)));
     assert_eq!(state.owner_rank, Some(i32::MIN));
@@ -89,11 +92,7 @@ fn sav_69_empty_flagged_extra_list_clears_owner_and_lock_without_events() {
 #[test]
 fn sav_69_late_invalid_owner_link_leaves_prior_target_state_unchanged() {
     let mut save = references::fixture();
-    let good = extra_change(
-        0x400A00,
-        1 << 31,
-        &owned_locked_entries(0x400007, 17, 0, 1),
-    );
+    let good = extra_change(0x400A00, 1 << 31, &owned_locked_entries(0x400007, 17, 0, 1));
     let mut bad_data = vec![4, 33];
     reference(0x400900).write(&mut bad_data);
     let bad = extra_change(0x400A00, 1 << 31, &bad_data);
