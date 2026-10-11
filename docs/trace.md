@@ -61,7 +61,9 @@ limiter also separates dumps from concurrent recording threads. A full ring
 overwrites its oldest event and reports the count in the trace and summary.
 
 The writer emits Chrome complete spans and counter events to a JSON file
-and a matching one-line text summary. Times are microseconds relative to the
+and a matching one-line text summary. TOOL-06 log events appear as Chrome
+instant events with level, target, repetition count and structured fields.
+A matching `.log` file contains the collapsed log lines. Times are microseconds relative to the
 window's beginning, and spans are clipped to the window. The summary lists
 three span names ordered by longest individual duration. System spans are
 exclusive while ordinary named spans include nested work. Filenames contain
@@ -118,8 +120,7 @@ The timing table was checked against local
 `godotwind/src/core/world/performance_profiler.gd`. Its aggregate Godot memory
 monitors do not provide Rust allocation ownership, so the host uses the Rust
 standard library allocator and layout contract. No dependency or saved state
-was added. The PRF-18 dump consumer is absent from this checkout. The diagnostic
-API supplies streaming attribution for a consumer to include.
+was added. The diagnostic API supplies streaming attribution for consumers.
 
 `Span` records optional Chrome trace events in the existing global event list.
 `SystemScope` also provides always-on exclusive elapsed timings for fourteen fixed
@@ -258,9 +259,18 @@ backups. Each event is one escaped text line. The pending set holds at most
 Under sustained distinct-message traffic beyond those bounds, the queues
 discard their oldest retained data. `window` selects messages by inclusive
 logging-clock timestamps before grouping them, including unflushed messages.
-`export_window` writes that selection for a hitch recorder. This checkout
-has no PRF-18 recorder, so the API is tested independently of automatic hitch
-capture. Logging state is transient and adds no save section.
+`export_window` writes that selection for explicit diagnostics. PRF-18 selects
+the recording thread's active subscriber and snapshots its history when the
+one-second tail completes, before handing the capture to the writer. Retained
+events carry `Instant` timestamps, so subscriber and recorder epochs can differ
+and submillisecond window boundaries retain their meaning. The snapshot groups
+identical messages per logging-clock second after selecting window membership.
+It includes worker messages using the same subscriber, with the first emitting
+thread's identity on each collapsed Chrome event. The writer reads the snapshot,
+so later messages, history eviction or subscriber shutdown cannot change it.
+Without a logging subscriber, the trace has no log events and the sidecar has
+only its header. Sidecar write failures return through the hitch export result.
+Logging state is transient and adds no save section.
 
 The Godot routing contract comes from the local
 `engine-refs/godot-docs/classes/class_@globalscope.rst` and
@@ -279,6 +289,22 @@ release argument elision, per-second counts, actor separation, shutdown,
 reentrant sinks, rotation, escaped lines, bounded retention and file errors.
 The hitch-window test includes unflushed messages and excludes both outside
 boundaries. Host routing and F3 controls are tested in Godot separately.
+`tool_06_hitch_` tests also cover automatic synthetic hitch export, worker
+messages, filtering, repetition counts, escaped structured fields, exact
+window boundaries, differing epochs, snapshot ownership and sidecar failures.
+No dependency was added for the recorder connection. `cargo tree -p soe-trace`
+retains the dependency tree described above.
+
+Focused checks run with `cargo test -p soe-trace --lib tool_06_hitch` and
+`cargo test -p soe-trace --test tool_06_hitches tool_06_`, with installed-data
+variables unset. Release argument elision can be checked with
+`cargo test -p soe-trace --release --lib tool_06_release_debug_and_trace_arguments_are_not_evaluated`.
+The Godot routing check is
+`cargo test -p soe-godot-host --test tool_06_logging tool_06_godot_routing_and_editor_debugger`.
+The host recorder check is
+`cargo test -p soe-godot-host --test prf_18_hitches_host prf_18_host_script_dumps_prior_frames_into_user_hitches`.
+The latter requires `SKYRIM_DATA` and `SOE_GODOT_BIN` and a current release
+extension imported into Godot.
 
 ## Papyrus health snapshots, PRF-19
 

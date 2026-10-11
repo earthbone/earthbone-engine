@@ -75,8 +75,15 @@ struct State {
     filter_text: String,
     pending: BTreeMap<String, LogLine>,
     ready: Vec<LogLine>,
-    history: VecDeque<LogLine>,
+    history: VecDeque<HitchLog>,
     file: Option<RotatingFile>,
+}
+
+#[derive(Clone)]
+pub(crate) struct HitchLog {
+    pub at: Instant,
+    pub thread: u64,
+    pub line: LogLine,
 }
 
 struct RotatingFile {
@@ -211,12 +218,24 @@ impl LogControl {
         Ok(())
     }
 
+    #[cfg(test)]
     fn record(&self, line: LogLine) {
+        self.record_at(
+            self.epoch + std::time::Duration::from_millis(line.first_ms),
+            line,
+        );
+    }
+
+    fn record_at(&self, at: Instant, line: LogLine) {
         if let Ok(mut state) = self.state.lock() {
             if state.history.len() == MAX_HISTORY {
                 state.history.pop_front();
             }
-            state.history.push_back(line.clone());
+            state.history.push_back(HitchLog {
+                at,
+                thread: crate::thread_id(),
+                line: line.clone(),
+            });
             let key = key(&line);
             if let Some(previous) = state.pending.get_mut(&key) {
                 if previous.first_ms / 1000 == line.first_ms / 1000 {
@@ -298,27 +317,38 @@ impl LogControl {
     /// Collapsed retained log lines within an inclusive hitch window.
     /// Includes the current unflushed second, preserving each message's window membership.
     pub fn window(&self, start_ms: u64, end_ms: u64) -> Vec<LogLine> {
+        self.select_window(|entry| (start_ms..=end_ms).contains(&entry.line.first_ms))
+            .into_iter()
+            .map(|entry| entry.line)
+            .collect()
+    }
+
+    fn select_window(&self, contains: impl Fn(&HitchLog) -> bool) -> Vec<HitchLog> {
         let Ok(state) = self.state.lock() else {
             return Vec::new();
         };
-        let mut lines: BTreeMap<(u64, String), LogLine> = BTreeMap::new();
-        for line in state
-            .history
-            .iter()
-            .filter(|line| (start_ms..=end_ms).contains(&line.first_ms))
-        {
+        let mut lines: BTreeMap<(u64, String), HitchLog> = BTreeMap::new();
+        for entry in state.history.iter().filter(|entry| contains(entry)) {
+            let line = &entry.line;
+            let at = entry.at;
+            let thread = entry.thread;
             let entry = lines
                 .entry((line.first_ms / 1000, key(line)))
                 .or_insert_with(|| {
-                    let mut copy = line.clone();
-                    copy.count = 0;
+                    let mut copy = entry.clone();
+                    copy.line.count = 0;
                     copy
                 });
-            entry.last_ms = line.last_ms;
-            entry.count += 1;
+            if entry.at > at {
+                entry.at = at;
+                entry.thread = thread;
+                entry.line.first_ms = line.first_ms;
+            }
+            entry.line.last_ms = entry.line.last_ms.max(line.last_ms);
+            entry.line.count += 1;
         }
         let mut lines: Vec<_> = lines.into_values().collect();
-        lines.sort_by_key(|line| line.first_ms);
+        lines.sort_by_key(|entry| entry.at);
         lines
     }
 
@@ -333,6 +363,20 @@ impl LogControl {
         }
         std::fs::write(path, text)
     }
+}
+
+pub(crate) fn hitch_window(start: Instant, end: Instant) -> Vec<HitchLog> {
+    // CONTEXT: Snapshot the recording thread's subscriber before moving the
+    // capture to the writer, which has a different default subscriber.
+    tracing::dispatcher::get_default(|dispatch| {
+        dispatch
+            .downcast_ref::<LogLayer>()
+            .map_or_else(Vec::new, |layer| {
+                layer
+                    .0
+                    .select_window(|entry| (start..=end).contains(&entry.at))
+            })
+    })
 }
 
 fn key(line: &LogLine) -> String {
@@ -394,15 +438,19 @@ impl<S: Subscriber + for<'lookup> LookupSpan<'lookup>> Layer<S> for LogLayer {
             .0
             .entry("system".to_owned())
             .or_insert_with(|| event.metadata().target().to_owned());
-        let now = self.0.now_ms();
-        self.0.record(LogLine {
-            first_ms: now,
-            last_ms: now,
-            level: *event.metadata().level(),
-            target: event.metadata().target().to_owned(),
-            fields: fields.0,
-            count: 1,
-        });
+        let at = Instant::now();
+        let now = at.duration_since(self.0.epoch).as_millis() as u64;
+        self.0.record_at(
+            at,
+            LogLine {
+                first_ms: now,
+                last_ms: now,
+                level: *event.metadata().level(),
+                target: event.metadata().target().to_owned(),
+                fields: fields.0,
+                count: 1,
+            },
+        );
     }
 }
 
@@ -438,6 +486,53 @@ mod tests {
             ]),
             count: 1,
         }
+    }
+
+    #[test]
+    fn tool_06_hitch_window_uses_exact_instants_across_clock_epochs() {
+        let (subscriber, control, _) = captured("info");
+        let cutoff = control.epoch + std::time::Duration::from_nanos(7_000_000_123);
+        let end = cutoff + std::time::Duration::from_secs(6);
+        for at in [
+            cutoff
+                .checked_sub(std::time::Duration::from_nanos(1))
+                .unwrap(),
+            cutoff,
+            end,
+            end + std::time::Duration::from_nanos(1),
+        ] {
+            let millis = at.duration_since(control.epoch).as_millis() as u64;
+            control.record_at(at, line(millis, "14"));
+        }
+        tracing::subscriber::with_default(subscriber, || {
+            let logs = hitch_window(cutoff, end);
+            assert_eq!(
+                logs.iter().map(|entry| entry.at).collect::<Vec<_>>(),
+                [cutoff, end]
+            );
+            assert!(logs.iter().all(|entry| entry.line.count == 1));
+        });
+    }
+
+    #[test]
+    fn tool_06_hitch_window_orders_concurrent_message_timestamps() {
+        let (subscriber, control, _) = captured("info");
+        let start = control.epoch;
+        control.record_at(start + std::time::Duration::from_millis(20), line(20, "14"));
+        control.record_at(start + std::time::Duration::from_millis(10), line(10, "14"));
+        tracing::subscriber::with_default(subscriber, || {
+            let logs = hitch_window(start, start + std::time::Duration::from_secs(1));
+            assert_eq!(logs.len(), 1);
+            assert_eq!(logs[0].at, start + std::time::Duration::from_millis(10));
+            assert_eq!(
+                (
+                    logs[0].line.first_ms,
+                    logs[0].line.last_ms,
+                    logs[0].line.count
+                ),
+                (10, 20, 2)
+            );
+        });
     }
 
     #[test]
