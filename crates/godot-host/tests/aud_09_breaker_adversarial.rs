@@ -93,7 +93,8 @@ func check(value: bool, message: String) -> void:
         failures += 1
         printerr("FAIL: ", message)
 func wait_for_ambience_count(bank: Node, expected: int) -> bool:
-    for _frame in range(120):
+    var deadline := Time.get_ticks_msec() + 10_000
+    while Time.get_ticks_msec() < deadline:
         if int(bank.call("ambience_start_count")) >= expected:
             return true
         await process_frame
@@ -106,15 +107,27 @@ func run() -> void:
     var bank := ClassDB.instantiate("SoundBank") as Node3D
     root.add_child(bank)
     await process_frame
-    check(bank.call("open_data", OS.get_environment("AUD_09_TEST_DATA")), "fixture data opens")
+    check(bank.call("open_data", OS.get_environment("AUD_09_TEST_DATA")), "fixture data opens: " + str(bank.call("last_error")))
+    if failures != 0:
+        quit(1)
+        return
     var player := bank.get_node("AmbiencePlayer") as AudioStreamPlayer
     check(bank.call("play_ambience", "Music/First.wav"), "first cell ambience starts")
-    check(await wait_for_ambience_count(bank, 1), "first ambience decode finishes")
+    check(await wait_for_ambience_count(bank, 1), "first ambience decode finishes: " + str(bank.call("last_error")))
+    if failures != 0:
+        quit(1)
+        return
     await process_frame
     check(player.playing, "first descriptor owns active playback")
+    if failures != 0:
+        quit(1)
+        return
     var first_data: PackedByteArray = player.stream.data
     check(bank.call("play_ambience", "Music/Second.wav"), "next cell ambience starts")
-    check(await wait_for_ambience_count(bank, 2), "second ambience decode finishes")
+    check(await wait_for_ambience_count(bank, 2), "second ambience decode finishes: " + str(bank.call("last_error")))
+    if failures != 0:
+        quit(1)
+        return
     await process_frame
     check(player.playing, "replacement descriptor plays on the same player")
     check(player.stream.data != first_data, "departed descriptor stream is replaced")
