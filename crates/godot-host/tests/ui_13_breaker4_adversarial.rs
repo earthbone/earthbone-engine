@@ -48,7 +48,8 @@ fn ui_13_color_open_resets_stale_script_parameters_to_skyui_defaults() {
     let id = page.add_color("Tint", 0x010203, 0).unwrap();
     assert!(page.open_color_dialog(&mut game, SCRIPT, id));
     assert_eq!(
-        page.color_dialog().map(|dialog| (dialog.start_color, dialog.default_color)),
+        page.color_dialog()
+            .map(|dialog| (dialog.start_color, dialog.default_color)),
         Some((-1, -1)),
         "SkyUI resets both values before invoking OnOptionColorOpen"
     );

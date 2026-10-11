@@ -50,7 +50,8 @@ fn ui_13_partial_color_callback_keeps_unspecified_default_at_skyui_sentinel() {
     let id = page.add_color("Tint", 0x010203, 0).unwrap();
     assert!(page.open_color_dialog(&mut game, SCRIPT, id));
     assert_eq!(
-        page.color_dialog().map(|dialog| (dialog.start_color, dialog.default_color)),
+        page.color_dialog()
+            .map(|dialog| (dialog.start_color, dialog.default_color)),
         Some((0x123456, -1)),
         "SkyUI resets both params before the callback, which only sets the start color"
     );
