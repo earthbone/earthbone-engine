@@ -114,6 +114,7 @@ impl PlayerNode {
         if let Err(error) = game.restore_vanilla_save_file(&path) {
             return failed(&error.to_string());
         }
+        game.apply_mod_data(source.data_roots());
         game.bind();
         let character_id = game.world().player_character_id();
         if !self.attach_restored_game(game) {

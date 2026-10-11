@@ -4,11 +4,12 @@
 
 `PlayerNode::start_gameplay_from_vanilla_save` builds a fresh profile-backed
 Game, loads its scripts, restores the selected vanilla ESS through
-`Game::restore_vanilla_save_file` and attaches the saved player location before
-gameplay starts. The restore path sets the SPID character ID from the standard
-ESS filename before actor state is built. The result reports that ID as a
-16-digit hexadecimal string. This entry point requires loaded data and shared
-cell-streamer data, and it does not support threaded gameplay.
+`Game::restore_vanilla_save_file`, applies the profile's mod data and attaches
+the saved player location before gameplay starts. The restore path sets the
+SPID character ID from the standard ESS filename before mod data is applied
+and actor state is built. The result reports that ID as a 16-digit hexadecimal
+string. This entry point requires loaded data and shared cell-streamer data,
+and it does not support threaded gameplay.
 
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the

@@ -23,10 +23,7 @@ struct Fixtures(PathBuf);
 
 impl Fixtures {
     fn new() -> Self {
-        let directory = std::env::temp_dir().join(format!(
-            "mod01-breaker7-{}",
-            std::process::id()
-        ));
+        let directory = std::env::temp_dir().join(format!("mod01-breaker7-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
         fs::write(
@@ -125,7 +122,11 @@ impl Fixtures {
         }
         let table_1_offset = save.header_len() + 1 + 4 + plugin_info.len() + 100;
         let table_2_offset = table_1_offset
-            + save.table_1.iter().map(|block| 8 + block.data.len()).sum::<usize>();
+            + save
+                .table_1
+                .iter()
+                .map(|block| 8 + block.data.len())
+                .sum::<usize>();
         let change_forms_offset = table_2_offset;
         let table_3_offset = change_forms_offset
             + save
@@ -134,7 +135,11 @@ impl Fixtures {
                 .map(|form| 3 + 4 + 1 + 1 + 1 + 1 + form.data.len())
                 .sum::<usize>();
         let form_id_array_count_offset = table_3_offset
-            + save.table_3.iter().map(|block| 8 + block.data.len()).sum::<usize>();
+            + save
+                .table_3
+                .iter()
+                .map(|block| 8 + block.data.len())
+                .sum::<usize>();
         save.location_table.table_1_offset = table_1_offset as u32;
         save.location_table.table_2_offset = table_2_offset as u32;
         save.location_table.change_forms_offset = change_forms_offset as u32;
@@ -145,9 +150,9 @@ impl Fixtures {
         save.location_table.table_2_count = 0;
         save.location_table.table_3_count = 0;
         save.location_table.change_form_count = save.change_forms.len() as u32;
-        let path = self.0.join(
-            "Quicksave0_2A73F01A_0_6E656C736F6E_Tamriel_000002_20220918174138_10_1.ess",
-        );
+        let path = self
+            .0
+            .join("Quicksave0_2A73F01A_0_6E656C736F6E_Tamriel_000002_20220918174138_10_1.ess");
         fs::write(&path, save.write().unwrap()).unwrap();
         path
     }

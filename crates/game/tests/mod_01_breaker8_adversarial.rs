@@ -19,10 +19,7 @@ struct Fixture(PathBuf);
 
 impl Fixture {
     fn new() -> Self {
-        let directory = std::env::temp_dir().join(format!(
-            "mod01-breaker8-{}",
-            std::process::id()
-        ));
+        let directory = std::env::temp_dir().join(format!("mod01-breaker8-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
         fs::write(
