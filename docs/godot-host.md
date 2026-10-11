@@ -6038,21 +6038,27 @@ The installed Bannered Mare survey finds `FireplaceWood01Burning` with an
 additive greyscale-palette surface and a separate palette surface with view
 falloff. It also finds the placed `Campfire01Burning` effect, whose unpaletted
 additive layer inherits the sibling `GradFireExplosion` color palette. The
-Godot capture test streams the cell and saves a room view, then draws the first
-additive palette-color surface from the installed fireplace NIF through
-`model_meshes` and its production material cache against dark and contrasting
-backdrops. It reads that surface's installed palette texture and checks that
-visible fire pixels are brighter than black, stay within palette hues and that
-every near-transparent pixel transmits the backdrop. It checks the shader
-retains falloff and saves the isolated hearth capture under `godot/.godot`.
+Godot capture entry point `godot/rnd_33_hearth_test.gd` extends the RND-38
+hearth check, which starts `godot/walkthrough.gd`. It selects every resident
+`FireplaceWood01Burning` effect and distortion layer from uploaded
+RenderingServer instances.
+The check captures the placed hearth, then hides room surfaces for controlled
+measurements of those same live layers over two backdrops. It requires
+visible brightness, colours within the bound effects palettes, additive
+backdrop transmission and dim flame edges. Authored
+alpha-mixed layers retain their blend pair. The additive measurement selects
+the additive layers after checking the whole hearth for palette colours.
+It inspects palette binding, depth-write state and retained falloff evaluation. Images
+and process logs go under `target/rnd_38`.
 
-`rnd_33_installed_bannered_mare_hearth_capture_matches_its_palette` runs the
-windowed Godot capture when `SKYRIM_DATA` and `SOE_GODOT_BIN` are set. The local
-nifly effect-property definitions and OpenMW's
+`rnd_38_rnd_33_capture_covers_the_walkthrough_hearth` runs the windowed capture
+when `SKYRIM_DATA` and `SOE_GODOT_BIN` are set and requires successful process
+exit. The local nifly effect-property definitions and OpenMW's
 `components/nifosg/nifloader.cpp` supplied the property and blend behavior.
-Community Shaders' `package/Shaders/Effect.hlsl` confirms the palette
-coordinates already implemented in RND-22. The implementation continues to
-use Godot's stock spatial shader and blend state.
+Community Shaders' `package/Shaders/Effect.hlsl` supplies separate palette
+coordinates: source green and multiplied base red for colour, source alpha
+and accumulated opacity for alpha. The implementation uses Godot's stock
+spatial shader and blend state.
 
 ## Detection neighborhoods, PRF-31
 
@@ -6503,3 +6509,56 @@ The runners use isolated projects with explicit extension registration, so
 a fresh checkout needs no shared Godot import cache for these checks.
 The fixture scene runs in a window. Their stdout and stderr captures are
 written under `target/aud_13`.
+
+## Hearth distortion and walkthrough capture, RND-38
+
+The rainbow hull was the `Plane03:0` lighting surface in
+`FireplaceWood01Burning`. `Campfire01Burning` has the same distortion material
+on `Plane05:0`. Its
+`REFRACTION` shader flag selects background distortion, and its
+`textures/effects/VaporTileNormal_n.dds` texture supplies distortion vectors.
+The standard material path previously drew those vectors as opaque albedo.
+This surface bypassed the RND-33 effect path. The bound flame palettes and
+source-green palette lookup were correct. The old capture selected an
+additive effect surface and omitted this lighting surface.
+
+The placed-model builder carries the lighting property's refraction strength,
+alpha, UV offset, UV scale and clamp mode into a separate material description
+and cache identity. The renderer selects a screen-sampling distortion shader
+before transparent flame layers. Texture RG becomes signed displacement,
+masked by texture alpha, base alpha and enabled vertex alpha. Combined opacity
+below 0.1 discards the fragment. The displacement scales by authored strength
+and OpenMW's 0.14 screen multiplier. The unshaded surface writes sampled
+background colour to albedo, with depth writes disabled. Its normal-map RGB
+does not become visible fire colour. The ordinary wood surfaces and authored effect blend pairs keep
+their material paths. No per-reference nodes or saved fields are added.
+
+Local nifly `include/Shaders.hpp` defines the Refraction bit as normal-map
+refraction. OpenMW `components/nifosg/nifloader.cpp` selects distortion for
+lighting properties with that bit and passes the property's strength.
+`files/shaders/lib/util/distortion.glsl` supplies the RG remapping, alpha mask
+and clipping, and `files/data/shaders/internal_distortion.omwfx` supplies the
+final displacement multiplier. Godot's local
+`tutorials/shaders/shader_reference/spatial_shader.rst` specifies albedo as
+the output of an unshaded material. The host translates those operations to
+Godot's screen texture instead of adding OpenMW's separate distortion buffer.
+
+`CellStreamerNode.nif_surfaces` exposes live materials and RenderingServer
+instance RIDs for resident batched NIF surfaces, including lighting surfaces.
+Rows include source and palette paths, flags, effect blend factors, distortion
+selection, model paths and geometry bounds in Godot metres. Inspection does
+not rebuild resources or allocate reference nodes.
+
+The RND-33 capture now starts the Bannered Mare through
+`godot/walkthrough.gd` and includes the normal-map plane in its whole-hearth
+palette check. GPU-bound palette dimensions and pixel samples are compared
+with an independent DDS decode of each authored palette. It measures the live
+falloff response at zero and full opacity, restores authored falloff,
+checks flat-background transmission through the
+distortion plane, then measures additive layers over contrasting
+backgrounds and requires dim edges. The original release extension at
+`9a0312a63`, with inspection added, reproduced the rainbow plane in
+`walkthrough_hearth.png` and failed the capture. Installed-data tests inspect
+both burning wood models and their streamed effect, falloff and distortion
+layers. Synthetic tests check distortion inputs, cache separation and screen
+sampling. Captures and process logs are written to `target/rnd_38`.

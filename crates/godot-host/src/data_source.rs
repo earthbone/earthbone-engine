@@ -75,6 +75,8 @@ mod rnd_32_tests;
 #[cfg(test)]
 mod rnd_33_tests;
 #[cfg(test)]
+mod rnd_38_tests;
+#[cfg(test)]
 mod ui_25_tests;
 
 #[cfg(feature = "godot")]
@@ -1202,7 +1204,15 @@ impl DataSource {
                 } else {
                     refr_transform.then(&shape.transform)
                 };
-                let data = mesh_data_from(shape, &combined);
+                let mut data = mesh_data_from(shape, &combined);
+                apply_refraction_material(&file, shape, &mut data.material);
+                if data.material.refraction.is_some() {
+                    data.colors = Some(if shape.colors.is_empty() {
+                        vec![[1.0; 4]; shape.positions.len()]
+                    } else {
+                        shape.colors.clone()
+                    });
+                }
                 let mut arrays = build_surface(&data, MeshOptions::default())?;
                 apply_fire_palette_fallback(&mut arrays.material, fire_palette.as_deref());
                 arrays
@@ -1226,6 +1236,29 @@ impl DataSource {
             marker_only,
             instance_transform,
         })
+    }
+}
+
+/// OpenMW nifosg's lighting-property path selects distortion by Refraction.
+/// Keep the shader's own strength and UV inputs at the host material boundary.
+fn apply_refraction_material(file: &NifFile, mesh: &NifMesh, material: &mut MaterialDesc) {
+    use soe_nif::blocks::{flags1, Block};
+    let shader = match file.blocks.get(mesh.block) {
+        Some(Block::BsTriShape(shape)) => shape.shader,
+        Some(Block::TriShape(shape)) => shape.shader,
+        _ => return,
+    };
+    let Some(Block::LightingShader(shader)) = file.get(shader) else {
+        return;
+    };
+    if shader.flags1 & flags1::REFRACTION != 0 {
+        material.refraction = Some(crate::mesh::RefractionMaterial {
+            strength: shader.refraction_strength,
+            alpha: shader.alpha,
+            uv_offset: shader.uv_offset,
+            uv_scale: shader.uv_scale,
+            clamp_mode: shader.clamp_mode,
+        });
     }
 }
 
@@ -1581,6 +1614,7 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         alpha,
         double_sided: m.double_sided,
         water: None,
+        refraction: None,
         effect: m.effect.as_ref().map(|params| crate::mesh::EffectMaterial {
             params: params.clone(),
             blend: m.blend,

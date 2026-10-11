@@ -2490,6 +2490,80 @@ impl CellStreamerNode {
         out
     }
 
+    /// Uploaded NIF surfaces, with their live material and server instance.
+    /// Bounds are in Godot metres. Inspection does not rebuild model resources.
+    #[func]
+    pub fn nif_surfaces(&self) -> Array<VarDictionary> {
+        let mut out = Array::new();
+        for instance in &self.instances {
+            let desc = &instance.arrays.material;
+            let effect = desc.effect.as_ref();
+            let key = crate::mesh::MaterialKey::from(desc);
+            let Some(material) = self.materials.materials.get(&key) else {
+                continue;
+            };
+            let mut row = VarDictionary::new();
+            row.set("rid", instance.rid);
+            row.set("material", material);
+            row.set("source", desc.diffuse.as_deref().unwrap_or_default());
+            row.set(
+                "palette",
+                effect.map_or("", |e| e.params.greyscale_texture.as_str()),
+            );
+            row.set("effect", effect.is_some());
+            row.set("refraction", desc.refraction.is_some());
+            row.set("flags1", i64::from(desc.shader_flags_1));
+            row.set("flags2", i64::from(desc.shader_flags_2));
+            row.set(
+                "src_blend",
+                effect.and_then(|e| e.blend).map_or(-1, |b| b.src as i64),
+            );
+            row.set(
+                "dst_blend",
+                effect.and_then(|e| e.blend).map_or(-1, |b| b.dst as i64),
+            );
+            let references: Vec<_> = match &instance.table {
+                BatchTable::Triangles(members) => members.iter().map(|m| m.reference).collect(),
+                BatchTable::Instances(members) => members.clone(),
+            };
+            let mut models = std::collections::BTreeSet::new();
+            if let Some(source) = &self.data_source {
+                let order = source.order();
+                for reference in references {
+                    let Some(owner) = order.winner_ref(reference) else {
+                        continue;
+                    };
+                    let Ok(refr) = soe_esm::records::refr::Refr::from_record(order.record(owner))
+                    else {
+                        continue;
+                    };
+                    if let Some(model) = order
+                        .winner(order.resolve(owner.file, refr.base))
+                        .and_then(crate::data_source::model_for)
+                    {
+                        models.insert(soe_bsa::normalize(&model));
+                    }
+                }
+            }
+            let models: Array<GString> = models
+                .iter()
+                .map(|model| GString::from(model.as_str()))
+                .collect();
+            row.set("models", &models);
+            let min = instance.bounds.min;
+            let max = instance.bounds.max;
+            row.set(
+                "bounds",
+                Aabb::new(
+                    Vector3::new(min.x, min.y, min.z),
+                    Vector3::new(max.x - min.x, max.y - min.y, max.z - min.z),
+                ),
+            );
+            out.push(&row);
+        }
+        out
+    }
+
     /// Instances alive in this node's scenario.
     #[func]
     pub fn instance_count(&self) -> i32 {
@@ -4173,6 +4247,8 @@ fn material_for(
         water_material(water).upcast()
     } else if let Some(effect) = &desc.effect {
         nif_effect_material(desc, effect, textures, &mut cache.textures).upcast()
+    } else if let Some(refraction) = &desc.refraction {
+        nif_refraction_material(desc, refraction, textures, &mut cache.textures).upcast()
     } else if desc.landscape_lod_normals() {
         landscape_lod_material(desc, textures, &mut cache.textures).upcast()
     } else if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
@@ -4219,6 +4295,43 @@ fn landscape_lod_material(
             }
         }
     }
+    material
+}
+
+fn nif_refraction_material(
+    desc: &MaterialDesc,
+    refraction: &crate::mesh::RefractionMaterial,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+) -> Gd<ShaderMaterial> {
+    let mut shader = Shader::new_gd();
+    shader.set_code(&crate::nif_refraction::shader(desc));
+    let mut material = ShaderMaterial::new_gd();
+    material.set_shader(&shader);
+    material.set_render_priority(-1);
+    if let Some(data) = &textures.diffuse {
+        if let Some(texture) = cached_texture(cache, desc.diffuse.as_deref(), data) {
+            material.set_shader_parameter("distortion_texture", &texture.to_variant());
+        }
+    }
+    material.set_shader_parameter("strength", &refraction.strength.to_variant());
+    material.set_shader_parameter("base_alpha", &refraction.alpha.to_variant());
+    material.set_shader_parameter(
+        "uv_offset",
+        &Vector2::new(refraction.uv_offset[0], refraction.uv_offset[1]).to_variant(),
+    );
+    material.set_shader_parameter(
+        "uv_scale",
+        &Vector2::new(refraction.uv_scale[0], refraction.uv_scale[1]).to_variant(),
+    );
+    material.set_shader_parameter(
+        "wrap_uv",
+        &Vector2i::new(
+            i32::from(refraction.clamp_mode & 2 != 0),
+            i32::from(refraction.clamp_mode & 1 != 0),
+        )
+        .to_variant(),
+    );
     material
 }
 
