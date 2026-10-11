@@ -115,6 +115,7 @@ fn rnd_38_palette_uses_green_and_alpha_coordinates_with_additive_falloff() {
         alpha_test: None,
         uv_offset: [0.0; 2],
         uv_scale: [1.0; 2],
+        controllers: Vec::new(),
     };
     let shader = soe_godot_host::nif_effect::shader(&material, &effect);
     assert!(shader.contains("blend_add"));

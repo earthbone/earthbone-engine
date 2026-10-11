@@ -84,6 +84,7 @@ fn rnd_23_material_animation_keeps_other_placements_and_properties_unchanged() {
             alpha_test: None,
             uv_offset: [0.0; 2],
             uv_scale: [1.0; 2],
+            controllers: Vec::new(),
         }),
         ..Default::default()
     };

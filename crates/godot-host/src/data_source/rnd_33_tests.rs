@@ -21,6 +21,7 @@ fn rnd_33_unpaletted_additive_fire_uses_a_sibling_palette() {
             alpha_test: None,
             uv_offset: [0.0; 2],
             uv_scale: [1.0; 2],
+            controllers: Vec::new(),
         }),
         ..Default::default()
     };
@@ -148,6 +149,7 @@ fn rnd_33_additive_palette_shader_retains_alpha_depth_and_falloff() {
         alpha_test: None,
         uv_offset: [0.0; 2],
         uv_scale: [1.0; 2],
+        controllers: Vec::new(),
     };
     let code = crate::nif_effect::shader(&desc, &effect);
     assert!(code.contains("blend_add"));

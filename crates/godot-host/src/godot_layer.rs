@@ -4473,7 +4473,10 @@ fn material_for(
         nif_refraction_material(desc, refraction, textures, &mut cache.textures).upcast()
     } else if desc.landscape_lod_normals() {
         landscape_lod_material(desc, textures, &mut cache.textures).upcast()
-    } else if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
+    } else if desc.decal_depth().is_some()
+        || desc.environment_texture().is_some()
+        || desc.texture_transform.is_some()
+    {
         decal_material(
             desc,
             textures,
@@ -4674,11 +4677,7 @@ fn nif_effect_material(
     );
     material.set_shader_parameter(
         "wrap_uv",
-        &Vector2i::new(
-            i32::from(p.clamp_mode & 2 != 0),
-            i32::from(p.clamp_mode & 1 != 0),
-        )
-        .to_variant(),
+        &crate::nif_effect::wrap_bits(p.clamp_mode).to_variant(),
     );
     material
 }
@@ -4765,10 +4764,20 @@ fn decal_material(
             material.set_shader_parameter("has_environment_mask", &true.to_variant());
         }
     }
+    if let Some(transform) = &desc.texture_transform {
+        material.set_shader_parameter(
+            "uv_offset",
+            &Vector2::new(transform.offset[0], transform.offset[1]).to_variant(),
+        );
+        material.set_shader_parameter(
+            "uv_scale",
+            &Vector2::new(transform.scale[0], transform.scale[1]).to_variant(),
+        );
+    }
     material
 }
 
-fn decal_shader(desc: &MaterialDesc) -> String {
+pub(crate) fn decal_shader(desc: &MaterialDesc) -> String {
     let (test, write) = desc.decal_depth().unwrap_or((true, false));
     let depth = if desc.decal_depth().is_none() {
         "depth_draw_opaque"
@@ -4798,9 +4807,29 @@ fn decal_shader(desc: &MaterialDesc) -> String {
         ""
     };
     let emission = if desc.emits_light() {
-        "EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, UV).rgb;"
+        "EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, uv).rgb;"
     } else {
         ""
+    };
+    let tracks = desc
+        .texture_transform
+        .as_ref()
+        .map_or(&[][..], |t| t.controllers.as_slice());
+    let functions = crate::nif_effect_animation::functions(tracks);
+    let animation = crate::nif_effect_animation::assignments(tracks, false);
+    let vertex_color = if desc.texture_transform.is_some()
+        && desc.shader_flags_2 & soe_nif::blocks::flags2::VERTEX_COLORS != 0
+    {
+        "COLOR.rgb"
+    } else {
+        "vec3(1.0)"
+    };
+    let vertex_alpha = if desc.texture_transform.is_some()
+        && desc.shader_flags_1 & soe_nif::blocks::flags1::VERTEX_ALPHA != 0
+    {
+        "COLOR.a"
+    } else {
+        "1.0"
     };
     format!(
         "shader_type spatial;
@@ -4820,17 +4849,20 @@ uniform vec2 uv_offset = vec2(0.0);
 uniform vec2 uv_scale = vec2(1.0);
 uniform float uv_rotation = 0.0;
 uniform float material_alpha = 1.0;
-void vertex() {{
-    vec2 centered = UV * uv_scale - vec2(0.5);
+uniform float animation_time = -1.0;
+{functions}
+void fragment() {{
+    vec2 animated_offset = uv_offset;
+    vec2 animated_scale = uv_scale;
+    {animation}
+    vec2 centered = UV * animated_scale - vec2(0.5);
     float c = cos(uv_rotation);
     float s = sin(uv_rotation);
-    UV = mat2(vec2(c, s), vec2(-s, c)) * centered + vec2(0.5) + uv_offset;
-}}
-void fragment() {{
-    vec4 color = texture(albedo_texture, UV);
+    vec2 uv = mat2(vec2(c, s), vec2(-s, c)) * centered + vec2(0.5) + animated_offset;
+    vec4 color = texture(albedo_texture, uv) * vec4({vertex_color}, {vertex_alpha});
     ALBEDO = color.rgb;
     ROUGHNESS = 1.0;
-    vec4 normal_sample = texture(normal_texture, UV);
+    vec4 normal_sample = texture(normal_texture, uv);
     vec3 reflection_normal = NORMAL;
     if (has_normal) {{
         NORMAL_MAP = normal_sample.rgb;
@@ -4840,7 +4872,7 @@ void fragment() {{
     }}
     {emission}
     if (has_environment) {{
-        float mask = has_environment_mask ? texture(environment_mask, UV).r : normal_sample.a;
+        float mask = has_environment_mask ? texture(environment_mask, uv).r : normal_sample.a;
         vec3 world_reflection = mat3(INV_VIEW_MATRIX) * reflect(-VIEW, reflection_normal);
         vec3 skyrim_reflection = vec3(world_reflection.x, -world_reflection.z, world_reflection.y);
         EMISSION += texture(environment_texture, skyrim_reflection).rgb * environment_scale * mask;

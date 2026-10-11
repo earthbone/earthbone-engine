@@ -23,14 +23,23 @@ fn rnd_22_effect_uv_transform_applies_authored_scale_and_offset() {
         alpha_test: None,
         uv_offset: [0.125, 0.25],
         uv_scale: [2.0, 0.5],
+        controllers: Vec::new(),
     };
     let shader = nif_effect::shader(&material, &effect);
 
-    // CONTEXT: RND-23 rotates scaled UVs before adding the authored offset.
-    let scale = shader.find("vec2 uv = UV * uv_scale;").unwrap();
-    let offset = shader.find("+ uv_offset;").unwrap();
+    let scale = shader
+        .find("vec2 centered = UV * animated_scale - vec2(0.5);")
+        .unwrap();
+    let rotation = shader[scale..]
+        .find("mat2(vec2(c, s), vec2(-s, c))")
+        .map(|relative| scale + relative)
+        .unwrap();
+    let offset = shader[rotation..]
+        .find("+ animated_offset;")
+        .map(|relative| rotation + relative)
+        .unwrap();
     let sample = shader.find("texture(source_texture, uv)").unwrap();
-    assert!(scale < offset && offset < sample);
+    assert!(scale < rotation && rotation < offset && offset < sample);
 }
 
 #[test]

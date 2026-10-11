@@ -25,6 +25,7 @@ fn material() -> (MaterialDesc, EffectMaterial) {
             alpha_test: None,
             uv_offset: [0.125, 0.25],
             uv_scale: [2.0, 0.5],
+            controllers: Vec::new(),
         },
     )
 }
@@ -34,16 +35,18 @@ fn rnd_22_uv_scale_then_offset_preserves_authored_effect_mapping() {
     let (desc, effect) = material();
     let shader = nif_effect::shader(&desc, &effect);
 
-    // RND-23 rotates the scaled coordinates about the centre before the
-    // offset, so check that the scale comes first and the offset after it,
-    // not one literal line.
     let scale = shader
-        .find("vec2 uv = UV * uv_scale")
-        .expect("UV is scaled by uv_scale first");
-    assert!(
-        shader[scale..].contains("+ uv_offset;"),
-        "uv_offset is added after the scale"
-    );
+        .find("vec2 centered = UV * animated_scale - vec2(0.5);")
+        .expect("UV is scaled by animated_scale first");
+    let rotation = shader[scale..]
+        .find("mat2(vec2(c, s), vec2(-s, c)) * centered")
+        .map(|relative| scale + relative)
+        .expect("scaled UVs are rotated about the centre");
+    let offset = shader[rotation..]
+        .find("+ animated_offset;")
+        .map(|relative| rotation + relative)
+        .expect("animated offset follows rotation");
+    assert!(scale < rotation && rotation < offset);
 }
 
 #[test]
