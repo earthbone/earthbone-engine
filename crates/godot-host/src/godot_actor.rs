@@ -604,6 +604,27 @@ impl SkinnedActorNode {
         self.uploaded_skins.iter().copied().collect()
     }
 
+    /// Reference identity and uploaded shape resources for rendered route checks.
+    /// Unbound demonstration characters have no reference identity.
+    #[func]
+    pub fn play_path_observation(&self) -> VarDictionary {
+        let mut row = VarDictionary::new();
+        if let Some(binding) = &self.appearance {
+            row.set("reference", binding.actor.to_string().as_str());
+        }
+        let mut shapes = Array::<VarDictionary>::new();
+        for ((surface, mesh), rids) in self.surfaces.iter().zip(&self.meshes).zip(&self.shapes) {
+            let mut shape = VarDictionary::new();
+            shape.set("name", surface.name.as_str());
+            shape.set("mesh", mesh);
+            shape.set("rid", rids.instance);
+            shapes.push(&shape);
+        }
+        row.set("shapes", &shapes);
+        row.set("poses", &self.uploaded_skin_poses());
+        row
+    }
+
     /// Seconds of animation played since the load.
     #[func]
     pub fn elapsed(&self) -> f64 {
