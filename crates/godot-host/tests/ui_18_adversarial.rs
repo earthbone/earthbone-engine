@@ -23,6 +23,10 @@ fn assert_godot_passed(output: &Output, marker: &str) {
 
 #[test]
 fn ui_18_title_sequence_plays_and_quit_clears_it_in_the_live_host() {
+    if std::env::var_os("SKYRIM_DATA").is_none() {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    }
     let root = workspace();
     let output = Command::new(godot())
         .current_dir(&root)
