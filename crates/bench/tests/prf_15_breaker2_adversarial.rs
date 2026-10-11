@@ -35,7 +35,13 @@ fn scratch(label: &str) -> PathBuf {
 fn divan_output() -> String {
     let mut text = String::new();
     for (name, batch) in OPERATIONS {
-        writeln!(text, "├─ {name} 1 ns │ 1 ns │ {} ns │ {} ns │ 30 │ 100", 100 * batch, 100 * batch).unwrap();
+        writeln!(
+            text,
+            "├─ {name} 1 ns │ 1 ns │ {} ns │ {} ns │ 30 │ 100",
+            100 * batch,
+            100 * batch
+        )
+        .unwrap();
     }
     text
 }
@@ -60,14 +66,19 @@ fn prf_15_malformed_operations_array_returns_a_diagnostic() {
     fs::write(&measured, divan_output()).unwrap();
     assert!(run("refresh", &measured, &baseline).status.success());
 
-    let mut saved: serde_json::Value = serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
+    let mut saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
     saved["operations"] = serde_json::json!(["form_lookup"]);
     fs::write(&baseline, serde_json::to_vec(&saved).unwrap()).unwrap();
 
     let result = run("check", &measured, &baseline);
     assert_eq!(result.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(!stderr.contains("Traceback"), "unexpected traceback: {stderr}");
+    assert!(stderr.contains("baseline operations must be a JSON object"));
+    assert!(
+        !stderr.contains("Traceback"),
+        "unexpected traceback: {stderr}"
+    );
 
     let _ = fs::remove_file(measured);
     let _ = fs::remove_file(baseline);
@@ -80,13 +91,34 @@ fn prf_15_baseline_from_another_host_is_rejected() {
     fs::write(&measured, divan_output()).unwrap();
     assert!(run("refresh", &measured, &baseline).status.success());
 
-    let mut saved: serde_json::Value = serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
+    let mut saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
     saved["machine"]["host"] = serde_json::Value::String("other-machine".into());
     fs::write(&baseline, serde_json::to_vec(&saved).unwrap()).unwrap();
 
     let result = run("check", &measured, &baseline);
     assert_eq!(result.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&result.stderr).contains("baseline machine does not match"));
+
+    let _ = fs::remove_file(measured);
+    let _ = fs::remove_file(baseline);
+}
+
+#[test]
+fn prf_15_baseline_from_another_data_mode_is_rejected() {
+    let measured = scratch("mode-output");
+    let baseline = scratch("mode-baseline");
+    fs::write(&measured, divan_output()).unwrap();
+    assert!(run("refresh", &measured, &baseline).status.success());
+
+    let mut saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
+    saved["data_mode"] = serde_json::Value::String("installed".into());
+    fs::write(&baseline, serde_json::to_vec(&saved).unwrap()).unwrap();
+
+    let result = run("check", &measured, &baseline);
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("baseline data mode does not match"));
 
     let _ = fs::remove_file(measured);
     let _ = fs::remove_file(baseline);
