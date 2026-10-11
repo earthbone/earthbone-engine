@@ -26,8 +26,9 @@ impl PlayerNode {
             if jump {
                 world.try_jump(character);
             }
-            world.step(delta as f32);
+            world.step_character(character, delta as f32);
         }
+        self.sync_npc_grounding(delta as f32);
         let feet = self.feet();
         if let Some(simulation) = &self.simulation {
             simulation.set_player_pose(PlayerPose {
@@ -98,7 +99,18 @@ impl PlayerNode {
             .contacts
             .iter()
             .filter_map(|actor| {
-                let placement = pair.placement(actor.actor, now)?;
+                let mut placement = pair.placement(actor.actor, now)?;
+                if let Some(character) = self
+                    .world
+                    .as_ref()
+                    .and_then(|world| self.npc_grounding.character(world, actor.actor))
+                {
+                    placement.position = [
+                        character.position.x,
+                        character.position.y,
+                        character.position.z,
+                    ];
+                }
                 placement.visible.then_some(soe_game::world::ContactActor {
                     position: placement.position,
                     rotation: placement.rotation,

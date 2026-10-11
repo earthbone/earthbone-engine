@@ -20,6 +20,26 @@ use soe_physics::{
 
 const DT: f32 = 1.0 / 60.0;
 
+#[test]
+fn hst_30_single_character_step_rebuilds_collision_and_rejects_invalid_time() {
+    let mut world = SimpleWorld::new();
+    let actor = world.create_character(CharacterSettings::default(), Vec3::Z * 80.0);
+    let other = world.create_character(CharacterSettings::default(), Vec3::Z * 300.0);
+    let other_before = *world.character(other).unwrap();
+    world.add_static(&floor(0.0, 1000.0));
+    for _ in 0..180 {
+        world.step_character(actor, DT);
+        assert!(world.character(actor).unwrap().position.z >= -0.01);
+    }
+    assert!(world.character(actor).unwrap().on_ground);
+    assert_eq!(*world.character(other).unwrap(), other_before);
+    let before = *world.character(actor).unwrap();
+    for dt in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        world.step_character(actor, dt);
+        assert_eq!(*world.character(actor).unwrap(), before);
+    }
+}
+
 /// A static collider from triangles already in world space.
 fn mesh(name: &str, vertices: Vec<Vec3>, triangles: Vec<[u32; 3]>) -> Collider {
     Collider {

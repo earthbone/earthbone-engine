@@ -1521,6 +1521,11 @@ impl ActorBodies {
         self.bodies.get(&actor).map(|body| body.body)
     }
 
+    /// Whether a held or thrown actor is currently controlled by host physics.
+    pub(crate) fn controls_motion(&self, actor: GlobalFormId) -> bool {
+        self.grabbed_actor == Some(actor) || self.thrown_actors.contains(&actor)
+    }
+
     /// Put one resident actor body under host control for Grab Actor.
     pub fn grab_actor(&mut self, actor: GlobalFormId) -> bool {
         if self.grabbed_actor.is_some() || self.thrown_actors.contains(&actor) {

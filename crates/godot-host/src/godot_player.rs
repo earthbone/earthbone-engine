@@ -169,6 +169,7 @@ pub struct PlayerNode {
     /// The existing skinned node bound to the player's own appearance.
     player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     npc_actors: npcs::NpcActors,
+    npc_grounding: crate::npc_grounding::NpcGrounding,
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     debug_ref_markers: BTreeMap<GlobalFormId, Rid>,
     debug_ref_marker_mesh: Option<Gd<SphereMesh>>,
@@ -319,6 +320,7 @@ impl INode3D for PlayerNode {
             animation_source: None,
             player_appearance: None,
             npc_actors: npcs::NpcActors::default(),
+            npc_grounding: crate::npc_grounding::NpcGrounding::default(),
             pending_debug_latents: Vec::new(),
             debug_ref_markers: BTreeMap::new(),
             debug_ref_marker_mesh: None,
@@ -583,6 +585,7 @@ impl INode3D for PlayerNode {
     fn process(&mut self, delta: f64) {
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         self.present_simulation();
+        self.sync_npc_grounding(0.0);
         self.sync_npc_actors();
         self.flush_reference_sync();
         self.last_physics_queries = soe_trace::physics_query_stats();
@@ -1166,6 +1169,7 @@ impl PlayerNode {
         let bodies = collision.stats.bodies;
         let id = world.create_character(CharacterSettings::default(), Vec3::new(x, y, z));
         self.character = Some(id);
+        self.npc_grounding.reset();
         self.world = Some(world);
         self.loaded_cell = Some(cell_id);
         self.door_fade = DoorFade::default();
@@ -1294,7 +1298,7 @@ impl PlayerNode {
             if jump {
                 world.try_jump(id);
             }
-            world.step(delta as f32);
+            world.step_character(id, delta as f32);
         }
 
         drop(physics_scope);
