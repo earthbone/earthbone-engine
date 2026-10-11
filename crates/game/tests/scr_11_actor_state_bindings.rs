@@ -62,7 +62,7 @@ fn scr_11_sit_flight_and_essential_methods_read_and_write_actor_state() {
     assert_eq!(call(&mut game, actor, "GetSitState", &[]), Value::Int(3));
     game.world_mut().actor(actor).unwrap().flying_state = Some(4);
     assert_eq!(call(&mut game, actor, "GetFlyingState", &[]), Value::Int(4));
-    call(&mut game, actor, "SetEssential", &[Value::Bool(true)]);
+    call(&mut game, id(0x800), "SetEssential", &[Value::Bool(true)]);
     assert!(game.world_mut().actor(actor).unwrap().essential);
     assert!(game.world_mut().actor_base(id(0x800)).unwrap().essential);
 }
@@ -138,6 +138,34 @@ fn scr_11_look_at_method_keeps_target_pathing_and_clear_effect() {
         loaded.world_mut().actor_look_at(actor),
         Some((id(0x802), true))
     );
+}
+
+#[test]
+fn scr_11_sit_state_reports_live_transition_to_stand() {
+    let mut game = fixture();
+    let actor = id(0x801);
+    game.world_mut().actor(actor).unwrap().ai.procedure = soe_game::ai::Procedure::Sit;
+    game.world_mut().actor(actor).unwrap().ai.arrived = true;
+
+    game.world_mut()
+        .set_actor_sit_wants_to_stand(actor, true)
+        .unwrap();
+    assert_eq!(call(&mut game, actor, "GetSitState", &[]), Value::Int(4));
+
+    game.world_mut()
+        .set_actor_sit_wants_to_stand(actor, false)
+        .unwrap();
+    assert_eq!(call(&mut game, actor, "GetSitState", &[]), Value::Int(3));
+
+    game.world_mut().actor(actor).unwrap().ai.procedure = soe_game::ai::Procedure::None;
+    game.world_mut()
+        .set_actor_sit_wants_to_stand(actor, true)
+        .unwrap();
+    assert_eq!(call(&mut game, actor, "GetSitState", &[]), Value::Int(0));
+    assert!(game
+        .world_mut()
+        .set_actor_sit_wants_to_stand(id(0x999), true)
+        .is_err());
 }
 
 #[test]

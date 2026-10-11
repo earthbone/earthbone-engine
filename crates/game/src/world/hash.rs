@@ -550,6 +550,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     }
     h.f32(a.character_experience);
     h.u32(a.level_up_choices);
+    h.bool(a.sit_wants_to_stand);
     for flag in [
         a.allow_flying,
         a.deferred_kill,
