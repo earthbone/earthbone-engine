@@ -11,8 +11,9 @@ const ITEM: u32 = 0x300;
 const BASE: u32 = 0x400;
 const REFERENCE: u32 = 0x500;
 const PATCH_ITEM: u32 = 0x900;
+const PATCH_ITEM_RAW: u32 = 0x0100_0000 | PATCH_ITEM;
 
-fn id(file: u8, object: u32) -> GlobalFormId {
+fn id(file: u16, object: u32) -> GlobalFormId {
     GlobalFormId { file, object }
 }
 
@@ -34,10 +35,10 @@ fn order() -> Arc<LoadOrder> {
         masters: vec!["Reset.esm".into()],
         ..FileHeader::default()
     });
-    patch.push_top(Record::new(Tag(*b"MISC"), PATCH_ITEM));
+    patch.push_top(Record::new(Tag(*b"MISC"), PATCH_ITEM_RAW));
     patch.push_top(Record::new(Tag(*b"CONT"), BASE).sub(
         Tag(*b"CNTO"),
-        [PATCH_ITEM.to_le_bytes(), 5_i32.to_le_bytes()].concat(),
+        [PATCH_ITEM_RAW.to_le_bytes(), 5_i32.to_le_bytes()].concat(),
     ));
 
     let mut load_order = LoadOrder::new();
