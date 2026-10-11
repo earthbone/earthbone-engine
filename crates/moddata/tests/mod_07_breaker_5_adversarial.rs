@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use soe_moddata::{
-    bos::SwapFile, discover, kid::KidFile, spid::DistrFile, ConfigKind,
-};
+use soe_moddata::{bos::SwapFile, discover, kid::KidFile, spid::DistrFile, ConfigKind};
 use std::path::PathBuf;
 
 #[test]
@@ -25,7 +23,11 @@ fn mod_07_every_real_distributor_file_keeps_its_source_provenance() {
             match kind {
                 ConfigKind::Distr => {
                     let file = DistrFile::read(&path).expect("parse real SPID file");
-                    assert!(!file.distributions.is_empty(), "{} has no rules", path.display());
+                    assert!(
+                        !file.distributions.is_empty(),
+                        "{} has no rules",
+                        path.display()
+                    );
                     assert_eq!(file.path, path);
                     assert!(file.distributions.iter().all(|rule| rule.line > 0));
                 }
@@ -37,12 +39,20 @@ fn mod_07_every_real_distributor_file_keeps_its_source_provenance() {
                 }
                 ConfigKind::Swap => {
                     let file = SwapFile::read(&path).expect("parse real BOS file");
-                    assert!(file.swaps().next().is_some(), "{} has no swaps", path.display());
+                    assert!(
+                        file.swaps().next().is_some(),
+                        "{} has no swaps",
+                        path.display()
+                    );
                     assert!(file.swaps().all(|rule| rule.line > 0));
                     assert_eq!(file.path, path);
                 }
             }
         }
     }
-    assert!(file_count > 0, "{} contains no distributor files", root.display());
+    assert!(
+        file_count > 0,
+        "{} contains no distributor files",
+        root.display()
+    );
 }

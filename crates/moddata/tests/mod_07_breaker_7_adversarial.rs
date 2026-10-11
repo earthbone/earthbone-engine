@@ -7,8 +7,8 @@ use soe_moddata::{
 use std::path::{Path, PathBuf};
 
 fn assert_source_line(path: &Path, line: usize) {
-    let contents = std::fs::read_to_string(path)
-        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let contents =
+        std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let source = contents
         .lines()
         .nth(line.saturating_sub(1))
@@ -77,5 +77,8 @@ fn mod_07_real_rules_keep_exact_source_lines_across_the_corpus() {
         }
     }
 
-    assert!(counts.iter().all(|count| *count > 0), "fixture counts: {counts:?}");
+    assert!(
+        counts.iter().all(|count| *count > 0),
+        "fixture counts: {counts:?}"
+    );
 }

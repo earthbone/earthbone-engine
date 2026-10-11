@@ -35,10 +35,7 @@ fn mod_07_spid_accepts_form_id_hyphen_plugin_spelling() {
 
 #[test]
 fn mod_07_spid_resolution_keeps_full_fixture_path_and_source_line() {
-    let directory = std::env::temp_dir().join(format!(
-        "mod-07-provenance-{}",
-        std::process::id()
-    ));
+    let directory = std::env::temp_dir().join(format!("mod-07-provenance-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let path = directory.join("Example_DISTR.ini");
     std::fs::write(
