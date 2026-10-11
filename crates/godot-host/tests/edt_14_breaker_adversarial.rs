@@ -48,8 +48,7 @@ fn edt_14_cancel_and_rejected_gizmo_edits_preserve_record_and_proxy() {
             .sub(Tag(*b"DATA"), original.to_bytes().to_vec()),
     );
     active.push_top(
-        Record::new(Tag(*b"REFR"), 0x0100_0801)
-            .sub(Tag(*b"NAME"), 0x800u32.to_le_bytes().to_vec()),
+        Record::new(Tag(*b"REFR"), 0x0100_0801).sub(Tag(*b"NAME"), 0x800u32.to_le_bytes().to_vec()),
     );
     fs::write(&patch, active.to_bytes()).unwrap();
 
