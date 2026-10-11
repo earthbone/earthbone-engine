@@ -4,5 +4,6 @@ navigate-marker Skyrim.esm:982a 18767.54 -79741.125 8400 600 3600
 navigate-marker Skyrim.esm:982a 18967.338 -79115.3 8555.869 600 3600
 navigate-marker Skyrim.esm:982a 17352 -78400 8252.088 600 3600
 wait-stage MQ101 180 60
-expect-stage MQ101 180
+wait-stage MQ101 192 600
+expect-stage MQ101 192
 expect-no-vm-error

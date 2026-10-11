@@ -84,7 +84,6 @@ fn ply_03_difference_report_names_stage_quest_flags_and_inventory_fields() {
 }
 
 #[test]
-#[ignore = "needs PLY-03: the Helgen trigger and the MQ101 scene progression, see docs/game.md"]
 fn ply_03_two_consecutive_main_quest_pairs_list_quest_and_inventory_differences() {
     let (Some(data), Some(corpus)) = (
         std::env::var_os("SKYRIM_DATA"),
@@ -318,6 +317,20 @@ fn ply_03_failed_route_keeps_checkpoint_differences_and_failure_evidence() {
 }
 
 #[test]
+fn ply_03_no_vm_error_assertion_matches_error_prefix_case_insensitively() {
+    let mut game = super::ply_02_routes::game(false);
+    game.vm
+        .log
+        .push(game.vm.time(), "Error: expected native error");
+    let report = play::run(&mut game, &Route::parse("expect-no-vm-error").unwrap());
+    assert!(!report.passed());
+    assert!(report
+        .failure
+        .as_deref()
+        .is_some_and(|failure| failure.contains("expected native error")));
+}
+
+#[test]
 fn ply_03_inventory_comparison_treats_missing_quantities_as_zero_and_lists_items() {
     let id = GlobalFormId {
         file: 0,
@@ -349,17 +362,26 @@ fn ply_03_inventory_comparison_treats_missing_quantities_as_zero_and_lists_items
 #[test]
 fn ply_03_authored_routes_contain_gameplay_and_wait_for_successor_stages() {
     use soe_game::play::Step;
-    for (text, successor) in ROUTES.into_iter().zip([180, 250]) {
+    for (text, successor) in ROUTES.into_iter().zip([192, 250]) {
         let route = Route::parse(text).unwrap();
         assert!(route.steps.iter().any(|(_, step)| matches!(
             step,
             Step::Navigate { .. } | Step::Activate(_) | Step::Talk { .. }
         )));
-        assert!(route
-            .steps
-            .iter()
-            .any(|(_, step)| matches!(step, Step::WaitStage { stage, .. } if *stage == successor)));
+        assert!(route.steps.iter().any(|(_, step)| matches!(
+            step,
+            Step::WaitStage { quest, stage, .. }
+                if (*stage == successor && quest == "MQ101")
+        )));
     }
+    assert!(Route::parse(ROUTES[1])
+        .unwrap()
+        .steps
+        .iter()
+        .any(|(_, step)| matches!(
+            step,
+            Step::WaitStage { quest, stage: 195, .. } if quest == "MQ101DragonAttack"
+        )));
 }
 
 #[test]
