@@ -59,6 +59,10 @@ resource creation per frame, so those fields remain unavailable rather than
 being inferred from unrelated object or resource totals. This report does not
 claim those counters were measured.
 
+The local Godot `Performance` reference notes that some monitors can lag by up
+to one second and that rendering info is zero until two frames have rendered.
+The report samples during presentation, after the viewport has rendered.
+
 ## AI breakdown and overlay, PRF-27
 
 `PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
@@ -480,9 +484,13 @@ per frame. The installed-data test accepts a null with a reason for those
 fields, so it does not measure them. The test also cannot reconcile per-cell
 counts with Godot's objects in frame, because the cell figures are resident
 batch totals and the in-frame figure excludes culled batches. It checks only
-that the in-frame count is positive and not above the resident total. Exact
-reconciliation needs per-batch in-frame membership, which needs the cull stage
-counters above.
+that the in-frame count is positive and not above the resident total. The
+local Godot 4.4 `Performance` and `RenderingServer` references provide the
+aggregate monitor and viewport figures used here, but no per-instance cull
+events, per-light shadow caster query or resource creation counters. The
+`prf_30_done_check_unavailable_render_attribution_has_reasons` test records
+this limit and checks every unavailable field has a reason. PRF-30 remains
+partial until the missing attribution is measured.
 
 The physics row also exposes `physics_frame_breakdown`. It reports the number
 of physics callbacks since the last presentation process callback, inferred
