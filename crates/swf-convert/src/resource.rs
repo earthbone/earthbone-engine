@@ -40,14 +40,31 @@ fn bitmap(bitmap: &Bitmap, path: &Path) -> Result<(), Error> {
 }
 
 fn font(font: &Font, path: &Path) -> Result<(), Error> {
-    let mut result = format!("[gd_resource type=\"FontFile\" load_steps=2 format=3]\n\n{}[resource]\nfont_name = {}\nfont_style = {}\nfixed_size = {}\nfixed_size_scale_mode = 1\nfont_weight = {}\nfont_italic = {}\n",
-        image_body(&font.atlas, "atlas"), quoted(&font.name), quoted(if font.bold { "Bold" } else { "Regular" }), font.size, if font.bold { 700 } else { 400 }, font.italic);
+    let mut result = format!(
+        "[gd_resource type=\"FontFile\" load_steps={} format=3]\n\n",
+        font.atlases.len() + 1
+    );
+    for (index, atlas) in font.atlases.iter().enumerate() {
+        result.push_str(&image_body(atlas, &format!("atlas_{index}")));
+    }
+    let _ = write!(result, "[resource]\nfont_name = {}\nfont_style = {}\nfixed_size = {}\nfixed_size_scale_mode = 1\nfont_weight = {}\nfont_italic = {}\n",
+        quoted(&font.name), quoted(if font.bold { "Bold" } else { "Regular" }), font.size, if font.bold { 700 } else { 400 }, font.italic);
     let prefix = format!("cache/0/{}/0", font.size);
-    let _ = writeln!(result, "{prefix}/ascent = {}\n{prefix}/descent = {}\n{prefix}/scale = 1.0\n{prefix}/textures/0/image = SubResource(\"atlas\")", font.metrics[0], font.metrics[1]);
+    let _ = writeln!(
+        result,
+        "{prefix}/ascent = {}\n{prefix}/descent = {}\n{prefix}/scale = 1.0",
+        font.metrics[0], font.metrics[1]
+    );
+    for index in 0..font.atlases.len() {
+        let _ = writeln!(
+            result,
+            "{prefix}/textures/{index}/image = SubResource(\"atlas_{index}\")"
+        );
+    }
     for glyph in &font.glyphs {
         let [x, y, w, h] = glyph.atlas_rect;
         let code = glyph.code;
-        let _ = writeln!(result, "{prefix}/glyphs/{code}/advance = Vector2({}, 0)\n{prefix}/glyphs/{code}/offset = Vector2({}, {})\n{prefix}/glyphs/{code}/size = Vector2({w}, {h})\n{prefix}/glyphs/{code}/uv_rect = Rect2({x}, {y}, {w}, {h})\n{prefix}/glyphs/{code}/texture_idx = 0", glyph.advance, glyph.offset[0], glyph.offset[1]);
+        let _ = writeln!(result, "{prefix}/glyphs/{code}/advance = Vector2({}, 0)\n{prefix}/glyphs/{code}/offset = Vector2({}, {})\n{prefix}/glyphs/{code}/size = Vector2({w}, {h})\n{prefix}/glyphs/{code}/uv_rect = Rect2({x}, {y}, {w}, {h})\n{prefix}/glyphs/{code}/texture_idx = {}", glyph.advance, glyph.offset[0], glyph.offset[1], glyph.texture_index);
     }
     for (left, right, adjustment) in &font.kerning {
         let _ = writeln!(

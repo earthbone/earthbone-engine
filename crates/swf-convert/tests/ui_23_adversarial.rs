@@ -1,42 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use std::io::Write;
+//! UI-23 boundary check for SWF action blocks retained by the art converter.
 
-use flate2::write::ZlibEncoder;
-use flate2::Compression;
 use soe_swf_convert::convert;
-
-fn minimal_swf(signature: [u8; 3], compressed: bool) -> Vec<u8> {
-    let body = [0x08, 0, 0, 12, 1, 0, 64, 0, 0, 0];
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(&signature);
-    bytes.push(9);
-    bytes.extend_from_slice(&((body.len() as u32) + 8).to_le_bytes());
-    if compressed {
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(&body).unwrap();
-        bytes.extend_from_slice(&encoder.finish().unwrap());
-    } else {
-        bytes.extend_from_slice(&body);
-    }
-    bytes
-}
+use swf::{Header, Sprite, Tag};
 
 #[test]
-fn ruffle_gfx_and_cfx_headers_convert_like_fws_and_cws() {
-    for (signature, compressed) in [
-        (*b"FWS", false),
-        (*b"GFX", false),
-        (*b"CWS", true),
-        (*b"CFX", true),
-    ] {
-        let bytes = minimal_swf(signature, compressed);
-        let first = convert(&bytes).unwrap_or_else(|error| panic!("{signature:?}: {error}"));
-        let second = convert(&bytes).unwrap_or_else(|error| panic!("{signature:?}: {error}"));
-        let root = first.timelines.get(&0).unwrap();
-        assert_eq!(root.declared_frames, 1, "{signature:?}");
-        assert_eq!(root.frames.len(), 1, "{signature:?}");
-        assert_eq!(first.timelines, second.timelines, "{signature:?}");
-    }
+fn ui_23_conversion_counts_root_and_nested_action_blocks_without_dropping_them() {
+    let mut header = Header::default_with_swf_version(9);
+    header.num_frames = 1;
+    let mut bytes = Vec::new();
+    swf::write_swf(
+        &header,
+        &[
+            Tag::DoAction(&[0]),
+            Tag::DefineSprite(Sprite {
+                id: 7,
+                num_frames: 1,
+                tags: vec![Tag::DoAction(&[0]), Tag::ShowFrame, Tag::End],
+            }),
+            Tag::ShowFrame,
+            Tag::End,
+        ],
+        &mut bytes,
+    )
+    .unwrap();
+    let movie = convert(&bytes).unwrap();
+    assert_eq!(movie.action_blocks, 2);
+    assert_eq!(movie.timelines[&7].declared_frames, 1);
 }

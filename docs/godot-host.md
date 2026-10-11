@@ -499,13 +499,14 @@ implemented in the host.
 ## SWF menu execution research, UI-23
 
 `docs/ui-frameworks.md` records the source-level Scaleform and `GameDelegate`
-inventory, Ruffle's signature change, compatibility gaps, estimates, and
-proposed runtime rows. `ui_23_scaleform_research.rs` checks the documented tag
-and API inventory, compares per-class vanilla calls with the supplied SkyUI
-ActionScript source when it is available, and checks the proposed estimates
-and work split. This host still presents its native Godot menus. UI-19 converts
-SWF art and retains ActionScript decompilation for reference, but does not
-execute the scripts.
+inventory, Ruffle's signature change, the AVM1 `gfx` namespace and
+`TextField.SetText` gaps at a pinned revision, estimates, and proposed runtime
+rows. `ui_23_scaleform_research.rs` checks the documented tag and API
+inventory, the pinned Ruffle gap findings, compares per-class vanilla calls
+with the supplied SkyUI ActionScript source when it is available, and checks
+the proposed estimates and work split. This host still presents its native
+Godot menus. UI-19 converts SWF art and retains ActionScript decompilation for
+reference, but does not execute the scripts.
 
 The art converter uses Ruffle `swf` 0.3's `Reader` for typed tags. Its
 `read_tag_list` requires an End tag, while the local

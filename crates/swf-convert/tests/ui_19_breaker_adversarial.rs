@@ -1,11 +1,295 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use soe_bsa::Vfs;
+use soe_bsa::{Archive, Vfs};
 use soe_swf_convert::{build_cache, convert, Decompiler};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use swf::{PlaceObjectAction, Tag};
+
+fn paged_font_movie() -> Vec<u8> {
+    let edge = 20_480;
+    let mut records = vec![swf::ShapeRecord::StyleChange(Box::new(
+        swf::StyleChangeData {
+            move_to: Some(swf::Point::new(swf::Twips::ZERO, swf::Twips::ZERO)),
+            fill_style_0: None,
+            fill_style_1: Some(1),
+            line_style: None,
+            new_styles: None,
+        },
+    ))];
+    for (dx, dy) in [(edge, 0), (0, edge), (-edge, 0), (0, -edge)] {
+        records.push(swf::ShapeRecord::StraightEdge {
+            delta: swf::PointDelta {
+                dx: swf::Twips::new(dx),
+                dy: swf::Twips::new(dy),
+            },
+        });
+    }
+    let font = swf::Font {
+        version: 3,
+        id: 1,
+        name: swf::SwfStr::from_utf8_str("UI-19 adversarial fixture"),
+        language: swf::Language::Unknown,
+        layout: Some(swf::FontLayout {
+            ascent: 16384,
+            descent: 4096,
+            leading: 0,
+            kerning: vec![],
+        }),
+        glyphs: (0..800)
+            .map(|code| swf::Glyph {
+                shape_records: records.clone(),
+                code: code + 32,
+                advance: 20480,
+                bounds: Some(swf::Rectangle {
+                    x_min: swf::Twips::ZERO,
+                    y_min: swf::Twips::ZERO,
+                    x_max: swf::Twips::new(edge),
+                    y_max: swf::Twips::new(edge),
+                }),
+            })
+            .collect(),
+        flags: swf::FontFlag::HAS_WIDE_CODES | swf::FontFlag::HAS_LAYOUT,
+    };
+    let mut header = swf::Header::default_with_swf_version(9);
+    header.num_frames = 1;
+    let mut bytes = Vec::new();
+    swf::write_swf(
+        &header,
+        &[Tag::DefineFont2(Box::new(font)), Tag::ShowFrame, Tag::End],
+        &mut bytes,
+    )
+    .unwrap();
+    bytes
+}
+
+fn has_actionscript(directory: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        if path.is_dir() {
+            has_actionscript(&path)
+        } else {
+            path.extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("as"))
+        }
+    })
+}
+
+#[test]
+fn ui_19_installed_fonts_keep_glyph_pages_bounded_and_indexed() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let archive = Archive::open(&PathBuf::from(data).join("Skyrim - Interface.bsa")).unwrap();
+    for name in ["interface/fonts_en.swf", "interface/fonts_cn.swf"] {
+        let bytes = archive.read(name).unwrap();
+        let source = swf::decompress_swf(bytes.as_slice()).unwrap();
+        let parsed = swf::parse_swf(&source).unwrap();
+        let movie = convert(&bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let fonts: Vec<_> = parsed
+            .tags
+            .iter()
+            .filter_map(|tag| match tag {
+                Tag::DefineFont2(font) => Some(font),
+                _ => None,
+            })
+            .collect();
+        assert!(!fonts.is_empty(), "{name}: no source fonts");
+        assert_eq!(fonts.len(), movie.fonts.len(), "{name}: lost font definition");
+        for source in fonts {
+            let font = &movie.fonts[&source.id];
+            assert_eq!(
+                font.glyphs.iter().map(|glyph| glyph.code).collect::<Vec<_>>(),
+                source.glyphs.iter().map(|glyph| glyph.code).collect::<Vec<_>>(),
+                "{name}: font {} glyph order differs",
+                source.id
+            );
+            for glyph in &font.glyphs {
+                let atlas = font.atlases.get(glyph.texture_index).unwrap_or_else(|| {
+                    panic!("{name}: font {} glyph has missing atlas", source.id)
+                });
+                let [x, y, width, height] = glyph.atlas_rect;
+                assert!(x + width < atlas.width && y + height < atlas.height);
+            }
+            assert!(font.atlases.iter().all(|page| {
+                page.width <= 1024
+                    && page.height <= 2048
+                    && page.rgba.len() == (page.width * page.height * 4) as usize
+            }));
+        }
+    }
+}
+
+#[test]
+fn ui_19_skyui_psychosteve_icons_convert_without_losing_authored_art() {
+    let Some(root) = std::env::var_os("SOE_TEST_SKYUI") else {
+        return;
+    };
+    let archive = Archive::open(&PathBuf::from(root).join("SkyUI_SE.bsa")).unwrap();
+    let bytes = archive
+        .read("interface/skyui/icons_item_psychosteve.swf")
+        .unwrap();
+    let buffer = swf::decompress_swf(bytes.as_slice()).unwrap();
+    let converted = convert(&bytes).expect("SkyUI psychosteve icon SWF should convert");
+    let mut reader = swf::read::Reader::new(&buffer.data, buffer.header.version());
+    let mut expected_symbols = BTreeMap::new();
+    while !reader.get_ref().is_empty() {
+        let start = reader.get_ref();
+        let (code, length) = reader.read_tag_code_and_length().unwrap();
+        if code == 56 {
+            if let Tag::ExportAssets(entries) =
+                swf::read::Reader::new(start, buffer.header.version())
+                    .read_tag()
+                    .unwrap()
+            {
+                expected_symbols.extend(entries.iter().map(|entry| {
+                    (
+                        entry.name.to_string_lossy(swf::SwfStr::encoding_for_version(
+                            buffer.header.version(),
+                        )),
+                        entry.id,
+                    )
+                }));
+            }
+        }
+        *reader.get_mut() = &reader.get_ref()[length..];
+        if code == 0 {
+            break;
+        }
+    }
+    assert_eq!(converted.symbols, expected_symbols, "icon exports differ");
+    assert!(
+        converted.timelines.values().any(|timeline| !timeline.frames.is_empty()),
+        "icon sprite timelines were lost"
+    );
+}
+
+#[test]
+fn ui_19_godot_loads_font_cache_with_multiple_atlas_pages() {
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+        return;
+    };
+    let bytes = paged_font_movie();
+    let movie = convert(&bytes).unwrap();
+    let glyph = movie.fonts[&1]
+        .glyphs
+        .iter()
+        .find(|glyph| glyph.code == 600)
+        .unwrap();
+    assert_eq!(glyph.texture_index, 1);
+    let (font_id, code, page) = (1, glyph.code, glyph.texture_index);
+    let input = tempfile::tempdir_in("/tmp").unwrap();
+    std::fs::create_dir(input.path().join("interface")).unwrap();
+    std::fs::write(input.path().join("interface/fixture.swf"), bytes).unwrap();
+    let mut vfs = Vfs::new();
+    vfs.add_loose_root(input.path()).unwrap();
+    let output = tempfile::tempdir_in("/tmp").unwrap();
+    let cache = build_cache(
+        &vfs,
+        &[],
+        output.path(),
+        &Decompiler::Program("unused".into()),
+    )
+    .unwrap();
+    let font = cache.movies["interface/fixture.swf"]
+        .parent()
+        .unwrap()
+        .join(format!("font-{font_id}.tres"));
+    let script = output.path().join("ui_19_paged_font.gd");
+    std::fs::write(
+        &script,
+        r#"extends SceneTree
+func _initialize():
+    call_deferred("check")
+func check():
+    var font = load(OS.get_environment("SOE_UI_19_FONT")) as FontFile
+    if font == null or font.get_texture_count(0, Vector2i(64, 0)) <= int(OS.get_environment("SOE_UI_19_PAGE")):
+        quit(1)
+        return
+    var index = font.get_glyph_index(64, int(OS.get_environment("SOE_UI_19_CODE")), 0)
+    if font.get_glyph_texture_idx(0, Vector2i(64, 0), index) != int(OS.get_environment("SOE_UI_19_PAGE")):
+        quit(2)
+        return
+    print("UI-19 PAGED FONT PASS")
+    quit(0)
+"#,
+    )
+    .unwrap();
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = Command::new(godot)
+        .args(["--headless", "--path"])
+        .arg(workspace.join("godot"))
+        .arg("--script")
+        .arg(script)
+        .env("SOE_UI_19_FONT", font)
+        .env("SOE_UI_19_CODE", code.to_string())
+        .env("SOE_UI_19_PAGE", page.to_string())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        result.status.success() && stdout.contains("UI-19 PAGED FONT PASS"),
+        "{}\n{stdout}\n{stderr}",
+        result.status
+    );
+}
+
+#[test]
+fn ui_19_full_winning_load_order_builds_cache_and_keeps_real_as2_sources() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let Some(skyui) = std::env::var_os("SOE_TEST_SKYUI") else {
+        return;
+    };
+    let jar = std::env::var_os("SOE_FFDEC_JAR").map_or_else(
+        || {
+            PathBuf::from(
+                "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/SkyUI-Community/tools/FFDec/ffdec-cli.jar",
+            )
+        },
+        PathBuf::from,
+    );
+    if !jar.is_file() {
+        return;
+    }
+    let mut vfs = Vfs::new();
+    vfs.add_archive_path(&PathBuf::from(data).join("Skyrim - Interface.bsa"))
+        .unwrap();
+    vfs.add_archive_path(&PathBuf::from(skyui).join("SkyUI_SE.bsa"))
+        .unwrap();
+    let paths: Vec<_> = vfs
+        .list("interface")
+        .into_iter()
+        .filter(|path| {
+            Path::new(path)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("swf"))
+        })
+        .collect();
+    let output = tempfile::tempdir_in("/tmp").unwrap();
+    let cache = build_cache(
+        &vfs,
+        &["Skyrim.esm".into(), "SkyUI_SE.esp".into()],
+        output.path(),
+        &Decompiler::Jar(jar),
+    )
+    .unwrap();
+    assert_eq!(cache.movies.len(), paths.len());
+    for path in &paths {
+        assert!(cache.movies[*path].is_file(), "{path}: missing native movie");
+    }
+    for path in ["interface/inventorymenu.swf", "interface/magicmenu.swf"] {
+        let source = cache.movies[path].parent().unwrap().join("as2-reference");
+        assert!(has_actionscript(&source), "{path}: no FFDec source retained");
+    }
+}
 
 fn data_dir() -> Option<PathBuf> {
     let path = std::env::var_os("SKYRIM_DATA").map(PathBuf::from)?;
@@ -42,7 +326,7 @@ fn input(path: &str) -> Option<Vec<u8>> {
 }
 
 #[test]
-fn installed_font3_codes_advances_and_metrics_match_swf_tags() {
+fn ui_19_installed_font3_codes_advances_and_metrics_match_swf_tags() {
     let Some(bytes) = input("interface/fonts_en.swf") else {
         eprintln!("SKYRIM_DATA unavailable, skipped");
         return;
@@ -105,16 +389,18 @@ fn installed_font3_codes_advances_and_metrics_match_swf_tags() {
                 actual_glyph.code
             );
         }
-        assert_eq!(
-            actual.atlas.rgba.len(),
-            (actual.atlas.width * actual.atlas.height * 4) as usize,
-            "font {id} atlas is truncated"
-        );
+        for atlas in &actual.atlases {
+            assert_eq!(
+                atlas.rgba.len(),
+                (atlas.width * atlas.height * 4) as usize,
+                "font {id} atlas is truncated"
+            );
+        }
     }
 }
 
 #[test]
-fn installed_shapes_bitmaps_text_and_sprite_frames_match_tag_ids() {
+fn ui_19_installed_shapes_bitmaps_text_and_sprite_frames_match_tag_ids() {
     let Some(bytes) = input("interface/inventorymenu.swf") else {
         eprintln!("SKYRIM_DATA unavailable, skipped");
         return;
@@ -190,106 +476,110 @@ fn installed_shapes_bitmaps_text_and_sprite_frames_match_tag_ids() {
 }
 
 #[test]
-fn installed_display_list_keeps_authored_names_labels_and_placements() {
-    let Some(bytes) = input("interface/magicmenu.swf") else {
-        eprintln!("SKYRIM_DATA unavailable, skipped");
-        return;
-    };
-    let buffer = swf::decompress_swf(bytes.as_slice()).expect("decompress magicmenu.swf");
-    let source_movie = swf::parse_swf(&buffer).expect("parse magicmenu.swf");
-    let mut tags = Vec::new();
-    visit(&source_movie.tags, &mut tags);
-    let movie = convert(&bytes).expect("magicmenu.swf should convert");
-    let expected_names: BTreeSet<_> = tags
-        .iter()
-        .filter_map(|tag| match *tag {
-            Tag::PlaceObject(place) if matches!(place.action, PlaceObjectAction::Place(_)) => place
-                .name
-                .map(|name| name.to_string_lossy(swf::SwfStr::encoding_for_version(movie.version))),
-            _ => None,
-        })
-        .collect();
-    let actual_names: BTreeSet<_> = movie
-        .timelines
-        .values()
-        .flat_map(|timeline| &timeline.frames)
-        .flat_map(|frame| &frame.display_list)
-        .filter_map(|instance| instance.name.clone())
-        .collect();
-    assert!(
-        !expected_names.is_empty(),
-        "source menu has no named placements"
-    );
-    assert!(
-        expected_names.is_subset(&actual_names),
-        "some authored instance names are absent"
-    );
-    let expected_labels: BTreeSet<_> = tags
-        .iter()
-        .filter_map(|tag| {
-            if let Tag::FrameLabel(label) = *tag {
-                Some(
-                    label
-                        .label
-                        .to_string_lossy(swf::SwfStr::encoding_for_version(movie.version)),
-                )
-            } else {
-                None
-            }
-        })
-        .collect();
-    let actual_labels: BTreeSet<_> = movie
-        .timelines
-        .values()
-        .flat_map(|timeline| &timeline.frames)
-        .flat_map(|frame| &frame.labels)
-        .cloned()
-        .collect();
-    assert_eq!(
-        actual_labels, expected_labels,
-        "authored frame labels differ"
-    );
-    let expected_transforms: Vec<_> = tags
-        .iter()
-        .filter_map(|tag| match *tag {
-            Tag::PlaceObject(place) if matches!(place.action, PlaceObjectAction::Place(_)) => {
-                place.matrix.map(|matrix| {
-                    let mut transform = [
-                        matrix.a.to_f64(),
-                        matrix.b.to_f64(),
-                        matrix.c.to_f64(),
-                        matrix.d.to_f64(),
-                        matrix.tx.get() as f64,
-                        matrix.ty.get() as f64,
-                    ];
-                    transform[4] /= 20.0;
-                    transform[5] /= 20.0;
-                    transform
-                })
-            }
-            _ => None,
-        })
-        .collect();
-    let actual_transforms: Vec<_> = movie
-        .timelines
-        .values()
-        .flat_map(|timeline| &timeline.frames)
-        .flat_map(|frame| &frame.display_list)
-        .map(|instance| instance.transform)
-        .collect();
-    for expected in expected_transforms {
+fn ui_19_installed_display_list_keeps_authored_names_labels_and_placements() {
+    for path in ["interface/inventorymenu.swf", "interface/magicmenu.swf"] {
+        let Some(bytes) = input(path) else {
+            eprintln!("SKYRIM_DATA unavailable, skipped");
+            return;
+        };
+        let buffer = swf::decompress_swf(bytes.as_slice()).expect("decompress installed menu");
+        let source_movie = swf::parse_swf(&buffer).expect("parse installed menu");
+        let mut tags = Vec::new();
+        visit(&source_movie.tags, &mut tags);
+        let movie = convert(&bytes).expect("installed menu should convert");
+        let expected_names: BTreeSet<_> = tags
+            .iter()
+            .filter_map(|tag| match *tag {
+                Tag::PlaceObject(place) if matches!(place.action, PlaceObjectAction::Place(_)) => {
+                    place.name.map(|name| {
+                        name.to_string_lossy(swf::SwfStr::encoding_for_version(movie.version))
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        let actual_names: BTreeSet<_> = movie
+            .timelines
+            .values()
+            .flat_map(|timeline| &timeline.frames)
+            .flat_map(|frame| &frame.display_list)
+            .filter_map(|instance| instance.name.clone())
+            .collect();
         assert!(
-            actual_transforms.iter().any(|actual| actual
-                .iter()
-                .zip(expected)
-                .all(|(left, right)| (left - right).abs() < 0.000_001)),
-            "authored placement transform was lost: {expected:?}"
+            !expected_names.is_empty(),
+            "source menu has no named placements"
         );
+        assert!(
+            expected_names.is_subset(&actual_names),
+            "some authored instance names are absent"
+        );
+        let expected_labels: BTreeSet<_> = tags
+            .iter()
+            .filter_map(|tag| {
+                if let Tag::FrameLabel(label) = *tag {
+                    Some(
+                        label
+                            .label
+                            .to_string_lossy(swf::SwfStr::encoding_for_version(movie.version)),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let actual_labels: BTreeSet<_> = movie
+            .timelines
+            .values()
+            .flat_map(|timeline| &timeline.frames)
+            .flat_map(|frame| &frame.labels)
+            .cloned()
+            .collect();
+        assert_eq!(
+            actual_labels, expected_labels,
+            "authored frame labels differ"
+        );
+        let expected_transforms: Vec<_> = tags
+            .iter()
+            .filter_map(|tag| match *tag {
+                Tag::PlaceObject(place) if matches!(place.action, PlaceObjectAction::Place(_)) => {
+                    place.matrix.map(|matrix| {
+                        let mut transform = [
+                            matrix.a.to_f64(),
+                            matrix.b.to_f64(),
+                            matrix.c.to_f64(),
+                            matrix.d.to_f64(),
+                            matrix.tx.get() as f64,
+                            matrix.ty.get() as f64,
+                        ];
+                        transform[4] /= 20.0;
+                        transform[5] /= 20.0;
+                        transform
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        let actual_transforms: Vec<_> = movie
+            .timelines
+            .values()
+            .flat_map(|timeline| &timeline.frames)
+            .flat_map(|frame| &frame.display_list)
+            .map(|instance| instance.transform)
+            .collect();
+        for expected in expected_transforms {
+            assert!(
+                actual_transforms.iter().any(|actual| actual
+                    .iter()
+                    .zip(expected)
+                    .all(|(left, right)| (left - right).abs() < 0.000_001)),
+                "authored placement transform was lost: {expected:?}"
+            );
+        }
     }
 }
 
 #[test]
-fn cache_rebuilds_for_new_winning_bytes_and_preserves_as2_reference() {
+fn ui_19_cache_rebuilds_for_new_winning_bytes_and_preserves_as2_reference() {
     let Some(data) = data_dir() else {
         eprintln!("SKYRIM_DATA unavailable, skipped");
         return;
@@ -364,7 +654,7 @@ fn cache_rebuilds_for_new_winning_bytes_and_preserves_as2_reference() {
 }
 
 #[test]
-fn skyui_archive_winners_convert_and_keep_source_definitions() {
+fn ui_19_skyui_archive_winners_convert_and_keep_source_definitions() {
     let Some(vfs) = skyui_vfs() else {
         eprintln!("SOE_TEST_SKYUI or installed vanilla data unavailable, skipped");
         return;
@@ -455,7 +745,7 @@ fn skyui_archive_winners_convert_and_keep_source_definitions() {
 }
 
 #[test]
-fn failed_swf_conversion_leaves_no_published_generation() {
+fn ui_19_failed_swf_conversion_leaves_no_published_generation() {
     let temp = tempfile::tempdir_in("/tmp").expect("temporary test root");
     let loose = temp.path().join("loose");
     std::fs::create_dir_all(loose.join("interface")).expect("create loose interface");
