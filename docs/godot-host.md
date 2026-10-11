@@ -3264,14 +3264,16 @@ limits, and [the reference map](reference-audit.md) for future work.
 Convex point clouds are reduced to the boundary vertices using
 `soe_physics::hull::triangles` before `PhysicsServer3D` receives them. If that
 cannot produce a 3D hull, the host removes duplicate and non-finite points and
-submits a slightly padded bounds hull. A repaired hull reports its source mesh
-path and NIF collision node name once per process. Godot's `shape_set_data`
+submits a slightly padded bounds hull. A repaired hull reports its NIF
+collision node name and input vertex count once per process. Godot's `shape_set_data`
 returns no hull failure result, so this check prepares the point set before
 the call rather than retrying after Jolt reports an error. The PRF-32 checks a
-44-point cloud with interior points and a flat cloud, then sends both repaired
-hulls to Godot's Jolt server. Its installed-data check streams Bannered Mare
-through the host and runs `physics_test.gd`, requiring collision bodies,
-contact and no Jolt shape error.
+synthetic 44-point cloud with interior points and a flat cloud. Its
+installed-data check streams Bannered Mare through the host and runs
+`physics_test.gd`, requiring collision bodies, contact, a repaired 44-vertex
+input and no Jolt shape error. The synthetic cloud does not reproduce the
+walkthrough's original coordinates. The installed-data check exercises the
+real point set but does not preserve its coordinates as a fixture.
 The installed collision helper builds and registers the release extension.
 Clippy can leave metadata at the debug library path, so existence alone does
 not establish a loadable library.
