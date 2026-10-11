@@ -2,7 +2,7 @@ extends SceneTree
 
 ## HST-19 host check: call the Papyrus Debug.TakeScreenshot native through
 ## PlayerNode and confirm the host writes a PNG from the active viewport.
-## Run with SKYRIM_DATA set after building the release GDExtension.
+## Run headless with SKYRIM_DATA set after building the release GDExtension.
 
 const CELL := "WhiterunBanneredMare"
 var failures := 0
@@ -53,6 +53,11 @@ func _run() -> void:
 		_check(bytes.size() > 24, "screenshot PNG was empty")
 		_check(bytes.slice(0, 8) == PackedByteArray([137, 80, 78, 71, 13, 10, 26, 10]),
 			"screenshot did not contain a PNG header")
+		var image := Image.load_from_file(path)
+		_check(not image.is_empty(), "screenshot PNG could not be decoded")
+		if not image.is_empty():
+			_check(image.get_width() == 640 and image.get_height() == 360,
+				"screenshot dimensions did not match the host viewport")
 		DirAccess.remove_absolute(path)
 
 	player.free()

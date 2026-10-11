@@ -8832,7 +8832,7 @@ log.
 `hst_19_screenshot_request.rs` calls the native through a Papyrus probe and
 checks that the path is queued once and consumed. The Godot check is
 `godot/hst_19_screenshot_capture_test.gd`. It requires installed data to start
-the host gameplay runtime, then checks the resulting PNG in a windowed run.
+the host gameplay runtime, then checks the resulting PNG in a headless run.
 
 ## Equipment conditions, AI-49
 
