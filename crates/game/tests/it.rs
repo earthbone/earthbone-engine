@@ -462,6 +462,8 @@ mod anm_58_adversarial;
 mod anm_58_breaker2_adversarial;
 #[path = "anm_58_breaker_adversarial.rs"]
 mod anm_58_breaker_adversarial;
+#[path = "anm_59_adversarial.rs"]
+mod anm_59_adversarial;
 #[path = "anm_59_breaker2_adversarial.rs"]
 mod anm_59_breaker2_adversarial;
 #[path = "anm_59_breaker_adversarial.rs"]
