@@ -55,4 +55,5 @@ fn mag_41_loading_world_state_discards_the_transient_grab() {
     game.world_mut().load_state(&saved).unwrap();
 
     assert_eq!(game.world().telekinesis_reference(id(CASTER)), None);
+    assert!(!game.world().is_concentration_casting(id(CASTER)));
 }

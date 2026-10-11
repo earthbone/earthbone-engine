@@ -6,8 +6,8 @@ mod support;
 
 use support::magic_adversarial as fixture;
 
-use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 use fixture::*;
+use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 
 const ITEM: u32 = 0x220;
 const EFFECT: u32 = 0x300;
@@ -30,7 +30,9 @@ fn mag_41_magicka_exhaustion_clears_the_transient_reference_hold() {
     plugin.push_top(effect);
     plugin.push_top(spell);
     let mut order = LoadOrder::new();
-    order.add("TelekinesisExhaustionBreaker.esm", plugin).unwrap();
+    order
+        .add("TelekinesisExhaustionBreaker.esm", plugin)
+        .unwrap();
     let mut game = soe_game::Game::new(order);
     game.world_mut()
         .set_actor_value(id(CASTER), "magicka", 5.0)
@@ -54,7 +56,9 @@ fn mag_41_magicka_exhaustion_clears_the_transient_reference_hold() {
 
     assert!(shared
         .borrow_mut()
-        .tick_concentration(1.0, &mut |name, class| game.vm.create_object_of(name, class))
+        .tick_concentration(1.0, &mut |name, class| game
+            .vm
+            .create_object_of(name, class))
         .is_empty());
 
     assert!(!game.world().is_concentration_casting(id(CASTER)));
