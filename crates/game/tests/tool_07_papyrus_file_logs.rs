@@ -91,6 +91,26 @@ fn tool_07_script_trace_user_log_and_vm_error_write_vanilla_log_files() {
         )
         .ins(
             CallStatic,
+            vec![
+                s("Debug"),
+                s("TraceConditional"),
+                s("result"),
+                s("conditional trace probe"),
+                Value::Bool(true),
+            ],
+        )
+        .ins(
+            CallStatic,
+            vec![
+                s("Debug"),
+                s("TraceConditional"),
+                s("result"),
+                s("suppressed conditional probe"),
+                Value::Bool(false),
+            ],
+        )
+        .ins(
+            CallStatic,
             vec![s("Debug"), s("TraceStack"), s("result"), s("stack probe")],
         )
         .ins(
@@ -128,6 +148,8 @@ fn tool_07_script_trace_user_log_and_vm_error_write_vanilla_log_files() {
         "missing vanilla date-time prefix: {script_log}"
     );
     assert!(script_log.contains("trace probe"));
+    assert!(script_log.contains("conditional trace probe"));
+    assert!(!script_log.contains("suppressed conditional probe"));
     assert!(script_log.contains("Stack trace:"));
     assert!(script_log.contains("Tool07Probe.Run"));
     assert!(script_log.contains("error:"));

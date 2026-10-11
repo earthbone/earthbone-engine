@@ -1195,8 +1195,10 @@ TOOL-07 adds profile-controlled file output. A host passes the resolved
 `bEnableTrace` controls non-error trace lines, while `bLoadDebugInformation`
 controls source-line detail in VM errors. Existing numbered log files move up
 one slot when logging starts. Lines use the vanilla-style
-`[MM/DD/YYYY - H:MM:SSAM]` timestamp prefix. VM log entries
+`[MM/DD/YYYY - HH:MM:SSAM]` timestamp prefix. VM log entries
 continue through `soe-trace`, including when file tracing is disabled.
+`tool_07_vm_trace_and_error_reach_tool_06_papyrus_target` checks the trace
+target and error severity without enabling file logging.
 
 `Debug.CenterOnCell(name)` resolves a CELL editor id and queues a host request
 to move the player to that cell's origin. `CenterOnCellAndWait(name)` queues
