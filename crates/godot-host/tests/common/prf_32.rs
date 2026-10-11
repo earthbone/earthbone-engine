@@ -10,8 +10,7 @@ mod extension;
 
 pub fn installed_collision() -> Option<Output> {
     let data = std::env::var_os("SKYRIM_DATA")?;
-    let godot =
-        std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required for the host check");
+    let godot = std::env::var_os("SOE_GODOT_BIN")?;
     let project = extension::project(&["physics_test.gd"]);
     Some(
         Command::new(godot)

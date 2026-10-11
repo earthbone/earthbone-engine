@@ -1100,12 +1100,13 @@ fn build_body(
         let GodotPrim::Convex(points) = prim else {
             continue;
         };
+        let input_vertex_count = points.len();
         let (hull, changed) = convex_hull_points(points);
         if changed {
             if report_repaired_hull_once(&collider.node_name) {
                 soe_trace::warn!(target: "host::physics", system = "host::physics",
-                    "repaired convex collision hull for mesh node {:?} before Jolt shape creation",
-                    collider.node_name
+                    "repaired convex collision hull for mesh node {:?} (input_vertices={}) before Jolt shape creation",
+                    collider.node_name, input_vertex_count
                 );
             }
             *points = hull;
