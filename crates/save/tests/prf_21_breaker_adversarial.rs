@@ -21,7 +21,10 @@ fn collect(root: &Path, saves: &mut Vec<PathBuf>) {
 
 #[test]
 fn prf_21_breaker_profiled_ess_writes_preserve_and_partition_every_user_save() {
-    let root = PathBuf::from(std::env::var_os("SOE_TEST_SAVES").expect("SOE_TEST_SAVES is set"));
+    let Some(root) = std::env::var_os("SOE_TEST_SAVES").map(PathBuf::from) else {
+        eprintln!("SOE_TEST_SAVES unset, skipping PRF-21 profiled ESS write survey");
+        return;
+    };
     let mut paths = Vec::new();
     collect(&root, &mut paths);
     paths.sort();
