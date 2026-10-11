@@ -43,6 +43,61 @@ pub const MASTER_BEHAVIOR: &str = "behaviors/0_master.hkx";
 /// Vanilla one-handed melee behavior, with authored attack markers.
 pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
 
+/// Render transform supplied by the shared world's actor placement.
+pub fn npc_transform(placement: soe_game::world::RefPlacement) -> crate::units::GodotTransform {
+    crate::units::placement_to_godot(
+        crate::units::skyrim_euler_matrix(placement.rotation),
+        placement.position,
+        placement.scale,
+    )
+}
+
+/// Authored locomotion inputs derived from consecutive rendered placements.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NpcMotion {
+    /// Skyrim units per second.
+    pub speed: f32,
+    /// Degrees relative to the actor's heading.
+    pub direction: f32,
+    /// Heading change in degrees per second.
+    pub turn: f32,
+}
+
+impl NpcMotion {
+    /// Sample movement using the render clock. Invalid deltas produce no sample.
+    pub fn between(
+        previous: soe_game::world::RefPlacement,
+        current: soe_game::world::RefPlacement,
+        delta: f32,
+    ) -> Option<Self> {
+        if !delta.is_finite() || delta <= 0.0 {
+            return None;
+        }
+        let displacement: [f32; 3] =
+            std::array::from_fn(|axis| current.position[axis] - previous.position[axis]);
+        let speed = displacement
+            .iter()
+            .map(|value| value * value)
+            .sum::<f32>()
+            .sqrt()
+            / delta;
+        let wrap = |angle: f32| {
+            (angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+        };
+        let direction = if speed > 0.1 {
+            wrap(displacement[0].atan2(displacement[1]) - current.rotation[2]).to_degrees()
+        } else {
+            0.0
+        };
+        let turn = wrap(current.rotation[2] - previous.rotation[2]).to_degrees() / delta;
+        Some(Self {
+            speed,
+            direction,
+            turn,
+        })
+    }
+}
+
 /// What went wrong assembling a character.
 #[derive(Debug, thiserror::Error)]
 pub enum ActorError {
@@ -93,6 +148,12 @@ pub enum ActorError {
 pub struct ActorSurface {
     /// The shape's name in the `NIF`, for reporting.
     pub name: String,
+    /// HDPT type when this is a selected head surface.
+    pub head_part_type: Option<u32>,
+    /// Exported face tint sampled alongside the head's diffuse map.
+    pub face_tint: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
+    /// Authored SkinTint or HairTint RGB multiplier.
+    pub tint_color: Option<[f32; 3]>,
     pub arrays: SurfaceArrays,
     /// Expression blend-shape deltas in the order uploaded to Godot.
     pub expression_shapes: Vec<ExpressionShape>,
@@ -141,6 +202,8 @@ pub struct ActorAssets {
     /// Race and sex used when the live actor selected this rig.
     pub actor_race: Option<soe_esm::GlobalFormId>,
     pub actor_female: Option<bool>,
+    /// Named property defaults from the race's selected character file.
+    pub character_properties: Vec<(String, i32)>,
     /// Clip names the graph asked for that the archives do not hold.
     pub missing_clips: Vec<String>,
     /// Referenced behavior files that linking could not find.
@@ -206,6 +269,39 @@ fn packfile(bytes: &[u8], path: &str) -> Result<Packfile, ActorError> {
 }
 
 impl ActorAssets {
+    /// Create a streamed NPC graph with its sex and host locomotion inputs.
+    pub fn npc_interpreter(&self, female: bool) -> soe_hkx::interp::Interpreter<'_> {
+        let mut vm = soe_hkx::interp::Interpreter::new(
+            &self.graph,
+            &self.clips,
+            self.skeleton.reference_pose.clone(),
+        );
+        for (name, word) in &self.character_properties {
+            if let Some(index) = vm.character_properties.index(name) {
+                vm.character_properties.set_word(index, *word);
+            }
+        }
+        vm.character_properties
+            .set_by_name("IsFemale", f32::from(female));
+        for name in ["IsMale", "IsMale00", "IsMale01"] {
+            vm.character_properties
+                .set_by_name(name, f32::from(!female));
+        }
+        vm.character_properties.set_by_name("IsThirdPerson", 1.0);
+        for (name, value) in [
+            ("IsNPC", 1.0),
+            ("IsPlayer", 0.0),
+            ("iIsPlayer", 0.0),
+            ("IsFirstPerson", 0.0),
+            ("Speed", 0.0),
+            ("Direction", 0.0),
+            ("TurnDelta", 0.0),
+        ] {
+            vm.variables.set_by_name(name, value);
+        }
+        vm
+    }
+
     /// Load the vanilla human character: its skeleton, the locomotion graph
     /// with its references linked, every clip that graph names which the
     /// archives hold, and the skinned shapes of `mesh_path`.
@@ -252,6 +348,7 @@ impl ActorAssets {
             project_path: None,
             actor_race: None,
             actor_female: None,
+            character_properties: Vec::new(),
             missing_clips,
             unresolved_references,
         })
@@ -360,22 +457,43 @@ impl ActorAssets {
         let (mut graph, unresolved_references) = Self::load_graph(vfs, &behavior_path)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph, &root);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
-        let surfaces = Self::appearance_surfaces(vfs, appearance, &skeleton)?;
         let mut assets = ActorAssets {
             skeleton,
             ragdoll,
             graph,
             clips,
-            surfaces,
+            surfaces: Vec::new(),
             skeleton_path,
             skeleton_model_path,
             behavior_path,
             project_path: Some(project_path),
             actor_race: Some(race_id),
             actor_female: Some(female),
+            character_properties: character
+                .character_property_names
+                .iter()
+                .cloned()
+                .zip(
+                    character
+                        .character_property_values
+                        .as_ref()
+                        .map(|values| values.word_values.as_slice())
+                        .unwrap_or_default()
+                        .iter()
+                        .copied(),
+                )
+                .collect(),
             missing_clips,
             unresolved_references,
         };
+        if appearance
+            .parts
+            .iter()
+            .any(|part| part.visible_slots & (1 << 9) != 0)
+        {
+            assets.complete_race_skeleton(vfs)?;
+        }
+        assets.surfaces = Self::appearance_surfaces(vfs, appearance, &assets.skeleton)?;
         Self::extend_race_bones(vfs, &mut assets)?;
         let bones: std::collections::BTreeSet<_> = assets
             .surfaces
@@ -388,6 +506,23 @@ impl ActorAssets {
             });
         }
         Ok(assets)
+    }
+
+    /// Retain every authored rig node before sharing a rig across appearances.
+    /// Later outfits can bind bones the first appearance did not use.
+    pub(crate) fn complete_race_skeleton(&mut self, vfs: &Vfs) -> Result<(), ActorError> {
+        let bytes = read(vfs, &self.skeleton_model_path)?;
+        let file = soe_nif::parse(&bytes).map_err(|source| ActorError::Nif {
+            path: self.skeleton_model_path.clone(),
+            source,
+        })?;
+        let mut nodes = std::collections::BTreeMap::new();
+        let mut visited = std::collections::BTreeSet::new();
+        for root in &file.roots {
+            collect_rig_nodes(&file, *root, None, &mut visited, &mut nodes);
+        }
+        extend_skeleton(&mut self.skeleton, &file, &nodes.into_keys().collect())
+            .map_err(|bones| ActorError::RigMismatch { bones })
     }
 
     fn extend_race_bones(vfs: &Vfs, assets: &mut ActorAssets) -> Result<(), ActorError> {
@@ -526,12 +661,86 @@ impl ActorAssets {
             } else {
                 format!("meshes/{path}")
             };
-            surfaces.extend(Self::load_visible_surfaces(
+            let attachment = (part.visible_slots & (1 << 9) != 0)
+                .then(|| crate::combat::weapon_bones(soe_game::combat::Hand::Left))
+                .and_then(|names| {
+                    names
+                        .iter()
+                        .copied()
+                        .find(|name| skeleton.bones.iter().any(|bone| bone.name == *name))
+                });
+            surfaces.extend(Self::load_attached_surfaces(
                 vfs,
                 &path,
                 skeleton,
                 part.authored_slots & !part.visible_slots,
+                attachment,
             )?);
+        }
+        let mut exported = if let Some(face) = &appearance.facegen {
+            let path = format!(
+                "meshes/actors/character/facegendata/facegeom/{}/{:08X}.nif",
+                face.plugin, face.object
+            );
+            if vfs.exists(&path) {
+                Self::load_attached_surfaces(vfs, &path, skeleton, 0, Some("NPC Head [Head]"))?
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+        for part in &appearance.head_parts {
+            let mut head = Vec::new();
+            let mut remaining = Vec::new();
+            for surface in exported.drain(..) {
+                if surface.name.eq_ignore_ascii_case(&part.name) {
+                    head.push(surface);
+                } else {
+                    remaining.push(surface);
+                }
+            }
+            exported = remaining;
+            let from_export = !head.is_empty();
+            if head.is_empty() {
+                if let Some(model) = &part.model {
+                    head = Self::load_attached_surfaces(
+                        vfs,
+                        &asset_path(model),
+                        skeleton,
+                        0,
+                        Some("NPC Head [Head]"),
+                    )?;
+                }
+            }
+            for surface in &mut head {
+                surface.head_part_type = Some(part.part_type);
+                if from_export && part.part_type == 1 {
+                    if let Some(face) = &appearance.facegen {
+                        let path = format!(
+                            "textures/actors/character/facegendata/facetint/{}/{:08X}.dds",
+                            face.plugin, face.object
+                        );
+                        if vfs.exists(&path) {
+                            let textures = crate::data_source::resolve_material_textures(
+                                vfs,
+                                &[crate::mesh::MaterialDesc {
+                                    diffuse: Some(path.clone()),
+                                    ..Default::default()
+                                }],
+                            );
+                            if let Some(diffuse) = textures
+                                .into_iter()
+                                .next()
+                                .and_then(|textures| textures.diffuse)
+                            {
+                                surface.face_tint = Some((path, diffuse));
+                            }
+                        }
+                    }
+                }
+            }
+            surfaces.extend(head);
         }
         Ok(surfaces)
     }
@@ -541,6 +750,16 @@ impl ActorAssets {
         mesh_path: &str,
         skeleton: &Skeleton,
         hidden_slots: u32,
+    ) -> Result<Vec<ActorSurface>, ActorError> {
+        Self::load_attached_surfaces(vfs, mesh_path, skeleton, hidden_slots, None)
+    }
+
+    fn load_attached_surfaces(
+        vfs: &Vfs,
+        mesh_path: &str,
+        skeleton: &Skeleton,
+        hidden_slots: u32,
+        attachment: Option<&str>,
     ) -> Result<Vec<ActorSurface>, ActorError> {
         let bytes = read(vfs, mesh_path)?;
         let file = soe_nif::parse(&bytes).map_err(|source| ActorError::Nif {
@@ -552,12 +771,42 @@ impl ActorAssets {
             soe_trace::LoadCause::CpuBuild,
             mesh_path,
         );
-        let meshes = file.meshes().map_err(|source| ActorError::Nif {
+        let mut meshes = file.meshes().map_err(|source| ActorError::Nif {
             path: mesh_path.to_string(),
             source,
         })?;
+        for mesh in &mut meshes {
+            for texture in &mut mesh.material.textures {
+                let normalized = texture.replace('\\', "/");
+                if normalized.to_ascii_lowercase().starts_with("actors/") {
+                    *texture = format!("textures/{normalized}");
+                }
+            }
+            if let Some(soe_nif::blocks::Block::BsTriShape(shape)) = file.blocks.get(mesh.block) {
+                apply_dynamic_positions(shape, &mut mesh.positions).map_err(|reason| {
+                    ActorError::Partitions {
+                        path: mesh_path.to_owned(),
+                        reason,
+                    }
+                })?;
+            }
+        }
         let mut out = Vec::new();
         for mesh in &meshes {
+            if mesh.skin.is_none() {
+                if let Some(bone) = attachment {
+                    let mut surface = rigid_surface(mesh, bone, skeleton).map_err(|source| {
+                        ActorError::Surface {
+                            path: mesh_path.to_owned(),
+                            source,
+                        }
+                    })?;
+                    surface.expression_shapes =
+                        expression_shapes(vfs, mesh_path, mesh, &surface.arrays)?;
+                    out.push(surface);
+                }
+                continue;
+            }
             let Some(skin) = mesh.skin.clone() else {
                 continue;
             };
@@ -591,6 +840,9 @@ impl ActorAssets {
             let map = BoneMap::build(&skin.bones, skeleton);
             out.push(ActorSurface {
                 name: mesh.name.clone(),
+                head_part_type: None,
+                face_tint: None,
+                tint_color: authored_tint(mesh),
                 arrays,
                 expression_shapes,
                 textures: SurfaceTextures::default(),
@@ -632,6 +884,32 @@ impl ActorAssets {
         let matched = self.surfaces.iter().map(|s| s.map.matched()).sum();
         (total, matched)
     }
+}
+
+fn authored_tint(mesh: &soe_nif::Mesh) -> Option<[f32; 3]> {
+    match &mesh.material.extra {
+        soe_nif::blocks::ShaderExtra::SkinTint(color)
+        | soe_nif::blocks::ShaderExtra::HairTint(color) => Some(*color),
+        _ => None,
+    }
+}
+
+fn apply_dynamic_positions(
+    shape: &soe_nif::blocks::BsTriShape,
+    positions: &mut Vec<[f32; 3]>,
+) -> Result<(), String> {
+    if shape.dynamic_positions.is_empty() {
+        return Ok(());
+    }
+    if shape.dynamic_positions.len() != positions.len() {
+        return Err("dynamic head positions do not match the vertex buffer".into());
+    }
+    *positions = shape
+        .dynamic_positions
+        .iter()
+        .map(|v| [v[0], v[1], v[2]])
+        .collect();
+    Ok(())
 }
 
 fn expression_shapes(
@@ -849,7 +1127,7 @@ fn nif_transform_to_hkx(transform: &NifTransform) -> soe_hkx::QsTransform {
 }
 
 fn actor_root(behavior_path: &str) -> String {
-    if let Some(at) = behavior_path.rfind("/behaviors/") {
+    if let Some(at) = behavior_path.to_ascii_lowercase().rfind("/behaviors/") {
         behavior_path[..=at].to_string()
     } else {
         behavior_path.rfind('/').map_or_else(
@@ -1100,9 +1378,233 @@ fn surface_of(mesh: &soe_nif::mesh::Mesh) -> Result<SurfaceArrays, crate::mesh::
     build_surface(&data, MeshOptions::default())
 }
 
+/// Rigid biped models use their authored shape transform below an attachment bone.
+/// A single weight lets the ordinary server skeleton path carry that transform.
+fn rigid_surface(
+    mesh: &soe_nif::Mesh,
+    bone: &str,
+    skeleton: &Skeleton,
+) -> Result<ActorSurface, crate::mesh::MeshError> {
+    let data = mesh_data_from(mesh, &mesh.transform);
+    let mut arrays = build_surface(&data, MeshOptions::default())?;
+    arrays.bones = vec![0; arrays.positions.len() * 4];
+    arrays.weights = [1.0, 0.0, 0.0, 0.0].repeat(arrays.positions.len());
+    let skin = Skin {
+        skeleton_root: soe_nif::types::BlockRef::NONE,
+        skeleton_root_name: String::new(),
+        transform: NifTransform::IDENTITY,
+        bones: vec![soe_nif::mesh::Bone {
+            name: bone.to_owned(),
+            node: soe_nif::types::BlockRef::NONE,
+            inverse_bind: NifTransform::IDENTITY,
+            bound: mesh.bound,
+        }],
+        body_parts: Vec::new(),
+    };
+    let map = BoneMap::build(&skin.bones, skeleton);
+    Ok(ActorSurface {
+        name: mesh.name.clone(),
+        head_part_type: None,
+        face_tint: None,
+        tint_color: authored_tint(mesh),
+        arrays,
+        expression_shapes: Vec::new(),
+        textures: SurfaceTextures::default(),
+        skin,
+        map,
+        node_offset: [0.0; 3],
+        partitions: 0,
+        remapped: false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hst_23_installed_hulda_head_and_idle_pose() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(std::path::Path::new(&data)).unwrap();
+        let mut game = source.localized_game().unwrap();
+        let cell = game.form("WhiterunBanneredMare").unwrap();
+        game.change_cell(Some(cell));
+        let hulda = game
+            .world_mut()
+            .contact_actors()
+            .into_iter()
+            .find(|actor| game.world().name_of(actor.actor).as_deref() == Some("Hulda"))
+            .unwrap()
+            .actor;
+        let appearance = game.world_mut().actor_appearance(hulda).unwrap();
+        let assets =
+            ActorAssets::load_for_actor(&mut game.world_mut(), hulda, source.vfs()).unwrap();
+        for part_type in [1, 2, 3] {
+            let surfaces: Vec<_> = assets
+                .surfaces
+                .iter()
+                .filter(|surface| surface.head_part_type == Some(part_type))
+                .collect();
+            assert!(
+                !surfaces.is_empty(),
+                "Hulda has head, eyes and hair geometry"
+            );
+            for surface in surfaces {
+                assert!(
+                    surface
+                        .arrays
+                        .positions
+                        .iter()
+                        .any(|vertex| vertex.iter().any(|value| value.abs() > 0.01)),
+                    "{} has nonzero dynamic geometry",
+                    surface.name
+                );
+                assert!(
+                    surface.map.unmatched.is_empty(),
+                    "{} binds to the race skeleton",
+                    surface.name
+                );
+            }
+        }
+        let head = assets
+            .surfaces
+            .iter()
+            .find(|surface| surface.head_part_type == Some(1))
+            .unwrap();
+        assert!(head.face_tint.is_some(), "Hulda's exported face tint loads");
+        assert_eq!(appearance.facegen.as_ref().unwrap().object, 0x13BA3);
+        let mut vm = assets.npc_interpreter(appearance.female);
+        vm.update(1.0 / 60.0);
+        let initial = vm.pose().to_vec();
+        for _ in 0..60 {
+            vm.update(1.0 / 60.0);
+        }
+        assert_ne!(
+            initial, assets.skeleton.reference_pose,
+            "idle must leave the reference pose"
+        );
+        assert_ne!(initial, vm.pose(), "idle pose must change over one second");
+        vm.variables.set_by_name("Speed", 100.0);
+        assert!(vm.send_event_named("moveStart"));
+        for _ in 0..60 {
+            vm.update(1.0 / 60.0);
+        }
+        let walking = vm.active_clips().iter().any(|(id, _)| {
+            matches!(&assets.graph.node(*id).kind, soe_hkx::behavior::NodeKind::Clip(clip) if clip.animation_name.to_ascii_lowercase().contains("walk"))
+        });
+        assert!(
+            walking,
+            "NPC movement reaches a walk clip through the selected graph"
+        );
+        vm.variables.set_by_name("Speed", 0.0);
+        assert!(vm.send_event_named("moveStop"));
+        for _ in 0..60 {
+            vm.update(1.0 / 60.0);
+        }
+        assert!(vm.active_clips().iter().any(|(id, _)| {
+            matches!(&assets.graph.node(*id).kind, soe_hkx::behavior::NodeKind::Clip(clip) if clip.animation_name.to_ascii_lowercase().contains("idle"))
+        }), "NPC movement stop returns to idle through the graph");
+    }
+
+    #[test]
+    fn hst_23_dynamic_head_positions_replace_zero_packed_vertices() {
+        let shape = soe_nif::blocks::BsTriShape {
+            dynamic_positions: vec![[10.0, 20.0, 30.0, 1.0], [-5.0, 4.0, 100.0, 0.0]],
+            ..Default::default()
+        };
+        let mut positions = vec![[0.0; 3]; 2];
+        apply_dynamic_positions(&shape, &mut positions).unwrap();
+        assert_eq!(positions, [[10.0, 20.0, 30.0], [-5.0, 4.0, 100.0]]);
+    }
+
+    #[test]
+    fn hst_23_dynamic_head_vertex_mismatch_preserves_previous_positions() {
+        let shape = soe_nif::blocks::BsTriShape {
+            dynamic_positions: vec![[1.0; 4]],
+            ..Default::default()
+        };
+        let mut positions = vec![[0.0; 3]; 2];
+        assert!(apply_dynamic_positions(&shape, &mut positions).is_err());
+        assert_eq!(positions, [[0.0; 3]; 2]);
+    }
+
+    #[test]
+    fn hst_23_rigid_shield_keeps_shape_transform_and_tracks_attachment_pose() {
+        let skeleton = Skeleton {
+            name: "test".into(),
+            parent_indices: vec![-1],
+            bones: vec![HkxBone {
+                name: "SHIELD".into(),
+                lock_translation: false,
+            }],
+            reference_pose: vec![soe_hkx::QsTransform::IDENTITY],
+            reference_floats: Vec::new(),
+            float_slots: Vec::new(),
+        };
+        let mesh = soe_nif::Mesh {
+            name: "shield".into(),
+            block: 0,
+            transform: NifTransform {
+                translation: soe_nif::types::Vec3::new(10.0, 20.0, 30.0),
+                ..NifTransform::IDENTITY
+            },
+            bound: soe_nif::types::Bound::default(),
+            positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            normals: Vec::new(),
+            tangents: Vec::new(),
+            uvs: Vec::new(),
+            uv_sets: Vec::new(),
+            colors: Vec::new(),
+            indices: vec![0, 1, 2],
+            bone_weights: Vec::new(),
+            bone_indices: Vec::new(),
+            skin: None,
+            material: soe_nif::mesh::Material::default(),
+        };
+        let surface = rigid_surface(&mesh, "SHIELD", &skeleton).unwrap();
+        assert_eq!(surface.map.matched(), 1);
+        assert_eq!(surface.arrays.weights, [1.0, 0.0, 0.0, 0.0].repeat(3));
+        for (actual, expected) in surface.arrays.positions[0]
+            .iter()
+            .zip([0.142875, 0.428625, -0.28575])
+        {
+            assert!((actual - expected).abs() < 0.00001);
+        }
+        let mut pose = skeleton.reference_pose.clone();
+        let initial =
+            crate::skinned::skinning_transforms(&surface.map, &surface.skin, &pose).unwrap();
+        pose[0].translation[0] = 100.0;
+        let moved =
+            crate::skinned::skinning_transforms(&surface.map, &surface.skin, &pose).unwrap();
+        assert!((moved[0].origin[0] - initial[0].origin[0] - 1.42875).abs() < 0.00001);
+    }
+
+    #[test]
+    fn hst_23_installed_guard_outfit_includes_rigid_shield() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(std::path::Path::new(&data)).unwrap();
+        let game = source.localized_game().unwrap();
+        let actor = game.form("GuardWhiterunImperialPostNightRef1").unwrap();
+        let assets =
+            ActorAssets::load_for_actor(&mut game.world_mut(), actor, source.vfs()).unwrap();
+        let shields: Vec<_> = assets
+            .surfaces
+            .iter()
+            .filter(|surface| {
+                surface.skin.bones.len() == 1
+                    && crate::combat::weapon_bones(soe_game::combat::Hand::Left)
+                        .contains(&surface.skin.bones[0].name.as_str())
+                    && surface.name.to_ascii_lowercase().contains("shield")
+            })
+            .collect();
+        assert!(!shields.is_empty());
+        assert!(shields.iter().all(|surface| surface.map.matched() == 1));
+        assert!(assets.surfaces.len() >= 3);
+    }
 
     #[test]
     fn covered_body_part_triangles_are_removed_in_both_partition_layouts() {
@@ -1152,5 +1654,32 @@ mod tests {
             rooted_asset_path(CHARACTER_ROOT, "behaviors/mt_behavior.hkx"),
             "meshes/actors/character/behaviors/mt_behavior.hkx"
         );
+    }
+}
+
+#[cfg(test)]
+mod hst_29_paths {
+    use super::{actor_root, behavior_reference_path};
+
+    #[test]
+    fn hst_29_vanilla_mixed_case_behavior_root_resolves_child_graph() {
+        let master = "meshes/Actors/Character/Behaviors/0_Master.hkx";
+        assert_eq!(actor_root(master), "meshes/Actors/Character/");
+        assert_eq!(
+            behavior_reference_path(master, r"Behaviors\mt_behavior.hkx"),
+            "meshes/Actors/Character/Behaviors/mt_behavior.hkx"
+        );
+    }
+
+    #[test]
+    fn hst_29_behavior_root_preserves_creature_and_lowercase_paths() {
+        for root in ["meshes/actors/character/", "meshes/actors/wolf/"] {
+            let master = format!("{root}behaviors/master.hkx");
+            assert_eq!(actor_root(&master), root);
+            assert_eq!(
+                behavior_reference_path(&master, r"Behaviors\idle.hkx"),
+                format!("{root}Behaviors/idle.hkx")
+            );
+        }
     }
 }
