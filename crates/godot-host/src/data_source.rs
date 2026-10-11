@@ -626,6 +626,11 @@ impl DataSource {
         &self.order
     }
 
+    /// Fingerprint of the resolved plugin names and contents used by LOD.
+    pub(crate) fn lod_load_order_fingerprint(&self) -> [u8; 32] {
+        self.order.fingerprint()
+    }
+
     /// The archive and loose file view, same reason.
     pub(crate) fn vfs(&self) -> &Vfs {
         &self.vfs

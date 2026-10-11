@@ -145,6 +145,55 @@ fn rnd_16_order_change_starts_background_rebuild_and_reuses_hash_cache() {
 }
 
 #[test]
+fn rnd_16_generated_block_cache_rebuilds_for_content_and_block_changes() {
+    let mut cache = LodBuildCache::default();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let fingerprint_a = [7; 32];
+    let fingerprint_b = [8; 32];
+    let first_key =
+        LoadOrderHash::from_content_fingerprint(fingerprint_a).with_block(0x0100_0001, 4, -12, 8);
+
+    let first_calls = Arc::clone(&calls);
+    let first = cache
+        .request(first_key, move || {
+            first_calls.fetch_add(1, Ordering::SeqCst);
+            GeneratedLod {
+                object: "objects-a",
+                terrain: "terrain-a",
+            }
+        })
+        .finish(&mut cache)
+        .unwrap();
+    assert_eq!((first.object, first.terrain), ("objects-a", "terrain-a"));
+
+    let cached = cache
+        .request(first_key, || {
+            panic!("matching block must hit the load-order cache")
+        })
+        .finish(&mut cache)
+        .unwrap();
+    assert!(Arc::ptr_eq(&first, &cached));
+
+    for key in [
+        LoadOrderHash::from_content_fingerprint(fingerprint_b).with_block(0x0100_0001, 4, -12, 8),
+        LoadOrderHash::from_content_fingerprint(fingerprint_a).with_block(0x0100_0001, 8, -12, 8),
+    ] {
+        let build_calls = Arc::clone(&calls);
+        cache
+            .request(key, move || {
+                build_calls.fetch_add(1, Ordering::SeqCst);
+                GeneratedLod {
+                    object: "rebuilt objects",
+                    terrain: "rebuilt terrain",
+                }
+            })
+            .finish(&mut cache)
+            .unwrap();
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+}
+
+#[test]
 fn rnd_16_reference_switches_to_coarsest_far_level_at_the_pixel_limit() {
     let reference = [10.0, 20.0, 110.0, 120.0];
     let errors = [0.0, 0.35, 0.8, 1.0];

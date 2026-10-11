@@ -184,6 +184,8 @@ pub struct CellStreamerNode {
     /// can remain resident and visible at the same time.
     object_lod: Option<TerrainLodState>,
     tree_lod: Option<TerrainLodState>,
+    /// CPU generated LOD retained for each resolved load-order and block.
+    lod_build_cache: crate::lod_rebuild::LodBuildCache<LodBlockProducts>,
 }
 
 /// The node's distant-terrain LOD: the streamer that decides which blocks
@@ -202,12 +204,22 @@ struct TerrainLodState {
     streamer: TerrainLodStreamer,
     world: GlobalFormId,
     world_editor_id: String,
+    config: TerrainLodConfig,
+    anchor: CellCoord,
+    source_fingerprint: [u8; 32],
     blocks: std::collections::HashMap<LodBlockCoord, Vec<LodInstance>>,
     last_step: LodStepCounts,
     source_surfaces: std::collections::HashMap<LodBlockCoord, Vec<LoadedSurface>>,
     near_heights: std::collections::HashMap<CellCoord, Vec<f32>>,
     debug_material: Option<Gd<StandardMaterial3D>>,
     focus: CellCoord,
+}
+
+#[derive(Clone)]
+struct LodBlockProducts {
+    object: Result<Option<crate::data_source::LoadedLodBlock>, String>,
+    terrain: Result<Option<crate::data_source::LoadedLodBlock>, String>,
+    tree: Result<Option<crate::data_source::LoadedLodBlock>, String>,
 }
 
 /// One drawn LOD surface. The mesh is held so the instance's mesh RID stays
@@ -639,6 +651,7 @@ impl INode3D for CellStreamerNode {
             terrain_lod: None,
             object_lod: None,
             tree_lod: None,
+            lod_build_cache: crate::lod_rebuild::LodBuildCache::default(),
         }
     }
 
@@ -4054,6 +4067,9 @@ impl CellStreamerNode {
             },
             world,
             world_editor_id,
+            config,
+            anchor,
+            source_fingerprint: source.lod_load_order_fingerprint(),
             blocks: std::collections::HashMap::new(),
             last_step: LodStepCounts::default(),
             source_surfaces: std::collections::HashMap::new(),
@@ -4104,6 +4120,32 @@ impl CellStreamerNode {
             LodStream::Object => self.object_lod.take(),
             LodStream::Tree => self.tree_lod.take(),
         }?;
+        let source_fingerprint = source.lod_load_order_fingerprint();
+        if lod.source_fingerprint != source_fingerprint {
+            let mut server = RenderingServer::singleton();
+            for instance in lod.blocks.values().flatten() {
+                crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
+            }
+            lod.blocks.clear();
+            lod.source_surfaces.clear();
+            let catalog_kind = match kind {
+                LodStream::Terrain => crate::terrain_lod::LodKind::Terrain,
+                LodStream::Object => crate::terrain_lod::LodKind::Object,
+                LodStream::Tree => crate::terrain_lod::LodKind::Tree,
+            };
+            let streamer = TerrainLodStreamer::with_catalog(
+                lod.config,
+                lod.anchor,
+                source.scenery_lod_blocks(&lod.world_editor_id, catalog_kind),
+            )
+            .ok()?;
+            lod.streamer = if matches!(kind, LodStream::Terrain) {
+                streamer.with_cell_handoff()
+            } else {
+                streamer
+            };
+            lod.source_fingerprint = source_fingerprint;
+        }
         if !matches!(kind, LodStream::Terrain) {
             let full_cells: Vec<_> = self
                 .instances
@@ -4116,21 +4158,70 @@ impl CellStreamerNode {
         let mut built = std::collections::HashMap::new();
         lod.focus = focus;
         let world = lod.world;
-        let world_editor_id = lod.world_editor_id.as_str();
+        let world_editor_id = lod.world_editor_id.clone();
+        let mut cache = std::mem::take(&mut self.lod_build_cache);
+        let load_order_hash = crate::lod_rebuild::LoadOrderHash::from_content_fingerprint(
+            source.lod_load_order_fingerprint(),
+        );
         let step = lod.streamer.step(focus, settle, |block| {
-            let loaded = match kind {
-                LodStream::Object => source.load_object_lod_block(world, world_editor_id, block),
-                LodStream::Tree => source.load_tree_lod_block(world, world_editor_id, block),
-                LodStream::Terrain => source.load_lod_block(world, world_editor_id, block),
-            };
-            loaded.map(|found| {
-                found.map(|loaded| {
-                    let bytes = loaded.approx_bytes;
-                    built.insert(block, loaded);
-                    bytes
+            let key = load_order_hash.with_block(
+                (u32::from(world.file) << 24) | world.object,
+                block.level.cells(),
+                block.x,
+                block.y,
+            );
+            let worker_source = Arc::clone(&source);
+            let worker_world_editor_id = world_editor_id.clone();
+            let rebuild_for_overrides = source.order().files().len() > 5;
+            let product = cache
+                .request(key, move || {
+                    let object = if rebuild_for_overrides {
+                        worker_source.generate_object_lod_block(
+                            world,
+                            &worker_world_editor_id,
+                            block,
+                        )
+                    } else {
+                        worker_source.load_object_lod_block(world, &worker_world_editor_id, block)
+                    }
+                    .map_err(|error| error.to_string());
+                    let terrain = if rebuild_for_overrides {
+                        worker_source
+                            .generate_terrain_lod_block(world, block)
+                            .and_then(|generated| {
+                                generated
+                                    .map(|bytes| {
+                                        worker_source.load_lod_block_bytes(world, block, &bytes)
+                                    })
+                                    .transpose()
+                            })
+                    } else {
+                        worker_source.load_lod_block(world, &worker_world_editor_id, block)
+                    }
+                    .map_err(|error| error.to_string());
+                    let tree = worker_source
+                        .load_tree_lod_block(world, &worker_world_editor_id, block)
+                        .map_err(|error| error.to_string());
+                    LodBlockProducts {
+                        object,
+                        terrain,
+                        tree,
+                    }
                 })
-            })
+                .finish(&mut cache)
+                .map_err(|error| error.to_string())?;
+            let found = match kind {
+                LodStream::Object => product.object.clone(),
+                LodStream::Terrain => product.terrain.clone(),
+                LodStream::Tree => product.tree.clone(),
+            }?;
+            Ok::<Option<u64>, String>(found.map(|loaded| {
+                let bytes = loaded.approx_bytes;
+                built.insert(block, loaded);
+                bytes
+            }))
         });
+        self.lod_build_cache = cache;
         let mut server = RenderingServer::singleton();
         for block in step.released() {
             built.remove(&block);
