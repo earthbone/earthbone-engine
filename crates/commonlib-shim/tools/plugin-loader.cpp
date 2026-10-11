@@ -10,7 +10,24 @@
 namespace {
 class PapyrusInterface final : public SKSE::PapyrusInterface {
 public:
-    bool register_natives(std::function<bool(RE::NativeRegistry&)>) override { return false; }
+    bool register_natives(std::function<bool(RE::NativeRegistry&)> callback) override
+    {
+        if (registered_ || !callback) {
+            return false;
+        }
+        registered_ = true;
+        accepted_ = callback(registry_);
+        return accepted_;
+    }
+
+    bool registered() const { return registered_; }
+    bool accepted() const { return accepted_; }
+    const RE::NativeRegistry& registry() const { return registry_; }
+
+private:
+    RE::NativeRegistry registry_;
+    bool registered_{};
+    bool accepted_{};
 };
 
 PapyrusInterface papyrusInterface;
@@ -80,6 +97,21 @@ int main(int argc, char** argv)
         std::cerr << "load error: plugin entry point returned false\n";
         dlclose(library);
         return 1;
+    }
+    if (papyrusInterface.registered()) {
+        if (!papyrusInterface.accepted()) {
+            std::cerr << "load error: Papyrus native registration rejected\n";
+            dlclose(library);
+            return 1;
+        }
+        const auto& natives = papyrusInterface.registry();
+        std::cout << "registered natives: " << natives.len() << '\n';
+        for (const auto& native : natives.entries()) {
+            std::cout << "native: " << native.class_name << '.' << native.function << '\n';
+        }
+        if (!natives.duplicates().empty()) {
+            std::cout << "duplicate natives: " << natives.duplicates().size() << '\n';
+        }
     }
     if (unsupported) {
         if (unsupported->count != 0 && !unsupported->names) {
