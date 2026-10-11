@@ -153,3 +153,46 @@ fn anm_36_state_and_direction_bindings_preserve_goal_speed_output() {
         );
     }
 }
+
+#[test]
+fn anm_36_context_types_and_goal_speed_publish_to_speed_out() {
+    let bytes = speed_sampler_graph(true, 0.0);
+    let (graph, clips, pose) = interpreter(&bytes);
+    assert_eq!(
+        graph.data.variable_infos[0].ty,
+        soe_hkx::behavior::VariableType::Int32
+    );
+    assert_eq!(
+        graph.data.variable_infos[1].ty,
+        soe_hkx::behavior::VariableType::Real
+    );
+    assert_eq!(
+        graph.data.variable_infos[2].ty,
+        soe_hkx::behavior::VariableType::Real
+    );
+    assert_eq!(
+        graph.data.variable_infos[3].ty,
+        soe_hkx::behavior::VariableType::Real
+    );
+
+    let mut vm = Interpreter::new(&graph, &clips, pose);
+    assert!(vm.unsupported().unbound.is_empty());
+    let state = vm.variables.index("state").unwrap();
+    let direction = vm.variables.index("direction").unwrap();
+    let goal_speed = vm.variables.index("goalSpeed").unwrap();
+    let speed_out = vm.variables.index("speedOut").unwrap();
+
+    for (state_value, direction_value, speed_value) in [
+        (i32::MIN, -1.0, 0.0),
+        (0, 0.0, 37.25),
+        (i32::MAX, 1.0, -8.5),
+    ] {
+        assert!(vm.variables.set_word(state, state_value));
+        assert!(vm.variables.set_real(direction, direction_value));
+        assert!(vm.variables.set_real(goal_speed, speed_value));
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(state), Some(state_value));
+        assert_eq!(vm.variables.real(direction), Some(direction_value));
+        assert_eq!(vm.variables.real(speed_out), Some(speed_value));
+    }
+}
