@@ -145,6 +145,8 @@ pub struct CellStreamerNode {
     /// `release_exterior_cell` can find that cell's instances by the grid
     /// coordinate `cell_unload_requested` carries.
     exterior_cells: std::collections::HashMap<CellCoord, GlobalFormId>,
+    /// Installed cells, including ones with no static mesh surfaces.
+    rendered_cells: std::collections::BTreeSet<GlobalFormId>,
     /// `StandardMaterial3D` per texture set, kept across stream calls so a
     /// texture uploaded for one cell serves every later cell that names it.
     materials: MaterialMap,
@@ -617,6 +619,7 @@ impl INode3D for CellStreamerNode {
             shader_particles: std::collections::BTreeMap::new(),
             runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
+            rendered_cells: std::collections::BTreeSet::new(),
             materials: MaterialMap::new(),
             bounds: None,
             last_stats: VarDictionary::new(),
@@ -1269,6 +1272,7 @@ impl CellStreamerNode {
             .retain(|_, cell| !departed.contains(cell));
         self.load_profiles
             .retain(|cell, _| !departed.contains(cell));
+        self.rendered_cells.retain(|cell| !departed.contains(cell));
         self.bounds = self
             .instances
             .iter()
@@ -1581,10 +1585,29 @@ impl CellStreamerNode {
         self.exterior_cells
             .values()
             .copied()
-            .chain(self.instances.iter().map(|instance| instance.cell))
+            .chain(self.rendered_cells.iter().copied())
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect()
+    }
+
+    /// Whether character presentation has a rendered cell at its runtime position.
+    pub(crate) fn actor_cell_is_resident(&self, cell: GlobalFormId, position: [f32; 3]) -> bool {
+        let Some(source) = &self.data_source else {
+            return false;
+        };
+        if let Some(world) = source.exterior_world(cell) {
+            let coord = CellCoord::containing(crate::units::SkyrimPos::new(
+                position[0],
+                position[1],
+                position[2],
+            ));
+            return self
+                .exterior_cells
+                .get(&coord)
+                .is_some_and(|loaded| source.exterior_world(*loaded) == Some(world));
+        }
+        self.rendered_cells.contains(&cell)
     }
 
     /// Apply worker-derived actor placements without reading or mutating World.
@@ -2853,6 +2876,7 @@ impl CellStreamerNode {
         let Some(owner) = self.exterior_cells.remove(&coord) else {
             return 0;
         };
+        self.rendered_cells.remove(&owner);
         self.free_doors(&[owner]);
         self.deferred_references.retain(|_, cell| *cell != owner);
         if self.collision_cell == Some(owner) {
@@ -3533,6 +3557,7 @@ impl CellStreamerNode {
         totals: &mut StreamTotals,
         world: Option<&soe_game::World>,
     ) {
+        self.rendered_cells.insert(cell);
         let enabled = |id| world.is_none_or(|world| world.reference_enabled(id));
         let mut visible = LoadedCell {
             stats: loaded.stats.clone(),
@@ -3919,6 +3944,7 @@ impl CellStreamerNode {
     }
 
     fn free_instances(&mut self) {
+        self.rendered_cells.clear();
         self.reference_index_dirty = true;
         let mut server = RenderingServer::singleton();
         for instance in self.instances.drain(..) {
@@ -4794,6 +4820,32 @@ pub fn standard_material_from(
 /// Build the authored material kind, including NIF effect shaders.
 pub fn material_from(material: &MaterialDesc, textures: &SurfaceTextures) -> Gd<Material> {
     material_for(&mut MaterialMap::new(), material, textures)
+}
+
+/// FaceGen RGB tint multiplies the head diffuse without replacing its detail.
+pub(crate) fn face_material_from(
+    material: &MaterialDesc,
+    textures: &SurfaceTextures,
+    tint_path: &str,
+    tint: &crate::data_source::TextureData,
+) -> Gd<Material> {
+    let mut shader = godot::classes::Shader::new_gd();
+    shader.set_code("shader_type spatial;\nuniform sampler2D diffuse_map : source_color;\nuniform sampler2D tint_map : source_color;\nuniform sampler2D normal_map : hint_normal;\nvoid fragment() { ALBEDO = texture(diffuse_map, UV).rgb * texture(tint_map, UV).rgb; NORMAL_MAP = texture(normal_map, UV).rgb; ROUGHNESS = 0.8; }\n");
+    let mut mat = godot::classes::ShaderMaterial::new_gd();
+    mat.set_shader(&shader);
+    let mut cache = std::collections::HashMap::new();
+    if let Some(texture) = albedo_texture(&mut cache, material, textures) {
+        mat.set_shader_parameter("diffuse_map", &texture.to_variant());
+    }
+    if let Some(texture) = cached_texture(&mut cache, Some(tint_path), tint) {
+        mat.set_shader_parameter("tint_map", &texture.to_variant());
+    }
+    if let Some(normal) = &textures.normal {
+        if let Some(texture) = cached_texture(&mut cache, material.normal.as_deref(), normal) {
+            mat.set_shader_parameter("normal_map", &texture.to_variant());
+        }
+    }
+    mat.upcast()
 }
 
 fn material_with_textures(
