@@ -1763,7 +1763,9 @@ stops inside the follow radius and selects run speed outside the catch-up
 radius. `SetForcedLandingMarker` stores a resolved reference on the actor, and
 accepts `None` to clear it. When a Hover flight package ends, AI movement routes
 the actor to that marker and retains the in-flight state until it arrives.
-Arrival at an earlier package destination does not suppress the landing route.
+Arrival at a prior package destination does not cancel or suppress the landing
+route.
+Landing uses record-backed walk speed when the package has no positive speed.
 These values persist in the actor section named `SCR-14`.
 The local CK pages `KeepOffsetFromActor - Actor`,
 `ClearKeepOffsetFromActor - Actor` and `GetEquippedWeapon - Actor` define
