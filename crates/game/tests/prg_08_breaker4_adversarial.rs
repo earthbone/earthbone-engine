@@ -46,7 +46,11 @@ fn prg_08_unregistered_entry_is_explicit_and_does_not_mutate_actor() {
     order.add("UnregisteredEntry.esm", plugin).unwrap();
     let mut game = Game::new(order);
     let actor = game.world_mut().player();
-    game.world_mut().actor(actor).unwrap().perks.insert(id(PERK));
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .insert(id(PERK));
     let before = game.world_mut().actor_value(actor, "health");
 
     let error = EntryPointDispatcher::default()

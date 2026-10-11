@@ -15,7 +15,7 @@ fn id(object: u32) -> GlobalFormId {
 
 fn auto_actor_game() -> Game {
     let mut race_data = vec![0u8; 128];
-    race_data[0..2].copy_from_slice(&[11, 7]);
+    race_data[0..2].copy_from_slice(&[6, 7]);
     race_data[2..4].copy_from_slice(&[23, 99]);
     race_data[4..6].copy_from_slice(&[5, 88]);
     for (offset, value) in [

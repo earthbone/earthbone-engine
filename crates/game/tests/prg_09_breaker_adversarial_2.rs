@@ -54,7 +54,10 @@ fn values(race_pairs: &[(i8, i8)], weighted_skill: usize, level: u16) -> Vec<(St
     order.add("Prg09Bonus.esm", plugin).unwrap();
     Game::new(order)
         .world()
-        .initial_actor_values(GlobalFormId { file: 0, object: 0x800 })
+        .initial_actor_values(GlobalFormId {
+            file: 0,
+            object: 0x800,
+        })
         .unwrap()
 }
 

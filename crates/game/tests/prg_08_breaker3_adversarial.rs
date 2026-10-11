@@ -91,7 +91,10 @@ fn prg_08_missing_condition_tab_returns_error_before_handler_runs() {
 
     assert_eq!(
         dispatcher.dispatch(&mut game, actor, ENTRY, &context(vec![actor])),
-        Err(DispatchError::MissingTab { perk: id(PERK), tab: 1 })
+        Err(DispatchError::MissingTab {
+            perk: id(PERK),
+            tab: 1
+        })
     );
     assert_eq!(MISSING_TAB_HANDLER_CALLS.load(Ordering::SeqCst), 0);
 }

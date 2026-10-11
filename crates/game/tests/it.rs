@@ -1112,12 +1112,16 @@ mod prg_08_adversarial;
 mod prg_08_breaker2_adversarial;
 #[path = "prg_08_breaker3_adversarial.rs"]
 mod prg_08_breaker3_adversarial;
+#[path = "prg_08_breaker4_adversarial.rs"]
+mod prg_08_breaker4_adversarial;
 #[path = "prg_08_breaker_adversarial.rs"]
 mod prg_08_breaker_adversarial;
 #[path = "prg_08_vanilla.rs"]
 mod prg_08_vanilla;
 #[path = "prg_09_adversarial.rs"]
 mod prg_09_adversarial;
+#[path = "prg_09_breaker3_adversarial.rs"]
+mod prg_09_breaker3_adversarial;
 #[path = "prg_09_breaker_adversarial.rs"]
 mod prg_09_breaker_adversarial;
 #[path = "prg_09_breaker_adversarial_2.rs"]
