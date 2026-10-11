@@ -780,6 +780,8 @@ mod hst_18_breaker3_adversarial;
 mod hst_19_adversarial;
 #[path = "hst_19_breaker2_adversarial.rs"]
 mod hst_19_breaker2_adversarial;
+#[path = "hst_19_breaker_adversarial.rs"]
+mod hst_19_breaker_adversarial;
 #[path = "hst_19_screenshot_request.rs"]
 mod hst_19_screenshot_request;
 #[path = "image_space.rs"]

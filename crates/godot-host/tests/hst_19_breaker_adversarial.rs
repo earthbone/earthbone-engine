@@ -12,7 +12,10 @@ fn hst_19_repeated_papyrus_capture_writes_png_and_bad_path_fails() {
         eprintln!("SKYRIM_DATA unset, skipping HST-19 host check");
         return;
     };
-    let godot = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+        eprintln!("SOE_GODOT_BIN unset, skipping HST-19 host check");
+        return;
+    };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let stem = format!("soe_hst19_breaker_{}", std::process::id());
     let first = workspace.join("target").join(format!("{stem}_first.png"));

@@ -5539,8 +5539,9 @@ The `PlayerNode` gameplay tick drains transient screenshot paths queued by
 `Debug.TakeScreenshot` and saves the active viewport image as PNG. The node's
 `take_screenshot(path)` entry point calls the same Papyrus native and services
 its request immediately. `godot/hst_19_screenshot_capture_test.gd` checks the
-resulting PNG in a 640 by 360 windowed Godot run with installed data. The
-`hst_19_windowed_godot_saves_the_papyrus_requested_frame` host test launches
+resulting PNG signature, decode and 640 by 360 dimensions in a headless Godot
+run with installed data. The
+`hst_19_headless_godot_saves_the_papyrus_requested_frame` host test launches
 that check and requires it to report success.
 
 ## Per-cell occluders, RND-07
