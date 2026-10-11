@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Climate boundary checks for the rendered night-layer inputs.
 
@@ -19,14 +20,17 @@ fn rnd_36_night_mesh_alpha_tracks_sunrise_and_sunset_boundaries() {
     let [rise_start, rise_end, set_start, set_end] = climate.timing;
     for (hour, expected) in [
         (rise_start, 1.0),
-        ((rise_start + rise_end) * 0.5, 0.5),
+        (rise_start.midpoint(rise_end), 0.5),
         (rise_end, 0.0),
         (set_start, 0.0),
-        ((set_start + set_end) * 0.5, 0.5),
+        (set_start.midpoint(set_end), 0.5),
         (set_end, 1.0),
     ] {
         let frame = world.sample_sky(weather, &climate, hour, 0.0).unwrap();
-        assert!((frame.night_alpha - expected).abs() < 0.00001, "night fade at {hour}");
+        assert!(
+            (frame.night_alpha - expected).abs() < 0.00001,
+            "night fade at {hour}"
+        );
         assert_eq!(frame.night_model, climate.night_model);
     }
 }
