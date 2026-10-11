@@ -106,6 +106,9 @@ impl PlayerNode {
                         game.world_mut().set_grabbed_reference(Some(reference));
                     }
                     self.carry_event(reference, "OnGrab");
+                } else {
+                    self.last_activate_hit = true;
+                    self.last_activate_reference = Some(reference);
                 }
             }
             ActivateGesture::None => {}

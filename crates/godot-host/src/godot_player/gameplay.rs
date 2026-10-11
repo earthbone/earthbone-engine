@@ -228,6 +228,14 @@ impl PlayerNode {
             );
             return false;
         };
+        // CONTEXT: The walkthrough streams meshes before entering the player.
+        // Static movement collision alone leaves loose rigid items unpickable.
+        let Some(mut streamer) = self.game_streamer.clone() else {
+            return false;
+        };
+        if !streamer.bind_mut().ensure_gameplay_collision(cell) {
+            return false;
+        }
         let mut game = match source.localized_game() {
             Ok(game) => game,
             Err(error) => {
@@ -417,43 +425,7 @@ impl PlayerNode {
 
         self.advance_ambient_dialogue();
         self.capture_screenshot_requests();
-        let training_request = self
-            .game
-            .as_mut()
-            .and_then(|game| game.world_mut().take_training_menu_request());
-        if let Some(trainer) = training_request {
-            self.open_training_menu(trainer);
-        }
-        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
-            std::mem::take(&mut game.world_mut().menu_requests)
-        });
-        for request in requests {
-            match request {
-                soe_game::world::MenuRequest::PrecacheCharGen => {
-                    if let (Some(game), Some(streamer)) =
-                        (self.game.as_ref(), self.game_streamer.as_mut())
-                    {
-                        streamer.bind_mut().precache_chargen(game);
-                    }
-                }
-                soe_game::world::MenuRequest::PrecacheCharGenClear => {
-                    if let Some(streamer) = self.game_streamer.as_mut() {
-                        streamer.bind_mut().precache_chargen_clear();
-                    }
-                }
-                soe_game::world::MenuRequest::Race => {
-                    self.show_race_menu();
-                }
-                // CONTEXT: Valid trainers use the pending request consumed above.
-                soe_game::world::MenuRequest::Training(_) => {}
-                soe_game::world::MenuRequest::Barter(actor) => {
-                    self.open_barter_menu(actor);
-                }
-                soe_game::world::MenuRequest::ActorInventory(actor) => {
-                    self.open_container_menu(actor);
-                }
-            }
-        }
+        self.present_game_menu_requests();
         if let Some(game) = &mut self.game {
             let requests = game.world_mut().take_game_ui_requests();
             for request in requests {
@@ -821,6 +793,49 @@ impl PlayerNode {
         }
     }
 
+    fn present_game_menu_requests(&mut self) {
+        let training_request = self
+            .game
+            .as_mut()
+            .and_then(|game| game.world_mut().take_training_menu_request());
+        if let Some(trainer) = training_request {
+            self.open_training_menu(trainer);
+        }
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().menu_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::MenuRequest::PrecacheCharGen => {
+                    if let (Some(game), Some(streamer)) =
+                        (self.game.as_ref(), self.game_streamer.as_mut())
+                    {
+                        streamer.bind_mut().precache_chargen(game);
+                    }
+                }
+                soe_game::world::MenuRequest::PrecacheCharGenClear => {
+                    if let Some(streamer) = self.game_streamer.as_mut() {
+                        streamer.bind_mut().precache_chargen_clear();
+                    }
+                }
+                soe_game::world::MenuRequest::Race => {
+                    self.show_race_menu();
+                }
+                // CONTEXT: Valid trainers use the pending request consumed above.
+                soe_game::world::MenuRequest::Training(_) => {}
+                soe_game::world::MenuRequest::Barter(actor) => {
+                    self.open_barter_menu(actor);
+                }
+                soe_game::world::MenuRequest::ActorInventory(actor) => {
+                    self.open_container_menu(actor);
+                }
+                soe_game::world::MenuRequest::ReadBook(book) => {
+                    self.open_book_menu(book);
+                }
+            }
+        }
+    }
+
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
         let is_load_door = self.game.as_ref().is_some_and(|game| {
             game.world()
@@ -850,11 +865,8 @@ impl PlayerNode {
             }
             let (container, blocked) = {
                 let mut world = game.world_mut();
-                let container = world.base_of(target).is_some_and(|base| {
-                    world
-                        .tag_of(base)
-                        .is_some_and(|tag| tag.as_bytes() == b"CONT")
-                });
+                let kind = world.base_of(target).and_then(|base| world.tag_of(base));
+                let container = kind.is_some_and(|tag| tag.as_bytes() == b"CONT");
                 let blocked = world
                     .reference_ref(target)
                     .is_some_and(|reference| reference.activation_blocked);
@@ -898,6 +910,7 @@ impl PlayerNode {
         } else if show_crafting {
             self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
         }
+        self.present_game_menu_requests();
         if activated {
             self.sync_door_presentation();
         }

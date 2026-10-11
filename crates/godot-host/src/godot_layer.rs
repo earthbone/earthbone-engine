@@ -2732,13 +2732,20 @@ impl CellStreamerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn stream_cell_collision(&mut self, editor_id: GString) -> i32 {
-        let _system = soe_trace::SystemScope::new(soe_trace::System::Physics);
         let Some(source) = self.data_source.as_ref() else {
             soe_trace::error!(target: "host::layer", system = "host::layer", "stream_cell_collision: load_data was not called");
             return -1;
         };
         let Some(cell_id) = source.resolve_cell(&editor_id.to_string()) else {
             soe_trace::error!(target: "host::layer", system = "host::layer", "stream_cell_collision: no cell named {editor_id}");
+            return -1;
+        };
+        self.stream_collision_for_cell(cell_id)
+    }
+
+    fn stream_collision_for_cell(&mut self, cell_id: GlobalFormId) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Physics);
+        let Some(source) = self.data_source.as_ref() else {
             return -1;
         };
         let profile = self.load_profiles.entry(cell_id).or_default();
@@ -2781,6 +2788,13 @@ impl CellStreamerNode {
             d
         };
         built.bodies as i32
+    }
+
+    pub(crate) fn ensure_gameplay_collision(&mut self, cell: GlobalFormId) -> bool {
+        if self.collision_cell == Some(cell) {
+            return true;
+        }
+        self.stream_collision_for_cell(cell) >= 0
     }
 
     /// The counts from the last `stream_cell_collision` call.

@@ -1071,10 +1071,22 @@ impl World {
         self.activate_with_unload(target, activator, send_event, false, alloc)
     }
 
+    /// Whether the BOOK record permits taking its placed reference.
+    pub fn book_can_be_taken(&self, book: GlobalFormId) -> bool {
+        self.record(book)
+            .filter(|record| record.tag == T(b"BOOK"))
+            .is_some_and(|record| {
+                !record
+                    .find(T(b"DATA"))
+                    .and_then(|data| data.first())
+                    .is_some_and(|flags| flags & 2 != 0)
+            })
+    }
+
     /// Activate with optional deferred source-cell unload. Default-only calls
     /// bypass BlockActivation, as specified by the CK Activate reference.
-    /// Default processing for doors and
-    /// containers unless the reference blocks activation, then `OnActivate`
+    /// Default processing for doors, containers, furniture and inventory
+    /// references unless the reference blocks activation, then `OnActivate`
     /// to the target's scripts when `send_event` is set. Returns false when
     /// the target is not a reference.
     pub fn activate_with_unload(
@@ -1134,8 +1146,10 @@ impl World {
                 Some([b'F', b'U', b'R', b'N']) => {
                     self.activate_furniture(target, activator);
                 }
+                Some([b'B', b'O', b'O', b'K'])
+                    if base.is_some_and(|book| !self.book_can_be_taken(book)) => {}
                 _ if base.is_some_and(|base| self.is_inventory_base(base)) => {
-                    process = self.add_item_notified(activator, target, 1, alloc);
+                    process = self.pickup_reference_notified(activator, target, alloc);
                 }
                 _ => {}
             }
@@ -1148,6 +1162,11 @@ impl World {
                 name: "OnActivate".into(),
                 args: vec![who],
             });
+        }
+        if let Some(book) =
+            base.filter(|_| process && kind == Some(T(b"BOOK")) && activator == self.player())
+        {
+            self.menu_requests.push(super::MenuRequest::ReadBook(book));
         }
         process
     }

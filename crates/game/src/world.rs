@@ -604,7 +604,7 @@ pub struct ActorBaseState {
     pub dead_count: i32,
 }
 
-/// A host menu request raised by a Papyrus native.
+/// A host menu request raised by default processing or a Papyrus native.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuRequest {
     /// Load race menu head part models and morph data before opening it.
@@ -619,6 +619,8 @@ pub enum MenuRequest {
     Barter(GlobalFormId),
     /// Show the named actor's inventory in the host UI.
     ActorInventory(GlobalFormId),
+    /// Read the named book base after player activation.
+    ReadBook(GlobalFormId),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

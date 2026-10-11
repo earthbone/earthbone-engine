@@ -1878,3 +1878,6 @@ mod scr_75_global_property;
 
 #[path = "aud_13_weather_music.rs"]
 mod aud_13_weather_music;
+
+#[path = "hst_26_activation.rs"]
+mod hst_26_activation;

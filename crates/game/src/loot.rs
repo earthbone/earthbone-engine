@@ -22,6 +22,22 @@ pub enum LootState {
 }
 
 impl World {
+    /// Whether taking a loose reference violates its reference or cell ownership.
+    pub fn loose_item_is_stealing(&mut self, reference: GlobalFormId, actor: GlobalFormId) -> bool {
+        let rank = self
+            .reference(reference)
+            .and_then(|reference| reference.owner_rank);
+        self.loot_owner(reference).is_some_and(|owner| {
+            self.base_of(actor) != Some(owner)
+                && !self.actor(actor).is_some_and(|actor| {
+                    actor
+                        .factions
+                        .get(&owner)
+                        .is_some_and(|member| *member >= rank.unwrap_or(0))
+                })
+        })
+    }
+
     /// Read eligibility without activating or opening the reference.
     pub fn loot_state(&mut self, holder: GlobalFormId) -> LootState {
         let Some(reference) = self.reference(holder) else {
