@@ -1536,6 +1536,13 @@ CK expression id from 0 through 16 and strength from 0 through 100 on the
 actor. `ClearExpressionOverride` removes it. `World::facial_expression`
 returns the active override, or maps the actor's record-backed AIDT mood to
 the corresponding mood expression at full strength after clearing. The
+override remains effective if the record-backed mood changes while it is set.
+Clearing it selects the latest mood. The CK
+`SetExpressionOverride_-_Actor.wikitext` page defines ids 0 through 16, a
+default strength of 100, and a strength range of 0 through 100. It reports that
+female dialogue expressions affect only the eyes and female combat expressions
+do not work properly. The host currently applies named TRI targets uniformly,
+so that reported vanilla exception is outside this implementation. The
 override is an actor save section named `ANM-59` and participates in the
 determinism hash. The host maps expression ids to head blend shape names and
 loads matching expression deltas from the head's companion `.tri` file.

@@ -4880,9 +4880,24 @@ preserving unrelated morphs. The actor NIF pipeline loads matching `.tri`
 expression deltas and uploads them as Godot blend shapes.
 `SkinnedActorNode.debug_expression_weights` reports the latest submitted
 target values. `PlayerNode` exposes debug setters used by the bound-head
-integration check to change and clear the player's override through the shared
-world. `bind_actor_expression_head` connects a loaded head mesh to the actor's
-effective expression without replacing the mesh.
+integration check to change and clear an actor's override through the shared
+world. `debug_first_loaded_humanoid_npc` returns the first loaded non-player
+actor using the vanilla human skeleton, with its sex for selecting the
+corresponding vanilla head. `bind_actor_expression_head` connects that head
+mesh to the actor's effective expression without replacing the mesh. The
+windowed `anm_59_vanilla_npc_rendered` check compares viewport pixels while the
+override is held and after clearing it, so the host test reads rendered output
+in addition to the submitted weight dictionary. It uses the local Godot
+`class_viewport.rst` `get_texture().get_image()` readback contract.
+
+The CK `SetExpressionOverride_-_Actor.wikitext` page supplies ids 0 through 16,
+strength 0 through 100 and its default strength of 100. It reports that female
+dialogue expressions affect only the eyes and female combat expressions do
+not work properly. The host currently applies the named TRI targets uniformly
+by actor sex, so that reported vanilla exception is outside this row's check.
+The local nifly `Animation.hpp` describes `NiMorphData` vectors embedded in
+NIFs, which are distinct from Skyrim's external head `.tri` files. The host
+continues to use the existing `soe-nif` head TRI reader for those files.
 The installed body/hand/null refresh fixture measured a 8.2 us cached view against
 the declared 2 ms budget. This measures record resolution, not rendered frame time.
 
