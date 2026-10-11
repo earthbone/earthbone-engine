@@ -209,6 +209,7 @@ fn read_tags(mut bytes: &[u8], version: u8, nesting: usize) -> Result<Vec<Tag<'_
         return Err(Error::Invalid("sprite nesting exceeds 64".into()));
     }
     let mut tags = Vec::new();
+    let mut found_end = false;
     while !bytes.is_empty() {
         let mut reader = swf::read::Reader::new(bytes, version);
         let (code, length) = reader
@@ -219,6 +220,10 @@ fn read_tags(mut bytes: &[u8], version: u8, nesting: usize) -> Result<Vec<Tag<'_
             .get(..length)
             .ok_or_else(|| Error::Swf("truncated tag payload".into()))?;
         if code == 0 {
+            if length != 0 {
+                return Err(Error::Invalid("End tag has a nonzero payload".into()));
+            }
+            found_end = true;
             break;
         }
         let tag = if code == 39 {
@@ -249,6 +254,9 @@ fn read_tags(mut bytes: &[u8], version: u8, nesting: usize) -> Result<Vec<Tag<'_
         };
         tags.push(tag);
         bytes = &reader.get_ref()[length..];
+    }
+    if nesting == 0 && !found_end {
+        return Err(Error::Invalid("root movie is missing End tag".into()));
     }
     Ok(tags)
 }

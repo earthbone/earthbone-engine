@@ -100,12 +100,23 @@ fn ui_19_installed_fonts_keep_glyph_pages_bounded_and_indexed() {
             })
             .collect();
         assert!(!fonts.is_empty(), "{name}: no source fonts");
-        assert_eq!(fonts.len(), movie.fonts.len(), "{name}: lost font definition");
+        assert_eq!(
+            fonts.len(),
+            movie.fonts.len(),
+            "{name}: lost font definition"
+        );
         for source in fonts {
             let font = &movie.fonts[&source.id];
             assert_eq!(
-                font.glyphs.iter().map(|glyph| glyph.code).collect::<Vec<_>>(),
-                source.glyphs.iter().map(|glyph| glyph.code).collect::<Vec<_>>(),
+                font.glyphs
+                    .iter()
+                    .map(|glyph| glyph.code)
+                    .collect::<Vec<_>>(),
+                source
+                    .glyphs
+                    .iter()
+                    .map(|glyph| glyph.code)
+                    .collect::<Vec<_>>(),
                 "{name}: font {} glyph order differs",
                 source.id
             );
@@ -149,9 +160,11 @@ fn ui_19_skyui_psychosteve_icons_convert_without_losing_authored_art() {
             {
                 expected_symbols.extend(entries.iter().map(|entry| {
                     (
-                        entry.name.to_string_lossy(swf::SwfStr::encoding_for_version(
-                            buffer.header.version(),
-                        )),
+                        entry
+                            .name
+                            .to_string_lossy(swf::SwfStr::encoding_for_version(
+                                buffer.header.version(),
+                            )),
                         entry.id,
                     )
                 }));
@@ -164,7 +177,10 @@ fn ui_19_skyui_psychosteve_icons_convert_without_losing_authored_art() {
     }
     assert_eq!(converted.symbols, expected_symbols, "icon exports differ");
     assert!(
-        converted.timelines.values().any(|timeline| !timeline.frames.is_empty()),
+        converted
+            .timelines
+            .values()
+            .any(|timeline| !timeline.frames.is_empty()),
         "icon sprite timelines were lost"
     );
 }
@@ -300,11 +316,17 @@ fn ui_19_full_winning_load_order_builds_cache_and_keeps_real_as2_sources() {
     .unwrap();
     assert_eq!(cache.movies.len(), paths.len());
     for path in &paths {
-        assert!(cache.movies[*path].is_file(), "{path}: missing native movie");
+        assert!(
+            cache.movies[*path].is_file(),
+            "{path}: missing native movie"
+        );
     }
     for path in ["interface/inventorymenu.swf", "interface/magicmenu.swf"] {
         let source = cache.movies[path].parent().unwrap().join("as2-reference");
-        assert!(has_actionscript(&source), "{path}: no FFDec source retained");
+        assert!(
+            has_actionscript(&source),
+            "{path}: no FFDec source retained"
+        );
     }
 }
 
