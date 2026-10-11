@@ -7,7 +7,7 @@ use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin};
 use soe_game::Game;
 use soe_godot_host::mcm_menu::{ConfigPage, OptionKind, OPTION_FLAG_DISABLED};
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
+    asm::{i, ident, none, s, FunctionBuilder, ScriptBuilder},
     NativeReturn, Opcode, Value,
 };
 
@@ -165,6 +165,65 @@ fn ui_13_color_cancel_leaves_value_unchanged_and_rejects_late_accept() {
         OptionKind::Color { value: 0x0102_0304 }
     );
     assert!(!page.cancel_color_dialog(id));
+}
+
+#[test]
+fn ui_13_papyrus_color_dialog_setters_update_host_parameters() {
+    let mut game = game();
+    let setter = |name: &str, slot| {
+        FunctionBuilder::new(name, "None")
+            .param("color", "Int")
+            .ins(
+                Opcode::ArraySetElement,
+                vec![ident("_colorParams"), i(slot), ident("color")],
+            )
+            .build()
+    };
+    let on_open = FunctionBuilder::new("OnOptionColorOpen", "None")
+        .param("option", "Int")
+        .ins(Opcode::ArrayCreate, vec![ident("_colorParams"), i(2)])
+        .ins(
+            Opcode::CallMethod,
+            vec![
+                s("SetColorDialogStartColor"),
+                ident("self"),
+                ident("::nonevar"),
+                i(0x123456),
+            ],
+        )
+        .ins(
+            Opcode::CallMethod,
+            vec![
+                s("SetColorDialogDefaultColor"),
+                ident("self"),
+                ident("::nonevar"),
+                i(0xabcdef),
+            ],
+        )
+        .build();
+    game.load_script(
+        &ScriptBuilder::new("SKI_ConfigBase", "")
+            .variable("_colorParams", "Int[]", none())
+            .function(setter("SetColorDialogStartColor", 0))
+            .function(setter("SetColorDialogDefaultColor", 1))
+            .function(on_open)
+            .bytes(),
+    )
+    .unwrap();
+    let object = game.object_of_form(script());
+    game.vm.attach(object, "SKI_ConfigBase").unwrap();
+
+    let mut page = ConfigPage::new(0);
+    let id = page.add_color("Tint", 0x010203, 0).unwrap();
+    assert!(page.open_color_dialog(&mut game, script(), id));
+    assert_eq!(
+        page.color_dialog(),
+        Some(soe_godot_host::mcm_menu::ColorDialog {
+            option_id: id,
+            start_color: 0x123456,
+            default_color: 0xabcdef,
+        })
+    );
 }
 
 #[test]

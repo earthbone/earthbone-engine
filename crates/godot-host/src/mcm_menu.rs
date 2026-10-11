@@ -694,6 +694,17 @@ impl ConfigPage {
             default_color: -1,
         });
         game.send_event(script, "OnOptionColorOpen", &[Value::Int(option_id)]);
+        let object = game.object_of_form(script);
+        if let Some(Value::Array(params)) =
+            game.vm.get_var(object, "SKI_ConfigBase", "_colorParams")
+        {
+            if let Some(Value::Int(color)) = params.get(0) {
+                self.set_color_dialog_start_color(color);
+            }
+            if let Some(Value::Int(color)) = params.get(1) {
+                self.set_color_dialog_default_color(color);
+            }
+        }
         true
     }
 
