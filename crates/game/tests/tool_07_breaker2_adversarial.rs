@@ -93,8 +93,8 @@ fn tool_07_breaker2_debug_information_selects_error_stack_line_detail() {
             .push(0.0, "error: probe failure (Probe.Run line 17)");
         game.run_until_idle(1);
 
-        let output = std::fs::read_to_string(root.path().join("Logs/Script/Papyrus.0.log"))
-            .unwrap();
+        let output =
+            std::fs::read_to_string(root.path().join("Logs/Script/Papyrus.0.log")).unwrap();
         assert!(
             output.contains(expected),
             "debug_information={enabled} expected {expected}: {output}"
@@ -145,10 +145,12 @@ fn tool_07_breaker2_trace_user_reaches_named_file_when_ordinary_trace_is_disable
     game.run_until_idle(32);
     assert!(matches!(game.vm.thread_result(thread), Some(Value::None)));
 
-    let user = std::fs::read_to_string(root.path().join("Logs/Script/User/Probe.0.log"))
-        .unwrap();
+    let user = std::fs::read_to_string(root.path().join("Logs/Script/User/Probe.0.log")).unwrap();
     assert!(user.contains("named trace survives file filter"), "{user}");
-    let papyrus = std::fs::read_to_string(root.path().join("Logs/Script/Papyrus.0.log"))
-        .unwrap_or_default();
-    assert!(!papyrus.contains("named trace survives file filter"), "{papyrus}");
+    let papyrus =
+        std::fs::read_to_string(root.path().join("Logs/Script/Papyrus.0.log")).unwrap_or_default();
+    assert!(
+        !papyrus.contains("named trace survives file filter"),
+        "{papyrus}"
+    );
 }

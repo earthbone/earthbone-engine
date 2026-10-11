@@ -177,7 +177,7 @@ fn timestamp() -> String {
         hour => hour,
     };
     format!(
-        "{month:02}/{day:02}/{year:04} - {hour}:{:02}:{:02}{ampm}",
+        "{month:02}/{day:02}/{year:04} - {hour:02}:{:02}:{:02}{ampm}",
         day_seconds / 60 % 60,
         day_seconds % 60
     )

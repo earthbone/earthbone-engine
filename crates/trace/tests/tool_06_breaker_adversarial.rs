@@ -37,7 +37,6 @@ fn tool_06_breaker_adversarial_hitch_export_includes_active_subscriber_logs() {
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     assert!(json["traceEvents"].as_array().unwrap().iter().any(|event| {
-        event["cat"] == "log"
-            && event["args"]["fields"]["message"] == "adversarial hitch log"
+        event["cat"] == "log" && event["args"]["fields"]["message"] == "adversarial hitch log"
     }));
 }
