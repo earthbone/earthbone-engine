@@ -11,6 +11,124 @@ use soe_nif::{mesh::Skin, Transform};
 use crate::mesh::MaterialDesc;
 use crate::skinned::Affine;
 
+/// Transient playback clock shared by the pure sampler and RID update path.
+#[cfg(any(feature = "godot", test))]
+#[derive(Debug, Default)]
+pub(crate) struct ObjectAnimationClock {
+    elapsed: f64,
+}
+
+#[cfg(any(feature = "godot", test))]
+impl ObjectAnimationClock {
+    pub(crate) fn reset(&mut self) {
+        self.elapsed = 0.0;
+    }
+
+    pub(crate) fn update(
+        &mut self,
+        asset: &ObjectAnimation,
+        delta: f32,
+        sequence: Option<&str>,
+    ) -> ObjectPose {
+        if delta.is_finite() && delta > 0.0 {
+            self.elapsed = (self.elapsed + f64::from(delta)).min(f64::from(f32::MAX));
+        }
+        asset.sample(self.elapsed as f32, sequence)
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::{ObjectAnimation, ObjectAnimationClock};
+    use crate::data_source::fixture::{NifWriter, IDENTITY};
+
+    fn asset(cycle: u16) -> ObjectAnimation {
+        let mut writer = NifWriter::new(100);
+        let root = writer.reserve("NiNode");
+        let data =
+            writer.transform_data_linear(&[], &[(0.0, [0.0; 3]), (2.0, [20.0, 0.0, 0.0])], &[]);
+        let data = writer.add("NiTransformData", data);
+        let interp = writer.transform_interpolator([0.0; 3], [1.0, 0.0, 0.0, 0.0], 1.0, data);
+        let interp = writer.add("NiTransformInterpolator", interp);
+        let controller =
+            writer.transform_controller(-1, 8 | (cycle << 1), 1.0, 0.0, 0.0, 2.0, root, interp);
+        let controller = writer.add("NiTransformController", controller);
+        let node = writer.ni_node_with_controller("Root", [0.0; 3], IDENTITY, 1.0, &[], controller);
+        writer.fill(root, node);
+        writer.roots = vec![root];
+        let file = soe_nif::parse(&writer.finish()).unwrap();
+        ObjectAnimation::from_file(&file).unwrap()
+    }
+
+    #[test]
+    fn update_samples_thirty_minutes_with_steps_from_one_to_five_hundred_ms() {
+        let budget = std::time::Duration::from_secs(1);
+        let started = std::time::Instant::now();
+        for cycle in 0..3 {
+            let asset = asset(cycle);
+            let mut clock = ObjectAnimationClock::default();
+            let mut elapsed_ms = 0_u32;
+            let mut step = 1_u32;
+            while elapsed_ms < 1_800_000 {
+                let delta_ms = step.min(1_800_000 - elapsed_ms);
+                let pose = clock.update(&asset, delta_ms as f32 / 1000.0, None);
+                let x = pose.transforms[0].translation.x;
+                assert!(x.is_finite() && (0.0..=20.0).contains(&x));
+                elapsed_ms += delta_ms;
+                let seconds = f64::from(elapsed_ms) / 1000.0;
+                let local = match cycle {
+                    0 if seconds <= 2.0 => seconds,
+                    0 => seconds % 2.0,
+                    1 => {
+                        let leg = seconds % 4.0;
+                        if leg <= 2.0 {
+                            leg
+                        } else {
+                            4.0 - leg
+                        }
+                    }
+                    _ => seconds.min(2.0),
+                };
+                assert!(
+                    (f64::from(x) - 10.0 * local).abs() < 0.01,
+                    "cycle {cycle} at {elapsed_ms} ms: {x}"
+                );
+                step = step % 500 + 1;
+            }
+            assert!((clock.elapsed - 1800.0).abs() < 0.001);
+            let pose = clock.update(&asset, 0.5, None);
+            let x = pose.transforms[0].translation.x;
+            if cycle == 2 {
+                assert_eq!(x, 20.0);
+            } else {
+                assert!((x - 5.0).abs() < 0.01, "cycle {cycle}: {x}");
+            }
+        }
+        assert!(started.elapsed() < budget);
+    }
+
+    #[test]
+    fn update_skips_nonfinite_and_negative_deltas_and_reset_restarts_playback() {
+        let asset = asset(0);
+        let mut clock = ObjectAnimationClock::default();
+        let initial = clock.update(&asset, 0.5, None);
+        for delta in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0] {
+            assert_eq!(clock.update(&asset, delta, None), initial);
+        }
+        clock.reset();
+        assert_eq!(clock.update(&asset, 0.0, None), asset.sample(0.0, None));
+    }
+
+    #[test]
+    fn update_clock_advances_small_steps_after_a_billion_seconds() {
+        let asset = asset(0);
+        let mut clock = ObjectAnimationClock { elapsed: 1e9 };
+        let before = clock.elapsed;
+        clock.update(&asset, 0.001, None);
+        assert!(clock.elapsed > before);
+    }
+}
+
 /// One shape sharing an immutable NIF animation asset with sibling shapes.
 #[derive(Debug, Clone)]
 pub struct AnimatedSurface {

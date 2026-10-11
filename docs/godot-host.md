@@ -6480,6 +6480,17 @@ Controller layout and sampling references are recorded in `docs/nif.md`.
 Object animation uses no new dependency. Collision remains on its existing
 record-backed host path and does not follow these visual bone poses.
 
+The RID update path uses the pure `ObjectAnimationClock::update` sampler.
+Its elapsed counter is f64, skips nonfinite or negative frame deltas and
+resets when a named sequence starts. The counter saturates at the largest
+finite f32 sampling time. Host unit tests exercise 30 simulated minutes with
+steps cycling from 1 to 500 milliseconds, all three cycle modes, invalid
+deltas, reset and small-step clock advancement after a billion seconds.
+Instance and bone submission loops are bounded by loaded resource counts.
+The reported `AnimatedObjects::update` freeze symbol is absent from this
+checkout. No live capture or installed-data reproduction was run for this
+timing audit.
+
 ## Distant scenery, RND-28
 
 PlayerNode streams archived BTO objects and BTT trees alongside BTR terrain.

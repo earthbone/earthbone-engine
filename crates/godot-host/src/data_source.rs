@@ -1738,7 +1738,7 @@ mod emission_tests;
 
 #[cfg(test)]
 #[path = "../../nif/tests/common/mod.rs"]
-mod fixture;
+pub(crate) mod fixture;
 
 #[cfg(test)]
 mod environment_tests;

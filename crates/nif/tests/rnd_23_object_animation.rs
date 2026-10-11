@@ -486,3 +486,229 @@ fn rnd_23_all_installed_animation_blocks_decode_without_losing_static_models() {
     assert!(count > 20000, "survey must cover the vanilla archives");
     println!("rnd_23 animation block survey: {count} NIFs");
 }
+
+const SAMPLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+const CYCLES: [CycleType; 3] = [CycleType::Loop, CycleType::Reverse, CycleType::Clamp];
+
+fn timing_fixture(cycle: CycleType, duration: f32, frequency: f32, phase: f32) -> ObjectAnimation {
+    let mut w = fixture(false);
+    let flags = 8 | ((cycle as u16) << 1);
+    w.blocks[2].1 = w.transform_controller(-1, flags, frequency, phase, 0.0, duration, 1, 4);
+    let file = soe_nif::parse(&w.finish()).unwrap();
+    ObjectAnimation::from_file(&file).unwrap()
+}
+
+#[test]
+fn rnd_23_no_keys_hold_interpolator_defaults_for_every_cycle() {
+    let started = std::time::Instant::now();
+    for cycle in CYCLES {
+        let mut w = fixture(false);
+        w.blocks[2].1 =
+            w.transform_controller(-1, 8 | ((cycle as u16) << 1), 1.0, 0.0, 0.0, 2.0, 1, 4);
+        w.blocks[3].1 = w.transform_data_linear(&[], &[], &[]);
+        let file = soe_nif::parse(&w.finish()).unwrap();
+        let asset = ObjectAnimation::from_file(&file).unwrap();
+        for seconds in [0.0, 0.5, 2.5, 1e9] {
+            assert_eq!(asset.sample(seconds, None).transforms[1].translation.x, 7.0);
+        }
+    }
+    assert!(started.elapsed() < SAMPLE_BUDGET);
+}
+
+#[test]
+fn rnd_23_one_key_holds_its_pose_for_every_cycle() {
+    let started = std::time::Instant::now();
+    for cycle in CYCLES {
+        let mut w = fixture(false);
+        w.blocks[2].1 =
+            w.transform_controller(-1, 8 | ((cycle as u16) << 1), 1.0, 0.0, 0.0, 2.0, 1, 4);
+        w.blocks[3].1 = w.transform_data_linear(
+            &[(0.0, [1.0, 0.0, 0.0, 0.0])],
+            &[(0.0, [3.0, 0.0, 0.0])],
+            &[(0.0, 2.0)],
+        );
+        let file = soe_nif::parse(&w.finish()).unwrap();
+        let asset = ObjectAnimation::from_file(&file).unwrap();
+        for seconds in [0.0, 0.5, 2.5, 1e9] {
+            let pose = asset.sample(seconds, None);
+            assert_eq!(pose.transforms[1].translation.x, 10.0);
+            assert_eq!(pose.transforms[1].scale, 2.0);
+            assert_eq!(pose.transforms[1].rotation.rows, IDENTITY);
+        }
+    }
+    assert!(started.elapsed() < SAMPLE_BUDGET);
+}
+
+#[test]
+fn rnd_23_equal_key_times_advance_without_division_by_zero_for_every_cycle() {
+    let started = std::time::Instant::now();
+    for cycle in CYCLES {
+        let mut w = fixture(false);
+        w.blocks[2].1 =
+            w.transform_controller(-1, 8 | ((cycle as u16) << 1), 1.0, 0.0, 0.0, 2.0, 1, 4);
+        w.blocks[3].1 = w.transform_data_linear(
+            &[(0.0, [1.0, 0.0, 0.0, 0.0]), (0.0, [0.0, 0.0, 0.0, 1.0])],
+            &[(0.0, [3.0, 0.0, 0.0]), (0.0, [5.0, 0.0, 0.0])],
+            &[(0.0, 2.0), (0.0, 3.0)],
+        );
+        let file = soe_nif::parse(&w.finish()).unwrap();
+        let asset = ObjectAnimation::from_file(&file).unwrap();
+        for seconds in [0.0, 0.5, 2.5, 1e9] {
+            let pose = asset.sample(seconds, None);
+            let first = cycle != CycleType::Clamp && seconds == 1e9 || seconds == 0.0;
+            assert_eq!(
+                pose.transforms[1].translation.x,
+                if first { 10.0 } else { 12.0 }
+            );
+            assert_eq!(pose.transforms[1].scale, if first { 2.0 } else { 3.0 });
+            assert!(pose.transforms[1]
+                .rotation
+                .rows
+                .iter()
+                .flatten()
+                .all(|v| v.is_finite()));
+        }
+    }
+    assert!(started.elapsed() < SAMPLE_BUDGET);
+}
+
+macro_rules! static_timing_case {
+    ($name:ident, $duration:expr, $frequency:expr, $phase:expr) => {
+        #[test]
+        fn $name() {
+            let started = std::time::Instant::now();
+            for cycle in CYCLES {
+                let asset = timing_fixture(cycle, $duration, $frequency, $phase);
+                for seconds in [0.0, 0.5, 2.5, 1e9] {
+                    assert_eq!(asset.sample(seconds, None).transforms[1].translation.x, 7.0);
+                }
+                for play_backwards in [false, true] {
+                    let time = TimeController {
+                        start_time: 0.0,
+                        stop_time: $duration,
+                        frequency: $frequency,
+                        phase: $phase,
+                        flags: ControllerFlags {
+                            cycle_type: cycle,
+                            play_backwards,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    };
+                    assert_eq!(controller::evaluate_time(&time, 1e9), 0.0);
+                }
+            }
+            assert!(started.elapsed() < SAMPLE_BUDGET);
+        }
+    };
+}
+
+static_timing_case!(rnd_23_zero_duration_is_static, 0.0, 1.0, 0.0);
+static_timing_case!(rnd_23_negative_duration_is_static, -2.0, 1.0, 0.0);
+static_timing_case!(rnd_23_nan_duration_is_static, f32::NAN, 1.0, 0.0);
+static_timing_case!(rnd_23_infinite_duration_is_static, f32::INFINITY, 1.0, 0.0);
+static_timing_case!(rnd_23_tiny_duration_is_static, 1e-20, 1.0, 0.0);
+static_timing_case!(rnd_23_zero_frequency_is_static, 2.0, 0.0, 1.0);
+static_timing_case!(rnd_23_negative_frequency_is_static, 2.0, -1.0, 1.0);
+static_timing_case!(rnd_23_nan_frequency_is_static, 2.0, f32::NAN, 1.0);
+static_timing_case!(rnd_23_infinite_frequency_is_static, 2.0, f32::INFINITY, 1.0);
+static_timing_case!(rnd_23_tiny_frequency_is_static, 2.0, 1e-20, 1.0);
+static_timing_case!(rnd_23_nan_phase_is_static, 2.0, 1.0, f32::NAN);
+static_timing_case!(rnd_23_infinite_phase_is_static, 2.0, 1.0, f32::INFINITY);
+
+#[test]
+fn rnd_23_billion_second_clock_keeps_cycle_remainder_and_clamp_endpoint() {
+    let started = std::time::Instant::now();
+    for (cycle, duration, phase, expected) in [
+        (CycleType::Loop, 2.0, 1.0, 17.0),
+        (CycleType::Reverse, 2.0, 1.0, 17.0),
+        (CycleType::Clamp, 2.0, 1.0, 27.0),
+        (CycleType::Loop, 3.0, 0.0, 17.0),
+        (CycleType::Reverse, 3.0, 0.0, 27.0),
+        (CycleType::Clamp, 3.0, 0.0, 27.0),
+    ] {
+        let asset = timing_fixture(cycle, duration, 1.0, phase);
+        assert_eq!(
+            asset.sample(1e9, None).transforms[1].translation.x,
+            expected
+        );
+    }
+    assert!(started.elapsed() < SAMPLE_BUDGET);
+}
+
+#[test]
+fn rnd_23_nonfinite_start_bounds_use_a_finite_static_time_for_every_cycle() {
+    let started = std::time::Instant::now();
+    for cycle in CYCLES {
+        for start_time in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let time = TimeController {
+                start_time,
+                stop_time: 2.0,
+                frequency: 1.0,
+                flags: ControllerFlags {
+                    cycle_type: cycle,
+                    play_backwards: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            assert_eq!(controller::evaluate_time(&time, 1e9), 0.0);
+        }
+    }
+    assert!(started.elapsed() < SAMPLE_BUDGET);
+}
+
+#[test]
+fn rnd_23_nonfinite_elapsed_times_hold_start_for_every_cycle() {
+    let started = std::time::Instant::now();
+    for cycle in CYCLES {
+        let asset = timing_fixture(cycle, 2.0, 1.0, 0.0);
+        for seconds in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(asset.sample(seconds, None).transforms[1].translation.x, 7.0);
+        }
+    }
+    assert!(started.elapsed() < SAMPLE_BUDGET);
+}
+
+#[test]
+fn rnd_23_extreme_finite_clock_does_not_overflow_before_wrapping() {
+    let started = std::time::Instant::now();
+    for cycle in CYCLES {
+        let asset = timing_fixture(cycle, 2.0, f32::MAX, f32::MAX);
+        let x = asset.sample(f32::MAX, None).transforms[1].translation.x;
+        assert!(x.is_finite() && (7.0..=27.0).contains(&x));
+    }
+    assert!(started.elapsed() < SAMPLE_BUDGET);
+}
+
+#[test]
+fn rnd_23_cumulative_sequence_skips_invalid_clocks_and_bounds_large_cycle_counts() {
+    let started = std::time::Instant::now();
+    for duration in [0.0, -2.0, f32::NAN, f32::INFINITY, 1e-20, 2.0] {
+        let mut w = fixture(true);
+        let name = w.string("Target");
+        let manager = w
+            .blocks
+            .iter_mut()
+            .find(|(kind, _)| kind == "NiControllerManager")
+            .unwrap();
+        manager.1[26] = 1;
+        let sequence = w
+            .blocks
+            .iter_mut()
+            .find(|(kind, _)| kind == "NiControllerSequence")
+            .unwrap();
+        sequence.1[61..65].copy_from_slice(&duration.to_le_bytes());
+        sequence.1[69..73].copy_from_slice(&name.to_le_bytes());
+        let file = soe_nif::parse(&w.finish()).unwrap();
+        let asset = ObjectAnimation::from_file(&file).unwrap();
+        for seconds in [1e9, f32::MAX, f32::NAN, f32::INFINITY] {
+            let x = asset.sample(seconds, None).transforms[1].translation.x;
+            assert!(x.is_finite());
+            if duration != 2.0 || !seconds.is_finite() {
+                assert_eq!(x, 7.0);
+            }
+        }
+    }
+    assert!(started.elapsed() < SAMPLE_BUDGET);
+}

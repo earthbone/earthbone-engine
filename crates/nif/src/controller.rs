@@ -206,61 +206,60 @@ pub(crate) fn read_point3_interpolator(s: &mut Stream<'_>) -> Result<Point3Inter
 /// applying frequency and phase and then extrapolating past
 /// `[start_time, stop_time]` per the cycle type. Grounded on OpenMW's
 /// `ControllerFunction::calculate()`, `components/nifosg/controller.cpp`
-/// lines 20-71, mirrored branch for branch: the top-level guard only covers
-/// `t` already inside `[start_time, stop_time]`, and `Loop` and `Reverse`
-/// each carry their own separate `delta <= 0` guard that holds `start_time`
-/// for a degenerate or inverted range, checked before any division by
-/// `delta` runs. `CYCLE_CLAMP` holds the edge pose rather than resetting,
-/// answering the task's open question on clamp semantics.
+/// lines 20-71. Invalid clocks, or durations and frequencies at most one
+/// microsecond or one millionth, hold the finite start pose (zero if the
+/// start is invalid). Valid cycles use a closed form independent of elapsed
+/// time. `CYCLE_CLAMP` holds the edge pose rather than resetting.
 pub fn evaluate_time(time: &TimeController, game_time: f32) -> f32 {
-    let value = map_time(time, game_time);
-    if time.flags.play_backwards {
-        time.stop_time - (value - time.start_time)
+    let Some(t) = controller_clock(time, game_time) else {
+        return if time.start_time.is_finite() {
+            time.start_time
+        } else {
+            0.0
+        };
+    };
+    let start = f64::from(time.start_time);
+    let stop = f64::from(time.stop_time);
+    let span = stop - start;
+    let value = if t >= start && t <= stop {
+        t
     } else {
-        value
+        match time.flags.cycle_type {
+            CycleType::Clamp => t.clamp(start, stop),
+            CycleType::Loop => start + (t - start).rem_euclid(span),
+            CycleType::Reverse => {
+                let remainder = (t - start).rem_euclid(2.0 * span);
+                if remainder <= span {
+                    start + remainder
+                } else {
+                    stop - (remainder - span)
+                }
+            }
+        }
+    };
+    if time.flags.play_backwards {
+        (stop - (value - start)) as f32
+    } else {
+        value as f32
     }
 }
 
-fn map_time(time: &TimeController, game_time: f32) -> f32 {
-    let t = time.frequency * game_time + time.phase;
-    let start = time.start_time;
-    let stop = time.stop_time;
-    if t >= start && t <= stop {
-        return t;
+pub(crate) fn controller_clock(time: &TimeController, game_time: f32) -> Option<f64> {
+    const MIN_TIMING: f32 = 1e-6;
+    let span = time.stop_time - time.start_time;
+    if !time.start_time.is_finite()
+        || !time.stop_time.is_finite()
+        || !span.is_finite()
+        || span <= MIN_TIMING
+        || !time.frequency.is_finite()
+        || time.frequency <= MIN_TIMING
+        || !time.phase.is_finite()
+        || !game_time.is_finite()
+    {
+        return None;
     }
-    match time.flags.cycle_type {
-        CycleType::Clamp => {
-            if t < start {
-                start
-            } else if t > stop {
-                stop
-            } else {
-                t
-            }
-        }
-        CycleType::Loop => {
-            let delta = stop - start;
-            if delta <= 0.0 {
-                return start;
-            }
-            let cycles = (t - start) / delta;
-            let remainder = (cycles - cycles.floor()) * delta;
-            start + remainder
-        }
-        CycleType::Reverse => {
-            let delta = stop - start;
-            if delta <= 0.0 {
-                return start;
-            }
-            let cycles = (t - start) / delta;
-            let remainder = (cycles - cycles.floor()) * delta;
-            if (cycles.floor().abs() as i64) % 2 == 0 {
-                start + remainder
-            } else {
-                stop - remainder
-            }
-        }
-    }
+    // CONTEXT: f64 keeps finite f32 clock inputs from overflowing before wrapping.
+    Some(f64::from(time.frequency) * f64::from(game_time) + f64::from(time.phase))
 }
 
 /// `KeyType`, `nif.xml` lines 399-406. Storage is `uint`.

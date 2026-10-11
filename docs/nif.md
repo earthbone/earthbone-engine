@@ -434,3 +434,21 @@ checks autonomous and manager playback, cycles, activation sequence names,
 interpolation, invalid defaults, shader channels and malformed sequence data.
 The installed survey samples banners, candles, windmills, water wheels,
 chests and levers.
+
+The 2026-10-11 timing audit found no unbounded sampling loop in this source.
+Key bracketing scans at most the track's key count. Channel, sequence and
+hierarchy passes use loaded vector lengths. Root accumulation uses binary
+exponentiation, shifting its u64 count once per iteration, at most 64 times.
+Time wrapping uses a closed form. The reported freeze symbols
+`evaluate_transforms` and `sample_transform` do not exist in this checkout,
+so the release hang's cause is not established by this audit.
+
+`evaluate_time` now uses f64 clock arithmetic and `rem_euclid` for loop and
+reverse cycles. Nonfinite times, phase, bounds or frequency hold the finite
+start pose, or time zero when start is invalid. Durations and frequencies
+at most 0.000001 also hold the start pose, including negative values.
+Cumulative sequences use the same clock validation. Valid endpoint,
+clamp, phase, backwards and root accumulation semantics remain covered by
+the synthetic RND-23 tests. Separate cases cover empty, single and duplicate
+keys, invalid timing values, a billion elapsed seconds and extreme finite
+clock inputs, each with a one-second execution budget and all three cycles.

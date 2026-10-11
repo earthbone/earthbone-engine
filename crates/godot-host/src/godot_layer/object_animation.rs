@@ -4,13 +4,13 @@
 //! material and skeleton resources as the actor host, without scene nodes.
 
 use super::*;
-use crate::object_animation::AnimatedSurface;
+use crate::object_animation::{AnimatedSurface, ObjectAnimationClock};
 use soe_nif::object_animation::{ObjectPose, PropertyChannel};
 
 pub(super) struct RuntimeSurface {
     pub surface: AnimatedSurface,
     pub events: crate::animation_dispatch::AnimationEventCursor,
-    elapsed: f32,
+    clock: ObjectAnimationClock,
     sequence: Option<String>,
     material: Gd<Material>,
     skeleton: Option<Rid>,
@@ -37,16 +37,14 @@ impl RuntimeSurface {
             return false;
         };
         self.sequence = Some(name.to_owned());
-        self.elapsed = 0.0;
+        self.clock.reset();
         true
     }
 
     fn update(&mut self, rid: Rid, delta: f32) {
-        self.elapsed += delta.max(0.0);
         let pose = self
-            .surface
-            .asset
-            .sample(self.elapsed, self.sequence.as_deref());
+            .clock
+            .update(&self.surface.asset, delta, self.sequence.as_deref());
         let shape = pose
             .transforms
             .get(self.surface.block)
@@ -222,7 +220,7 @@ impl CellStreamerNode {
         let mut runtime = RuntimeSurface {
             surface: animated,
             events: crate::animation_dispatch::AnimationEventCursor::beginning(),
-            elapsed: 0.0,
+            clock: ObjectAnimationClock::default(),
             sequence: None,
             material,
             skeleton,

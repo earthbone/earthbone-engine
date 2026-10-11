@@ -592,11 +592,12 @@ impl ObjectAnimation {
                 if let Some(channel) = sequence.channels.iter().find(|c| c.target == root) {
                     if let Track::Transform(interp, data) = &channel.track {
                         let time = channel.time;
-                        let span = time.stop_time - time.start_time;
-                        let clock = time.frequency * seconds + time.phase;
-                        if span > 0.0
-                            && time.flags.cycle_type == CycleType::Loop
-                            && clock > time.stop_time
+                        let span = f64::from(time.stop_time) - f64::from(time.start_time);
+                        if let Some(clock) =
+                            controller::controller_clock(&time, seconds).filter(|t| {
+                                time.flags.cycle_type == CycleType::Loop
+                                    && *t > f64::from(time.stop_time)
+                            })
                         {
                             let mut edge = time;
                             edge.flags.cycle_type = CycleType::Clamp;
@@ -616,7 +617,8 @@ impl ObjectAnimation {
                             );
                             if let Some(inverse) = inverse(start) {
                                 let delta = end.then(&inverse);
-                                let cycles = ((clock - time.start_time) / span).floor() as u64;
+                                let cycles =
+                                    ((clock - f64::from(time.start_time)) / span).floor() as u64;
                                 pose.transforms[root] =
                                     repeated(delta, cycles).then(&pose.transforms[root]);
                             }
