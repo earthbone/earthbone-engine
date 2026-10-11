@@ -1752,6 +1752,8 @@ mod tst_11_breaker_adversarial;
 mod tst_11_breaker_breaker_adversarial;
 #[path = "tst_11_breaker_breaker_breaker_adversarial.rs"]
 mod tst_11_breaker_breaker_breaker_adversarial;
+#[path = "tst_11_breaker4_adversarial.rs"]
+mod tst_11_breaker4_adversarial;
 #[path = "tst_11_papyrus_log.rs"]
 mod tst_11_papyrus_log;
 #[path = "tst_12_additional_adversarial.rs"]

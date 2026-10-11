@@ -38,7 +38,10 @@ fn benchmark_loop_result_survives_repeated_scheduler_budgets() {
         .call_global("Tst04Budgeted", "Count", &[Value::Int(100)])
         .expect("benchmark loop starts");
 
-    assert!(!vm.run_until_idle(0), "zero budget does not execute the loop");
+    assert!(
+        !vm.run_until_idle(0),
+        "zero budget does not execute the loop"
+    );
     for _ in 0..1000 {
         if vm.run_until_idle(7) {
             break;

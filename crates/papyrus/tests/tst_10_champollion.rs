@@ -11,6 +11,7 @@ use soe_papyrus::pex::{self, Function, Script};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionShape {
+    return_type: String,
     params: Vec<String>,
     instructions: usize,
 }
@@ -74,6 +75,7 @@ fn add_function(
             property.to_ascii_lowercase(),
         ),
         FunctionShape {
+            return_type: function.return_type.to_ascii_lowercase(),
             params: function
                 .params
                 .iter()
@@ -94,7 +96,7 @@ pub fn champollion_functions(assembly: &str) -> BTreeMap<FunctionKey, FunctionSh
     let mut result = BTreeMap::new();
     let (mut object, mut state, mut function, mut property) =
         (String::new(), String::new(), String::new(), String::new());
-    let (mut params, mut instructions) = (Vec::new(), 0usize);
+    let (mut return_type, mut params, mut instructions) = (String::new(), Vec::new(), 0usize);
     let mut in_code = false;
 
     for line in assembly.lines() {
@@ -130,6 +132,13 @@ pub fn champollion_functions(assembly: &str) -> BTreeMap<FunctionKey, FunctionSh
             params.clear();
             instructions = 0;
             in_code = false;
+            return_type.clear();
+        } else if let Some(rest) = line.strip_prefix(".return ") {
+            return_type = rest
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
         } else if let Some(rest) = line.strip_prefix(".param ") {
             let mut fields = rest.split_whitespace();
             if let (Some(param_name), Some(param_type)) = (fields.next(), fields.next()) {
@@ -153,6 +162,7 @@ pub fn champollion_functions(assembly: &str) -> BTreeMap<FunctionKey, FunctionSh
                         property.to_ascii_lowercase(),
                     ),
                     FunctionShape {
+                        return_type: return_type.clone(),
                         params: params.clone(),
                         instructions,
                     },
@@ -274,7 +284,7 @@ fn compare_corpus(data: &Path, champollion: &Path, report: &Path) {
 
 #[test]
 fn tst_10_champollion_assembly_inventory_parser_reads_signatures_and_opcodes() {
-    let assembly = ".object Example Quest\n .state Running\n  .function Tick\n   .param amount int\n   .code\n    IADD x y z\n    RETURN x\n   .endCode\n  .endFunction ;Tick\n .endState\n.endObject\n";
+    let assembly = ".object Example Quest\n .state Running\n  .function Tick\n   .return Int\n   .param amount int\n   .code\n    IADD x y z\n    RETURN x\n   .endCode\n  .endFunction ;Tick\n .endState\n.endObject\n";
     let functions = champollion_functions(assembly);
     assert_eq!(
         functions.get(&(
@@ -284,6 +294,7 @@ fn tst_10_champollion_assembly_inventory_parser_reads_signatures_and_opcodes() {
             String::new(),
         )),
         Some(&FunctionShape {
+            return_type: "int".into(),
             params: vec!["amount:int".into()],
             instructions: 2,
         })
@@ -316,6 +327,7 @@ fn tst_10_champollion_reports_unmatched_loaded_functions() {
             String::new(),
         ),
         FunctionShape {
+            return_type: "int".into(),
             params: vec!["int:int".into()],
             instructions: 2,
         },
@@ -323,7 +335,7 @@ fn tst_10_champollion_reports_unmatched_loaded_functions() {
     let decoded = BTreeMap::new();
     assert_eq!(
         differences(&pex, &decoded),
-        vec!["example::::tick:: PEX=Some(FunctionShape { params: [\"int:int\"], instructions: 2 }) Champollion=None"]
+        vec!["example::::tick:: PEX=Some(FunctionShape { return_type: \"int\", params: [\"int:int\"], instructions: 2 }) Champollion=None"]
     );
 }
 
@@ -337,6 +349,7 @@ fn tst_10_champollion_equal_function_inventories_have_no_differences() {
             String::new(),
         ),
         FunctionShape {
+            return_type: "int".into(),
             params: vec!["int:int".into()],
             instructions: 2,
         },
@@ -350,7 +363,7 @@ fn tst_10_champollion_equal_function_inventories_have_no_differences() {
 
 #[test]
 fn tst_10_champollion_instruction_inventory_skips_labels_and_debug_comments() {
-    let assembly = ".object Example\n.state\n.function Tick\n.param value Int\n.code\n; line 12\nJMP _label0\n_label0:\nRETURN value\n.endCode\n.endFunction ;Tick\n.endState\n.endObject\n";
+    let assembly = ".object Example\n.state\n.function Tick\n.return Int\n.param value Int\n.code\n; line 12\nJMP _label0\n_label0:\nRETURN value\n.endCode\n.endFunction ;Tick\n.endState\n.endObject\n";
     let functions = champollion_functions(assembly);
     assert_eq!(
         functions.get(&(
@@ -360,6 +373,7 @@ fn tst_10_champollion_instruction_inventory_skips_labels_and_debug_comments() {
             String::new(),
         )),
         Some(&FunctionShape {
+            return_type: "int".into(),
             params: vec!["value:int".into()],
             instructions: 2,
         }),
@@ -378,6 +392,7 @@ fn tst_10_champollion_report_differences_include_missing_and_changed_functions()
                 String::new(),
             ),
             FunctionShape {
+                return_type: "int".into(),
                 params: vec!["int:int".into()],
                 instructions: 2,
             },
@@ -390,6 +405,7 @@ fn tst_10_champollion_report_differences_include_missing_and_changed_functions()
                 "health".into(),
             ),
             FunctionShape {
+                return_type: "none".into(),
                 params: Vec::new(),
                 instructions: 1,
             },
@@ -403,6 +419,7 @@ fn tst_10_champollion_report_differences_include_missing_and_changed_functions()
             String::new(),
         ),
         FunctionShape {
+            return_type: "string".into(),
             params: vec!["string:string".into()],
             instructions: 3,
         },
@@ -411,8 +428,8 @@ fn tst_10_champollion_report_differences_include_missing_and_changed_functions()
     assert_eq!(
         differences(&source, &champollion),
         vec![
-            "example::::get::health PEX=Some(FunctionShape { params: [], instructions: 1 }) Champollion=None".to_owned(),
-            "example::running::tick:: PEX=Some(FunctionShape { params: [\"int:int\"], instructions: 2 }) Champollion=Some(FunctionShape { params: [\"string:string\"], instructions: 3 })".to_owned(),
+            "example::::get::health PEX=Some(FunctionShape { return_type: \"none\", params: [], instructions: 1 }) Champollion=None".to_owned(),
+            "example::running::tick:: PEX=Some(FunctionShape { return_type: \"int\", params: [\"int:int\"], instructions: 2 }) Champollion=Some(FunctionShape { return_type: \"string\", params: [\"string:string\"], instructions: 3 })".to_owned(),
         ],
         "the report includes missing functions and signature or instruction differences"
     );

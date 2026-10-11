@@ -19,8 +19,7 @@ fn parser_rejects_every_incomplete_prefix_of_the_benchmark_plugin() {
         } else {
             assert!(
                 Plugin::parse(&bytes[..end]).is_err(),
-                "parser accepted truncated plugin prefix of {} bytes",
-                end
+                "parser accepted truncated plugin prefix of {end} bytes"
             );
         }
     }
