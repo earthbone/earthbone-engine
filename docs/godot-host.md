@@ -1,5 +1,84 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Player presentation, HST-25 draft
+
+The walkthrough binds two `SkinnedActorNode` children to player reference
+`0x14` after `start_gameplay` resolves its records. An unloaded node reads the
+race, sex, skin and equipped armor through the shared World and DataSource.
+The third-person body follows the shared capsule placement. First-person
+armor uses each selected ARMA's first-person model. Its rig and behavior come
+from `_1stperson/characters/firstperson.hkx` under the selected race's animation
+root. The first-person camera bone's reference transform anchors those meshes
+to the player camera. Missing first-person character files fail the binding.
+Race and armor changes refresh both views. Restoring a direct Game rebinds
+the existing visuals to its replacement World.
+
+F switches the separate body and arms presentations. The first-person geometry
+native controls the arms, while the third-person body stays visible in third
+person. Invisibility and mesh replacement retain those visibility decisions.
+The existing collision-tested camera boom keeps its padding ahead of walls.
+Horizontal capsule displacement supplies graph speed and move start or stop
+events.
+
+R changes the existing shared `weapon_drawn` field and sends the authored
+`WeapEquip` or `Unequip` input to both rigs. A weapon-hand tap requests an ordinary
+attack on release. Holding for 0.3 seconds requests a power attack. Spell hands
+do not also arm a melee contact. Both rigs receive the hand-specific attack
+event. Only the third-person body submits authored HitFrame poses to CMB-03,
+so switching views cannot duplicate a hit. Power contacts retain their power
+flag for the game's stamina and damage validation. Focus loss and input reset
+clear pending weapon holds.
+
+Weapon meshes attach through RenderingServer instances to the current weapon
+bones. WEAP/WNAM selects the first-person STAT model. Sheathed third-person
+weapons use the authored WeaponSword, WeaponDagger, WeaponAxe, WeaponMace,
+WeaponBack or WeaponBow node when present. MGEF/DATA Casting Art at offset
+0x5c supplies a hand-art model through its ARTO record. Static surfaces from
+that model use the same mesh and material path as item previews. Player input
+requests spell start and release events for the spell's casting type and
+delivery. The existing MAG-22 Game adapter still executes casting.
+
+This draft does not complete HST-25. The installed master graph currently
+stays at the first draw frame, so the stronger installed attack and contact
+acceptance fails. That adapter rejects aimed Flames before
+projectile delivery. NIF particle casting art is not rendered by the static
+surface path. The full live spell, adjacent-actor contact and both-hand pixel
+acceptance remains unverified. The armor appearance view supplies body and
+outfit geometry, without adding head-part construction here. A rigid shield
+attachment is not implemented. The threaded Game adapter has no
+appearance-binding route, so its walkthrough retains the existing camera path.
+
+Sources are local TES5Edit/Core/wbDefinitionsTES5.pas for RACE, ARMA,
+WEAP/WNAM and MGEF Casting Art, UESP's RACE and MGEF pages, CommonLibSSE-NG's
+TESObjectWEAP, BipedAnim and FixedStrings declarations, and CK's DrawWeapon
+contract. OpenMW's esm4npcanimation.cpp supplies the reference for record-driven
+part selection. Its OSG scene implementation does not fit this host, which
+reuses the existing Godot RID mesh and skin upload. No dependency or saved
+field is added. The two new nodes belong to the player control path, with
+no node added per streamed reference. Walkthrough startup reports their load
+time and shape, bone and clip counts.
+
+`hst_25_player.rs` checks installed body and first-person rigs, authored event
+availability, authored draw and attack progression, R press edges and camera
+padding. Its Godot runner starts the
+actual walkthrough headless, then windowed for body and sword captures.
+`hst_25_player_test.gd` freezes presentation for visibility comparisons,
+requires 100 body pixels and 25 weapon pixels per view, and quits. Attack
+checks require an attack clip and the body's HitFrame marker, rather than
+accepting a locomotion pose change. The
+`hst_25_` cases in combat_contact.rs check left-hand contact identity and power
+validation. These checks do not establish complete spell delivery.
+
+The installed-data run loads the two player presentation nodes in 432 ms in
+the windowed walkthrough. Both rigs have 99 bones, with four body surfaces
+and two first-person surfaces. The captures differ by 11,645 body pixels,
+10,200 third-person weapon pixels and 50 first-person weapon pixels. The small
+first-person difference does not establish usable arm and weapon placement.
+Both Godot processes exit with status 1 because authored attacks and contact
+markers fail. The installed rig test also fails draw and attack progression
+in both views. The other three player tests and all 15 combat contact tests
+pass. These results leave the row partial.
+
 ## Snapshot adapter, PRF-37 draft
 
 `PlayerNode::start_threaded_gameplay` starts a worker-owned Game using the

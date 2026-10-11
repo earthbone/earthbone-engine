@@ -35,6 +35,9 @@ use crate::godot_ragdoll::LiveRagdoll;
 use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
 use crate::skinned::{skinning_transforms_into, Affine};
 
+#[path = "godot_actor_hands.rs"]
+mod hands;
+
 /// The archives a character reads from, in load order.
 const ARCHIVES: [&str; 12] = [
     "Skyrim - Meshes0.bsa",
@@ -139,6 +142,10 @@ pub struct SkinnedActorNode {
     /// standing, which is what a capture wants.
     #[export]
     playing: bool,
+    /// Load the first-person rig and armor addon models when binding a player.
+    #[export]
+    first_person: bool,
+    camera_offset: Transform3D,
     /// The character's files. Leaked on purpose, see `load_character`.
     assets: Option<&'static ActorAssets>,
     vm: Option<Interpreter<'static>>,
@@ -157,6 +164,8 @@ pub struct SkinnedActorNode {
     stats: VarDictionary,
     elapsed: f64,
     invisible: bool,
+    geometry_visible: bool,
+    hands: hands::Hands,
     ragdoll_map: Option<RagdollBoneMap>,
     ragdoll: Option<LiveRagdoll>,
 }
@@ -167,6 +176,8 @@ impl INode3D for SkinnedActorNode {
         SkinnedActorNode {
             base,
             playing: true,
+            first_person: false,
+            camera_offset: Transform3D::IDENTITY,
             assets: None,
             vm: None,
             surfaces: Vec::new(),
@@ -180,6 +191,8 @@ impl INode3D for SkinnedActorNode {
             stats: VarDictionary::new(),
             elapsed: 0.0,
             invisible: false,
+            geometry_visible: true,
+            hands: hands::Hands::default(),
             ragdoll_map: None,
             ragdoll: None,
         }
@@ -198,6 +211,7 @@ impl INode3D for SkinnedActorNode {
             ragdoll.free();
         }
         self.free_rids();
+        self.hands.clear();
     }
 
     fn process(&mut self, delta: f64) {
@@ -223,10 +237,172 @@ impl SkinnedActorNode {
     #[signal]
     pub fn animation_event(name: GString);
 
+    /// Authored contact marker and the hand pose installed for that marker.
+    #[signal]
+    pub fn weapon_contact(name: GString, left_hand: bool, pose: Transform3D);
+
     /// The loaded behavior graph is leaving the scene tree.
     #[signal]
     pub fn animation_graph_unloaded();
 
+    fn cache_camera_offset(&mut self) {
+        let Some(assets) = self.assets else { return };
+        let Ok(model) = assets
+            .skeleton
+            .to_model_space(&assets.skeleton.reference_pose)
+        else {
+            return;
+        };
+        self.camera_offset = assets
+            .skeleton
+            .bones
+            .iter()
+            .position(|bone| bone.name.to_ascii_lowercase().starts_with("camera1st"))
+            .or_else(|| assets.skeleton.bone_index("Camera"))
+            .or_else(|| {
+                assets
+                    .skeleton
+                    .bones
+                    .iter()
+                    .position(|bone| bone.name.to_ascii_lowercase().contains("camera"))
+            })
+            .and_then(|index| model.get(index))
+            .map_or(Transform3D::IDENTITY, |pose| {
+                to_transform3d(&Affine::from_qs(pose).to_godot())
+            });
+    }
+
+    fn hand_poses(&self) -> [Option<Transform3D>; 2] {
+        let Some(binding) = &self.appearance else {
+            return [None, None];
+        };
+        let drawn = binding
+            .world
+            .borrow()
+            .actor_ref(binding.actor)
+            .is_some_and(|actor| actor.weapon_drawn);
+        if drawn {
+            return [
+                self.weapon_pose(Hand::Left).ok(),
+                self.weapon_pose(Hand::Right).ok(),
+            ];
+        }
+        if self.first_person {
+            return [None, None];
+        }
+        let Some(assets) = self.assets else {
+            return [None, None];
+        };
+        [Hand::Left, Hand::Right].map(|hand| {
+            let bone = {
+                let mut world = binding.world.borrow_mut();
+                if world.hand_spell(binding.actor, hand).is_some() {
+                    return None;
+                }
+                let weapon = world.hand_weapon(binding.actor, hand)?;
+                let weapon =
+                    soe_game::combat::records::Weapon::from_record(world.record(weapon)?).ok()?;
+                match weapon.animation {
+                    1 => "WeaponSword",
+                    2 => "WeaponDagger",
+                    3 => "WeaponAxe",
+                    4 => "WeaponMace",
+                    5 | 6 => "WeaponBack",
+                    7 | 9 => "WeaponBow",
+                    _ => return None,
+                }
+            };
+            let index = assets.skeleton.bone_index(bone)?;
+            let pose = self.model.get(index)?;
+            Some(self.actor_placement() * to_transform3d(&Affine::from_qs(pose).to_godot()))
+        })
+    }
+    fn sync_hand_variables(&mut self) {
+        let (Some(binding), Some(vm)) = (&self.appearance, &mut self.vm) else {
+            return;
+        };
+        let mut world = binding.world.borrow_mut();
+        for (hand, prefix) in [(Hand::Left, "Left"), (Hand::Right, "Right")] {
+            let kind = if world.hand_spell(binding.actor, hand).is_some() {
+                9.0
+            } else if let Some(weapon) = world.hand_weapon(binding.actor, hand) {
+                world
+                    .record(weapon)
+                    .and_then(|record| soe_game::combat::records::Weapon::from_record(record).ok())
+                    .map_or(0.0, |weapon| f32::from(weapon.animation))
+            } else if hand == Hand::Left
+                && world
+                    .equipped_shield(binding.actor)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            {
+                10.0
+            } else {
+                0.0
+            };
+            vm.variables
+                .set_by_name(&format!("i{prefix}HandType"), kind);
+            vm.variables
+                .set_by_name(&format!("i{prefix}HandEquipped"), kind);
+        }
+        let ready = world
+            .actor_ref(binding.actor)
+            .is_some_and(|actor| actor.weapon_drawn);
+        vm.variables
+            .set_by_name("IsAttackReady", f32::from(u8::from(ready)));
+        vm.variables
+            .set_by_name("IsFirstPerson", f32::from(u8::from(self.first_person)));
+        vm.variables
+            .set_by_name("i1stPerson", f32::from(u8::from(!self.first_person)));
+        let player = binding.actor == world.player();
+        vm.variables
+            .set_by_name("IsPlayer", f32::from(u8::from(player)));
+        vm.variables
+            .set_by_name("iIsPlayer", f32::from(u8::from(player)));
+        vm.variables
+            .set_by_name("IsNPC", f32::from(u8::from(!player)));
+        vm.character_properties
+            .set_by_name("IsThirdPerson", f32::from(u8::from(!self.first_person)));
+    }
+
+    /// Request the spell's authored start or release phase for one hand.
+    #[func]
+    pub fn animate_hand_cast(&mut self, left_hand: bool, held: bool) -> bool {
+        let hand = if left_hand { Hand::Left } else { Hand::Right };
+        let prefix = if left_hand { "MLh" } else { "MRh" };
+        let Some(binding) = &self.appearance else {
+            return false;
+        };
+        let definition = {
+            let world = binding.world.borrow();
+            let Some(spell) = world.hand_spell(binding.actor, hand) else {
+                return false;
+            };
+            let Ok(definition) = world.spell(spell) else {
+                return false;
+            };
+            definition
+        };
+        if !held {
+            return self.send_graph_event(GString::from(&format!("{prefix}_SpellRelease_Event")));
+        }
+        self.send_graph_event(GString::from(&format!("{prefix}_SpellReady_Event")));
+        let suffix = match (definition.data.cast_type, definition.data.delivery) {
+            (2, 0) => "SpellSelfConcentrationStart",
+            (2, _) => "SpellAimedConcentrationStart",
+            (_, 0) => "SpellSelfStart",
+            _ => "SpellAimedStart",
+        };
+        self.send_graph_event(GString::from(&format!("{prefix}_{suffix}")))
+    }
+    pub(crate) fn is_first_person(&self) -> bool {
+        self.first_person
+    }
+
+    pub(crate) fn first_person_camera_offset(&self) -> Transform3D {
+        self.camera_offset
+    }
     /// Load the vanilla human character from `data_dir` and put `mesh_path`
     /// on its skeleton. Returns false and logs on failure.
     ///
@@ -303,6 +479,7 @@ impl SkinnedActorNode {
             assets.skeleton.reference_pose.clone(),
         ));
         self.assets = Some(assets);
+        self.cache_camera_offset();
         self.ragdoll_map = assets
             .ragdoll
             .as_ref()
@@ -327,7 +504,7 @@ impl SkinnedActorNode {
                 server.instance_create2(mesh.get_rid(), scenario)
             });
             server.instance_set_transform(instance, Transform3D::IDENTITY);
-            server.instance_set_visible(instance, visible_for_invisibility(self.invisible));
+            server.instance_set_visible(instance, self.geometry_visible && !self.invisible);
             server.instance_attach_skeleton(instance, skeleton);
             self.shapes.push(ShapeRids { instance, skeleton });
             self.meshes.push(mesh);
@@ -394,11 +571,33 @@ impl SkinnedActorNode {
         }
     }
 
+    /// Set locomotion from the capsule's current speed in Skyrim units per second.
+    #[func]
+    pub fn set_movement_speed(&mut self, speed: f32) {
+        if !speed.is_finite() || speed < 0.0 {
+            return;
+        }
+        let Some(vm) = self.vm.as_mut() else { return };
+        let previous = vm
+            .variables
+            .index("Speed")
+            .and_then(|index| vm.variables.real(index))
+            .unwrap_or(0.0);
+        vm.variables.set_by_name("Speed", speed);
+        if previous <= 0.0 && speed > 0.0 {
+            vm.send_event_named("moveStart");
+        }
+        if previous > 0.0 && speed <= 0.0 {
+            vm.send_event_named("moveStop");
+        }
+    }
+
     /// Send an authored event to this actor's behavior graph. The resulting
     /// animation markers are emitted after their poses are installed.
     #[func]
     #[allow(clippy::needless_pass_by_value)]
     pub fn send_graph_event(&mut self, name: GString) -> bool {
+        self.sync_hand_variables();
         self.vm
             .as_mut()
             .is_some_and(|vm| vm.send_event_named(&name.to_string()))
@@ -428,6 +627,7 @@ impl SkinnedActorNode {
         }
         let stagger_event = self.take_stagger_event();
         let requests = self.take_animation_requests();
+        self.sync_hand_variables();
         let (Some(assets), Some(vm)) = (self.assets, self.vm.as_mut()) else {
             return;
         };
@@ -462,8 +662,20 @@ impl SkinnedActorNode {
         let report_target = self
             .appearance
             .as_ref()
+            .filter(|_| !self.first_person)
             .map(|binding| (binding.world.clone(), binding.actor));
         report_graph_events(&mut events, |event| {
+            if matches!(event, "HitFrame" | "attackStop") {
+                for hand in [Hand::Right, Hand::Left] {
+                    if let Ok(pose) = self.weapon_pose(hand) {
+                        self.signals().weapon_contact().emit(
+                            &GString::from(event),
+                            hand == Hand::Left,
+                            pose,
+                        );
+                    }
+                }
+            }
             if let Some((world, target)) = &report_target {
                 world.borrow_mut().queue_animation_report(*target, event);
             }
@@ -477,6 +689,17 @@ impl SkinnedActorNode {
             .as_ref()
             .map_or_else(|| self.actor_placement(), LiveRagdoll::actor_transform);
         let mut server = RenderingServer::singleton();
+        if let (Some(binding), Some(scenario)) = (&self.appearance, self.scenario()) {
+            let paths = hands::paths(
+                &mut binding.world.borrow_mut(),
+                binding.actor,
+                self.first_person,
+            );
+            self.hands.sync(&binding.source, paths, scenario);
+        }
+        self.hands
+            .pose(self.hand_poses(), self.geometry_visible && !self.invisible);
+        self.stats.set("hand_shapes", self.hands.count());
         let facial_expression = self
             .appearance
             .as_ref()
@@ -527,10 +750,13 @@ impl SkinnedActorNode {
     /// Show or hide this rig's RenderingServer instances with first-person geometry.
     #[func]
     pub fn set_first_person_geometry_visible(&mut self, visible: bool) {
+        self.geometry_visible = visible;
         let mut server = RenderingServer::singleton();
         for shape in &self.shapes {
-            server.instance_set_visible(shape.instance, visible);
+            server.instance_set_visible(shape.instance, visible && !self.invisible);
         }
+        self.hands
+            .pose(self.hand_poses(), visible && !self.invisible);
     }
 
     /// Whether the actor currently draws from animation or simulated bodies.
@@ -640,7 +866,9 @@ impl SkinnedActorNode {
             .assets
             .ok_or(CombatError::Unsupported("character rig is not loaded"))?;
         let local = crate::combat::posed_weapon_bone(&assets.skeleton, &self.model, hand)?;
-        let placement = if let Some(binding) = &self.appearance {
+        let placement = if self.first_person {
+            self.actor_placement()
+        } else if let Some(binding) = &self.appearance {
             let actor = binding
                 .world
                 .borrow_mut()
@@ -698,9 +926,11 @@ impl SkinnedActorNode {
         }
         self.invisible = invisible;
         self.stats.set("invisible", invisible);
+        self.hands
+            .pose(self.hand_poses(), self.geometry_visible && !invisible);
         let mut server = RenderingServer::singleton();
         for shape in &self.shapes {
-            server.instance_set_visible(shape.instance, visible_for_invisibility(invisible));
+            server.instance_set_visible(shape.instance, self.geometry_visible && !invisible);
         }
     }
 
@@ -783,6 +1013,9 @@ impl SkinnedActorNode {
     }
 
     fn actor_placement(&self) -> Transform3D {
+        if self.first_person {
+            return self.base().get_global_transform();
+        }
         let Some(binding) = &self.appearance else {
             return self.base().get_global_transform();
         };
@@ -815,19 +1048,53 @@ impl SkinnedActorNode {
         source: Arc<DataSource>,
         actor: soe_esm::GlobalFormId,
     ) -> Result<(), String> {
+        if self.assets.is_none() {
+            let mut assets = if self.first_person {
+                ActorAssets::load_player_first_person(&mut world.borrow_mut(), actor, source.vfs())
+            } else {
+                ActorAssets::load_for_actor(&mut world.borrow_mut(), actor, source.vfs())
+            }
+            .map_err(|error| error.to_string())?;
+            self.surfaces = std::mem::take(&mut assets.surfaces);
+            let assets: &'static ActorAssets = Box::leak(Box::new(assets));
+            self.stats
+                .set("skeleton_bones", assets.skeleton.bones.len() as i64);
+            self.stats.set("clips", assets.clips.len() as i64);
+            self.stats
+                .set("graph_nodes", assets.graph.nodes.len() as i64);
+            self.vm = Some(Interpreter::new(
+                &assets.graph,
+                &assets.clips,
+                assets.skeleton.reference_pose.clone(),
+            ));
+            self.ragdoll_map = assets
+                .ragdoll
+                .as_ref()
+                .map(|ragdoll| RagdollBoneMap::new(&assets.skeleton, ragdoll));
+            self.assets = Some(assets);
+            self.cache_camera_offset();
+        }
         let assets = self
             .assets
             .ok_or("load the character rig before binding its appearance")?;
         let mut cache = crate::actor::AppearanceCache::default();
-        let update = cache
-            .prepare(
+        let update = if self.first_person {
+            cache.prepare_first_person(
                 &mut world.borrow_mut(),
                 actor,
                 source.vfs(),
                 &assets.skeleton,
             )
-            .map_err(|error| error.to_string())?
-            .ok_or("initial appearance was not prepared")?;
+        } else {
+            cache.prepare(
+                &mut world.borrow_mut(),
+                actor,
+                source.vfs(),
+                &assets.skeleton,
+            )
+        }
+        .map_err(|error| error.to_string())?
+        .ok_or("initial appearance was not prepared")?;
         self.invisible = world.borrow().is_invisible(actor);
         self.replace_surfaces(update.surfaces)?;
         let animation_cursor = {
@@ -867,11 +1134,12 @@ impl SkinnedActorNode {
         };
         if assets.actor_race != Some(selected.race) || assets.actor_female != Some(selected.female)
         {
-            let mut next = match ActorAssets::load_for_actor(
-                &mut world.borrow_mut(),
-                actor,
-                source.vfs(),
-            ) {
+            let next = if self.first_person {
+                ActorAssets::load_player_first_person(&mut world.borrow_mut(), actor, source.vfs())
+            } else {
+                ActorAssets::load_for_actor(&mut world.borrow_mut(), actor, source.vfs())
+            };
+            let mut next = match next {
                 Ok(assets) => assets,
                 Err(error) => {
                     soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode race rig: {error}");
@@ -881,6 +1149,7 @@ impl SkinnedActorNode {
             let surfaces = std::mem::take(&mut next.surfaces);
             let next: &'static ActorAssets = Box::leak(Box::new(next));
             self.assets = Some(next);
+            self.cache_camera_offset();
             self.vm = Some(Interpreter::new(
                 &next.graph,
                 &next.clips,
@@ -899,12 +1168,22 @@ impl SkinnedActorNode {
         let Some(binding) = &mut self.appearance else {
             return;
         };
-        let update = match binding.cache.prepare(
-            &mut binding.world.borrow_mut(),
-            binding.actor,
-            source.vfs(),
-            &assets.skeleton,
-        ) {
+        let update = if self.first_person {
+            binding.cache.prepare_first_person(
+                &mut binding.world.borrow_mut(),
+                actor,
+                source.vfs(),
+                &assets.skeleton,
+            )
+        } else {
+            binding.cache.prepare(
+                &mut binding.world.borrow_mut(),
+                actor,
+                source.vfs(),
+                &assets.skeleton,
+            )
+        };
+        let update = match update {
             Ok(Some(update)) => update,
             Ok(None) => return,
             Err(error) => {
@@ -947,6 +1226,7 @@ impl SkinnedActorNode {
     }
 }
 
+#[cfg(test)]
 fn visible_for_invisibility(invisible: bool) -> bool {
     !invisible
 }
