@@ -270,6 +270,40 @@ fn mod_07_real_devious_devices_kid_rule_applies_with_fixture_provenance() {
 }
 
 #[test]
+fn mod_07_real_mod_corpus_enters_game_mod_data_pipeline() {
+    let Some(root) = std::env::var_os("SOE_MOD_CORPUS").map(PathBuf::from) else {
+        eprintln!("SOE_MOD_CORPUS is unset, skipping real-mod game application check");
+        return;
+    };
+    assert!(root.is_dir(), "{} is not a directory", root.display());
+
+    let files =
+        soe_moddata::discover(&root).unwrap_or_else(|error| panic!("{}: {error}", root.display()));
+    assert!(files
+        .iter()
+        .any(|(kind, _)| *kind == soe_moddata::ConfigKind::Distr));
+    assert!(files
+        .iter()
+        .any(|(kind, _)| *kind == soe_moddata::ConfigKind::Kid));
+    assert!(files
+        .iter()
+        .any(|(kind, _)| *kind == soe_moddata::ConfigKind::Swap));
+
+    let mut game = game();
+    let report = game.apply_mod_data(std::slice::from_ref(&root));
+    assert_eq!(report.files, files.len());
+    assert!(
+        report.distribution_rules > 0,
+        "the real SPID rules were not read"
+    );
+    assert!(report.keyword_rules > 0, "the real KID rules were not read");
+    assert!(
+        report.oar_trees > 0,
+        "the real OAR or DAR trees were not retained"
+    );
+}
+
+#[test]
 fn a_keyword_file_leaves_a_form_its_filter_misses_alone() {
     let dir = Dir::new("kid-miss");
     dir.write("Test_KID.ini", "Keyword = MyKeyword|Armor|SomethingElse\n");

@@ -8658,6 +8658,12 @@ and the test checks the added keyword through the same world query used by
 gameplay. The source keyword is supplied by a minimal load-order record so the
 test does not require the external mod installation.
 
+When `SOE_MOD_CORPUS` is set, `mod_07_real_mod_corpus_enters_game_mod_data_pipeline`
+passes the corpus through `Game::apply_mod_data`. It checks that SPID and KID
+rules are counted, BOS files are discovered and OAR or DAR trees are retained.
+The test load order is synthetic, so it does not verify resolved SPID or BOS
+effects from those mods.
+
 ## Open Animation Replacer selection, ANM-09
 
 `Game::apply_mod_data` retains OAR submods in descending priority order.
