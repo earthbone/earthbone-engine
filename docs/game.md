@@ -7615,7 +7615,9 @@ This interpolation is the current engine rule, not a recovered vanilla
 interpolator contract. The host receives each sample with its independent
 active stack strength, composes supported color, blur, DOF and HDR channels,
 and renders them through Godot. `docs/godot-host.md` records that mapping and
-the pixel fixture. Exact Skyrim shader parity remains unverified.
+the pixel fixture, which builds animated IMAD records, composes their samples
+through the active stack and checks the resulting Godot pixels. Exact Skyrim
+shader parity remains unverified.
 
 The local xEdit `Core/wbDefinitionsTES5.pas` IMGS and IMAD definitions,
 `Core/wbDefinitionsCommon.pas` interpolation and weather helpers, and Mutagen
@@ -7676,8 +7678,8 @@ scene target, but the five Papyrus natives expose no target argument.
 Fallback target behavior, curve interpolation parity, unused channels and
 exact vanilla strength composition are not recovered contracts. The host uses
 its documented weighted composition policy for supported channels. The
-synthetic pixel fixture demonstrates visible host behavior, not Skyrim shader
-parity.
+synthetic pixel fixture demonstrates the record-to-pixel host path, not Skyrim
+shader parity.
 
 ## Value and Parts archetype, MAG-52
 

@@ -4749,14 +4749,15 @@ resource.
 
 The base reader retains all authored HNAM, CNAM, TNAM and DNAM values in its
 snapshot. The host maps the supported subset to stock Godot controls. The
-`mag_71_rendered_image_space_test.gd` pixel fixture loads the production shader
-and checks tint, blur, depth-of-field and bloom threshold against a checkerboard
-scene. The Rust test
-`mag_71_composes_authored_render_channels_with_active_stack_weights` checks
-weighted composition for synthetic curve samples. The pixel fixture still sets
-shader parameters directly, so an end-to-end rendered authored IMAD fixture
-through the active stack remains unverified. These fixtures do not claim pixel
-parity with Skyrim or implement target-based radial blur.
+`mag_71_rendered_authored_imad_stack_changes_pixels_at_animated_weights` test
+builds synthetic IMAD records with animated color, blur, depth and HDR curves,
+applies an active layer, advances Game to a normalized curve age, and composes
+the samples using their stack strength. It passes those composed values to
+`mag_71_rendered_image_space_test.gd`, which applies them to the production
+shader and Godot camera depth controls and checks rendered pixels against a
+checkerboard. This proves the record-to-pixel composition path for the selected
+channels. It does not claim pixel parity with Skyrim or implement target-based
+radial blur.
 
 `mag_72_windowed_fixture_reads_hdr_color_and_depth_pixels` launches Godot with
 a 640 by 360 window and captures a checkerboard SubViewport. Its Rust runner
