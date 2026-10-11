@@ -79,6 +79,13 @@ relocates the recognized fields listed here and preserves other fields
 unchanged. `tests/fmt_15_renumber.rs` independently records VMAD object-link
 offsets in both formats and a QUST alias, then compares the entire payload
 after serialization and reload so non-link bytes must remain unchanged.
+`tests/fmt_15_every_mapped_reference.rs` separately enumerates every ordinary
+typed link field currently recognized by the remapper and checks each mapped
+value after serialization and reload. The other FMT-15 tests cover the
+specialized CTDA, COBJ, REFR, HAZD, MGEF, WEAP, destruction-stage, and VMAD
+layouts, including malformed input leaving the plugin unchanged. This coverage
+does not claim traversal of unknown subrecords or record fields that the Rust
+model does not recognize.
 
 Each `LoadedFile` exposes a SHA-256 fingerprint of its plugin's serialized
 definition before the load order adds engine-owned forms. It is independent of
