@@ -62,7 +62,10 @@ fn assert_bad_baseline(measured: &Path, baseline: &Path, expected: &str) {
     assert_eq!(result.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(stderr.contains(expected), "unexpected diagnostic: {stderr}");
-    assert!(!stderr.contains("Traceback"), "unexpected traceback: {stderr}");
+    assert!(
+        !stderr.contains("Traceback"),
+        "unexpected traceback: {stderr}"
+    );
 }
 
 #[test]
@@ -74,10 +77,17 @@ fn prf_15_missing_baseline_median_is_rejected() {
 
     let mut saved: serde_json::Value =
         serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
-    saved["operations"].as_object_mut().unwrap().remove("dds_bc7_decode");
+    saved["operations"]
+        .as_object_mut()
+        .unwrap()
+        .remove("dds_bc7_decode");
     fs::write(&baseline, serde_json::to_vec(&saved).unwrap()).unwrap();
 
-    assert_bad_baseline(&measured, &baseline, "missing positive baseline for dds_bc7_decode");
+    assert_bad_baseline(
+        &measured,
+        &baseline,
+        "missing positive baseline for dds_bc7_decode",
+    );
     let _ = fs::remove_file(measured);
     let _ = fs::remove_file(baseline);
 }
@@ -91,10 +101,17 @@ fn prf_15_missing_machine_identity_field_is_diagnosed() {
 
     let mut saved: serde_json::Value =
         serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
-    saved["machine"].as_object_mut().unwrap().remove("architecture");
+    saved["machine"]
+        .as_object_mut()
+        .unwrap()
+        .remove("architecture");
     fs::write(&baseline, serde_json::to_vec(&saved).unwrap()).unwrap();
 
-    assert_bad_baseline(&measured, &baseline, "baseline machine must contain architecture");
+    assert_bad_baseline(
+        &measured,
+        &baseline,
+        "baseline machine must contain architecture",
+    );
     let _ = fs::remove_file(measured);
     let _ = fs::remove_file(baseline);
 }

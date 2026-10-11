@@ -19,14 +19,8 @@ fn prf_13_nonfinite_and_negative_waits_are_zero_and_keep_wait_counts() {
     Profile::disable();
 
     let rows = Profile::summary();
-    let stats = &rows[&Entity::new(
-        "script",
-        "Waiter.Run",
-        "Waiter.esp",
-        "latent_wait",
-    )];
+    let stats = &rows[&Entity::new("script", "Waiter.Run", "Waiter.esp", "latent_wait")];
     assert_eq!(stats.waits, 4);
     assert_eq!(stats.wait_ns, 0);
     assert_eq!(Profile::ranking(&rows, "plugin")[0].0, "Waiter.esp");
 }
-

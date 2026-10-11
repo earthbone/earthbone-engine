@@ -2,7 +2,7 @@
 
 //! Work capture does not depend on timing capture and remains thread local.
 
-use soe_trace::{count, Operation, WorkFrame, Trace};
+use soe_trace::{count, Operation, Trace, WorkFrame};
 
 #[test]
 fn prf_14_work_capture_ignores_timing_switch_and_unentered_worker_threads() {

@@ -95,7 +95,7 @@ def evaluate(current, baseline, machine, include_installed=False, threshold=1.15
 def validate_baseline(baseline):
     if not isinstance(baseline, dict):
         raise ValueError("baseline must be a JSON object")
-    if baseline.get("format") != 1:
+    if type(baseline.get("format")) is not int or baseline["format"] != 1:
         raise ValueError("baseline format must be 1")
     if baseline.get("data_mode") not in ("synthetic", "installed"):
         raise ValueError("baseline data_mode must be synthetic or installed")
