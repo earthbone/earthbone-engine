@@ -22,7 +22,10 @@ fn sav_54_each_named_invert_bit_changes_its_live_property_and_survives_reload() 
         let mut world = World::new(fixture_order_with_flags(authored));
         world.restore_vanilla_reference_placements(&save).unwrap();
         let reference = world.reference_ref(id(0, 0xA00)).unwrap();
-        assert_eq!(reference.enabled, expected_enabled, "authored={authored:#x}, mask={mask:#x}");
+        assert_eq!(
+            reference.enabled, expected_enabled,
+            "authored={authored:#x}, mask={mask:#x}"
+        );
         assert_eq!(
             reference.persistent, expected_persistent,
             "authored={authored:#x}, mask={mask:#x}"

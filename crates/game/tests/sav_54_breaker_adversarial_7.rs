@@ -59,9 +59,16 @@ fn sav_54_actor_and_reference_masks_follow_the_same_change_flag_layout() {
 
 #[test]
 fn sav_54_absent_mask_preserves_authored_reference_state() {
-    for authored in [0, INITIALLY_DISABLED, PERSISTENT, INITIALLY_DISABLED | PERSISTENT] {
+    for authored in [
+        0,
+        INITIALLY_DISABLED,
+        PERSISTENT,
+        INITIALLY_DISABLED | PERSISTENT,
+    ] {
         let mut world = World::new(fixture_order_with_flags(authored));
-        world.restore_vanilla_reference_placements(&fixture()).unwrap();
+        world
+            .restore_vanilla_reference_placements(&fixture())
+            .unwrap();
         let restored = world.reference_ref(id(0, 0xA00)).unwrap();
         assert_eq!(restored.enabled, authored & INITIALLY_DISABLED == 0);
         assert_eq!(restored.persistent, authored & PERSISTENT != 0);
@@ -82,9 +89,7 @@ fn sav_54_invalid_mask_version_does_not_partially_restore_prior_references() {
 
     let mut world = World::new(fixture_order());
     let before = world.state_hash();
-    assert!(world
-        .restore_vanilla_reference_placements(&save)
-        .is_err());
+    assert!(world.restore_vanilla_reference_placements(&save).is_err());
     assert_eq!(world.state_hash(), before);
     assert!(world.reference_ref(id(0, 0x14)).is_none());
     assert!(world.reference_ref(id(0, 0xA00)).is_none());
