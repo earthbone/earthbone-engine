@@ -853,6 +853,10 @@ impl INode3D for CellStreamerNode {
 }
 
 impl CellStreamerNode {
+    pub(crate) fn shared_material_shaders(&self) -> ShaderCache {
+        std::rc::Rc::clone(&self.materials.shaders)
+    }
+
     /// Apply Papyrus spell-art requests using the same VFS and mesh pipeline
     /// as streamed world models. The retained ArrayMesh references pin both
     /// their mesh data and material textures until Unload drops the entry.
@@ -3205,6 +3209,7 @@ impl CellStreamerNode {
             .iter()
             .map(|i| i.bounds)
             .reduce(crate::batch::merge_bounds);
+        self.materials.prune_unused();
         count as i32
     }
 
@@ -3817,7 +3822,7 @@ impl CellStreamerNode {
     }
 
     /// Frees every instance and mesh this node created, terrain LOD
-    /// included, and forgets the bounds. Materials stay cached.
+    /// included, and forgets the bounds. Releases unused material cache entries.
     #[func]
     pub fn clear(&mut self) {
         self.load_profiles.clear();
@@ -3844,6 +3849,7 @@ impl CellStreamerNode {
         self.clear_object_lod();
         self.clear_tree_lod();
         self.bounds = None;
+        self.materials.prune_unused();
     }
 
     /// The form that owns `triangle` of the `instance`th instance this node
@@ -3910,7 +3916,7 @@ impl CellStreamerNode {
                 .iter()
                 .map(|surface| surface.reference)
                 .collect();
-            for &id in source.cell_index().references(cell) {
+            for &id in source.presentation_references(cell) {
                 if drawn.contains(&id) {
                     continue;
                 }
@@ -4764,6 +4770,9 @@ fn enforce_terrain_lod_budget(lod: &mut TerrainLodState) -> usize {
     evicted.len()
 }
 
+pub(crate) type ShaderCache =
+    std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, Gd<Shader>>>>;
+
 #[derive(Default)]
 struct MaterialMap {
     materials: std::collections::HashMap<crate::mesh::MaterialKey, Gd<Material>>,
@@ -4772,20 +4781,17 @@ struct MaterialMap {
     /// Compiled shader resources by source. Materials with identical code
     /// share one `Shader`, so the renderer builds one pipeline per variant
     /// instead of one per material.
-    shaders: std::collections::HashMap<String, Gd<Shader>>,
+    shaders: ShaderCache,
 }
 
 /// One shared `Shader` per distinct source text.
-fn shader_for_code(
-    shaders: &mut std::collections::HashMap<String, Gd<Shader>>,
-    code: String,
-) -> Gd<Shader> {
-    if let Some(existing) = shaders.get(&code) {
+fn shader_for_code(shaders: &ShaderCache, code: String) -> Gd<Shader> {
+    if let Some(existing) = shaders.borrow().get(&code) {
         return existing.clone();
     }
     let mut shader = Shader::new_gd();
     shader.set_code(&code);
-    shaders.insert(code, shader.clone());
+    shaders.borrow_mut().insert(code, shader.clone());
     shader
 }
 
@@ -4795,6 +4801,18 @@ impl MaterialMap {
     }
     fn len(&self) -> usize {
         self.materials.len()
+    }
+
+    fn prune_unused(&mut self) {
+        self.materials
+            .retain(|_, material| material.get_reference_count() > 1);
+        self.textures
+            .retain(|_, texture| texture.get_reference_count() > 1);
+        self.cubemaps
+            .retain(|_, texture| texture.get_reference_count() > 1);
+        self.shaders
+            .borrow_mut()
+            .retain(|_, shader| shader.get_reference_count() > 1);
     }
 }
 
@@ -4810,23 +4828,23 @@ fn material_for(
     let material: Gd<Material> = if let Some(water) = &desc.water {
         water_material(water).upcast()
     } else if let Some(effect) = &desc.effect {
-        nif_effect_material(
-            desc,
-            effect,
-            textures,
-            &mut cache.textures,
-            &mut cache.shaders,
-        )
-        .upcast()
+        nif_effect_material(desc, effect, textures, &mut cache.textures, &cache.shaders).upcast()
     } else if tree_anim_material(desc)
         && desc.decal_depth().is_none()
         && desc.environment_texture().is_none()
     {
-        tree_material(desc, textures, &mut cache.textures).upcast()
+        tree_material(desc, textures, &mut cache.textures, &cache.shaders).upcast()
     } else if let Some(refraction) = &desc.refraction {
-        nif_refraction_material(desc, refraction, textures, &mut cache.textures).upcast()
+        nif_refraction_material(
+            desc,
+            refraction,
+            textures,
+            &mut cache.textures,
+            &cache.shaders,
+        )
+        .upcast()
     } else if desc.landscape_lod_normals() {
-        landscape_lod_material(desc, textures, &mut cache.textures).upcast()
+        landscape_lod_material(desc, textures, &mut cache.textures, &cache.shaders).upcast()
     } else if desc.decal_depth().is_some()
         || desc.environment_texture().is_some()
         || desc.texture_transform.is_some()
@@ -4836,7 +4854,7 @@ fn material_for(
             textures,
             &mut cache.textures,
             &mut cache.cubemaps,
-            &mut cache.shaders,
+            &cache.shaders,
         )
         .upcast()
     } else {
@@ -4850,9 +4868,9 @@ fn tree_material(
     desc: &MaterialDesc,
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &ShaderCache,
 ) -> Gd<ShaderMaterial> {
-    let mut shader = Shader::new_gd();
-    shader.set_code(&tree_shader_code(desc));
+    let shader = shader_for_code(shaders, tree_shader_code(desc));
     let mut material = ShaderMaterial::new_gd();
     material.set_shader(&shader);
     if let Some(texture) = albedo_texture(cache, desc, textures) {
@@ -4894,17 +4912,15 @@ fn landscape_lod_material(
     desc: &MaterialDesc,
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &ShaderCache,
 ) -> Gd<ShaderMaterial> {
-    let mut shader = Shader::new_gd();
     let code = include_str!("landscape_lod.gdshader");
-    if desc.double_sided {
-        shader.set_code(
-            code.replace("specular_disabled;", "specular_disabled, cull_disabled;")
-                .as_str(),
-        );
+    let code = if desc.double_sided {
+        code.replace("specular_disabled;", "specular_disabled, cull_disabled;")
     } else {
-        shader.set_code(code);
-    }
+        code.to_owned()
+    };
+    let shader = shader_for_code(shaders, code);
     let mut material = ShaderMaterial::new_gd();
     material.set_shader(&shader);
     if let Some(texture) = albedo_texture(cache, desc, textures) {
@@ -4933,9 +4949,9 @@ fn nif_refraction_material(
     refraction: &crate::mesh::RefractionMaterial,
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &ShaderCache,
 ) -> Gd<ShaderMaterial> {
-    let mut shader = Shader::new_gd();
-    shader.set_code(&crate::nif_refraction::shader(desc));
+    let shader = shader_for_code(shaders, crate::nif_refraction::shader(desc));
     let mut material = ShaderMaterial::new_gd();
     material.set_shader(&shader);
     material.set_render_priority(-1);
@@ -4970,7 +4986,7 @@ fn nif_effect_material(
     effect: &crate::mesh::EffectMaterial,
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
-    shaders: &mut std::collections::HashMap<String, Gd<Shader>>,
+    shaders: &ShaderCache,
 ) -> Gd<ShaderMaterial> {
     let shader = shader_for_code(shaders, crate::nif_effect::shader(desc, effect));
     let mut material = ShaderMaterial::new_gd();
@@ -5066,7 +5082,7 @@ fn decal_material(
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
     cubemaps: &mut std::collections::HashMap<String, Gd<Cubemap>>,
-    shaders: &mut std::collections::HashMap<String, Gd<Shader>>,
+    shaders: &ShaderCache,
 ) -> Gd<ShaderMaterial> {
     let shader = shader_for_code(shaders, decal_shader(desc));
     let mut material = ShaderMaterial::new_gd();
@@ -5295,26 +5311,43 @@ pub fn material_from(material: &MaterialDesc, textures: &SurfaceTextures) -> Gd<
     material_for(&mut MaterialMap::new(), material, textures)
 }
 
+/// Share actor texture uploads while keeping each surface's material independent.
+pub(crate) fn actor_material_from(
+    material: &MaterialDesc,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &ShaderCache,
+) -> Gd<Material> {
+    let mut materials = MaterialMap {
+        textures: std::mem::take(cache),
+        shaders: std::rc::Rc::clone(shaders),
+        ..MaterialMap::default()
+    };
+    let result = material_for(&mut materials, material, textures);
+    *cache = materials.textures;
+    result
+}
+
 /// FaceGen RGB tint multiplies the head diffuse without replacing its detail.
 pub(crate) fn face_material_from(
     material: &MaterialDesc,
     textures: &SurfaceTextures,
     tint_path: &str,
     tint: &crate::data_source::TextureData,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &ShaderCache,
 ) -> Gd<Material> {
-    let mut shader = godot::classes::Shader::new_gd();
-    shader.set_code("shader_type spatial;\nuniform sampler2D diffuse_map : source_color;\nuniform sampler2D tint_map : source_color;\nuniform sampler2D normal_map : hint_normal;\nvoid fragment() { ALBEDO = texture(diffuse_map, UV).rgb * texture(tint_map, UV).rgb; NORMAL_MAP = texture(normal_map, UV).rgb; ROUGHNESS = 0.8; }\n");
+    let shader = shader_for_code(shaders, "shader_type spatial;\nuniform sampler2D diffuse_map : source_color;\nuniform sampler2D tint_map : source_color;\nuniform sampler2D normal_map : hint_normal;\nvoid fragment() { ALBEDO = texture(diffuse_map, UV).rgb * texture(tint_map, UV).rgb; NORMAL_MAP = texture(normal_map, UV).rgb; ROUGHNESS = 0.8; }\n".to_owned());
     let mut mat = godot::classes::ShaderMaterial::new_gd();
     mat.set_shader(&shader);
-    let mut cache = std::collections::HashMap::new();
-    if let Some(texture) = albedo_texture(&mut cache, material, textures) {
+    if let Some(texture) = albedo_texture(cache, material, textures) {
         mat.set_shader_parameter("diffuse_map", &texture.to_variant());
     }
-    if let Some(texture) = cached_texture(&mut cache, Some(tint_path), tint) {
+    if let Some(texture) = cached_texture(cache, Some(tint_path), tint) {
         mat.set_shader_parameter("tint_map", &texture.to_variant());
     }
     if let Some(normal) = &textures.normal {
-        if let Some(texture) = cached_texture(&mut cache, material.normal.as_deref(), normal) {
+        if let Some(texture) = cached_texture(cache, material.normal.as_deref(), normal) {
             mat.set_shader_parameter("normal_map", &texture.to_variant());
         }
     }

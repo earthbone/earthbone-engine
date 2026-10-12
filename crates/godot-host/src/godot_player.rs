@@ -927,6 +927,11 @@ impl PlayerNode {
         };
         let actor = soe_esm::GlobalFormId { file, object };
         let is_player = actor == game.player();
+        if let Some(streamer) = &self.game_streamer {
+            visual
+                .bind_mut()
+                .use_material_shaders(streamer.bind().shared_material_shaders());
+        }
         let appearance =
             visual
                 .bind_mut()

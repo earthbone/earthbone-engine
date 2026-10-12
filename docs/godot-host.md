@@ -638,8 +638,10 @@ Texture upload measures Godot resource creation, excluding GPU execution.
 Warm material and texture cache hits produce no new upload work. Clearing or
 releasing a cell removes its report. Shared textures are charged once to each
 cell that uses them, including every cubemap face and generated LAND albedo.
-Material caches can retain resources beyond cell release, so these per-cell
-totals describe cell usage rather than global physical texture residency.
+Material caches retain shared resources while meshes or other host resources
+own them. Cell release and location clearing prune unused materials, then
+textures, cubemaps and shaders. These per-cell totals describe cell usage
+rather than global physical texture residency.
 
 `plugin_record_memory` counts requested capacity of retained record bodies,
 subrecord tables and subrecord payloads per defining plugin, including losing
@@ -2317,6 +2319,53 @@ Every installed grid cell is registered for `exterior_cell_batches` and
 `release_exterior_cell`, including cells installed through gameplay location
 replacement. Departed cells leave that grid lookup. Bulk geometry still uses
 RenderingServer RIDs and this change adds no reference nodes or saved state.
+
+Ordinary worldspaces select persistent geometry by its winning REFR position's
+physical grid. Rendering, collision, reference accounting and deferred resource
+creation share that selection. The cached index contains FormIDs only and is
+shared with speculative views. Logical persistent-cell ownership and script
+residency stay in the original CellIndex and World. Small worlds retain their
+complete persistent geometry under RND-27.
+
+The integration of RND-27 with RND-32 exposed a world-wide resource load:
+adding Tamriel's persistent cell prepared distant models during the Whiterun
+gate crossing. The 2026-10-12 PRF-35 diagnostic sampled Godot's VmRSS every
+three seconds. It reached 16,296,780 KiB at 36 seconds and 19,018,648 KiB
+at 39 seconds, when the sampler terminated its own Godot process.
+The selection follows local UESP `CELL.wikitext` and the existing CellIndex's
+persistent-child distinction. OpenMW `mwworld/scene.cpp`, `changeCellGrid`,
+supplies the active-grid residency model. Its cell storage does not use this
+engine's FormID table, so the host reuses its existing REFR reader and index.
+Synthetic regressions check nearby and distant persistent references,
+negative grid coordinates, unchanged logical ownership, collision selection
+and complete small-world coverage.
+Actor surface uploads also share their image textures within one upload while
+retaining separate materials for tint and visibility. Departed world resources
+are removed from the material caches when their Godot reference count shows
+that only the cache owns them. Existing meshes and preloaded art retain their
+resources through normal Godot ownership.
+Tree, landscape LOD and refraction materials now use the source-text shader
+cache too. Player and NPC materials share that cache with the streamer,
+including FaceGen shaders. Uniforms remain private to each material.
+This follows the existing shader reuse contract across RND-24, RND-26 and
+HST-23. Resource ownership follows local Godot `class_refcounted.rst`,
+`class_arraymesh.rst` and `class_shadermaterial.rst`.
+
+The second-round host library check reported 428 passes, including installed
+checks that return early without SKYRIM_DATA. The synthetic Godot regression
+`integration_memory_clear_preserves_live_meshes_and_releases_unused_resources`
+passed. It checks live mesh ownership, unused material and texture release,
+shader identity across different materials and independent uniforms.
+Formatting and all-target clippy passed. The full lint script was excluded
+by the integration repair task.
+
+Installed validation remains incomplete. Grid selection and resource pruning
+alone still reached 16,889,156 KiB and were stopped by the sampler. The final
+shader-sharing build's PRF-35 measurement waited on shared slots and was
+cancelled before Godot started. A peak below 8 GB is not established.
+The two installed PRF-13 cases have not been rerun. PLY-03 runs its checkpoint
+worlds in Rust without Godot. Its six installed acceptance cases were not
+rerun, and retain the quest progression gaps documented in the game chapter.
 
 Sources are local UESP `uesp-modfileformat/WRLD.wikitext`, xEdit
 `TES5Edit/Core/wbDefinitionsTES5.pas` WRLD DATA and PNAM definitions, and the

@@ -41,8 +41,8 @@ impl DataSource {
             .collect();
         let index = self.cell_index();
         let mut result: BTreeMap<Tag, ReferenceCounts> = BTreeMap::new();
-        for &id in index
-            .references(cell)
+        for &id in self
+            .presentation_references(cell)
             .iter()
             .chain(index.deleted_references(cell))
         {

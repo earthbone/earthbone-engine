@@ -181,7 +181,7 @@ impl CellStreamerNode {
                 effect,
                 &surface.textures,
                 &mut self.materials.textures,
-                &mut self.materials.shaders,
+                &self.materials.shaders,
             )
             .upcast()
         } else {
@@ -190,7 +190,7 @@ impl CellStreamerNode {
                 &surface.textures,
                 &mut self.materials.textures,
                 &mut self.materials.cubemaps,
-                &mut self.materials.shaders,
+                &self.materials.shaders,
             )
             .upcast()
         };
