@@ -166,13 +166,17 @@ and checks the source path and line. The game integration test applies that
 same rule through `Game::apply_mod_data` and confirms that the armor's keyword
 query sees the result. The rule refers to a form supplied by Schlongs of
 Skyrim, so the test models that keyword record rather than needing the external
-mod installed. No real SPID, BOS or OAR mod fixture is available in the local
+mod installed. No real SPID or BOS mod fixture is available in the local
 reference tree. The `mod_07_real_mod_parsers_keep_fixture_provenance` test scans
 one child directory per mod under `SOE_MOD_CORPUS`, requires a real SPID, KID,
 BOS and OAR or DAR configuration when that corpus is set, and checks nonempty
 parsed rules, source paths and source lines. For OAR it checks that the
-selected submod points back to its `config.json` or `user.json`. That corpus
-test does not apply those files through `soe-game`.
+selected submod points back to its `config.json` or `user.json`. The gated
+`mod_07_real_mod_corpus_enters_game_mod_data_pipeline` game test passes that
+corpus through `Game::apply_mod_data` and checks that SPID and KID rules are
+read, BOS files are discovered, and OAR or DAR trees are retained. The game
+test uses its synthetic load order, so it does not prove resolved SPID or BOS
+effects for the corpus mods.
 
 | Test suite | Count | What it covers |
 |---|---|---|
@@ -180,16 +184,17 @@ test does not apply those files through `soe-game`.
 | `tests/resolve.rs` | 14 | Resolution against a synthetic load order, including absent forms, patch provenance for all three ini formats and the real KID rule |
 | `tests/mod_07_adversarial.rs` | 4 | Synthetic source-line provenance for all three ini formats and a corpus-gated parse and provenance survey for SPID, KID, BOS and OAR or DAR |
 | `game/tests/moddata_apply.rs` | 1 MOD-07 case | The real Devious Devices KID rule retains its filename and line and changes the game-visible keyword query |
+| `game/tests/moddata_apply.rs` | 1 corpus-gated MOD-07 case | Real corpus SPID and KID rules enter the game pipeline, BOS files are discovered, and OAR or DAR trees are retained |
 | `tests/mod_04_adversarial.rs` | 4 | A user priority override changes selection, disabled overrides exclude submods, user conditions replace author conditions, and an empty animation folder keeps the submod path |
 | `tests/mod_04_breaker_adversarial.rs` | 4 | Negative and maximum priorities select correctly, missing user priority does not fall back, and out of range priority is rejected |
 | `game/tests/mod_04_breaker_2_adversarial.rs` | 2 | User priority selects the game clip and `overrideAnimationsFolder` supplies it from a sibling directory |
 
 ## Not done
 
-- MOD-07 applies the real KID rule through the game. Real SPID, BOS and OAR
-  mod fixtures and game-side application remain untested. Set
-  `SOE_MOD_CORPUS` to a directory containing one mod directory per child to
-  run the parser provenance survey.
+- The in-tree real game effect fixture is KID. Real SPID, BOS and OAR or DAR
+  game-visible effects remain unverified because the corpus test load order
+  does not include each mod's referenced plugins. Set `SOE_MOD_CORPUS` to a
+  directory containing one mod directory per child to run both corpus surveys.
 - Keyword Item Distributor's exclusive groups, which share the file under other
   keys and are currently reported as skipped lines.
 - The two fields left as written.
