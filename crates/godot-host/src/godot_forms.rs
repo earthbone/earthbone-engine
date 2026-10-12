@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use godot::classes::RefCounted;
+use godot::classes::{ArrayMesh, RefCounted};
 use godot::prelude::*;
 use soe_editor::EditorDocument;
 use soe_esm::records::refr::Refr;
@@ -83,6 +83,49 @@ impl IRefCounted for SoeFormTable {
 
 #[godot_api]
 impl SoeFormTable {
+    /// Generate ArrayMesh shapes for a selected winning NPC from a Data VFS.
+    /// Archive precedence follows the open document's load order, with loose
+    /// files winning. Failed generation returns no partial mesh collection.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn generate_npc_head(
+        &mut self,
+        encoded_id: GString,
+        data_directory: GString,
+    ) -> Array<Gd<ArrayMesh>> {
+        let generate = || -> Result<_, String> {
+            let document = self.document.as_ref().ok_or("no editor document is open")?;
+            let npc = parse_form_id(&encoded_id.to_string()).ok_or("invalid NPC form id")?;
+            let directory = PathBuf::from(data_directory.to_string());
+            let mut assets = soe_bsa::Vfs::new();
+            for file in document.load_order().files() {
+                for path in soe_bsa::find_associated_archives(&file.name, &directory)
+                    .map_err(|error| error.to_string())?
+                {
+                    assets
+                        .add_archive_path(&path)
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+            assets
+                .add_loose_root(&directory)
+                .map_err(|error| error.to_string())?;
+            crate::facegen::generate_npc_head(document.load_order(), &assets, npc)
+                .map_err(|error| error.to_string())
+        };
+        let mut meshes = Array::new();
+        match generate() {
+            Ok(parts) => {
+                for part in parts {
+                    meshes.push(&crate::godot_layer::array_mesh_from(&part.surface));
+                }
+                self.last_error = GString::new();
+            }
+            Err(error) => self.last_error = GString::from(error.as_str()),
+        }
+        meshes
+    }
+
     /// Query the first host collision around a Skyrim-space point.
     #[func]
     pub fn query_ground_collision(

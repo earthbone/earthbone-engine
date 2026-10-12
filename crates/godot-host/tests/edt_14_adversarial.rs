@@ -55,6 +55,7 @@ fn edt_14_gizmo_bridge_edits_record_undoes_proxy_and_saves_restored_pose() {
         r#"extends SceneTree
 
 const Target = preload("res://addons/soe_reference_gizmo/reference_target.gd")
+const ReferenceHandle = preload("res://addons/soe_reference_gizmo/reference_handle.gd")
 
 var failures := 0
 
@@ -64,6 +65,7 @@ func _check(value: bool, message: String) -> void:
 		printerr("FAIL: ", message)
 
 func _initialize() -> void:
+	await process_frame
 	# CONTEXT: A fresh checkout has no cached extension list.
 	var status := GDExtensionManager.load_extension("res://soe.gdextension")
 	if status != GDExtensionManager.LOAD_STATUS_OK and status != GDExtensionManager.LOAD_STATUS_ALREADY_LOADED:
@@ -80,26 +82,40 @@ func _initialize() -> void:
 		printerr("FAIL: synthetic load order did not open: ", editor.last_error())
 		quit(1)
 		return
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(640, 360)
+	root.add_child(viewport)
+	var scene := Node3D.new()
+	viewport.add_child(scene)
 	var target = Target.new()
 	target.form_id = "1:000800"
 	target.editor_document = editor
+	scene.add_child(target)
 	if not target.load_record_transform():
 		printerr("FAIL: proxy did not load its record transform")
 		quit(1)
 		return
-	var before_position: Vector3 = target.position
-	var before_rotation: Vector3 = target.rotation
+	var before_position: Vector3 = target.global_position
+	var before_rotation: Vector3 = target.record_rotation
 	var restore := {"position": before_position, "rotation": before_rotation}
-	var after_position := Vector3(-3900.0, 8192.0, -4096.25)
+	var camera := Camera3D.new()
+	scene.add_child(camera)
+	camera.position = before_position + Vector3(0.0, 0.0, 1000.0)
+	camera.look_at(before_position)
+	camera.current = true
+	await process_frame
+	_check(ReferenceHandle.drag_target_to_screen(target, camera, Vector2(400.0, 180.0)), "editor handle ray intersects the placement plane")
+	var after_position: Vector3 = target.global_position
+	_check(after_position != before_position, "dragged handle moves the rendered reference proxy")
 	var after_rotation := Vector3(-2.0, 0.75, 3.125)
-	_check(target.commit_gizmo_transform(after_position, after_rotation, restore, false), "gizmo commit reaches the record bridge")
+	_check(ReferenceHandle.commit_target_transform(target, after_position, after_rotation, restore, false), "gizmo commit reaches the record bridge")
 	var edited: Dictionary = editor.reference_transform(target.form_id)
 	_check(edited.get("position") == after_position, "edited record has gizmo position")
 	_check(edited.get("rotation") == after_rotation, "edited record has gizmo rotation")
 	_check(editor.undo(), "record edit can be undone")
 	_check(target.load_record_transform(), "proxy reloads after undo")
-	_check(target.position == before_position, "undo restores proxy position")
-	_check(target.rotation == before_rotation, "undo restores proxy rotation")
+	_check(target.global_position == before_position, "undo restores proxy position")
+	_check(target.record_rotation == before_rotation, "undo restores proxy rotation")
 	_check(editor.save(), "restored plugin saves")
 	var reopened = ClassDB.instantiate("SoeReferenceTransformEditor")
 	_check(reopened != null and reopened.open(paths, "Patch.esp"), "saved plugin reopens")

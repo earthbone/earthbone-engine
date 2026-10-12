@@ -4,10 +4,18 @@
 //!
 //! The morph path converts named TRI weights into host surface arrays. The tint
 //! path composes decoded masks into a BC1 sRGB DDS and provides its game asset path.
+//! Record layouts follow xEdit's NPC_ and HDPT definitions. Signed slider order
+//! follows SKSE's FaceMorphList, with absolute weights as in RaceMenu's
+//! FaceMorphInterface::ApplyMorph. TiltedEvolution resolves head parts before
+//! looking up geometry. TRI decoding is shared with soe-nif's BodySlide reader.
 
+use std::collections::HashSet;
 use std::path::{Component, PathBuf};
 
 use soe_dds::{dxgi, encode, Image};
+use soe_esm::cursor::Fields;
+use soe_esm::records::npc::{NpcFace, FACE_MORPH_COUNT};
+use soe_esm::{GlobalFormId, LoadOrder, Record, Tag};
 use soe_nif::{HeadTri, Mesh as NifMesh};
 use thiserror::Error;
 
@@ -21,6 +29,240 @@ pub enum FaceGenError {
     Nif(#[from] soe_nif::Error),
     #[error(transparent)]
     Mesh(#[from] MeshError),
+    #[error(transparent)]
+    Record(#[from] soe_esm::Error),
+    #[error(transparent)]
+    Asset(#[from] soe_bsa::Error),
+    #[error("FaceGen form {form}: {reason}")]
+    InvalidRecord { form: GlobalFormId, reason: String },
+}
+
+const NAM9_NAMES: [(&str, &str); FACE_MORPH_COUNT] = [
+    ("NoseShort", "NoseLong"),
+    ("NoseDown", "NoseUp"),
+    ("JawUp", "JawDown"),
+    ("JawNarrow", "JawWide"),
+    ("JawBack", "JawForward"),
+    ("CheeksDown", "CheeksUp"),
+    ("CheeksIn", "CheeksOut"),
+    ("EyesMoveDown", "EyesMoveUp"),
+    ("EyesMoveIn", "EyesMoveOut"),
+    ("BrowDown", "BrowUp"),
+    ("BrowIn", "BrowOut"),
+    ("BrowBack", "BrowForward"),
+    ("LipMoveDown", "LipMoveUp"),
+    ("LipMoveIn", "LipMoveOut"),
+    ("ChinThin", "ChinWide"),
+    ("ChinMoveUp", "ChinMoveDown"),
+    ("Overbite", "Underbite"),
+    ("EyesBack", "EyesForward"),
+    ("VampireMorph", "VampireMorph"),
+];
+
+/// Map the signed NPC NAM9 sliders to named TRI targets in record field order.
+/// Zero and the FaceData default sentinel do not select a target. Negative
+/// values select the lower target and positive values select the upper target.
+///
+/// # Errors
+/// Returns a record error for a non-finite slider value.
+pub fn nam9_morph_weights(
+    values: &[f32; FACE_MORPH_COUNT],
+) -> Result<Vec<(&'static str, f32)>, FaceGenError> {
+    if values.iter().any(|value| !value.is_finite()) {
+        return Err(soe_esm::Error::Invalid("NPC face morph values must be finite".into()).into());
+    }
+    Ok(values
+        .iter()
+        .zip(NAM9_NAMES)
+        .filter(|(value, _)| **value != 0.0 && **value != f32::MAX)
+        .map(|(value, (lower, upper))| (if *value < 0.0 { lower } else { upper }, value.abs()))
+        .collect())
+}
+
+/// One generated shape, retaining its HDPT identity and renderer-neutral mesh.
+#[derive(Debug)]
+pub struct GeneratedHeadPart {
+    /// Resolved winning HDPT form that declared this shape's assets.
+    pub form: GlobalFormId,
+    /// Generated geometry in Skyrim coordinates, with authored mesh metadata.
+    pub mesh: NifMesh,
+    /// The same geometry converted to Godot surface arrays.
+    pub surface: SurfaceArrays,
+}
+
+fn invalid_record(form: GlobalFormId, reason: impl Into<String>) -> FaceGenError {
+    FaceGenError::InvalidRecord {
+        form,
+        reason: reason.into(),
+    }
+}
+
+fn asset_path(value: &str) -> String {
+    let path = value.replace('\\', "/");
+    if path.to_ascii_lowercase().starts_with("meshes/") {
+        path
+    } else {
+        format!("meshes/{path}")
+    }
+}
+
+fn chargen_path(record: &Record, form: GlobalFormId) -> Result<Option<String>, FaceGenError> {
+    let mut kind = None;
+    let mut path = None;
+    for sub in &record.subrecords {
+        let mut fields = Fields::new(record.tag, sub.tag, &sub.data);
+        if sub.tag == Tag(*b"NAM0") {
+            if kind.is_some() {
+                return Err(invalid_record(form, "HDPT NAM0 has no NAM1 filename"));
+            }
+            fields.exact(4)?;
+            kind = Some(fields.u32()?);
+        } else if sub.tag == Tag(*b"NAM1") {
+            let part_kind = kind
+                .take()
+                .ok_or_else(|| invalid_record(form, "orphan HDPT NAM1"))?;
+            if part_kind == 2 {
+                if path.is_some() {
+                    return Err(invalid_record(form, "repeated chargen TRI declaration"));
+                }
+                path = Some(soe_esm::cursor::zstring(&sub.data));
+            }
+        }
+    }
+    if kind.is_some() {
+        return Err(invalid_record(form, "HDPT NAM0 has no NAM1 filename"));
+    }
+    Ok(path.filter(|path| !path.is_empty()))
+}
+
+/// Generate a winning NPC's declared PNAM head parts and their HNAM extras.
+///
+/// Links resolve in each winning record's source namespace. Assets use the
+/// supplied load-order VFS. NAM0 type 2 selects the chargen TRI, independently
+/// of the expression TRI. Only the unique shape matching that TRI's base
+/// vertices is morphed. Targets absent from a part's TRI leave that part alone.
+/// Shapes without a chargen TRI retain their authored geometry. Results follow
+/// PNAM order, then depth-first HNAM order, with shared extras emitted once.
+///
+/// # Errors
+/// Returns typed errors for absent, deleted or wrongly typed forms, malformed
+/// records or assets, cyclic extras, or ambiguous or mismatched TRI geometry.
+pub fn generate_npc_head(
+    order: &LoadOrder,
+    assets: &soe_bsa::Vfs,
+    npc: GlobalFormId,
+) -> Result<Vec<GeneratedHeadPart>, FaceGenError> {
+    let source = order
+        .winner_ref(npc)
+        .ok_or_else(|| invalid_record(npc, "missing NPC"))?;
+    let record = order.record(source);
+    if record.flags & soe_esm::plugin::flags::DELETED != 0 {
+        return Err(invalid_record(npc, "deleted NPC"));
+    }
+    let face = NpcFace::from_record(record)?;
+    let weights = nam9_morph_weights(&face.morph)?;
+    let mut pending: Vec<_> = face
+        .head_parts
+        .iter()
+        .rev()
+        .map(|raw| (order.resolve(source.file, *raw), false))
+        .collect();
+    let mut visiting = HashSet::new();
+    let mut complete = HashSet::new();
+    let mut result = Vec::new();
+    while let Some((form, leaving)) = pending.pop() {
+        if leaving {
+            visiting.remove(&form);
+            complete.insert(form);
+            continue;
+        }
+        if complete.contains(&form) {
+            continue;
+        }
+        if !visiting.insert(form) {
+            return Err(invalid_record(form, "cyclic HDPT extra parts"));
+        }
+        let source = order
+            .winner_ref(form)
+            .ok_or_else(|| invalid_record(form, "missing head part"))?;
+        let record = order.record(source);
+        if record.tag != Tag(*b"HDPT") || record.flags & soe_esm::plugin::flags::DELETED != 0 {
+            return Err(invalid_record(form, "head part must be a live HDPT"));
+        }
+        let model = record
+            .find(Tag(*b"MODL"))
+            .ok_or_else(|| invalid_record(form, "head part has no MODL"))?;
+        let model = soe_esm::cursor::zstring(model);
+        if model.is_empty() {
+            return Err(invalid_record(form, "empty head-part MODL"));
+        }
+        let meshes = soe_nif::parse(&assets.read(&asset_path(&model))?)?.meshes()?;
+        if meshes.is_empty() {
+            return Err(invalid_record(form, "head-part NIF has no shapes"));
+        }
+        let tri = chargen_path(record, form)?
+            .map(|path| {
+                Ok::<_, FaceGenError>(soe_nif::parse_head_tri(&assets.read(&asset_path(&path))?)?)
+            })
+            .transpose()?;
+        let matched = if let Some(tri) = &tri {
+            let matching: Vec<_> = meshes
+                .iter()
+                .enumerate()
+                .filter(|(_, mesh)| {
+                    mesh.positions.len() == tri.vertices().len()
+                        && mesh
+                            .positions
+                            .iter()
+                            .zip(tri.vertices())
+                            .all(|(a, b)| a.iter().zip(b).all(|(a, b)| (a - b).abs() <= 1.0e-4))
+                })
+                .map(|(index, _)| index)
+                .collect();
+            if matching.len() != 1 {
+                return Err(invalid_record(
+                    form,
+                    "chargen TRI must match exactly one NIF shape",
+                ));
+            }
+            matching.first().copied()
+        } else {
+            None
+        };
+        for (index, mesh) in meshes.into_iter().enumerate() {
+            let mesh = if let Some(tri) = tri.as_ref().filter(|_| matched == Some(index)) {
+                let selected: Vec<_> = weights
+                    .iter()
+                    .copied()
+                    .filter(|(name, _)| tri.morphs().iter().any(|morph| morph.name() == *name))
+                    .collect();
+                tri.apply_to_mesh(&mesh, &selected)?
+            } else {
+                mesh
+            };
+            let surface = build_surface(
+                &mesh_data_from(&mesh, &mesh.transform),
+                MeshOptions::default(),
+            )?;
+            result.push(GeneratedHeadPart {
+                form,
+                mesh,
+                surface,
+            });
+        }
+        pending.push((form, true));
+        for data in record
+            .all(Tag(*b"HNAM"))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+        {
+            let mut fields = Fields::new(record.tag, Tag(*b"HNAM"), data);
+            fields.exact(4)?;
+            pending.push((order.resolve(source.file, fields.u32()?), false));
+        }
+    }
+    Ok(result)
 }
 
 /// Apply TRI morphs to one already resolved NPC head-part mesh and build its
