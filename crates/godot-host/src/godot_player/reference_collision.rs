@@ -136,7 +136,7 @@ impl PlayerNode {
                     .position(|(candidate, _)| *candidate == cell)
                 {
                     if let Some((cell, offset)) = self.collision_removing.remove(index) {
-                        let references = source.cell_index().references(cell);
+                        let references = source.presentation_references(cell);
                         drop_residents(
                             &references[offset.min(references.len())..],
                             cell,
@@ -162,7 +162,7 @@ impl PlayerNode {
             if started.elapsed() >= budget {
                 break;
             }
-            let references = source.cell_index().references(cell);
+            let references = source.presentation_references(cell);
             let from = offset.min(references.len());
             let end = (from + EXPAND_SLICE).min(references.len());
             drop_residents(
@@ -185,7 +185,7 @@ impl PlayerNode {
             if started.elapsed() >= budget {
                 break;
             }
-            let references = source.cell_index().references(cell);
+            let references = source.presentation_references(cell);
             let end = (self.collision_expand_offset + EXPAND_SLICE).min(references.len());
             for id in &references[self.collision_expand_offset.min(end)..end] {
                 self.collision_residents.insert(*id, cell);

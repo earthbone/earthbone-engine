@@ -220,6 +220,7 @@ pub struct SkinnedActorNode {
     shapes: Vec<ShapeRids>,
     meshes: Vec<Gd<ArrayMesh>>,
     materials: Vec<Gd<Material>>,
+    material_shaders: crate::godot_layer::ShaderCache,
     /// Reused every frame so a tick allocates nothing.
     model: Vec<QsTransform>,
     skins: Vec<Affine>,
@@ -259,6 +260,7 @@ impl INode3D for SkinnedActorNode {
             shapes: Vec::new(),
             meshes: Vec::new(),
             materials: Vec::new(),
+            material_shaders: crate::godot_layer::ShaderCache::default(),
             model: Vec::new(),
             skins: Vec::new(),
             uploaded_skins: Vec::new(),
@@ -589,6 +591,7 @@ impl SkinnedActorNode {
 
     fn upload_surfaces(&mut self, scenario: Rid) {
         let mut server = RenderingServer::singleton();
+        let mut textures = std::collections::HashMap::new();
         for surface in &self.surfaces {
             let bones = surface.map.len();
             let skeleton = server.skeleton_create();
@@ -603,9 +606,16 @@ impl SkinnedActorNode {
                     &surface.textures,
                     path,
                     tint,
+                    &mut textures,
+                    &self.material_shaders,
                 )
             } else {
-                crate::godot_layer::material_from(&surface.arrays.material, &surface.textures)
+                crate::godot_layer::actor_material_from(
+                    &surface.arrays.material,
+                    &surface.textures,
+                    &mut textures,
+                    &self.material_shaders,
+                )
             };
             if let Some([r, g, b]) = surface.tint_color {
                 if let Ok(mut standard) = material
@@ -1174,6 +1184,10 @@ fn clear_magic_animation_state(binding: &AppearanceBinding) {
 }
 
 impl SkinnedActorNode {
+    pub(crate) fn use_material_shaders(&mut self, shaders: crate::godot_layer::ShaderCache) {
+        self.material_shaders = shaders;
+    }
+
     fn install_rig(&mut self, assets: Arc<ActorAssets>) {
         self.vm = None;
         self.assets = Some(assets);

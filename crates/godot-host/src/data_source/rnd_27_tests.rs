@@ -7,8 +7,17 @@ use soe_esm::records::wrld::{flags, World};
 use soe_esm::{Entry, FileHeader, Group, GroupKind, Plugin};
 
 fn fixture(small: bool, parent_flags: u16) -> (tempfile::TempDir, DataSource) {
+    fixture_with_persistent(small, parent_flags, &[])
+}
+
+fn fixture_with_persistent(
+    small: bool,
+    parent_flags: u16,
+    positions: &[[f32; 3]],
+) -> (tempfile::TempDir, DataSource) {
     let directory = tempfile::tempdir().unwrap();
     let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(tag::STAT, 0x900).zsub(b"MODL", "missing.nif"));
     let mut top = Group::new(GroupKind::Top(tag::WRLD));
     for world in [0x100u32, 0x200] {
         let mut record = Record::new(tag::WRLD, world)
@@ -28,6 +37,29 @@ fn fixture(small: bool, parent_flags: u16) -> (tempfile::TempDir, DataSource) {
                     .sub(b"XCLC", [0; 12]),
             ),
         ));
+        if world == 0x200 && !positions.is_empty() {
+            let mut persistent = Group::new(GroupKind::CellPersistent(world + 1));
+            for (offset, position) in positions.iter().enumerate() {
+                persistent.entries.push(Entry::Record(
+                    plugin.push_record(
+                        Record::new(tag::REFR, 0x700 + offset as u32)
+                            .sub(b"NAME", 0x900u32.to_le_bytes())
+                            .sub(
+                                b"DATA",
+                                position
+                                    .iter()
+                                    .copied()
+                                    .chain([0.0; 3])
+                                    .flat_map(f32::to_le_bytes)
+                                    .collect::<Vec<_>>(),
+                            ),
+                    ),
+                ));
+            }
+            let mut cell = Group::new(GroupKind::CellChildren(world + 1));
+            cell.entries.push(Entry::Group(persistent));
+            children.entries.push(Entry::Group(cell));
+        }
         let mut block = Group::new(GroupKind::ExteriorBlock { x: 0, y: 0 });
         let mut sub = Group::new(GroupKind::ExteriorSubBlock { x: 0, y: 0 });
         for (offset, x, y) in [(2, 0i32, 0i32), (3, 3, 0), (4, -2, -1)] {
@@ -82,6 +114,63 @@ fn fixture(small: bool, parent_flags: u16) -> (tempfile::TempDir, DataSource) {
     }
     let source = DataSource::open(directory.path()).unwrap();
     (directory, source)
+}
+
+#[test]
+fn integration_persistent_geometry_loads_only_its_physical_grid() {
+    let (_directory, source) = fixture_with_persistent(
+        false,
+        0,
+        &[
+            [100.0, 100.0, 0.0],
+            [3.0 * crate::units::CELL_UNITS, 100.0, 0.0],
+            [-2.0 * crate::units::CELL_UNITS, -100.0, 0.0],
+        ],
+    );
+    let id = |object| GlobalFormId { file: 0, object };
+    assert_eq!(source.cell_index().references(id(0x201)).len(), 3);
+    assert!(source.presentation_references(id(0x201)).is_empty());
+    for (grid, reference, position) in [
+        (0x202, 0x700, [100.0, 100.0, 0.0]),
+        (0x203, 0x701, [3.0 * crate::units::CELL_UNITS, 100.0, 0.0]),
+        (0x204, 0x702, [-2.0 * crate::units::CELL_UNITS, -100.0, 0.0]),
+    ] {
+        assert_eq!(source.presentation_references(id(grid)), &[id(reference)]);
+        let location = source.load_location(id(grid), position, 0).unwrap();
+        assert_eq!(location.cells.len(), 2);
+        assert_eq!(location.collision.stats.references, 1);
+        assert_eq!(location.collision.stats.failed, 1);
+        assert_eq!(
+            location
+                .cells
+                .iter()
+                .map(|(_, loaded)| loaded.stats.meshes_failed)
+                .sum::<usize>(),
+            1,
+            "only the resident reference may attempt asset loading"
+        );
+        let winner = source.order.winner_ref(id(reference)).unwrap();
+        assert_eq!(source.order.record(winner).placement.cell, Some(0x201));
+    }
+}
+
+#[test]
+fn integration_small_world_keeps_persistent_geometry_in_its_logical_cell() {
+    let (_directory, source) = fixture_with_persistent(
+        true,
+        0,
+        &[
+            [100.0, 100.0, 0.0],
+            [3.0 * crate::units::CELL_UNITS, 100.0, 0.0],
+        ],
+    );
+    let id = |object| GlobalFormId { file: 0, object };
+    assert_eq!(source.presentation_references(id(0x201)).len(), 2);
+    assert!(source.presentation_references(id(0x202)).is_empty());
+    assert!(source.presentation_references(id(0x203)).is_empty());
+    let location = source.load_location(id(0x202), [0.0; 3], 0).unwrap();
+    assert_eq!(location.collision.stats.references, 2);
+    assert_eq!(location.collision.stats.failed, 2);
 }
 
 #[test]

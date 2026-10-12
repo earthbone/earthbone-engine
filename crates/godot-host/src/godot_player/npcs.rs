@@ -359,6 +359,11 @@ impl PlayerNode {
                                 .node
                                 .take()
                                 .unwrap_or_else(SkinnedActorNode::new_alloc);
+                            if let Some(streamer) = &self.game_streamer {
+                                node.bind_mut().use_material_shaders(
+                                    streamer.bind().shared_material_shaders(),
+                                );
+                            }
                             if !node.is_inside_tree() {
                                 parent.add_child(&node);
                             }

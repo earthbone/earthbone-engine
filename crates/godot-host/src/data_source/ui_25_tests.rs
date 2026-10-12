@@ -35,6 +35,7 @@ fn source(root: &Path) -> DataSource {
         threads: 1,
         workers: WorkerPools::default(),
         textures: TextureCache::default(),
+        presentation_references: Arc::default(),
         profile_settings: soe_profile::Settings::default(),
         profile_ini_dir: None,
         language: "french".into(),

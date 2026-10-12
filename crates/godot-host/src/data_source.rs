@@ -369,6 +369,7 @@ pub struct DataSource {
     threads: usize,
     workers: WorkerPools,
     textures: TextureCache,
+    presentation_references: Arc<std::sync::OnceLock<HashMap<GlobalFormId, Vec<GlobalFormId>>>>,
     profile_settings: soe_profile::Settings,
     profile_ini_dir: Option<PathBuf>,
     language: String,
@@ -499,6 +500,7 @@ impl DataSource {
             threads: 1,
             workers: self.workers.clone(),
             textures: TextureCache::default(),
+            presentation_references: Arc::clone(&self.presentation_references),
             profile_settings: self.profile_settings.clone(),
             profile_ini_dir: self.profile_ini_dir.clone(),
             language: self.language.clone(),
@@ -615,6 +617,7 @@ impl DataSource {
             threads,
             workers,
             textures: TextureCache::default(),
+            presentation_references: Arc::default(),
             profile_settings: loadout.settings.clone(),
             profile_ini_dir: loadout.ini_dir.clone(),
             language: loadout
@@ -711,6 +714,54 @@ impl DataSource {
     #[must_use]
     pub fn cell_index(&self) -> &CellIndex {
         self.order.build_cell_index()
+    }
+
+    /// Physical grid residency for world-persistent geometry, retaining FormIDs.
+    /// Small worlds keep RND-27's whole-city presentation. The record index
+    /// continues to own logical cells and script residency.
+    pub(crate) fn presentation_references(&self, cell: GlobalFormId) -> &[GlobalFormId] {
+        let index = self.cell_index();
+        let references = self.presentation_references.get_or_init(|| {
+            let mut references: HashMap<GlobalFormId, Vec<GlobalFormId>> = HashMap::new();
+            for (persistent, _) in index.cells() {
+                let Some(world) = index.persistent_cell_world(persistent) else {
+                    continue;
+                };
+                if self.is_small_world(world) {
+                    continue;
+                }
+                references.entry(persistent).or_default();
+                for &id in index.references(persistent) {
+                    let Some(record) = self.order.winner(id) else {
+                        continue;
+                    };
+                    let Some(position) = Refr::from_record(record)
+                        .ok()
+                        .and_then(|reference| reference.transform)
+                        .map(|transform| transform.position)
+                        .filter(|position| position.iter().all(|value| value.is_finite()))
+                    else {
+                        continue;
+                    };
+                    let x = (position[0] / crate::units::CELL_UNITS).floor() as i32;
+                    let y = (position[1] / crate::units::CELL_UNITS).floor() as i32;
+                    if let Some(grid) = index.exterior_cell(world, x, y) {
+                        references.entry(grid).or_default().push(id);
+                    }
+                }
+            }
+            for (&cell, ids) in &mut references {
+                if index.grid_of(cell).is_some() {
+                    ids.extend_from_slice(index.references(cell));
+                }
+                ids.sort_unstable();
+                ids.dedup();
+            }
+            references
+        });
+        references
+            .get(&cell)
+            .map_or_else(|| index.references(cell), Vec::as_slice)
     }
 
     /// Returns winning cells in a stable order for an editor tree.
@@ -856,7 +907,7 @@ impl DataSource {
         self.threads
     }
 
-    /// Walks every `REFR` the index files under `cell_id`, builds a
+    /// Walks the cell's physical reference selection, builds a
     /// `SurfaceArrays` for each static, furniture or container model, and reports
     /// what it found. `CellStats::references` counts `REFR` only, actors and
     /// projectiles the index also holds are skipped here.
@@ -876,14 +927,14 @@ impl DataSource {
             let _scan = soe_trace::Span::with_payload(
                 "host.scan_references",
                 "host",
-                self.cell_index().references(cell_id).len() as u64,
+                self.presentation_references(cell_id).len() as u64,
             );
             let mut work: Vec<(String, Refr, GlobalFormId)> = Vec::new();
             // A placed object whose winner is deleted is not in this slice,
             // the index files it under `deleted_references` instead. It stays
             // resolvable through the load order and the game starts it
             // disabled, so there is nothing here to draw.
-            for id in self.cell_index().references(cell_id).iter().copied() {
+            for id in self.presentation_references(cell_id).iter().copied() {
                 let Some(rref) = self.order.winner_ref(id) else {
                     continue;
                 };
