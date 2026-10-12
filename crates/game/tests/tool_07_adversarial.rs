@@ -77,6 +77,60 @@ fn captured() -> (
 }
 
 #[test]
+fn tool_07_vm_trace_and_error_reach_tool_06_papyrus_target() {
+    let (subscriber, control, lines) = captured();
+    let mut game = game();
+    let function = FunctionBuilder::new("Run", "None")
+        .global()
+        .local("result", "Var")
+        .ins(
+            CallStatic,
+            vec![s("Debug"), s("Trace"), s("result"), s("forwarded trace")],
+        )
+        .ins(
+            CallStatic,
+            vec![s("MissingScript"), s("MissingFunction"), s("result")],
+        );
+    game.load_script(
+        &ScriptBuilder::new("Tool07ForwardProbe", "Form")
+            .function(function.build())
+            .bytes(),
+    )
+    .unwrap();
+    game.vm
+        .call_global("Tool07ForwardProbe", "Run", &[])
+        .unwrap();
+
+    tracing::subscriber::with_default(subscriber, || game.run_until_idle(32));
+    control.flush_all().unwrap();
+
+    let events = lines.lock().unwrap();
+    let papyrus: Vec<_> = events
+        .iter()
+        .filter(|line| {
+            line.target == "papyrus" && line.fields.get("system").is_some_and(|v| v == "papyrus")
+        })
+        .collect();
+    assert!(
+        papyrus.iter().any(|line| line
+            .fields
+            .get("message")
+            .is_some_and(|v| v.contains("forwarded trace"))),
+        "VM trace did not reach TOOL-06's papyrus target: {events:?}"
+    );
+    assert!(
+        papyrus
+            .iter()
+            .any(|line| line.level == tracing::Level::ERROR
+                && line
+                    .fields
+                    .get("message")
+                    .is_some_and(|v| v.contains("MissingFunction"))),
+        "VM error did not reach TOOL-06's papyrus target as an error: {events:?}"
+    );
+}
+
+#[test]
 fn tool_07_adversarial_conditional_trace_stack_and_error_stack_follow_ck_contract() {
     let scratch = Scratch::new();
     let mut game = game();
