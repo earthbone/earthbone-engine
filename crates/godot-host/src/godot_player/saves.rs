@@ -69,6 +69,65 @@ fn failed_save(error: &Error) -> VarDictionary {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Restore a vanilla ESS into a fresh Game and attach its saved player
+    /// location before gameplay begins.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn start_gameplay_from_vanilla_save(&mut self, save_path: GString) -> VarDictionary {
+        self.base_mut().emit_signal(
+            "transition_requested",
+            &[Variant::from("full_load"), Variant::from("vanilla_ess")],
+        );
+        if self.game.is_some() {
+            return failed("gameplay has already started");
+        }
+        if std::env::var("SOE_THREADED_SIMULATION").as_deref() == Ok("1") {
+            return failed("vanilla ESS startup is unavailable with threaded gameplay");
+        }
+        let Some(source) = &self.data_source else {
+            return failed("game data has not been loaded");
+        };
+        if self.game_streamer.is_none() {
+            return failed("cell streamer data has not been shared");
+        }
+
+        let mut game = match source.localized_game() {
+            Ok(game) => game,
+            Err(error) => return failed(&error.to_string()),
+        };
+        if let Some(directory) = source.profile_papyrus_logs().1 {
+            if let Err(error) =
+                game.configure_papyrus_logs(source.profile_papyrus_logs().0, directory)
+            {
+                soe_trace::warn!(target: "host::saves", system = "host::saves",
+                    error = %error, "PlayerNode: could not configure Papyrus file logs");
+            }
+        }
+        let scripts = game.load_scripts_from_vfs(source.vfs());
+        if !scripts.scripts_failed.is_empty() {
+            return failed(&format!(
+                "could not load {} saved Papyrus definitions",
+                scripts.scripts_failed.len()
+            ));
+        }
+        let path = std::path::PathBuf::from(save_path.to_string());
+        if let Err(error) = game.restore_vanilla_save_file(&path) {
+            return failed(&error.to_string());
+        }
+        game.apply_mod_data(source.data_roots());
+        game.bind();
+        let character_id = game.world().player_character_id();
+        if !self.attach_restored_game(game) {
+            return failed("restored game host resources could not be installed");
+        }
+
+        let mut result = VarDictionary::new();
+        result.set("ok", true);
+        result.set("state_loaded", true);
+        result.set("save_character_id", format!("{character_id:016X}"));
+        result
+    }
+
     pub(super) fn write_requested_save(&mut self, automatic: bool) {
         let kind = if automatic { "automatic" } else { "manual" };
         let transition = if automatic {

@@ -1011,6 +1011,10 @@ mod mod_01_breaker4_adversarial;
 mod mod_01_breaker5_adversarial;
 #[path = "mod_01_breaker6_adversarial.rs"]
 mod mod_01_breaker6_adversarial;
+#[path = "mod_01_breaker7_adversarial.rs"]
+mod mod_01_breaker7_adversarial;
+#[path = "mod_01_breaker8_adversarial.rs"]
+mod mod_01_breaker8_adversarial;
 #[path = "mod_01_breaker_adversarial.rs"]
 mod mod_01_breaker_adversarial;
 #[path = "mod_02_adversarial.rs"]

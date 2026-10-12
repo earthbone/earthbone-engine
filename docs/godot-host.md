@@ -266,6 +266,21 @@ markers fail. The installed rig test also fails draw and attack progression
 in both views. The other three player tests and all 15 combat contact tests
 pass. These results leave the row partial.
 
+## Vanilla ESS gameplay startup, MOD-01
+
+`PlayerNode::start_gameplay_from_vanilla_save` builds a fresh profile-backed
+Game, loads its scripts, restores the selected vanilla ESS through
+`Game::restore_vanilla_save_file`, applies the profile's mod data and attaches
+the saved player location before gameplay starts. The restore path sets the
+SPID character ID from the standard ESS filename before mod data is applied
+and actor state is built. The result reports that ID as a 16-digit hexadecimal
+string. This entry point requires loaded data and shared cell-streamer data,
+and it does not support threaded gameplay.
+
+`godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
+`SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
+save and returns the filename character ID used by deterministic SPID rules.
+
 ## Snapshot adapter, PRF-37 draft
 
 `PlayerNode::start_threaded_gameplay` starts a worker-owned Game using the

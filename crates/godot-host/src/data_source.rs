@@ -365,6 +365,7 @@ impl LoadedExterior {
 pub struct DataSource {
     order: std::sync::Arc<LoadOrder>,
     vfs: std::sync::Arc<Vfs>,
+    data_roots: Vec<PathBuf>,
     threads: usize,
     workers: WorkerPools,
     textures: TextureCache,
@@ -494,6 +495,7 @@ impl DataSource {
         Self {
             order: std::sync::Arc::clone(&self.order),
             vfs: std::sync::Arc::clone(&self.vfs),
+            data_roots: self.data_roots.clone(),
             threads: 1,
             workers: self.workers.clone(),
             textures: TextureCache::default(),
@@ -609,6 +611,7 @@ impl DataSource {
         Ok(DataSource {
             order: std::sync::Arc::new(order),
             vfs: std::sync::Arc::new(vfs),
+            data_roots: loadout.data_roots.clone(),
             threads,
             workers,
             textures: TextureCache::default(),
@@ -631,6 +634,11 @@ impl DataSource {
     /// The archive and loose file view, same reason.
     pub(crate) fn vfs(&self) -> &Vfs {
         &self.vfs
+    }
+
+    /// Profile data roots in the same order used to build the virtual file system.
+    pub(crate) fn data_roots(&self) -> &[PathBuf] {
+        &self.data_roots
     }
 
     /// Create the menu and gameplay world with the profile's localized tables.
