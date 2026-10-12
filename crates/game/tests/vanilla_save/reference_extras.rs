@@ -11,7 +11,7 @@ use soe_save::{
 };
 
 #[test]
-fn installed_lock_byte_mapping_matches_authored_levels() {
+fn sav_69_installed_lock_byte_mapping_matches_authored_levels() {
     let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
@@ -423,7 +423,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
 }
 
 #[test]
-fn installed_all_ownership_and_lock_extras_restore_and_persist() {
+fn sav_69_installed_all_ownership_and_lock_extras_restore_and_persist() {
     let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
@@ -516,7 +516,7 @@ fn installed_all_ownership_and_lock_extras_restore_and_persist() {
 }
 
 #[test]
-fn installed_extra_presence_audit() {
+fn sav_69_installed_extra_presence_audit() {
     let Some(saves) = std::env::var_os("SOE_TEST_SAVES") else {
         return;
     };
