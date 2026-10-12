@@ -303,8 +303,10 @@ truncated entries, and all five installed masters.
 - `tests/tst_09_xedit_dump.rs`: compares an xEdit record/subrecord manifest with
   `Skyrim.esm` when both `SKYRIM_DATA` and `SOE_XEDIT_DUMP` are set. The manifest is
   tab-separated: `RECORD`, signature, and hexadecimal FormID start each record.
-  Following `FIELD` rows contain signature, FormID, subrecord signature, zero-based
-  repeated-field ordinal, and hexadecimal bytes. It compares the QUST, NPC_, PACK,
+  Following `FIELD` rows for that physical record contain signature, FormID, subrecord
+  signature, zero-based repeated-field ordinal, and hexadecimal bytes. A repeated
+  physical record with the same FormID starts a new field scope, and fields belong to
+  the most recent `RECORD` row. It compares the QUST, NPC_, PACK,
   CELL, REFR and LVLI signatures selected by the test plan, including their record
   identities and subrecord payloads. Engine record counts retain repeated physical
   records even when they share a FormID. Differences are printed by category and cause
