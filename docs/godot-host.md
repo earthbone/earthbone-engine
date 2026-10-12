@@ -2145,6 +2145,33 @@ normal view stands 1.7 metres above the installed LAND centre sample and looks
 south across the plains. Captures and logs are written under
 `godot/.godot/rnd-29-*`.
 
+## Walkthrough terrain coverage, RND-35
+
+`godot/rnd_35_walkthrough_lod_capture.gd` inherits the production walkthrough,
+starts at WhiterunOrigin with `startup_radius = 2` and keeps the player's
+default LOD radius. It captures the uploaded LAND grid after gameplay starts,
+at the city gate, in Tamriel and after two westward cell crossings. Movement
+uses the shared Game input driver. The two crossings move relative to the
+player's current placement, retaining its current CELL until the exterior
+planner advances. The check compares retained cell draw handles before and
+after each crossing to verify that the host applies a cell delta.
+
+The coverage oracle comes from uploaded LAND mesh coordinates. The
+orthographic camera covers that grid with integer pixels per cell and cell
+edges between pixel centres. The record sky's separate fog pass is hidden
+for the diagnostic. Each stop saves a normal view, a magenta terrain LOD view
+and a control with terrain LOD hidden. A second pair hides LAND as well,
+exposing LOD geometry below the ground. Only magenta pixels contributed by
+terrain LOD count. Each pair requires zero pixels inside uploaded LAND cells
+and at least 1000 outside them.
+
+The installed-data Rust runner is gated on `SKYRIM_DATA` and requires
+`SOE_GODOT_BIN` and the built release extension. Captures and its process log
+go under `godot/.godot/rnd-35-*`. The initial record survey checks all 25 LAND
+surfaces of the radius-two WhiterunOrigin grid. These checks exercise the
+existing RND-19 player streaming and RND-29 join paths, whose sources are
+xEdit's WRLD parent flags and block layout and OpenMW's terrain edge fans.
+
 ## Mesh
 
 `mesh::MeshSource` is a trait shaped like the `nif` crate's neutral output: positions,
@@ -6267,7 +6294,7 @@ reference.
 
 The sky shader draws upper, lower and horizon NAM0 colors. CLMT sun and glare
 textures, moon textures selected by TNAM flags and phase length, and the
-texture named by CLMT's night NIF come through the DataSource VFS. The sun
+textures named by CLMT's night NIF come through the DataSource VFS. The sun
 light follows the sampled sun direction and WTHR sunlight color. The ambient
 light uses WTHR ambient color. Cloud layers use their authored colors, alpha
 and XY velocities. Unique textures upload to an RGBA8 Texture2DArray at
@@ -6355,17 +6382,18 @@ exited with status 0. This smoke run does not measure interactive frame time.
 ## Sky depth and hemisphere continuity, RND-30
 
 `record_sky.gdshader` uses Godot's background sky pass for the atmosphere,
-clouds, sun, moons and stars. These inputs depend on viewing direction rather
-than camera position or a finite mesh radius. World geometry occludes the
+clouds, sun, moons and diagnostic stars. CLMT night meshes project directions
+at background depth. These inputs depend on viewing direction rather than
+camera position or a finite mesh radius. World geometry occludes the
 background, and the sky writes no world depth. The controller creates no
-finite sky mesh, cloud billboard or node per placed reference.
+cloud billboard or node per placed reference.
 
 Cloud UVs use a stereographic upper hemisphere, `eye.xz / (1 + eye.y)`.
 There are no cube faces or clamped projection bands. Cloud alpha fades to
 zero across the lowest 0.16 of the vertical viewing direction, meeting the
 horizon color continuously. Cloud uploads generate mipmaps after resizing,
-and the texture array uses linear mipmap filtering. Star texture sampling
-wraps at the spherical longitude boundary.
+and the texture array uses linear mipmap filtering. Night layers retain the
+CLMT model's authored UVs and project directions at background depth.
 
 Sources read were local OpenMW `apps/openmw/mwrender/sky.cpp`, its
 `files/shaders/compatibility/sky.vert`, and Godot's
@@ -6395,6 +6423,67 @@ diagnostic comparison. A separate capture retains the authored cloudy sky
 and fog. Eight installed-cloud views sample former cube edges and corners
 with a limit of 0.08 per channel. PNGs and process logs are written under
 `target/rnd_30`.
+
+### Night layers and the zenith, RND-36
+
+SkyRecords exports each shape of CLMT's night model with its accumulated
+transform, UVs, vertex colors, triangles and shader texture. The controller
+draws layers with nonempty geometry and available textures using
+`record_night_sky.gdshader`. Its direction-only
+projection ignores camera translation and puts every fragment at reversed-Z
+background depth, with depth writes disabled. Opaque world geometry occludes
+the night layers. The shader uses their authored UVs rather than interpreting
+a constellation sheet as a longitude/latitude panorama. The diagnostic
+texture path in the background sky shader uses pole-safe hemisphere UVs.
+
+Every night layer uses the shared World's CLMT sunrise/sunset fade and WTHR
+stars color. Vertex RGB supplies sky blend weights, summed and clamped to
+one for that common stars color, rather than tinting each channel separately.
+Vertex and texture alpha multiply the climate fade.
+Layers are hidden at zero night alpha and when the sky is hidden.
+Cloud alpha and sun/moon disc alpha mask the additive night contribution,
+keeping those background components in front of the night meshes. Changing
+the source or night model releases the old layer meshes and materials.
+
+The installed `Sky/Stars.nif` contains `Constellations1-6` and
+`Constellations7-13`, using `SkyrimConstellations01.dds` and
+`SkyrimConstellations02.dds`, plus `SkyrimGalaxy` using `SkyrimGalaxy.dds`
+and `SkyrimStars:0` using `Stars.dds`, all under `textures/sky`. The earlier
+host selected only the first constellation texture and sampled it as a
+panorama. These are four sky control meshes, shared by the whole view, with
+621 vertices and 1,018 triangles. No node is created per placed reference.
+
+Sources are the local UESP WTHR and CLMT pages, nifly's `src/Shaders.cpp` and
+`include/Shaders.hpp`, the installed sky model, and OpenMW's night-mesh fade
+in `apps/openmw/mwrender/sky.cpp`. Community Shaders' `package/Shaders/Sky.hlsl`
+supplies the authored-UV, texture-alpha and background-depth sky contract.
+The local CK dump has no Climate or Weather
+editor page, and those pages returned HTTP 403 online. The host uses Godot's
+far-depth projection rather than OpenMW's OSG camera-relative render bin.
+
+`rnd_36_installed_night_layers_and_climate_fade` checks each vanilla mesh's
+texture binding and the climate's sunrise/sunset endpoints and midpoints,
+including the midnight wrap. The windowed `rnd_36_` capture tests save PNGs
+and logs under `target/rnd_36` and quit after their checks. A smooth diagnostic
+night mesh checks four zenith camera rotations, camera translation, daytime
+exclusion, world occlusion and opaque cloud/moon masks. The installed capture
+looks straight up from WhiterunOrigin under SkyrimClear at noon and midnight.
+Comparing each image
+with its night layers disabled requires zero changed noon pixels and at
+least 200 changed midnight pixels, using a 2/255 channel tolerance. Adjacent
+pixels in the central 8 by 8 region have a 0.04 channel limit for the noon sky
+and the isolated night contribution. The midnight view places a full moon
+at the zenith, so its edge is removed by the no-night baseline before that
+comparison. Separate captures replace the loaded galaxy and star dome
+textures with a smooth periodic texture and hide the sun and moons. These
+captures check the same 0.04 limit on the actual model's UV interpolation.
+
+The Godot 4.4.1 software Vulkan captures measured zero night pixels at noon
+and 24,459 at midnight. The galaxy UV probe had a zero center step and the
+star dome probe had a 0.0039 step. The synthetic probe also measured 0.0039
+at each of four camera rotations. The full moon's 0.1725 center edge was
+present in the no-night baseline as well. The isolated night contribution
+had a zero center step.
 
 ## NIF effect materials, RND-22
 
@@ -6473,21 +6562,27 @@ The installed Bannered Mare survey finds `FireplaceWood01Burning` with an
 additive greyscale-palette surface and a separate palette surface with view
 falloff. It also finds the placed `Campfire01Burning` effect, whose unpaletted
 additive layer inherits the sibling `GradFireExplosion` color palette. The
-Godot capture test streams the cell and saves a room view, then draws the first
-additive palette-color surface from the installed fireplace NIF through
-`model_meshes` and its production material cache against dark and contrasting
-backdrops. It reads that surface's installed palette texture and checks that
-visible fire pixels are brighter than black, stay within palette hues and that
-every near-transparent pixel transmits the backdrop. It checks the shader
-retains falloff and saves the isolated hearth capture under `godot/.godot`.
+Godot capture entry point `godot/rnd_33_hearth_test.gd` extends the RND-38
+hearth check, which starts `godot/walkthrough.gd`. It selects every resident
+`FireplaceWood01Burning` effect and distortion layer from uploaded
+RenderingServer instances.
+The check captures the placed hearth, then hides room surfaces for controlled
+measurements of those same live layers over two backdrops. It requires
+visible brightness, colours within the bound effects palettes, additive
+backdrop transmission and dim flame edges. Authored
+alpha-mixed layers retain their blend pair. The additive measurement selects
+the additive layers after checking the whole hearth for palette colours.
+It inspects palette binding, depth-write state and retained falloff evaluation. Images
+and process logs go under `target/rnd_38`.
 
-`rnd_33_installed_bannered_mare_hearth_capture_matches_its_palette` runs the
-windowed Godot capture when `SKYRIM_DATA` and `SOE_GODOT_BIN` are set. The local
-nifly effect-property definitions and OpenMW's
+`rnd_38_rnd_33_capture_covers_the_walkthrough_hearth` runs the windowed capture
+when `SKYRIM_DATA` and `SOE_GODOT_BIN` are set and requires successful process
+exit. The local nifly effect-property definitions and OpenMW's
 `components/nifosg/nifloader.cpp` supplied the property and blend behavior.
-Community Shaders' `package/Shaders/Effect.hlsl` confirms the palette
-coordinates already implemented in RND-22. The implementation continues to
-use Godot's stock spatial shader and blend state.
+Community Shaders' `package/Shaders/Effect.hlsl` supplies separate palette
+coordinates: source green and multiplied base red for colour, source alpha
+and accumulated opacity for alpha. The implementation uses Godot's stock
+spatial shader and blend state.
 
 ## Detection neighborhoods, PRF-31
 
@@ -7036,3 +7131,120 @@ checks inventory, disabled state, prompt and executed OnActivate. It also
 activates an installed book and activator and checks the book menu and their
 Papyrus observers. Rust cases cover all seven requested item tags, ownership,
 blocked processing and default-only native activation.
+
+## Hearth distortion and walkthrough capture, RND-38
+
+The rainbow hull was the `Plane03:0` lighting surface in
+`FireplaceWood01Burning`. `Campfire01Burning` has the same distortion material
+on `Plane05:0`. Its
+`REFRACTION` shader flag selects background distortion, and its
+`textures/effects/VaporTileNormal_n.dds` texture supplies distortion vectors.
+The standard material path previously drew those vectors as opaque albedo.
+This surface bypassed the RND-33 effect path. The bound flame palettes and
+source-green palette lookup were correct. The old capture selected an
+additive effect surface and omitted this lighting surface.
+
+The placed-model builder carries the lighting property's refraction strength,
+alpha, UV offset, UV scale and clamp mode into a separate material description
+and cache identity. The renderer selects a screen-sampling distortion shader
+before transparent flame layers. Texture RG becomes signed displacement,
+masked by texture alpha, base alpha and enabled vertex alpha. Combined opacity
+below 0.1 discards the fragment. The displacement scales by authored strength
+and OpenMW's 0.14 screen multiplier. The unshaded surface writes sampled
+background colour to albedo, with depth writes disabled. Its normal-map RGB
+does not become visible fire colour. The ordinary wood surfaces and authored effect blend pairs keep
+their material paths. No per-reference nodes or saved fields are added.
+
+Local nifly `include/Shaders.hpp` defines the Refraction bit as normal-map
+refraction. OpenMW `components/nifosg/nifloader.cpp` selects distortion for
+lighting properties with that bit and passes the property's strength.
+`files/shaders/lib/util/distortion.glsl` supplies the RG remapping, alpha mask
+and clipping, and `files/data/shaders/internal_distortion.omwfx` supplies the
+final displacement multiplier. Godot's local
+`tutorials/shaders/shader_reference/spatial_shader.rst` specifies albedo as
+the output of an unshaded material. The host translates those operations to
+Godot's screen texture instead of adding OpenMW's separate distortion buffer.
+
+`CellStreamerNode.nif_surfaces` exposes live materials and RenderingServer
+instance RIDs for resident batched NIF surfaces, including lighting surfaces.
+Rows include source and palette paths, flags, effect blend factors, distortion
+selection, model paths and geometry bounds in Godot metres. Inspection does
+not rebuild resources or allocate reference nodes.
+
+The RND-33 capture now starts the Bannered Mare through
+`godot/walkthrough.gd` and includes the normal-map plane in its whole-hearth
+palette check. GPU-bound palette dimensions and pixel samples are compared
+with an independent DDS decode of each authored palette. It measures the live
+falloff response at zero and full opacity, restores authored falloff,
+checks flat-background transmission through the
+distortion plane, then measures additive layers over contrasting
+backgrounds and requires dim edges. The original release extension at
+`9a0312a63`, with inspection added, reproduced the rainbow plane in
+`walkthrough_hearth.png` and failed the capture. Installed-data tests inspect
+both burning wood models and their streamed effect, falloff and distortion
+layers. Synthetic tests check distortion inputs, cache separation and screen
+sampling. Captures and process logs are written to `target/rnd_38`.
+
+## Waterfall texture controllers, RND-39
+
+Effect surfaces carry linked standalone
+`BSEffectShaderPropertyFloatController` tracks through the static surface
+builder. Lighting surfaces also retain static UV offset and scale and apply
+`BSLightingShaderPropertyFloatController` UV channels to diffuse, normal, glow
+and environment-mask sampling through the existing lighting shader.
+The host reads the retained raw controller and `NiFloatInterpolator`
+blocks using `soe-nif::Stream` and the reader's existing `NiFloatData` keys.
+A track retains its frequency, phase, start and stop time, cycle mode,
+backward flag, channel and interpolator default. Inactive and manager-controlled
+tracks do not start. Invalid links, cyclic chains, truncated fields, non-finite
+values and unordered keys return a NIF error before upload.
+
+The effect shader evaluates linear, quadratic and constant float tracks from
+Godot's shader clock. Channels cover UV offsets and scales, alpha, emissive
+multiple and the four falloff values. Controlled falloff angles retain degrees
+in their keys and convert to cosines when assigned to the shader. Static
+property angles are already cosines. UV scale precedes UV offset, so a scrolling
+source texture moves across the authored mesh without changing its placement.
+The effect material retains source and vertex alpha, culling, depth
+state and authored blend factors. NIF clamp flags are reordered into the packed
+integer Godot requires for a `bvec2` uniform. The former `Vector2i` upload
+clamped both axes, pinning falls with negative V coordinates to a texture edge.
+A `One` destination factor uses the existing Godot additive blend path. Surveyed vanilla foam and mist use source alpha
+and inverse source alpha, so they retain alpha mixing. Material and batch keys
+include the generated track functions, keeping surfaces with different rates,
+phases and controlled channels separate.
+No per-reference node or per-frame material upload is added. `animation_time`
+defaults to the automatic shader clock. A nonnegative override samples the same
+track at a fixed time for captures.
+
+Sources are local nifly `include/Animation.hpp`, `src/Animation.cpp` and
+`src/Shaders.cpp`, nifxml `nif.xml`'s effect and lighting variable enums and
+inherited controller fields, and OpenMW `components/nifosg/controller.hpp` and
+`controller.cpp` for clock cycling and interpolation. Community Shaders
+`package/Shaders/Water.hlsl` supplies the separate water-plane normal-scroll
+and flow-map reference. Effect texture scrolling uses the NIF controllers
+rather than a guessed water-plane flow speed. The C++ libraries do not fit
+this Rust host's retained-block interface, so the adapter reuses the Rust
+NIF stream and key data and generates Godot shader evaluation. Local Godot
+`godot-docs/tutorials/shaders/shader_reference/shading_language.rst` supplies
+the boolean-vector uniform upload contract.
+
+The surveyed waterfall bodies use lighting shader UV controllers and their
+foam and mist use effect shader controllers. Both were static in this checkout.
+The clamp upload also suppressed texture detail. These meshes are separate
+from cell water planes and BSWaterShaderProperty.
+
+RND-23 is absent here. Controller managers, named sequence activation,
+color controllers, spline interpolators and TBC float tracks are outside this
+adapter. TBC or XYZ float interpolation returns an explicit error. Godot's automatic shader
+clock wraps at its configured rollover and is independent of the gameplay
+pause clock. This row adds no saved state.
+
+`rnd_39_` tests cover authored UV rate and phase, alpha preservation,
+material and batch separation, inactive tracks, malformed controllers and
+installed Whiterun waterfall assets. The installed survey writes placement
+metadata under `godot/.godot/rnd_39`. The windowed capture runner requires that
+survey first and a built, imported release extension. Its script frames a
+waterfall outlet `0:090D19` beside Whiterun's water grate against the city
+geometry, captures samples half a second apart, and measures downward texture displacement and partial
+backdrop transmission through the production material.

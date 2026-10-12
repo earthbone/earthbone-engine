@@ -40,6 +40,36 @@ pub struct MaterialDesc {
     pub water: Option<WaterMaterial>,
     /// BSEffectShaderProperty fields and its NiAlphaProperty contract.
     pub effect: Option<EffectMaterial>,
+    /// Lighting refraction uses its texture as distortion, never visible color.
+    pub refraction: Option<RefractionMaterial>,
+    /// Lighting-shader UV coordinates and their authored float tracks.
+    pub texture_transform: Option<TextureTransform>,
+}
+
+/// BSLightingShaderProperty screen distortion inputs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RefractionMaterial {
+    pub strength: f32,
+    pub alpha: f32,
+    pub uv_offset: [f32; 2],
+    pub uv_scale: [f32; 2],
+    pub clamp_mode: u32,
+}
+
+impl RefractionMaterial {
+    fn key(&self, flags: [u32; 2]) -> [u32; 9] {
+        [
+            self.strength.to_bits(),
+            self.alpha.to_bits(),
+            self.uv_offset[0].to_bits(),
+            self.uv_offset[1].to_bits(),
+            self.uv_scale[0].to_bits(),
+            self.uv_scale[1].to_bits(),
+            self.clamp_mode,
+            flags[0],
+            flags[1],
+        ]
+    }
 }
 
 /// Authored NIF effect shading, independent of the Godot renderer.
@@ -50,6 +80,32 @@ pub struct EffectMaterial {
     pub alpha_test: Option<soe_nif::mesh::AlphaTest>,
     pub uv_offset: [f32; 2],
     pub uv_scale: [f32; 2],
+    /// Standalone authored effect float tracks, evaluated by the shader.
+    pub controllers: Vec<crate::nif_effect_animation::EffectFloatTrack>,
+}
+
+/// Lighting texture coordinates shared by diffuse, normal and reflection masks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextureTransform {
+    pub offset: [f32; 2],
+    pub scale: [f32; 2],
+    pub controllers: Vec<crate::nif_effect_animation::EffectFloatTrack>,
+}
+
+impl TextureTransform {
+    pub(crate) fn key(&self, flags: [u32; 2]) -> ([u32; 6], String) {
+        (
+            [
+                self.offset[0].to_bits(),
+                self.offset[1].to_bits(),
+                self.scale[0].to_bits(),
+                self.scale[1].to_bits(),
+                flags[0],
+                flags[1],
+            ],
+            crate::nif_effect_animation::identity(&self.controllers),
+        )
+    }
 }
 
 /// Bitwise material identity, including effect flags and palette paths.
@@ -61,6 +117,7 @@ pub struct EffectKey {
     blend: Option<(u8, u8)>,
     alpha_test: Option<(u8, u32)>,
     clamp_mode: u8,
+    controllers: String,
 }
 
 impl EffectMaterial {
@@ -93,6 +150,7 @@ impl EffectMaterial {
                 .alpha_test
                 .map(|a| (a.func as u8, a.threshold.to_bits())),
             clamp_mode: p.clamp_mode,
+            controllers: crate::nif_effect_animation::identity(&self.controllers),
         }
     }
 }
@@ -115,6 +173,8 @@ impl Default for MaterialDesc {
             double_sided: false,
             water: None,
             effect: None,
+            refraction: None,
+            texture_transform: None,
         }
     }
 }
@@ -226,6 +286,8 @@ pub struct MaterialKey {
     /// bits, so two water types never share one material.
     water: Option<(u8, [u32; 9])>,
     effect: Option<EffectKey>,
+    refraction: Option<[u32; 9]>,
+    texture_transform: Option<([u32; 6], String)>,
     landscape_lod_normals: bool,
     landscape_lod_noise: bool,
 }
@@ -250,6 +312,14 @@ impl From<&MaterialDesc> for MaterialKey {
                 .effect
                 .as_ref()
                 .map(|e| e.key([material.shader_flags_1, material.shader_flags_2])),
+            refraction: material
+                .refraction
+                .as_ref()
+                .map(|r| r.key([material.shader_flags_1, material.shader_flags_2])),
+            texture_transform: material
+                .texture_transform
+                .as_ref()
+                .map(|t| t.key([material.shader_flags_1, material.shader_flags_2])),
             landscape_lod_normals: material.landscape_lod_normals(),
             landscape_lod_noise: material.landscape_lod_normals() && material.landscape_lod_noise,
         }

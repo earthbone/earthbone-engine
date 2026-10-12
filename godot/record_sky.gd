@@ -2,6 +2,7 @@ extends Node3D
 
 ## WTHR/CLMT presentation. The sampler reads the gameplay World when bound.
 const SKY_SHADER := preload("res://record_sky.gdshader")
+const NIGHT_SHADER := preload("res://record_night_sky.gdshader")
 const PHASES := ["full", "three_wan", "half_wan", "one_wan", "new", "one_wax", "half_wax", "three_wax"]
 const UNITS_PER_METRE := 70.0
 const CLOUD_UV_SPEED_SCALE := 1.0 / 400.0
@@ -18,6 +19,7 @@ var elapsed := 0.0
 var cloud_paths: Array[String] = []
 var cloud_array: Texture2DArray
 var night_model := ""
+var night_layers: Array[MeshInstance3D] = []
 var phase := -1
 var ambient_lights: Array[DirectionalLight3D] = []
 var fog_material := ShaderMaterial.new()
@@ -79,6 +81,10 @@ func use_player(player: Node3D) -> bool:
 	return records.use_player(player) and refresh()
 
 func _reset_textures() -> void:
+	for layer in night_layers:
+		layer.free()
+	night_layers.clear()
+	material.set_shader_parameter("night_meshes_enabled", false)
 	cloud_paths.clear()
 	cloud_array = null
 	material.set_shader_parameter("cloud_count", 0)
@@ -133,6 +139,8 @@ func refresh() -> bool:
 	else:
 		fog_pass.visible = false
 	if not f.weather_sky:
+		for layer in night_layers:
+			layer.hide()
 		environment.background_mode = Environment.BG_COLOR
 		environment.background_color = Color.BLACK
 		return true
@@ -152,10 +160,47 @@ func refresh() -> bool:
 	material.set_shader_parameter("sun_enabled", not f.sun_texture.is_empty())
 	if night_model != f.night_model:
 		night_model = f.night_model
-		var texture_path: String = records.night_texture(night_model)
-		material.set_shader_parameter("stars_texture", records.texture(texture_path) if not texture_path.is_empty() else null)
-		material.set_shader_parameter("stars_enabled", not texture_path.is_empty())
+		_load_night_layers(records.night_meshes(night_model))
+	for layer in night_layers:
+		layer.visible = f.sky_visible and f.night_alpha > 0.0
+		layer.material_override.set_shader_parameter("night_alpha", f.night_alpha)
+		layer.material_override.set_shader_parameter("stars_color", f.stars_color)
 	return _clouds(f.clouds)
+
+func _load_night_layers(layers: Array) -> void:
+	for layer in night_layers:
+		layer.free()
+	night_layers.clear()
+	for data: Dictionary in layers:
+		if data.positions.is_empty() or data.indices.is_empty():
+			continue
+		var texture: Texture2D = records.texture(data.texture)
+		if texture == null:
+			continue
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = data.positions
+		arrays[Mesh.ARRAY_TEX_UV] = data.uvs
+		if data.colors.size() == data.positions.size():
+			arrays[Mesh.ARRAY_COLOR] = data.colors
+		arrays[Mesh.ARRAY_INDEX] = data.indices
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		var night_material := ShaderMaterial.new()
+		night_material.shader = NIGHT_SHADER
+		night_material.render_priority = -127
+		night_material.set_shader_parameter("night_texture", texture)
+		var layer := MeshInstance3D.new()
+		layer.name = String(data.name).validate_node_name()
+		layer.mesh = mesh
+		layer.material_override = night_material
+		layer.extra_cull_margin = 1000000.0
+		layer.ignore_occlusion_culling = true
+		layer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(layer)
+		night_layers.append(layer)
+	material.set_shader_parameter("night_meshes_enabled", not night_layers.is_empty())
+	material.set_shader_parameter("stars_enabled", not night_layers.is_empty())
 
 func _apply_interior_directions(frame: Dictionary) -> void:
 	sun.distance_fade_enabled = false
@@ -240,4 +285,7 @@ func _clouds(clouds: Array) -> bool:
 	material.set_shader_parameter("cloud_colors", colors)
 	material.set_shader_parameter("cloud_speeds", velocities)
 	material.set_shader_parameter("cloud_layers", layers)
+	for layer in night_layers:
+		for key in ["cloud_textures", "cloud_count", "cloud_colors", "cloud_speeds", "cloud_layers", "elapsed", "sun_texture", "masser_texture", "secunda_texture", "sun_enabled", "masser_enabled", "secunda_enabled", "sun_direction", "masser_direction", "secunda_direction"]:
+			layer.material_override.set_shader_parameter(key, material.get_shader_parameter(key))
 	return true

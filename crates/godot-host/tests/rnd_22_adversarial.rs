@@ -21,6 +21,7 @@ fn desc() -> (MaterialDesc, EffectMaterial) {
             alpha_test: None,
             uv_offset: [0.0; 2],
             uv_scale: [1.0; 2],
+            controllers: Vec::new(),
         },
     )
 }

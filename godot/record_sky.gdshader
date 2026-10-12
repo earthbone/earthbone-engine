@@ -13,6 +13,7 @@ uniform bool sun_enabled;
 uniform float sun_glare;
 uniform sampler2D stars_texture : source_color, filter_linear, repeat_enable;
 uniform bool stars_enabled;
+uniform bool night_meshes_enabled;
 uniform float night_alpha;
 uniform sampler2D masser_texture : source_color, filter_linear;
 uniform sampler2D secunda_texture : source_color, filter_linear;
@@ -40,8 +41,9 @@ vec4 disc(sampler2D tex, vec3 direction, float radius, vec3 eye) {
 void sky() {
 	COLOR = EYEDIR.y >= 0.0 ? mix(horizon, upper, smoothstep(0.0, 0.55, EYEDIR.y)) : mix(horizon, lower, -EYEDIR.y);
 	if (!AT_CUBEMAP_PASS) {
-		if (stars_enabled && night_alpha > 0.0) {
-			vec4 stars = texture(stars_texture, SKY_COORDS);
+		if (stars_enabled && !night_meshes_enabled && night_alpha > 0.0 && EYEDIR.y > 0.0) {
+			vec2 night_uv = EYEDIR.xz / (1.0 + EYEDIR.y) * 0.25 + 0.5;
+			vec4 stars = texture(stars_texture, night_uv);
 			COLOR += stars.rgb * stars_color * night_alpha;
 		}
 		if (sun_enabled && sun_direction.y > 0.0) {

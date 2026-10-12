@@ -2699,6 +2699,80 @@ impl CellStreamerNode {
         out
     }
 
+    /// Uploaded NIF surfaces, with their live material and server instance.
+    /// Bounds are in Godot metres. Inspection does not rebuild model resources.
+    #[func]
+    pub fn nif_surfaces(&self) -> Array<VarDictionary> {
+        let mut out = Array::new();
+        for instance in &self.instances {
+            let desc = &instance.arrays.material;
+            let effect = desc.effect.as_ref();
+            let key = crate::mesh::MaterialKey::from(desc);
+            let Some(material) = self.materials.materials.get(&key) else {
+                continue;
+            };
+            let mut row = VarDictionary::new();
+            row.set("rid", instance.rid);
+            row.set("material", material);
+            row.set("source", desc.diffuse.as_deref().unwrap_or_default());
+            row.set(
+                "palette",
+                effect.map_or("", |e| e.params.greyscale_texture.as_str()),
+            );
+            row.set("effect", effect.is_some());
+            row.set("refraction", desc.refraction.is_some());
+            row.set("flags1", i64::from(desc.shader_flags_1));
+            row.set("flags2", i64::from(desc.shader_flags_2));
+            row.set(
+                "src_blend",
+                effect.and_then(|e| e.blend).map_or(-1, |b| b.src as i64),
+            );
+            row.set(
+                "dst_blend",
+                effect.and_then(|e| e.blend).map_or(-1, |b| b.dst as i64),
+            );
+            let references: Vec<_> = match &instance.table {
+                BatchTable::Triangles(members) => members.iter().map(|m| m.reference).collect(),
+                BatchTable::Instances(members) => members.clone(),
+            };
+            let mut models = std::collections::BTreeSet::new();
+            if let Some(source) = &self.data_source {
+                let order = source.order();
+                for reference in references {
+                    let Some(owner) = order.winner_ref(reference) else {
+                        continue;
+                    };
+                    let Ok(refr) = soe_esm::records::refr::Refr::from_record(order.record(owner))
+                    else {
+                        continue;
+                    };
+                    if let Some(model) = order
+                        .winner(order.resolve(owner.file, refr.base))
+                        .and_then(crate::data_source::model_for)
+                    {
+                        models.insert(soe_bsa::normalize(&model));
+                    }
+                }
+            }
+            let models: Array<GString> = models
+                .iter()
+                .map(|model| GString::from(model.as_str()))
+                .collect();
+            row.set("models", &models);
+            let min = instance.bounds.min;
+            let max = instance.bounds.max;
+            row.set(
+                "bounds",
+                Aabb::new(
+                    Vector3::new(min.x, min.y, min.z),
+                    Vector3::new(max.x - min.x, max.y - min.y, max.z - min.z),
+                ),
+            );
+            out.push(&row);
+        }
+        out
+    }
+
     /// Instances alive in this node's scenario.
     #[func]
     pub fn instance_count(&self) -> i32 {
@@ -4445,9 +4519,14 @@ fn material_for(
         && desc.environment_texture().is_none()
     {
         tree_material(desc, textures, &mut cache.textures).upcast()
+    } else if let Some(refraction) = &desc.refraction {
+        nif_refraction_material(desc, refraction, textures, &mut cache.textures).upcast()
     } else if desc.landscape_lod_normals() {
         landscape_lod_material(desc, textures, &mut cache.textures).upcast()
-    } else if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
+    } else if desc.decal_depth().is_some()
+        || desc.environment_texture().is_some()
+        || desc.texture_transform.is_some()
+    {
         decal_material(
             desc,
             textures,
@@ -4545,6 +4624,43 @@ fn landscape_lod_material(
     material
 }
 
+fn nif_refraction_material(
+    desc: &MaterialDesc,
+    refraction: &crate::mesh::RefractionMaterial,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+) -> Gd<ShaderMaterial> {
+    let mut shader = Shader::new_gd();
+    shader.set_code(&crate::nif_refraction::shader(desc));
+    let mut material = ShaderMaterial::new_gd();
+    material.set_shader(&shader);
+    material.set_render_priority(-1);
+    if let Some(data) = &textures.diffuse {
+        if let Some(texture) = cached_texture(cache, desc.diffuse.as_deref(), data) {
+            material.set_shader_parameter("distortion_texture", &texture.to_variant());
+        }
+    }
+    material.set_shader_parameter("strength", &refraction.strength.to_variant());
+    material.set_shader_parameter("base_alpha", &refraction.alpha.to_variant());
+    material.set_shader_parameter(
+        "uv_offset",
+        &Vector2::new(refraction.uv_offset[0], refraction.uv_offset[1]).to_variant(),
+    );
+    material.set_shader_parameter(
+        "uv_scale",
+        &Vector2::new(refraction.uv_scale[0], refraction.uv_scale[1]).to_variant(),
+    );
+    material.set_shader_parameter(
+        "wrap_uv",
+        &Vector2i::new(
+            i32::from(refraction.clamp_mode & 2 != 0),
+            i32::from(refraction.clamp_mode & 1 != 0),
+        )
+        .to_variant(),
+    );
+    material
+}
+
 fn nif_effect_material(
     desc: &MaterialDesc,
     effect: &crate::mesh::EffectMaterial,
@@ -4611,11 +4727,7 @@ fn nif_effect_material(
     );
     material.set_shader_parameter(
         "wrap_uv",
-        &Vector2i::new(
-            i32::from(p.clamp_mode & 2 != 0),
-            i32::from(p.clamp_mode & 1 != 0),
-        )
-        .to_variant(),
+        &crate::nif_effect::wrap_bits(p.clamp_mode).to_variant(),
     );
     material
 }
@@ -4702,10 +4814,20 @@ fn decal_material(
             material.set_shader_parameter("has_environment_mask", &true.to_variant());
         }
     }
+    if let Some(transform) = &desc.texture_transform {
+        material.set_shader_parameter(
+            "uv_offset",
+            &Vector2::new(transform.offset[0], transform.offset[1]).to_variant(),
+        );
+        material.set_shader_parameter(
+            "uv_scale",
+            &Vector2::new(transform.scale[0], transform.scale[1]).to_variant(),
+        );
+    }
     material
 }
 
-fn decal_shader(desc: &MaterialDesc) -> String {
+pub(crate) fn decal_shader(desc: &MaterialDesc) -> String {
     let (test, write) = desc.decal_depth().unwrap_or((true, false));
     let depth = if desc.decal_depth().is_none() {
         "depth_draw_opaque"
@@ -4735,9 +4857,29 @@ fn decal_shader(desc: &MaterialDesc) -> String {
         ""
     };
     let emission = if desc.emits_light() {
-        "EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, UV).rgb;"
+        "EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, uv).rgb;"
     } else {
         ""
+    };
+    let tracks = desc
+        .texture_transform
+        .as_ref()
+        .map_or(&[][..], |t| t.controllers.as_slice());
+    let functions = crate::nif_effect_animation::functions(tracks);
+    let animation = crate::nif_effect_animation::assignments(tracks, false);
+    let vertex_color = if desc.texture_transform.is_some()
+        && desc.shader_flags_2 & soe_nif::blocks::flags2::VERTEX_COLORS != 0
+    {
+        "COLOR.rgb"
+    } else {
+        "vec3(1.0)"
+    };
+    let vertex_alpha = if desc.texture_transform.is_some()
+        && desc.shader_flags_1 & soe_nif::blocks::flags1::VERTEX_ALPHA != 0
+    {
+        "COLOR.a"
+    } else {
+        "1.0"
     };
     format!(
         "shader_type spatial;
@@ -4757,17 +4899,20 @@ uniform vec2 uv_offset = vec2(0.0);
 uniform vec2 uv_scale = vec2(1.0);
 uniform float uv_rotation = 0.0;
 uniform float material_alpha = 1.0;
-void vertex() {{
-    vec2 centered = UV * uv_scale - vec2(0.5);
+uniform float animation_time = -1.0;
+{functions}
+void fragment() {{
+    vec2 animated_offset = uv_offset;
+    vec2 animated_scale = uv_scale;
+    {animation}
+    vec2 centered = UV * animated_scale - vec2(0.5);
     float c = cos(uv_rotation);
     float s = sin(uv_rotation);
-    UV = mat2(vec2(c, s), vec2(-s, c)) * centered + vec2(0.5) + uv_offset;
-}}
-void fragment() {{
-    vec4 color = texture(albedo_texture, UV);
+    vec2 uv = mat2(vec2(c, s), vec2(-s, c)) * centered + vec2(0.5) + animated_offset;
+    vec4 color = texture(albedo_texture, uv) * vec4({vertex_color}, {vertex_alpha});
     ALBEDO = color.rgb;
     ROUGHNESS = 1.0;
-    vec4 normal_sample = texture(normal_texture, UV);
+    vec4 normal_sample = texture(normal_texture, uv);
     vec3 reflection_normal = NORMAL;
     if (has_normal) {{
         NORMAL_MAP = normal_sample.rgb;
@@ -4777,7 +4922,7 @@ void fragment() {{
     }}
     {emission}
     if (has_environment) {{
-        float mask = has_environment_mask ? texture(environment_mask, UV).r : normal_sample.a;
+        float mask = has_environment_mask ? texture(environment_mask, uv).r : normal_sample.a;
         vec3 world_reflection = mat3(INV_VIEW_MATRIX) * reflect(-VIEW, reflection_normal);
         vec3 skyrim_reflection = vec3(world_reflection.x, -world_reflection.z, world_reflection.y);
         EMISSION += texture(environment_texture, skyrim_reflection).rgb * environment_scale * mask;

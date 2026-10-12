@@ -51,6 +51,8 @@ pub mod magic_menu;
 pub mod mcm_menu;
 pub mod mesh;
 pub mod nif_effect;
+pub mod nif_effect_animation;
+pub mod nif_refraction;
 pub mod nordic_theme;
 pub mod object_animation;
 pub mod objective_map;
