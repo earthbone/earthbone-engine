@@ -193,7 +193,7 @@ impl Exclusions {
     /// Read all SWF and GFX art from a reference archive.
     ///
     /// # Errors
-    /// Returns archive or SWF errors instead of silently omitting a reference.
+    /// Returns archive or SWF errors when a reference cannot be resolved.
     pub fn add_archive(&mut self, archive: &Archive) -> Result<(), Error> {
         for path in archive.files() {
             if Path::new(path).extension().is_some_and(|extension| {

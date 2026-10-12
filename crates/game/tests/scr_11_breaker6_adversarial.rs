@@ -68,7 +68,7 @@ fn scr_11_flying_state_uses_hover_fallback_for_invalid_host_state() {
 
 #[test]
 fn scr_11_set_vehicle_rejects_non_reference_form_without_detaching() {
-    // CK's akVehicle is ObjectReference; invalid input must not replace a valid attachment.
+    // CK's akVehicle is ObjectReference. Invalid input must not replace a valid attachment.
     let mut game = fixture();
     let actor = id(0x801);
     let vehicle = Value::Object(game.object_of_form(id(0x803)));
