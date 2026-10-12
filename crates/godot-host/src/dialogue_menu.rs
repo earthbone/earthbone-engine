@@ -240,6 +240,23 @@ pub fn entries(game: &mut Game) -> Result<Vec<Entry>, Error> {
         .collect())
 }
 
+/// Preview topics following a playing greeting without completing its INFO.
+pub fn greeting_entries(game: &mut Game) -> Result<Vec<Entry>, Error> {
+    let choices = game.dialogue_choices_after_response()?;
+    let world = game.world();
+    Ok(choices
+        .available
+        .into_iter()
+        .map(|choice| Entry {
+            topic: choice.topic,
+            label: choice
+                .prompt
+                .or_else(|| world.name_of(choice.topic))
+                .unwrap_or_else(|| choice.topic.to_string()),
+        })
+        .collect())
+}
+
 /// Start the response for a selected, currently offered topic.
 pub fn choose(game: &mut Game, topic: GlobalFormId) -> Result<Option<Line>, Error> {
     game.choose_dialogue(topic)

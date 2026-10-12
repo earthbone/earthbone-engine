@@ -320,6 +320,171 @@ fn game_with_order(order: LoadOrder) -> Game {
     game
 }
 
+fn hst_28_game() -> Game {
+    let mut plugin = plugin(vec![info(INFO, 1, &["The road leads north."], false)
+        .sub(T(b"CTDA"), condition(72, BASE, 1.0, 0))]);
+    add_topic(
+        &mut plugin,
+        topic(OUTSIDE_TOPIC, QUEST),
+        vec![info(ADDED_INFO, 0, &["Not for this speaker."], false)
+            .sub(T(b"CTDA"), condition(72, 7, 1.0, 0))],
+        true,
+    );
+    let greeting = Record::new(T(b"DIAL"), GREETING_TOPIC)
+        .sub(T(b"QNAM"), QUEST.to_le_bytes())
+        .sub(T(b"DATA"), [0, 7, 79, 0])
+        .sub(T(b"SNAM"), *b"HELO")
+        .sub(T(b"PNAM"), 50.0_f32.to_le_bytes());
+    add_topic(
+        &mut plugin,
+        greeting,
+        vec![info(GREETING_INFO, 0, &["Welcome to the inn."], false)
+            .sub(T(b"CTDA"), condition(72, BASE, 1.0, 0))],
+        false,
+    );
+    add_topic(
+        &mut plugin,
+        Record::new(T(b"DIAL"), GREETING_TOPIC + 1)
+            .sub(T(b"QNAM"), QUEST.to_le_bytes())
+            .sub(T(b"DATA"), [0, 7, 79, 0])
+            .sub(T(b"SNAM"), *b"HELO")
+            .sub(T(b"PNAM"), 100.0_f32.to_le_bytes()),
+        vec![info(GREETING_INFO + 0x100, 0, &["Wrong greeting."], false)
+            .sub(T(b"CTDA"), condition(72, 7, 1.0, 0))],
+        false,
+    );
+    let mut game = game(plugin);
+    game.start_quest(id(QUEST));
+    game
+}
+
+#[test]
+fn hst_28_greeting_conditions_topics_response_and_goodbye() {
+    let mut game = hst_28_game();
+    let line = game.begin_player_dialogue(id(SPEAKER)).unwrap().unwrap();
+    assert_eq!(line.text.as_deref(), Some("Welcome to the inn."));
+    let preview = game.dialogue_choices_after_response().unwrap();
+    assert_eq!(preview.available.len(), 1);
+    assert_eq!(preview.available[0].topic, id(TOPIC));
+    assert_eq!(game.dialogue_line().unwrap(), Some(line));
+    assert!(game.advance_dialogue().unwrap().is_none());
+    let choices = game.dialogue_choices().unwrap();
+    assert_eq!(choices.available.len(), 1);
+    assert_eq!(choices.available[0].topic, id(TOPIC));
+    let response = game.choose_dialogue(id(TOPIC)).unwrap().unwrap();
+    assert_eq!(response.text.as_deref(), Some("The road leads north."));
+    assert!(game.advance_dialogue().unwrap().is_none());
+    assert!(game.world().dialogue_session().is_none());
+}
+
+#[test]
+fn hst_28_player_input_activation_starts_and_keeps_the_current_greeting() {
+    use soe_game::player_input::Command;
+
+    let mut game = hst_28_game();
+    let command = Command::Activate {
+        target: id(SPEAKER),
+    };
+    game.apply_player_input(&command).unwrap();
+    let line = game.dialogue_line().unwrap().unwrap();
+    assert_eq!(line.text.as_deref(), Some("Welcome to the inn."));
+    let cursor = game.world().dialogue_session().cloned();
+    game.apply_player_input(&command).unwrap();
+    assert_eq!(game.dialogue_line().unwrap(), Some(line));
+    assert_eq!(game.world().dialogue_session(), cursor.as_ref());
+    game.advance_dialogue().unwrap();
+    game.choose_dialogue(id(TOPIC)).unwrap();
+    assert!(game.apply_player_input(&command).is_err());
+    game.close_dialogue();
+    game.world_mut().actor(id(SPEAKER)).unwrap().dead = true;
+    assert!(game.apply_player_input(&command).is_err());
+    assert!(game.world().dialogue_session().is_none());
+}
+
+#[test]
+fn hst_28_dead_hostile_unconscious_and_busy_actors_are_rejected() {
+    let mut game = hst_28_game();
+    game.world_mut().actor(id(SPEAKER)).unwrap().dead = true;
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    game.world_mut().actor(id(SPEAKER)).unwrap().dead = false;
+    game.world_mut().actor(id(SPEAKER)).unwrap().in_combat = true;
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    game.world_mut().actor(id(SPEAKER)).unwrap().in_combat = false;
+    game.world_mut().actor(id(SPEAKER)).unwrap().unconscious = true;
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    game.world_mut().actor(id(SPEAKER)).unwrap().unconscious = false;
+    game.world_mut()
+        .actor(id(SPEAKER))
+        .unwrap()
+        .allow_pc_dialogue = false;
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    game.world_mut()
+        .actor(id(SPEAKER))
+        .unwrap()
+        .allow_pc_dialogue = true;
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    assert!(game.world().dialogue_session().is_some());
+}
+
+#[test]
+fn hst_28_blocked_disabled_and_empty_dialogue_do_not_start_conversations() {
+    let mut game = hst_28_game();
+    game.world_mut()
+        .reference(id(SPEAKER))
+        .unwrap()
+        .activation_blocked = true;
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    game.world_mut()
+        .reference(id(SPEAKER))
+        .unwrap()
+        .activation_blocked = false;
+    game.world_mut().reference(id(SPEAKER)).unwrap().enabled = false;
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    game.world_mut().reference(id(SPEAKER)).unwrap().enabled = true;
+    game.world_mut().quest_state(id(QUEST)).unwrap().running = false;
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    assert!(game.world().dialogue_session().is_none());
+}
+
+#[test]
+fn hst_28_running_scene_and_enemy_faction_prevent_player_dialogue() {
+    const SCENE: u32 = 0xB00;
+    const FACTION: u32 = 0xB01;
+    let mut plugin = plugin(vec![info(INFO, 0, &["Hello"], false)]);
+    plugin.push_top(Record::new(T(b"FACT"), FACTION));
+    plugin.push_top(
+        quest(GREETING_QUEST, 50)
+            .sub(T(b"ALST"), 0_u32.to_le_bytes())
+            .zsub(T(b"ALID"), "Speaker")
+            .sub(T(b"FNAM"), 2_u32.to_le_bytes())
+            .sub(T(b"ALFR"), SPEAKER.to_le_bytes())
+            .sub(T(b"ALED"), []),
+    );
+    plugin.push_top(
+        Record::new(T(b"SCEN"), SCENE)
+            .sub(T(b"HNAM"), [])
+            .zsub(T(b"NAM0"), "Phase")
+            .sub(T(b"ALID"), 0_i32.to_le_bytes())
+            .sub(T(b"PNAM"), GREETING_QUEST.to_le_bytes()),
+    );
+    let mut game = game(plugin);
+    game.start_quest(id(QUEST));
+    game.world_mut()
+        .actor(id(SPEAKER))
+        .unwrap()
+        .factions
+        .insert(id(FACTION), 0);
+    game.world_mut().faction(id(FACTION)).unwrap().player_enemy = true;
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    game.world_mut().faction(id(FACTION)).unwrap().player_enemy = false;
+    let mut allocate = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+    assert!(game.world_mut().start_scene(id(SCENE), &mut allocate));
+    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    assert!(game.world().dialogue_session().is_none());
+}
+
 fn scr_48_call_topic_add(game: &mut Game, topic: u32) {
     let script = ScriptBuilder::new("Scr48TopicCall", "Topic")
         .function(

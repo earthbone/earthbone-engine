@@ -150,15 +150,20 @@ impl PlayerNode {
             .game
             .as_ref()
             .is_some_and(|game| game.world().dialogue_session().is_some());
+        let player = self.game.as_mut().map(soe_game::Game::player);
+        let activation = event.result.is_ok()
+            && matches!(&event.command, Command::Activate { target } if
+                self.game.as_ref().is_some_and(|game|
+                    game.world().dialogue_session().is_some_and(|session|
+                        session.speaker == *target && Some(session.listener) == player)));
         if !dialogue
+            || activation
             || matches!(
                 event.command,
-                Command::Activate { .. }
-                    | Command::ChooseTopic { .. }
-                    | Command::ConfirmMenu(Confirmation::Dialogue)
+                Command::ChooseTopic { .. } | Command::ConfirmMenu(Confirmation::Dialogue)
             )
         {
-            self.present_player_input_dialogue();
+            self.present_player_input_dialogue(activation);
         }
         event.result.is_ok() && synced
     }
@@ -182,6 +187,7 @@ impl PlayerNode {
     /// Clear the transient command queue and log without changing World.
     #[func]
     pub fn clear_player_input(&mut self) {
+        self.weapon_holds = [None, None];
         self.player_input = Driver::default();
     }
 

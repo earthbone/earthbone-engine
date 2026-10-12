@@ -711,7 +711,7 @@ impl SoundBank {
 
     /// Mouth target weights from the active dialogue voice, in LIP order.
     #[func]
-    fn dialogue_mouth_weights(&self) -> PackedFloat32Array {
+    pub(crate) fn dialogue_mouth_weights(&self) -> PackedFloat32Array {
         PackedFloat32Array::from(self.dialogue_voice.weights().to_vec())
     }
 

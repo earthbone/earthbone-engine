@@ -43,6 +43,7 @@ use crate::door_fade::{DoorFade, GameFade};
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
+mod activation;
 mod carry;
 mod containers;
 mod detection;
@@ -57,6 +58,7 @@ mod magic;
 mod melee;
 mod menu;
 mod play_path;
+mod npcs;
 mod profiling;
 mod quick_loot;
 mod race;
@@ -168,6 +170,9 @@ pub struct PlayerNode {
     animation_source: Option<GlobalFormId>,
     /// The existing skinned node bound to the player's own appearance.
     player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
+    npc_actors: npcs::NpcActors,
+    first_person_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
+    weapon_holds: [Option<f32>; 2],
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     debug_ref_markers: BTreeMap<GlobalFormId, Rid>,
     debug_ref_marker_mesh: Option<Gd<SphereMesh>>,
@@ -317,6 +322,9 @@ impl INode3D for PlayerNode {
             player_input: soe_game::player_input::Driver::default(),
             animation_source: None,
             player_appearance: None,
+            npc_actors: npcs::NpcActors::default(),
+            first_person_appearance: None,
+            weapon_holds: [None, None],
             pending_debug_latents: Vec::new(),
             debug_ref_markers: BTreeMap::new(),
             debug_ref_marker_mesh: None,
@@ -581,6 +589,8 @@ impl INode3D for PlayerNode {
     fn process(&mut self, delta: f64) {
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         self.present_simulation();
+        self.sync_npc_actors();
+        self.sync_dialogue_mouth();
         self.flush_reference_sync();
         self.last_physics_queries = soe_trace::physics_query_stats();
         soe_trace::reset_physics_queries();
@@ -667,6 +677,8 @@ impl INode3D for PlayerNode {
             godot_error!("hitch export: {error}");
         }
         self.release_carry();
+        self.npc_actors.clear();
+        self.npc_actors.wait_for_loads();
         self.restore_catchup_cap();
         self.simulation = None;
         self.simulation_pair = None;
@@ -745,6 +757,7 @@ impl PlayerNode {
 
     #[func]
     fn input_focus_lost(&mut self) {
+        self.weapon_holds = [None, None];
         self.input_focused = false;
         if let Some(game) = self.game.as_mut() {
             let player = game.player();
@@ -897,20 +910,33 @@ impl PlayerNode {
                 .bind_appearance(game.shared_world(), Arc::clone(source), actor);
         match appearance {
             Ok(()) => {
+                if is_player && visual.bind().is_first_person() {
+                    self.first_person_appearance = Some(visual);
+                    self.sync_camera_controls();
+                    self.update_camera();
+                    return true;
+                }
                 self.animation_source = Some(actor);
-                visual.connect(
-                    "animation_event",
-                    &self.base().callable("report_animation_event"),
-                );
-                visual.connect(
-                    "animation_graph_unloaded",
-                    &self.base().callable("report_animation_graph_unloaded"),
-                );
+                for (signal, method) in [
+                    ("animation_event", "report_animation_event"),
+                    (
+                        "animation_graph_unloaded",
+                        "report_animation_graph_unloaded",
+                    ),
+                ] {
+                    let callable = self.base().callable(method);
+                    if !visual.is_connected(signal, &callable) {
+                        visual.connect(signal, &callable);
+                    }
+                }
                 if is_player {
-                    visual.bind_mut().set_first_person_geometry_visible(
-                        self.camera_state
-                            .rendered_first_person_geometry_visible(self.rig.mode),
-                    );
+                    let callable = self.base().callable("player_weapon_contact");
+                    if !visual.is_connected("weapon_contact", &callable) {
+                        visual.connect("weapon_contact", &callable);
+                    }
+                    visual
+                        .bind_mut()
+                        .set_first_person_geometry_visible(self.rig.mode == CameraMode::Third);
                     self.player_appearance = Some(visual);
                 }
                 true
@@ -1270,7 +1296,14 @@ impl PlayerNode {
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
-        self.begin_melee_swing_from_input(input.right_attack_pressed);
+        if input.ready_weapon_pressed {
+            self.toggle_weapon_ready();
+        }
+        if self.player_appearance.is_some() {
+            self.route_weapon_input(&input, delta as f32);
+        } else {
+            self.begin_melee_swing_from_input(input.right_attack_pressed);
+        }
 
         let camera = self.rig;
         let intent = self.driver.update(&input, &camera);
@@ -1293,6 +1326,23 @@ impl PlayerNode {
         }
 
         drop(physics_scope);
+        let displacement = self.feet() - before;
+        let distance = displacement.x.hypot(displacement.y);
+        for visual in [
+            &mut self.player_appearance,
+            &mut self.first_person_appearance,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if visual.is_instance_valid() {
+                visual.bind_mut().set_movement_speed(if delta > 0.0 {
+                    distance / delta as f32
+                } else {
+                    0.0
+                });
+            }
+        }
         self.advance_footsteps(before, was_grounded, &input);
 
         self.update_carry_input(&input, delta);
@@ -2372,6 +2422,7 @@ impl PlayerNode {
             sneak_pressed: pressed(Action::Sneak),
             activate_pressed: pressed(Action::Activate),
             toggle_pov_pressed: pressed(Action::TogglePov),
+            ready_weapon_pressed: pressed(Action::ReadyWeapon),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
             right_attack_pressed: pressed(Action::RightAttack),
             left_attack_held: held(Action::LeftAttackBlock),
@@ -2545,6 +2596,12 @@ impl PlayerNode {
         if let Some(camera) = &mut self.camera {
             camera.set_global_transform(transform);
             camera.set_fov(self.rig.fov());
+        }
+        if let Some(visual) = &mut self.first_person_appearance {
+            if visual.is_instance_valid() {
+                let offset = visual.bind().first_person_camera_offset();
+                visual.set_global_transform(transform * offset.affine_inverse());
+            }
         }
     }
 

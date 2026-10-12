@@ -2,6 +2,7 @@
 
 //! Godot controls for the player status meters and heading compass.
 
+use godot::builtin::Side;
 use godot::classes::control::{LayoutPreset, MouseFilter};
 use godot::classes::{CanvasLayer, ColorRect, Control, Label, ProgressBar, VBoxContainer};
 use godot::prelude::*;
@@ -18,6 +19,8 @@ pub(super) struct HudView {
     stamina_label: Gd<Label>,
     stamina_bar: Gd<ProgressBar>,
     compass: Gd<Label>,
+    activation_prompt: Gd<Label>,
+    activation: Gd<Label>,
     cart_mode: Gd<Label>,
     blood_overlay: Gd<ColorRect>,
     presentation: crate::hud::GameUiPresentation,
@@ -45,6 +48,23 @@ impl HudView {
         compass.set_position(Vector2::new(520.0, 24.0));
         compass.set_text("W   NW   [N]   NE   E");
 
+        let mut activation_prompt = Label::new_alloc();
+        activation_prompt.set_name("ActivationPrompt");
+        activation_prompt.set_mouse_filter(MouseFilter::IGNORE);
+        activation_prompt.set_anchors_and_offsets_preset(LayoutPreset::CENTER);
+        activation_prompt.set_position(Vector2::new(-100.0, 24.0));
+        activation_prompt.set_custom_minimum_size(Vector2::new(200.0, 50.0));
+        activation_prompt.set_horizontal_alignment(godot::global::HorizontalAlignment::CENTER);
+
+        let mut activation = Label::new_alloc();
+        activation.set_name("ActivationPrompt");
+        activation.set_anchors_and_offsets_preset(LayoutPreset::CENTER);
+        activation.set_offset(Side::LEFT, -70.0);
+        activation.set_offset(Side::RIGHT, 70.0);
+        activation.set_offset(Side::TOP, 24.0);
+        activation.set_offset(Side::BOTTOM, 64.0);
+        activation.hide();
+
         let mut cart_mode = Label::new_alloc();
         cart_mode.set_name("CartMode");
         cart_mode.set_anchors_and_offsets_preset(LayoutPreset::CENTER_TOP);
@@ -61,6 +81,8 @@ impl HudView {
 
         root.add_child(&stats);
         root.add_child(&compass);
+        root.add_child(&activation_prompt);
+        root.add_child(&activation);
         root.add_child(&cart_mode);
         root.add_child(&blood_overlay);
         layer.add_child(&root);
@@ -75,6 +97,8 @@ impl HudView {
             stamina_label: stamina.0,
             stamina_bar: stamina.1,
             compass,
+            activation_prompt,
+            activation,
             cart_mode,
             blood_overlay,
             presentation: crate::hud::GameUiPresentation::default(),
@@ -104,6 +128,20 @@ impl HudView {
             snapshot.stamina,
         );
         self.compass.set_text(&snapshot.compass);
+        let prompt = super::activation::prompt(game);
+        self.activation_prompt.set_text(
+            &prompt.map_or_else(String::new, |(name, action, _)| format!("{action}\n{name}")),
+        );
+        let focused = game.world().crosshair_reference();
+        let prompt = focused
+            .filter(|speaker| game.player_dialogue_available(*speaker))
+            .and_then(|speaker| game.world().name_of(speaker));
+        self.activation.set_text(
+            &prompt
+                .as_ref()
+                .map_or_else(String::new, |name| format!("Talk\n{name}")),
+        );
+        self.activation.set_visible(prompt.is_some());
     }
 
     pub(super) fn hide(&mut self) {

@@ -1,13 +1,15 @@
 extends SceneTree
 
 ## Gameplay integration prototype. Requires SKYRIM_DATA and the release extension.
-## WASD move, mouse looks, Space jumps, Ctrl sneaks, F changes camera, Esc exits.
+## WASD move, mouse looks, Space jumps, Ctrl sneaks, F changes camera, Esc pauses.
 const Warmup := preload("res://render_warmup.gd")
 const SystemOverlay := preload("res://system_overlay.gd")
 const RecordSky := preload("res://record_sky.gd")
 const LoadDiagnostics := preload("res://load_diagnostics.gd")
 
 var player: Node3D
+var player_body: Node3D
+var player_arms: Node3D
 var streamer: Node3D
 var system_overlay: CanvasLayer
 var frames := 0
@@ -112,6 +114,25 @@ func _start() -> void:
 		printerr("Could not start the gameplay runtime")
 		quit(1)
 		return
+	if OS.get_environment("SOE_THREADED_SIMULATION") != "1":
+		phase_msec = Time.get_ticks_msec()
+		player_body = ClassDB.instantiate("SkinnedActorNode")
+		player_body.name = "PlayerAppearance"
+		player.add_child(player_body)
+		if not player.call("bind_actor_appearance", player_body, 0, 0x14):
+			printerr("Could not bind the resolved player appearance")
+			quit(1)
+			return
+		player_arms = ClassDB.instantiate("SkinnedActorNode")
+		player_arms.name = "FirstPersonAppearance"
+		player_arms.set("first_person", true)
+		player.add_child(player_arms)
+		if not player.call("bind_actor_appearance", player_arms, 0, 0x14):
+			printerr("Could not bind the player's first-person arms")
+			quit(1)
+			return
+		print("STARTUP player appearance ms=", Time.get_ticks_msec() - phase_msec,
+			" control_nodes=2 body=", player_body.call("stats"), " arms=", player_arms.call("stats"))
 	print("STARTUP ready ms=", Time.get_ticks_msec() - startup_msec)
 	if not sky.use_player(player):
 		printerr("Could not initialize the record sky")
@@ -119,7 +140,7 @@ func _start() -> void:
 		return
 	loading_label.queue_free()
 	loading_label = null
-	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, F3 system timings, Esc exit")
+	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, R ready weapon, mouse buttons attack or cast, F3 system timings, Esc pause menu")
 	loaded = true
 	if OS.get_environment("SOE_AUD_11_TEST") == "1":
 		await _run_aud_11_check()
@@ -179,7 +200,7 @@ func _configure_player() -> void:
 
 func _process(_delta: float) -> bool:
 	if is_instance_valid(loading_label):
-		loading_label.text = "%s... %.1f s\nEsc exits" % [loading_phase, (Time.get_ticks_msec() - startup_msec) / 1000.0]
+		loading_label.text = "%s... %.1f s" % [loading_phase, (Time.get_ticks_msec() - startup_msec) / 1000.0]
 	if loaded:
 		frames += 1
 		var capture := OS.get_environment("SOE_CAPTURE_PATH")
@@ -187,7 +208,4 @@ func _process(_delta: float) -> bool:
 			var error := get_root().get_texture().get_image().save_png(capture)
 			print("CAPTURE: ", capture, " error=", error)
 			quit(0 if error == OK else 1)
-	if Input.is_key_pressed(KEY_ESCAPE):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		quit(0)
 	return false

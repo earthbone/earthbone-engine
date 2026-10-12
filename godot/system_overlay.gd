@@ -296,11 +296,14 @@ func ai_text(report: Dictionary) -> String:
 
 
 func godot_metrics() -> Dictionary:
+	var viewport := get_viewport()
+	if not is_instance_valid(viewport):
+		return {}
 	var values := {}
 	for name in MONITORS:
 		values[name] = Performance.get_monitor(MONITORS[name])
 	var server := RenderingServer
-	var rid := get_viewport().get_viewport_rid()
+	var rid := viewport.get_viewport_rid()
 	var passes := {}
 	for pair in [["visible", server.VIEWPORT_RENDER_INFO_TYPE_VISIBLE], ["shadow", server.VIEWPORT_RENDER_INFO_TYPE_SHADOW], ["canvas", server.VIEWPORT_RENDER_INFO_TYPE_CANVAS]]:
 		passes[pair[0]] = {

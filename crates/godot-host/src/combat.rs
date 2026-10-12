@@ -100,6 +100,7 @@ struct Swing {
     attacker: GlobalFormId,
     hand: Hand,
     weapon: GlobalFormId,
+    power: bool,
 }
 
 /// Host contact latch. Damage and equipment remain in the shared Game.
@@ -343,7 +344,22 @@ impl MeleeContact {
             attacker,
             hand,
             weapon,
+            power: false,
         });
+        Ok(())
+    }
+
+    /// Arm a power swing whose authored contact uses the game's stamina and damage rules.
+    pub fn begin_power(
+        &mut self,
+        game: &Game,
+        attacker: GlobalFormId,
+        hand: Hand,
+    ) -> Result<(), Error> {
+        self.begin(game, attacker, hand)?;
+        if let Some(swing) = &mut self.swing {
+            swing.power = true;
+        }
         Ok(())
     }
 
@@ -392,13 +408,9 @@ impl MeleeContact {
             attacker: swing.attacker,
             target,
             weapon: swing.weapon,
-            // Shield-bash gesture detection is not wired up on the host side
-            // yet. Every contact this bridge delivers is an ordinary weapon
-            // swing until that lands. See docs/combat.md CMB-20.
+            // CONTEXT: Shield bashes use a separate input transaction.
             is_bash: false,
-            // `begin` arms ordinary swings only. The host has no power
-            // attack trigger yet, so no stamina cost applies here.
-            is_power_attack: false,
+            is_power_attack: swing.power,
         })
         .map(Some)
     }

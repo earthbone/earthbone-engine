@@ -81,6 +81,191 @@ resident LAND support, so distant object LOD outside that LAND has no height
 measurement. Full market and gate views, the repeating route, grass audio,
 optional converted menu themes and the ten-minute GPU mode remain unverified.
 
+## NPC activation dialogue, HST-28
+
+An E-key tap on a resident actor uses the existing collision ray and game
+activation path, including OnActivate and activation blocking. Successful
+actor activation opens the modal dialogue presenter through
+`Game::begin_player_dialogue`. The presenter plays and displays the selected
+greeting alongside the game's conditional topic buttons. Selecting a button
+acknowledges the greeting and rechecks its conditions in Game, then displays
+and plays the returned response. Continue handles subsequent responses and
+Goodbye. Close cancels the conversation and voice and restores play input.
+The HUD shows Talk and the NPC's record name for an available focused actor.
+
+SoundBank resolves and decodes the existing voice asset and samples its LIP
+track against the voice player's clock. The streamed speaker receives those
+weights through its existing SkinnedActorNode. Race PHTN names map the track
+onto uploaded TRI mouth morphs, alongside the existing expression morphs.
+Races without PHTN use xEdit's sixteen humanoid PHWT target names in file order,
+including NordRace, whose absent mapping is covered by the audio survey.
+Other NPCs retain neutral mouth weights. Completion or interruption clears
+the weights. The loader recognizes the humanoid and Lip-prefixed mouth names
+in local xEdit's RACE PHWT definition, plus each streamed race's PHTN names.
+The existing audio, TRI and server mesh
+implementations are reused. This adds no reference nodes or saved fields.
+
+`hst_28_dialogue` runs a SKYRIM_DATA-gated headless Bannered Mare check. It
+targets drawn Hulda with the crosshair, injects E, checks her greeting, voice
+and mouth weights, selects an offered topic and verifies its response and
+return to play. `dialogue_state` exposes the shared conversation for host
+diagnostics. `SkinnedActorNode::dialogue_mouth_state` reports the mouth morph
+weights sent to its head surfaces.
+
+## Streamed skinned NPCs, HST-23
+
+`PlayerNode` reconciles enabled ACHRs from World's contact view with rendered
+cell residency. Interior residency records installed cells even when they have
+no static geometry. Each gets one `SkinnedActorNode` control node. Its surfaces,
+mesh instances and skeletons use RenderingServer RIDs. Actors follow the runtime
+position, rotation and controller scale each frame. The threaded adapter uses
+interpolated snapshot placements and derived appearances instead of borrowing
+the worker's World. A disabled actor or one whose rendered cell leaves residency
+releases its node and RIDs. Returning creates a new view of the retained World
+state.
+
+Race and sex select the animation project and skeleton. The existing appearance
+selector supplies skin, SPID-distributed skin and worn outfit addons. Both
+gameplay startup paths apply mod-data files from the VFS loose roots before
+scripts start. HDPT models and their extra parts are assembled on that same rig.
+Exported FaceGen geometry is read from the traits source's defining plugin and
+local NPC ID. Its shape names match selected HDPT editor IDs, so covered hair
+stays hidden and edited parts retain their selected models. Exported faces
+retain their authored diffuse texture, multiplied by the separate exported
+FaceTint texture in a head shader. HairTint and SkinTint RGB values remain
+material color multipliers. The host uses the parsed dynamic position buffer
+for BSDynamicTriShape heads rather than their zero packed positions.
+Rigid head parts use the existing single-weight attachment path at
+`NPC Head [Head]`.
+Rigid shield shapes retain their authored model transform and attach to the
+race rig's left-hand weapon bone through a single skin weight. CommonLib's
+`BipedObjects.h` identifies shield slot 9. The existing host weapon-bone
+selector follows `activeragdoll/src/utils.cpp::GetWeaponNode`, which names
+`SHIELD` for the left hand.
+Missing assets and unmatched bones produce a reported loader error rather than a
+substitute body. Rig decoding and mesh/texture decoding use rayon workers.
+Cached rigs include every node in the race skeleton NIF so later outfits can
+bind additional authored bones. Immutable rigs are shared by the skeleton and
+project paths selected by the race and sex. One completed character upload is
+installed per render frame. Inline appearance selection refreshes every 250
+milliseconds, while placement and visibility follow every frame. Movement sets
+the graph's Speed variable and sends moveStart or moveStop at transitions.
+NPC interpreters retain character-file property defaults, set live sex and
+NPC inputs, and sample an idle before the first upload. Streamed nodes enable
+processing after installation. Runtime movement supplies heading-relative
+Direction and TurnDelta, with turnStart, turnStop and turn direction events.
+Threaded snapshots carry the world's ordered animation request log. Each
+resident visual consumes its requests once, including across skipped ticks.
+
+Rig ownership retains an Arc for the interpreter's private borrow and drops that
+interpreter before replacing or releasing the Arc. Cell unload no longer leaks a
+rig allocation. The rig cache is cleared when the data source changes. Shutdown
+waits for outstanding decode jobs before releasing the host. Inline characters
+bind to the shared World for existing graph-event, stagger, facial and death
+hooks. `npc_visuals` reports identities, skinned surfaces, bones, head parts,
+loader errors, node identities and presentation positions. `npc_visual_counts`
+compares enabled resident ACHRs with drawn, pending and failed views.
+`set_npc_visuals_hidden` hides the RIDs for paired captures without changing
+World. The animation_actors gauge counts the resident loaded character nodes.
+
+Local xEdit ACHR, NPC_, HDPT and RACE definitions and OpenMW's
+`apps/openmw/mwrender/esm4npcanimation.cpp` supply the record selection rules.
+The existing NIF/HKX readers and RenderingServer path are reused. OpenMW's scene
+objects do not fit this host's server RID geometry ownership.
+Nifly's `src/Geometry.cpp::BSDynamicTriShape::Sync` and head-part conversion in
+`src/NifFile.cpp` describe dynamic head geometry and eye data. Serde-hkx's
+`assets/classes/hkbStateMachine.json` and `hkbCharacterStringData.json` provide
+the authored start-state and character asset contracts. These are read through
+the existing engine readers, with no additional parser or dependency.
+
+`hst_23_characters` tests compare installed Hulda and Whiterun guard captures
+with NPC RIDs hidden, check enable/disable, cell unload/reload and runtime
+placement. `hst_23_frame_budget_test.gd` runs TST-18's Whiterun radius-one
+workload with skinned NPCs and reports node reconciliation and pose costs.
+The installed head test requires nonzero head, eye and hair geometry, mapped
+bones, Hulda's face tint and a changing idle pose. It also checks that movement
+enters a walk clip and returns to idle. The capture checks uploaded head and
+eye meshes, Hulda's hair and rendered bone changes across one second.
+
+## Player presentation, HST-25 draft
+
+The walkthrough binds two `SkinnedActorNode` children to player reference
+`0x14` after `start_gameplay` resolves its records. An unloaded node reads the
+race, sex, skin and equipped armor through the shared World and DataSource.
+The third-person body follows the shared capsule placement. First-person
+armor uses each selected ARMA's first-person model. Its rig and behavior come
+from `_1stperson/characters/firstperson.hkx` under the selected race's animation
+root. The first-person camera bone's reference transform anchors those meshes
+to the player camera. Missing first-person character files fail the binding.
+Race and armor changes refresh both views. Restoring a direct Game rebinds
+the existing visuals to its replacement World.
+
+F switches the separate body and arms presentations. The first-person geometry
+native controls the arms, while the third-person body stays visible in third
+person. Invisibility and mesh replacement retain those visibility decisions.
+The existing collision-tested camera boom keeps its padding ahead of walls.
+Horizontal capsule displacement supplies graph speed and move start or stop
+events.
+
+R changes the existing shared `weapon_drawn` field and sends the authored
+`WeapEquip` or `Unequip` input to both rigs. A weapon-hand tap requests an ordinary
+attack on release. Holding for 0.3 seconds requests a power attack. Spell hands
+do not also arm a melee contact. Both rigs receive the hand-specific attack
+event. Only the third-person body submits authored HitFrame poses to CMB-03,
+so switching views cannot duplicate a hit. Power contacts retain their power
+flag for the game's stamina and damage validation. Focus loss and input reset
+clear pending weapon holds.
+
+Weapon meshes attach through RenderingServer instances to the current weapon
+bones. WEAP/WNAM selects the first-person STAT model. Sheathed third-person
+weapons use the authored WeaponSword, WeaponDagger, WeaponAxe, WeaponMace,
+WeaponBack or WeaponBow node when present. MGEF/DATA Casting Art at offset
+0x5c supplies a hand-art model through its ARTO record. Static surfaces from
+that model use the same mesh and material path as item previews. Player input
+requests spell start and release events for the spell's casting type and
+delivery. The existing MAG-22 Game adapter still executes casting.
+
+This draft does not complete HST-25. The installed master graph currently
+stays at the first draw frame, so the stronger installed attack and contact
+acceptance fails. That adapter rejects aimed Flames before
+projectile delivery. NIF particle casting art is not rendered by the static
+surface path. The full live spell, adjacent-actor contact and both-hand pixel
+acceptance remains unverified. The armor appearance view supplies body and
+outfit geometry, without adding head-part construction here. A rigid shield
+attachment is not implemented. The threaded Game adapter has no
+appearance-binding route, so its walkthrough retains the existing camera path.
+
+Sources are local TES5Edit/Core/wbDefinitionsTES5.pas for RACE, ARMA,
+WEAP/WNAM and MGEF Casting Art, UESP's RACE and MGEF pages, CommonLibSSE-NG's
+TESObjectWEAP, BipedAnim and FixedStrings declarations, and CK's DrawWeapon
+contract. OpenMW's esm4npcanimation.cpp supplies the reference for record-driven
+part selection. Its OSG scene implementation does not fit this host, which
+reuses the existing Godot RID mesh and skin upload. No dependency or saved
+field is added. The two new nodes belong to the player control path, with
+no node added per streamed reference. Walkthrough startup reports their load
+time and shape, bone and clip counts.
+
+`hst_25_player.rs` checks installed body and first-person rigs, authored event
+availability, authored draw and attack progression, R press edges and camera
+padding. Its Godot runner starts the
+actual walkthrough headless, then windowed for body and sword captures.
+`hst_25_player_test.gd` freezes presentation for visibility comparisons,
+requires 100 body pixels and 25 weapon pixels per view, and quits. Attack
+checks require an attack clip and the body's HitFrame marker, rather than
+accepting a locomotion pose change. The
+`hst_25_` cases in combat_contact.rs check left-hand contact identity and power
+validation. These checks do not establish complete spell delivery.
+
+The installed-data run loads the two player presentation nodes in 432 ms in
+the windowed walkthrough. Both rigs have 99 bones, with four body surfaces
+and two first-person surfaces. The captures differ by 11,645 body pixels,
+10,200 third-person weapon pixels and 50 first-person weapon pixels. The small
+first-person difference does not establish usable arm and weapon placement.
+Both Godot processes exit with status 1 because authored attacks and contact
+markers fail. The installed rig test also fails draw and attack progression
+in both views. The other three player tests and all 15 combat contact tests
+pass. These results leave the row partial.
+
 ## Snapshot adapter, PRF-37 draft
 
 `PlayerNode::start_threaded_gameplay` starts a worker-owned Game using the
@@ -102,7 +287,7 @@ immutable snapshot pair and interpolate actor transforms. The streamer applies
 them to existing MultiMesh and array-mesh resources without reading World.
 Existing actor body synchronization uses snapshot contact shapes. SkyRecords
 reads the published sky rather than constructing a gameplay World on the
-main thread. No per-reference nodes or runtime dependencies are added.
+main thread. Character control nodes follow the HST-23 presentation path above.
 
 `simulation_status` reports readiness, initialization errors, tick count,
 actor count, package evaluations, tick wall time, PRF-17 search-worker busy
@@ -3263,7 +3448,7 @@ moved about 90 Skyrim units north in 30 steps at 60 Hz. The exact-PC-map tests
 also passed against the installed archive, alongside 126 host unit tests.
 
 These are automated checks, not a manual play session. The launcher uses
-WASD, mouse look, Space, Ctrl and F, with Escape to exit. For a rendered
+WASD, mouse look, Space, Ctrl and F, with Escape to toggle pause. For a rendered
 smoke capture, set `SOE_CAPTURE_PATH` to a writable PNG path and use
 `--max-fps 60`. It disables mouse capture and exits after saving frame 120.
 An initial windowed smoke attempt ended with SIGTERM. A later run saved a
@@ -3782,6 +3967,39 @@ Across 1,000 zero-time `advance_doors` calls, the whole API call averaged
 door. These measure held-pose presentation calls with GDScript dispatch,
 not the full host frame or moving-mesh server submission cost. Door surfaces
 remain server resources. The path adds no dependencies or saved fields.
+
+### Door presentation checks, HST-27
+
+Resident doors retain their geometry while opening, open and closing.
+Resident-door poses survive ordinary batch-index rebuilds. The presentation
+cache follows effective enable state, rather than treating an opened door
+as a hidden reference. Door watches leave with their resident cell. Collision
+still follows open state through the existing World query. Door surfaces retain the exact transform
+submitted to RenderingServer. `door_state.world_vertices` transforms the
+uploaded mesh vertices with that submission for placement checks.
+
+The swing applies a local quarter-turn about the reference placement origin,
+then cancels the placement already baked into world-space arrays. Local arrays use an identity
+cancellation. This keeps placement from being applied twice and preserves the
+existing HST-21 quarter-turn fallback. The whole resident model rotates about
+the reference origin, without evaluating authored per-leaf Open/Close tracks.
+Its source remains local OpenMW
+`apps/openmw/mwworld/worldimp.cpp`, `World::rotateDoor`. CK
+`SetOpen_-_ObjectReference.wikitext` supplies the open-state contract.
+The host does not use godotwind's portal-specific mesh hiding.
+
+The `hst_27_` transform tests cover translated, rotated and scaled placements
+through both swing directions and local geometry. The installed-data scene
+activates a Bannered Mare swing door and both directions of the Bannered Mare
+and Breezehome load doors. It captures closed, opening, open, closing and
+returned leaves, isolates each leaf on a render layer, compares it with its
+RIDs temporarily hidden, and checks uploaded vertices against a radius
+computed independently from the original record and mesh, with a 0.01-metre
+tolerance. The visible-pixel threshold is 100, fixed before the run. The scene
+advances the load-door fade before capturing its destination.
+Captures and process logs are under `target/hst_27`. The test quits its Godot
+process and requires a successful exit. No saved state, dependency or
+per-reference node path is added.
 
 ### Cold door fade fallback (2026-09-20)
 
@@ -4436,6 +4654,38 @@ focus and releases the mouse. Escape and the Close button close the menu.
 Closing frees presenter controls, clears held gameplay actions and restores
 prior focus and mouse mode. Mouse restoration waits for window focus when
 closing while unfocused. Repeated opens and closes do not add shell nodes.
+
+### Walkthrough pause and shutdown, HST-24
+
+Escape opens the Paused menu and a second press closes it. Held-key echoes
+leave it open. The walkthrough process loop does not quit on Escape, including
+during startup. Paused adds one temporary Quit button to the shell's content.
+Its pressed signal calls SceneTree.quit. Closing the menu frees that button.
+The fixed shell still has six nodes and adds no per-reference node path.
+The window close button retains Godot's automatic quit handling. Both shutdown
+paths run the walkthrough finalizer, which prints `WALKTHROUGH stopped`.
+
+`system_overlay.gd` returns an empty metrics dictionary when its node has no
+viewport, including during teardown. Attached overlays retain the existing
+render and performance metrics. The local Godot `class_node.rst` documents
+the null viewport outside the tree, and `class_scenetree.rst` and
+`tutorials/inputs/handling_quit_requests.rst` document automatic window-close
+handling and explicit quit. The implementation uses these existing host APIs.
+
+`hst_24_pause.rs` runs `godot/hst_24_pause_test.gd`, which inherits the actual
+walkthrough loop. It injects Escape presses, release and echo, checks continued
+frames, pause state, clock, position, focus and content cleanup, then requests
+shutdown from Quit or the root window's close-request signal. A separate run
+checks unattached, attached and detached overlay metrics. With `SKYRIM_DATA`
+set it repeats both shutdown paths after the WhiterunOrigin exterior startup.
+The Rust runner requires successful process exit, the finalizer message and no
+script errors. These checks use headless Godot because they test input and
+lifecycle.
+
+The Escape handler survey under `godot/` found only `walkthrough.gd` quitting
+on Escape. `prf_13_entities_test.gd` injects Escape to test the modal menu and
+is unchanged. `crates/godot-host/tests/menu_runtime.gd` does the same and is
+also unchanged. Scripts inheriting the walkthrough use its updated loop.
 
 UI-21 documents the public API and license boundary for SKSE Menu Framework
 and dMenu style ImGui pages, and compares host rendering options. Those
@@ -6754,3 +7004,35 @@ The runners use isolated projects with explicit extension registration, so
 a fresh checkout needs no shared Godot import cache for these checks.
 The fixture scene runs in a window. Their stdout and stderr captures are
 written under `target/aud_13`.
+
+## Walkthrough loose-object activation, HST-26
+
+Starting gameplay installs the streamed cell's PhysicsServer collision when
+it is absent, using its resolved FormID without requiring an editor name.
+This includes loose rigid item bodies, which the static player
+movement world excludes. A previously installed cell retains its bodies and
+poses. The activation ray resolves the first body through the query, streamer
+and actor ownership maps. Tap E uses Game's default activation. A hold whose
+target cannot be carried activates once at the hold threshold. A successful
+carry retains its existing release behavior.
+
+The HUD shows the resolved reference name and Take, Steal, Read, Activate,
+Use or Open beside the crosshair. The prompt ignores mouse input. BOOK
+default processing in Game requests a scrollable Book
+menu with localized FULL and DESC text. Text presentation retains line and
+page breaks and strips font and image tags. It does not render book images.
+ACTI and FURN use the same Game and OnActivate path as other references.
+Both player input and Papyrus book-reading requests reach the menu adapter.
+The activation observer diagnostics read the shared World and Papyrus VM.
+
+Sources are local CK Activate and OnActivate pages, UESP BOOK, and the
+existing HST-22 server bodies and UI-26 ownership transaction. OpenMW
+`apps/openmw/mwgui/formatting.cpp` supplies the book markup comparison. Its
+MyGUI font, image and pagination widgets do not fit this host. The reader
+uses Godot text scrolling with line breaks and plain text instead. No new saved
+field, dependency or per-reference node is added. The headless HST-26 scene
+extends walkthrough.gd, takes a Bannered Mare tankard using mapped E and
+checks inventory, disabled state, prompt and executed OnActivate. It also
+activates an installed book and activator and checks the book menu and their
+Papyrus observers. Rust cases cover all seven requested item tags, ownership,
+blocked processing and default-only native activation.

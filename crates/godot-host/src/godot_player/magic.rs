@@ -300,13 +300,38 @@ impl PlayerNode {
         };
         let player = game.player();
         for (hand, input) in [(Hand::Left, left), (Hand::Right, right)] {
+            if game.world().hand_spell(player, hand).is_none() {
+                continue;
+            }
             if input.pressed || (input.held && !input.was_held) {
+                for visual in [
+                    &mut self.player_appearance,
+                    &mut self.first_person_appearance,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    visual
+                        .bind_mut()
+                        .animate_hand_cast(hand == Hand::Left, true);
+                }
                 if let Err(error) = game.begin_hand_cast(player, hand, None) {
                     soe_trace::error!(target: "host::magic", system = "host::magic", "PlayerNode: hand cast rejected: {error}");
                 }
             }
             if !input.held && (input.was_held || input.pressed) {
                 let _ = game.end_hand_cast(player, hand);
+                for visual in [
+                    &mut self.player_appearance,
+                    &mut self.first_person_appearance,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    visual
+                        .bind_mut()
+                        .animate_hand_cast(hand == Hand::Left, false);
+                }
             }
         }
     }

@@ -334,6 +334,140 @@ impl World {
 }
 
 impl Game {
+    /// Whether a player activation can start a conversation with this actor.
+    /// Reads availability, scene participation and faction enemies from World.
+    pub fn player_dialogue_available(&mut self, speaker: GlobalFormId) -> bool {
+        let ambient = self.ambient_dialogue();
+        let player = self.player();
+        let mut world = self.world.borrow_mut();
+        if speaker == player
+            || (world.dialogue.session.is_some() && !ambient)
+            || !world.reference_enabled(speaker)
+            || world
+                .reference(speaker)
+                .is_none_or(|reference| reference.activation_blocked)
+            || world.actor(speaker).is_none_or(|actor| {
+                actor.dead
+                    || actor.in_combat
+                    || actor.combat_target.is_some()
+                    || actor.unconscious
+                    || !actor.allow_pc_dialogue
+            })
+            || world.current_scene(speaker).is_some()
+        {
+            return false;
+        }
+        let mut factions: Vec<_> = world
+            .actor(speaker)
+            .into_iter()
+            .flat_map(|actor| actor.factions.iter())
+            .filter_map(|(id, rank)| (*rank >= 0).then_some(*id))
+            .collect();
+        factions.sort_unstable();
+        let mut player_factions: Vec<_> = world
+            .actor(player)
+            .into_iter()
+            .flat_map(|actor| actor.factions.iter())
+            .filter_map(|(id, rank)| (*rank >= 0).then_some(*id))
+            .collect();
+        player_factions.sort_unstable();
+        !factions.into_iter().any(|id| {
+            world.faction(id).is_some_and(|faction| {
+                faction.player_enemy
+                    || player_factions.iter().any(|other| {
+                        faction.reactions.get(other) == Some(&crate::world::reaction::ENEMY)
+                    })
+            })
+        })
+    }
+
+    /// Begin a player conversation and select its highest-priority eligible Hello.
+    /// Hello INFOs use the same quest, speaker and condition checks as topics.
+    ///
+    /// # Errors
+    /// Rejects unavailable speakers, empty dialogue and failed response execution.
+    pub fn begin_player_dialogue(&mut self, speaker: GlobalFormId) -> Result<Option<Line>, Error> {
+        if !self.player_dialogue_available(speaker) {
+            return Err(Error::State("speaker unavailable for player dialogue"));
+        }
+        let player = self.player();
+        let current_greeting = {
+            let world = self.world.borrow();
+            world.dialogue.session.as_ref().is_some_and(|session| {
+                session.speaker == speaker
+                    && session.listener == player
+                    && session.topic.is_some_and(|topic| {
+                        world
+                            .dialogue_topic(topic)
+                            .is_ok_and(|topic| ambient_interrupt(&topic) == Some(1))
+                    })
+            })
+        };
+        if current_greeting {
+            if let Some(line) = self.dialogue_line()? {
+                return Ok(Some(line));
+            }
+        }
+        self.begin_dialogue(speaker, player)?;
+        let result = self.start_player_greeting();
+        if result.is_err() {
+            self.close_dialogue();
+        }
+        result
+    }
+
+    fn start_player_greeting(&mut self) -> Result<Option<Line>, Error> {
+        let session = self
+            .world
+            .borrow()
+            .dialogue
+            .session
+            .clone()
+            .ok_or(Error::State("no conversation"))?;
+        let topics: Vec<_> = {
+            let world = self.world.borrow();
+            world
+                .order()
+                .winners_of(Tag(*b"DIAL"))
+                .filter(|(_, record)| !record.is_deleted())
+                .filter_map(|(id, _)| {
+                    world
+                        .dialogue_topic(id)
+                        .ok()
+                        .filter(|topic| ambient_interrupt(topic) == Some(1))
+                        .map(|_| id)
+                })
+                .collect()
+        };
+        let mut eligible = Vec::new();
+        self.world.borrow_mut().dialogue.greeting_actor = Some(session.speaker);
+        for topic in topics {
+            if let Ok(candidate) = self.dialogue_candidates(topic, &session) {
+                if !candidate.infos.is_empty() {
+                    eligible.push((
+                        candidate.quest_priority,
+                        candidate.topic.priority.unwrap_or(50.0),
+                        topic,
+                    ));
+                }
+            }
+        }
+        eligible.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| b.1.total_cmp(&a.1))
+                .then(a.2.cmp(&b.2))
+        });
+        let result = if let Some((_, _, topic)) = eligible.first() {
+            self.choose_dialogue_topic(*topic)
+        } else if self.dialogue_choices()?.available.is_empty() {
+            Err(Error::State("speaker has no eligible dialogue"))
+        } else {
+            Ok(None)
+        };
+        self.world.borrow_mut().dialogue.greeting_actor = None;
+        result
+    }
+
     /// Start an eligible ForceGreet or ambient Hello/Idle topic when a loaded
     /// actor enters dialogue range. The edge latch prevents per-frame replay.
     ///
@@ -860,6 +994,42 @@ impl Game {
         if session.current_info.is_some() {
             return Err(Error::State("response still playing"));
         }
+        self.dialogue_choices_for(&session)
+    }
+
+    /// Preview the conditional choices that follow the current INFO.
+    /// Does not advance responses, run fragments or change the conversation.
+    ///
+    /// # Errors
+    /// Requires an open conversation and valid response records.
+    pub fn dialogue_choices_after_response(&mut self) -> Result<Choices, Error> {
+        let mut session = self
+            .world
+            .borrow()
+            .dialogue
+            .session
+            .clone()
+            .ok_or(Error::State("no conversation"))?;
+        if let Some(info) = session.current_info.take() {
+            if self
+                .world
+                .borrow()
+                .dialogue_info(info)?
+                .data
+                .as_ref()
+                .is_some_and(|data| data.flags() & GOODBYE != 0)
+            {
+                return Ok(Choices {
+                    available: Vec::new(),
+                    rejected: Vec::new(),
+                });
+            }
+            session.last_info = Some(info);
+        }
+        self.dialogue_choices_for(&session)
+    }
+
+    fn dialogue_choices_for(&mut self, session: &Session) -> Result<Choices, Error> {
         let linked_topics = if let Some(last) = session.last_info {
             let world = self.world.borrow();
             let info = world.dialogue_info(last)?;
@@ -877,14 +1047,14 @@ impl Game {
             None if session.last_info.is_none() && session.topic.is_some() => {
                 (session.topic.into_iter().collect(), Vec::new())
             }
-            None => self.root_dialogue_topics(&session),
+            None => self.root_dialogue_topics(session),
         };
         let mut out = Choices {
             available: Vec::new(),
             rejected,
         };
         for topic in candidates {
-            match self.dialogue_candidates(topic, &session) {
+            match self.dialogue_candidates(topic, session) {
                 Ok(Candidates {
                     topic: topic_data,
                     quest_priority,

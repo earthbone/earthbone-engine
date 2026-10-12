@@ -369,6 +369,26 @@ impl PlayerNode {
             self.game = previous_game;
             self.automatic_detection = previous_detection;
         }
+        if attached {
+            self.weapon_holds = [None, None];
+            for visual in [
+                self.player_appearance.clone(),
+                self.first_person_appearance.clone(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if visual.is_instance_valid()
+                    && !self.bind_actor_appearance(
+                        visual,
+                        i32::from(player.file),
+                        i64::from(player.object),
+                    )
+                {
+                    soe_trace::error!(target: "host::player", system = "host::player", "restored player appearance could not be rebound");
+                }
+            }
+        }
         attached
     }
 
@@ -386,6 +406,14 @@ impl PlayerNode {
             );
             return false;
         };
+        // CONTEXT: The walkthrough streams meshes before entering the player.
+        // Static movement collision alone leaves loose rigid items unpickable.
+        let Some(mut streamer) = self.game_streamer.clone() else {
+            return false;
+        };
+        if !streamer.bind_mut().ensure_gameplay_collision(cell) {
+            return false;
+        }
         let mut game = match source.localized_game() {
             Ok(game) => game,
             Err(error) => {
@@ -401,6 +429,7 @@ impl PlayerNode {
                     error = %error, "PlayerNode: could not configure Papyrus file logs");
             }
         }
+        game.apply_mod_data(source.vfs().loose_roots());
         let scripts = game.load_scripts_from_vfs(source.vfs());
         if !scripts.scripts_failed.is_empty() {
             soe_trace::error!(target: "host::gameplay", system = "host::gameplay",
@@ -576,14 +605,7 @@ impl PlayerNode {
 
         self.advance_ambient_dialogue();
         self.capture_screenshot_requests();
-        let training_request = self
-            .game
-            .as_mut()
-            .and_then(|game| game.world_mut().take_training_menu_request());
-        if let Some(trainer) = training_request {
-            self.open_training_menu(trainer);
-        }
-        self.dispatch_menu_requests();
+        self.present_game_menu_requests();
         if let Some(game) = &mut self.game {
             let requests = game.world_mut().take_game_ui_requests();
             for request in requests {
@@ -689,12 +711,21 @@ impl PlayerNode {
             .set_camera_yaw_offset_degrees(self.camera_state.sitting_rotation_degrees());
         if let Some(visual) = &mut self.player_appearance {
             if visual.is_instance_valid() {
-                visual.bind_mut().set_first_person_geometry_visible(
-                    self.camera_state
-                        .rendered_first_person_geometry_visible(self.rig.mode),
-                );
+                visual
+                    .bind_mut()
+                    .set_first_person_geometry_visible(self.rig.mode == super::CameraMode::Third);
             } else {
                 self.player_appearance = None;
+            }
+        }
+        if let Some(visual) = &mut self.first_person_appearance {
+            if visual.is_instance_valid() {
+                visual.bind_mut().set_first_person_geometry_visible(
+                    self.rig.mode == super::CameraMode::First
+                        && self.camera_state.first_person_geometry_visible(),
+                );
+            } else {
+                self.first_person_appearance = None;
             }
         }
     }
@@ -992,6 +1023,49 @@ impl PlayerNode {
         }
     }
 
+    fn present_game_menu_requests(&mut self) {
+        let training_request = self
+            .game
+            .as_mut()
+            .and_then(|game| game.world_mut().take_training_menu_request());
+        if let Some(trainer) = training_request {
+            self.open_training_menu(trainer);
+        }
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().menu_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::MenuRequest::PrecacheCharGen => {
+                    if let (Some(game), Some(streamer)) =
+                        (self.game.as_ref(), self.game_streamer.as_mut())
+                    {
+                        streamer.bind_mut().precache_chargen(game);
+                    }
+                }
+                soe_game::world::MenuRequest::PrecacheCharGenClear => {
+                    if let Some(streamer) = self.game_streamer.as_mut() {
+                        streamer.bind_mut().precache_chargen_clear();
+                    }
+                }
+                soe_game::world::MenuRequest::Race => {
+                    self.show_race_menu();
+                }
+                // CONTEXT: Valid trainers use the pending request consumed above.
+                soe_game::world::MenuRequest::Training(_) => {}
+                soe_game::world::MenuRequest::Barter(actor) => {
+                    self.open_barter_menu(actor);
+                }
+                soe_game::world::MenuRequest::ActorInventory(actor) => {
+                    self.open_container_menu(actor);
+                }
+                soe_game::world::MenuRequest::ReadBook(book) => {
+                    self.open_book_menu(book);
+                }
+            }
+        }
+    }
+
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
         let is_load_door = self.game.as_ref().is_some_and(|game| {
             game.world()
@@ -1004,7 +1078,7 @@ impl PlayerNode {
                 &[Variant::from("load_door"), Variant::from("activation")],
             );
         }
-        let (activated, show_container, show_crafting, lockpick_request) = {
+        let (activated, show_container, show_crafting, show_dialogue, lockpick_request) = {
             let Some(game) = &mut self.game else {
                 return false;
             };
@@ -1021,17 +1095,18 @@ impl PlayerNode {
             }
             let (container, blocked) = {
                 let mut world = game.world_mut();
-                let container = world.base_of(target).is_some_and(|base| {
-                    world
-                        .tag_of(base)
-                        .is_some_and(|tag| tag.as_bytes() == b"CONT")
-                });
+                let kind = world.base_of(target).and_then(|base| world.tag_of(base));
+                let container = kind.is_some_and(|tag| tag.as_bytes() == b"CONT");
                 let blocked = world
                     .reference_ref(target)
                     .is_some_and(|reference| reference.activation_blocked);
                 (container, blocked)
             };
             let creation_bench = crate::crafting_menu::is_creation_bench(game, target);
+            let actor = game
+                .world()
+                .reference_ref(target)
+                .is_some_and(|reference| reference.is_actor);
             let lockpick = game.world().form("Lockpick");
             let key = game.world().key(target);
             let has_key = key.is_some_and(|key| game.world_mut().item_count(player, key) > 0);
@@ -1053,6 +1128,7 @@ impl PlayerNode {
                 activated,
                 activated && container && !blocked && opened,
                 activated && creation_bench && !blocked,
+                activated && actor && !blocked,
                 lockpick_request,
             )
         };
@@ -1068,7 +1144,10 @@ impl PlayerNode {
             self.open_container_menu(target);
         } else if show_crafting {
             self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
+        } else if show_dialogue {
+            self.open_dialogue_menu(i64::from(target.file), i64::from(target.object));
         }
+        self.present_game_menu_requests();
         if activated {
             let _ = self
                 .game_streamer

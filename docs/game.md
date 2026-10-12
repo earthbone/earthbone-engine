@@ -1,5 +1,58 @@
 # soe-game: the runtime form table and the first natives
 
+## Player NPC conversations, HST-28
+
+Player-input actor activation uses `begin_player_dialogue`. An active Hello
+to this player from the activated speaker retains its selected INFO and response
+cursor when the menu opens. Activation of a different speaker selects its Hello
+through the existing dialogue conditions and priorities.
+
+`Game::begin_player_dialogue` checks the actor's live availability and selects
+an eligible Misc Hello through the existing quest and INFO condition evaluator.
+Quest priority, topic priority and FormID order rank greetings. Selection uses
+the existing response, fragment and history path. Completing the greeting
+returns to the existing conditional topic choices. The response preview
+queries the choices following the current INFO without advancing its cursor
+or dispatching its end fragment. An actor without any
+eligible greeting or topic leaves no conversation open.
+
+`player_dialogue_available` rejects disabled or activation-blocked references,
+dead, unconscious or combat actors, actors with dialogue disabled, participants
+in a running scene and an already active nonambient conversation. Explicit
+faction enemies of the player also fail the check. Ambient chatter can be
+interrupted through the existing dialogue completion path.
+
+Local xEdit DIAL definitions and UESP's DIAL page identify Misc Hello as
+category 7 with subtype 79 or HELO. The local CK `AllowPCDialogue` and `Activate`
+pages supply the actor override and blocked-activation semantics. This entry
+point reuses the engine's record selector rather than adding a host topic list.
+
+`hst_28_` tests cover conditional greetings, topics, responses, Goodbye closure,
+unavailable speakers and empty dialogue. No saved fields are added.
+
+## Streamed character appearance, HST-23
+
+`ActorAppearance` includes selected HDPT models alongside the existing skin and
+worn armor addons. Runtime head-part overrides precede NPC PNAM selections,
+which precede the race's sex-specific HEAD defaults. One primary part per type
+survives. HNAM extra parts are included once, even when links cycle. Worn hair
+slots suppress hair. These views add no saved fields.
+
+The derived view carries HDPT editor IDs and the defining plugin and local
+object ID of the traits source for FaceGen lookup. Runtime head-part edits or
+a changed race suppress the old exported face. Overrides retain the defining
+plugin identity, and trait templates select the template's face assets.
+
+The layouts come from local `TES5Edit/Core/wbDefinitionsTES5.pas`, ACHR, NPC_,
+HDPT and RACE. NPC-first head selection and covered hair follow local
+`openmw/apps/openmw/mwrender/esm4npcanimation.cpp`. Head selection is derived
+here because the host and worker use the same runtime overrides and load-order
+resolution. The host's existing asset readers handle those selected models.
+Simulation snapshots include derived appearances for enabled contact actors,
+refreshed with contacts at the AI cadence. Invisibility is included in their
+presentation visibility. World remains the owner of equipment, skin, position,
+AI packages and enable state.
+
 ## Fixed simulation owner, PRF-37 draft
 
 `simulation::Simulation` constructs Game and its native closures on one named
@@ -12,7 +65,9 @@ AI activation and greeting decisions follow the AI cadence. The existing
 actor driver supplies its current process policy, without a second actor store.
 
 Snapshots contain loaded actor placements, contact presentations, sky state,
-package evaluation counts and tick/worker timings. Consecutive immutable
+package evaluation counts, ordered animation requests and tick/worker timings.
+The request log is shared until it changes, and host actor cursors retain event
+order when rendering skips simulation ticks. Consecutive immutable
 snapshots are published together with a nonblocking mutex exchange. A retained
 reader cannot be overwritten. Contention keeps the previously published pair.
 Interpolation clamps between those consecutive placements and wraps angles
@@ -9274,3 +9329,25 @@ sounds. Equal draws exclude an entry. The parser retains Mutagen's accepted
 layouts are UESP REGN and xEdit's `wbRegionSounds`, with the chance range from
 Mutagen's Skyrim `Region.xml`. The installed city and tundra tests require a
 selected ordinary loop with a draw of 0.25. No ambient state is added to saves.
+
+## Loose-reference pickup ownership, HST-26
+
+Default activation moves loose item references through the existing notified
+reference transaction. Pickup preserves item instance data, disables the
+placed reference and delivers OnContainerChanged, inventory notifications
+and OnActivate. Blocked activation still queues OnActivate without default
+processing. Default-only Papyrus Activate bypasses the block and suppresses
+OnActivate, following the local CK Activate and OnActivate pages.
+
+Pickup ownership reads the explicit reference owner or its cell owner and
+compares the activating actor's base and faction rank. A stolen pickup
+inherits the effective owner into the existing inventory extra list. An
+allowed pickup clears ownership from the received bundle. Ordinary AddItem
+reference transfers retain their existing ownership behavior. This uses the
+existing inventory save layout and adds no saved field or section.
+The ownership path reuses UI-26's QuickLoot IE reference and cell rules.
+BOOK DATA bit 1, Can't be Taken, retains the reference during default
+activation while still sending OnActivate, following local UESP BOOK.
+Successful player BOOK default processing also queues a transient ReadBook
+host request. This includes Papyrus default-only Activate calls. Actor pickups
+do not request a player menu. Menu requests are not saved.
