@@ -168,8 +168,9 @@ fn prf_15_baseline_rejects_a_non_object_operations_record_cleanly() {
     saved["operations"] = serde_json::Value::Array(Vec::new());
     fs::write(&baseline, serde_json::to_vec(&saved).unwrap()).unwrap();
     let result = run("check", &measured, &baseline, false);
-    assert_eq!(result.status.code(), Some(1));
+    assert_eq!(result.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(stderr.contains("baseline operations must be a JSON object"));
     assert!(
         !stderr.contains("Traceback"),
         "unexpected traceback: {stderr}"

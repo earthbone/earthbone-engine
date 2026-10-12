@@ -39,11 +39,8 @@ fn vm() -> (Vm, Rc<Cell<usize>>) {
     let mut vm = Vm::new();
     vm.load_bytes(&scripts()).unwrap();
     let marks = Rc::new(Cell::new(0));
-    vm.natives.register_global(
-        "Prf17Host",
-        "Wait",
-        Box::new(|_| NativeReturn::Wait(5.0)),
-    );
+    vm.natives
+        .register_global("Prf17Host", "Wait", Box::new(|_| NativeReturn::Wait(5.0)));
     let native_marks = Rc::clone(&marks);
     vm.natives.register_global(
         "Prf17Host",
@@ -59,7 +56,9 @@ fn vm() -> (Vm, Rc<Cell<usize>>) {
 #[test]
 fn prf_17_waiting_stack_does_not_block_an_independent_stack() {
     let (mut vm, marks) = vm();
-    let waiting = vm.call_global("Prf17Schedule", "WaitThenMark", &[]).unwrap();
+    let waiting = vm
+        .call_global("Prf17Schedule", "WaitThenMark", &[])
+        .unwrap();
     let runnable = vm.call_global("Prf17Schedule", "MarkNow", &[]).unwrap();
 
     assert!(vm.run_until_idle(100));
@@ -81,7 +80,10 @@ fn prf_17_sleeping_stack_resumes_once_after_save_and_load() {
 
     let (mut restored, restored_marks) = vm();
     restored.load_state(&saved).unwrap();
-    assert_eq!(restored.thread_state(waiting), Some(ThreadState::Sleeping(5.0)));
+    assert_eq!(
+        restored.thread_state(waiting),
+        Some(ThreadState::Sleeping(5.0))
+    );
     restored.advance(4.99);
     restored.run(100);
     assert_eq!(restored_marks.get(), 0);

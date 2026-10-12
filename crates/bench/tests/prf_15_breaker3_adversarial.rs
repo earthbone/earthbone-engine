@@ -18,6 +18,7 @@ const OPERATIONS: [&str; 9] = [
     "dds_bc7_decode",
     "bsa_file_read",
 ];
+const BATCHES: [u64; 9] = [1024, 1024, 1024, 128, 1, 1, 128, 1, 128];
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 fn root() -> PathBuf {
@@ -34,10 +35,12 @@ fn scratch(label: &str) -> PathBuf {
 
 fn divan_output() -> String {
     let mut text = String::new();
-    for operation in OPERATIONS {
+    for (operation, batch) in OPERATIONS.into_iter().zip(BATCHES) {
         writeln!(
             text,
-            "├─ {operation} 1 ns │ 1 ns │ 100 ns │ 100 ns │ 30 │ 100"
+            "├─ {operation} 1 ns │ 1 ns │ {} ns │ {} ns │ 30 │ 100",
+            100 * batch,
+            100 * batch
         )
         .unwrap();
     }

@@ -550,10 +550,25 @@ mod tests {
     fn tool_06_hitch_window_orders_concurrent_message_timestamps() {
         let (subscriber, control, _) = captured("info");
         let start = control.epoch;
-        control.record_at(start + std::time::Duration::from_millis(20), line(20, "14"));
-        control.record_at(start + std::time::Duration::from_millis(10), line(10, "14"));
+        control.record_at(
+            start + std::time::Duration::from_millis(20),
+            line(20, "tool_06_order"),
+        );
+        control.record_at(
+            start + std::time::Duration::from_millis(10),
+            line(10, "tool_06_order"),
+        );
         tracing::subscriber::with_default(subscriber, || {
-            let logs = hitch_window(start, start + std::time::Duration::from_secs(1));
+            let logs: Vec<_> = hitch_window(start, start + std::time::Duration::from_secs(1))
+                .into_iter()
+                .filter(|entry| {
+                    entry
+                        .line
+                        .fields
+                        .get("actor")
+                        .is_some_and(|actor| actor == "tool_06_order")
+                })
+                .collect();
             assert_eq!(logs.len(), 1);
             assert_eq!(logs[0].at, start + std::time::Duration::from_millis(10));
             assert_eq!(
@@ -779,7 +794,10 @@ mod tests {
             "pub fn output() { println!(\"stdout\"); eprintln!(\"stderr\"); }\n",
         )
         .unwrap();
-        let output = std::process::Command::new("cargo")
+        // CONTEXT: Reuse the parent Cargo executable and isolate fixture builds.
+        // A PATH wrapper can hold a build slot for the parent test process.
+        let output = std::process::Command::new(env!("CARGO"))
+            .env("CARGO_TARGET_DIR", path.join("target"))
             .args(["clippy", "--offline", "--manifest-path"])
             .arg(path.join("Cargo.toml"))
             .args([
@@ -804,7 +822,8 @@ mod tests {
             "fn main() { println!(\"binary\"); eprintln!(\"binary\"); }\n",
         )
         .unwrap();
-        let output = std::process::Command::new("cargo")
+        let output = std::process::Command::new(env!("CARGO"))
+            .env("CARGO_TARGET_DIR", path.join("target"))
             .args(["clippy", "--offline", "--manifest-path"])
             .arg(path.join("Cargo.toml"))
             .args([
@@ -822,7 +841,8 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let output = std::process::Command::new("cargo")
+        let output = std::process::Command::new(env!("CARGO"))
+            .env("CARGO_TARGET_DIR", path.join("target"))
             .args(["clippy", "--offline", "--manifest-path"])
             .arg(path.join("Cargo.toml"))
             .args(["--all-targets", "--", "-D", "warnings"])

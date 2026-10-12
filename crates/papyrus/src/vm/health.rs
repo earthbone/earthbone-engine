@@ -244,6 +244,15 @@ impl Vm {
                 .entry(key(frame))
                 .or_default()
                 .waiting_seconds += waiting_seconds;
+            let profile_seconds = if menu
+                && matches!(
+                    thread.state,
+                    ThreadState::Sleeping(_) | ThreadState::SleepingGame(_)
+                ) {
+                0.0
+            } else {
+                waiting_seconds
+            };
             soe_trace::Profile::wait(
                 || {
                     let script = frame
@@ -261,7 +270,7 @@ impl Vm {
                         "latent_wait",
                     )
                 },
-                waiting_seconds,
+                profile_seconds,
                 0,
             );
         }

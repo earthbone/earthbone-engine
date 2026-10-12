@@ -1435,6 +1435,9 @@ Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rus
 0.5.5 (crates.io 2026-08-09, the same version as `engine-refs/gdext`), API floor Godot 4.4
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
 With `--no-default-features` the `godot` dependency is gone and what remains is the logic.
+The LOD fingerprint and gameplay data-root accessors share their callers'
+`godot` feature guard, so the PRF-15 headless benchmark build has no unused
+Godot-only accessors.
 
 ### Shader particle geometry, SCR-46
 

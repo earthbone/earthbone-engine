@@ -30,7 +30,12 @@ fn anm_20_aligns_both_clips_at_shared_markers() {
     assert!(scene.advance(1.5));
     assert_eq!(scene.time_for(10), Some(3.5));
     assert_eq!(scene.time_for(20), Some(2.25));
-    assert!(!scene.advance(0.5));
+    assert!(scene.advance(0.5));
+    assert_eq!(scene.time_for(10), Some(4.0));
+    assert_eq!(scene.time_for(20), Some(2.5));
+    assert!(!scene.advance(0.0));
+    assert_eq!(scene.time_for(10), None);
+    assert_eq!(scene.time_for(20), None);
 }
 
 #[test]

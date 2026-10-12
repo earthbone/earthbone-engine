@@ -158,6 +158,13 @@ are authored from the syntax examples in the sources above. The MOD-07
 provenance regression checks that SPID, KID and BOS patches retain their input
 file and line.
 
+SPID accepts the legacy `0x801 - Fixture.esm` form spelling. Following
+`Spell-Perk-Item-Distributor/SPID/src/LookupConfigs.cpp::sanitize`, its parser
+replaces the first ` - ` with `~` only when the entry has no tilde. This
+normalization stays in the SPID reader, preserving the other formats' grammar
+and the existing MOD-01 entry seed. MOD-07's hyphen fixture verifies resolution
+and patch provenance.
+
 MOD-07 also carries one real KID rule from DeviousDevicesNG as an inline test
 fixture. Its source is `Devious Devices_KID.ini` at revision
 `6b89b4160fffe62e38c9d3d777e66fb3a06b8419`, licensed Apache-2.0. The test

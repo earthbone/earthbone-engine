@@ -14,6 +14,9 @@ PRF-15's Divan medians and machine-specific comparisons are documented in
 [performance.md](performance.md). The baseline reader rejects invalid JSON
 structure and data modes that differ from the current synthetic or installed
 run before comparing operation medians.
+Missing required baseline operations are malformed input, with exit status 2.
+The adversarial fixtures retain Divan batch counts so their stored per-operation
+medians stay positive before testing individual validation failures.
 
 `soe-bench profile-diff before.json after.json` reads two PRF-13 Chrome
 counter summaries without requiring installed data. It groups entity phases,

@@ -68,9 +68,9 @@ fn waiter(wait: &str) -> Vm {
 fn prf_13_wait_attribution_clips_deadlines_in_each_clock_domain() {
     let _guard = LOCK.lock().unwrap();
     for (wait, expected_ns) in [
-        ("Wait", 1_250_000_000),
+        ("Wait", 1_000_000_000),
         ("WaitMenuMode", 1_000_000_000),
-        ("WaitGameTime", 1_500_000_000),
+        ("WaitGameTime", 1_250_000_000),
     ] {
         Profile::disable();
         Profile::clear();

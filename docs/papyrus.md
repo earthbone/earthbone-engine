@@ -703,10 +703,11 @@ Successful state loading resets diagnostic durations, backlog ages and event
 meters. Live restored sleepers remain visible. These diagnostics are absent
 from saves and hashes.
 
-PRF-13 function and plugin attribution uses the same elapsed wait calculation.
+PRF-13 function and plugin attribution clips elapsed wait time to its clock domain.
 Real seconds are clipped when a gameplay, menu or game-hour deadline falls
-inside a clock advance. Paused gameplay waits still report real time spent
-suspended in menus. Native latent waits report every advance until resolution.
+inside a clock advance. Paused gameplay and game-hour waits charge no menu
+time to PRF-13, while PRF-19 retains their real suspended duration.
+Native latent waits report every advance until resolution.
 Clock advances add duration without increasing the wait count.
 
 The meanings follow local CK `Utility_Script.wikitext` and

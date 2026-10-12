@@ -114,6 +114,8 @@ fn prf_15_baseline_from_another_data_mode_is_rejected() {
     let mut saved: serde_json::Value =
         serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
     saved["data_mode"] = serde_json::Value::String("installed".into());
+    saved["operations"]["installed_nif_parse"] = serde_json::json!(100);
+    saved["operations"]["installed_bsa_file_read"] = serde_json::json!(100);
     fs::write(&baseline, serde_json::to_vec(&saved).unwrap()).unwrap();
 
     let result = run("check", &measured, &baseline);
