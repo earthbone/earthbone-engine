@@ -4748,6 +4748,26 @@ and dMenu style ImGui pages, and compares host rendering options. Those
 frameworks are not implemented by the native menu framework described here.
 See [ui-frameworks.md](ui-frameworks.md) for the research and proposed rows.
 
+### MCM registration and declared pages, UI-05
+
+PlayerNode renders live registered config names and the selected config's
+declared page names as Godot buttons. Selecting a config opens its script
+through the game's MCM bridge. Selecting a page dispatches SkyUI's page event
+and rebuilds the native list from current script properties. Closing the
+native menu closes the active config. The game uses the unmodified SkyUI
+manager and base lifecycle described in [game.md](game.md).
+
+`debug_load_mcm_fixture` loads a standalone QUST plugin and its loose scripts
+for a host check. `debug_mcm_fixture_state` reads the fixture's callback
+counters, page and VM errors. `ui_05_windowed_unmodified_scripts_render_and_select_declared_pages`
+loads external compiled SkyUI scripts through `SOE_TEST_SKYUI`, then runs
+`godot/ui_05_mcm_lifecycle_test.gd` through `SOE_GODOT_BIN`. It checks visible
+buttons in script order, clicks their production signals, verifies callbacks,
+captures the drawn 640 by 360 viewport and quits. Its plugin, scripts, capture
+and process output are generated under `target/ui_05_host`. The check skips
+when either environment input is unset. Build the release extension and import
+the Godot project before running it. This adds no per-reference scene nodes.
+
 ### MCM text and toggle rows, UI-11
 
 `mcm_menu::ConfigPage` stores text/value and toggle rows in authored order.

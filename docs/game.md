@@ -853,31 +853,56 @@ Local UESP `MGEF.wikitext` supplies the flags and base-cost field.
 
 ### MCM script lifecycle, UI-05
 
-`Game::start` initializes enabled quests without registering MCM scripts.
-The first `Game::mcm_configs` call is the host's manager-ready boundary. It
-scans running quest forms in winning load-order order and
-reads `SKI_ConfigBase.ModName` and `Pages` from their attached Papyrus scripts.
-It registers at most 128 configs, delivers `OnConfigRegister` once per config,
-and returns the current page labels. `mcm_open`, `mcm_select_page` and
-`mcm_close` call the script's `OpenConfig`, `SetPage` and `CloseConfig`
-functions. Those functions deliver the initial empty-page reset, selected-page
-reset, open and close callbacks. The registry and active menu selection are
-session UI state, while page labels remain script properties. This bridge
+`Game::start` initializes enabled config and manager quests. The original
+manager's ready event reaches configs through `Form.RegisterForModEvent` and
+`SendModEvent`. `SKI_ConfigBase.OnConfigManagerReady` calls the original
+manager's `RegisterMod`, stores its ID and manager identity, then delivers
+`OnConfigRegister`. The manager assigns at most 128 slots. Repeated ready
+events do not repeat registration. Its reset event clears the base's manager
+identity so `ForceReset` can register the config again without repeating init.
+
+`Game::mcm_configs` retries manager readiness and scans running quest forms.
+It presents successfully registered configs in manager slot order and
+reads `ModName` and `Pages` after registration callbacks. The host's open and
+close boundaries deliver the registered Journal Menu callbacks. `mcm_begin`
+opens the list's Journal Menu lifecycle and puts the original manager in BUSY,
+where it rejects new registrations until close. Switching configs stays in
+that lifecycle and the manager closes the previous config. Mod and page
+selection send SkyUI's mod events, which the original manager forwards to
+`OpenConfig` and `SetPage`. Opening resets the empty page before
+`OnConfigOpen`. Undeclared page indices are rejected before dispatch.
+Closing calls `CloseConfig` once. Minimal modeled scripts without a manager
+callback retain the direct lifecycle path used by synthetic fixtures.
+
+Form menu and mod-event listeners, pending events and UI invocation snapshots
+are transient bridge data. Missing MCM listeners are rebuilt by the scripts'
+`OnGameReload` events on the next manager-ready query. This adds no saved
+field or section. The existing registry and active selection remain session
+UI state, while page labels and registration identities remain VM state.
+UI scalar and array invocations retain the latest request per menu and target
+for `take_mcm_ui_calls`. Array arguments are copied at call time so later
+buffer reuse does not alter an earlier presentation request. This bridge
 also exposes `mcm_custom_control` and `mcm_custom_controls`, which call
 registered configs' `GetCustomControl(keyCode)` methods and return string
 results in registration order. The methods use ordinary Papyrus dispatch so
 config overrides are honored. It does not execute SkyUI's Scaleform panel or
-its option APIs. The lifecycle order and limit come from the local SkyUI
-`SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` sources. The focused fixture
-assembles equivalent lifecycle methods in Papyrus bytecode.
+render option rows. The lifecycle order and limit come from local SkyUI
+`dist/Data/Scripts/Source/SKI_ConfigBase.psc` and `SKI_ConfigManager.psc`.
+Local SKSE64 `scripts/modified/UI.psc` and `skse64/PapyrusForm.cpp` supply
+the native invocation and mod-event contracts. Godot replaces Scaleform
+presentation, so these scripts execute in the existing VM rather than
+through a separate interface interpreter. Synthetic fixtures also assemble
+minimal lifecycle methods in Papyrus bytecode.
 `ui_05_original_skyui_source_defines_lifecycle_order` checks the original
 source when `SOE_SKYUI_CONFIG_BASE` names its `SKI_ConfigBase.psc` path.
 `ui_05_executes_unmodified_skyui_base_when_pex_is_available` loads and runs
-the unmodified `SKI_ConfigBase.pex` when `SOE_SKYUI_CONFIG_BASE_PEX` names that
-file. The PEX execution check skips when the compiled SkyUI script is
-unavailable. It was not available in the local reference checkout or installed
-game data during this change, so unmodified-script execution remains
-unverified here.
+unmodified `SKI_ConfigBase.pex`, `SKI_ConfigManager.pex` and `SKI_QuestBase.pex`.
+Set `SOE_TEST_SKYUI` to an extracted mod root or its BSA, or set
+`SOE_SKYUI_CONFIG_BASE_PEX` to a base PEX beside its manager and parent.
+The check skips when neither input is supplied. It verifies manager identity,
+ID assignment, callback order, page names sent through UI, page selection,
+close and the absence of VM errors. A second execution check exercises the
+original manager's reset. Compiled inputs remain external test data.
 
 ### Furniture activation, HST-09
 

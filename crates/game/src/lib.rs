@@ -187,6 +187,7 @@ pub struct Game {
     oar_submods: Vec<soe_moddata::oar::SubMod>,
     mcm_registered: Vec<GlobalFormId>,
     mcm_active: Option<GlobalFormId>,
+    mcm_bridge: Rc<RefCell<mcm::Bridge>>,
     /// Actors that were in greeting range on the previous gameplay tick.
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
     /// Hands currently held by direct player or scripted cast input.
@@ -275,7 +276,11 @@ impl Game {
         budget_usage
             .vm_instruction_limit
             .set(PAPYRUS_INSTRUCTIONS_PER_SLICE);
-        let registered = natives::register_with_budget_usage(&mut vm, &world, &budget_usage);
+        let mut registered = natives::register_with_budget_usage(&mut vm, &world, &budget_usage);
+        let before_mcm = vm.natives.method_bindings().len() + vm.natives.global_bindings().len();
+        let mcm_bridge = mcm::register(&mut vm);
+        registered.natives +=
+            vm.natives.method_bindings().len() + vm.natives.global_bindings().len() - before_mcm;
         Game {
             vm,
             world,
@@ -292,6 +297,7 @@ impl Game {
             oar_submods: Vec::new(),
             mcm_registered: Vec::new(),
             mcm_active: None,
+            mcm_bridge,
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
             wasm_mods: WasmMods::new(),
@@ -1763,11 +1769,12 @@ impl Game {
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
+        let mcm_events = self.pump_mcm_events();
         self.prepare_cell_events();
         let quest_scope = soe_trace::SystemScope::new(soe_trace::System::Quests);
         self.dispatch_story_manager_events();
         let story_events = std::mem::take(&mut self.world.borrow_mut().pending_story_events);
-        let mut routed = 0;
+        let mut routed = mcm_events;
         for event in story_events {
             let result = {
                 let vm = &mut self.vm;
@@ -2000,7 +2007,9 @@ impl Game {
             self.budget_usage.vm_instructions.set(instructions);
             self.world.borrow_mut().collect_effect_objects(&mut self.vm);
             let world = self.world.borrow();
-            let queued = world.has_pending_calls() || !world.completed_animation_waits.is_empty();
+            let queued = world.has_pending_calls()
+                || !world.completed_animation_waits.is_empty()
+                || self.mcm_bridge.borrow().has_pending_events();
             if self.vm.idle() && !queued {
                 return true;
             }

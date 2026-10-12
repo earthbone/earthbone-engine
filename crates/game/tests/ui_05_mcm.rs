@@ -128,10 +128,16 @@ fn fixture_with_quests(count: u32) -> Game {
         )
         .function(
             FunctionBuilder::new("OnConfigRegister", "None")
+                .local("pages", "String[]")
                 .ins(
                     IAdd,
                     vec![ident("register_count"), ident("register_count"), i(1)],
                 )
+                .ins(PropSet, vec![s("ModName"), ident("self"), s("Example Mod")])
+                .ins(ArrayCreate, vec![ident("pages"), i(2)])
+                .ins(ArraySetElement, vec![ident("pages"), i(0), s("General")])
+                .ins(ArraySetElement, vec![ident("pages"), i(1), s("Advanced")])
+                .ins(PropSet, vec![s("Pages"), ident("self"), ident("pages")])
                 .build(),
         )
         .function(
@@ -231,6 +237,26 @@ fn ui_05_registry_stops_at_skyui_limit() {
 }
 
 #[test]
+fn ui_05_registration_callback_updates_the_first_presented_labels() {
+    let mut game = fixture();
+    let object = game.object_of_form(form());
+    game.vm
+        .set_property(
+            object,
+            "SKI_ConfigBase",
+            "ModName",
+            Value::string("Before registration"),
+        )
+        .unwrap();
+    game.vm
+        .set_property(object, "SKI_ConfigBase", "Pages", Value::None)
+        .unwrap();
+    let configs = game.mcm_configs();
+    assert_eq!(configs[0].name, "Example Mod");
+    assert_eq!(configs[0].pages, ["General", "Advanced"]);
+}
+
+#[test]
 fn ui_05_original_skyui_source_defines_lifecycle_order() {
     let Some(path) = std::env::var_os("SOE_SKYUI_CONFIG_BASE") else {
         eprintln!("skipping original SkyUI source check: SOE_SKYUI_CONFIG_BASE is unset");
@@ -266,81 +292,286 @@ fn ui_05_original_skyui_source_defines_lifecycle_order() {
     assert!(set_page.contains("onpagereset(a_page)"));
 }
 
+use crate::support::ui_05_fixture as compiled;
+
 #[test]
 fn ui_05_executes_unmodified_skyui_base_when_pex_is_available() {
-    let Some(path) = std::env::var_os("SOE_SKYUI_CONFIG_BASE_PEX") else {
-        eprintln!("skipping SkyUI PEX execution check: SOE_SKYUI_CONFIG_BASE_PEX is unset");
+    let Some(fixture) = compiled::load() else {
         return;
     };
-
-    let base = std::fs::read(path).unwrap();
-    let vmad = Vmad {
-        scripts: vec![ScriptEntry::new("Ui05ExecutableChild")],
-        ..Default::default()
-    };
-    let mut plugin = Plugin::new(FileHeader {
-        flags: flags::MASTER,
-        ..Default::default()
+    let mut game = fixture.game();
+    let object = game.object_of_form(form());
+    let manager = game.object_of_form(GlobalFormId {
+        file: 0,
+        object: compiled::MANAGER,
     });
-    plugin.push_top(
-        quest::build_record(
-            QUEST,
-            "Ui05ExecutableConfig",
-            quest_flags::START_GAME_ENABLED,
-        )
-        .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST"))),
+    let value = |game: &Game, name: &str| game.vm.get_var(object, compiled::CHILD, name).unwrap();
+    assert_eq!(value(&game, "init_count"), Value::Int(1));
+    assert_eq!(
+        game.vm
+            .get_property(object, "SKI_QuestBase", "CurrentVersion"),
+        Some(Value::Int(1))
     );
-    let mut order = LoadOrder::new();
-    order.add("Config.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    assert_eq!(game.mcm_configs()[0].pages, ["General", "Advanced"]);
+    assert_eq!(
+        game.vm.get_var(object, "SKI_ConfigBase", "_configID"),
+        Some(Value::Int(0))
+    );
+    assert_eq!(
+        game.vm.get_var(object, "SKI_ConfigBase", "_configManager"),
+        Some(Value::Object(manager))
+    );
+    game.mcm_configs();
+    assert_eq!(value(&game, "register_count"), Value::Int(1));
+    assert!(game.mcm_open(form()));
+    assert_eq!(value(&game, "sequence"), Value::Int(12));
+    assert_eq!(value(&game, "last_page"), Value::string(""));
+    assert!(
+        matches!(game.vm.get_var(object, "SKI_ConfigBase", "_optionFlagsBuf"), Some(Value::Array(buffer)) if buffer.len() == 128)
+    );
+    let calls = game.take_mcm_ui_calls();
+    let pages = calls
+        .iter()
+        .find(|call| call.target.ends_with(".setPageNames"))
+        .unwrap();
+    assert_eq!(
+        pages.arguments,
+        [Value::string("General"), Value::string("Advanced")]
+    );
+    assert!(game.mcm_select_page(1));
+    assert_eq!(value(&game, "reset_count"), Value::Int(2));
+    assert_eq!(value(&game, "last_page"), Value::string("Advanced"));
+    assert_eq!(
+        game.vm
+            .get_property(object, "SKI_ConfigBase", "CurrentPage"),
+        Some(Value::string("Advanced"))
+    );
+    assert_eq!(
+        game.vm.get_var(object, "SKI_ConfigBase", "_currentPageNum"),
+        Some(Value::Int(2))
+    );
+    assert!(!game.mcm_select_page(2));
+    game.mcm_close();
+    game.mcm_close();
+    assert_eq!(value(&game, "close_count"), Value::Int(1));
+    assert_eq!(value(&game, "sequence"), Value::Int(1213));
+    assert!(
+        matches!(game.vm.get_var(object, "SKI_ConfigBase", "_optionFlagsBuf"), Some(Value::Array(buffer)) if buffer.len() == 1)
+    );
+    assert!(
+        !game
+            .vm
+            .log
+            .messages()
+            .iter()
+            .any(|message| message.starts_with("error:")),
+        "{:?}",
+        game.vm.log.messages()
+    );
+    if let Some(directory) = std::env::var_os("SOE_UI_05_FIXTURE_DIR") {
+        fixture.write(std::path::Path::new(&directory));
+    }
+}
 
-    let child = ScriptBuilder::new("Ui05ExecutableChild", "SKI_ConfigBase")
-        .variable("init_count", "Int", i(0))
-        .variable("register_count", "Int", i(0))
-        .variable("reset_count", "Int", i(0))
+#[test]
+fn ui_05_mod_event_preserves_payload_and_unregisters_the_callback() {
+    let mut game = fixture();
+    let script = ScriptBuilder::new("Ui05ModEvent", "Form")
+        .variable("count", "Int", i(0))
+        .variable("payload", "String", s(""))
+        .variable("number", "Float", soe_papyrus::asm::f(0.0))
+        .variable("sender", "Form", soe_papyrus::asm::none())
         .function(
-            FunctionBuilder::new("OnConfigInit", "None")
-                .local("pages", "String[]")
-                .ins(IAdd, vec![ident("init_count"), ident("init_count"), i(1)])
-                .ins(PropSet, vec![s("ModName"), ident("self"), s("Example Mod")])
-                .ins(ArrayCreate, vec![ident("pages"), i(2)])
-                .ins(ArraySetElement, vec![ident("pages"), i(0), s("General")])
-                .ins(ArraySetElement, vec![ident("pages"), i(1), s("Advanced")])
-                .ins(PropSet, vec![s("Pages"), ident("self"), ident("pages")])
-                .build(),
-        )
-        .function(
-            FunctionBuilder::new("OnConfigRegister", "None")
+            FunctionBuilder::new("Subscribe", "None")
                 .ins(
-                    IAdd,
-                    vec![ident("register_count"), ident("register_count"), i(1)],
+                    CallMethod,
+                    vec![
+                        s("RegisterForModEvent"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        s("Ui05Event"),
+                        s("OnPayload"),
+                    ],
                 )
                 .build(),
         )
         .function(
-            FunctionBuilder::new("OnPageReset", "None")
-                .param("page", "String")
-                .ins(IAdd, vec![ident("reset_count"), ident("reset_count"), i(1)])
+            FunctionBuilder::new("Send", "None")
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("SendModEvent"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        s("Ui05Event"),
+                        s("page"),
+                        soe_papyrus::asm::f(3.5),
+                    ],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("Unsubscribe", "None")
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("UnregisterForModEvent"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        s("Ui05Event"),
+                    ],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnPayload", "None")
+                .param("event", "String")
+                .param("text", "String")
+                .param("value", "Float")
+                .param("source", "Form")
+                .ins(IAdd, vec![ident("count"), ident("count"), i(1)])
+                .ins(Assign, vec![ident("payload"), ident("text")])
+                .ins(Assign, vec![ident("number"), ident("value")])
+                .ins(Assign, vec![ident("sender"), ident("source")])
                 .build(),
         )
         .bytes();
-    game.load_script(&base).unwrap();
-    game.load_script(&child).unwrap();
-    game.start();
-
+    game.load_script(&script).unwrap();
     let object = game.object_of_form(form());
-    let variable = |game: &Game, name: &str| {
-        game.vm
-            .vars_on(object, "Ui05ExecutableChild")
-            .into_iter()
-            .find(|(variable, _)| variable.eq_ignore_ascii_case(name))
-            .unwrap()
-            .1
+    game.vm.attach(object, "Ui05ModEvent").unwrap();
+    for method in ["Subscribe", "Subscribe", "Send"] {
+        game.vm.call(object, method, &[]).unwrap();
+        assert!(game.run_until_idle(64));
+    }
+    assert_eq!(
+        game.vm.get_var(object, "Ui05ModEvent", "count"),
+        Some(Value::Int(1))
+    );
+    assert_eq!(
+        game.vm.get_var(object, "Ui05ModEvent", "payload"),
+        Some(Value::string("page"))
+    );
+    assert_eq!(
+        game.vm.get_var(object, "Ui05ModEvent", "number"),
+        Some(Value::Float(3.5))
+    );
+    assert_eq!(
+        game.vm.get_var(object, "Ui05ModEvent", "sender"),
+        Some(Value::Object(object))
+    );
+    for method in ["Unsubscribe", "Send"] {
+        game.vm.call(object, method, &[]).unwrap();
+        assert!(game.run_until_idle(64));
+    }
+    assert_eq!(
+        game.vm.get_var(object, "Ui05ModEvent", "count"),
+        Some(Value::Int(1))
+    );
+}
+
+#[test]
+fn ui_05_unmodified_manager_reset_registers_each_config_once_again() {
+    let Some(fixture) = compiled::load() else {
+        return;
     };
-    assert_eq!(variable(&game, "init_count"), Value::Int(1));
-    assert_eq!(game.mcm_configs()[0].pages, ["General", "Advanced"]);
-    assert_eq!(variable(&game, "register_count"), Value::Int(1));
-    assert!(game.mcm_open(form()));
-    assert!(game.mcm_select_page(1));
-    assert_eq!(variable(&game, "reset_count"), Value::Int(2));
+    let mut game = fixture.game();
+    let object = game.object_of_form(form());
+    let manager = game.object_of_form(GlobalFormId {
+        file: 0,
+        object: compiled::MANAGER,
+    });
+    assert_eq!(game.mcm_configs().len(), 1);
+    let reset = game.vm.call(manager, "ForceReset", &[]).unwrap();
+    assert!(game.run_until_idle(64));
+    assert_eq!(game.vm.thread_result(reset), Some(Value::None));
+    game.mcm_configs();
+    game.mcm_configs();
+    assert_eq!(
+        game.vm.get_var(object, compiled::CHILD, "init_count"),
+        Some(Value::Int(1))
+    );
+    assert_eq!(
+        game.vm.get_var(object, compiled::CHILD, "register_count"),
+        Some(Value::Int(2))
+    );
+    assert_eq!(
+        game.vm
+            .get_var(manager, "SKI_ConfigManager", "_configCount"),
+        Some(Value::Int(1))
+    );
+    assert!(
+        !game
+            .vm
+            .log
+            .messages()
+            .iter()
+            .any(|message| message.starts_with("error:")),
+        "{:?}",
+        game.vm.log.messages()
+    );
+}
+
+#[test]
+fn ui_05_unmodified_manager_rejects_registration_while_the_list_is_open() {
+    let Some(fixture) = compiled::load() else {
+        return;
+    };
+    let mut game = fixture.game();
+    let object = game.object_of_form(form());
+    let manager = game.object_of_form(GlobalFormId {
+        file: 0,
+        object: compiled::MANAGER,
+    });
+    game.mcm_begin();
+    let register = game
+        .vm
+        .call(
+            manager,
+            "RegisterMod",
+            &[Value::Object(object), Value::string("Example Mod")],
+        )
+        .unwrap();
+    assert!(game.run_until_idle(64));
+    assert_eq!(game.vm.thread_result(register), Some(Value::Int(-2)));
+    game.mcm_close();
+    let register = game
+        .vm
+        .call(
+            manager,
+            "RegisterMod",
+            &[Value::Object(object), Value::string("Example Mod")],
+        )
+        .unwrap();
+    assert!(game.run_until_idle(64));
+    assert_eq!(game.vm.thread_result(register), Some(Value::Int(0)));
+}
+
+#[test]
+fn ui_05_unmodified_stopped_config_is_not_initialized_or_registered() {
+    let Some(mut fixture) = compiled::load() else {
+        return;
+    };
+    let index = fixture
+        .plugin
+        .records
+        .iter()
+        .position(|record| record.form_id == compiled::CONFIG)
+        .unwrap();
+    let vmad = Vmad {
+        scripts: vec![ScriptEntry::new(compiled::CHILD)],
+        ..Default::default()
+    };
+    fixture.plugin.records[index] = quest::build_record(compiled::CONFIG, "StoppedConfig", 0)
+        .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST")));
+    let mut game = fixture.game();
+    assert!(game.mcm_configs().is_empty());
+    let object = game.object_of_form(form());
+    assert_eq!(
+        game.vm.get_var(object, compiled::CHILD, "init_count"),
+        Some(Value::Int(0))
+    );
+    assert_eq!(
+        game.vm.get_var(object, compiled::CHILD, "register_count"),
+        Some(Value::Int(0))
+    );
 }
