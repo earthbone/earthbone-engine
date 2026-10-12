@@ -3018,8 +3018,17 @@ fn game(vm: &mut Vm, w: &Shared) {
         none()
     });
     global!(vm, w, "Game", "FadeOutGame", |world, call| {
-        let seconds_before_fade = call.arg(2).as_float();
-        let fade_duration = call.arg(3).as_float();
+        let [Value::Bool(fading_out), Value::Bool(black), Value::Float(seconds_before_fade), Value::Float(fade_duration)] =
+            call.args.as_slice()
+        else {
+            call.log.push(
+                call.time,
+                "Game.FadeOutGame: expected Bool, Bool, Float, Float arguments".to_string(),
+            );
+            return none();
+        };
+        let seconds_before_fade = *seconds_before_fade;
+        let fade_duration = *fade_duration;
         if !seconds_before_fade.is_finite()
             || !fade_duration.is_finite()
             || seconds_before_fade < 0.0
@@ -3032,8 +3041,8 @@ fn game(vm: &mut Vm, w: &Shared) {
             return none();
         }
         world.host_requests.push(HostRequest::FadeOutGame {
-            fading_out: call.arg(0).as_bool(),
-            black: call.arg(1).as_bool(),
+            fading_out: *fading_out,
+            black: *black,
             seconds_before_fade,
             fade_duration,
         });
@@ -3152,24 +3161,65 @@ fn game(vm: &mut Vm, w: &Shared) {
         b(world.player_is_sungazing())
     });
     global!(vm, w, "Game", "ShakeCamera", |world, call| {
-        let player = world.player();
+        if call.args.len() > 3 {
+            world.report_native_error(
+                "Game.ShakeCamera",
+                "expected at most an ObjectReference source, Float strength, and Float duration"
+                    .into(),
+            );
+            return none();
+        }
         let source = match call.args.first() {
-            None | Some(Value::None) => Some(player),
-            Some(Value::Object(object)) => world.form_of(*object),
+            None | Some(Value::None) => Some(world.player()),
+            Some(Value::Object(object)) => world.form_of(*object).filter(|id| {
+                world.record(*id).is_some_and(|record| {
+                    (record.tag == Tag(*b"REFR") || record.tag == Tag(*b"ACHR"))
+                        && !record.is_deleted()
+                })
+            }),
             _ => None,
         };
-        if let Some(source) = source {
-            let strength = call.args.get(1).map_or(0.5, Value::as_float);
-            let duration = call.args.get(2).map_or(0.0, Value::as_float);
-            if duration == 0.0 {
-                let setting = world
-                    .game_setting("fCameraShakeDuration")
-                    .map_or(0.25, |v| v.as_float());
-                world.shake_camera(source, strength, setting);
-            } else {
-                world.shake_camera(source, strength, duration);
+        let Some(source) = source else {
+            world.report_native_error(
+                "Game.ShakeCamera",
+                "expected a live ObjectReference source".into(),
+            );
+            return none();
+        };
+        let strength = match call.args.get(1) {
+            None => 0.5,
+            Some(Value::Float(value)) => *value,
+            Some(Value::Int(value)) => *value as f32,
+            _ => {
+                world.report_native_error("Game.ShakeCamera", "expected a Float strength".into());
+                return none();
             }
+        };
+        let requested_duration = match call.args.get(2) {
+            None => 0.0,
+            Some(Value::Float(value)) => *value,
+            Some(Value::Int(value)) => *value as f32,
+            _ => {
+                world.report_native_error("Game.ShakeCamera", "expected a Float duration".into());
+                return none();
+            }
+        };
+        let duration = if requested_duration == 0.0 {
+            world
+                .game_setting("fCameraShakeTime")
+                .map_or(0.25, |value| value.as_float())
+        } else {
+            requested_duration
+        };
+        if !strength.is_finite() || !duration.is_finite() || duration < 0.0 {
+            world.report_native_error(
+                "Game.ShakeCamera",
+                "strength and shake duration must be finite, and duration must be non-negative"
+                    .into(),
+            );
+            return none();
         }
+        world.shake_camera(source, strength, duration);
         none()
     });
     global!(vm, w, "Game", "IncrementStat", |world, call| {
@@ -4076,13 +4126,7 @@ fn faction(vm: &mut Vm, w: &Shared) {
             .args
             .get(1)
             .is_none_or(|value| matches!(value, Value::None) || value.as_bool());
-        if real_jail {
-            call.log.push(
-                call.time,
-                "Faction.SendPlayerToJail: jail placement is not implemented",
-            );
-        }
-        if let Err(error) = world.send_player_to_jail(me, remove_inventory) {
+        if let Err(error) = world.send_player_to_jail(me, remove_inventory, real_jail) {
             call.log
                 .push(call.time, format!("Faction.SendPlayerToJail: {error}"));
         }

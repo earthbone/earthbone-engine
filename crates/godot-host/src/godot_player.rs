@@ -896,6 +896,20 @@ impl PlayerNode {
         self.toggle_gameplay_collisions_for_check()
     }
 
+    /// Invoke the SCR-28 Game presentation natives for a live host check.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_scr_28_native(
+        &mut self,
+        name: GString,
+        fading_out: bool,
+        black: bool,
+        delay: f32,
+        duration: f32,
+    ) -> bool {
+        self.invoke_scr_28_native_for_check(&name, fading_out, black, delay, duration)
+    }
+
     /// Connect an already loaded character rig to this gameplay world's live
     /// skin and equipment records. Reuses the existing character node.
     #[func]
@@ -2303,6 +2317,13 @@ impl PlayerNode {
         force: bool,
     ) -> bool {
         self.invoke_actor_menu_native_for_check(&name, &target_name, force)
+    }
+
+    /// Run Game.ShowTrainingMenu through Papyrus for the SCR-30 host check.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_game_actor_native(&mut self, name: GString, target_name: GString) -> bool {
+        self.invoke_game_actor_native_for_check(&name, &target_name)
     }
 
     /// Return the pending lockpick target and authored lock level for the UI.

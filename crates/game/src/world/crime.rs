@@ -66,8 +66,8 @@ impl World {
     /// Serve the player's bounty with `faction` and mark the player arrested
     /// when a positive sentence is served.
     ///
-    /// Jail marker travel and belongings storage are host/runtime work and
-    /// are not performed by this accounting operation.
+    /// When `real_jail` is true and a positive sentence is served, move the
+    /// player to the receiver faction's authored `FACT.JAIL` marker.
     ///
     /// # Errors
     /// Returns [`Error::NotTracked`] when the faction is absent or does not
@@ -79,6 +79,7 @@ impl World {
         &mut self,
         faction: GlobalFormId,
         remove_inventory: bool,
+        real_jail: bool,
     ) -> Result<u32, Error> {
         let days = self.serve_jail_time(faction)?;
         let player = self.player();
@@ -101,8 +102,26 @@ impl World {
             if let Some(actor) = self.actor(player) {
                 actor.arrested = true;
             }
+            if real_jail {
+                self.move_player_to_jail_marker(faction, player);
+            }
         }
         Ok(days)
+    }
+
+    fn move_player_to_jail_marker(&mut self, faction: GlobalFormId, player: GlobalFormId) {
+        let Some(marker) = self.faction_container(faction, T(b"JAIL")) else {
+            return;
+        };
+        let Some(cell) = self.reference(marker).and_then(|reference| reference.cell) else {
+            return;
+        };
+        if !self.move_to(player, marker, [0.0; 3]) {
+            return;
+        }
+        if self.loaded_cell() != Some(cell) {
+            self.change_cell(Some(cell));
+        }
     }
 
     /// Return the choices offered for an arrest by the player's crime faction.

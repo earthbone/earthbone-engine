@@ -81,6 +81,7 @@ const COUNTER: u32 = 0x91A;
 const QUEST: u32 = 0x91B;
 const WORD: u32 = 0x91C;
 const OTHER_CELL: u32 = 0x91D;
+const JAIL_MARKER: u32 = 0x9A1;
 const ADD_LIST: u32 = 0x91E;
 const MIXED_ADD_LIST: u32 = 0x91F;
 const REFERENCE_ADD_LIST: u32 = 0x920;
@@ -181,6 +182,7 @@ fn test_plugin() -> Plugin {
             .zsub(EDID, "GuardsFaction")
             .sub(T(b"XNAM"), xnam(THIEVES, 2))
             .sub(T(b"DATA"), le(0x40))
+            .sub(T(b"JAIL"), le(JAIL_MARKER))
             .sub(T(b"CRGR"), le(SHARED_CRIME_GROUP)),
     );
     p.push_top(
@@ -499,13 +501,20 @@ fn test_plugin() -> Plugin {
                 .sub(T(b"DATA"), zero.clone()),
         ],
     );
+    let mut jail_marker_data = zero.clone();
+    jail_marker_data[0..4].copy_from_slice(&100.0f32.to_le_bytes());
+    jail_marker_data[4..8].copy_from_slice(&200.0f32.to_le_bytes());
+    jail_marker_data[8..12].copy_from_slice(&300.0f32.to_le_bytes());
     let other = interior(
         &mut p,
         Record::new(T(b"CELL"), OTHER_CELL)
             .zsub(EDID, "OtherCell")
             .sub(T(b"DATA"), [1u8, 0])
             .sub(T(b"XLCN"), le(OTHER_TOWN_LOC)),
-        Vec::new(),
+        vec![Record::new(T(b"REFR"), JAIL_MARKER)
+            .zsub(EDID, "JailMarker")
+            .sub(T(b"NAME"), le(MARKER_BASE))
+            .sub(T(b"DATA"), jail_marker_data)],
     );
     let mut block = Group::new(GroupKind::InteriorBlock(0));
     block.entries.push(Entry::Group(inn));
@@ -2040,8 +2049,24 @@ fn scr_25_send_player_to_jail_serves_sentence_and_reports_host_options() {
     let faction_state = world.faction(faction).unwrap();
     assert_eq!(faction_state.crime_gold_violent, 0);
     assert_eq!(faction_state.crime_gold_nonviolent, 0);
+    let player_ref = world.reference_ref(player).unwrap();
+    assert_eq!(
+        player_ref.cell,
+        Some(GlobalFormId {
+            file: 0,
+            object: OTHER_CELL
+        })
+    );
+    assert_eq!(player_ref.position, [100.0, 200.0, 300.0]);
+    assert_eq!(
+        world.loaded_cell(),
+        Some(GlobalFormId {
+            file: 0,
+            object: OTHER_CELL
+        })
+    );
     drop(world);
-    assert!(g.vm.log.contains("jail placement is not implemented"));
+    assert!(!g.vm.log.contains("jail placement is not implemented"));
 }
 
 /// ModCrimeGold adds to the violent or non-violent bounty and to the

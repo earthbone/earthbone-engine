@@ -1559,6 +1559,10 @@ mod scr_25_adversarial;
 mod scr_25_breaker_adversarial;
 #[path = "scr_26_adversarial.rs"]
 mod scr_26_adversarial;
+#[path = "scr_26_breaker2_adversarial.rs"]
+mod scr_26_breaker2_adversarial;
+#[path = "scr_26_breaker3_adversarial.rs"]
+mod scr_26_breaker3_adversarial;
 #[path = "scr_26_breaker_adversarial.rs"]
 mod scr_26_breaker_adversarial;
 #[path = "scr_27_adversarial.rs"]
@@ -1567,12 +1571,20 @@ mod scr_27_adversarial;
 mod scr_27_breaker_adversarial;
 #[path = "scr_28_adversarial.rs"]
 mod scr_28_adversarial;
+#[path = "scr_28_breaker2_adversarial.rs"]
+mod scr_28_breaker2_adversarial;
 #[path = "scr_29_adversarial.rs"]
 mod scr_29_adversarial;
 #[path = "scr_29_game_native_contracts.rs"]
 mod scr_29_game_native_contracts;
 #[path = "scr_30_adversarial.rs"]
 mod scr_30_adversarial;
+#[path = "scr_30_breaker4_adversarial.rs"]
+mod scr_30_breaker4_adversarial;
+#[path = "scr_30_breaker_2_adversarial.rs"]
+mod scr_30_breaker_2_adversarial;
+#[path = "scr_30_breaker_3_adversarial.rs"]
+mod scr_30_breaker_3_adversarial;
 #[path = "scr_30_breaker_adversarial.rs"]
 mod scr_30_breaker_adversarial;
 #[path = "scr_30_game_natives.rs"]

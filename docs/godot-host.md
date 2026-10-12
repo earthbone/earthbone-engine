@@ -1379,10 +1379,15 @@ morph files when `SKYRIM_DATA` is set. The headless
 player request path and reads the attached streamer's file, model, morph,
 missing-path and byte counters before and after the requests. It opens the race
 menu after precaching and confirms the assets remain resident. The training
-presentation test checks the offer values used for the trainer heading and
-purchase button, including an unavailable trainer. The camera visibility test
-checks the value passed to the rendered actor instances for first and third
-person. These Rust checks do not inspect pixels from a live player appearance.
+presentation Rust test checks the offer values used for the trainer heading
+and purchase button, including an unavailable trainer. The cache host check
+also advances three gameplay frames after closing the race menu and confirms
+that file, model and morph counts and byte accounting remain resident. The
+`godot/scr_30_training_render_test.gd` check invokes `Game.ShowTrainingMenu`
+through Papyrus for the loaded Hulda actor and checks the visible Training
+panel, scroll container and rendered message or offer controls. The camera
+visibility test checks the value passed to rendered actor instances for first
+and third person. These checks inspect controls and state, not screenshot pixels.
 
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
@@ -4856,7 +4861,11 @@ logged. These operations run after the VM tick that enqueued them.
 Camera requests share the rig mode helper used by the camera tests. The fade
 overlay uses one presentation value for its color, opacity and visibility,
 including when a door fallback fade overlaps a Papyrus fade. Save requests use
-the same generation writer as explicit host saves.
+the same generation writer as explicit host saves. The
+`godot/scr_28_live_test.gd` runner invokes the camera and fade natives through
+the live PlayerNode, then checks the camera mode and rendered white and black
+overlay colors. Rust host tests cover the separate manual and automatic save
+stores without writing into the user's Godot save directory.
 
 ## Native menu framework
 
