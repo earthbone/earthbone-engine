@@ -22,6 +22,12 @@ mod ui_05_breaker3_adversarial;
 #[path = "ui_05_breaker4_adversarial.rs"]
 mod ui_05_breaker4_adversarial;
 
+#[path = "prf_31_adversarial.rs"]
+mod prf_31_adversarial;
+
+#[path = "prf_31_breaker_adversarial.rs"]
+mod prf_31_breaker_adversarial;
+
 #[path = "prf_36_ai.rs"]
 mod prf_36_ai;
 

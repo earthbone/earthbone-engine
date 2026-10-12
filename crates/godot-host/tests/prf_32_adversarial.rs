@@ -8,7 +8,7 @@ use std::collections::HashSet;
 mod support;
 
 #[test]
-fn bannered_mare_hull_repairs_are_built_and_reported_once() {
+fn prf_32_bannered_mare_hull_repairs_are_built_and_reported_once() {
     let Some(output) = support::installed_collision() else {
         return;
     };
@@ -36,6 +36,12 @@ fn bannered_mare_hull_repairs_are_built_and_reported_once() {
     assert!(
         !repairs.is_empty(),
         "the installed cell did not exercise a repaired convex hull:\n{log}"
+    );
+    assert!(
+        repairs
+            .iter()
+            .any(|line| line.contains("input_vertices=44")),
+        "the installed cell did not repair the logged 44-vertex hull:\n{log}"
     );
     let mut sources = HashSet::new();
     for line in repairs {

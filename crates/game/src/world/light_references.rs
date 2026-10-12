@@ -13,7 +13,41 @@ use super::{World, T};
 #[derive(Default)]
 pub(super) struct LightReferences {
     authored: BTreeMap<GlobalFormId, Vec<GlobalFormId>>,
-    loaded: Option<BTreeSet<GlobalFormId>>,
+    initialized: bool,
+    loaded: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
+    cells: BTreeMap<GlobalFormId, GlobalFormId>,
+    dirty: BTreeSet<GlobalFormId>,
+    #[cfg(test)]
+    examined: usize,
+}
+
+impl LightReferences {
+    pub(super) fn invalidate(&mut self, id: GlobalFormId) {
+        if self.initialized {
+            self.dirty.insert(id);
+        }
+    }
+
+    fn refresh(&mut self, world: &World, id: GlobalFormId) {
+        #[cfg(test)]
+        {
+            self.examined += 1;
+        }
+        if let Some(cell) = self.cells.remove(&id) {
+            if let Some(ids) = self.loaded.get_mut(&cell) {
+                ids.remove(&id);
+                if ids.is_empty() {
+                    self.loaded.remove(&cell);
+                }
+            }
+        }
+        if let Some(cell) = world.refs.get(&id).and_then(|reference| reference.cell) {
+            if world.reference_is_light(id) {
+                self.cells.insert(id, cell);
+                self.loaded.entry(cell).or_default().insert(id);
+            }
+        }
+    }
 }
 
 impl World {
@@ -21,66 +55,59 @@ impl World {
     /// spawns and moved authored references, in FormID order. Disabled and
     /// deleted references remain members so enabling them needs no rebuild.
     /// Winning authored membership is built once per cell. Loaded membership
-    /// is derived once and extended as references are instantiated.
+    /// is derived once and refreshed only for invalidated references.
     pub fn light_references_in_cell(&self, cell: GlobalFormId) -> Vec<GlobalFormId> {
         let mut index = self.light_references.borrow_mut();
-        let loaded = index.loaded.get_or_insert_with(|| {
-            self.refs
-                .keys()
-                .copied()
-                .filter(|id| self.reference_is_light(*id))
-                .collect()
-        });
-        let mut result: BTreeSet<_> = loaded
-            .iter()
-            .copied()
-            .filter(|id| {
-                self.refs
-                    .get(id)
-                    .is_some_and(|reference| reference.cell == Some(cell))
-            })
-            .collect();
+        if index.initialized {
+            for id in std::mem::take(&mut index.dirty) {
+                index.refresh(self, id);
+            }
+        } else {
+            for &id in self.refs.keys() {
+                index.refresh(self, id);
+            }
+            index.initialized = true;
+        }
+        let mut result = index.loaded.get(&cell).cloned().unwrap_or_default();
         let authored = index.authored.entry(cell).or_insert_with(|| {
             self.order
                 .build_cell_index()
                 .references(cell)
                 .iter()
                 .copied()
-                .filter(|id| self.reference_is_light(*id))
+                .filter(|id| self.authored_reference_is_light(*id))
                 .collect()
         });
-        result.extend(authored.iter().copied().filter(|id| {
-            self.refs
-                .get(id)
-                .is_none_or(|reference| reference.cell == Some(cell))
-        }));
+        result.extend(
+            authored
+                .iter()
+                .copied()
+                .filter(|id| !self.refs.contains_key(id)),
+        );
         result.into_iter().collect()
     }
 
     pub(super) fn track_light_reference(&self, id: GlobalFormId) {
-        if !self.reference_is_light(id) {
-            return;
-        }
-        if let Some(loaded) = &mut self.light_references.borrow_mut().loaded {
-            loaded.insert(id);
-        }
+        self.light_references.borrow_mut().invalidate(id);
     }
 
     fn reference_is_light(&self, id: GlobalFormId) -> bool {
-        let base = if let Some(reference) = self.refs.get(&id) {
-            reference.base
-        } else {
-            self.record(id)
-                .filter(|record| record.tag == T(b"REFR"))
-                .and_then(|record| record.find(T(b"NAME")))
-                .filter(|bytes| bytes.len() == 4)
-                .and_then(|bytes| {
-                    self.resolve_from(
-                        id,
-                        u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-                    )
-                })
-        };
+        let base = self.refs.get(&id).and_then(|reference| reference.base);
+        base.is_some_and(|base| self.tag_of(base) == Some(T(b"LIGH")))
+    }
+
+    fn authored_reference_is_light(&self, id: GlobalFormId) -> bool {
+        let base = self
+            .record(id)
+            .filter(|record| record.tag == T(b"REFR"))
+            .and_then(|record| record.find(T(b"NAME")))
+            .filter(|bytes| bytes.len() == 4)
+            .and_then(|bytes| {
+                self.resolve_from(
+                    id,
+                    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+                )
+            });
         base.is_some_and(|base| self.tag_of(base) == Some(T(b"LIGH")))
     }
 }
@@ -140,5 +167,64 @@ mod prf_31_tests {
         world.load_state(&saved).unwrap();
         assert_eq!(world.light_references_in_cell(id(1)), [id(5), spawned]);
         assert!(world.light_references_in_cell(id(2)).is_empty());
+    }
+
+    #[test]
+    fn prf_31_light_membership_follows_live_base_changes_and_removal() {
+        let mut world = world();
+        world.load_cell(id(1));
+        assert_eq!(world.light_references_in_cell(id(1)), [id(5)]);
+        world.reference(id(6)).unwrap().base = Some(id(3));
+        assert_eq!(world.light_references_in_cell(id(1)), [id(5), id(6)]);
+        world.reference(id(5)).unwrap().base = Some(id(4));
+        assert_eq!(world.light_references_in_cell(id(1)), [id(6)]);
+        world.reference(id(6)).unwrap().base = None;
+        assert!(world.light_references_in_cell(id(1)).is_empty());
+        world.reference(id(5)).unwrap().base = Some(id(3));
+        assert_eq!(world.light_references_in_cell(id(1)), [id(5)]);
+        world.invalidate_reference(id(5));
+        world.refs.remove(&id(5));
+        assert_eq!(world.light_references_in_cell(id(1)), [id(5)]);
+        assert!(!world.light_references.borrow().cells.contains_key(&id(5)));
+    }
+
+    #[test]
+    fn prf_31_light_membership_bounds_unchanged_frames_and_cell_moves() {
+        let mut world = world();
+        world.load_cell(id(1));
+        for object in 10..5010 {
+            world
+                .refs
+                .insert(id(object), super::super::RefState::new(Some(id(4))));
+        }
+        *world.light_references.get_mut() = LightReferences::default();
+        assert_eq!(world.light_references_in_cell(id(1)), [id(5)]);
+        let initial = world.light_references.borrow().examined;
+        assert_eq!(initial, world.refs.len());
+        for _ in 0..60 {
+            assert_eq!(world.light_references_in_cell(id(1)), [id(5)]);
+            assert!(world.light_references_in_cell(id(2)).is_empty());
+        }
+        assert_eq!(world.light_references.borrow().examined, initial);
+        world.reference(id(5)).unwrap().cell = Some(id(2));
+        assert!(world.light_references_in_cell(id(1)).is_empty());
+        assert_eq!(world.light_references_in_cell(id(2)), [id(5)]);
+        assert_eq!(world.light_references.borrow().examined, initial + 1);
+        world.reference(id(5)).unwrap().cell = None;
+        assert!(world.light_references_in_cell(id(2)).is_empty());
+        assert_eq!(world.light_references.borrow().examined, initial + 2);
+    }
+
+    #[test]
+    fn prf_31_authored_light_membership_survives_runtime_base_changes_before_first_query() {
+        let mut world = world();
+        world.reference(id(5)).unwrap().base = Some(id(4));
+        world.reference(id(6)).unwrap().base = Some(id(3));
+        assert_eq!(world.light_references_in_cell(id(1)), [id(6)]);
+        for reference in [id(5), id(6)] {
+            world.invalidate_reference(reference);
+            world.refs.remove(&reference);
+        }
+        assert_eq!(world.light_references_in_cell(id(1)), [id(5)]);
     }
 }

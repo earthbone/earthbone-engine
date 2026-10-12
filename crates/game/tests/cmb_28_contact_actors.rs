@@ -343,6 +343,27 @@ fn prf_31_placements_follow_cell_attach_detach_and_runtime_spawns() {
 }
 
 #[test]
+fn prf_31_contact_index_rebuilds_after_native_restore_and_tracks_later_spawns() {
+    let g = game(None);
+    let mut world = g.world_mut();
+    let first = world.place_at(id(GUARD_BASE), id(GUARD_A), false);
+    let expected = world.contact_actor_placements();
+    let saved = world.save_state();
+    let discarded = world.place_at(id(GUARD_BASE), id(GUARD_A), false);
+    assert!(world
+        .contact_actor_placements()
+        .iter()
+        .any(|actor| actor.actor == discarded));
+    world.load_state(&saved).unwrap();
+    assert_eq!(world.contact_actor_placements(), expected);
+    let second = world.place_at(id(GUARD_BASE), first, false);
+    assert!(world
+        .contact_actor_placements()
+        .iter()
+        .any(|actor| actor.actor == second));
+}
+
+#[test]
 fn prf_31_contact_placements_follow_enable_parent_and_deletion() {
     let mut plugin = plugin(None);
     let guard = plugin

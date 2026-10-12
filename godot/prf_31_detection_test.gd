@@ -2,6 +2,7 @@ extends SceneTree
 
 ## PRF-31 measures the complete detection entry point, including body sync.
 const DETECTION_BUDGET_US := 2000
+const WalkRoute = preload("res://prf_31_walk_route.gd")
 var failures := 0
 
 func _initialize() -> void:
@@ -14,6 +15,10 @@ func _check(ok: bool, message: String) -> void:
 			printerr("FAIL: ", message)
 
 func prf_31_gate_walk_keeps_detection_under_two_ms() -> void:
+	if OS.get_environment("SKYRIM_DATA").is_empty():
+		print("SKIP PRF31: SKYRIM_DATA is unset")
+		quit(0)
+		return
 	var streamer: Node3D = ClassDB.instantiate("CellStreamerNode")
 	root.add_child(streamer)
 	_check(streamer.call("load_data", OS.get_environment("SKYRIM_DATA")), "data load")
@@ -88,16 +93,15 @@ func _walk_gate(player: Node3D) -> void:
 		var phase_pairs := 0
 		var phase_stages := PackedInt64Array([0, 0, 0, 0])
 		var facing: Vector2 = player.call("facing")
+		var route = WalkRoute.new(facing.x, player.call("position"))
 		while Time.get_ticks_usec() - started < 30000000:
-			var seconds := float(Time.get_ticks_usec() - started) / 1000000.0
-			var sign := 1.0 if int(seconds / 5.0) % 2 == 0 else -1.0
 			await physics_frame
-			var direction := Vector3(sin(facing.x), cos(facing.x), 0) * sign
+			var direction: Vector3 = route.direction()
 			_check(player.call("emit_detection_sound_at", 0, 0x14, owner.file, owner.object, 100), "queued actor-owned sound")
 			var pairs: int = player.call("sample_detection_walk", 1.0 / 60.0, direction)
 			phase_pairs += maxi(pairs, 0)
 			var detection_us: int = player.call("detection_time_usec")
-			_check(pairs >= 0, "detection ran on frame " + str(frame))
+			_check(pairs > 0, "resident sound observation on frame " + str(frame))
 			if detection_us > DETECTION_BUDGET_US:
 				over_budget += 1
 			maximum_us = maxi(maximum_us, detection_us)
@@ -108,11 +112,12 @@ func _walk_gate(player: Node3D) -> void:
 				phase_stages[stage] += stages[stage]
 			cells[player.call("gameplay_cell")] = true
 			var position: Vector3 = player.call("position")
+			route.update(position, 1.0 / 60.0)
 			if phase == 0:
 				city_movement = maxf(city_movement, Vector2(position.x, position.y).distance_to(Vector2(city_start.x, city_start.y)))
 			else:
 				tamriel_movement = maxf(tamriel_movement, Vector2(position.x, position.y).distance_to(Vector2(tamriel_start.x, tamriel_start.y)))
-			if frame % 600 == 0 or phase_samples == 0:
+			if frame % 600 == 0 or phase_samples == 0 or detection_us > DETECTION_BUDGET_US:
 				var actors: int = player.call("sync_contact_actors")
 				_check(actors > 1, "resident NPCs on frame " + str(frame))
 				print("PRF31 walk frame=", frame, " world=", player.call("detection_worldspace"), " cell=", player.call("gameplay_cell"), " actors=", actors, " pairs=", pairs, " detection_us=", detection_us)

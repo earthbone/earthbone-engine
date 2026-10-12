@@ -7,6 +7,10 @@
 //! Exterior eligibility uses CellIndex's UESP CELL/XCLC and WorldChildren
 //! mapping. Persistent parent cells retain identity, while current position
 //! determines whether the actor occupies the attached exterior grid.
+//! A transient FormID index follows shared reference invalidation, avoiding
+//! scenery scans while leaving placement and enable state in World.
+
+use std::collections::BTreeSet;
 
 use soe_esm::GlobalFormId;
 use soe_papyrus::Value;
@@ -32,7 +36,59 @@ pub struct ContactActor {
     pub scale: f32,
 }
 
+#[derive(Default)]
+pub(super) struct ContactReferences {
+    initialized: bool,
+    ids: BTreeSet<GlobalFormId>,
+    dirty: BTreeSet<GlobalFormId>,
+    #[cfg(test)]
+    examined: usize,
+}
+
+impl ContactReferences {
+    pub(super) fn invalidate(&mut self, id: GlobalFormId) {
+        if self.initialized {
+            self.dirty.insert(id);
+        }
+    }
+}
+
 impl World {
+    pub(super) fn contact_reference_ids(&self) -> std::cell::Ref<'_, ContactReferences> {
+        let mut index = self.contact_references.borrow_mut();
+        if index.initialized {
+            for id in std::mem::take(&mut index.dirty) {
+                #[cfg(test)]
+                {
+                    index.examined += 1;
+                }
+                if self
+                    .refs
+                    .get(&id)
+                    .is_some_and(|reference| reference.is_actor)
+                {
+                    index.ids.insert(id);
+                } else {
+                    index.ids.remove(&id);
+                }
+            }
+        } else {
+            #[cfg(test)]
+            {
+                index.examined += self.refs.len();
+            }
+            index.ids = self
+                .refs
+                .iter()
+                .filter_map(|(&id, reference)| reference.is_actor.then_some(id))
+                .collect();
+            index.initialized = true;
+            index.dirty.clear();
+        }
+        drop(index);
+        self.contact_references.borrow()
+    }
+
     /// Coordinate space shared by exterior grid and persistent cells. Interior
     /// cells retain their own identity. Uses the winning CellIndex hierarchy.
     #[must_use]
@@ -84,15 +140,9 @@ impl World {
             }
         }
         let mut cell_worlds = std::collections::HashMap::new();
-        let mut actors: Vec<GlobalFormId> = self
-            .refs
-            .iter()
-            .filter(|(_, reference)| reference.is_actor)
-            .map(|(id, _)| *id)
-            .collect();
-        actors.sort_unstable();
+        let actors = self.contact_reference_ids();
         let mut out = Vec::new();
-        for actor in actors {
+        for &actor in &actors.ids {
             let Some(reference) = self.refs.get(&actor) else {
                 continue;
             };
@@ -201,5 +251,67 @@ impl World {
             return Err(Error::Number);
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod prf_31_tests {
+    use super::*;
+    use crate::world::RefState;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
+    }
+
+    fn world() -> World {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"DATA", [1, 0]));
+        plugin.push_top(Record::new(Tag(*b"NPC_"), 2));
+        let actor = Record::new(Tag(*b"ACHR"), 3).sub(b"NAME", 2_u32.to_le_bytes());
+        let mut actor = actor.sub(b"DATA", [0; 24]);
+        actor.placement.cell = Some(1);
+        plugin.push_top(actor);
+        let mut order = LoadOrder::new();
+        order.add("Contacts.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        world.load_cell(id(1));
+        world
+    }
+
+    #[test]
+    fn prf_31_contact_index_bounds_unchanged_frames_independently_of_scenery() {
+        let mut world = world();
+        for object in 10..5010 {
+            world.refs.insert(id(object), RefState::new(None));
+        }
+        *world.contact_references.get_mut() = ContactReferences::default();
+        let initial_work = world.contact_reference_ids().examined;
+        assert_eq!(initial_work, world.refs.len());
+        for _ in 0..60 {
+            assert_eq!(world.contact_actor_placements().len(), 1);
+        }
+        assert_eq!(world.contact_reference_ids().examined, initial_work);
+        world.reference(id(3)).unwrap().position = [50.0, 0.0, 0.0];
+        assert_eq!(
+            world.contact_actor_placements()[0].position,
+            [50.0, 0.0, 0.0]
+        );
+        assert_eq!(world.contact_reference_ids().examined, initial_work + 1);
+    }
+
+    #[test]
+    fn prf_31_contact_index_follows_actor_flag_changes_and_removal() {
+        let mut world = world();
+        assert_eq!(world.contact_actor_placements().len(), 1);
+        world.reference(id(3)).unwrap().is_actor = false;
+        assert!(world.contact_actor_placements().is_empty());
+        world.reference(id(3)).unwrap().is_actor = true;
+        assert_eq!(world.contact_actor_placements().len(), 1);
+        world.invalidate_reference(id(3));
+        world.refs.remove(&id(3));
+        assert!(world.contact_actor_placements().is_empty());
+        world.reference(id(3)).unwrap();
+        assert_eq!(world.contact_actor_placements().len(), 1);
     }
 }

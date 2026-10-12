@@ -1539,6 +1539,7 @@ impl World {
         self.handles = handles;
         self.invalidate_all_references();
         self.refs = refs;
+        *self.contact_references.get_mut() = super::contact::ContactReferences::default();
         self.translation_candidates = self
             .refs
             .iter()

@@ -1064,10 +1064,16 @@ initial-disable flags, so Enable can turn an initially disabled light on.
 Loading reference state does not override the LIGH Off By Default flag.
 That flag still suppresses the light estimate for an enabled reference.
 Moved and spawned lights use their current shared placement.
+The shared light membership index groups loaded identities by current cell
+and refreshes base and cell membership through reference invalidation.
+Changing a runtime base to or from LIGH is visible on the next sample.
 `PlayerNode::detection_time_usec` measures the whole update, including actor
 body synchronization, sampling and world evaluation. `detection_worldspace`
 reports the active exterior worldspace's editor ID for the walking check.
 Body synchronization and detection reuse one resident actor-placement list.
+The shared world's transient actor FormID index avoids scanning non-actor
+runtime references to build that list. Changed membership is refreshed through
+reference invalidation, while placement and visibility remain shared state.
 No per-reference scene nodes are added.
 
 PRF-31 selects living actors in attached cells before resolving controller
@@ -3749,14 +3755,16 @@ limits, and [the reference map](reference-audit.md) for future work.
 Convex point clouds are reduced to the boundary vertices using
 `soe_physics::hull::triangles` before `PhysicsServer3D` receives them. If that
 cannot produce a 3D hull, the host removes duplicate and non-finite points and
-submits a slightly padded bounds hull. A repaired hull reports its source mesh
-path and NIF collision node name once per process. Godot's `shape_set_data`
+submits a slightly padded bounds hull. A repaired hull reports its NIF
+collision node name and input vertex count once per process. Godot's `shape_set_data`
 returns no hull failure result, so this check prepares the point set before
 the call rather than retrying after Jolt reports an error. The PRF-32 checks a
-44-point cloud with interior points and a flat cloud, then sends both repaired
-hulls to Godot's Jolt server. Its installed-data check streams Bannered Mare
-through the host and runs `physics_test.gd`, requiring collision bodies,
-contact and no Jolt shape error.
+synthetic 44-point cloud with interior points and a flat cloud. Its
+installed-data check streams Bannered Mare through the host and runs
+`physics_test.gd`, requiring collision bodies, contact, a repaired 44-vertex
+input and no Jolt shape error. The synthetic cloud does not reproduce the
+walkthrough's original coordinates. The installed-data check exercises the
+real point set but does not preserve its coordinates as a fixture.
 The installed collision helper builds and registers the release extension.
 Clippy can leave metadata at the debug library path, so existence alone does
 not establish a loadable library.
@@ -6890,6 +6898,15 @@ WhiterunWorld and 30 seconds in Tamriel. It samples every physics frame for two 
 NPCs and movement in both worldspaces, and rejects every
 complete detection update over the fixed 2,000-microsecond budget. Each run
 quits after reporting its sample count, maximum and over-budget count.
+The route retains its heading while moving, turns after five simulated seconds,
+and turns sooner when half a simulated second produces less than 25 units of
+horizontal progress. It never teleports the capsule or removes collision.
+Both phases still require more than 100 units of horizontal displacement.
+Every timed sample must produce a resident actor-owned sound observation.
+Over-budget frames print their stage costs. The gated Rust launcher
+`prf_31_installed_windowed_gate_walk_keeps_every_detection_update_under_two_ms`
+waits for the windowed process to exit and requires its successful result.
+The synthetic `prf_31_walk_route_test.gd` checks blocked and moving headings.
 The capsule and exterior residency advance through the host physics and
 streaming paths. NPC placements are held fixed and AI planning and VM ticks
 are omitted. The timing still covers the whole gameplay detection updater.

@@ -1128,12 +1128,13 @@ fn build_body(
         let GodotPrim::Convex(points) = prim else {
             continue;
         };
+        let input_vertex_count = points.len();
         let (hull, changed) = convex_hull_points(points);
         if changed {
             if report_repaired_hull_once(&collider.node_name) {
                 soe_trace::warn!(target: "host::physics", system = "host::physics",
-                    "repaired convex collision hull for mesh node {:?} before Jolt shape creation",
-                    collider.node_name
+                    "repaired convex collision hull for mesh node {:?} (input_vertices={}) before Jolt shape creation",
+                    collider.node_name, input_vertex_count
                 );
             }
             *points = hull;
@@ -1914,6 +1915,13 @@ func _initialize():
                 && log.contains("static bodies built:")
                 && log.contains("RESULT: PASS"),
             "Godot host did not build and use Bannered Mare collision:\n{log}"
+        );
+        assert!(
+            log.lines().any(|line| {
+                line.contains("repaired convex collision hull for mesh node")
+                    && line.contains("input_vertices=44")
+            }),
+            "Bannered Mare did not submit the observed 44-vertex input hull:\n{log}"
         );
         assert!(
             !log.contains("Failed to build Jolt Physics convex polygon shape"),
