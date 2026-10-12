@@ -8,6 +8,42 @@ use std::collections::VecDeque;
 const FRAME_HISTORY_LIMIT: usize = 512;
 const CAPTURE_STRING_LIMIT: usize = 1_000;
 
+/// Papyrus-facing view of the host's per-system Rust allocation counters.
+#[derive(Debug, Default)]
+pub(crate) struct MemoryTracker {
+    initialized: bool,
+}
+
+impl MemoryTracker {
+    /// Enable memory queries and return the current requested Rust allocation
+    /// bytes across the host's tracked systems.
+    pub(crate) fn current_memory(&mut self) -> i32 {
+        self.initialized = true;
+        let snapshot = soe_trace::MemorySnapshot::now();
+        let bytes = snapshot.live_bytes.iter().copied().sum::<u64>();
+        i32::try_from(bytes).unwrap_or(i32::MAX)
+    }
+
+    pub(crate) fn budget_count(&self) -> Option<i32> {
+        self.initialized
+            .then(|| i32::try_from(soe_trace::SYSTEM_COUNT).unwrap_or(i32::MAX))
+    }
+
+    pub(crate) fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+
+    pub(crate) fn budget_name(&self, index: i32) -> Option<&'static str> {
+        if !self.initialized {
+            return None;
+        }
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| soe_trace::System::ALL.get(index))
+            .map(|system| system.name())
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct FrameRateState {
     recent: VecDeque<f32>,

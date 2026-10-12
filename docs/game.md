@@ -513,7 +513,14 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
 - `Spell.Preload` and `Spell.Unload` validate the winning SPEL record and queue
   typed spell art requests on `World`. `take_spell_art_requests` drains them in
   Papyrus call order. `Unload` queues only when this world previously received
-  `Preload` for that spell. The Godot host does not consume these requests yet.
+  `Preload` for that spell. The Godot host loads models and material textures
+  referenced by each spell effect's MGEF casting art, hit art, projectile and
+  explosion records, then releases the retained meshes on `Unload`. Projectile
+  records include both `MODL` and `NAM1` muzzle flash models, as documented in
+  local UESP `PROJ.wikitext`. The MGEF DATA field locations follow local UESP
+  `MGEF.wikitext`. The local vanilla
+  `Spell.psc` documents these as art-resource operations and warns against
+  misuse.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
@@ -2112,9 +2119,9 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.GetAverageFrameRate` | CK marks this as beta-only and reports the capture average. Quiet stub, owned by SCR-49. |
 | `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the active capture minimum. It returns `None` and logs when no frames have been captured. |
 | `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the active capture maximum. It returns `None` and logs when no frames have been captured. |
-| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
-| `Utility.GetBudgetCount` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
-| `Utility.GetBudgetName` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so valid indices log an explicit error and return an empty string. |
+| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics before other memory functions are used. It enables the game's tracker and returns current requested Rust allocation bytes from `soe-trace`, saturated at Papyrus `Int` range. Godot heap and GPU allocations are excluded. |
+| `Utility.GetBudgetCount` | CK exposes memory budget metadata after tracking is enabled. It returns the count of stable `soe-trace` system slots, or logs and returns `None` until `GetCurrentMemory` initializes tracking. |
+| `Utility.GetBudgetName` | CK exposes memory budget metadata after tracking is enabled. It returns the indexed stable `soe-trace` system name, or an empty string for an invalid index. Before initialization, it logs and returns an empty string. |
 | `Utility.GetCurrentBudget` | Reports measured Papyrus instructions or exterior cell loads for the latest update, indexed by the two engine categories documented below. |
 | `Utility.OverBudget` | Compares the measured count with its configured cap for the indexed engine category. |
 | `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. The shared World retains each call, and the Godot host presents active RFCT effects as described in [godot-host](godot-host.md#papyrus-visual-effects-scr-52). Authored ARTO model lifecycle belongs to MAG-24. |
@@ -2389,10 +2396,10 @@ Creation Engine frame capture or memory budgets.
   `FunctionsDump.txt` entry for `MusicType`.
 
 - `Spell.Preload` and `Spell.Unload` validate the receiver through the winning
-  SPEL reader and queue typed art requests. The Godot host does not consume
-  these requests yet, so art is not loaded or released. The shipped `Spell.psc`
-  describes these as art-resource operations and warns against misuse. A host
-  art resource provider remains a prerequisite for the observable effects.
+  SPEL reader and queue typed art requests. The Godot host consumes them through
+  the loaded VFS and retains mesh resources for linked MGEF art, projectile and
+  explosion models until `Unload`. The shipped `Spell.psc` describes these as
+  art-resource operations and warns against misuse.
 - `VisualEffect.Play` adds a transient effect instance for the RFCT form and
   placed target. Calls stack, negative durations remain until stopped, and a
   finite duration expires on an unpaused game tick. The optional facing

@@ -70,6 +70,11 @@ mod scr_23_breaker_adversarial;
 #[path = "scr_15_breaker3_adversarial.rs"]
 mod scr_15_breaker3_adversarial;
 
+#[path = "scr_47_breaker3_adversarial.rs"]
+mod scr_47_breaker3_adversarial;
+#[path = "scr_47_breaker_adversarial_2.rs"]
+mod scr_47_breaker_adversarial_2;
+
 #[path = "shm_11_breaker_2_adversarial.rs"]
 mod shm_11_breaker_2_adversarial;
 #[path = "shm_12_breaker_adversarial.rs"]
@@ -1642,6 +1647,10 @@ mod scr_49_utility_frame_rate;
 mod scr_50_adversarial;
 #[path = "scr_50_breaker2_adversarial.rs"]
 mod scr_50_breaker2_adversarial;
+#[path = "scr_50_breaker3_adversarial.rs"]
+mod scr_50_breaker3_adversarial;
+#[path = "scr_50_breaker4_adversarial.rs"]
+mod scr_50_breaker4_adversarial;
 #[path = "scr_50_breaker_adversarial.rs"]
 mod scr_50_breaker_adversarial;
 #[path = "scr_50_utility_runtime_queries.rs"]

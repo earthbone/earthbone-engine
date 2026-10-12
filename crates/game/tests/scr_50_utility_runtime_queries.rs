@@ -46,16 +46,14 @@ fn scr_50_beta_frame_rate_queries_report_missing_capture_provider() {
 #[test]
 fn scr_50_frame_rate_queries_read_the_active_capture() {
     let mut game = Game::new(LoadOrder::new());
-    assert_eq!(call(&mut game, "GetCurrentMemory", &[]), Value::None);
-    assert!(game
-        .vm
-        .log
-        .contains("Utility.GetCurrentMemory: memory tracking is unavailable"));
-    assert_eq!(call(&mut game, "GetBudgetCount", &[]), Value::None);
-    assert!(game
-        .vm
-        .log
-        .contains("Utility.GetBudgetCount: memory tracking is unavailable"));
+    assert!(matches!(
+        call(&mut game, "GetCurrentMemory", &[]),
+        Value::Int(memory) if memory >= 0
+    ));
+    assert_eq!(
+        call(&mut game, "GetBudgetCount", &[]),
+        Value::Int(soe_trace::SYSTEM_COUNT as i32)
+    );
     call(&mut game, "StartFrameRateCapture", &[]);
     game.tick(1.0 / 60.0);
     game.tick(1.0 / 30.0);
@@ -66,11 +64,8 @@ fn scr_50_frame_rate_queries_read_the_active_capture() {
 #[test]
 fn scr_50_current_memory_requires_tracking_and_validates_arity() {
     let mut game = Game::new(LoadOrder::new());
-    assert_eq!(call(&mut game, "GetCurrentMemory", &[]), Value::None);
-    assert!(game
-        .vm
-        .log
-        .contains("Utility.GetCurrentMemory: memory tracking is unavailable"));
+    let current_memory = call(&mut game, "GetCurrentMemory", &[]);
+    assert!(matches!(current_memory, Value::Int(memory) if memory >= 0));
     assert_eq!(
         call(&mut game, "GetCurrentMemory", &[Value::Int(1)]),
         Value::None
@@ -82,23 +77,35 @@ fn scr_50_current_memory_requires_tracking_and_validates_arity() {
 }
 
 #[test]
-fn scr_50_memory_budget_count_and_names_report_missing_tracking() {
+fn scr_50_memory_budget_count_and_names_require_and_use_tracking() {
     let mut game = Game::new(LoadOrder::new());
     assert_eq!(call(&mut game, "GetBudgetCount", &[]), Value::None);
     assert!(game
         .vm
         .log
-        .contains("Utility.GetBudgetCount: memory tracking is unavailable"));
-    for index in [0, 1] {
+        .contains("Utility.GetBudgetCount: call GetCurrentMemory first"));
+    assert!(matches!(
+        call(&mut game, "GetCurrentMemory", &[]),
+        Value::Int(memory) if memory >= 0
+    ));
+    assert_eq!(
+        call(&mut game, "GetBudgetCount", &[]),
+        Value::Int(soe_trace::SYSTEM_COUNT as i32)
+    );
+    for (index, system) in soe_trace::System::ALL.iter().enumerate() {
         assert_eq!(
-            call(&mut game, "GetBudgetName", &[Value::Int(index)]),
-            Value::string("")
+            call(&mut game, "GetBudgetName", &[Value::Int(index as i32)]),
+            Value::string(system.name())
         );
     }
-    assert!(game
-        .vm
-        .log
-        .contains("Utility.GetBudgetName: memory tracking is unavailable"));
+    assert_eq!(
+        call(
+            &mut game,
+            "GetBudgetName",
+            &[Value::Int(soe_trace::SYSTEM_COUNT as i32)]
+        ),
+        Value::string("")
+    );
     assert_eq!(
         call(&mut game, "GetBudgetName", &[Value::Int(-1)]),
         Value::string("")
@@ -124,6 +131,16 @@ fn scr_50_memory_budget_count_and_names_report_missing_tracking() {
         .vm
         .log
         .contains("Utility.GetBudgetName expects 1 argument(s), got 0"));
+}
+
+#[test]
+fn scr_50_memory_tracker_reports_live_bytes_from_the_trace_owner() {
+    let mut game = Game::new(LoadOrder::new());
+    let _ = call(&mut game, "GetCurrentMemory", &[]);
+    soe_trace::memory_allocated(soe_trace::System::Papyrus, 4096);
+    let memory = call(&mut game, "GetCurrentMemory", &[]);
+    assert!(matches!(memory, Value::Int(value) if value >= 4096));
+    soe_trace::memory_freed(soe_trace::System::Papyrus, 4096);
 }
 
 #[test]

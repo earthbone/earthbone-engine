@@ -8,7 +8,7 @@ use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
 
 #[test]
-fn scr_50_memory_query_reports_unavailable_when_tracking_is_absent() {
+fn scr_50_memory_query_returns_the_initialized_tracker_value() {
     let mut game = Game::new(LoadOrder::new());
     let script = ScriptBuilder::new("Scr50MemoryBreaker", "Utility")
         .function(
@@ -29,8 +29,11 @@ fn scr_50_memory_query_reports_unavailable_when_tracking_is_absent() {
         .call_global("Scr50MemoryBreaker", "Run", &[])
         .unwrap();
     assert!(game.run_until_idle(32));
-    assert_eq!(game.vm.thread_result(thread), Some(Value::None));
-    assert!(game
+    assert!(matches!(
+        game.vm.thread_result(thread),
+        Some(Value::Int(memory)) if memory >= 0
+    ));
+    assert!(!game
         .traces()
         .iter()
         .any(|line| line.contains("memory tracking is unavailable")));

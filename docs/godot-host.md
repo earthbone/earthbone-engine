@@ -608,10 +608,10 @@ overrides and raw TES4 records. Decoded header metadata, group tables and shared
 load-order indices are outside these record-body totals. The implementation
 uses the existing ESM structs rather than a second record store.
 
-Debug builds use a counting Rust System allocator. Optimized profiling builds
-enable it with `--features profile-memory`. The allocator adds an aligned owner
-prefix, preserves that owner across reallocation and frees on other threads,
-and leaves Godot's own heap outside the counters. PlayerNode's
+All builds use a counting Rust System allocator. The allocator adds an aligned
+owner prefix, preserves that owner across reallocation and frees on other
+threads, and leaves Godot's own heap outside the counters. This adds a small
+header and counter updates to Rust allocations. PlayerNode's
 `system_frame_breakdown` includes `live_bytes` and `allocations` for every
 system in the last completed presentation frame. Reallocations count as calls.
 Unscoped allocations use `other`. No saved state or per-reference nodes were
@@ -1833,6 +1833,24 @@ attachment to skinned surfaces are not implemented. The local reference
 corpus includes UESP's EFSH field list and xEdit's record layout. Its CK wiki
 corpus has no EffectShader page. The synthetic tests verify request data and
 host fade/blend selection. Live rendered output has not been verified.
+
+## Spell art preload, SCR-47
+
+The player drains `Spell.Preload` and `Spell.Unload` requests from `World` on
+its presentation update and passes them to the shared cell streamer. Preload
+walks a spell's ordered effects, reads each winning MGEF DATA record, and finds
+the casting art, hit art, projectile and explosion forms. Their `MODL` paths
+are loaded through the game's VFS and the existing NIF mesh and material
+pipeline. Projectile records also contribute `NAM1`, the muzzle flash model
+filename from local UESP `PROJ.wikitext`. The streamer retains each generated
+mesh per spell. Its material
+owns the decoded textures for the same lifetime. Unload drops that spell's
+retained meshes and their materials. Repeated preload requests do not create
+duplicate retained entries.
+
+The linked MGEF fields use offsets from the local UESP `MGEF.wikitext` DATA
+layout. `godot/scr_47_spell_art_host_test.gd` calls the shipped Flames spell's
+Papyrus methods and checks that the host retains then releases model meshes.
 
 ## Papyrus visual effects, SCR-52
 
