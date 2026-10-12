@@ -4,27 +4,12 @@
 //! Installed door scene acceptance uses the production streamer and player collision.
 
 use soe_esm::{records::refr::Refr, Tag};
-use soe_godot_host::data_source::{DataSource, LoadedCell};
-use soe_godot_host::units::SkyrimPos;
+use soe_godot_host::data_source::DataSource;
 use std::path::{Path, PathBuf};
 
-fn hinge_radius(loaded: &LoadedCell, position: [f32; 3]) -> f32 {
-    let hinge = SkyrimPos::new(position[0], position[1], position[2]).to_godot();
-    loaded
-        .surfaces
-        .iter()
-        .flat_map(|surface| {
-            assert!(surface.instance_transform.is_none());
-            &surface.arrays.positions
-        })
-        .map(|point| {
-            ((point[0] - hinge.x).powi(2)
-                + (point[1] - hinge.y).powi(2)
-                + (point[2] - hinge.z).powi(2))
-            .sqrt()
-        })
-        .fold(0.0, f32::max)
-}
+#[path = "common/door_radius.rs"]
+mod door_radius;
+use door_radius::radius as hinge_radius;
 
 #[test]
 fn hst_27_installed_front_doors_stay_at_the_hinge_in_every_state_and_after_return() {

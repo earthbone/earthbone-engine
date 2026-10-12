@@ -32,6 +32,7 @@ func _run() -> void:
 	if streamer.call("stream_cell", "WhiterunBanneredMare") <= 0: failures += 1
 	if streamer.call("stream_cell_collision", "WhiterunBanneredMare") <= 0: failures += 1
 	var player: Node3D = ClassDB.instantiate("PlayerNode")
+	player.set("auto_step", false)
 	player.set("capture_mouse", false)
 	root.add_child(player)
 	if not player.call("use_streamer_data", streamer): failures += 1
@@ -42,14 +43,14 @@ func _run() -> void:
 	var path := OS.get_environment("SOE_HST19_OUTPUT")
 	if not player.call("take_screenshot", path): failures += 1
 	var image := Image.load_from_file(path)
-	if image.is_empty() or image.get_width() != 640 or image.get_height() != 360: failures += 1
+	if image == null or image.is_empty() or image.get_width() != 640 or image.get_height() != 360: failures += 1
 	player.free()
 	streamer.free()
 	quit(0 if failures == 0 else 1)
 "#;
     std::fs::write(&script_path, script).expect("write temporary Godot check");
     let output = Command::new(godot)
-        .args(["--headless", "--path"])
+        .args(["--audio-driver", "Dummy", "--path"])
         .arg(workspace.join("godot"))
         .args(["--resolution", "640x360", "--script"])
         .arg(&script_path)

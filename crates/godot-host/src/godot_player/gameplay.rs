@@ -646,6 +646,10 @@ impl PlayerNode {
             reference.rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
         }
         game.change_cell(Some(cell));
+        // CONTEXT: Resolve initial trigger membership and its load-order index
+        // during startup, before the first measured movement frame.
+        let position = [feet.x, feet.y, feet.z];
+        game.update_trigger_actor_position(player, Some(cell), position, position);
         game.run_until_idle(64);
         if let Err(error) = self.image_space.sync(&game.world()) {
             soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");

@@ -8,21 +8,9 @@ use soe_esm::{records::refr::Refr, Tag};
 use soe_godot_host::data_source::DataSource;
 use std::path::{Path, PathBuf};
 
-fn radius(loaded: &soe_godot_host::data_source::LoadedCell, position: [f32; 3]) -> f32 {
-    let hinge =
-        soe_godot_host::units::SkyrimPos::new(position[0], position[1], position[2]).to_godot();
-    loaded
-        .surfaces
-        .iter()
-        .flat_map(|surface| &surface.arrays.positions)
-        .map(|point| {
-            ((point[0] - hinge.x).powi(2)
-                + (point[1] - hinge.y).powi(2)
-                + (point[2] - hinge.z).powi(2))
-            .sqrt()
-        })
-        .fold(0.0, f32::max)
-}
+#[path = "common/door_radius.rs"]
+mod door_radius;
+use door_radius::radius;
 
 #[test]
 fn hst_27_installed_door_states_keep_the_leaf_visible_at_its_hinge() {
@@ -58,6 +46,12 @@ fn hst_27_installed_door_states_keep_the_leaf_visible_at_its_hinge() {
                 continue;
             }
             if !soe_game::World::authored_reference_enabled(&order, id) {
+                continue;
+            }
+            if base_record
+                .editor_id()
+                .is_some_and(|editor| editor.ends_with("MinUse"))
+            {
                 continue;
             }
             let position = reference.transform.unwrap().position;

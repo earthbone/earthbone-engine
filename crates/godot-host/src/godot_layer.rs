@@ -3027,6 +3027,12 @@ impl CellStreamerNode {
                     .is_some_and(|mesh| mesh.surface_get_material(0).is_some()),
             })
             .count() as i32
+            + self
+                .doors
+                .values()
+                .flat_map(|door| &door.surfaces)
+                .filter(|surface| surface.mesh.surface_get_material(0).is_some())
+                .count() as i32
     }
 
     /// Render handles grouped by owning cell, for residency diagnostics.
@@ -4141,15 +4147,33 @@ impl CellStreamerNode {
             let rid = soe_trace::Profile::render_submission(|| {
                 server.instance_create2(mesh.get_rid(), scenario)
             });
-            let original = if surface.instance_transform.is_some() {
+            let original = if surface.instance_transform.is_some() || surface.animation.is_some() {
                 Transform3D::IDENTITY
             } else {
                 crate::godot_door::pose_transform(surface.placement)
             };
+            let model_transform =
+                surface
+                    .animation
+                    .as_ref()
+                    .map_or(Transform3D::IDENTITY, |animation| {
+                        let pose = animation.asset.sample(0.0, None);
+                        let shape = pose
+                            .transforms
+                            .get(animation.block)
+                            .copied()
+                            .unwrap_or(soe_nif::Transform::IDENTITY);
+                        transform3d_from(placement_to_godot(
+                            shape.rotation.rows,
+                            shape.translation.to_array(),
+                            shape.scale,
+                        ))
+                    });
             door.surfaces.push(crate::godot_door::DoorSurface {
                 rid,
                 mesh,
                 original,
+                model_transform,
                 submitted: Transform3D::IDENTITY,
                 triangles: surface.arrays.triangle_count(),
             });
