@@ -15,12 +15,14 @@ error before allocating the pages. The content-addressed cache format is
 
 The atlas resource layout follows the local `godot-docs` FontFile
 `set_texture_image`, `set_glyph_texture_idx` and `set_glyph_uv_rect` contracts.
-The bounded sprite reader uses the tag lengths and typed readers in
-[Ruffle swf 0.3](https://docs.rs/swf/latest/swf/). Its `read_tag_list` requires
-an End tag, while the installed SkyUI icon sprites omit End and some also
-omit their final ShowFrame. Conversion stops at each sprite's declared byte
-boundary and retains that final display list as a frame. Truncated tag
-payloads remain errors. The full Ruffle clone is absent from the local corpus.
+The bounded tag reader follows the tag lengths and typed readers in
+[Ruffle swf 0.3](https://docs.rs/swf/latest/swf/). Root movies require a
+zero-length End tag, as does Ruffle's `read_tag_list`. The installed SkyUI icon
+sprites omit End and some also omit their final ShowFrame, so bounded nested
+sprites may end at their declared byte boundary and retain that final display
+list as a frame. A present End tag must have an empty payload at every level.
+Truncated tag payloads remain errors. The full Ruffle clone is absent from the
+local corpus.
 
 JPEXS's local `SkyUI-Community/tools/FFDec/ffdec-cli` launcher and JAR supply
 the reference decompiler. The installed-data checks build native caches for
