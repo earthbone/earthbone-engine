@@ -38,10 +38,16 @@ fn unresolved(plugin: &str) -> UnresolvedRecord {
 }
 
 #[test]
-fn sav_58_rejects_removed_regular_plugin_before_retained_plugin_atomically() {
+fn sav_58_removed_regular_plugin_before_retained_plugin_keeps_world_identity() {
     let first = plugin(*b"STAT", 0x800);
     let middle = plugin(*b"STAT", 0x801);
-    let tail = plugin(*b"STAT", 0x802);
+    let mut tail = plugin(*b"STAT", 0x802);
+    tail.push_top(Record::new(Tag(*b"NPC_"), 0x500).sub(Tag(*b"ACBS"), vec![0; 24]));
+    tail.push_top(
+        Record::new(Tag(*b"ACHR"), 0x101)
+            .sub(Tag(*b"NAME"), 0x500u32.to_le_bytes())
+            .sub(Tag(*b"DATA"), vec![0; 24]),
+    );
     let source_order = order(&[
         ("base.esm", first.clone()),
         ("removed.esp", middle),
@@ -49,17 +55,84 @@ fn sav_58_rejects_removed_regular_plugin_before_retained_plugin_atomically() {
     ]);
     let source = Game::new(source_order);
     let orphan = unresolved("removed.esp");
-    source.world_mut().retain_unresolved_record(orphan).unwrap();
+    assert!(source.world_mut().set_host_actor_pose(
+        soe_esm::GlobalFormId {
+            file: 2,
+            object: 0x101,
+        },
+        [11.0, 22.0, 33.0],
+        [0.1, 0.2, 0.3],
+    ));
+    source
+        .world_mut()
+        .retain_unresolved_record(orphan.clone())
+        .unwrap();
     let bytes = source.save_state().unwrap();
 
-    let mut current = Game::new(order(&[("base.esm", first), ("tail.esp", tail)]));
-    let before = current.save_state().unwrap();
-    assert!(current.load_state(&bytes).is_err());
-    assert_eq!(current.save_state().unwrap(), before);
+    let mut current = Game::new(order(&[
+        ("base.esm", first.clone()),
+        ("tail.esp", tail.clone()),
+    ]));
+    current.load_state(&bytes).unwrap();
+    assert_eq!(
+        current.world().unresolved_records().get(&orphan.id),
+        Some(&orphan)
+    );
+    assert_eq!(
+        current
+            .world()
+            .ref_placement(soe_esm::GlobalFormId {
+                file: 1,
+                object: 0x101,
+            })
+            .unwrap()
+            .position,
+        [11.0, 22.0, 33.0]
+    );
+    let next = current.save_state().unwrap();
+    let mut reloaded = Game::new(order(&[("base.esm", first), ("tail.esp", tail)]));
+    reloaded.load_state(&next).unwrap();
+    assert_eq!(
+        reloaded.world().unresolved_records().get(&orphan.id),
+        Some(&orphan)
+    );
+    assert_eq!(
+        reloaded
+            .world()
+            .ref_placement(soe_esm::GlobalFormId {
+                file: 1,
+                object: 0x101,
+            })
+            .unwrap()
+            .position,
+        [11.0, 22.0, 33.0]
+    );
+    assert_eq!(
+        reloaded
+            .world()
+            .record(soe_esm::GlobalFormId {
+                file: 0,
+                object: 0x800
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
+    assert_eq!(
+        reloaded
+            .world()
+            .record(soe_esm::GlobalFormId {
+                file: 1,
+                object: 0x802
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
 }
 
 #[test]
-fn sav_58_rejects_removed_light_plugin_before_retained_light_plugin_atomically() {
+fn sav_58_removed_light_plugin_before_retained_plugin_keeps_world_identity() {
     let light = |object| {
         let mut plugin = plugin(*b"STAT", object);
         plugin.header.flags = soe_esm::plugin::flags::LIGHT_MASTER;
@@ -76,13 +149,50 @@ fn sav_58_rejects_removed_light_plugin_before_retained_light_plugin_atomically()
     let mut orphan = unresolved("removed.esl");
     orphan.id.light = true;
     orphan.id.object = 0x321;
-    source.world_mut().retain_unresolved_record(orphan).unwrap();
+    source
+        .world_mut()
+        .retain_unresolved_record(orphan.clone())
+        .unwrap();
     let bytes = source.save_state().unwrap();
 
-    let mut current = Game::new(order(&[("base.esm", base), ("tail.esl", tail)]));
-    let before = current.save_state().unwrap();
-    assert!(current.load_state(&bytes).is_err());
-    assert_eq!(current.save_state().unwrap(), before);
+    let mut current = Game::new(order(&[
+        ("base.esm", base.clone()),
+        ("tail.esl", tail.clone()),
+    ]));
+    current.load_state(&bytes).unwrap();
+    assert_eq!(
+        current.world().unresolved_records().get(&orphan.id),
+        Some(&orphan)
+    );
+    let next = current.save_state().unwrap();
+    let mut reloaded = Game::new(order(&[("base.esm", base), ("tail.esl", tail)]));
+    reloaded.load_state(&next).unwrap();
+    assert_eq!(
+        reloaded.world().unresolved_records().get(&orphan.id),
+        Some(&orphan)
+    );
+    assert_eq!(
+        reloaded
+            .world()
+            .record(soe_esm::GlobalFormId {
+                file: 0,
+                object: 0x800
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
+    assert_eq!(
+        reloaded
+            .world()
+            .record(soe_esm::GlobalFormId {
+                file: 1,
+                object: 0x802
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
 }
 
 #[test]
@@ -122,6 +232,138 @@ fn sav_58_rejects_added_plugin_after_removal_without_mutating_world() {
 
     let added = plugin(*b"STAT", 0x802);
     let mut current = Game::new(order(&[("base.esm", base), ("added.esp", added)]));
+    let before = current.save_state().unwrap();
+    assert!(current.load_state(&bytes).is_err());
+    assert_eq!(current.save_state().unwrap(), before);
+}
+
+#[test]
+fn sav_58_mixed_removal_keeps_retained_light_form_and_unresolved_link_identity() {
+    let base = plugin(*b"STAT", 0x800);
+    let removed_regular = plugin(*b"STAT", 0x801);
+    let mut removed_light = plugin(*b"STAT", 0x802);
+    removed_light.header.flags = soe_esm::plugin::flags::LIGHT_MASTER;
+    let mut retained_light = plugin(*b"STAT", 0x803);
+    retained_light.header.flags = soe_esm::plugin::flags::LIGHT_MASTER;
+    retained_light.push_top(Record::new(Tag(*b"NPC_"), 0x500).sub(Tag(*b"ACBS"), vec![0; 24]));
+    retained_light.push_top(
+        Record::new(Tag(*b"ACHR"), 0x101)
+            .sub(Tag(*b"NAME"), 0x500u32.to_le_bytes())
+            .sub(Tag(*b"DATA"), vec![0; 24]),
+    );
+    let source = Game::new(order(&[
+        ("base.esm", base.clone()),
+        ("removed.esp", removed_regular),
+        ("removed.esl", removed_light),
+        ("retained.esl", retained_light.clone()),
+    ]));
+    let orphan = UnresolvedRecord {
+        id: UnresolvedRecordId {
+            plugin: "removed.esp".into(),
+            light: false,
+            object: 0x812,
+        },
+        payload: vec![0, 0x80, 0xff, 1],
+        links: vec![UnresolvedRecordId {
+            plugin: "retained.esl".into(),
+            light: true,
+            object: 0x321,
+        }],
+    };
+    assert!(source.world_mut().set_host_actor_pose(
+        soe_esm::GlobalFormId {
+            file: 3,
+            object: 0x101,
+        },
+        [4.0, 5.0, 6.0],
+        [0.0, 0.0, 0.0],
+    ));
+    source
+        .world_mut()
+        .retain_unresolved_record(orphan.clone())
+        .unwrap();
+    let bytes = source.save_state().unwrap();
+
+    let mut current = Game::new(order(&[
+        ("base.esm", base.clone()),
+        ("retained.esl", retained_light.clone()),
+    ]));
+    current.load_state(&bytes).unwrap();
+    assert_eq!(
+        current.world().unresolved_records().get(&orphan.id),
+        Some(&orphan)
+    );
+    assert_eq!(
+        current
+            .world()
+            .ref_placement(soe_esm::GlobalFormId {
+                file: 1,
+                object: 0x101
+            })
+            .unwrap()
+            .position,
+        [4.0, 5.0, 6.0]
+    );
+
+    let next = current.save_state().unwrap();
+    let mut reloaded = Game::new(order(&[
+        ("base.esm", base),
+        ("retained.esl", retained_light),
+    ]));
+    reloaded.load_state(&next).unwrap();
+    assert_eq!(
+        reloaded.world().unresolved_records().get(&orphan.id),
+        Some(&orphan)
+    );
+    assert_eq!(
+        reloaded
+            .world()
+            .ref_placement(soe_esm::GlobalFormId {
+                file: 1,
+                object: 0x101
+            })
+            .unwrap()
+            .position,
+        [4.0, 5.0, 6.0]
+    );
+    assert_eq!(
+        reloaded
+            .world()
+            .record(soe_esm::GlobalFormId {
+                file: 1,
+                object: 0x803
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
+}
+
+#[test]
+fn sav_58_missing_live_form_rejects_without_mutating_unrelated_state() {
+    let base = plugin(*b"STAT", 0x800);
+    let mut removed = plugin(*b"STAT", 0x801);
+    removed.push_top(Record::new(Tag(*b"NPC_"), 0x500).sub(Tag(*b"ACBS"), vec![0; 24]));
+    removed.push_top(
+        Record::new(Tag(*b"ACHR"), 0x101)
+            .sub(Tag(*b"NAME"), 0x500u32.to_le_bytes())
+            .sub(Tag(*b"DATA"), vec![0; 24]),
+    );
+    let source = Game::new(order(&[
+        ("base.esm", base.clone()),
+        ("removed.esp", removed),
+    ]));
+    assert!(source.world_mut().set_host_actor_pose(
+        soe_esm::GlobalFormId {
+            file: 1,
+            object: 0x101
+        },
+        [9.0, 8.0, 7.0],
+        [0.0, 0.0, 0.0],
+    ));
+    let bytes = source.save_state().unwrap();
+
+    let mut current = Game::new(order(&[("base.esm", base)]));
     let before = current.save_state().unwrap();
     assert!(current.load_state(&bytes).is_err());
     assert_eq!(current.save_state().unwrap(), before);

@@ -104,7 +104,11 @@ pub(crate) fn read_sections_with_table<T>(
             return Err(VmError::State(format!("unknown section {name} at {level}")));
         };
         let mut sub_reader = Reader::new(payload);
-        let mut sub = FormReader::new(&mut sub_reader, r.namespace());
+        let mut sub = if let Some(file_map) = r.file_map() {
+            FormReader::with_file_map(&mut sub_reader, r.namespace(), file_map)
+        } else {
+            FormReader::new(&mut sub_reader, r.namespace())
+        };
         (section.read)(value, &mut sub, table)
             .map_err(|error| VmError::State(format!("section {name} at {level}: {error}")))?;
         sub.expect_end()
