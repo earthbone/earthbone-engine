@@ -420,10 +420,12 @@ impl PlayerNode {
             return false;
         };
         let configs = game.mcm_configs();
+        self.mcm_page = crate::mcm_menu::ConfigPage::from_game(game);
         let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
             return false;
         };
         let selected = self.mcm_config;
+        let option_page = self.mcm_page.clone();
         let base = self.base().clone();
         let _guard = self.base_mut();
         for mut child in content.get_children().iter_shared() {
@@ -458,6 +460,9 @@ impl PlayerNode {
                 button.connect("pressed", &callback);
                 rows.add_child(&button);
             }
+            if let Some(page) = &option_page {
+                crate::mcm_menu::render_rows(&mut rows, page, &base.callable("mcm_select_option"));
+            }
         }
         true
     }
@@ -484,6 +489,19 @@ impl PlayerNode {
                 ]),
             );
             content.add_child(&button);
+        }
+    }
+
+    pub(super) fn refresh_mcm_options(&mut self) {
+        if self.menu.title() != Some("Mod Configuration") || self.mcm_config.is_none() {
+            return;
+        }
+        let page = self
+            .game
+            .as_mut()
+            .and_then(crate::mcm_menu::ConfigPage::from_game);
+        if page != self.mcm_page {
+            self.mcm_content();
         }
     }
 
@@ -678,6 +696,7 @@ impl PlayerNode {
             game.mcm_close();
         }
         self.mcm_config = None;
+        self.mcm_page = None;
         if closing_dialogue {
             self.stop_dialogue_voice();
             if let Some(game) = self.game.as_mut() {
@@ -898,6 +917,7 @@ impl PlayerNode {
             return false;
         }
         self.mcm_config = None;
+        self.mcm_page = None;
         if let Some(game) = self.game.as_mut() {
             game.mcm_begin();
         }
@@ -954,6 +974,8 @@ impl PlayerNode {
             "close_count",
             "sequence",
             "last_page",
+            "selection_count",
+            "selected_option",
         ] {
             match game.vm.get_var(object, "Ui05ExecutableChild", name) {
                 Some(soe_papyrus::Value::Int(value)) => {
@@ -1008,6 +1030,28 @@ impl PlayerNode {
             .as_mut()
             .is_some_and(|game| game.mcm_select_page(index));
         selected && self.mcm_content()
+    }
+
+    /// Select a visible enabled text or toggle row and refresh script-authored values.
+    #[func]
+    pub fn mcm_select_option(&mut self, id: i64) -> bool {
+        if self.menu.title() != Some("Mod Configuration") {
+            return false;
+        }
+        let (Some(form), Ok(id)) = (self.mcm_config, u32::try_from(id)) else {
+            return false;
+        };
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Some(mut page) = crate::mcm_menu::ConfigPage::from_game(game) else {
+            return false;
+        };
+        let selected = page.select(game, form, id);
+        if selected {
+            self.mcm_content();
+        }
+        selected
     }
 
     /// Open a conversation with a reference through the shared Game and show its choices.

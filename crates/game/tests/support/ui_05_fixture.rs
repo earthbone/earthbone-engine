@@ -34,6 +34,8 @@ impl Fixture {
         game
     }
 
+    /// Write a standalone plugin and loose scripts for the host checks.
+    #[allow(dead_code)]
     pub fn write(&self, directory: &Path) {
         std::fs::create_dir_all(directory.join("Scripts")).unwrap();
         std::fs::write(directory.join("Ui05Config.esm"), self.plugin.to_bytes()).unwrap();

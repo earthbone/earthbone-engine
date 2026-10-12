@@ -28,7 +28,7 @@ fn fixture() -> crate::compiled::Fixture {
         )
         .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST"))),
     );
-    let mut base = ScriptBuilder::new("SKI_ConfigBase", "Quest")
+    let base = ScriptBuilder::new("SKI_ConfigBase", "Quest")
         .auto_property("ModName", "String", s(""))
         .auto_property("Pages", "String[]", soe_papyrus::asm::none())
         .function(

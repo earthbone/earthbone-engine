@@ -248,6 +248,7 @@ pub struct PlayerNode {
     quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
     objective_map_snapshot: Option<Vec<crate::objective_map::Marker>>,
     mcm_config: Option<GlobalFormId>,
+    mcm_page: Option<crate::mcm_menu::ConfigPage>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     barter_menu: Option<(GlobalFormId, GlobalFormId)>,
     crafting_bench: Option<GlobalFormId>,
@@ -388,6 +389,7 @@ impl INode3D for PlayerNode {
             quest_journal_snapshot: None,
             objective_map_snapshot: None,
             mcm_config: None,
+            mcm_page: None,
             container_menu: None,
             barter_menu: None,
             crafting_bench: None,
@@ -635,6 +637,7 @@ impl INode3D for PlayerNode {
         if self.menu.title() == Some("Map") {
             self.refresh_objective_map();
         }
+        self.refresh_mcm_options();
         if self.auto_step && !self.menu.is_open() {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
