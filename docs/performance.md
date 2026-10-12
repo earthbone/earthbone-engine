@@ -1205,7 +1205,10 @@ hold spaces, so a plugin is always the last field of a row.
   the plugin of the form it is attached to. `save_papyrus_script_plugin
   <instances> <bytes> <plugin>` totals the same rows, `save_papyrus_script_bytes`
   is the grand total and `save_papyrus_unattributed_bytes` is the rest of the
-  value data, which is reference and array data.
+  value data, which is reference and array data. The PRF-21 corpus check
+  compares both script/plugin rows and per-plugin totals with the parsed Papyrus
+  instances. Native SOEG reports its named world, Papyrus VM and envelope
+  sections, but has no plugin ownership table for its VM bytes.
 
 A native SOEG file argument reports full load timing and file size.
 With no file argument, `save` retains the generated native-world save and load
