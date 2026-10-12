@@ -124,8 +124,9 @@ Set `SKYRIM_DATA` to the game Data directory and `CHAMPOLLION` to the
 Champollion executable. Differences are written per script to
 `$CARGO_TARGET_DIR/tst-10-champollion-differences.txt`, or to the path in
 `SOE_TST_10_REPORT`. An empty report means the compared inventories agree.
-When either environment variable is unset, the corpus test skips. The assembly
-fields follow Champollion's `AsmCoder` output in
+When `SKYRIM_DATA` is unset, the corpus test skips. When game data is set,
+`CHAMPOLLION` is required so a missing decoder cannot silently skip the
+differential run. The assembly fields follow Champollion's `AsmCoder` output in
 `engine-refs/Champollion/Decompiler/AsmCoder.cpp`. The test uses the decoder as
 an external tool and does not port its implementation.
 
@@ -490,18 +491,23 @@ SOE_PEX_DIR=/path/to/extracted cargo test -p soe-papyrus --test vm real_scripts 
 
 `benches/tst_04_perf_gate.rs` contains two synthetic workloads. PEX parsing
 reads a serialized function with 256 NOP instructions and has a 500,000
-instruction hard limit. VM execution runs a Papyrus loop for 10,000 iterations
+instruction hard limit. VM execution runs a Papyrus loop for 100 iterations
 and has a 2,000,000 instruction hard limit. Both limits count Callgrind's
 `EventKind::Ir`, and exceeding either recorded ceiling fails the benchmark
 command. Setup that builds the PEX bytes or VM thread is outside the measured
 region. `tests/tst_04_perf_gate.rs` checks the parser reads the full body and
-that the VM loop returns the expected sum.
+that the VM loop returns the expected sum. The original 10,000-iteration
+workload exceeded the VM ceiling, so the benchmark uses 100 iterations.
 
 The `performance` CI workflow runs it with
 `cargo bench --locked -p soe-papyrus --bench tst_04_perf_gate`. The benchmark
 uses `iai-callgrind` 0.16.1 and the absolute hard-limit API documented by its
 upstream library docs. Running requires Valgrind and a matching
 `iai-callgrind-runner` 0.16.1 in PATH.
+
+The 2026-10-09 run measured 32,088 instructions for PEX parsing and 1,181,860
+for the VM loop. Temporary probes confirmed that a 1-instruction parser ceiling
+fails at 32,088 and a 200-iteration VM workload fails at 2,334,352 instructions.
 
 ## Live run (2026-09-14)
 

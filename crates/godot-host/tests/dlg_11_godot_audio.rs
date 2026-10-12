@@ -19,6 +19,7 @@ const FIRST: &str = "Sound/Voice/Dialogue.esm/VoiceHuman/First_00000A00_3.fuz";
 const SECOND: &str = "Sound/Voice/Dialogue.esm/VoiceHuman/Second_00000B00_3.fuz";
 static GODOT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 const GODOT_TIMEOUT: Duration = Duration::from_secs(110);
+const GODOT_TEST_LIMIT: Duration = Duration::from_secs(120);
 
 struct BoundedOutput {
     output: Output,
@@ -237,7 +238,7 @@ fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>, headless: bool) {
     let script = project.join("dlg_11_audio_test.gd");
     let mut command = Command::new(godot);
     if headless {
-        command.args(["--headless", "--quit-after", "3600"]);
+        command.arg("--headless");
     }
     let child = command
         .args(["--path"])
@@ -320,6 +321,11 @@ fn tst_17_godot_script_quits_on_missing_fixture() {
         "{}",
         failure_message(&output)
     );
+}
+
+#[test]
+fn tst_17_godot_child_deadline_fits_the_120_second_check() {
+    assert!(GODOT_TIMEOUT < GODOT_TEST_LIMIT);
 }
 
 #[test]

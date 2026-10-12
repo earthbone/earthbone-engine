@@ -3006,13 +3006,14 @@ names a Godot 4.4 or newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
 The script rejects an extension missing the voice methods before playback.
-The script exits on each checked failure and success path. Both the generated
-WAV speaker check and the installed xWMA check run headless. The Rust
-test gives each Godot child 110 seconds, kills and reaps it at the deadline,
-and includes captured standard output and error in a failure message. A
-missing completion marker fails the test. The script watchdog exits after 90
-seconds, and the headless launch also quits after 3,600 frames as a secondary
-bound.
+The script exits on each checked failure and success path, stopping active
+voices and removing its capture effect before quitting. Both the generated WAV
+speaker check and the installed xWMA check run headless. The Rust test gives
+each Godot child 110 seconds, kills and reaps it at the deadline, and includes
+captured standard output and error in a failure message. A missing completion
+marker fails the test. The script watchdog exits after 90 seconds. The test
+thread checks that its child deadline stays below the 120 second acceptance
+limit.
 The script explicitly loads `soe.gdextension` when needed, so a fresh checkout
 does not require an editor import or a cached extension list. This uses
 `GDExtensionManager.load_extension` from the local

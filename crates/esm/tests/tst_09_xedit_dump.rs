@@ -6,9 +6,11 @@
 //! The input is tab-separated. Each record starts with
 //! `RECORD<TAB>signature<TAB>form-id`, followed by zero or more
 //! `FIELD<TAB>signature<TAB>form-id<TAB>subrecord<TAB>ordinal<TAB>hex-bytes`
-//! lines. Form IDs and payload bytes are hexadecimal. Ordinals start at zero
-//! for repeated subrecords. The normalization retains xEdit's record and
-//! subrecord identities and byte values while omitting its presentation tree.
+//! lines before the next record. Form IDs and payload bytes are hexadecimal.
+//! Ordinals start at zero for repeated subrecords within each physical record.
+//! Repeated records with the same FormID remain separate by their manifest
+//! order. The normalization retains xEdit's record and subrecord identities
+//! and byte values while omitting its presentation tree.
 //!
 //! Set `SOE_XEDIT_DUMP` to this dump and `SKYRIM_DATA` to the installed Data
 //! directory to run the live comparison.
@@ -20,7 +22,7 @@ use std::path::PathBuf;
 use soe_esm::{Plugin, Tag};
 
 type RecordKey = (String, u32);
-type FieldKey = (RecordKey, String, usize);
+type FieldKey = (RecordKey, usize, String, usize);
 
 const XEDIT_RECORD_SIGNATURES: [&str; 6] = ["QUST", "NPC_", "PACK", "CELL", "REFR", "LVLI"];
 
@@ -32,6 +34,7 @@ pub(crate) struct Dump {
 
 pub(crate) fn parse_dump(input: &str) -> Result<Dump, String> {
     let mut dump = Dump::default();
+    let mut current_record = None;
     for (line_index, line) in input.lines().enumerate() {
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -44,11 +47,9 @@ pub(crate) fn parse_dump(input: &str) -> Result<Dump, String> {
                 let form_id =
                     parse_hex_u32(form_id).map_err(|e| format!("line {line_number}: {e}"))?;
                 let key = (signature.to_string(), form_id);
-                if dump.records.insert(key.clone(), 1).is_some() {
-                    return Err(format!(
-                        "line {line_number}: duplicate record {signature}:{form_id:08X}"
-                    ));
-                }
+                let occurrence = dump.records.entry(key.clone()).or_default();
+                current_record = Some((key, *occurrence));
+                *occurrence += 1;
             }
             ["FIELD", signature, form_id, subrecord, ordinal, bytes] => {
                 validate_signature(signature).map_err(|e| format!("line {line_number}: {e}"))?;
@@ -61,14 +62,19 @@ pub(crate) fn parse_dump(input: &str) -> Result<Dump, String> {
                 let data =
                     parse_hex_bytes(bytes).map_err(|e| format!("line {line_number}: {e}"))?;
                 let record = (signature.to_string(), form_id);
-                if !dump.records.contains_key(&record) {
+                let Some((current_key, occurrence)) = current_record.as_ref() else {
                     return Err(format!(
                         "line {line_number}: field precedes record {signature}:{form_id:08X}"
+                    ));
+                };
+                if current_key != &record {
+                    return Err(format!(
+                        "line {line_number}: field does not follow record {signature}:{form_id:08X}"
                     ));
                 }
                 if dump
                     .fields
-                    .insert((record, subrecord.to_string(), ordinal), data)
+                    .insert((record, *occurrence, subrecord.to_string(), ordinal), data)
                     .is_some()
                 {
                     return Err(format!("line {line_number}: duplicate field {signature}:{form_id:08X}:{subrecord}[{ordinal}]"));
@@ -112,19 +118,26 @@ fn parse_hex_bytes(value: &str) -> Result<Vec<u8>, String> {
 
 pub(crate) fn from_plugin(plugin: &Plugin) -> Dump {
     let mut dump = Dump::default();
+    let mut occurrences = BTreeMap::<RecordKey, usize>::new();
     for record in &plugin.records {
         let signature = record.tag.to_string();
         if !XEDIT_RECORD_SIGNATURES.contains(&signature.as_str()) {
             continue;
         }
         let record_key = (signature, record.form_id);
+        let occurrence = *occurrences.entry(record_key.clone()).or_default();
+        *occurrences
+            .get_mut(&record_key)
+            .expect("entry was just inserted") += 1;
         *dump.records.entry(record_key.clone()).or_default() += 1;
         let mut ordinals = BTreeMap::<String, usize>::new();
         for field in &record.subrecords {
             let name = field.tag.to_string();
             let ordinal = ordinals.entry(name.clone()).or_default();
-            dump.fields
-                .insert((record_key.clone(), name, *ordinal), field.data.clone());
+            dump.fields.insert(
+                (record_key.clone(), occurrence, name, *ordinal),
+                field.data.clone(),
+            );
             *ordinal += 1;
         }
     }
@@ -147,6 +160,21 @@ pub(crate) fn differences(expected: &Dump, actual: &Dump) -> Vec<String> {
             report.push(format!("count {signature}: xEdit={left}, engine={right}"));
         }
     }
+    let record_keys: BTreeSet<_> = expected
+        .records
+        .keys()
+        .chain(actual.records.keys())
+        .collect();
+    for key in record_keys {
+        let left = expected.records.get(key).copied().unwrap_or_default();
+        let right = actual.records.get(key).copied().unwrap_or_default();
+        if left != right {
+            report.push(format!(
+                "record count {}:{:08X}: xEdit={left}, engine={right}",
+                key.0, key.1
+            ));
+        }
+    }
     let expected_keys: BTreeSet<_> = expected.records.keys().collect();
     let actual_keys: BTreeSet<_> = actual.records.keys().collect();
     for key in expected_keys.union(&actual_keys) {
@@ -167,8 +195,8 @@ pub(crate) fn differences(expected: &Dump, actual: &Dump) -> Vec<String> {
                 "field {}:{:08X}:{}[{}] differs, xEdit={} engine={}",
                 (key.0).0,
                 (key.0).1,
-                key.1,
                 key.2,
+                key.3,
                 hex(left),
                 hex(right),
             )),
@@ -176,15 +204,15 @@ pub(crate) fn differences(expected: &Dump, actual: &Dump) -> Vec<String> {
                 "missing engine field {}:{:08X}:{}[{}]",
                 (key.0).0,
                 (key.0).1,
-                key.1,
-                key.2
+                key.2,
+                key.3
             )),
             (None, Some(_)) => report.push(format!(
                 "extra engine field {}:{:08X}:{}[{}]",
                 (key.0).0,
                 (key.0).1,
-                key.1,
-                key.2
+                key.2,
+                key.3
             )),
             _ => {}
         }
@@ -232,6 +260,77 @@ fn tst_09_compares_only_record_types_selected_for_the_xedit_dump() {
         .entries
         .push(soe_esm::Entry::Record(unrelated_index));
     plugin.groups.extend([cell_group, unrelated_group]);
+
+    assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
+}
+
+#[test]
+fn tst_09_includes_each_record_type_selected_for_the_xedit_dump() {
+    let signatures = [
+        ("QUST", *b"QUST"),
+        ("NPC_", *b"NPC_"),
+        ("PACK", *b"PACK"),
+        ("CELL", *b"CELL"),
+        ("REFR", *b"REFR"),
+        ("LVLI", *b"LVLI"),
+    ];
+    let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+    for (index, (_, signature)) in signatures.iter().enumerate() {
+        plugin.push_record(soe_esm::Record::new(
+            soe_esm::Tag::new(signature),
+            u32::try_from(index + 1).unwrap(),
+        ));
+    }
+    plugin.push_record(soe_esm::Record::new(soe_esm::Tag::new(b"STAT"), 99));
+
+    let mut expected_text = String::new();
+    for (index, (signature, _)) in signatures.iter().enumerate() {
+        writeln!(&mut expected_text, "RECORD\t{signature}\t{:08X}", index + 1).unwrap();
+    }
+    let expected = parse_dump(&expected_text).unwrap();
+
+    assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
+}
+
+#[test]
+fn tst_09_counts_repeated_physical_records_with_the_same_form_id() {
+    let manifest = concat!("RECORD\tCELL\t00000001\n", "RECORD\tCELL\t00000001\n",);
+    let expected = parse_dump(manifest).unwrap();
+
+    let mut plugin = Plugin::new(soe_esm::FileHeader::default());
+    let first = plugin.push_record(soe_esm::Record::new(Tag::new(b"CELL"), 1));
+    let second = plugin.push_record(soe_esm::Record::new(Tag::new(b"CELL"), 1));
+    let mut group = soe_esm::Group::new(soe_esm::GroupKind::Top(Tag::new(b"CELL")));
+    group.entries.extend([
+        soe_esm::Entry::Record(first),
+        soe_esm::Entry::Record(second),
+    ]);
+    plugin.groups.push(group);
+
+    assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
+}
+
+#[test]
+fn tst_09_compares_fields_on_repeated_physical_records_with_the_same_form_id() {
+    let manifest = concat!(
+        "RECORD\tCELL\t00000001\n",
+        "FIELD\tCELL\t00000001\tEDID\t0\t41\n",
+        "RECORD\tCELL\t00000001\n",
+        "FIELD\tCELL\t00000001\tEDID\t0\t42\n",
+    );
+    let expected = parse_dump(manifest).unwrap();
+
+    let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+    let first = soe_esm::Record::new(soe_esm::Tag::new(b"CELL"), 1).sub(b"EDID", [0x41]);
+    let second = soe_esm::Record::new(soe_esm::Tag::new(b"CELL"), 1).sub(b"EDID", [0x42]);
+    let first = plugin.push_record(first);
+    let second = plugin.push_record(second);
+    let mut group = soe_esm::Group::new(soe_esm::GroupKind::Top(soe_esm::Tag::new(b"CELL")));
+    group.entries.extend([
+        soe_esm::Entry::Record(first),
+        soe_esm::Entry::Record(second),
+    ]);
+    plugin.groups.push(group);
 
     assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
 }

@@ -303,16 +303,20 @@ truncated entries, and all five installed masters.
 - `tests/tst_09_xedit_dump.rs`: compares an xEdit record/subrecord manifest with
   `Skyrim.esm` when both `SKYRIM_DATA` and `SOE_XEDIT_DUMP` are set. The manifest is
   tab-separated: `RECORD`, signature, and hexadecimal FormID start each record.
-  Following `FIELD` rows contain signature, FormID, subrecord signature, zero-based
-  repeated-field ordinal, and hexadecimal bytes. It compares the QUST, NPC_, PACK,
+  Following `FIELD` rows for that physical record contain signature, FormID, subrecord
+  signature, zero-based repeated-field ordinal, and hexadecimal bytes. A repeated
+  physical record with the same FormID starts a new field scope, and fields belong to
+  the most recent `RECORD` row. It compares the QUST, NPC_, PACK,
   CELL, REFR and LVLI signatures selected by the test plan, including their record
   identities and subrecord payloads. Engine record counts retain repeated physical
   records even when they share a FormID. Differences are printed by category and cause
-  the gated test to fail. Malformed rows also fail with their line number. xEdit's
-  `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) filters record signatures with
-  `DumpRecords` and emits a nested display tree, so the dump must be normalized into
-  this manifest before setting the environment variable. The test does not parse the
-  display tree directly.
+  the gated test to fail. Malformed rows also fail with their line number. The local
+  `TES5Edit/xDump.dpr` source filters signatures through `DumpRecords`, then writes
+  display names, interpreted values and summaries as a nested tree. It does not emit
+  raw subrecord bytes, so the xEdit output must be normalized into this manifest before
+  setting the environment variable. The manifest parser counts repeated physical record
+  rows that share a FormID. Parser tests check all six selected signatures and ignore an
+  unselected `STAT`.
 
 ## Scripted patch passes
 
@@ -347,6 +351,10 @@ The `performance` CI workflow runs it with
 uses `iai-callgrind` 0.16.1 and its absolute `EventKind::Ir` hard limit, as
 documented in the upstream iai-callgrind library docs. Running requires Valgrind
 and a matching `iai-callgrind-runner` 0.16.1 in PATH.
+
+The 2026-10-09 run measured 167,362 instructions for the 128-record plugin,
+below the 500,000 instruction ceiling. A temporary 1-instruction ceiling
+failed at 167,362 instructions.
 
 ```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" \
