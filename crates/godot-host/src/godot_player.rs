@@ -1683,7 +1683,8 @@ impl PlayerNode {
             return result;
         };
         let player = game.player();
-        for actor in game.world_mut().loaded_actors() {
+        let actors = game.world_mut().loaded_actors();
+        for actor in actors {
             if actor == player {
                 continue;
             }
@@ -1691,9 +1692,9 @@ impl PlayerNode {
                 continue;
             };
             let humanoid = rig.skeleton.as_deref().is_some_and(|path| {
-                path.replace('\\', "/")
-                    .to_ascii_lowercase()
-                    .ends_with("character assets/skeleton.hkx")
+                let path = path.replace('\\', "/").to_ascii_lowercase();
+                path.ends_with("character assets/skeleton.hkx")
+                    || path.ends_with("character assets/skeleton.nif")
             });
             if humanoid {
                 result.push(i64::from(actor.file));

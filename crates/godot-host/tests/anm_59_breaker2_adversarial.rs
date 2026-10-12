@@ -105,8 +105,9 @@ fn anm_59_breaker2_adversarial_installed_head_shapes_are_supported_and_aligned()
     );
     for (surface, shape) in shapes {
         assert!(
-            soe_godot_host::facial::expression_name_for_target(&shape.name).is_some(),
-            "unsupported expression target {} was exposed",
+            soe_godot_host::facial::expression_name_for_target(&shape.name).is_some()
+                || soe_godot_host::facial::is_mouth_target(&shape.name),
+            "unsupported facial target {} was exposed",
             shape.name
         );
         assert_eq!(shape.positions.len(), surface.arrays.positions.len());

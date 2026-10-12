@@ -360,6 +360,19 @@ fn edt_22_malformed_nam9_returns_record_error() {
 }
 
 #[test]
+fn edt_22_model_less_head_parts_preserve_their_extra_parts() {
+    let mut fixture = Fixture::new();
+    fixture
+        .record_mut(*b"HDPT", 0x800)
+        .subrecords
+        .retain(|sub| sub.tag != Tag(*b"MODL"));
+    let generated = generate_npc_head(&fixture.order(), &fixture.assets, NPC).unwrap();
+    assert_eq!(generated.len(), 1);
+    assert_eq!(generated[0].form, EXTRA);
+    assert_eq!(generated[0].mesh.positions, POINTS);
+}
+
+#[test]
 fn edt_22_bad_links_deleted_parts_and_cycles_return_errors() {
     for case in 0..5 {
         let mut fixture = Fixture::new();
@@ -478,7 +491,7 @@ fn edt_22_vanilla_npc_head_parts_use_declared_chargen_tri() {
     assets.add_loose_root(&directory).unwrap();
     let (npc, _) = order
         .winners_of(Tag(*b"NPC_"))
-        .find(|(_, record)| record.editor_id().as_deref() == Some("Lydia"))
+        .find(|(_, record)| record.editor_id().as_deref() == Some("HousecarlWhiterun"))
         .expect("vanilla Lydia NPC");
     let generated = generate_npc_head(&order, &assets, npc).unwrap();
     assert!(!generated.is_empty());

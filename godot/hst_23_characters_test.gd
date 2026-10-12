@@ -65,7 +65,7 @@ func _target_pixels(visible: Image, hidden: Image, center: Vector2) -> int:
                 count += 1
     return count
 
-func _capture_actor(identity: Dictionary, name: String, outside: bool) -> void:
+func _capture_actor(identity: Dictionary, name: String) -> void:
     await _ready_npcs()
     var visual := _visual(identity)
     _check(not visual.is_empty(), name + " is resident")
@@ -75,21 +75,17 @@ func _capture_actor(identity: Dictionary, name: String, outside: bool) -> void:
     if name == "hulda":
         _check(visual.hair_meshes > 0, "Hulda has an uploaded hair mesh")
     var center: Vector3 = visual.position + Vector3.UP * 0.85
-    if outside:
-        var feet: Vector3 = player.call("position")
-        camera.position = Vector3(feet.x, feet.z + 100.0, -feet.y) * METRES_PER_UNIT
-    else:
-        var space := player.get_world_3d().direct_space_state
-        var clearance := 0.0
-        for angle in range(12):
-            var direction := Vector3(sin(angle * TAU / 12.0), 0.15, cos(angle * TAU / 12.0)).normalized()
-            var candidate := center + direction * 2.0
-            var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(center, candidate))
-            var distance := 2.0 if hit.is_empty() else center.distance_to(hit.position) - 0.15
-            if distance > clearance:
-                clearance = distance
-                camera.position = center + direction * distance
-        _check(clearance > 1.0, "Hulda camera has a clear view")
+    var space := player.get_world_3d().direct_space_state
+    var clearance := 0.0
+    for angle in range(12):
+        var direction := Vector3(sin(angle * TAU / 12.0), 0.15, cos(angle * TAU / 12.0)).normalized()
+        var candidate := center + direction * 2.0
+        var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(center, candidate))
+        var distance := 2.0 if hit.is_empty() else center.distance_to(hit.position) - 0.15
+        if distance > clearance:
+            clearance = distance
+            camera.position = center + direction * distance
+    _check(clearance > 1.0, name + " camera has a clear view")
     camera.look_at(center)
     camera.current = true
     if name == "hulda":
@@ -129,7 +125,7 @@ func _start() -> void:
     camera = Camera3D.new()
     root.add_child(camera)
     camera.fov = 65.0
-    await _capture_actor(manifest.hulda, "hulda", false)
+    await _capture_actor(manifest.hulda, "hulda")
     var original := _visual(manifest.hulda)
     if original.is_empty():
         quit(1)
@@ -170,8 +166,13 @@ func _start() -> void:
     _check(player.call("activate_reference", manifest.exit.file, manifest.exit.object), "inn exit activates")
     player.call("advance", 0.0)
     await process_frame
+    for frame in 120:
+        if not player.call("door_fade_active"): break
+        player.call("advance", 1.0 / 60.0)
+        await process_frame
+    _check(not player.call("door_fade_active"), "door fade completes before the guard capture")
     _check(player.call("gameplay_cell") == manifest.exterior_cell, "stands in Whiterun outside the inn door")
-    await _capture_actor(manifest.guard, "whiterun_guard", true)
+    await _capture_actor(manifest.guard, "whiterun_guard")
     _check(_visual(manifest.hulda).is_empty(), "Hulda is removed after leaving the inn")
     print("RESULT: ", "PASS" if failures == 0 else "FAIL", " hst_23_characters")
     quit(0 if failures == 0 else 1)

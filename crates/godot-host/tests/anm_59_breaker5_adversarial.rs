@@ -47,7 +47,11 @@ fn anm_59_breaker5_ck_female_combat_expression_does_not_reach_head_weights() {
         return;
     };
     let mut vfs = Vfs::new();
-    for archive in ["Skyrim - Meshes0.bsa", "Skyrim - Meshes1.bsa"] {
+    for archive in [
+        "Skyrim - Meshes0.bsa",
+        "Skyrim - Meshes1.bsa",
+        "Skyrim - Animations.bsa",
+    ] {
         let path = data.join(archive);
         if !path.exists() {
             eprintln!(

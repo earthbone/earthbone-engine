@@ -4,7 +4,8 @@
 //!
 //! The morph path converts named TRI weights into host surface arrays. The tint
 //! path composes decoded masks into a BC1 sRGB DDS and provides its game asset path.
-//! Record layouts follow xEdit's NPC_ and HDPT definitions. Signed slider order
+//! Record layouts follow xEdit's NPC_ and HDPT definitions. UESP's HDPT layout
+//! permits model-less parts, whose extra parts still resolve. Signed slider order
 //! follows SKSE's FaceMorphList, with absolute weights as in RaceMenu's
 //! FaceMorphInterface::ApplyMorph. TiltedEvolution resolves head parts before
 //! looking up geometry. TRI decoding is shared with soe-nif's BodySlide reader.
@@ -143,6 +144,7 @@ fn chargen_path(record: &Record, form: GlobalFormId) -> Result<Option<String>, F
 /// vertices is morphed. Targets absent from a part's TRI leave that part alone.
 /// Shapes without a chargen TRI retain their authored geometry. Results follow
 /// PNAM order, then depth-first HNAM order, with shared extras emitted once.
+/// Parts without MODL contribute no shapes and still resolve their HNAM extras.
 ///
 /// # Errors
 /// Returns typed errors for absent, deleted or wrongly typed forms, malformed
@@ -189,18 +191,37 @@ pub fn generate_npc_head(
         if record.tag != Tag(*b"HDPT") || record.flags & soe_esm::plugin::flags::DELETED != 0 {
             return Err(invalid_record(form, "head part must be a live HDPT"));
         }
-        let model = record
-            .find(Tag(*b"MODL"))
-            .ok_or_else(|| invalid_record(form, "head part has no MODL"))?;
+        let tri_path = chargen_path(record, form)?;
+        pending.push((form, true));
+        for data in record
+            .all(Tag(*b"HNAM"))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+        {
+            let mut fields = Fields::new(record.tag, Tag(*b"HNAM"), data);
+            fields.exact(4)?;
+            pending.push((order.resolve(source.file, fields.u32()?), false));
+        }
+        let Some(model) = record.find(Tag(*b"MODL")) else {
+            continue;
+        };
         let model = soe_esm::cursor::zstring(model);
         if model.is_empty() {
             return Err(invalid_record(form, "empty head-part MODL"));
         }
-        let meshes = soe_nif::parse(&assets.read(&asset_path(&model))?)?.meshes()?;
+        let file = soe_nif::parse(&assets.read(&asset_path(&model))?)?;
+        let mut meshes = file.meshes()?;
+        for mesh in &mut meshes {
+            if let Some(soe_nif::blocks::Block::BsTriShape(shape)) = file.blocks.get(mesh.block) {
+                crate::actor::apply_dynamic_positions(shape, &mut mesh.positions)
+                    .map_err(|reason| invalid_record(form, reason))?;
+            }
+        }
         if meshes.is_empty() {
             return Err(invalid_record(form, "head-part NIF has no shapes"));
         }
-        let tri = chargen_path(record, form)?
+        let tri = tri_path
             .map(|path| {
                 Ok::<_, FaceGenError>(soe_nif::parse_head_tri(&assets.read(&asset_path(&path))?)?)
             })
@@ -222,7 +243,11 @@ pub fn generate_npc_head(
             if matching.len() != 1 {
                 return Err(invalid_record(
                     form,
-                    "chargen TRI must match exactly one NIF shape",
+                    format!(
+                        "chargen TRI must match exactly one NIF shape in {model}: {} TRI vertices, NIF shapes {:?}",
+                        tri.vertices().len(),
+                        meshes.iter().map(|mesh| (&mesh.name, mesh.positions.len())).collect::<Vec<_>>()
+                    ),
                 ));
             }
             matching.first().copied()
@@ -249,17 +274,6 @@ pub fn generate_npc_head(
                 mesh,
                 surface,
             });
-        }
-        pending.push((form, true));
-        for data in record
-            .all(Tag(*b"HNAM"))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-        {
-            let mut fields = Fields::new(record.tag, Tag(*b"HNAM"), data);
-            fields.exact(4)?;
-            pending.push((order.resolve(source.file, fields.u32()?), false));
         }
     }
     Ok(result)
