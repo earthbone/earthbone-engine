@@ -441,6 +441,16 @@ checks category/list/card order and bundled art, reopens the container,
 captures the viewport and quits. Captures and logs go under `target/ui-27`.
 No dependency, saved state or per-reference node path is added.
 
+## Player camera line of sight, AI-70
+
+Player-origin detection rays start at the live `Camera3D` position. Other
+actors continue to use their scaled eye positions. This makes player
+`GetLineOfSight` observations account for geometry between the rendered camera
+and the target. `PlayerNode::camera_line_of_sight_to_point` exposes the same
+physics ray for host integration checks. `godot/ai_70_camera_los_test.gd`
+places and removes a blocker in front of a live camera and checks both ray
+results against the Godot physics space.
+
 ## Default menu art, UI-24
 
 The UI-20 inventory, container, barter, favorites and magic menus share
@@ -3111,6 +3121,19 @@ This uses Godot's `RenderingServer` skeleton RIDs and
 actors explicitly bound through `PlayerNode.bind_actor_appearance`. Animated static references
 still use their NIF transform controller path, and general reference animation
 graphs are not instantiated by this bridge.
+
+### Magic condition animation signals, AI-60
+
+An appearance-bound `SkinnedActorNode` exposes `report_ward_state`,
+`report_dual_casting` and `report_shout_variation` for the host animation
+controller. The methods write to the actor's shared `World` fields used by
+conditions 602, 627 and 676. Ward states and shout variations accept `-1` to
+clear a report and 0 through 2 for defined values. Dual casting uses -1 for
+unknown, 0 for false and 1 for true. Invalid values and unbound rigs return
+false. Removing the rig clears all three reports before
+the animation graph unload notification. The vanilla master behavior graph
+does not expose these states as graph variables or authored graph events, so
+the host controller must supply them from its animation/process state.
 
 Three pieces, none of which touch Godot except the last:
 

@@ -317,6 +317,8 @@ mod ai_60_adversarial;
 #[path = "ai_60_magic_conditions.rs"]
 mod ai_60_magic_conditions;
 
+#[path = "ai_60_breaker2_adversarial.rs"]
+mod ai_60_breaker2_adversarial;
 #[path = "ai_60_breaker_adversarial.rs"]
 mod ai_60_breaker_adversarial;
 #[path = "ai_61_adversarial.rs"]
@@ -377,6 +379,10 @@ mod ai_69_adversarial;
 mod ai_69_quest_conditions;
 #[path = "ai_70_adversarial.rs"]
 mod ai_70_adversarial;
+#[path = "ai_70_breaker2_adversarial.rs"]
+mod ai_70_breaker2_adversarial;
+#[path = "ai_70_breaker3_adversarial.rs"]
+mod ai_70_breaker3_adversarial;
 #[path = "ai_70_breaker_adversarial.rs"]
 mod ai_70_breaker_adversarial;
 #[path = "ai_70_reference_state_conditions.rs"]
