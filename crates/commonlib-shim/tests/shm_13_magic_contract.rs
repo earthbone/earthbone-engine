@@ -66,6 +66,7 @@ int main() {
 
     System system;
     assert(system.cannot_cast({1}, {2}) == RE::CannotCastReason::Ok);
+    assert(static_cast<std::uint8_t>(RE::CannotCastReason::CustomReasonNoStart) == 100);
     system.reason = RE::CannotCastReason::Magicka;
     assert(system.cannot_cast({1}, {2}) == RE::CannotCastReason::Magicka);
 

@@ -343,7 +343,9 @@ runtime override and winning GMST path, placed HAZD reference identity and
 placement, the actor's combat target and stagger window, and HitData from an
 accepted melee result. The adapter owns no parallel state. Hazard ticking,
 head tracking, animation sequence state and executable hit dispatch remain
-unsupported hooks with named reasons. The C++ contract has no Rust ABI bridge.
+unsupported hooks with named reasons. The SHM-11 C++ fixture sends contract calls
+to a Rust test host that reads this live adapter and returns its results. The
+request/reply transport is test-only and does not define a plugin ABI.
 HST-18 adds transient crosshair and grabbed-reference values to `World`.
 `Game.GetCurrentCrosshairRef` and `Game.GetPlayerGrabbedRef` create the
 corresponding Papyrus form object when a host value is present, and return
@@ -1852,12 +1854,15 @@ and associated keywords. `World::commonlib_reference` builds a reference through
 world path, then exposes its current base, transform, cell and enabled/deleted flags through
 the MIT `TESObjectREFR` contract. Its nullable pointer stores the reference's runtime FormID.
 File views retain the load-order filename and regular or light slot.
-`shm_16_populated_world_views_reach_cpp_mit_contracts` samples non-empty winning
-records, regular and light files, reference transform and base, and drawn actor
-state from these adapters, then passes those values to a compiled C++ consumer
-that exercises the MIT contracts. Unsupported `SetBaseObject` and trampoline
-hooks are checked in the C++ fixture. This checks populated cross-language
-contract values without providing a C++ to Rust ABI.
+`shm_16_cpp_calls_populated_world_through_mit_contracts` compiles a C++ consumer
+whose `TESDataHandler`, `TESObjectREFR` and actor calls request each value from
+Rust over a test pipe. Rust answers by calling the live adapters above. The
+fixture checks winning-form identity and signature, regular and light file
+indices, reference identity and transform, pointer nullability, drawn weapon
+state, and the rejected `SetBaseObject` call with its unchanged base. The C++
+consumer also checks the six `WEAPON_STATE` numeric values and the unsupported
+trampoline diagnostic. This test transport does not provide a production C++
+to Rust ABI.
 
 `World::commonlib_actor` exposes the already-instantiated actor through the same MIT trait.
 Actor-value reads and writes use the shared actor values, and weapon state maps the actor's
@@ -9171,6 +9176,10 @@ use the existing reference flags. `ShowAllHidden`, unsupported cast checks
 and non-default equip parameters return explicit unsupported-state errors.
 Supported equipment requests use `World::equip_item`, and dispel requests use
 the shared active-effect removal path.
+SHM-13's compiled C++ fixture dispatches these operations through the MIT
+provider into a live synthetic `World`. It checks favorite and marker writes,
+cast results, active-effect queries, dispel, successful default equipment, and
+rejection of unsupported marker flags and equip parameters.
 
 ## Deterministic tick work, PRF-14
 

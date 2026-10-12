@@ -138,6 +138,7 @@ pub enum CannotCastReason {
     CastWhileShouting = 6,
     ShoutWhileCasting = 7,
     ShoutWhileRecovering = 8,
+    CustomReasonNoStart = 100,
 }
 
 /// Access to favorites, casting checks and active magic effects in live state.

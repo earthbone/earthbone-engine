@@ -79,6 +79,10 @@ mod scr_47_breaker_adversarial_2;
 mod shm_11_breaker_2_adversarial;
 #[path = "shm_12_breaker_adversarial.rs"]
 mod shm_12_breaker_adversarial;
+#[path = "shm_13_breaker_2_adversarial.rs"]
+mod shm_13_breaker_2_adversarial;
+#[path = "shm_13_breaker_3_adversarial.rs"]
+mod shm_13_breaker_3_adversarial;
 #[path = "shm_13_breaker_adversarial.rs"]
 mod shm_13_breaker_adversarial;
 #[path = "shm_14_breaker_2_adversarial.rs"]
@@ -98,6 +102,8 @@ mod shm_22_breaker_adversarial;
 
 #[path = "shm_13_adversarial.rs"]
 mod shm_13_adversarial;
+#[path = "shm_13_cpp_live_magic.rs"]
+mod shm_13_cpp_live_magic;
 
 #[path = "ply_06_ai_crafting.rs"]
 mod ply_06_ai_crafting;
@@ -1798,6 +1804,12 @@ mod shm_10_breaker_adversarial;
 mod shm_10_north_rotation;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
+#[path = "shm_11_breaker_3_adversarial.rs"]
+mod shm_11_breaker_3_adversarial;
+#[path = "shm_11_breaker_4_adversarial.rs"]
+mod shm_11_breaker_4_adversarial;
+#[path = "shm_11_cpp_live_world.rs"]
+mod shm_11_cpp_live_world;
 
 #[path = "prf_11.rs"]
 mod prf_11;
@@ -1841,8 +1853,14 @@ mod shm_15_cpp_live_world;
 mod shm_15_world_state;
 #[path = "shm_16_adversarial.rs"]
 mod shm_16_adversarial;
+#[path = "shm_16_breaker_3_adversarial.rs"]
+mod shm_16_breaker_3_adversarial;
+#[path = "shm_16_breaker_4_adversarial.rs"]
+mod shm_16_breaker_4_adversarial;
 #[path = "shm_16_breaker_adversarial.rs"]
 mod shm_16_breaker_adversarial;
+#[path = "shm_16_cpp_live_world.rs"]
+mod shm_16_cpp_live_world;
 #[path = "shm_17_adversarial.rs"]
 mod shm_17_adversarial;
 #[path = "shm_17_condition_bridge.rs"]
