@@ -214,7 +214,10 @@ writes `soe-profile.json` and `soe-entities.json` into `SOE_PROFILE_DIR`, or the
 current directory when unset. Write failures are reported. This process-wide
 capture is independent of world state and adds no saved sections. The
 `prf_13_` integration tests exercise two actors, two scripts, one quest, all
-five predicate categories and installed master record ownership.
+five predicate categories and installed master record ownership. The synthetic
+check verifies nonzero timing, defining ownership and plugin call and work sums.
+Their isolated child runs select one test and inherit the run's test thread
+count.
 
 ## PRF-24 observation counters
 
@@ -255,6 +258,21 @@ The fixed-slot timing model is documented in [trace.md](trace.md).
 `prf_12_frame` tests check tick accounting, paused idle systems and host/save
 snapshots. Its optimized 1,000-actor calibration uses the public record
 builders and travel/sandbox fixture from `crates/bench/src/stress/fixtures.rs`.
+
+## Orbit operation comparison, PRF-14
+
+The AI-25 orbit chord and arc predicates share private sampling functions
+with a locator callback. Runtime calls use `NavGraph::locate`. The
+`prf_14_pre_prf_11_orbit_exceeds_the_same_triangle_budget_by_orders_of_magnitude`
+test runs those predicates with indexed lookup and the exhaustive locator
+from repository revision `3cfb4c4e1^`. Both use an 8,192-triangle square,
+40 to 80 unit radius bounds, 25 unit height, the fixture's 110 unit per second
+fallback walking speed and 0.1 second ticks.
+Three frames compare every query point and selected triangle. Indexed work
+must fit the existing 8,000 triangle limit. Exhaustive work must fail that
+same limit by at least 100 times and perform at least 100 times the indexed
+triangle tests. The full Game fixture separately gates 60 ticks at 0.1 seconds.
+The comparison adds no saved state or runtime lookup mode.
 
 ## Initial inventory list selection, UI-25
 
@@ -8984,6 +9002,11 @@ caches and are not serialized. Existing actor destinations, paths and package
 state keep their saved layout. The design follows the local
 `recastnavigation/Detour/Source/DetourNavMeshQuery.cpp` sliced-query contract,
 implemented on the engine's authored NAVM graph through `soe-navmesh`.
+
+`prf_11_pending_actor_retains_package_step_and_resumes_movement` runs the full
+driver while a search spans multiple ticks. It checks that a pending actor's
+state and position stay unchanged even after periodic evaluation becomes due,
+then checks that movement resumes when the path is ready.
 
 Cell reference lookup reuses the load order's cell index already prepared by
 cell loading, filters to winning REFR and ACHR identities, and returns them

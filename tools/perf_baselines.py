@@ -92,6 +92,33 @@ def evaluate(current, baseline, machine, include_installed=False, threshold=1.15
     return errors
 
 
+def validate_baseline(baseline):
+    if not isinstance(baseline, dict):
+        raise ValueError("baseline must be a JSON object")
+    if type(baseline.get("format")) is not int or baseline["format"] != 1:
+        raise ValueError("baseline format must be 1")
+    if baseline.get("data_mode") not in ("synthetic", "installed"):
+        raise ValueError("baseline data_mode must be synthetic or installed")
+    machine = baseline.get("machine")
+    if not isinstance(machine, dict) or any(
+        not isinstance(machine.get(field), str) or not machine[field]
+        for field in ("architecture", "cpu", "host")
+    ):
+        raise ValueError("baseline machine must contain architecture, cpu and host strings")
+    operations = baseline.get("operations")
+    if not isinstance(operations, dict):
+        raise ValueError("baseline operations must be a JSON object")
+    if any(
+        not isinstance(name, str)
+        or isinstance(value, bool)
+        or not isinstance(value, int)
+        or value <= 0
+        for name, value in operations.items()
+    ):
+        raise ValueError("baseline operations must contain positive integer medians")
+    return baseline
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=("check", "refresh"))
@@ -118,6 +145,11 @@ def main():
             print(f"stored {len(current)} operation medians in {args.baseline}")
             return 0
         baseline = json.loads(args.baseline.read_text())
+        validate_baseline(baseline)
+        expected_mode = "installed" if include_installed else "synthetic"
+        if baseline["data_mode"] != expected_mode:
+            print("baseline data mode does not match this run", file=sys.stderr)
+            return 1
         errors = evaluate(current, baseline, machine, include_installed)
         if errors:
             print("\n".join(errors), file=sys.stderr)

@@ -83,32 +83,6 @@ impl Vm {
             self.game_hours += game_hours.max(0.0);
         }
         for t in &mut self.threads {
-            if soe_trace::Profile::enabled()
-                && !matches!(t.state, ThreadState::Runnable | ThreadState::Done)
-            {
-                if let Some(frame) = t.frames.last() {
-                    soe_trace::Profile::wait(
-                        || {
-                            let script = frame
-                                .script
-                                .as_ref()
-                                .map_or("<native>", |script| script.name.as_str());
-                            let plugin = self
-                                .script_plugins
-                                .get(&script.to_ascii_lowercase())
-                                .map_or("<unknown>", String::as_str);
-                            soe_trace::Entity::new(
-                                "script",
-                                format!("{script}.{}", frame.function.name),
-                                plugin,
-                                "latent_wait",
-                            )
-                        },
-                        seconds,
-                        0,
-                    );
-                }
-            }
             let ready = match t.state {
                 ThreadState::Sleeping(until) => until <= self.time,
                 ThreadState::SleepingMenu(until) => until <= self.menu_time,

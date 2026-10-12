@@ -1323,6 +1323,10 @@ compare the nine synthetic operation medians on the same machine. When
 `SKYRIM_DATA` is set, its two installed asset medians are stored and compared
 as well. It exits nonzero when an operation is more than 15 percent slower or a
 measurement is missing, or when the baseline belongs to another CPU identity.
+The checker validates the baseline envelope and positive integer medians before
+comparison, and rejects a baseline whose synthetic or installed data mode does
+not match the current run. Invalid baseline structure returns a diagnostic
+without a traceback.
 After reviewing a measured change, run `tools/perf.sh refresh` to replace the
 medians for the current CPU. A refresh writes the current host and CPU
 identity into the baseline. Divan 0.1.21 is licensed MIT or Apache-2.0.
@@ -1940,9 +1944,16 @@ limits are fixed before running the scenarios:
 
 The orbit fixture keeps AI-25's authored bounds, height, arc samples and
 movement. Triangle candidates use the graph's bounds tree at triangle level.
-A full scan of its 8,192 triangles for every orbit sample exceeds its
-triangle limit by hundreds of times. The gate checks work rather than CPU
-speed. A* remains synchronous, with no scheduling or path-budget change.
+A companion test executes the production chord and arc predicates with the
+exhaustive locator from `3cfb4c4e1^`. It compares every selected triangle with
+indexed lookup across three frames and requires exhaustive work to exceed
+the same 8,000 triangle limit by at least 100 times. The gate checks work
+rather than CPU speed. Orbit sampling does not change path scheduling or
+per-request budgets.
+
+The three-frame comparison prints both peak triangle counts and compares
+every selected triangle. The installed five-master NAVM case and the
+60-tick Game orbit case assert their declared work limits.
 
 The stress CLI prints `work_peak_<operation> <count> count` after each
 measurement window. These are per-counter maxima across measured ticks,
@@ -1954,6 +1965,85 @@ behavior are in [trace.md](trace.md). The fixed tests are in
 The Godot correctness test loads the Bannered Mare, checks actual RID creation
 counts against streamed instances, and verifies a new empty window is zero.
 It does not measure renderer throughput.
+
+### PRF-14 light-mode validation, 2026-10-11
+
+The prior draft commits `038118263` and `27f855102` are retained on
+`draft8/PRF-14`. This follow-up is uncommitted. Its legacy orbit comparison
+uses the one-mesh exhaustive barycentric scan from
+`3cfb4c4e1^:crates/navmesh/src/graph.rs`. The runtime chord and arc predicates
+supply the same queries to both locators. The local
+`godotwind/docs/systems/benchmarking.md` supplied the fixed-workload and
+separate-setup guidance. The read-first `soe-perf` skill is in the reference
+project at `.claude/skills/soe-perf/SKILL.md`, outside this checkout.
+
+The host wrapper explicitly forwards its gated `SKYRIM_DATA` value to both
+Godot launches and inherits Cargo target and build settings. It retains
+process output and checks exit status, pass markers and counter reports.
+
+Formatting and `git diff --check` passed. Six PRF-14 trace tests passed:
+all-operation nested limits, dropped-window isolation, reset, worker capture,
+zero-bound rejection and unwind restoration. The four inherited PRF-12
+suspension and rolling-history tests passed. All-target Clippy with warnings
+denied passed for `soe-trace`, `soe-game` and `soe-navmesh`.
+
+The all-target `soe-godot-host` Clippy attempt did not finish. Its dependency
+checking encountered a suspended Cargo process, and retries were interrupted
+with exit status 130. No host test, Godot process or installed-data scenario
+was launched. Run the host type-check separately:
+
+```text
+rtk proxy cargo clippy -p soe-godot-host --all-targets -- -D warnings
+```
+
+Game and navmesh debug compilation was attempted with installed-data
+variables unset, but compiler processes remained suspended before the tests
+ran. Their invocations were interrupted with exit status 130. These cases
+are untested here:
+
+- `prf_14_pre_prf_11_orbit_exceeds_the_same_triangle_budget_by_orders_of_magnitude`.
+- `prf_14_orbit_on_vanilla_sized_mesh_bounds_triangle_work_per_frame`.
+- `prf_14_quest_burst_bounds_fragments_natives_conditions_and_record_work`.
+- `prf_14_failed_conditions_are_counted_and_work_does_not_enter_saves`.
+- `prf_14_triangle_index_matches_exhaustive_edges_floors_and_failed_queries`.
+- `prf_14_path_counts_expanded_nodes_and_rejects_invalid_requests_before_search`.
+- `prf_14_rejected_location_attempts_count_calls_and_only_test_candidates`.
+- `prf_14_path_counts_include_expansions_but_not_component_short_circuits`.
+- `prf_14_overlapping_equal_height_meshes_choose_lowest_node_and_count_candidates`.
+
+Run each target separately without installed data:
+
+```text
+rtk proxy env -u SKYRIM_DATA -u SOE_GODOT_BIN -u SOE_TEST_SAVE -u SOE_TEST_SAVES -u SOE_TEST_SKYUI -u SOE_TEST_NORDIC cargo test -p soe-game --lib prf_14_ -- --nocapture
+rtk proxy env -u SKYRIM_DATA -u SOE_GODOT_BIN -u SOE_TEST_SAVE -u SOE_TEST_SAVES -u SOE_TEST_SKYUI -u SOE_TEST_NORDIC cargo test -p soe-game --test it prf_14_ -- --nocapture
+rtk proxy env -u SKYRIM_DATA cargo test -p soe-navmesh --lib prf_14_
+rtk proxy env -u SKYRIM_DATA cargo test -p soe-navmesh --test prf_14_adversarial prf_14_
+rtk proxy env -u SKYRIM_DATA cargo test -p soe-navmesh --test prf_14_breaker_adversarial prf_14_
+```
+
+Untested under light mode:
+
+- `prf_14_vanilla_bannered_mare_navmesh_queries_have_bounded_triangle_work`.
+- `prf_14_godot_counts_live_render_instances_and_resets_work_windows`.
+- `prf_14_player_operation_counts_stay_within_fixed_frame_limits`.
+- `prf_14_thousand_actor_stress_world_has_bounded_work_each_tick`.
+- `prf_14_mixed_stress_counts_scripts_and_navigation_without_timing`.
+- `prf_14_thousand_actor_stress_scenario_stays_within_fixed_work_bounds`.
+- `prf_14_mixed_stress_scenario_counts_scripts_and_path_search`.
+
+The lead can run these commands after light mode ends. Keep
+`CARGO_TARGET_DIR` and the build flags supplied by the run. The host test
+also builds and imports before launching its scripts.
+
+```text
+rtk cargo build -p soe-godot-host --release
+rtk proxy env SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" "$SOE_GODOT_BIN" --headless --path godot --import
+rtk proxy env SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" SOE_GODOT_BIN="$SOE_GODOT_BIN" cargo test -p soe-godot-host --test prf_14_work prf_14_ -- --nocapture
+rtk proxy env SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" SOE_GODOT_BIN="$SOE_GODOT_BIN" cargo test -p soe-godot-host --test prf_14_adversarial prf_14_ -- --nocapture
+rtk proxy env SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" cargo test -p soe-game --test it prf_14_vanilla_bannered_mare -- --nocapture
+rtk proxy env -u SKYRIM_DATA cargo test -p soe-bench --bin soe-bench prf_14_ -- --nocapture
+rtk proxy env -u SKYRIM_DATA cargo test -p soe-bench --test prf_14_adversarial prf_14_ -- --nocapture
+```
 
 ### PRF-11 after triangle indexing and sliced A*
 

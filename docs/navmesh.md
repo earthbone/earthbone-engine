@@ -402,6 +402,9 @@ extension of the existing tree. Detour uses quantized polygon bounds and its
 own mesh representation, so this graph retains floating triangle bounds and
 its native NAVM representation. The `prf_14_` tests compare edge and stacked
 floor queries with exhaustive selection and assert operation limits.
+`prf_14_overlapping_equal_height_meshes_choose_lowest_node_and_count_candidates`
+also checks repeated equal-height queries across meshes and an off-mesh miss.
+The two matching candidates each charge a triangle test on each valid query.
 
 ## Frame-sliced queries, PRF-11
 

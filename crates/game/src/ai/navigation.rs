@@ -988,7 +988,7 @@ mod tests {
 
     #[test]
     fn prf_11_pending_actor_retains_package_step_and_resumes_movement() {
-        use crate::ai::{step, AiState, Procedure};
+        use crate::ai::{step, tick, AiState, Procedure};
         use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 
         let mut plugin = Plugin::new(FileHeader::default());
@@ -1006,6 +1006,7 @@ mod tests {
             procedure: Procedure::Travel,
             destination: Some([19990.0, 25.0, 0.0]),
             speed: 100.0,
+            last_evaluation: 0.5,
             ..AiState::default()
         };
         world.actor(id).unwrap().ai = before.clone();
@@ -1016,17 +1017,21 @@ mod tests {
         assert_eq!(world.reference(id).unwrap().position, [10.0, 25.0, 0.0]);
         let mut frames = 0;
         while world.ai.planner.waiting(id) {
-            world.ai.planner.begin_frame_attributed(
-                world.ai.nav.as_ref().unwrap(),
-                &world.ai.nav_cells,
-                |id| soe_trace::Entity::new("actor", id.to_string(), "Prf11.esm", "planning"),
-            );
+            world.clock.real_seconds = 2.0 + f64::from(frames) * 0.1;
+            tick(&mut world, 0.1, &mut alloc);
             frames += 1;
             assert!(world.ai.planner.last_work <= REQUEST_NODE_BUDGET);
-            assert_eq!(world.actor(id).unwrap().ai, before);
+            if world.ai.planner.waiting(id) {
+                assert_eq!(world.actor(id).unwrap().ai, before);
+                assert_eq!(world.reference(id).unwrap().position, [10.0, 25.0, 0.0]);
+                assert_eq!(
+                    world.ai.evaluations, 0,
+                    "pending search deferred evaluation"
+                );
+            }
             assert!(frames < 100);
         }
-        step(&mut world, id, 0.1, &mut alloc);
+        assert!(frames > 1, "request must span multiple driver ticks");
         assert!(world.reference(id).unwrap().position[0] > 10.0);
         assert_eq!(world.actor(id).unwrap().ai.procedure, Procedure::Travel);
     }

@@ -139,14 +139,18 @@ func prf_13_f4_input_presentation_and_session_export() -> void:
 	check(summary is Dictionary and summary.has("traceEvents"), "invalid entity summary")
 	var audio_found := false
 	var render_found := built == 0
+	var plugin_metrics_found := false
 	if summary is Dictionary:
 		for event: Dictionary in summary.traceEvents:
 			if event.cat == "output" and event.name == "audio_voices.started":
 				audio_found = event.args.calls == 1 and event.args.total_ns > 0
 			if event.cat == "output" and event.name == "render_instances.submitted":
 				render_found = event.args.calls >= built and event.args.render_instances == event.args.calls and event.args.total_ns > 0
+			if event.cat == "plugin" and event.name == "<host>":
+				plugin_metrics_found = event.args.has("total_ns") and event.args.has("self_ns") and event.args.has("wait_ns") and event.args.has("waits") and event.args.calls > 0
 	check(audio_found, "voice start attribution absent")
 	check(render_found, "render submission attribution absent")
+	check(plugin_metrics_found, "plugin running and wait summary metrics absent")
 	var found := false
 	if trace is Dictionary:
 		for event: Dictionary in trace.traceEvents:

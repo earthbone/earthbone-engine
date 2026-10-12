@@ -408,7 +408,7 @@ impl Profile {
             if !totals.is_empty() || !out.ends_with('[') {
                 out.push(',');
             }
-            let _ = write!(out, "{{\"name\":\"{}\",\"cat\":\"plugin\",\"ph\":\"C\",\"ts\":0,\"pid\":1,\"tid\":1,\"args\":{{\"calls\":{},\"self_ns\":{}", json_escape(&plugin), stats.calls, stats.self_ns);
+            let _ = write!(out, "{{\"name\":\"{}\",\"cat\":\"plugin\",\"ph\":\"C\",\"ts\":0,\"pid\":1,\"tid\":1,\"args\":{{\"calls\":{},\"total_ns\":{},\"self_ns\":{},\"wait_ns\":{},\"waits\":{}", json_escape(&plugin), stats.calls, stats.total_ns, stats.self_ns, stats.wait_ns, stats.waits);
             for op in Operation::ALL {
                 let _ = write!(out, ",\"{}\":{}", op.name(), stats.work.get(op));
             }

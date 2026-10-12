@@ -701,6 +701,12 @@ Successful state loading resets diagnostic durations, backlog ages and event
 meters. Live restored sleepers remain visible. These diagnostics are absent
 from saves and hashes.
 
+PRF-13 function and plugin attribution uses the same elapsed wait calculation.
+Real seconds are clipped when a gameplay, menu or game-hour deadline falls
+inside a clock advance. Paused gameplay waits still report real time spent
+suspended in menus. Native latent waits report every advance until resolution.
+Clock advances add duration without increasing the wait count.
+
 The meanings follow local CK `Utility_Script.wikitext` and
 `OnUpdate_-_Form.wikitext`. The existing scheduler owns execution, so external
 profilers cannot supply these live queue counts. The `prf_19_` tests cover
