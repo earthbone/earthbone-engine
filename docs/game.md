@@ -4444,7 +4444,7 @@ integrated branches: 1, 14, 18, 46, 47, 53, 56, 58, 59, 67, 69, 70, 71, 72,
 435, 444, 445, 446, 447, 448, 470, 491, 494, 500, 501, 528, 543, 550, 560,
 561, 562, 563, 565, 566, 567, 568, 569, 570, 591, 592, 598, 600, 601, 603,
 604, 605, 606, 610, 625, 626, 629, 630, 635, 636, 639, 640, 651, 655, 659,
-660, 675, 683, 691, 692, 693, 696, 698, 699, 704, 706, 711, 713, 718, 721,
+660, 675, 683, 691, 692, 693, 696, 698, 699, 704, 706, 711, 713, 714, 718, 721,
 723, 724, 730, 731, 734 and 735. This is a bounded set, not the full CTDA
 contract. Evaluation supports ordered AND/OR groups, numeric or global
 comparisons, explicit references and caller-supplied quest aliases.
@@ -4459,7 +4459,7 @@ The integrated condition evaluator implements these CTDA function IDs across its
 561, 562, 563, 565, 566, 567, 568, 569, 570, 591, 592, 597, 598, 600
 601, 603, 604, 605, 606, 610, 624, 625, 626, 629, 630, 635, 636, 639
 640, 650, 651, 655, 659, 660, 675, 680, 682, 683, 691, 692, 693, 696
-698, 699, 700, 704, 706, 711, 713, 718, 720, 721, 722, 723, 724, 725
+698, 699, 700, 704, 706, 711, 713, 714, 718, 720, 721, 722, 723, 724, 725
 726, 730, 731, 734, 735. This is a bounded set, not the full CTDA contract. Evaluation supports ordered AND/OR groups, numeric or global comparisons, explicit references and caller-supplied quest aliases. Reserved PlayerRef resolves to the runtime player even without a placed record.
 
 GetScale reads reference scale with the race and NPC height
@@ -4471,7 +4471,7 @@ draws an integer from 0 to 99 from the world's saved random stream. Functions
 CK corpus does not define their runtime behavior. Functions 101
 (`IsWeaponMagicOut`) and 552 (`GetSpellUsageNum`) return typed
 contract diagnostics because local xEdit and CK sources name their parameters
-but do not define a usable runtime result. Functions 644, 684, 714 and 730
+but do not define a usable runtime result. Functions 644, 684 and 730
 report unavailable runtime state. Functions 683, 698 and 704 read current
 actor package and flying state. Reserved PlayerRef resolves to the runtime
 player even without a placed record.
@@ -4498,8 +4498,11 @@ or light-level context.
 `GetPathingCurrentSpeed` reads the actor package speed while waypoints remain
 and the actor has not arrived. `IsPathing` uses that same pending waypoint
 state. `IsAllowedToFly` reads the actor's `SetAllowFlying` flag. `IsBeingRidden`
-reads the mount actor flag. `World::set_mount_rider` updates that flag together
-with the rider's `riding_mount` flag when gameplay reports a mount or dismount.
+checks the actor race for the `ActorTypeHorse` keyword before reading its
+mounted state. `World::set_mount_rider` updates that flag together
+with the rider's `riding_mount` flag when a mounted Patrol package selects its
+owned horse, when that horse becomes unavailable, or when the package is
+replaced. The mounted Patrol path also moves the horse with the rider.
 `IsInFurnitureState`, `GetPathingCurrentSpeedAngle` and `IsOnFlyingMount` return
 an unavailable-state diagnostic. xEdit supplies their function and parameter
 definitions, but the engine has no furniture animation, axis-angle or flying
@@ -4726,10 +4729,11 @@ the UESP Skyrim Smithing crafting section.
 For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
 `IsBeingRidden_-_Actor.wikitext`, which defines it as a zero-parameter actor
-query. `IsBeingRidden` (714) reads `ActorState::being_ridden`. The named
-`AI-67` actor save section retains that flag. Gameplay reports mount and
-dismount transitions through `World::set_mount_rider`, which updates the rider
-and mount flags together. GetGraphVariableInt (675) reads
+query. `IsBeingRidden` (714) requires the actor race's `ActorTypeHorse` keyword
+and then reads `ActorState::being_ridden`. The named `AI-67` actor save section
+retains that flag. Mounted Patrol gameplay reports mount and dismount
+transitions through `World::set_mount_rider`, which updates the rider and
+mount flags together. GetGraphVariableInt (675) reads
 a named integer in the actor's live graph state, case-insensitively, and
 reports missing names and non-actor subjects. Its integer state is transient
 host input and is not saved.

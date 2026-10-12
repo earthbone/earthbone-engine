@@ -348,6 +348,8 @@ mod ai_67_breaker2_adversarial;
 mod ai_67_breaker3_adversarial;
 #[path = "ai_67_breaker4_adversarial.rs"]
 mod ai_67_breaker4_adversarial;
+#[path = "ai_67_breaker5_adversarial.rs"]
+mod ai_67_breaker5_adversarial;
 #[path = "ai_67_breaker_adversarial.rs"]
 mod ai_67_breaker_adversarial;
 #[path = "ai_67_motion_conditions.rs"]
