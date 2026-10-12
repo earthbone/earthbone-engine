@@ -386,6 +386,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
     Section { name: "AI-64", write: write_movement_flags, read: read_movement_flags },
     Section { name: "AI-15", write: write_package_tree, read: read_package_tree },
+    Section { name: "AI-14", write: write_simultaneous_children, read: read_simultaneous_children },
     Section { name: "SHM-13", write: write_favorites, read: read_favorites },
     Section { name: "PLY-06", write: super::package_overrides::write_overrides, read: super::package_overrides::read_overrides },
     Section { name: "PRF-36", write: crate::ai::process::write_clock, read: crate::ai::process::read_clock },
@@ -1161,5 +1162,27 @@ fn read_package_tree(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     actor.ai.tree = crate::ai::read_tree_state(reader)?;
+    Ok(())
+}
+
+fn write_simultaneous_children(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    crate::ai::write_simultaneous_state(writer, actor.ai.tree.as_ref());
+}
+
+fn read_simultaneous_children(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let state = crate::ai::read_simultaneous_state(reader)?;
+    if let Some(simultaneous) = state {
+        let tree = actor
+            .ai
+            .tree
+            .as_mut()
+            .ok_or_else(|| VmError::State("AI-14 missing package tree".into()))?;
+        tree.simultaneous = Some(simultaneous);
+        actor.ai.wait_until = tree.simultaneous.as_ref().and_then(|state| state.deadline);
+    }
     Ok(())
 }

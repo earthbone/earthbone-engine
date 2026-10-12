@@ -102,6 +102,7 @@ fn set_current(game: &mut Game) {
         finished: false,
         stacked: Vec::new(),
         stacked_completed: Vec::new(),
+        simultaneous: None,
     });
 }
 

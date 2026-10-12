@@ -3442,6 +3442,7 @@ fn step_procedure(
     if ai.arrived && ai.procedure == Procedure::Escort && escort_target_arrived(world, actor, &ai) {
         tree::succeeded(world, &mut ai);
     }
+    tree::tick_simultaneous(world, &mut ai);
     if let Some(a) = world.loaded_actor_mut(actor) {
         a.flying = ai.procedure == Procedure::Hover
             || (a.flying && a.forced_landing_marker.is_some() && !ai.arrived);
@@ -3990,6 +3991,101 @@ pub(crate) fn write_tree_state(w: &mut Writer, tree: Option<&TreeState>) {
     }
 }
 
+pub(crate) fn write_simultaneous_state(w: &mut Writer, tree: Option<&TreeState>) {
+    let Some(state) = tree.and_then(|tree| tree.simultaneous.as_ref()) else {
+        w.bool(false);
+        return;
+    };
+    w.bool(true);
+    w.u32(state.parent);
+    w.len(state.children.len());
+    for child in &state.children {
+        w.u32(*child);
+    }
+    w.len(state.completed.len());
+    for child in &state.completed {
+        w.u32(*child);
+    }
+    w.len(state.wait_children.len());
+    for child in &state.wait_children {
+        w.u32(*child);
+    }
+    for deadline in [state.deadline, state.success_deadline] {
+        w.bool(deadline.is_some());
+        if let Some(deadline) = deadline {
+            w.f64(deadline);
+        }
+    }
+    match state.success_branch {
+        Some(branch) => {
+            w.bool(true);
+            w.u32(branch);
+        }
+        None => w.bool(false),
+    }
+    match state.travel_child {
+        Some(branch) => {
+            w.bool(true);
+            w.u32(branch);
+        }
+        None => w.bool(false),
+    }
+    w.bool(state.indefinite_wait);
+}
+
+pub(crate) fn read_simultaneous_state(
+    r: &mut Reader<'_>,
+) -> Result<Option<tree::SimultaneousState>, VmError> {
+    if !r.bool()? {
+        return Ok(None);
+    }
+    let parent = r.u32()?;
+    let mut children = Vec::new();
+    for _ in 0..r.len()? {
+        children.push(r.u32()?);
+    }
+    let mut completed = Vec::new();
+    for _ in 0..r.len()? {
+        completed.push(r.u32()?);
+    }
+    let mut wait_children = Vec::new();
+    for _ in 0..r.len()? {
+        wait_children.push(r.u32()?);
+    }
+    let read_deadline = |r: &mut Reader<'_>| -> Result<Option<f64>, VmError> {
+        if !r.bool()? {
+            return Ok(None);
+        }
+        let deadline = r.f64()?;
+        if !deadline.is_finite() {
+            return Err(VmError::State("AI-14 invalid deadline".into()));
+        }
+        Ok(Some(deadline))
+    };
+    let deadline = read_deadline(r)?;
+    let success_deadline = read_deadline(r)?;
+    let success_branch = if r.bool()? { Some(r.u32()?) } else { None };
+    let travel_child = if r.bool()? { Some(r.u32()?) } else { None };
+    let indefinite_wait = r.bool()?;
+    if completed.iter().any(|child| !children.contains(child))
+        || wait_children.iter().any(|child| !children.contains(child))
+        || travel_child.is_some_and(|child| !children.contains(&child))
+    {
+        return Err(VmError::State("AI-14 invalid child state".into()));
+    }
+    Ok(Some(tree::SimultaneousState {
+        parent,
+        children,
+        completed,
+        wait_children,
+        deadline,
+        success_deadline,
+        success_branch,
+        travel_child,
+        indefinite_wait,
+    }))
+}
+
 /// Write the package cursor layout frozen by SOEW version 37.
 pub(crate) fn write_legacy_tree_state(w: &mut Writer, tree: Option<&TreeState>) {
     w.bool(tree.is_some());
@@ -4215,6 +4311,7 @@ fn read_tree_state_version(r: &mut Reader<'_>, version: u16) -> Result<Option<Tr
         finished: r.bool()?,
         stacked: Vec::new(),
         stacked_completed: Vec::new(),
+        simultaneous: None,
     };
     if state.active && state.finished {
         return Err(VmError::State(
@@ -4520,6 +4617,7 @@ mod tests {
                 finished: false,
                 stacked: Vec::new(),
                 stacked_completed: Vec::new(),
+                simultaneous: None,
             }),
             destination: Some([1.0, 2.0, 3.0]),
             path: vec![[4.0, 5.0, 6.0]],
