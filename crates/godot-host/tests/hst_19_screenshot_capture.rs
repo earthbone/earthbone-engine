@@ -16,7 +16,7 @@ fn hst_19_headless_godot_saves_the_papyrus_requested_frame() {
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = Command::new(godot)
-        .args(["--headless", "--path"])
+        .args(["--audio-driver", "Dummy", "--path"])
         .arg(workspace.join("godot"))
         .args(["--resolution", "640x360", "--script"])
         .arg("hst_19_screenshot_capture_test.gd")

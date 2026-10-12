@@ -2,7 +2,7 @@ extends SceneTree
 
 ## HST-19 host check: call the Papyrus Debug.TakeScreenshot native through
 ## PlayerNode and confirm the host writes a PNG from the active viewport.
-## Run headless with SKYRIM_DATA set after building the release GDExtension.
+## Run on the test display with SKYRIM_DATA set and the release GDExtension.
 
 const CELL := "WhiterunBanneredMare"
 var failures := 0
@@ -33,6 +33,7 @@ func _run() -> void:
 	_check(streamer.call("stream_cell_collision", CELL) > 0, "cell collision failed")
 
 	var player: Node3D = ClassDB.instantiate("PlayerNode")
+	player.set("auto_step", false)
 	player.set("capture_mouse", false)
 	get_root().add_child(player)
 	_check(player.call("use_streamer_data", streamer), "shared data failed")

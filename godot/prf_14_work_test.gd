@@ -69,7 +69,6 @@ func run() -> void:
 	check(player_counts.get("record_lookups", 0) > 0, "advance did not include game record queries")
 	print("PRF_14_PLAYER_COUNTS " + JSON.stringify(player_counts))
 	print("PRF_14_COUNTS " + JSON.stringify(counts))
-	scene.queue_free()
-	await process_frame
+	scene.free()
 	print("RESULT: PASS" if failures == 0 else "RESULT: FAIL")
 	quit(0 if failures == 0 else 1)

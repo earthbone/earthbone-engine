@@ -7586,6 +7586,25 @@ backdrop transmission through the production material.
 
 ## Integration test contracts, 2026-10-12
 
+The resident door path retains RND-23's initial model transform before applying
+HST-21's reversible swing. Baked surfaces still remove their original reference
+placement before applying the current hinge pose. HST-27's bounds and radius
+fixtures follow the rendered model pose, and its front-door selection excludes
+the MinUse records used by HST-21's fixture. PRF-08's material diagnostic includes
+resident door surfaces as well as ordinary batches.
+
+HST-19 capture checks use the private test display with rendering enabled.
+Its round 7 history records that Godot 4.4's headless dummy renderer has no
+viewport image. Local Godot ViewportTexture and RenderingServer documentation
+supplies the image-readback and completed-frame boundary. The checks retain
+PNG decoding, dimensions and Unicode path assertions.
+HST-14's initial trigger membership is resolved during host gameplay startup,
+so PRF-14's first movement frame does not build the full load-order trigger
+index inside its fixed record-lookup budget.
+PRF-14 frees its completed scene immediately after reporting counts, before
+HST-23's process-frame NPC synchronization can start unrelated presentation
+loads during teardown.
+
 RND-39's lighting UV fixture enables RND-24's emission flags and colour before
 checking glow sampling. RND-16's boundary fixtures follow its latest judge
 change: projected error must be strictly below the pixel limit, including a

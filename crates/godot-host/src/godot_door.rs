@@ -17,6 +17,7 @@ pub(super) struct DoorSurface {
     pub rid: Rid,
     pub mesh: Gd<ArrayMesh>,
     pub original: Transform3D,
+    pub model_transform: Transform3D,
     pub triangles: usize,
     pub submitted: Transform3D,
 }
@@ -74,7 +75,8 @@ impl ResidentDoor {
         self.node.set_visible(self.visible);
         let mut server = RenderingServer::singleton();
         for surface in &mut self.surfaces {
-            surface.submitted = surface_transform(transform, surface.original);
+            surface.submitted =
+                surface_transform(transform, surface.original) * surface.model_transform;
             server.instance_set_transform(surface.rid, surface.submitted);
             server.instance_set_visible(surface.rid, self.visible);
         }
@@ -88,21 +90,23 @@ impl ResidentDoor {
         state.set("fraction", self.fraction);
         state.set("transform", self.node.get_transform());
         state.set("placement_transform", self.pose);
-        let bounds = self
-            .surfaces
-            .iter()
-            .map(|surface| surface.original.affine_inverse() * surface.mesh.get_aabb())
-            .reduce(|a, b| a.merge(b));
-        if let Some(bounds) = bounds {
-            state.set("local_bounds", bounds);
-        }
+        let mut bounds: Option<Aabb> = None;
         let mut vertices = PackedVector3Array::new();
         for surface in &self.surfaces {
             let arrays = surface.mesh.surface_get_arrays(0);
             let positions: PackedVector3Array = arrays.at(0).to();
+            let local = surface.original.affine_inverse() * surface.model_transform;
             for point in positions.as_slice() {
+                let point_local = local * *point;
+                bounds = Some(bounds.map_or_else(
+                    || Aabb::new(point_local, Vector3::ZERO),
+                    |bounds| bounds.expand(point_local),
+                ));
                 vertices.push(surface.submitted * *point);
             }
+        }
+        if let Some(bounds) = bounds {
+            state.set("local_bounds", bounds);
         }
         state.set("world_vertices", &vertices);
         state.set("surfaces", self.surfaces.len() as i64);
@@ -177,6 +181,30 @@ mod tests {
         let leaf = Vector3::new(1.0, 1.0, 0.0);
         let rendered = surface_transform(placement, Transform3D::IDENTITY) * leaf;
         assert!(rendered.distance_to(placement * leaf) < 0.001);
+    }
+
+    #[test]
+    fn hst_27_animated_leaf_keeps_its_model_transform_inside_the_swing() {
+        let placement = Transform3D::new(
+            Basis::from_axis_angle(Vector3::UP, 1.2),
+            Vector3::new(-1200.0, 50.0, 800.0),
+        );
+        let model = Transform3D::new(
+            Basis::from_axis_angle(Vector3::UP, 0.3),
+            Vector3::new(0.5, 0.2, 0.0),
+        );
+        let leaf = Vector3::new(1.0, 1.0, 0.0);
+        let radius = (model * leaf).length();
+        for fraction in [0.0, 0.5, 1.0] {
+            let swing = Transform3D::new(
+                Basis::from_axis_angle(Vector3::UP, fraction * std::f32::consts::FRAC_PI_2),
+                Vector3::ZERO,
+            );
+            let submitted = surface_transform(placement * swing, Transform3D::IDENTITY) * model;
+            let rendered = submitted * leaf;
+            assert!(rendered.distance_to(placement.origin) <= radius + 0.001);
+            assert!(rendered.distance_to(placement * (swing * (model * leaf))) < 0.001);
+        }
     }
 
     #[test]
