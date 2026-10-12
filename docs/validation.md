@@ -77,6 +77,55 @@ and a redesign scenario cites the design doc it follows instead of a capture.
 
 ## Scope of the claim
 
+An HST, RND, UI, AUD or PRF row that changes what the player sees or hears is
+done only when its own test and the play path checks it owns pass. A unit test
+or an isolated capture does not replace the walkthrough path. TST-19 records
+each observation with its measured value and owning row. Expected failures
+retain that row ID and their baseline evidence. Marking the owner done in
+BACKLOG.csv promotes its checks to required on the next run.
+
+`godot/tst_19_play_path.gd` runs the Bannered Mare interactions, hearth view,
+market, Whiterun gate and return route with scripted input. It repeats the
+walk until the selected wall-clock duration ends. `SOE_PLAY_PATH=gate` selects
+180 seconds at 640 by 360 on Xvfb :99. `SOE_PLAY_PATH=gpu` selects 600 seconds
+in a window. The installed Rust runner captures stdout, stderr and stop
+images under `target/tst_19/<mode>`. It requires every observation and route
+stop, a completion report, the requested duration and a successful process
+exit. `SKYRIM_DATA` gates the installed run. `SOE_GODOT_BIN` selects the host.
+Build the release extension and import the project before running it:
+
+```sh
+rtk cargo build -p soe-godot-host --release
+rtk proxy "$SOE_GODOT_BIN" --headless --path godot --import
+rtk proxy env SOE_PLAY_PATH=gate cargo test -p soe-godot-host \
+  --test tst_19_play_path -- --nocapture
+```
+
+The main thread writes a heartbeat every frame. An independent Rust thread
+polls it every 25 milliseconds and kills the tracked child after two seconds
+without an update. It writes a `PLAY_PATH_BACKTRACE` marker with the last stop
+and attempts a bounded debugger stack capture, then reads task stacks from
+`/proc/<pid>/task` when the debugger is missing or cannot attach. A startup or
+total timeout also terminates the child. A missing heartbeat, completion report or observation is
+a failure, including when the owning gameplay rows have expected failures.
+The runner reaps Godot and any Xvfb process it created.
+
+The frame interval limit is 50 milliseconds after the first ten seconds of
+play. Scene operations and captures stay on the main thread. Pixel comparisons
+run on a joined worker over immutable images. Predicate tests reject a blank
+render, an unchanged skin pose, a white object contribution and an opaque
+fire hull. Parser tests reject incomplete reports and invalid expected-failure
+verdicts. The watchdog test forces a stalled child and requires termination
+and its diagnostic marker.
+
+TST-19 has not passed an installed gate. Its 2026-10-11 attempt terminated
+at the container view on a 2006 millisecond heartbeat stall. The watchdog
+failure remains fatal even when frame hitches have an expected owner. No
+missing route stop or observation is exempted. See the TST-19 paragraph in
+[godot-host.md](godot-host.md) for measured baselines and unverified scope.
+Gate display discovery uses a bounded `xprop` connection check for Xvfb :99,
+including when its socket is exposed through an abstract X11 address.
+
 A passing scenario says the engine matches what vanilla logged and saved for
 that flow. It says nothing about timing inside a frame, about the order two
 unrelated scripts run in, or about anything the scenario did not touch. Keep

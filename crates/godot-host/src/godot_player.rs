@@ -56,6 +56,7 @@ mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
+mod play_path;
 mod profiling;
 mod quick_loot;
 mod race;
@@ -1351,6 +1352,14 @@ impl PlayerNode {
     fn footstep_count(&self) -> i64 {
         self.footstep_count as i64
     }
+
+    /// Controller cadence requested a footstep on the sampled collision material.
+    #[signal]
+    fn footstep_requested(material_hash: i64, right: bool);
+
+    /// A cadence footstep reached this SoundBank voice slot.
+    #[signal]
+    fn footstep_played(material_hash: i64, slot: i64, right: bool);
 
     #[func]
     fn footstep_errors(&self) -> i64 {
