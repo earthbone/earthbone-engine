@@ -583,8 +583,17 @@ fn tst_19_every_required_check_and_full_duration_are_enforced() {
         .iter()
         .enumerate()
         .map(|(index, check)| {
-            json!({"check": check, "stop": stops[index % stops.len()], "status": "PASS",
-            "pass": true, "owner": "TST-19", "value": {"sample": 1}})
+            let stop = check.strip_prefix("route.").filter(|stop| stops.contains(stop))
+                .unwrap_or(stops[index % stops.len()]);
+            let value = if *check == "route.walk" {
+                json!({"distance": 25.0, "path_points": 3, "seconds": 1.0})
+            } else if check.starts_with("menu.") {
+                json!({"applicable": true, "reference": "reference.png", "reference_similarity": 0.95})
+            } else {
+                json!({"sample": 1})
+            };
+            json!({"check": check, "stop": stop, "status": "PASS",
+            "pass": true, "owner": "TST-19", "value": value})
         })
         .collect();
     for stop in stops {
@@ -613,7 +622,7 @@ fn tst_19_every_required_check_and_full_duration_are_enforced() {
         ));
         output
     };
-    assert!(validate(&report(&rows, 180.0), &json!({}), 180.0).is_ok());
+    assert_eq!(validate(&report(&rows, 180.0), &json!({}), 180.0), Ok(()));
     assert!(validate(&report(&rows, 179.9), &json!({}), 180.0).is_err());
     assert!(validate(&report(&rows, 180.0), &json!({}), 600.0).is_err());
     let omitted: Vec<_> = rows

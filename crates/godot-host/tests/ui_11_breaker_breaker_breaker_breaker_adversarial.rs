@@ -9,6 +9,9 @@ use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, IAdd};
 use soe_papyrus::Value;
 
+#[path = "support/ui_11_protocol.rs"]
+mod protocol;
+
 const CONFIG_QUEST: u32 = 0x800;
 const HIDDEN: u32 = 0x02;
 
@@ -36,7 +39,17 @@ fn fixture() -> Game {
     let mut order = LoadOrder::new();
     order.add("ConfigFixture.esm", plugin).unwrap();
     let mut game = Game::new(order);
-    let script = ScriptBuilder::new("ConfigFixture", "Quest")
+    game.load_script(
+        &protocol::with_protocol(
+            ScriptBuilder::new("SKI_ConfigBase", "Quest")
+                .auto_property("ModName", "String", soe_papyrus::asm::s("Fixture Mod"))
+                .auto_property("Pages", "String[]", soe_papyrus::asm::none())
+                .function(FunctionBuilder::new("OpenConfig", "None").build()),
+        )
+        .bytes(),
+    )
+    .unwrap();
+    let script = ScriptBuilder::new("ConfigFixture", "SKI_ConfigBase")
         .variable("selection_count", "Int", i(0))
         .variable("selected_option", "Int", i(-1))
         .function(
@@ -85,6 +98,7 @@ fn ui_11_adversarial_disabled_and_hidden_rows_never_dispatch() {
         .add_toggle("Disabled", true, OPTION_FLAG_DISABLED)
         .unwrap();
     let hidden = page.add_text("Hidden", "secret", HIDDEN).unwrap();
+    protocol::publish(&mut game, form, &page);
     assert!(!page.select(&mut game, form, disabled));
     assert!(!page.select(&mut game, form, hidden));
     assert_eq!(variable(&mut game, "selection_count"), Value::Int(0));
@@ -112,6 +126,7 @@ fn ui_11_adversarial_callback_uses_page_strided_id_once_per_selection() {
     let mut page = ConfigPage::new(3);
     let id = page.add_text("Status", "Ready", 0).unwrap();
     assert_eq!(id, 0x300);
+    protocol::publish(&mut game, form, &page);
     assert!(page.select(&mut game, form, id));
     assert!(page.select(&mut game, form, id));
     assert_eq!(variable(&mut game, "selection_count"), Value::Int(2));

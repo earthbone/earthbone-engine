@@ -149,7 +149,9 @@ fn ui_23_gfx_and_cfx_headers_decode_like_fws_and_cws() {
     use flate2::Compression;
     use std::io::Write;
 
-    let fws = movie(1, &[1, 0, 0, 0]);
+    let mut tags = Vec::new();
+    tag(1, &[], &mut tags);
+    let fws = movie(1, &tags);
     let expected = convert(&fws).unwrap();
     let mut gfx = fws.clone();
     gfx[..3].copy_from_slice(b"GFX");

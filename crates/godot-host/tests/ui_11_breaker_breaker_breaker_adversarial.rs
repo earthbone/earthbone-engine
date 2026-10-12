@@ -10,6 +10,9 @@ use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, IAdd};
 use soe_papyrus::Value;
 
+#[path = "support/ui_11_protocol.rs"]
+mod protocol;
+
 const CONFIG_QUEST: u32 = 0x800;
 
 fn callback_game() -> Game {
@@ -35,7 +38,17 @@ fn callback_game() -> Game {
     let mut order = LoadOrder::new();
     order.add("ConfigFixture.esm", plugin).unwrap();
     let mut game = Game::new(order);
-    let script = ScriptBuilder::new("ConfigFixture", "Quest")
+    game.load_script(
+        &protocol::with_protocol(
+            ScriptBuilder::new("SKI_ConfigBase", "Quest")
+                .auto_property("ModName", "String", soe_papyrus::asm::s("Fixture Mod"))
+                .auto_property("Pages", "String[]", soe_papyrus::asm::none())
+                .function(FunctionBuilder::new("OpenConfig", "None").build()),
+        )
+        .bytes(),
+    )
+    .unwrap();
+    let script = ScriptBuilder::new("ConfigFixture", "SKI_ConfigBase")
         .variable("selection_count", "Int", i(0))
         .variable("selected_option", "Int", i(-1))
         .function(
@@ -74,6 +87,7 @@ fn ui_11_each_enabled_text_or_toggle_press_dispatches_one_full_id() {
     let toggle = page.add_toggle("Enabled", true, 0).unwrap();
 
     assert_eq!((text, toggle), (0x200, 0x201));
+    protocol::publish(&mut game, form, &page);
     assert!(page.select(&mut game, form, text));
     assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(1));
     assert_eq!(fixture_var(&mut game, "selected_option"), Value::Int(0x200));
@@ -97,6 +111,7 @@ fn ui_11_flag_updates_keep_hidden_rows_hidden_and_disabled_until_reenabled() {
     assert!(page.set_enabled(option, true));
     assert_eq!(page.rows()[0].flags, 0x06);
     assert!(!page.rows()[0].visible());
+    protocol::publish(&mut game, form, &page);
     assert!(!page.select(&mut game, form, option));
     assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(0));
 

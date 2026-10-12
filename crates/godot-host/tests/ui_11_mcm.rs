@@ -9,6 +9,9 @@ use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, PropSet};
 use soe_papyrus::Value;
 
+#[path = "support/ui_11_protocol.rs"]
+mod protocol;
+
 const CONFIG_QUEST: u32 = 0x800;
 #[path = "../../game/tests/support/ui_11_fixture.rs"]
 mod executable;
@@ -58,59 +61,61 @@ fn skyui_fixture() -> Game {
     order.add("ConfigFixture.esm", plugin).unwrap();
     let mut game = Game::new(order);
 
-    let base = ScriptBuilder::new("SKI_ConfigBase", "Quest")
-        .auto_property("ModName", "String", s(""))
-        .auto_property("Pages", "String[]", soe_papyrus::asm::none())
-        .function(
-            FunctionBuilder::new("OnInit", "None")
-                .ins(
-                    CallMethod,
-                    vec![s("OnConfigInit"), ident("self"), ident("::nonevar")],
-                )
-                .build(),
-        )
-        .function(
-            FunctionBuilder::new("OpenConfig", "None")
-                .ins(
-                    CallMethod,
-                    vec![
-                        s("SetPage"),
-                        ident("self"),
-                        ident("::nonevar"),
-                        s(""),
-                        i(-1),
-                    ],
-                )
-                .ins(
-                    CallMethod,
-                    vec![s("OnConfigOpen"), ident("self"), ident("::nonevar")],
-                )
-                .build(),
-        )
-        .function(
-            FunctionBuilder::new("SetPage", "None")
-                .param("page", "String")
-                .param("index", "Int")
-                .ins(
-                    CallMethod,
-                    vec![
-                        s("OnPageReset"),
-                        ident("self"),
-                        ident("::nonevar"),
-                        ident("page"),
-                    ],
-                )
-                .build(),
-        )
-        .function(
-            FunctionBuilder::new("CloseConfig", "None")
-                .ins(
-                    CallMethod,
-                    vec![s("OnConfigClose"), ident("self"), ident("::nonevar")],
-                )
-                .build(),
-        )
-        .bytes();
+    let base = protocol::with_protocol(
+        ScriptBuilder::new("SKI_ConfigBase", "Quest")
+            .auto_property("ModName", "String", s(""))
+            .auto_property("Pages", "String[]", soe_papyrus::asm::none())
+            .function(
+                FunctionBuilder::new("OnInit", "None")
+                    .ins(
+                        CallMethod,
+                        vec![s("OnConfigInit"), ident("self"), ident("::nonevar")],
+                    )
+                    .build(),
+            )
+            .function(
+                FunctionBuilder::new("OpenConfig", "None")
+                    .ins(
+                        CallMethod,
+                        vec![
+                            s("SetPage"),
+                            ident("self"),
+                            ident("::nonevar"),
+                            s(""),
+                            i(-1),
+                        ],
+                    )
+                    .ins(
+                        CallMethod,
+                        vec![s("OnConfigOpen"), ident("self"), ident("::nonevar")],
+                    )
+                    .build(),
+            )
+            .function(
+                FunctionBuilder::new("SetPage", "None")
+                    .param("page", "String")
+                    .param("index", "Int")
+                    .ins(
+                        CallMethod,
+                        vec![
+                            s("OnPageReset"),
+                            ident("self"),
+                            ident("::nonevar"),
+                            ident("page"),
+                        ],
+                    )
+                    .build(),
+            )
+            .function(
+                FunctionBuilder::new("CloseConfig", "None")
+                    .ins(
+                        CallMethod,
+                        vec![s("OnConfigClose"), ident("self"), ident("::nonevar")],
+                    )
+                    .build(),
+            ),
+    )
+    .bytes();
     let child = ScriptBuilder::new("ConfigFixture", "SKI_ConfigBase")
         .variable("register_count", "Int", i(0))
         .variable("open_count", "Int", i(0))
@@ -232,11 +237,20 @@ fn ui_11_selection_dispatches_once_and_rejects_disabled_rows() {
         .add_toggle("Enabled", true, OPTION_FLAG_DISABLED)
         .unwrap();
 
+    assert!(!page.select(&mut game, script, text));
+    assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(0));
+    protocol::publish(&mut game, script, &page);
+    let mut stale_page = ConfigPage::new(1);
+    let stale_text = stale_page.add_text("Status", "Ready", 0).unwrap();
+    assert!(!stale_page.select(&mut game, script, stale_text));
     assert!(page.select(&mut game, script, text));
     assert!(!page.select(&mut game, script, toggle));
     assert!(!page.select(&mut game, script, 127));
     assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(1));
     assert_eq!(fixture_var(&mut game, "selected_option"), Value::Int(0));
+    game.mcm_close();
+    assert!(!page.select(&mut game, script, text));
+    assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(1));
 }
 
 #[test]
@@ -272,6 +286,7 @@ fn ui_11_ski_config_fixture_builds_rows_updates_flags_and_calls_once() {
     assert!(page.rows()[1].enabled());
     assert!(page.set_enabled(toggle, false));
 
+    protocol::publish(&mut game, form, &page);
     assert!(page.select(&mut game, form, text));
     assert!(!page.select(&mut game, form, toggle));
     assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(1));
