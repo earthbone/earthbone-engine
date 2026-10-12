@@ -33,3 +33,31 @@ fn unexpected_manifest_signature_is_listed_as_a_difference() {
         .iter()
         .any(|line| line == "missing engine record STAT:00000001"));
 }
+
+#[test]
+fn reports_physical_record_count_changes_per_form_id() {
+    let expected = subject::parse_dump(concat!(
+        "RECORD\tCELL\t00000001\n",
+        "RECORD\tCELL\t00000001\n",
+        "RECORD\tCELL\t00000002\n",
+    ))
+    .unwrap();
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    let first = plugin.push_record(Record::new(Tag::new(b"CELL"), 1));
+    let second = plugin.push_record(Record::new(Tag::new(b"CELL"), 2));
+    let third = plugin.push_record(Record::new(Tag::new(b"CELL"), 2));
+    let mut group = Group::new(GroupKind::Top(Tag::new(b"CELL")));
+    group.entries.extend([
+        soe_esm::Entry::Record(first),
+        soe_esm::Entry::Record(second),
+        soe_esm::Entry::Record(third),
+    ]);
+    plugin.groups.push(group);
+
+    let found = subject::differences(&expected, &subject::from_plugin(&plugin));
+    assert!(
+        !found.is_empty(),
+        "the xEdit and engine dumps have different physical counts for each FormID"
+    );
+}

@@ -308,11 +308,13 @@ truncated entries, and all five installed masters.
   CELL, REFR and LVLI signatures selected by the test plan, including their record
   identities and subrecord payloads. Engine record counts retain repeated physical
   records even when they share a FormID. Differences are printed by category and cause
-  the gated test to fail. Malformed rows also fail with their line number. xEdit's
-  `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) filters record signatures with
-  `DumpRecords` and emits a nested display tree, so the dump must be normalized into
-  this manifest before setting the environment variable. The test does not parse the
-  display tree directly.
+  the gated test to fail. Malformed rows also fail with their line number. The local
+  `TES5Edit/xDump.dpr` source filters signatures through `DumpRecords`, then writes
+  display names, interpreted values and summaries as a nested tree. It does not emit
+  raw subrecord bytes, so the xEdit output must be normalized into this manifest before
+  setting the environment variable. The manifest parser counts repeated physical record
+  rows that share a FormID. Parser tests check all six selected signatures and ignore an
+  unselected `STAT`.
 
 ## Scripted patch passes
 
