@@ -325,6 +325,12 @@ func godot_metrics() -> Dictionary:
 			attribution[name] = null
 			unavailable[name] = UNMEASURED_RENDER_METRICS[name]
 	attribution["unavailable"] = unavailable
+	attribution["sources"] = {
+		"performance_monitors": "Performance.get_monitor",
+		"viewport_passes": "RenderingServer.viewport_get_render_info",
+		"render_time_ms": "RenderingServer.viewport_get_measured_render_time_cpu/gpu",
+		"cell_plugin_batches": "CellStreamerNode.render_attribution",
+	}
 	values["render_attribution"] = attribution
 	return values
 

@@ -313,6 +313,22 @@ work are excluded. The overlay and exit summary list simulation tick and
 search-worker busy time separately. Tick time already includes waiting for
 navigation workers, so the worker number must not be added to it.
 
+PRF-30 reads built-in counters from `Performance.get_monitor`, per-pass counts
+from `RenderingServer.viewport_get_render_info`, and enabled viewport CPU and
+GPU render times from `RenderingServer`. Loaded-cell and plugin batch totals
+come from `CellStreamerNode.render_attribution`. The report includes these
+source names alongside the measurements. Godot 4.4 does not expose individual
+frustum, occlusion, visibility-range or LOD cull counts, unloaded-reference
+culls, LOD transition rates or per-light shadow caster counts. Those fields
+remain null with a reason. This host also does not count material or mesh
+resource creation per frame, so those fields remain unavailable rather than
+being inferred from unrelated object or resource totals. This report does not
+claim those counters were measured.
+
+The local Godot `Performance` reference notes that some monitors can lag by up
+to one second and that rendering info is zero until two frames have rendered.
+The report samples during presentation, after the viewport has rendered.
+
 ## AI breakdown and overlay, PRF-27
 
 `PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
@@ -624,6 +640,14 @@ local Godot Time documentation.
 
 ## Per-system frame monitors, PRF-12
 
+`prf_12_monitors_test.gd` reads every system's custom monitor, compares it with
+the last presentation frame and checks the `main_thread_engine` sum. It
+checks F3 visibility, frame shares, summary output and monitor ownership when
+players are added and removed. The summary includes the engine total.
+The Cargo tests in `tests/prf_12_monitors.rs` run the windowed scene when
+`SOE_GODOT_BIN` is set, plus the actual walkthrough when `SKYRIM_DATA` is set.
+They wait for process exit and require a complete per-system exit summary.
+
 PRF-35 adds `magic_frame_breakdown` for the Game magic tick phases and the
 casting and dispatch remainder.
 The F3 overlay displays their last, p50, p99 and worst milliseconds, and
@@ -726,9 +750,13 @@ per frame. The installed-data test accepts a null with a reason for those
 fields, so it does not measure them. The test also cannot reconcile per-cell
 counts with Godot's objects in frame, because the cell figures are resident
 batch totals and the in-frame figure excludes culled batches. It checks only
-that the in-frame count is positive and not above the resident total. Exact
-reconciliation needs per-batch in-frame membership, which needs the cull stage
-counters above.
+that the in-frame count is positive and not above the resident total. The
+local Godot 4.4 `Performance` and `RenderingServer` references provide the
+aggregate monitor and viewport figures used here, but no per-instance cull
+events, per-light shadow caster query or resource creation counters. The
+`prf_30_done_check_unavailable_render_attribution_has_reasons` test records
+this limit and checks every unavailable field has a reason. PRF-30 remains
+partial until the missing attribution is measured.
 
 The physics row also exposes `physics_frame_breakdown`. It reports the number
 of physics callbacks since the last presentation process callback, inferred
