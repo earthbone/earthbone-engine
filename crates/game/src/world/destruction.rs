@@ -112,12 +112,7 @@ impl World {
         if next.flags & 0b1000 != 0 {
             return;
         }
-        let mut remaining = damage;
-        if next.flags & 0b0001 != 0 {
-            let threshold = maximum * f32::from(next.health_percent) / 100.0;
-            remaining = remaining.min((health - threshold).max(0.0));
-        }
-        let mut new_health = (health - remaining).max(0.0);
+        let mut new_health = (health - damage).max(0.0);
         let mut crossed = Vec::new();
         let mut stage_index = current_stage;
         while let Some(stage) = stages.get(usize::try_from(stage_index + 1).unwrap_or(usize::MAX)) {
@@ -125,12 +120,21 @@ impl World {
             if new_health > threshold {
                 break;
             }
+            if stage.flags & 0b1000 != 0 {
+                new_health = stages
+                    .get(usize::try_from(stage_index).unwrap_or(usize::MAX))
+                    .map_or(maximum, |previous| {
+                        maximum * f32::from(previous.health_percent) / 100.0
+                    });
+                break;
+            }
             let previous_stage = stage_index;
             stage_index += 1;
             crossed.push((previous_stage, stage_index, stage.flags));
-        }
-        if next.flags & 0b0001 != 0 && !crossed.is_empty() {
-            new_health = maximum * f32::from(next.health_percent) / 100.0;
+            if stage.flags & 0b0001 != 0 {
+                new_health = threshold;
+                break;
+            }
         }
         state.destruction_health = Some(new_health);
         state.destruction_stage = stage_index;
