@@ -154,8 +154,8 @@ fn tst_16_test_names_match_the_pre_consolidation_inventory() {
         .lines()
         .map(str::to_owned)
         .collect();
-    assert_eq!(before.len(), 2_289, "pre-change inventory size changed");
-    assert_eq!(after.len(), 2_289, "post-change inventory size changed");
+    assert_eq!(before.len(), 2_292, "pre-change inventory size changed");
+    assert_eq!(after.len(), 2_292, "post-change inventory size changed");
     let missing: Vec<_> = before.difference(&after).cloned().collect();
     let added: Vec<_> = after.difference(&before).cloned().collect();
     assert!(

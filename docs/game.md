@@ -1690,6 +1690,14 @@ CK expression id from 0 through 16 and strength from 0 through 100 on the
 actor. `ClearExpressionOverride` removes it. `World::facial_expression`
 returns the active override, or maps the actor's record-backed AIDT mood to
 the corresponding mood expression at full strength after clearing. The
+override remains effective if the record-backed mood changes while it is set.
+Clearing it selects the latest mood. The CK
+`SetExpressionOverride_-_Actor.wikitext` page defines ids 0 through 16, a
+default strength of 100, and a strength range of 0 through 100. It reports that
+female dialogue expressions affect only the eyes and female combat expressions
+do not work properly. The host leaves existing head weights untouched for
+female combat overrides. Female dialogue eye behavior is outside the head TRI
+target path. The
 override is an actor save section named `ANM-59` and participates in the
 determinism hash. The host maps expression ids to head blend shape names and
 loads matching expression deltas from the head's companion `.tri` file.
@@ -2628,8 +2636,8 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.QuitToMainMenu` | Quiet stub for returning to the main menu. |
 | `Game.SetSittingRotation` | Quiet stub. CK takes the rotation value. |
 | `Game.StartTitleSequence` | Quiet stub. CK takes a sequence name. |
-| `Game.GetCurrentCrosshairRef` | Quiet stub. The CK Game class page has no entry. |
-| `Game.GetPlayerGrabbedRef` | Quiet stub for the currently grabbed reference. |
+| `Game.GetCurrentCrosshairRef` | Returns the reference reported under the host crosshair, or `None`. |
+| `Game.GetPlayerGrabbedRef` | Returns the reference held by the host player, or `None`. |
 | `Game.FindClosestActor` | Quiet stub. CK takes a position and radius. |
 | `Game.FindRandomActor` | Quiet stub. CK takes a position and radius. |
 | `Game.FindClosestReferenceOfType` | Quiet stub. CK takes a base form, position and radius. |
@@ -9040,7 +9048,7 @@ log.
 `hst_19_screenshot_request.rs` calls the native through a Papyrus probe and
 checks that the path is queued once and consumed. The Godot check is
 `godot/hst_19_screenshot_capture_test.gd`. It requires installed data to start
-the host gameplay runtime, then checks the resulting PNG in a windowed run.
+the host gameplay runtime, then checks the resulting PNG in a headless run.
 
 ## Equipment conditions, AI-49
 

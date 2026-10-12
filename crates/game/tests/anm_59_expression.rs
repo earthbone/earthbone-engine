@@ -41,8 +41,10 @@ fn anm_59_override_holds_ck_expression_until_clear_then_uses_actor_mood() {
     let mut world = fixture();
     world.set_expression_override(id(ACTOR), 12, 45).unwrap();
     assert_eq!(world.facial_expression(id(ACTOR)), Some((12, 45)));
+    world.set_actor_value(id(ACTOR), "mood", 4.0).unwrap();
+    assert_eq!(world.facial_expression(id(ACTOR)), Some((12, 45)));
     world.clear_expression_override(id(ACTOR)).unwrap();
-    assert_eq!(world.facial_expression(id(ACTOR)), Some((10, 100)));
+    assert_eq!(world.facial_expression(id(ACTOR)), Some((11, 100)));
 }
 
 #[test]

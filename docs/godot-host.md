@@ -1228,16 +1228,17 @@ the `soe-physics` `SimpleWorld` solver.
 `PlayerNode` raycasts from the eye along the camera look direction on each
 advance and stores the first hit reference in the shared game world. The ray
 uses the host physics space, including resident rigid clutter and static
-obstructions. Game Papyrus globals `GetCurrentCrosshairRef` and
-`GetPlayerGrabbedRef` return those current host values. HST-22 supplies the
-held-Activate path below. The grabbed reference is cleared when the cell is
-replaced. These values are transient and are not saved.
-The local CK `Game_Script` page documents both getters and their reference
-results.
+obstructions. `GetCurrentCrosshairRef` returns this current hit and
+`GetPlayerGrabbedRef` returns the held reference, each as a Papyrus form object
+or `None`. The local CK `Game_Script` page documents both getters and their
+reference results. HST-22 supplies the held-Activate path below. The grabbed
+reference is cleared when the cell is replaced. These values are transient and
+are not saved.
 
 `hst_18_installed_host_crosshair_grab_and_papyrus_getters_track_each_frame`
-uses the installed Bannered Mare tankard to check the live ray, the held
-physics reference, release, and both Papyrus getters through `PlayerNode`.
+uses the installed Bannered Mare tankard to check the live ray across frames,
+the held physics reference, release, and both Papyrus getters through
+`PlayerNode`.
 `debug_reference_native` invokes only these two Game getters and reports the
 resolved reference identity for host diagnostics.
 
@@ -3501,7 +3502,10 @@ and sitting offset for host inspection. When a skinned appearance is bound to
 the player, the geometry flag controls its RenderingServer instances in first
 person. Third-person view keeps the player appearance visible. The
 `hst_17_camera_controls.rs` test exercises the state readbacks and verifies
-the third-person camera yaw and position respond to the sitting offset.
+the third-person camera yaw and position respond to the sitting offset. Its
+combined host-state check applies a target pose, sitting offset and geometry
+flag together, then reads their effects from the camera anchor, eye and
+first-person visibility decision.
 `SkinnedActorNode.set_first_person_geometry_visible` applies the same visibility
 change to every shape instance in its rig. The windowed
 `godot/hst_17_geometry_visibility_test.gd` check loads the installed vanilla
@@ -5397,9 +5401,25 @@ preserving unrelated morphs. The actor NIF pipeline loads matching `.tri`
 expression deltas and uploads them as Godot blend shapes.
 `SkinnedActorNode.debug_expression_weights` reports the latest submitted
 target values. `PlayerNode` exposes debug setters used by the bound-head
-integration check to change and clear the player's override through the shared
-world. `bind_actor_expression_head` connects a loaded head mesh to the actor's
-effective expression without replacing the mesh.
+integration check to change and clear an actor's override through the shared
+world. `debug_first_loaded_humanoid_npc` returns the first loaded non-player
+actor using the vanilla human skeleton, with its sex for selecting the
+corresponding vanilla head. `bind_actor_expression_head` connects that head
+mesh to the actor's effective expression without replacing the mesh. The
+windowed `anm_59_vanilla_npc_rendered` check compares viewport pixels while the
+override is held and after clearing it, so the host test reads rendered output
+in addition to the submitted weight dictionary. It uses the local Godot
+`class_viewport.rst` `get_texture().get_image()` readback contract.
+
+The CK `SetExpressionOverride_-_Actor.wikitext` page supplies ids 0 through 16,
+strength 0 through 100 and its default strength of 100. It reports that female
+dialogue expressions affect only the eyes and female combat expressions do
+not work properly. The host leaves existing head weights untouched for female
+combat expression overrides. Female dialogue eye behavior is not represented
+by the head TRI target path.
+The local nifly `Animation.hpp` describes `NiMorphData` vectors embedded in
+NIFs, which are distinct from Skyrim's external head `.tri` files. The host
+continues to use the existing `soe-nif` head TRI reader for those files.
 The installed body/hand/null refresh fixture measured a 8.2 us cached view against
 the declared 2 ms budget. This measures record resolution, not rendered frame time.
 
@@ -6056,8 +6076,9 @@ The `PlayerNode` gameplay tick drains transient screenshot paths queued by
 `Debug.TakeScreenshot` and saves the active viewport image as PNG. The node's
 `take_screenshot(path)` entry point calls the same Papyrus native and services
 its request immediately. `godot/hst_19_screenshot_capture_test.gd` checks the
-resulting PNG in a 640 by 360 windowed Godot run with installed data. The
-`hst_19_windowed_godot_saves_the_papyrus_requested_frame` host test launches
+resulting PNG signature, decode and 640 by 360 dimensions in a headless Godot
+run with installed data. The
+`hst_19_headless_godot_saves_the_papyrus_requested_frame` host test launches
 that check and requires it to report success.
 
 ## Per-cell occluders, RND-07

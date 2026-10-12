@@ -489,6 +489,10 @@ mod anm_58_adversarial;
 mod anm_58_breaker2_adversarial;
 #[path = "anm_58_breaker_adversarial.rs"]
 mod anm_58_breaker_adversarial;
+#[path = "anm_59_adversarial.rs"]
+mod anm_59_adversarial;
+#[path = "anm_59_breaker2_adversarial.rs"]
+mod anm_59_breaker2_adversarial;
 #[path = "anm_59_breaker_adversarial.rs"]
 mod anm_59_breaker_adversarial;
 #[path = "anm_59_expression.rs"]
@@ -801,10 +805,18 @@ mod hst_17_camera_controls;
 mod hst_18_adversarial;
 #[path = "hst_18_breaker2_adversarial.rs"]
 mod hst_18_breaker2_adversarial;
+#[path = "hst_18_breaker3_adversarial.rs"]
+mod hst_18_breaker3_adversarial;
+#[path = "hst_18_breaker4_adversarial.rs"]
+mod hst_18_breaker4_adversarial;
+#[path = "hst_18_breaker_adversarial.rs"]
+mod hst_18_breaker_adversarial;
 #[path = "hst_19_adversarial.rs"]
 mod hst_19_adversarial;
 #[path = "hst_19_breaker2_adversarial.rs"]
 mod hst_19_breaker2_adversarial;
+#[path = "hst_19_breaker_adversarial.rs"]
+mod hst_19_breaker_adversarial;
 #[path = "hst_19_screenshot_request.rs"]
 mod hst_19_screenshot_request;
 #[path = "image_space.rs"]
