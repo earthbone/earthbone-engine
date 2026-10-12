@@ -216,6 +216,7 @@ fn ai_90_installed_patrol_inputs_keep_order_types_defaults_and_static_values() {
         .unwrap();
     let mut branches = 0;
     let mut optional_omissions = 0;
+    let mut omissions_by_position = [0; 4];
     let mut static_pathing_true = 0;
     let mut static_pathing_false = 0;
     for (id, _) in order.winners_of(T(b"PACK")) {
@@ -231,6 +232,7 @@ fn ai_90_installed_patrol_inputs_keep_order_types_defaults_and_static_values() {
                 if index == u8::MAX {
                     assert!((2..=5).contains(&position), "PACK {id:?}");
                     optional_omissions += 1;
+                    omissions_by_position[position - 2] += 1;
                     continue;
                 }
                 let value = package.input(index as i8).map(|input| input.value);
@@ -255,6 +257,19 @@ fn ai_90_installed_patrol_inputs_keep_order_types_defaults_and_static_values() {
         }
     }
     assert_eq!(branches, 45);
-    assert!(optional_omissions > 0);
-    assert!(static_pathing_true + static_pathing_false > 0);
+    for (position, omissions) in omissions_by_position.iter().enumerate() {
+        assert!(
+            omissions > &0,
+            "no installed Patrol omitted optional position {}",
+            position + 2
+        );
+    }
+    assert!(static_pathing_true > 0, "no true StaticPathing input found");
+    assert!(
+        static_pathing_false > 0,
+        "no false StaticPathing input found"
+    );
+    eprintln!(
+        "Skyrim.esm Patrol survey: {branches} branches, {optional_omissions} optional omissions by position {omissions_by_position:?}, StaticPathing true {static_pathing_true}, false {static_pathing_false}"
+    );
 }
