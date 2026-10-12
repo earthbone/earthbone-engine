@@ -8295,14 +8295,16 @@ The combat entry points `ModAttackDamage` (35) and `ModIncomingDamage` (36)
 are consumed by `World::melee_hit`. CMB-09 applies supported numeric functions
 to the staged weapon damage, with outgoing effects before incoming effects.
 Their condition tabs are owner/weapon/target and owner/attacker/weapon,
-respectively. Malformed function payloads, unknown actor values, unsupported
-functions and condition errors reject the hit before health or events change.
-This path retains winning-record order, followed by ascending priority and
-source order for ties within each PERK. These ordering choices have not been
-compared with the reference runtime. CMB-09 hit tests exercise noncommuting
-outgoing and incoming modifiers at different priorities and across two
-winning PERK records. They verify this implementation's order and do not
-establish Skyrim's runtime order.
+respectively. Function 4 adds a random amount from its authored range. False
+entry conditions skip their effect. Malformed function payloads, unknown actor
+values, unsupported functions and condition errors
+reject the hit before health or events change. This path retains
+winning-record order, followed by ascending priority and source order for ties
+within each PERK. These ordering choices have not been compared with the
+reference runtime. CMB-09 hit tests exercise eligible and ineligible conditions
+and noncommuting outgoing and incoming modifiers at different priorities and
+across two winning PERK records. They verify this implementation's order and
+do not establish Skyrim's runtime order.
 It does not claim the unresolved priority-tie, acquisition-order or exact
 versus cumulative rank behavior documented above. Source-order ties and
 ascending priority are deterministic engine choices, not captured vanilla

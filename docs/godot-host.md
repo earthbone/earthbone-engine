@@ -525,6 +525,23 @@ the existing input path and the local Godot RenderingServer signal contract.
 built extension with SKYRIM_DATA, SOE_GODOT_BIN and a display set, so an overlay
 key remap that leaves the script behind fails `cargo test`.
 
+## Combat hit reactions, CMB-27
+
+`SkinnedActorNode` polls the bound actor's shared World stagger deadline and
+magnitude. It sends `staggerStart` once when a hit begins or extends the
+deadline, then sends `staggerStop` once when that deadline expires. The actor's
+behavior graph plays its authored stagger reaction and transitions back to its
+active locomotion state. This follows
+`engine-refs/activeragdoll/src/main.cpp::StaggerActor`, which sets
+`staggerMagnitude` and sends `staggerStart`.
+
+`godot/cmb_27_live_reaction_test.gd` binds a vanilla human behavior graph to a
+resident actor, resolves one shared Game melee contact, checks the authored
+reaction and locomotion return, and verifies that the hit changes health only
+once. The `cmb_27_live_godot_hit_plays_reaction_returns_and_damages_once`
+installed-data test launches the windowed host script and stops Godot after
+180 seconds if the script does not quit.
+
 ## Hitch dumps, PRF-18
 
 PlayerNode resolves `user://hitches` through Godot's ProjectSettings when it

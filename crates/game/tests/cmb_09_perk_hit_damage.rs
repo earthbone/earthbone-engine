@@ -179,6 +179,34 @@ fn cmb_09_ineligible_entry_leaves_the_hit_damage_unchanged() {
 }
 
 #[test]
+fn cmb_09_eligible_conditions_allow_outgoing_and_incoming_effects() {
+    let attacker = id(0x14);
+    let target = id(0x901);
+    let mut game = fixture(vec![
+        float_effect(0x810, 35, 2, 3.0, true),
+        float_effect(0x812, 35, 3, 2.0, false),
+        float_effect(0x813, 36, 2, -2.0, true),
+    ]);
+    for perk in [0x810, 0x811, 0x812] {
+        game.world_mut()
+            .actor(attacker)
+            .unwrap()
+            .perks
+            .insert(id(perk));
+    }
+    game.world_mut()
+        .actor(target)
+        .unwrap()
+        .perks
+        .extend([id(0x811), id(0x813)]);
+
+    let result = game.melee_hit(hit(attacker, target)).unwrap();
+
+    assert!((result.weapon_damage - 34.0).abs() < 0.001);
+    assert!((result.health_damage - 34.0).abs() < 0.001);
+}
+
+#[test]
 fn cmb_09_ineligible_incoming_entry_leaves_the_hit_damage_unchanged() {
     let attacker = id(0x14);
     let target = id(0x901);
