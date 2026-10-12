@@ -22,7 +22,10 @@ fn vertical_only_displacement_does_not_select_walk_locomotion() {
     let after = placement([0.0, 0.0, 24.0], 0.5);
     let motion = NpcMotion::between(before, after, 0.5).unwrap();
 
-    assert_eq!(motion.speed, 0.0, "vertical movement is not horizontal locomotion");
+    assert_eq!(
+        motion.speed, 0.0,
+        "vertical movement is not horizontal locomotion"
+    );
     assert_eq!(motion.direction, 0.0);
 }
 
@@ -50,7 +53,12 @@ fn installed_play_path_reports_npc_motion_and_pose() {
     let output = std::process::Command::new(binary)
         .arg("--path")
         .arg(root.join("godot"))
-        .args(["--resolution", "640x360", "--script", "hst_29_walkthrough_test.gd"])
+        .args([
+            "--resolution",
+            "640x360",
+            "--script",
+            "hst_29_walkthrough_test.gd",
+        ])
         .env("SKYRIM_DATA", data)
         .env("SOE_PLAY_PATH", "gate")
         .env("SOE_THREADED_SIMULATION", "0")
@@ -62,7 +70,10 @@ fn installed_play_path_reports_npc_motion_and_pose() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    for line in log.lines().filter(|line| line.starts_with("PLAY_PATH") || line.starts_with("RESULT:")) {
+    for line in log
+        .lines()
+        .filter(|line| line.starts_with("PLAY_PATH") || line.starts_with("RESULT:"))
+    {
         println!("{line}");
     }
     assert!(

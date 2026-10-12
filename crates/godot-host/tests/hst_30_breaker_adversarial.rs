@@ -32,7 +32,10 @@ fn spawn_snap_includes_the_128_unit_limit_but_does_not_pull_from_above_it() {
     let at_limit = NpcGrounding::default()
         .update(&mut physics, ACTOR, Some(CELL), [0.0, 0.0, 50.0], 1.0, 0.0)
         .unwrap();
-    assert!(at_limit[2].abs() < 0.01, "spawn should reach the floor: {at_limit:?}");
+    assert!(
+        at_limit[2].abs() < 0.01,
+        "spawn should reach the floor: {at_limit:?}"
+    );
 
     let above_limit = NpcGrounding::default()
         .update(&mut physics, ACTOR, Some(CELL), [0.0, 0.0, 129.0], 1.0, 0.0)
@@ -44,7 +47,10 @@ fn spawn_snap_includes_the_128_unit_limit_but_does_not_pull_from_above_it() {
 fn absent_cell_collision_defers_body_until_collision_is_available() {
     let mut physics = SimpleWorld::new();
     let mut grounding = NpcGrounding::default();
-    assert_eq!(grounding.update(&mut physics, ACTOR, None, [0.0, 0.0, 80.0], 1.0, 0.0), None);
+    assert_eq!(
+        grounding.update(&mut physics, ACTOR, None, [0.0, 0.0, 80.0], 1.0, 0.0),
+        None
+    );
     assert!(grounding.character(&physics, ACTOR).is_none());
 
     physics.add_static(&floor());
@@ -79,7 +85,10 @@ fn installed_play_path_reports_grounded_npcs_at_each_stop() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    for line in log.lines().filter(|line| line.contains("npc.grounded") || line.starts_with("RESULT:")) {
+    for line in log
+        .lines()
+        .filter(|line| line.contains("npc.grounded") || line.starts_with("RESULT:"))
+    {
         println!("{line}");
     }
     assert!(
