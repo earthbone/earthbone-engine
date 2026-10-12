@@ -181,10 +181,26 @@ impl ReferenceExtraData for World {
                     return None;
                 }
                 let flags = record.find(T(b"DATA"))?;
-                if flags.len() < 2 || u16::from_le_bytes([flags[0], flags[1]]) & 1 == 0 {
+                if flags.len() < 2 {
                     return None;
                 }
-                Some(ReferenceExtra::NorthRotation(0.0))
+                if u16::from_le_bytes([flags[0], flags[1]]) & 1 != 0 {
+                    return Some(ReferenceExtra::NorthRotation(0.0));
+                }
+                let index = self.order.build_cell_index();
+                let worldspace = index
+                    .grid_of(id)
+                    .map(|grid| grid.world)
+                    .or_else(|| index.persistent_cell_world(id))?;
+                let world_record = self.record(worldspace)?;
+                if world_record.tag != T(b"WRLD") {
+                    return None;
+                }
+                let world_ref = self.order.winner_ref(worldspace)?;
+                let localized = self.order.file(world_ref.file).plugin.header.is_localized();
+                let world =
+                    soe_esm::records::wrld::World::from_record(world_record, localized).ok()?;
+                Some(ReferenceExtra::NorthRotation(world.north_rotation))
             }
             ReferenceExtraKind::Teleport => {
                 let state = self.refs.get(&id)?;
