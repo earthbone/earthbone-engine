@@ -155,10 +155,13 @@ of game crate dependencies. This callback table is not a Skyrim executable ABI.
 The SHM-02 fixture models Papyrus Extender's startup shape cited from
 `engine-refs/PapyrusExtenderSSE/src/main.cpp`: it defines the standard SKSE query, load and version
 exports, compiles as a shared library against the shim headers, and runs through
-`crates/commonlib-shim/tools/plugin-loader.cpp`. It prints unsupported trampoline, scene graph
-and Havok hooks declared in its unsupported-hook metadata. The fixture validates the source-level
-entry-point path on this host, not a build of the upstream Papyrus Extender source, the unavailable
-engine services, or compatibility with Windows SKSE binaries.
+`crates/commonlib-shim/tools/plugin-loader.cpp`. The loader supplies its Papyrus interface and
+invokes native registration against a C++ registry with case-insensitive first-registration-wins
+behavior. The fixture registers `Form.GetFormEditorID` and `Form.GetConditionList`, and the loader
+reports accepted registrations, duplicates and unsupported trampoline, scene graph and Havok
+hooks. This validates a compiled source adaptation's entry-point and registry path on this host.
+It does not build the upstream Papyrus Extender project, execute registered functions in the
+Papyrus VM, provide serialization or messaging services, or load Windows SKSE binaries.
 
 `RE/World.h` exposes a `WorldState` contract for actor critical stages,
 actor-value modifier components, the selected AI package and procedure,

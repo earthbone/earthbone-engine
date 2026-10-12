@@ -163,6 +163,34 @@ fn scr_39_motion_type_preserves_type_and_activation_arguments() {
 }
 
 #[test]
+fn scr_39_motion_type_defaults_activation_and_rejects_out_of_range_values() {
+    let mut game = game();
+    assert_eq!(
+        call(&mut game, "SetMotionType", &[Value::Int(1)]),
+        Value::None
+    );
+    assert_eq!(
+        game.world_mut().take_reference_physics_requests(),
+        vec![ReferencePhysicsRequest::MotionType {
+            reference: id(REFERENCE),
+            motion_type: 1,
+            allow_activate: true,
+        }]
+    );
+
+    for motion_type in [0, 8, -1] {
+        assert_eq!(
+            call(&mut game, "SetMotionType", &[Value::Int(motion_type)]),
+            Value::None
+        );
+    }
+    assert!(game
+        .world_mut()
+        .take_reference_physics_requests()
+        .is_empty());
+}
+
+#[test]
 fn scr_39_havok_impulse_normalizes_direction_and_rejects_zero_vector() {
     let mut game = game();
     call(

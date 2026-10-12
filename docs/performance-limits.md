@@ -247,6 +247,15 @@ ignored `performance-results/` directory. The empty-scene prototype run is
 excluded. Godot's metric tests passed on 4.4.1 and 4.7.2. No 24-hour soak,
 large mod-loadout survey or complete gameplay stress was run.
 
+## PRF-04 soak assessment tests
+
+`crates/bench/tests/prf_04_adversarial.rs` checks that a completed 86,400-second
+soak with per-window timing and RSS telemetry passes, an early finish and
+missing RSS telemetry fail assessment, and RSS growth above 64 MiB is reported
+as a breach. Passing this RSS check means growth stayed within the configured
+limit. RSS growth is an indicator for investigation, not proof that no memory
+is retained, since caches and retained capacity also affect it.
+
 ## Recorded validation, 2026-09-23
 
 Master `79a3d44`, with cell-by-cell exterior streaming (PRF-02) and the cutout
