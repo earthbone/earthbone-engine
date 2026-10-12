@@ -4461,6 +4461,12 @@ and alive in the shared World. `World::cast_spell` performs its authored reach
 check before applying effects. Invalid spells, unavailable physics space,
 misses and rejected targets return false.
 
+`godot/mag_16_actor_body_acquisition_test.gd` loads the installed Bannered Mare,
+synchronizes resident actor bodies and sends short live physics rays through
+their capsules. It checks that an acquired body RID belongs to the registered
+actor set and resolves to its owning FormID. Touch casts use the same owner map
+and first-contact query.
+
 `aimed_spell_projectile_contact(spell_file, spell_object,
 projectile_instance_id, contact_body)` maps the contacted actor body RID
 through that same owner table and applies the aimed spell through
@@ -4481,12 +4487,16 @@ freeing it releases the guard. Flight creation and movement are not covered.
 
 `selected_location_position()` returns the first static geometry hit along the
 camera look ray in Godot metres. `cast_location_spell_at_look(spell_file,
-spell_object)` sends that same hit point to the shared cast path. The explicit
+spell_object)` uses the authored SPIT range in feet, converted to 21.333
+Skyrim units per foot for the `PhysicsWorld` ray, then sends that hit point to
+the shared cast path. The explicit
 `cast_location_spell(spell_file, spell_object, x, y, z)` entry point accepts a
 Skyrim world position. Both check the segment from the player's eye to the
-point, allowing a hit at the endpoint and rejecting an earlier obstruction.
-Missing physics data rejects the cast. The world checks the authored SPIT
-range and centers each effect's area at the selected point.
+point in `PhysicsWorld` coordinates, allowing a hit at the endpoint and
+rejecting an earlier obstruction. Missing physics data rejects the cast. The
+world checks the authored SPIT range in Skyrim units and centers each effect's
+area at the selected point. The display point conversion follows the axis and
+scale mapping in `units.rs`.
 
 `godot/mag_17_location_selection_test.gd` loads the installed Bannered Mare,
 checks that the live camera ray selects loaded geometry, and casts the vanilla
@@ -5153,10 +5163,12 @@ render EFSH authored textures, color keys or particles on reference geometry.
 An opt-in `scr-24-test` build adds a synthetic request driver to
 `CellStreamerNode`. `godot/scr_24_effect_shader_test.gd` drives the actual
 RenderingServer path and checks keyed refresh, Stop, finite expiry, clear and
-tree-exit cleanup. Build with
+tree-exit cleanup. `godot/mag_14_effect_shader_live_test.gd` checks that Play
+creates one host shader instance and Stop releases it through that path. These
+checks verify RID lifecycle, not authored EFSH appearance. Build with
 `cargo build -p soe-godot-host --release --features scr-24-test`, then run
-`godot --path godot --script scr_24_effect_shader_test.gd`. The regression
-checks temporary server-instance ownership, not authored EFSH appearance.
+`godot --path godot --script scr_24_effect_shader_test.gd` or
+`godot --path godot --script mag_14_effect_shader_live_test.gd`.
 See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
 
 ## Image-space modifier rendering, MAG-71
