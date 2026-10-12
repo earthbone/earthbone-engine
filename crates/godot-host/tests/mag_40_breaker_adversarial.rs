@@ -43,6 +43,22 @@ fn mag_40_missing_efsh_record_does_not_request_a_fallback_visual() {
 }
 
 #[test]
+fn mag_40_non_efsh_hit_shader_record_does_not_request_a_fallback_visual() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag::new(b"MGEF"), 0x400));
+    let mut order = LoadOrder::new();
+    order.add("WrongShaderType.esm", plugin).unwrap();
+    let game = Game::new(order);
+    let world = game.world();
+    let mut active = BTreeSet::new();
+
+    let requests = effect_shader_requests(&world, &[detection(0x101, Some(0x400))], &mut active);
+
+    assert!(requests.is_empty());
+    assert!(active.is_empty());
+}
+
+#[test]
 fn mag_40_overlapping_effects_for_one_shader_start_only_one_target_visual() {
     let game = game_with_efsh();
     let world = game.world();

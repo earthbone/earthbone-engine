@@ -4318,10 +4318,16 @@ impl World {
             .collect();
         for active in active_effects {
             let definition = self.magic_effect_definition(active.effect)?;
-            if definition.data.archetype != DETECT_LIFE_ARCHETYPE
-                || !active.magnitude.is_finite()
-                || active.magnitude <= 0.0
-            {
+            if definition.data.archetype != DETECT_LIFE_ARCHETYPE {
+                continue;
+            }
+            let entry = self.magic_item_effect(active.spell, active.effect_index)?;
+            let radius = if entry.data.area > 0 {
+                entry.data.area as f32
+            } else {
+                active.magnitude
+            };
+            if !radius.is_finite() || radius <= 0.0 {
                 continue;
             }
             let Some(origin) = self.reference_ref(active.target).map(|r| r.position) else {
@@ -4330,9 +4336,8 @@ impl World {
             if !origin.iter().all(|value| value.is_finite()) {
                 continue;
             }
-            let radius_squared = active.magnitude * active.magnitude;
+            let radius_squared = radius * radius;
             let hit_shader = self.magic_effect_hit_shader(active.effect)?;
-            let entry = self.magic_item_effect(active.spell, active.effect_index)?;
             let candidates: Vec<_> = self
                 .refs
                 .iter()

@@ -2790,6 +2790,12 @@ impl CellStreamerNode {
         self.runtime_lights.len() as i32
     }
 
+    /// Number of active EFSH render instances owned by this node.
+    #[func]
+    pub fn effect_shader_render_count(&self) -> i32 {
+        self.effect_shaders.len() as i32
+    }
+
     /// Number of active RFCT render instances, for host diagnostics.
     #[func]
     pub fn visual_effect_render_count(&self) -> i32 {

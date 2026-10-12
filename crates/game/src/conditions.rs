@@ -353,6 +353,7 @@ pub fn supports_function(function: u16) -> bool {
             | 696
             | 699
             | 706
+            | 715
             | 713
             | 721
             | 724
@@ -425,6 +426,7 @@ pub fn supports_function(function: u16) -> bool {
             | 694
             | 707
             | 710
+            | 719
             | 676
             | 99
             | 142
@@ -1566,7 +1568,7 @@ fn function_value(
             let weather = resolve(world, context.owner, raw, Some(*b"WTHR"))?;
             boolean(world.current_sky_weather() == Some(weather))
         }
-        64 | 143 | 150 | 228 | 226 | 227 | 449 | 454 | 637 | 703 | 715 => {
+        64 | 143 | 150 | 228 | 226 | 227 | 449 | 454 | 637 | 703 => {
             return Err(Error::Function(c.function));
         }
         641 => {
@@ -2403,11 +2405,32 @@ fn function_value(
                     .is_some_and(|pack| pack.has_flag(crate::package::flags::IGNORE_COMBAT))
             }))
         }
+        715 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let undead = world
+                .form("ActorTypeUndead")
+                .ok_or(Error::UnavailableContract(715))?;
+            boolean(world.has_keyword(subject, undead))
+        }
         719 => {
-            return Err(Error::UnavailableContractReason(
-                c.function,
-                "CK names hostility but does not define its faction and crime rules",
-            ));
+            first_parameter_only(c)?;
+            let other = if raw == 0 {
+                world.player()
+            } else {
+                resolve_reference(world, context.owner, raw)?
+            };
+            if world.actor(other).is_none() {
+                return Err(Error::Form(other));
+            }
+            let hostile = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .combat_target
+                == Some(other);
+            boolean(hostile)
         }
         459 | 533 | 534 | 535 => {
             if c.parameters[1] != 0 {
