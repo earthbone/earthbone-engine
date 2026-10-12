@@ -34,16 +34,15 @@ detection or selects a hand. The caller identifies the equipped weapon.
 
 The `Weapon.Fire(ObjectReference akSource, Ammo akAmmo = None)` native reads
 the base weapon, source reference and optional ammo from the shared form table.
-It returns a typed error for missing or mistyped forms and logs that error to
-the VM. A valid request reports unsupported ranged projectile execution and
-does not change health, inventory or the event queue. `Weapon.Fire` therefore
-does not execute ranged combat yet. The local SKSE vanilla `Weapon.psc` page
-documents this signature and the source-reference contract. A projectile
-execution system is a prerequisite for completing this native. The lower-level
-`World::release_projectile` transaction handles an equipped bow or crossbow
-with host-supplied launch coordinates and direction. Those inputs do not cover
-the native's arbitrary source reference and optional ammunition contract, so
-the native does not call that transaction.
+It validates a bow or crossbow and the linked arrow or bolt PROJ record, then
+queues a transient `FlightRequest` using the source reference's position and
+rotation. An omitted ammo argument selects the source actor's compatible
+equipped ammunition. Invalid forms and unsupported projectile kinds are logged
+to the VM. The request is host work and is not saved. The local SKSE vanilla
+`Weapon.psc` supplies the signature and says the weapon fires from the source;
+local xEdit and UESP AMMO/PROJ layouts supply the parsed record fields. The
+existing flight request type is reused so Papyrus does not create a second
+projectile representation. This native does not consume an inventory stack.
 
 ## Record and runtime inputs
 

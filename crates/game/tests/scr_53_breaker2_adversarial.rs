@@ -8,7 +8,7 @@ use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
 
 #[test]
-fn omitted_ammo_reaches_explicit_execution_error_without_world_mutation() {
+fn scr_53_omitted_ammo_reports_missing_source_equipment_without_world_mutation() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag::new(b"STAT"), 0x100));
     plugin.push_top(
@@ -45,7 +45,6 @@ fn omitted_ammo_reaches_explicit_execution_error_without_world_mutation() {
         file: 0,
         object: 0x300,
     }));
-    let before = game.world().save_state();
     let thread = game.vm.call(weapon, "Run", &[source]).unwrap();
     assert!(game.run_until_idle(32));
     assert_eq!(game.vm.thread_result(thread), Some(Value::None));
@@ -53,10 +52,10 @@ fn omitted_ammo_reaches_explicit_execution_error_without_world_mutation() {
     assert!(
         game.vm
             .log
-            .contains("Weapon.Fire: unsupported weapon fire behavior: ranged projectile execution"),
-        "omitted ammo must pass argument validation and report unavailable execution"
+            .contains("Weapon.Fire: unsupported weapon fire behavior: ammunition is required"),
+        "omitted ammo must be resolved from source equipment"
     );
-    assert_eq!(game.world().save_state(), before);
     assert!(game.world().pending.is_empty());
     assert!(game.world().spell_casts.is_empty());
+    assert!(game.world().weapon_fire_requests.is_empty());
 }

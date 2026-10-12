@@ -2422,11 +2422,14 @@ Creation Engine frame capture or memory budgets.
 - `Weather.SetActive` stores the selected `WTHR` form and its optional override
   and acceleration flags in `World::weather_request`. Both flags default to
   false. A non-weather receiver logs an error and leaves the previous request
-  unchanged. The RND-18 world section saves this request and sky transition.
+  unchanged. The sky sampler honors the override when the active region or
+  climate changes, and uses the accelerated transition duration when requested.
+  The RND-18 world section saves this request and sky transition.
   The host image-space view uses the request's daytime WTHR `IMSP` entry unless
   an explicit image-space selection is active. The shipped `Weather.psc`
   defines the native defaults.
-  The RND-18 host sky reads WTHR colors, clouds and transition timing.
+  The RND-18 host sky reads sampled WTHR colors, clouds and transition blend,
+  so a native request updates the rendered sky as the shared world ticks.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
@@ -4234,10 +4237,11 @@ the appearance empty.
   are recorded, no effect applies. Crime has bounty and infamy ledgers, no
   arrest implementation. Arrest choice accounting and jail sentences exist,
   but guard movement, jail placement and resistance combat are not implemented.
-- `Weapon.Fire` validates its WEAP, source reference and optional AMMO through
-  the shared form table. Invalid Papyrus arguments and invalid forms are logged
-  as typed errors. A valid request logs an unsupported error until ranged
-  projectile execution exists, without changing inventory or queuing events.
+- `Weapon.Fire` validates its WEAP, enabled source reference and optional AMMO
+  through the shared form table. A valid bow or crossbow request queues a
+  record-backed `FlightRequest` with its source transform. Invalid Papyrus
+  arguments and invalid projectile records are logged as typed errors. The
+  request is transient host work, and this binding does not consume inventory.
   See [combat](combat.md).
 - Faction relations from `XNAM`, location keyword data, perks and the actor
   flags were tested on the synthetic master and reached by the vanilla

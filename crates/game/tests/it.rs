@@ -1697,6 +1697,8 @@ mod scr_53_weapon_fire;
 mod scr_54_adversarial;
 #[path = "scr_54_breaker2_adversarial.rs"]
 mod scr_54_breaker2_adversarial;
+#[path = "scr_54_breaker3_adversarial.rs"]
+mod scr_54_breaker3_adversarial;
 #[path = "scr_54_breaker_adversarial.rs"]
 mod scr_54_breaker_adversarial;
 #[path = "scr_54_weather_set_active.rs"]
@@ -2110,3 +2112,9 @@ mod hst_26_activation;
 mod hst_26_adversarial;
 #[path = "hst_28_adversarial.rs"]
 mod hst_28_adversarial;
+#[path = "scr_53_breaker3_adversarial.rs"]
+mod scr_53_breaker3_adversarial;
+#[path = "scr_53_breaker4_adversarial.rs"]
+mod scr_53_breaker4_adversarial;
+#[path = "scr_54_breaker4_adversarial.rs"]
+mod scr_54_breaker4_adversarial;
