@@ -14,6 +14,8 @@
 //! outfit that later distributions may not replace, and `Death` moves the
 //! distribution to the moment the actor dies. So `FinalDeathOutfit` is a valid
 //! key and means both.
+//! SPID's `LookupConfigs.cpp::sanitize` also accepts the legacy `" - "`
+//! form separator when the entry contains no tilde.
 
 use crate::filter::BucketFilters;
 use crate::form::FormRef;
@@ -208,6 +210,14 @@ fn parse_line(
     value: &str,
     line: usize,
 ) -> Option<Distribution> {
+    let line_seed = entry_seed(value);
+    let normalized;
+    let value = if value.contains('~') {
+        value
+    } else {
+        normalized = value.replacen(" - ", "~", 1);
+        &normalized
+    };
     let fields: Vec<String> = value.split('|').map(|s| s.trim().to_string()).collect();
     let is_package = record_type == RecordType::Package;
     let (chance, deterministic_chance) = parse_chance(field(&fields, 6))?;
@@ -223,7 +233,7 @@ fn parse_line(
         index_or_count: parse_index_or_count(field(&fields, 5), is_package),
         chance,
         deterministic_chance,
-        line_seed: entry_seed(value),
+        line_seed,
         line,
     })
 }

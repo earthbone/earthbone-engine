@@ -15,7 +15,12 @@ fn wait_time(wait: &str, menu_seconds: f64, menu_hours: f64, live_hours: f64) ->
                 .local("result", "None")
                 .ins(
                     Opcode::CallStatic,
-                    vec![s("Utility"), s(wait), ident("result"), f(1.0)],
+                    vec![
+                        s("Utility"),
+                        s(wait),
+                        ident("result"),
+                        f(if wait == "Wait" { 0.5 } else { 1.0 }),
+                    ],
                 )
                 .ins(Opcode::Return, vec![none()])
                 .build(),

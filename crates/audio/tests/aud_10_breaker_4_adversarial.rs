@@ -5,6 +5,7 @@
 
 use soe_audio::pcm::Pcm;
 use soe_audio::rhubarb::Rhubarb;
+use soe_audio::viseme::VisemeSource;
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
@@ -33,7 +34,6 @@ fn aud_10_rejects_stereo_pcm_with_an_incomplete_interleaved_frame() {
 #[cfg(feature = "xwma-ffmpeg")]
 #[test]
 fn aud_10_fixed_info_corpus_keeps_hinted_and_unhinted_cues_within_audio_duration() {
-    use soe_audio::viseme::VisemeSource;
     use soe_audio::wma::{decode_with, Ffmpeg};
     use soe_audio::{Fuz, Xwma};
     use soe_esm::records::gameplay::DialogueInfo;

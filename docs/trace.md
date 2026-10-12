@@ -265,7 +265,7 @@ Under sustained distinct-message traffic beyond those bounds, the queues
 discard their oldest retained data. `window` selects messages by inclusive
 logging-clock timestamps before grouping them, including unflushed messages.
 `export_window` writes that selection for explicit diagnostics. PRF-18 selects
-the recording thread's active subscriber and snapshots its history when the
+all live engine subscribers and snapshots their history when the
 one-second tail completes, before handing the capture to the writer. Retained
 events carry `Instant` timestamps, so subscriber and recorder epochs can differ
 and submillisecond window boundaries retain their meaning. The snapshot groups
@@ -297,6 +297,9 @@ boundaries. Host routing and F3 controls are tested in Godot separately.
 `tool_06_hitch_` tests also cover automatic synthetic hitch export, worker
 messages, filtering, repetition counts, escaped structured fields, exact
 window boundaries, differing epochs, snapshot ownership and sidecar failures.
+The print-lint fixture uses the parent Cargo executable and a temporary target
+directory so a nested check neither reserves another wrapper slot nor shares
+the engine build lock.
 No dependency was added for the recorder connection. `cargo tree -p soe-trace`
 retains the dependency tree described above.
 

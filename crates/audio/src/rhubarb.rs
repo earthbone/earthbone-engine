@@ -113,6 +113,11 @@ fn write_wav(pcm: &Pcm, path: &Path) -> Result<()> {
             "cannot write a WAV for a stream with no rate or channels".to_string(),
         ));
     }
+    if !pcm.samples.len().is_multiple_of(usize::from(pcm.channels)) {
+        return Err(Error::Decode(
+            "PCM ends with an incomplete frame".to_string(),
+        ));
+    }
     let spec = hound::WavSpec {
         channels: 1,
         sample_rate: pcm.sample_rate,

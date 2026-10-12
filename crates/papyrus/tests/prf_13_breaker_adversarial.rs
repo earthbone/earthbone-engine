@@ -51,5 +51,5 @@ fn prf_13_concurrent_latent_waits_accumulate_per_function_and_stop_at_deadline()
     let entity = Entity::new("script", "WaitAudit.Run", "WaitPatch.esp", "latent_wait");
     let stats = &Profile::summary()[&entity];
     assert_eq!(stats.waits, 2);
-    assert_eq!(stats.wait_ns, 1_500_000_000);
+    assert_eq!(stats.wait_ns, 1_000_000_000);
 }

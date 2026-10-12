@@ -115,6 +115,11 @@ fn cancellation_after_end_releases_each_participant_once() {
     assert!(scene.advance(1.0));
     assert_eq!(
         [scene.time_for(4), scene.time_for(8)],
+        [Some(0.5), Some(3.0)]
+    );
+    assert!(scene.advance(1.0));
+    assert_eq!(
+        [scene.time_for(4), scene.time_for(8)],
         [Some(1.0), Some(4.0)]
     );
     assert!(!scene.advance(0.0));

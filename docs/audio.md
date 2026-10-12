@@ -298,6 +298,11 @@ where the recording audibly differs. A localized string ID is not resolved in th
 caller must resolve it before generating cues. Missing or unresolved text uses audio-only
 recognition. Rhubarb reports cue times in hundredths of a second.
 
+The WAV adapter rejects PCM ending in an incomplete interleaved frame before
+running Rhubarb. AUD-10's synthetic stereo regression checks this without an
+external recognizer. Installed AUD-02 comparison tests skip with a reason
+when `SKYRIM_DATA` is unset.
+
 The gated AUD-10 check selects eight matching Skyrim.esm INFO responses in ascending form ID and
 response number from the English voice archive. It generates each track both with and without the
 response text and checks that each reported track duration differs from decoded audio duration by

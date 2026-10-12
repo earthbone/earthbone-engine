@@ -8,9 +8,14 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-fn archive() -> soe_bsa::Archive {
-    let data = PathBuf::from(std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA is set"));
-    soe_bsa::Archive::open(&data.join("Skyrim - Voices_en0.bsa")).expect("voice archive opens")
+fn archive() -> Option<soe_bsa::Archive> {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return None;
+    };
+    Some(
+        soe_bsa::Archive::open(&data.join("Skyrim - Voices_en0.bsa")).expect("voice archive opens"),
+    )
 }
 
 fn xwma_for(archive: &soe_bsa::Archive, name: &str) -> Vec<u8> {
@@ -87,7 +92,9 @@ fn correlation(left: &[f32], right: &[f32]) -> f64 {
 
 #[test]
 fn aud_02_stereo_vanilla_line_preserves_interleaved_frames_against_ffmpeg() {
-    let archive = archive();
+    let Some(archive) = archive() else {
+        return;
+    };
     let stereo = archive
         .files()
         .iter()
@@ -131,7 +138,9 @@ fn aud_02_stereo_vanilla_line_preserves_interleaved_frames_against_ffmpeg() {
 
 #[test]
 fn aud_02_native_decoder_has_no_cross_stream_state_leak() {
-    let archive = archive();
+    let Some(archive) = archive() else {
+        return;
+    };
     let names: Vec<_> = archive
         .files()
         .iter()

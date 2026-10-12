@@ -116,6 +116,9 @@ def validate_baseline(baseline):
         for name, value in operations.items()
     ):
         raise ValueError("baseline operations must contain positive integer medians")
+    required = OPERATIONS | (INSTALLED_OPERATIONS if baseline["data_mode"] == "installed" else set())
+    for name in sorted(required - operations.keys()):
+        raise ValueError(f"missing positive baseline for {name}")
     return baseline
 
 

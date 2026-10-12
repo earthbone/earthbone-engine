@@ -24,7 +24,7 @@ fn run_python(assertions: &str) {
 #[test]
 fn prf_04_requested_24_hour_duration_reaches_the_cpu_child() {
     run_python(
-        "from pathlib import Path\nfrom types import SimpleNamespace\nargs = SimpleNamespace(backend='cpu', binary=Path('/tmp/soe-bench'), scenario='mixed', samples=120, warmup=30, seed=1, duration=86400, vm_budget=100000, godot=None)\nargv, overrides = perf.command(args, 8)\nassert overrides == {}\nassert argv[argv.index('--seconds') + 1] == '86400', argv",
+        "from pathlib import Path\nfrom types import SimpleNamespace\nargs = SimpleNamespace(mode='soak', backend='cpu', binary=Path('/tmp/soe-bench'), scenario='mixed', samples=120, warmup=30, seed=1, duration=86400, vm_budget=100000, godot=None)\nargv, overrides = perf.command(args, 8)\nassert overrides == {}\nassert argv[argv.index('--seconds') + 1] == '86400', argv",
     );
 }
 
