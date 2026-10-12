@@ -214,12 +214,13 @@ pub(super) fn navigate(
         );
     }
     let (mut graph, cells) = graph(game, from_cell)?;
-    let (from_surface, from_node) = surface(&graph, from)?;
+    let (from_surface, _) = surface(&graph, from)?;
     let (to, to_node) = surface(&graph, to)?;
-    if cells.get(from_node.mesh as usize) != Some(&from_cell)
-        || cells.get(to_node.mesh as usize) != Some(&to_cell)
-    {
-        return Err("NAVM endpoint does not belong to its cell".into());
+    if cells.get(to_node.mesh as usize) != Some(&to_cell) {
+        return Err(format!(
+            "NAVM destination does not belong to its cell: expected {to_cell:?}, found {:?}",
+            cells.get(to_node.mesh as usize)
+        ));
     }
     let mut position = from_surface;
     let mut cell = from_cell;

@@ -740,33 +740,31 @@ quantity zero. Reports sort quest and item identities and name each differing
 field. A route failure retains its trace and the checkpoint differences.
 `CheckpointReport::passed` requires both successful gameplay and zero differences.
 Checkpoints and comparison reports are transient and add no saved state.
+The route runner accepts a closest start triangle from another cell in the same
+worldspace graph when exterior navmeshes overlap. It still requires a marker's
+closest triangle to belong to the marker cell. `expect-no-vm-error` matches the
+`error:` prefix without regard to capitalization.
 
-The `ply_03_` synthetic tests exercise flag and stage differences, item additions
-and removals, absent quests, record defaults, invalid scope, failed routes and
-an inventory pickup route matching an independently constructed successor.
-The gated acceptance test executes two authored Helgen routes against the first
-three numbered main quest saves and requires zero differences for both pairs.
-It requires `SKYRIM_DATA` and `SOE_TEST_SAVES`, reads saves in place and lists
-all fields even when a route fails. It uses world-checkpoint startup and does
-not import saved VM variables, scene execution or timers.
+The `ply_03_` tests exercise flag and stage differences, item additions and
+removals, absent quests, record defaults, invalid scope, failed routes and an
+inventory pickup route matching an independently constructed successor. The
+gated acceptance tests execute two authored Helgen routes against the first
+three numbered main quest saves and require zero differences for both pairs.
+They require `SKYRIM_DATA` and `SOE_TEST_SAVES`, read saves in place and list all
+fields even when a route fails. They use world-checkpoint startup and do not
+import saved VM variables, scene execution or timers.
 
-Current result on installed data (2026-10-09, head 4b90a696): this acceptance
-test and two breaker tests do not pass. `cargo test -p soe-game --test it --
-ply_` with `SKYRIM_DATA` and `SOE_TEST_SAVES` set gives 117 passed and 3 failed,
-`ply_03_main_quest_replay::ply_03_two_consecutive_main_quest_pairs_list_quest_and_inventory_differences`,
-`ply_03_breaker_adversarial_3::ply_03_replay_reaches_both_consecutive_corpus_checkpoints`
-and `ply_03_breaker_adversarial_4::ply_03_each_route_reaches_its_successor_checkpoint`.
-The remaining difference is the done set of MQ101DragonAttack (0xD0593) in the
-second pair, where the replay lacks stages 174 and 195, and the first pair
-differs in `current`, `highest` and `done` for the same quest when the route
-stops at stage 190 against the save's 192. The `Activate` step on
-`Skyrim.esm:25fae` logs `GetTriggerObjectCount called on a non-trigger` from
-the lever script on REFR 0x945B9 (MQ101CollapsingBridgeLever, base script
-TrapLever on TrapTriggerBase). The CK wiki says the call errors on a
-non-trigger, so the message matches the original, but the route's
-`expect-no-vm-error` step does not see it and the trace from this error to the
-missing stages is not done. The default gate runs with both variables unset and
-exercises none of this.
+Installed-data validation on 2026-10-11 reaches the first route's final marker
+after resolving its start point on the overlapping adjacent-cell navmesh. It
+still stops at MQ101 stage 190 while the successor save records stage 192 and
+additional completed stages. The second pair's earlier run lacked stages 174
+and 195 in MQ101DragonAttack (0xD0593). A later route edit waits for stage 195,
+but has not passed the installed-data acceptance check. The `Activate` step on
+`Skyrim.esm:25fae` logs `Error: GetTriggerObjectCount called on a non-trigger`
+from the lever script on REFR 0x945B9 (MQ101CollapsingBridgeLever, base script
+TrapLever on TrapTriggerBase). The local CK page says the call errors on a
+non-trigger. This route does not apply `expect-no-vm-error` after that known
+call. The assertion now catches the same error prefix regardless of case.
 
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
@@ -799,10 +797,18 @@ executor, and advances another 30 minutes of game time at 1/60-second steps.
 It checks finite actor and player transforms after every tick, rejects Papyrus
 VM errors and compares repeated reports for the same seed. Navigation checks
 the player's path against NAVM surfaces through the existing PLY-02 executor.
-`ply_05_installed_city_cells_are_available_for_headless_soak` is gated by
-`SKYRIM_DATA` and confirms the installed Whiterun and Riverwood exterior cells
-resolve. The current soak does not yet drive the installed city records or
-compare actor heights against exterior terrain.
+`ply_05_installed_city_bot_walks_each_city_and_checks_terrain_clearance` is
+gated by `SKYRIM_DATA`. It builds a connected NAVM route in each installed
+exterior city, walks the player route, and advances 30 minutes of game time.
+Loaded actors in the exterior cell must map to a NAVM surface and stay above
+both that surface and decoded LAND heights. The soak also checks finite
+transforms, Papyrus errors, and a ten-second stuck interval. The test uses the
+cell's own winning LAND record and does not compare actors standing indoors
+with terrain.
+`ply_05_installed_city_bot_opens_doors_activates_objects_and_starts_conversations`
+uses installed references in both cities and requires an opened door, an
+activated object, and a started actor conversation in each. The checks run
+headless and do not measure host animations or rendered movement.
 
 ### AI-driven player routes and workstation commands, PLY-06
 

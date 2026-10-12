@@ -4,9 +4,8 @@
 use soe_game::play::{Route, Step};
 
 #[test]
-#[ignore = "PLY-03 open: the checkpoint replay route has no gameplay step yet"]
 fn ply_03_route_advances_gameplay_before_checkpoint_comparison() {
-    let route = Route::parse("expect-no-vm-error").unwrap();
+    let route = Route::parse(super::ply_03_main_quest_replay::ROUTES[1]).unwrap();
     assert!(
         route.steps.iter().any(|(_, step)| matches!(
             step,
