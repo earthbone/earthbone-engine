@@ -309,7 +309,7 @@ fn sav_54_every_accepted_form_version_retains_both_mask_words() {
             save.header.version = save_version;
             save.form_version = form_version;
             set_form_mask(&mut save.change_forms[1], 0x89AB_CDEF, 0xFEDC, form_version);
-            let parsed = Save::parse(&save.write().unwrap()).unwrap();
+            let parsed = Save::parse(&write_fixture(&mut save)).unwrap();
             let mut world = World::new(fixture_order());
             let report = world.restore_vanilla_reference_placements(&parsed).unwrap();
             assert_eq!(
@@ -351,7 +351,7 @@ fn sav_54_engine_isolates_each_mask_word_at_every_accepted_form_version() {
                     save.header.version = save_version;
                     save.form_version = form_version;
                     set_form_mask(&mut save.change_forms[1], mask, second, form_version);
-                    let parsed = Save::parse(&save.write().unwrap()).unwrap();
+                    let parsed = Save::parse(&write_fixture(&mut save)).unwrap();
                     let mut world = World::new(fixture_order_with_flags(authored));
                     world.restore_vanilla_reference_placements(&parsed).unwrap();
                     let state = world.reference_ref(target).unwrap();
@@ -491,6 +491,39 @@ pub(crate) fn fixture() -> Save {
         change(0x800800, false, 0, 0x400800, [4.0, 5.0, 6.0], Some(2)),
     ];
     save
+}
+
+pub(crate) fn write_fixture(save: &mut Save) -> Vec<u8> {
+    assert_eq!(save.header.compression, Compression::None);
+    for change in &mut save.change_forms {
+        let length = change.data.len().max(change.uncompressed_len as usize);
+        let width = if length > u16::MAX as usize {
+            2
+        } else {
+            u8::from(length > u8::MAX as usize)
+        };
+        change.type_field = change.type_index() | (width << 6);
+    }
+    let (bytes, profile) = save.write_profiled().unwrap();
+    let body_bytes: usize = profile.sections.iter().map(|section| section.bytes).sum();
+    let mut offset = (bytes.len() - body_bytes) as u32;
+    save.location_table.table_1_count = save.table_1.len() as u32;
+    save.location_table.table_2_count = save.table_2.len() as u32;
+    save.location_table.table_3_count = save.table_3.len() as u32 - 1;
+    save.location_table.change_form_count = save.change_forms.len() as u32;
+    for section in profile.sections {
+        match section.name {
+            "table_1" => save.location_table.table_1_offset = offset,
+            "table_2" => save.location_table.table_2_offset = offset,
+            "change_forms" => save.location_table.change_forms_offset = offset,
+            "table_3" => save.location_table.table_3_offset = offset,
+            "form_id_array" => save.location_table.form_id_array_count_offset = offset,
+            "unknown_3" => save.location_table.unknown_table_3_offset = offset,
+            _ => {}
+        }
+        offset += section.bytes as u32;
+    }
+    save.write().unwrap()
 }
 
 #[test]

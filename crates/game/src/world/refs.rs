@@ -1100,6 +1100,9 @@ impl World {
         if self.is_ethereal(activator) {
             return false;
         }
+        if !self.reference_enabled(target) {
+            return false;
+        }
         let Some((blocked, base, teleport)) = self
             .reference(target)
             .map(|r| (r.activation_blocked, r.base, r.teleport))

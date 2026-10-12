@@ -52,6 +52,6 @@ fn mag_65_missing_disguise_effect_record_is_rejected_without_mutation() {
         Some(id(TARGET)),
         &mut |_, _| soe_papyrus::ObjectId(1),
     );
-    assert!(matches!(cast, Err(MagicError::Missing(form)) if form == id(SPELL)));
+    assert!(matches!(cast, Err(MagicError::Missing(form)) if form == id(EFFECT)));
     assert_eq!(disguised.world().active_effects().count(), 0);
 }

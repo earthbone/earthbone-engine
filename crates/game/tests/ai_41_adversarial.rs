@@ -152,6 +152,24 @@ fn ai_41_conditions_without_usable_contract_return_named_diagnostics() {
             "CK names hostility but does not define its faction and crime rules",
         ),
     ] {
+        if function == 719 {
+            assert!(conditions::supports_function(function));
+            assert_eq!(
+                evaluate(&game, id(SUBJECT), &condition(function, 0, 0, 0.0)),
+                Ok(true)
+            );
+            let player = game.world_mut().player();
+            game.world_mut().actor(id(SUBJECT)).unwrap().combat_target = Some(player);
+            assert_eq!(
+                evaluate(&game, id(SUBJECT), &condition(function, 0, 0, 1.0)),
+                Ok(true)
+            );
+            assert_eq!(
+                evaluate(&game, id(SUBJECT), &condition(function, 0, 1, 1.0)),
+                Err(conditions::Error::Parameter(function, 1))
+            );
+            continue;
+        }
         assert!(!conditions::supports_function(function));
         assert_eq!(
             evaluate(&game, id(SUBJECT), &condition(function, 0, 0, 0.0)),

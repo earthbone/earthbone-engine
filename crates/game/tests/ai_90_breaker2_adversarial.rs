@@ -108,6 +108,7 @@ fn ai_90_non_sentinel_input_index_without_data_is_unsupported_before_movement() 
     let mut world = game.world_mut();
     let actor = world.reference(id(ACTOR)).unwrap();
     assert_eq!(actor.position[0], 0.0);
+    drop(world);
     let world = game.world();
     let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
     assert!(matches!(ai.procedure, Procedure::Unsupported(_)));

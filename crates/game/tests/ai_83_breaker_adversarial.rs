@@ -107,6 +107,22 @@ fn ai_83_is_unique_rejects_non_actor_context_and_unused_parameters() {
 fn ai_83_undocumented_interaction_and_undead_functions_report_diagnostics() {
     let game = fixture();
     for function in [703, 715] {
+        if function == 715 {
+            assert!(conditions::supports_function(function));
+            assert_eq!(
+                evaluate(&game, id(0x900), &condition(function, 0, 0, 0.0)),
+                Err(conditions::Error::UnavailableContract(function))
+            );
+            assert_eq!(
+                evaluate(&game, id(0x900), &condition(function, 1, 0, 0.0)),
+                Err(conditions::Error::Parameter(function, 1))
+            );
+            assert_eq!(
+                evaluate(&game, id(0x920), &condition(function, 0, 0, 0.0)),
+                Err(conditions::Error::Form(id(0x920)))
+            );
+            continue;
+        }
         assert!(!conditions::supports_function(function));
         assert_eq!(
             evaluate(&game, id(0x900), &condition(function, 0, 0, 0.0)),

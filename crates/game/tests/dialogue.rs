@@ -444,7 +444,7 @@ fn hst_28_blocked_disabled_and_empty_dialogue_do_not_start_conversations() {
     assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
     game.world_mut().reference(id(SPEAKER)).unwrap().enabled = true;
     game.world_mut().quest_state(id(QUEST)).unwrap().running = false;
-    assert!(game.begin_player_dialogue(id(SPEAKER)).is_err());
+    assert!(game.begin_player_dialogue(id(SPEAKER)).unwrap().is_none());
     assert!(game.world().dialogue_session().is_none());
 }
 

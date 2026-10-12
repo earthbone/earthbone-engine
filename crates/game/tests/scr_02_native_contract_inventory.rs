@@ -133,7 +133,6 @@ fn scr_02_actor_contract_findings_are_registered_to_their_owning_rows() {
         "GetSleepState",
         "GetSitState",
         "GetFlyingState",
-        "SetEssential",
         "EquipItem",
     ];
 
@@ -143,6 +142,8 @@ fn scr_02_actor_contract_findings_are_registered_to_their_owning_rows() {
             "Actor.{method} is listed in the audit but absent from the registry"
         );
     }
+    assert!(game.vm.natives.has_method("ActorBase", "SetEssential"));
+    assert!(!game.vm.natives.has_method("Actor", "SetEssential"));
 }
 
 #[test]

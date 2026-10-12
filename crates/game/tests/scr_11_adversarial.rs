@@ -9,13 +9,9 @@ use soe_game::Game;
 #[test]
 fn scr_11_state_and_vehicle_bindings_are_present_as_actor_methods() {
     let game = Game::new(LoadOrder::new());
-    for name in [
-        "GetSitState",
-        "GetFlyingState",
-        "SetEssential",
-        "SetVehicle",
-        "SetLookAt",
-    ] {
+    for name in ["GetSitState", "GetFlyingState", "SetVehicle", "SetLookAt"] {
         assert!(game.vm.natives.has_method("Actor", name), "Actor.{name}");
     }
+    assert!(game.vm.natives.has_method("ActorBase", "SetEssential"));
+    assert!(!game.vm.natives.has_method("Actor", "SetEssential"));
 }

@@ -64,7 +64,7 @@ fn values(race_pairs: &[(i8, i8)], weighted_skill: usize, level: u16) -> Vec<(St
 fn skill(values: &[(String, f32)], name: &str) -> f32 {
     values
         .iter()
-        .find(|(candidate, _)| candidate == name)
+        .find(|(candidate, _)| candidate == &name.to_ascii_lowercase())
         .unwrap()
         .1
 }

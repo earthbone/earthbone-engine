@@ -181,10 +181,10 @@ impl ReferenceExtraData for World {
                     return None;
                 }
                 let flags = record.find(T(b"DATA"))?;
-                if flags.len() < 2 {
+                if !matches!(flags.len(), 1 | 2) {
                     return None;
                 }
-                if u16::from_le_bytes([flags[0], flags[1]]) & 1 != 0 {
+                if flags[0] & 1 != 0 {
                     return Some(ReferenceExtra::NorthRotation(0.0));
                 }
                 let index = self.order.build_cell_index();
@@ -224,9 +224,13 @@ impl ReferenceExtraData for World {
                     state.inventory.stacks(*item).iter().find_map(|stack| {
                         let extra = stack.extra(142)?;
                         match extra.fields.as_slice() {
-                            [Field::Form(Some(outfit))] => Some(ReferenceExtra::OutfitItem(
-                                form_id(self.runtime_id(*outfit)),
-                            )),
+                            [Field::Form(Some(outfit))]
+                                if self.tag_of(*outfit) == Some(T(b"OTFT")) =>
+                            {
+                                Some(ReferenceExtra::OutfitItem(form_id(
+                                    self.runtime_id(*outfit),
+                                )))
+                            }
                             _ => None,
                         }
                     })
@@ -238,7 +242,9 @@ impl ReferenceExtraData for World {
                     state.inventory.stacks(*item).iter().find_map(|stack| {
                         let extra = stack.extra(62)?;
                         match extra.fields.as_slice() {
-                            [Field::Form(Some(poison)), Field::Word(count)] => {
+                            [Field::Form(Some(poison)), Field::Word(count)]
+                                if self.tag_of(*poison) == Some(T(b"ALCH")) =>
+                            {
                                 Some(ReferenceExtra::Poison {
                                     poison: form_id(self.runtime_id(*poison)),
                                     count: *count,
@@ -299,6 +305,14 @@ mod tests {
 
     fn world_with_reference() -> (World, GlobalFormId) {
         let mut world = World::new(LoadOrder::default());
+        world.created_base_records.insert(
+            id(4),
+            super::super::record_overrides::RecordOverride::new(id(4), Record::new(T(b"OTFT"), 4)),
+        );
+        world.created_base_records.insert(
+            id(5),
+            super::super::record_overrides::RecordOverride::new(id(5), Record::new(T(b"ALCH"), 5)),
+        );
         let reference = id(1);
         let mut state = RefState::new(None);
         state.teleport = Some((

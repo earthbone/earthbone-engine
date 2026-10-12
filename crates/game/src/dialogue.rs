@@ -460,7 +460,8 @@ impl Game {
         let result = if let Some((_, _, topic)) = eligible.first() {
             self.choose_dialogue_topic(*topic)
         } else if self.dialogue_choices()?.available.is_empty() {
-            Err(Error::State("speaker has no eligible dialogue"))
+            self.close_dialogue();
+            Ok(None)
         } else {
             Ok(None)
         };

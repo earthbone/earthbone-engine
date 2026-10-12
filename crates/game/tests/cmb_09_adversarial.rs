@@ -79,10 +79,9 @@ fn conditioned_effect(
         .iter()
         .position(|sub| sub.tag == Tag(*b"PRKC") && sub.data == [condition_tab])
         .unwrap();
-    record.subrecords.insert(
-        index + 1,
-        soe_esm::Subrecord::new(Tag(*b"CTDA"), ctda),
-    );
+    record
+        .subrecords
+        .insert(index + 1, soe_esm::Subrecord::new(Tag(*b"CTDA"), ctda));
     record
 }
 
@@ -131,10 +130,26 @@ fn cmb_09_condition_tabs_use_target_for_outgoing_and_attacker_for_incoming() {
         conditioned_effect(0x810, 35, 2, 3.0, 2, 0x812),
         conditioned_effect(0x813, 36, 2, 2.0, 1, 0x811),
     ]);
-    game.world_mut().actor(id(0x14)).unwrap().perks.insert(id(0x810));
-    game.world_mut().actor(id(0x14)).unwrap().perks.insert(id(0x811));
-    game.world_mut().actor(id(0x901)).unwrap().perks.insert(id(0x812));
-    game.world_mut().actor(id(0x901)).unwrap().perks.insert(id(0x813));
+    game.world_mut()
+        .actor(id(0x14))
+        .unwrap()
+        .perks
+        .insert(id(0x810));
+    game.world_mut()
+        .actor(id(0x14))
+        .unwrap()
+        .perks
+        .insert(id(0x811));
+    game.world_mut()
+        .actor(id(0x901))
+        .unwrap()
+        .perks
+        .insert(id(0x812));
+    game.world_mut()
+        .actor(id(0x901))
+        .unwrap()
+        .perks
+        .insert(id(0x813));
 
     let result = game.melee_hit(hit()).unwrap();
     assert!((result.weapon_damage - 20.0).abs() < 0.001);
@@ -143,7 +158,11 @@ fn cmb_09_condition_tabs_use_target_for_outgoing_and_attacker_for_incoming() {
 #[test]
 fn cmb_09_unowned_and_missing_perk_records_do_not_modify_damage() {
     let mut game = fixture(vec![effect(0x810, 35, 2, 100.0)]);
-    game.world_mut().actor(id(0x14)).unwrap().perks.insert(id(0x814));
+    game.world_mut()
+        .actor(id(0x14))
+        .unwrap()
+        .perks
+        .insert(id(0x814));
 
     let result = game.melee_hit(hit()).unwrap();
     assert!((result.weapon_damage - 15.0).abs() < 0.001);
@@ -153,13 +172,28 @@ fn cmb_09_unowned_and_missing_perk_records_do_not_modify_damage() {
 #[test]
 fn cmb_09_repeated_hits_reapply_modifier_once_per_contact() {
     let mut game = fixture(vec![effect(0x810, 35, 3, 2.0)]);
-    game.world_mut().actor(id(0x14)).unwrap().perks.insert(id(0x810));
+    game.world_mut()
+        .actor(id(0x14))
+        .unwrap()
+        .perks
+        .insert(id(0x810));
 
     let first = game.melee_hit(hit()).unwrap();
     let second = game.melee_hit(hit()).unwrap();
     assert!((first.health_damage - 30.0).abs() < 0.001);
     assert!((second.health_damage - 30.0).abs() < 0.001);
-    assert!((game.world_mut().actor(id(0x901)).unwrap().values.get("health").current() - 40.0).abs() < 0.001);
+    assert!(
+        (game
+            .world_mut()
+            .actor(id(0x901))
+            .unwrap()
+            .values
+            .get("health")
+            .current()
+            - 40.0)
+            .abs()
+            < 0.001
+    );
 }
 
 #[test]
@@ -172,9 +206,27 @@ fn cmb_09_malformed_effect_payload_rejects_before_health_changes() {
         .unwrap();
     payload.data.pop();
     let mut game = fixture(vec![bad]);
-    game.world_mut().actor(id(0x14)).unwrap().perks.insert(id(0x810));
+    game.world_mut()
+        .actor(id(0x14))
+        .unwrap()
+        .perks
+        .insert(id(0x810));
 
-    let before = game.world_mut().actor(id(0x901)).unwrap().values.get("health").current();
+    let before = game
+        .world_mut()
+        .actor(id(0x901))
+        .unwrap()
+        .values
+        .get("health")
+        .current();
     assert!(game.melee_hit(hit()).is_err());
-    assert_eq!(game.world_mut().actor(id(0x901)).unwrap().values.get("health").current(), before);
+    assert_eq!(
+        game.world_mut()
+            .actor(id(0x901))
+            .unwrap()
+            .values
+            .get("health")
+            .current(),
+        before
+    );
 }

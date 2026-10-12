@@ -1104,14 +1104,19 @@ fn update_simultaneous(world: &World, ai: &mut AiState, tree: &Tree, state: &mut
         return;
     };
     let now = world.clock.real_seconds;
+    let completed_success = simultaneous.completed.iter().copied().find(|child| {
+        tree.branches
+            .get(*child as usize)
+            .is_some_and(|branch| branch.success_completes_package)
+    });
     if simultaneous
         .success_deadline
         .is_some_and(|deadline| now >= deadline)
-        || simultaneous.success_branch.is_some_and(|branch| {
-            simultaneous.success_deadline.is_none() && simultaneous.completed.contains(&branch)
-        })
+        || completed_success.is_some()
     {
-        state.branch = simultaneous.success_branch.unwrap_or(simultaneous.parent);
+        state.branch = completed_success
+            .or(simultaneous.success_branch)
+            .unwrap_or(simultaneous.parent);
         state.active = false;
         state.finished = true;
         state.simultaneous = None;

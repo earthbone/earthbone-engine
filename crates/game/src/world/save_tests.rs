@@ -716,7 +716,7 @@ fn sav_07_ambiguous_legacy_loadouts_fail_before_world_or_vm_mutation() {
     world_at += 4;
     for _ in 0..plugin_count {
         let name_len = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
-        world_at += 4 + name_len as usize + 1 + 2 + 32;
+        world_at += 4 + name_len as usize + 1 + 2 + 2 + 32;
     }
     let script_count = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
     world_at += 4;

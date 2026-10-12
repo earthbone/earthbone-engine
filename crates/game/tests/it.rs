@@ -7,6 +7,15 @@
 mod common;
 mod support;
 
+#[path = "cmb_09_adversarial.rs"]
+mod cmb_09_adversarial;
+#[path = "sav_69_adversarial.rs"]
+mod sav_69_adversarial;
+#[path = "sav_69_breaker_adversarial.rs"]
+mod sav_69_breaker_adversarial;
+#[path = "tool_07_breaker4_adversarial.rs"]
+mod tool_07_breaker4_adversarial;
+
 #[path = "ui_11_mcm.rs"]
 mod ui_11_mcm;
 

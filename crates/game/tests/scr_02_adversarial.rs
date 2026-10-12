@@ -28,7 +28,6 @@ fn scr_02_audited_actor_and_effect_bindings_are_methods_only() {
                 "IsDetectedBy",
                 "GetSitState",
                 "GetFlyingState",
-                "SetEssential",
                 "SetVehicle",
                 "SetLookAt",
                 "ClearLookAt",
@@ -65,4 +64,7 @@ fn scr_02_audited_actor_and_effect_bindings_are_methods_only() {
             );
         }
     }
+    assert!(game.vm.natives.has_method("ActorBase", "SetEssential"));
+    assert!(!game.vm.natives.has_global("ActorBase", "SetEssential"));
+    assert!(!game.vm.natives.has_method("Actor", "SetEssential"));
 }

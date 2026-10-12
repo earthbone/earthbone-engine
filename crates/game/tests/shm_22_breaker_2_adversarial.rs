@@ -37,7 +37,12 @@ fn fixture() -> Game {
     top.entries.push(Entry::Group(interior));
     plugin.groups.push(top);
     let mut order = LoadOrder::new();
-    order.add("Shm22Residency.esp", plugin).unwrap();
+    order
+        .add(
+            "Shm22Residency.esp",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
+        .unwrap();
     Game::new(order)
 }
 
