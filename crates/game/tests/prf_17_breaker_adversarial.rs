@@ -49,3 +49,42 @@ fn prf_17_normal_papyrus_dispatch_stays_on_the_calling_thread() {
     let observed = observed.borrow().expect("native ran");
     assert_eq!(observed, caller, "normal dispatch left the caller thread");
 }
+
+#[test]
+fn prf_17_game_tick_keeps_papyrus_tasklets_on_the_calling_thread() {
+    let caller = std::thread::current().id();
+    let observed = Rc::new(RefCell::new(None::<ThreadId>));
+    let mut game = Game::new(LoadOrder::new());
+    let native_observed = Rc::clone(&observed);
+
+    game.add_natives(move |vm, _world| {
+        vm.natives.register_global(
+            "WorkerProbe",
+            "RecordThread",
+            Box::new(move |_| {
+                *native_observed.borrow_mut() = Some(std::thread::current().id());
+                NativeReturn::Value(Value::None)
+            }),
+        );
+    });
+    game.load_script(
+        &ScriptBuilder::new("WorkerProbe", "")
+            .function(
+                FunctionBuilder::new("Run", "None")
+                    .global()
+                    .ins(
+                        CallStatic,
+                        vec![s("WorkerProbe"), s("RecordThread"), ident("::nonevar")],
+                    )
+                    .build(),
+            )
+            .bytes(),
+    )
+    .unwrap();
+
+    game.vm.call_global("WorkerProbe", "Run", &[]).unwrap();
+    game.tick(1.0 / 60.0);
+
+    let observed = observed.borrow().expect("native ran");
+    assert_eq!(observed, caller, "Papyrus tasklet left the caller thread");
+}
