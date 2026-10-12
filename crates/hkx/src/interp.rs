@@ -259,17 +259,21 @@ impl SynchronizedClipScene {
     }
 
     /// Advance the shared lead clock once per frame. Returns false after the
-    /// last common marker has been reached or the scene has been cancelled.
+    /// final marker has been exposed or the scene has been cancelled.
     pub fn advance(&mut self, dt: f32) -> bool {
         if !self.active || !dt.is_finite() || dt < 0.0 {
             return false;
         }
-        self.elapsed += dt;
         let end = self
             .marker_time(self.lead, self.common_markers.len() - 1)
             .unwrap_or(0.0);
-        self.active = self.elapsed < end - self.marker_time(self.lead, 0).unwrap_or(0.0);
-        self.active
+        let duration = end - self.marker_time(self.lead, 0).unwrap_or(0.0);
+        if self.elapsed >= duration {
+            self.active = false;
+            return false;
+        }
+        self.elapsed += dt.min(duration - self.elapsed);
+        true
     }
 
     /// Current clip-local time for an actor, aligned at every shared marker.
@@ -325,6 +329,28 @@ impl SynchronizedClipScene {
         let actors = self.cancel();
         first.clear_synchronized_clip_time(first_generator);
         second.clear_synchronized_clip_time(second_generator);
+        actors
+    }
+
+    /// Cancel the scene, clear both interpreter overrides and release both
+    /// participants through the host's actor-lock callback.
+    pub fn cancel_clear_and_release_host_locks(
+        &mut self,
+        first: &mut Interpreter<'_>,
+        first_generator: NodeId,
+        second: &mut Interpreter<'_>,
+        second_generator: NodeId,
+        mut release_actor_lock: impl FnMut(u64),
+    ) -> [u64; 2] {
+        let actors = self.cancel_and_clear_interpreter_times(
+            first,
+            first_generator,
+            second,
+            second_generator,
+        );
+        for actor in actors {
+            release_actor_lock(actor);
+        }
         actors
     }
 
@@ -4967,6 +4993,8 @@ mod tests {
         assert!(second.set_synchronized_clip_time(NodeId(1), 0.5));
         assert_eq!(first.nodes[0].synchronized_time, Some(0.75));
         assert_eq!(second.nodes[0].synchronized_time, Some(0.5));
+        let mut host_locked_actors = std::collections::HashSet::from([7, 9]);
+        let mut released = Vec::new();
 
         let mut scene = SynchronizedClipScene::new(
             7,
@@ -4995,10 +5023,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            scene
-                .cancel_and_clear_interpreter_times(&mut first, NodeId(1), &mut second, NodeId(1),),
+            scene.cancel_clear_and_release_host_locks(
+                &mut first,
+                NodeId(1),
+                &mut second,
+                NodeId(1),
+                |actor| {
+                    assert!(host_locked_actors.remove(&actor));
+                    released.push(actor);
+                },
+            ),
             [7, 9]
         );
+        assert!(host_locked_actors.is_empty());
+        assert_eq!(released, [7, 9]);
         assert_eq!(first.nodes[0].synchronized_time, None);
         assert_eq!(second.nodes[0].synchronized_time, None);
     }

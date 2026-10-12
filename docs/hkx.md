@@ -441,13 +441,17 @@ What each node does:
   `SynchronizedClipScene` coordinates two actor clip clocks through ordered,
   shared named markers. The host supplies each clip's marker times, chooses
   the lead actor, advances the scene once per frame, then sets each wrapped
-  clip's synchronized time before updating its interpreter. Cancel returns
-  both actor ids and makes the scene inactive. The host clears the synchronized
-  time override on each interpreter when the scene ends or is cancelled.
+  clip's synchronized time before updating its interpreter. Completion exposes
+  the final shared marker for one update before the scene becomes inactive.
+  Cancel returns both actor ids and makes the scene inactive. The host clears
+  the synchronized time override on each interpreter when the scene ends or is
+  cancelled.
   `cancel_and_clear_interpreter_times` cancels the scene, clears both
-  interpreter overrides and returns both actor ids for the host to unlock.
-  Host lock release remains the caller's responsibility and is not covered by
-  this crate's tests.
+  interpreter overrides and returns both actor ids. The runtime can use
+  `cancel_clear_and_release_host_locks` to clear both overrides and call its
+  actor-lock release callback for each participant during cancellation. The
+  `anm_20_` cancellation test verifies both host locks are removed and both
+  interpreter overrides are cleared.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
 - `hkbEvaluateExpressionModifier`: compiles its expression data at graph
@@ -680,17 +684,19 @@ vector and quaternion operands, unknown symbols, malformed source and
 non-finite arithmetic return expression errors. Their guards stay closed,
 with deduplicated entries in `Unsupported.conditions`.
 
-A comma after a relational comparison repeats its left operand for one more
-relational comparison and combines the two results with logical AND. Thus
-`staggerMagnitude > .3 , < .7` passes strictly inside the two bounds and fails
-at either bound. `serde-hkx` declares a comma token but does not document its
-evaluation. Synthetic state-machine and expression tests cover the operator.
-The gated `tests/anm_50_adversarial.rs` check loads the shipped troll behavior,
-finds its authored transition and records the active troll machine state after
-the event at both bounds and just inside them. This exercises the decoded graph
-through the behavior interpreter, rather than substituting a synthetic graph.
-The local source establishes the token and the shipped expression. No capture
-from Skyrim's original Havok runtime was available.
+A comma after a relational comparison is interpreted here as repeating its
+left operand for another relational comparison and combining both results with
+logical AND. Thus `staggerMagnitude > .3 , < .7` passes strictly inside the two
+bounds and fails at either bound. The `serde-hkx` token schema lists comma,
+relational comparison and logical AND token kinds, but does not define comma
+evaluation. The interpretation is supported by the shipped troll expression
+and the regression traces, not by a Havok evaluation reference. Synthetic
+state-machine and expression tests cover the operator. The gated
+`tests/anm_50_adversarial.rs` check loads the shipped troll behavior, finds its
+authored transition and records the active troll machine state after the event
+at both bounds and just inside them. This runs the decoded graph through this
+crate's behavior interpreter. No trace from Skyrim's original Havok runtime is
+available, so the engine's comma semantics remain unconfirmed.
 
 `DISABLE_CONDITION` bypasses a guard. `DISABLED` still disables the whole
 transition. An event guard must match its event as well as its expression.
@@ -726,12 +732,23 @@ Neither the class tables nor the editor implement expression evaluation, so
 this crate uses its own bounded scalar parser instead of adding a dependency
 on a serializer or a Qt editor. The operator inventory supplies names and
 operand data types, not runtime formulas. ANM-49 implements the listed scalar
-functions and deterministic random evaluation. The ANM-49 scalar oracle test
+functions and deterministic random evaluation. Its scalar oracle test
 computes reference values separately with `f64` standard math and checks each
 function through an authored guard. Random guard replay uses two interpreters
-with the same fixed initial seed. The local references do not provide Havok
-function formulas, and no Havok runtime capture was used. Timing arbitration
-outside these guards remains separate work.
+with the same fixed initial seed.
+
+The local Nemesis Havok 2010.2 header
+`external/hkxcmd/havok_2010_2_0/Source/Common/Base/Math/Functions/hkFpuMathFuncs.inl`
+defines the `hkReal` math helpers and the tolerated domain edges for `asin`
+and `acos`. The evaluator follows those edges for radian and degree variants.
+The same header only declares `hkMath_atan2fApproximation`; it does not include
+its implementation. The Havok behavior sources in this corpus preserve the
+compiled expression token names but do not define the `atan2approx` or `clerp`
+behavior-expression formulas. Consequently those two formulas and the scalar
+results have not been validated against the Skyrim Havok runtime. The random
+stream is deterministic for this interpreter, but its sequence has not been
+matched to Havok's behavior runtime. Timing arbitration outside these guards
+remains separate work.
 
 `tests/conditions.rs` covers binary decoding, bool/int/real changes, false
 guards, condition-only polling, cycles, disabled conditions, malformed or

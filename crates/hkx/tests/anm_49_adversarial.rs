@@ -100,6 +100,41 @@ fn scalar_function_guards_cover_signed_modulo_clamp_edges_and_angle_wrap() {
 }
 
 #[test]
+fn anm_49_inverse_trig_guards_follow_havok_domain_tolerance() {
+    let clips = ClipLibrary::new();
+    for source in [
+        "asin(1.0005) > 1.57",
+        "asin(-1.0005) < -1.57",
+        "acos(1.0005) == 0",
+        "acos(-1.0005) > 3.14",
+        "asind(1.0005) == 90",
+        "acosd(-1.0005) == 180",
+    ] {
+        let graph = guarded(source);
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.send_event(1);
+        vm.update(0.0);
+        assert_eq!(
+            current(&vm),
+            1,
+            "expected Havok domain guard to pass: {source}"
+        );
+        assert!(vm.unsupported().conditions.is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn anm_49_inverse_trig_outside_havok_domain_tolerance_rejects_guard() {
+    let graph = guarded("asin(1.001) == 0");
+    let clips = ClipLibrary::new();
+    let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+    vm.send_event(1);
+    vm.update(0.0);
+    assert_eq!(current(&vm), 0);
+    assert_eq!(vm.unsupported().conditions.len(), 1);
+}
+
+#[test]
 fn non_finite_function_result_blocks_guard_without_mutating_state() {
     let graph = guarded("asin(2) == 0");
     let clips = ClipLibrary::new();

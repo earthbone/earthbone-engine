@@ -229,8 +229,8 @@ fn evaluate_function(function: Function, values: &[f32], random_state: &mut u64)
         Function::Rand01 => next_random(random_state),
         Function::Sin => first.sin(),
         Function::Cos => first.cos(),
-        Function::Asin => first.asin(),
-        Function::Acos => first.acos(),
+        Function::Asin => havok_asin(first),
+        Function::Acos => havok_acos(first),
         Function::Sqrt => first.sqrt(),
         Function::Abs => first.abs(),
         Function::Ceil => first.ceil(),
@@ -252,8 +252,8 @@ fn evaluate_function(function: Function, values: &[f32], random_state: &mut u64)
         Function::Rad2Deg => first / degrees,
         Function::CosD => (first * degrees).cos(),
         Function::SinD => (first * degrees).sin(),
-        Function::AcosD => first.acos() / degrees,
-        Function::AsinD => first.asin() / degrees,
+        Function::AcosD => havok_acos(first) / degrees,
+        Function::AsinD => havok_asin(first) / degrees,
         Function::Atan2ApproxD => first.atan2(second) / degrees,
         Function::Sign => {
             if first > 0.0 {
@@ -282,6 +282,26 @@ fn evaluate_function(function: Function, values: &[f32], random_state: &mut u64)
         Ok(value)
     } else {
         Err(ExpressionError::InvalidValue)
+    }
+}
+
+fn havok_asin(value: f32) -> f32 {
+    if value.abs() >= 1.0 && value.abs() < 1.001 {
+        value.signum() * (0.5 * std::f32::consts::PI)
+    } else {
+        value.asin()
+    }
+}
+
+fn havok_acos(value: f32) -> f32 {
+    if value.abs() >= 1.0 && value.abs() < 1.001 {
+        if value > 0.0 {
+            0.0
+        } else {
+            std::f32::consts::PI
+        }
+    } else {
+        value.acos()
     }
 }
 
