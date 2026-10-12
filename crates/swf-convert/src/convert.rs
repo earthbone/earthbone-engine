@@ -46,7 +46,7 @@ pub struct Movie {
     pub unsupported_tags: Vec<u16>,
 }
 
-/// A fixed-size Godot font atlas built from the embedded outlines.
+/// A fixed-size Godot font with paged atlases built from embedded outlines.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Font {
     /// Character id.
@@ -67,8 +67,8 @@ pub struct Font {
     pub glyphs: Vec<Glyph>,
     /// Kerning by character code.
     pub kerning: Vec<(u16, u16, f64)>,
-    /// Straight RGBA atlas pixels.
-    pub atlas: Bitmap,
+    /// Straight RGBA atlas pages in texture index order.
+    pub atlases: Vec<Bitmap>,
 }
 
 /// One glyph's outline triangles, code and atlas placement.
@@ -80,6 +80,8 @@ pub struct Glyph {
     pub advance: f64,
     /// Atlas rectangle, x, y, width, height.
     pub atlas_rect: [u32; 4],
+    /// Godot texture index of the atlas page containing this glyph.
+    pub texture_index: usize,
     /// Baseline-relative pixel origin.
     pub offset: [f32; 2],
     /// Original outline triangulated at the atlas size.
@@ -254,6 +256,8 @@ fn read_tags(mut bytes: &[u8], version: u8, nesting: usize) -> Result<Vec<Tag<'_
 fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
     const SIZE: u32 = 64;
     const WIDTH: u32 = 1024;
+    const HEIGHT: u32 = 2048;
+    const MAX_PIXELS: u64 = 64 * 1024 * 1024;
     let units = if source.version == 3 {
         20.0 * 1024.0
     } else {
@@ -262,6 +266,7 @@ fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
     let scale = SIZE as f32 / units;
     let mut glyphs = vec![];
     let mut rasters = vec![];
+    let mut page_heights = vec![1];
     let (mut x, mut y, mut row_height) = (1, 1, 0);
     for glyph in &source.glyphs {
         let (surfaces, raster) = geometry::glyph(&glyph.shape_records, scale)?;
@@ -282,11 +287,26 @@ fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
             y += row_height + 2;
             row_height = 0;
         }
+        if y + height + 1 > HEIGHT {
+            page_heights.push(1);
+            x = 1;
+            y = 1;
+            row_height = 0;
+        }
+        let texture_index = page_heights.len() - 1;
+        page_heights[texture_index] = page_heights[texture_index].max(y + height + 1);
+        if (texture_index as u64 * u64::from(HEIGHT) + u64::from(page_heights[texture_index]))
+            * u64::from(WIDTH)
+            > MAX_PIXELS
+        {
+            return Err(Error::Invalid("font atlases exceed 256 MiB".into()));
+        }
         let atlas_rect = [x, y, width, height];
         glyphs.push(Glyph {
             code: glyph.code,
             advance: glyph.advance as f64 * scale as f64,
             atlas_rect,
+            texture_index,
             offset,
             surfaces,
         });
@@ -294,17 +314,18 @@ fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
         row_height = row_height.max(height);
         x += width + 2;
     }
-    let height = (y + row_height + 1).max(1);
-    if height > 8192 {
-        return Err(Error::Invalid("font atlas exceeds 8192 rows".into()));
-    }
-    let mut atlas = tiny_skia::Pixmap::new(WIDTH, height)
-        .ok_or_else(|| Error::Invalid("cannot allocate font atlas".into()))?;
+    let mut pages = page_heights
+        .into_iter()
+        .map(|height| {
+            tiny_skia::Pixmap::new(WIDTH, height)
+                .ok_or_else(|| Error::Invalid("cannot allocate font atlas".into()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut paint = tiny_skia::Paint::default();
     paint.set_color_rgba8(255, 255, 255, 255);
     for (glyph, path) in glyphs.iter().zip(rasters) {
         if let Some(path) = path {
-            atlas.fill_path(
+            pages[glyph.texture_index].fill_path(
                 &path,
                 &paint,
                 tiny_skia::FillRule::EvenOdd,
@@ -316,12 +337,24 @@ fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
             );
         }
     }
-    let mut pixels = atlas.take();
-    for pixel in pixels.as_chunks_mut::<4>().0 {
-        pixel[0] = 255;
-        pixel[1] = 255;
-        pixel[2] = 255;
-    }
+    let atlases = pages
+        .into_iter()
+        .map(|page| {
+            let height = page.height();
+            let mut pixels = page.take();
+            for pixel in pixels.as_chunks_mut::<4>().0 {
+                pixel[0] = 255;
+                pixel[1] = 255;
+                pixel[2] = 255;
+            }
+            Bitmap {
+                id: source.id,
+                width: WIDTH,
+                height,
+                rgba: pixels,
+            }
+        })
+        .collect();
     let metrics = source
         .layout
         .as_ref()
@@ -354,12 +387,7 @@ fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
         metrics,
         glyphs,
         kerning,
-        atlas: Bitmap {
-            id: source.id,
-            width: WIDTH,
-            height,
-            rgba: pixels,
-        },
+        atlases,
     })
 }
 

@@ -5,6 +5,39 @@ fills and strokes with Lyon, decodes bitmaps and writes Godot 4.4 resources.
 The ordinary load-order cache retains movie metadata and JPEXS ActionScript
 decompilation outside git checkouts. It does not execute those scripts.
 
+DefineFont2 and DefineFont3 outlines rasterize at 64 pixels into indexed
+atlas pages, each at most 1024 by 2048 pixels. Glyphs retain SWF index order,
+character codes, advances, offsets and outline meshes. The FontFile writer
+assigns each page to its Godot texture index and each glyph to its page's
+UV rectangle. Fonts exceeding 256 MiB of atlas storage return an invalid-art
+error before allocating the pages. The content-addressed cache format is
+`soe-interface-2`, so generations from the single-atlas writer are rebuilt.
+
+The atlas resource layout follows the local `godot-docs` FontFile
+`set_texture_image`, `set_glyph_texture_idx` and `set_glyph_uv_rect` contracts.
+The bounded sprite reader uses the tag lengths and typed readers in
+[Ruffle swf 0.3](https://docs.rs/swf/latest/swf/). Its `read_tag_list` requires
+an End tag, while the installed SkyUI icon sprites omit End and some also
+omit their final ShowFrame. Conversion stops at each sprite's declared byte
+boundary and retains that final display list as a frame. Truncated tag
+payloads remain errors. The full Ruffle clone is absent from the local corpus.
+
+JPEXS's local `SkyUI-Community/tools/FFDec/ffdec-cli` launcher and JAR supply
+the reference decompiler. The installed-data checks build native caches for
+vanilla and winning SkyUI inventory and magic menus with that actual JAR,
+check the exported ActionScript functions, and verify cache reuse. Other
+UI-19 checks compare source tags with text, names, placements and glyphs,
+convert all winning vanilla and SkyUI movies, and load a paged font in a
+windowed Godot viewport to check pixels from two pages. Generated resources,
+decompiled scripts and captures are external test or ignored build outputs.
+
+No dependency was added for paging. `cargo tree -p soe-swf-convert` includes
+the existing Ruffle parser's bitstream, enum-map, encoding, zlib, LZMA and
+ASN.1 support. ASN.1 brings num-bigint and time. Lyon supplies tessellation,
+tiny-skia supplies rasterization, image supplies PNG, JPEG and GIF decoding,
+and serde, SHA-256 and tempfile supply cache encoding, hashing and publication.
+The Ruffle runtime and Java libraries are not linked into the engine.
+
 UI-27 supplies each FFDec process with a rewound temporary file as stdin,
 still addressed through `/dev/stdin`. This preserves the existing CLI input
 contract and avoids writing to a pipe after an early child exit, which would
