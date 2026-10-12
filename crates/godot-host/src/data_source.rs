@@ -632,6 +632,7 @@ impl DataSource {
     }
 
     /// Fingerprint of the resolved plugin names and contents used by LOD.
+    #[cfg(feature = "godot")]
     pub(crate) fn lod_load_order_fingerprint(&self) -> [u8; 32] {
         self.order.fingerprint()
     }
@@ -642,6 +643,7 @@ impl DataSource {
     }
 
     /// Profile data roots in the same order used to build the virtual file system.
+    #[cfg(feature = "godot")]
     pub(crate) fn data_roots(&self) -> &[PathBuf] {
         &self.data_roots
     }

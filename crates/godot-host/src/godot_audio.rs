@@ -903,10 +903,15 @@ impl SoundBank {
         let from = self.music_current;
         let outgoing_fade = self.music_current_fade_out;
         let to = from.map_or(0, |slot| 1 - slot);
-        // This is the older outgoing player from an interrupted crossfade.
-        // Stop it before reusing the slot so rapid requests never leave stale
-        // music playing behind the latest selection.
-        self.music_players[to].stop();
+        // CONTEXT: A stop fade clears music_current while its old slot still plays.
+        // Retire every slot outside the new transition before replacing its fade.
+        for slot in 0..self.music_players.len() {
+            if Some(slot) != from {
+                self.music_players[slot].stop();
+                retire_feed(&mut self.music_feeds[slot], self.decoder.as_ref());
+                self.music_paths[slot] = None;
+            }
+        }
         self.music_paths[to] = Some(path);
         let from_level = from.map_or(0.0, |slot| {
             10.0_f32.powf(self.music_players[slot].get_volume_db() / 20.0)

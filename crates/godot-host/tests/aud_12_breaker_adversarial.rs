@@ -4,6 +4,9 @@
 
 //! Host-visible AUD-12 replacement and installed transition checks.
 
+#[path = "common/debug_project.rs"]
+mod debug_project;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -51,12 +54,7 @@ fn aud_12_failed_music_and_ambience_replacements_keep_current_tracks() {
         eprintln!("skipping: SOE_GODOT_BIN is not set");
         return;
     };
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let extension = workspace.join("target/release/libsoe_godot_host.so");
-    if !extension.exists() {
-        eprintln!("skipping: release extension is not built");
-        return;
-    }
+    let project = debug_project::project(&[]).unwrap();
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
     std::fs::create_dir_all(&data).unwrap();
@@ -139,7 +137,7 @@ func run() -> void:
     .unwrap();
     let output = Command::new(binary)
         .arg("--path")
-        .arg(workspace.join("godot"))
+        .arg(project.path())
         .args(["--resolution", "640x360", "--script"])
         .arg(script)
         .env("AUD_12_DATA", data)
@@ -226,17 +224,12 @@ fn aud_12_installed_prf12_changes_tracks_and_measures_each_transition() {
         2,
         "installed data must provide two short xWMA tracks"
     );
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let extension = workspace.join("target/release/libsoe_godot_host.so");
-    if !extension.exists() {
-        eprintln!("skipping: release extension is not built");
-        return;
-    }
+    let project = debug_project::project(&["aud_12_walkthrough_test.gd"]).unwrap();
     let output = Command::new(binary)
         .arg("--path")
-        .arg(workspace.join("godot"))
+        .arg(project.path())
         .args(["--resolution", "640x360", "--script"])
-        .arg(workspace.join("godot/aud_12_walkthrough_test.gd"))
+        .arg(project.path().join("aud_12_walkthrough_test.gd"))
         .env("SKYRIM_DATA", data)
         .env("AUD_12_MUSIC_A", &paths[0])
         .env("AUD_12_MUSIC_B", &paths[1])

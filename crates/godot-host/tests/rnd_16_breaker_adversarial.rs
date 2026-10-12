@@ -129,9 +129,9 @@ fn rnd_16_worker_panic_does_not_cache_partial_lod_and_allows_retry() {
 }
 
 #[test]
-fn rnd_16_level_at_pixel_limit_is_accepted_and_next_level_is_rejected() {
+fn rnd_16_level_at_pixel_limit_is_rejected_and_lower_level_is_selected() {
     assert_eq!(
         select_far_level([0.2, 0.5, 1.0, 1.1], 1.0),
-        Some(LodLevel::L16)
+        Some(LodLevel::L8)
     );
 }

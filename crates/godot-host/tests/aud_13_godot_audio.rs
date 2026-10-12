@@ -4,8 +4,8 @@
 
 //! Scene checks use record fixtures and the installed Bannered Mare door route.
 
-#[path = "common/isolated_project.rs"]
-mod isolated_project;
+#[path = "common/debug_project.rs"]
+mod debug_project;
 
 use soe_bsa::{write_bsa, BsaFile, BsaVersion};
 use soe_esm::{FileHeader, Plugin, Record, Tag};
@@ -126,10 +126,7 @@ fn run_scene(script: &str, data: &Path) {
         return;
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let project = isolated_project::project(
-        &[script.trim_start_matches("res://")],
-        Some(&workspace.join("target/release/libsoe_godot_host.so")),
-    );
+    let project = debug_project::project(&[script.trim_start_matches("res://")]).unwrap();
     let mut command = Command::new(godot);
     if script == "res://aud_13_transition_test.gd" {
         command.arg("--headless");

@@ -316,6 +316,9 @@ fn rnd_39_lighting_waterfall_uv_tracks_sample_all_texture_layers() {
     let tracks = crate::nif_effect_animation::for_shape(&file, shape).unwrap();
     assert_eq!(tracks[0].channel, 8);
     let desc = crate::mesh::MaterialDesc {
+        shader_flags_2: soe_nif::blocks::flags2::GLOW_MAP,
+        emissive_color: [1.0; 3],
+        emissive_multiple: 1.0,
         texture_transform: Some(crate::mesh::TextureTransform {
             offset: [0.25, 0.5],
             scale: [2.0, 3.0],

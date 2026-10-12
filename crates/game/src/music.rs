@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Record-backed selection of MUSC music types and eligible MUST tracks.
+//! Layouts follow local xEdit `wbDefinitionsTES5.pas`, UESP `MUST.wikitext`
+//! and CommonLibSSE-NG `BGSMusicPaletteTrack.h`, including palette fade-out.
 
 use std::collections::BTreeSet;
 
@@ -142,6 +144,10 @@ fn select_leaf(
     let (record, file) = record(world.order(), id, T(b"MUST"))?;
     let kind = field(record, T(b"CNAM"), 4)?.u32()?;
     if kind == PALETTE {
+        let fade_out = record
+            .find(T(b"DNAM"))
+            .map(|_| read_float(record, T(b"DNAM"), 0.0))
+            .transpose()?;
         let children = links(world.order(), record, file, T(b"SNAM"))?;
         let mut eligible = Vec::new();
         for child in children {
@@ -154,7 +160,7 @@ fn select_leaf(
                 "MUST palette {id} has no eligible tracks"
             )));
         }
-        return select_leaf(
+        let mut selected = select_leaf(
             world,
             vm,
             music_type,
@@ -166,7 +172,11 @@ fn select_leaf(
             ducking_db,
             fade_in,
             visited,
-        );
+        )?;
+        if let Some(fade_out) = fade_out {
+            selected.fade_out = fade_out;
+        }
+        return Ok(selected);
     }
     if kind != SINGLE_TRACK && kind != SILENT_TRACK {
         return Err(Error::Invalid(format!("unknown MUST track type {kind:#x}")));

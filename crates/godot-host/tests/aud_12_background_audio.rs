@@ -3,6 +3,9 @@
 
 //! AUD-12 worker playback and installed PRF-12 walkthrough frame acceptance.
 
+#[path = "common/debug_project.rs"]
+mod debug_project;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -74,25 +77,19 @@ fn fixture(data: &Path) {
     std::fs::write(data.join("Skyrim - Voices_en0.bsa"), voices).unwrap();
 }
 
-fn godot(script: &str) -> Option<Command> {
+fn godot(script: &str) -> Option<(Command, tempfile::TempDir)> {
     let Some(binary) = std::env::var_os("SOE_GODOT_BIN") else {
         eprintln!("skipping: SOE_GODOT_BIN is not set");
         return None;
     };
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    assert!(
-        workspace
-            .join("target/release/libsoe_godot_host.so")
-            .exists(),
-        "build the release extension first"
-    );
+    let project = debug_project::project(&[script]).unwrap();
     let mut command = Command::new(binary);
     command
         .arg("--path")
-        .arg(workspace.join("godot"))
+        .arg(project.path())
         .args(["--resolution", "640x360", "--script"])
-        .arg(workspace.join("godot").join(script));
-    Some(command)
+        .arg(project.path().join(script));
+    Some((command, project))
 }
 
 fn run(mut command: Command, marker: &str) {
@@ -118,7 +115,7 @@ fn run(mut command: Command, marker: &str) {
 
 #[test]
 fn aud_12_generator_playback_cache_cancellation_and_errors() {
-    let Some(mut command) = godot("aud_12_audio_test.gd") else {
+    let Some((mut command, _project)) = godot("aud_12_audio_test.gd") else {
         return;
     };
     let fixture_root = tempfile::tempdir().unwrap();
@@ -185,7 +182,7 @@ fn aud_12_installed_walkthrough_music_starts_and_changes_under_two_ms() {
         eprintln!("skipping: SKYRIM_DATA is not set");
         return;
     };
-    let Some(mut command) = godot("aud_12_walkthrough_test.gd") else {
+    let Some((mut command, _project)) = godot("aud_12_walkthrough_test.gd") else {
         return;
     };
     let paths = installed_tracks(&data);

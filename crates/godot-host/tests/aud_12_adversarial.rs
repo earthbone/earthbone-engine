@@ -4,8 +4,8 @@
 
 //! Exercises music and ambience decode latency, cache reuse and request replacement in Godot.
 
-#[path = "common/aud_11.rs"]
-mod aud_11;
+#[path = "common/debug_project.rs"]
+mod debug_project;
 
 use soe_bsa::{write_bsa, BsaFile, BsaVersion};
 use soe_esm::{FileHeader, Plugin};
@@ -77,7 +77,7 @@ fn aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes() {
         eprintln!("skipping: SOE_GODOT_BIN is not set");
         return;
     };
-    let project = aud_11::project(&[]);
+    let project = debug_project::project(&[]).unwrap();
 
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
@@ -215,7 +215,7 @@ fn aud_12_installed_prf12_walkthrough_keeps_audio_under_two_ms() {
         eprintln!("skipping: SOE_GODOT_BIN is not set");
         return;
     };
-    let project = aud_11::project(&[
+    let project = debug_project::project(&[
         "prf_12_walkthrough_test.gd",
         "walkthrough.gd",
         "render_warmup.gd",
@@ -223,7 +223,8 @@ fn aud_12_installed_prf12_walkthrough_keeps_audio_under_two_ms() {
         "record_sky.gd",
         "record_sky.gdshader",
         "record_fog.gdshader",
-    ]);
+    ])
+    .unwrap();
     let script = tempfile::Builder::new()
         .prefix("aud_12_prf12_")
         .suffix(".gd")
@@ -337,26 +338,14 @@ fn fixture(data: &Path) {
     std::fs::write(data.join("Skyrim - Voices_en0.bsa"), voices).unwrap();
 }
 
-struct RuntimeScript(PathBuf);
-
-impl Drop for RuntimeScript {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
-
 #[test]
 fn aud_12_stop_fade_does_not_leave_a_stale_player_after_a_new_track_starts() {
-    let binary = std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN is required");
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    assert!(
-        workspace
-            .join("target/release/libsoe_godot_host.so")
-            .exists(),
-        "build the release extension before this check"
-    );
-    let script_path = workspace.join("godot/aud_12_adversarial_runtime.gd");
-    let _script = RuntimeScript(script_path.clone());
+    let Some(binary) = std::env::var_os("SOE_GODOT_BIN") else {
+        eprintln!("skipping: SOE_GODOT_BIN is not set");
+        return;
+    };
+    let project = debug_project::project(&[]).unwrap();
+    let script_path = project.path().join("aud_12_adversarial_runtime.gd");
     std::fs::write(
         &script_path,
         r#"extends SceneTree
@@ -411,7 +400,7 @@ func _run() -> void:
     fixture(&data);
     let output = Command::new(binary)
         .arg("--path")
-        .arg(workspace.join("godot"))
+        .arg(project.path())
         .args(["--resolution", "640x360", "--script"])
         .arg(script_path)
         .env("AUD_12_TEST_DATA", data)
