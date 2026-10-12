@@ -15,9 +15,12 @@ owner and xEdit-defined seen-data shape. Seen data precedes the full name and
 owner. The interior/exterior choice validates the suffix against xEdit's
 32-byte exterior and repeated 34-byte interior shapes. A truncated interior
 that leaves 32 bytes is indistinguishable from exterior data. CELL flags 28 to
-30 are typed presence markers, and bytes after defined fields remain opaque.
-ECZN and LCTN decode common form flags and their named zero-payload markers,
-while retaining other bytes as opaque payloads. See [saved spatial
+30 are typed presence markers whose unions are omitted from xEdit's CELL
+payload dispatch. Bytes after the defined fields remain opaque when one of
+those markers is set. ECZN and LCTN decode common form flags and their named
+zero-payload markers, while retaining bytes after those fields as opaque
+payloads. The zero-payload definitions do not establish a schema for those
+tails. See [saved spatial
 fields](save-spatial-fields.md) for the source boundary and corpus accounting.
 SAV-28 applies decoded fields to live records and retains opaque spatial tails
 without interpreting their fields.

@@ -650,7 +650,7 @@ impl ChangeForm {
         }))
     }
 
-    /// Decode ECZN marker state and retain bytes from its placeholder unions.
+    /// Decode ECZN marker state and retain bytes after its zero-width unions.
     ///
     /// # Errors
     /// Rejects unknown flags and truncated common form flags.
@@ -658,7 +658,7 @@ impl ChangeForm {
         self.opaque_spatial_change("ECZN", 0x8000_0003)
     }
 
-    /// Decode LCTN marker state and retain bytes from its placeholder unions.
+    /// Decode LCTN marker state and retain bytes after its zero-width unions.
     ///
     /// # Errors
     /// Rejects unknown flags and truncated common form flags.
@@ -991,8 +991,7 @@ impl CellChange {
     }
 }
 
-/// Common form flags and untouched payload bytes for spatial records whose
-/// flagged field layouts are placeholders in the available save schema.
+/// Common form flags and opaque tails for records with zero-width changed markers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpaqueSpatialChange {
     pub form_flags: Option<FormFlags>,

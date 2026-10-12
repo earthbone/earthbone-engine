@@ -58,6 +58,14 @@ fn sav_27_cell_all_source_defined_flag_combinations_round_trip() {
         });
         let data = cell_data(flags, false);
         let decoded = form(6, flags, data.clone()).cell_change().unwrap().unwrap();
+        assert_eq!(decoded.form_flags.is_some(), flags & 1 != 0);
+        assert_eq!(decoded.cell_flags.is_some(), flags & 2 != 0);
+        assert_eq!(decoded.full_name.is_some(), flags & 4 != 0);
+        assert_eq!(decoded.owner.is_some(), flags & 8 != 0);
+        assert_eq!(decoded.seen_data.is_some(), flags & (1 << 31) != 0);
+        assert_eq!(decoded.exterior_short, flags & (1 << 28) != 0);
+        assert_eq!(decoded.exterior_char, flags & (1 << 29) != 0);
+        assert_eq!(decoded.detach_time, flags & (1 << 30) != 0);
         assert_eq!(decoded.data_bytes(), data, "flags={flags:#010x}");
     }
 }
@@ -148,6 +156,21 @@ fn sav_27_eczn_lctn_flag_combinations_keep_undefined_payload_bytes() {
                     .unwrap()
                     .unwrap(),
             };
+            assert_eq!(decoded.form_flags.is_some(), flags & 1 != 0);
+            assert_eq!(decoded.zone_flags_changed, kind == 29 && flags & 2 != 0);
+            assert_eq!(
+                decoded.game_data_changed,
+                kind == 29 && flags & (1 << 31) != 0
+            );
+            assert_eq!(
+                decoded.keyword_data_changed,
+                kind == 38 && flags & (1 << 30) != 0
+            );
+            assert_eq!(
+                decoded.cleared_changed,
+                kind == 38 && flags & (1 << 31) != 0
+            );
+            assert_eq!(decoded.opaque_payload, [0xDE, 0xAD, kind]);
             assert_eq!(
                 decoded.data_bytes(),
                 data,
