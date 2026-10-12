@@ -78,6 +78,20 @@ tags, invalid packet alignment and decoded PCM above 256 MiB.
 standalone file produced by `Xwma::to_bytes` on stdin and returns raw float samples. The default
 decoder does not start a process or require ffmpeg to be installed.
 
+The 44.1 kHz low-rate path reads noise-band flags and gains before the exponent
+and coefficient streams. It clips each high band to the cutoff and the coded
+coefficient range, following FFmpeg's `ff_wma_init` and `wma_decode_block` in
+[`wma.c`](https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/wma.c) and
+[`wmadec.c`](https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/wmadec.c).
+`oxideav-wma` 0.0.4 only provides a measured 22.05 kHz noise policy, and its
+parser cannot express a cutoff inside a band. The adapter reuses its bit reader,
+VLC tables, packet assembly and synthesis. Noise-substituted bins follow the
+dependency's zero-fill policy, so their stochastic high-frequency content is
+not reconstructed. The low-rate adapter removes the two frames of WMA2 decoder
+priming before trimming to the packet table. The installed stereo comparison
+retains its exact frame count and 0.8 correlation requirements. Authored byte fixtures cover a partial
+first high band, the final coefficient cutoff and every truncated frame prefix.
+
 `oxideav-wma` is MIT licensed and uses a single `oxideav-core` dependency. Its WMA v2 implementation
 is a pure Rust codec. Its own WMA wire implementation is under active development, so the gated
 vanilla acceptance test compares its output against ffmpeg and checks the output duration and

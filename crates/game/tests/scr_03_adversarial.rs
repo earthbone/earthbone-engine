@@ -11,9 +11,12 @@ mod adversarial {
 
     #[test]
     fn scr_03_invalid_component_does_not_poison_later_load() {
+        let Some(path) = wasm_component() else {
+            return;
+        };
         let mut game = fixture();
         assert!(game.load_wasm_mod(b"not a wasm component").is_err());
-        let bytes = std::fs::read(wasm_component()).unwrap();
+        let bytes = std::fs::read(path).unwrap();
         game.load_wasm_mod(&bytes).unwrap();
         assert!(game.activate(
             GlobalFormId {
@@ -39,7 +42,10 @@ mod adversarial {
 
     #[test]
     fn scr_03_repeated_activation_keeps_stage_in_shared_quest_state() {
-        let bytes = std::fs::read(wasm_component()).unwrap();
+        let Some(path) = wasm_component() else {
+            return;
+        };
+        let bytes = std::fs::read(path).unwrap();
         let mut game = fixture();
         game.load_wasm_mod(&bytes).unwrap();
         let target = GlobalFormId {

@@ -153,13 +153,37 @@ fn scr_05_vanilla_missing_cell_attachments_are_reported() {
     );
     let expected = std::collections::BTreeMap::from([
         ("dlc01soulcairnskullpuzzlescript".to_string(), 2),
-        ("dlc1testphilatronach".to_string(), 1),
+        ("dlc1testphilatronach".to_string(), 2),
         ("dlc1testphilvortexscript".to_string(), 1),
-        ("dlc1testphilvortextrigscript".to_string(), 1),
+        ("dlc1testphilvortextrigscript".to_string(), 2),
         ("dlc2benthiclurkerfxscript".to_string(), 1),
         ("draguremergescript".to_string(), 1),
         ("lokirsdraugrresurrection".to_string(), 2),
     ]);
     assert_eq!(actual, expected);
-    assert_eq!(missing.len(), 9);
+    assert_eq!(missing.len(), 11);
+    let owners: std::collections::BTreeSet<_> = missing
+        .iter()
+        .map(|(name, owner)| (name.to_ascii_lowercase(), *owner))
+        .collect();
+    let expected_owners = [
+        ("dlc1testphilvortexscript", 2, 69620),
+        ("dlc1testphilvortextrigscript", 2, 69621),
+        ("dlc1testphilatronach", 2, 32428),
+        ("dlc2benthiclurkerfxscript", 4, 167549),
+        ("lokirsdraugrresurrection", 2, 18474),
+        ("lokirsdraugrresurrection", 2, 18475),
+        ("draguremergescript", 2, 18494),
+        ("dlc1testphilatronach", 2, 32427),
+        ("dlc1testphilvortextrigscript", 2, 69622),
+        ("dlc01soulcairnskullpuzzlescript", 2, 108256),
+        ("dlc01soulcairnskullpuzzlescript", 2, 108257),
+    ]
+    .map(|(name, file, object)| (name.to_owned(), GlobalFormId { file, object }))
+    .into_iter()
+    .collect();
+    assert_eq!(
+        owners, expected_owners,
+        "base scripts and inherited reference scripts retain their owning forms"
+    );
 }

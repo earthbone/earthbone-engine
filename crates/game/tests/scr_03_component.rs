@@ -62,7 +62,7 @@ pub fn fixture() -> Game {
 /// toolchain directories but not the rustup binary) it takes the newest
 /// toolchain under `RUSTUP_HOME` that carries the `wasm32-wasip2` standard
 /// library, so the guest is still compiled for real.
-fn guest_toolchain() -> (Command, PathBuf) {
+fn guest_toolchain() -> Option<(Command, PathBuf)> {
     if let Ok(active) = Command::new("rustup")
         .args(["show", "active-toolchain"])
         .output()
@@ -78,31 +78,54 @@ fn guest_toolchain() -> (Command, PathBuf) {
         let compiler = String::from_utf8(compiler.stdout).unwrap();
         let mut cargo = Command::new("rustup");
         cargo.args(["run", &toolchain, "cargo"]);
-        return (cargo, PathBuf::from(compiler.trim()));
+        return Some((cargo, PathBuf::from(compiler.trim())));
     }
     let home = std::env::var_os("RUSTUP_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".rustup")))
-        .expect("RUSTUP_HOME or HOME must locate the toolchains");
+        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".rustup")))?;
     let mut candidates: Vec<PathBuf> = std::fs::read_dir(home.join("toolchains"))
-        .expect("no rustup binary and no toolchain directory")
+        .ok()?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter(|path| path.join("lib/rustlib/wasm32-wasip2").is_dir())
         .collect();
     candidates.sort();
-    let toolchain = candidates
-        .pop()
-        .expect("no installed toolchain carries the wasm32-wasip2 target");
-    (
+    let toolchain = candidates.pop()?;
+    Some((
         Command::new(toolchain.join("bin/cargo")),
         toolchain.join("bin/rustc"),
-    )
+    ))
 }
 
-pub fn wasm_component() -> PathBuf {
+pub fn wasm_component() -> Option<PathBuf> {
     let manifest =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/scr_03_mod/Cargo.toml");
-    let (mut cargo, compiler) = guest_toolchain();
+    let Some((mut cargo, compiler)) = guest_toolchain() else {
+        eprintln!("skipping SCR-03: no installed toolchain carries wasm32-wasip2");
+        return None;
+    };
+    let target = Command::new(&compiler)
+        .args(["--print", "target-libdir", "--target=wasm32-wasip2"])
+        .output()
+        .expect("rustc must locate the guest target library directory");
+    assert!(
+        target.status.success(),
+        "rustc must recognize wasm32-wasip2"
+    );
+    let target = String::from_utf8(target.stdout).unwrap();
+    let has_core = std::fs::read_dir(target.trim()).is_ok_and(|entries| {
+        entries.filter_map(Result::ok).any(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("libcore-") && name.ends_with(".rlib")
+        })
+    });
+    if !has_core {
+        eprintln!(
+            "skipping SCR-03: wasm32-wasip2 is not installed for {}",
+            compiler.display()
+        );
+        return None;
+    }
     cargo
         .arg("build")
         .arg("--quiet")
@@ -118,12 +141,15 @@ pub fn wasm_component() -> PathBuf {
     let target_dir = std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| manifest.parent().unwrap().join("target"));
-    target_dir.join("wasm32-wasip2/debug/scr_03_mod.wasm")
+    Some(target_dir.join("wasm32-wasip2/debug/scr_03_mod.wasm"))
 }
 
 #[test]
 fn scr_03_rust_wasm_component_subscribes_and_advances_quest_stage() {
-    let component = std::fs::read(wasm_component()).unwrap();
+    let Some(path) = wasm_component() else {
+        return;
+    };
+    let component = std::fs::read(path).unwrap();
     let mut game = fixture();
     game.load_wasm_mod(&component).unwrap();
 
