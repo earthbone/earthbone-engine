@@ -1398,6 +1398,8 @@ renderer has no foot-IK solver, so this setting does not change rendered
 poses. `Debug.ShowRefPosition(reference)` accepts a
 resolved placed reference, records its identity once, and logs an invalid
 reference when the object does not resolve to a placed reference.
+The live Godot test `godot/scr_23_debug_natives_test.gd` checks that the host
+installs a marker RID for a loaded named reference.
 `Debug.PlayerMoveToAndWait(editorId)` resolves the destination reference,
 queues a host move, and suspends the Papyrus thread. The Godot host applies the
 placement and resolves the wait with 0 after destination resources install.
@@ -1413,6 +1415,10 @@ functions are absent from the corpus. Host rendering displays each requested
 reference position as a small emissive sphere using `RenderingServer` instances.
 Foot IK remains a presentation gap because no solver or ground-contact input is
 available in the actor renderer.
+
+SetFootIK's renderer behavior is a separate prerequisite: the current actor
+renderer has no IK solver or ground-contact input. The native currently stores
+the requested setting without changing actor poses.
 
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
@@ -2119,16 +2125,18 @@ registered by the Papyrus VM rather than `game::natives::register`, so they are
 not part of this registry inventory. Their clock contracts are documented in
 the VM section above.
 
-`Actor.UnequipAll` clears equipped inventory markers, weapon and spell hands,
-and the equipped shout while retaining the actor's known spells and inventory.
-`Actor.RemoveAllSpells` clears known spells and spell hand assignments while
-leaving unrelated equipment in place. `StartVampireFeed` queues the documented
-`OnVampireFeed` event on the calling actor when its target resolves to a
-sleeping actor. `StartCannibal` queues the `CannibalStart` graph event on the
-calling actor when its argument resolves to a dead actor. `ClearExtraArrows`
-is a no-op because the runtime does not model attached-arrow extra data. The
-CK native clears arrows from actor 3D, so host renderer support remains a
-prerequisite for implementing this behavior.
+`Actor.UnequipAll` accepts no arguments and clears equipped inventory markers,
+weapon and spell hands, and the equipped shout while retaining the actor's
+known spells and inventory. `Actor.RemoveAllSpells` accepts no arguments and
+clears known spells and spell hand assignments while leaving unrelated
+equipment in place. `StartVampireFeed` and `StartCannibal` each require one
+Actor argument. They queue the documented `OnVampireFeed` event on the calling
+actor when the target resolves to a sleeping actor, or queue the
+`CannibalStart` graph event when the target resolves to a dead actor. Invalid
+target forms are ignored. `ClearExtraArrows` accepts no arguments, but remains
+a no-op because the runtime does not model attached-arrow extra data. The CK
+native clears arrows from actor 3D. Host attachment state and its removal API
+are a separate prerequisite for completing that behavior.
 
 The SCR-23 Debug natives update runtime debug state or the shared player
 reference. `SetFootIK` stores the requested setting, defaulting to enabled.
