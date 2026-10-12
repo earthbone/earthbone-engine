@@ -2,6 +2,10 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use std::cell::RefCell;
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
+use std::process::{ChildStdin, Command, Stdio};
 use std::rc::Rc;
 
 use soe_commonlib_shim::events::{
@@ -117,6 +121,230 @@ impl<T: Clone> EventSink<T> for Capture<T> {
         self.0.borrow_mut().push(event.clone());
         NotifyControl::Continue
     }
+}
+
+trait WriteLiveEvent {
+    fn write_live(&self, writer: &mut ChildStdin);
+}
+
+struct CppConsumer<T>(Rc<RefCell<ChildStdin>>, std::marker::PhantomData<T>);
+
+impl<T: WriteLiveEvent> EventSink<T> for CppConsumer<T> {
+    fn process(&mut self, event: &T) -> NotifyControl {
+        event.write_live(&mut self.0.borrow_mut());
+        NotifyControl::Continue
+    }
+}
+
+macro_rules! write_event {
+    ($event:ty, $tag:expr, $this:ident; $($field:expr),+ $(,)?) => {
+        impl WriteLiveEvent for $event {
+            fn write_live(&self, writer: &mut ChildStdin) {
+                let $this = self;
+                writer.write_all(&[$tag]).expect("send event tag to C++ fixture");
+                $(writer.write_all(&$field.to_le_bytes()).expect("send live event field to C++ fixture");)+
+            }
+        }
+    };
+}
+
+write_event!(
+    TesGrabReleaseEvent,
+    1,
+    event;
+    event.reference.0,
+    u8::from(event.grabbed)
+);
+write_event!(TesHarvestedEvent, 2, event; event.produce_item.0, event.harvester.0);
+write_event!(
+    TesHitEvent,
+    3,
+    event;
+    event.target.0,
+    event.cause.0,
+    event.source.0,
+    event.projectile.0,
+    event.flags.0,
+);
+write_event!(
+    TesObjectLoadedEvent,
+    4,
+    event;
+    event.form_id.0,
+    u8::from(event.loaded)
+);
+write_event!(
+    TesQuestStageEvent,
+    5,
+    event;
+    event.quest.0,
+    event.stage,
+    event.item_index,
+);
+
+fn cpp_event_consumer() -> (std::process::Child, Rc<RefCell<ChildStdin>>) {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("soe-shm-22-live-{}", std::process::id()));
+    fs::create_dir_all(&scratch).expect("create C++ fixture directory");
+    let source = scratch.join("live_events.cpp");
+    fs::write(
+        &source,
+        r#"
+#include <RE/Skyrim.h>
+#include <SKSE/SKSE.h>
+#include <array>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+
+template <class T> bool read(T& value) { return std::fread(&value, sizeof(value), 1, stdin) == 1; }
+
+struct State { unsigned events{}; bool valid{true}; };
+template <class Event> struct Sink final : RE::EventSink<Event> {
+    State& state;
+    explicit Sink(State& value) : state(value) {}
+    RE::NotifyControl process(const Event& event) override;
+};
+
+template <> RE::NotifyControl Sink<RE::TESGrabReleaseEvent>::process(const RE::TESGrabReleaseEvent& e) {
+    state.valid = state.valid && e.reference.value == 0x811 && e.grabbed;
+    ++state.events; return RE::NotifyControl::Continue;
+}
+template <> RE::NotifyControl Sink<RE::TESHarvestedEvent>::process(const RE::TESHarvestedEvent& e) {
+    state.valid = state.valid && e.produceItem.value == 0xA10 && e.harvester.value == 0x900;
+    ++state.events; return RE::NotifyControl::Continue;
+}
+template <> RE::NotifyControl Sink<RE::TESHitEvent>::process(const RE::TESHitEvent& e) {
+    state.valid = state.valid && e.target.value == 0x901 && e.cause.value == 0x900 &&
+        e.source.value == 0xA00 && e.projectile.value == 0 && e.flags.value == 0;
+    ++state.events; return RE::NotifyControl::Continue;
+}
+template <> RE::NotifyControl Sink<RE::TESObjectLoadedEvent>::process(const RE::TESObjectLoadedEvent& e) {
+    state.valid = state.valid && e.formID.value == 0x811 && e.loaded;
+    ++state.events; return RE::NotifyControl::Continue;
+}
+template <> RE::NotifyControl Sink<RE::TESQuestStageEvent>::process(const RE::TESQuestStageEvent& e) {
+    state.valid = state.valid && e.formID.value == 0x820 && e.stage == 1 && e.itemIndex == 0;
+    ++state.events; return RE::NotifyControl::Continue;
+}
+
+int main() {
+    RE::ScriptEventSourceHolder sources;
+    State state;
+    sources.grab_release().add_sink(std::make_unique<Sink<RE::TESGrabReleaseEvent>>(state));
+    sources.harvested().add_sink(std::make_unique<Sink<RE::TESHarvestedEvent>>(state));
+    sources.hit().add_sink(std::make_unique<Sink<RE::TESHitEvent>>(state));
+    sources.object_loaded().add_sink(std::make_unique<Sink<RE::TESObjectLoadedEvent>>(state));
+    sources.quest_stage().add_sink(std::make_unique<Sink<RE::TESQuestStageEvent>>(state));
+    std::uint8_t kind{};
+    while (read(kind)) {
+        switch (kind) {
+        case 1: { std::uint32_t ref{}; std::uint8_t grabbed{}; if (!read(ref) || !read(grabbed)) return 1;
+            sources.grab_release().send(RE::TESGrabReleaseEvent{{ref}, grabbed != 0}); break; }
+        case 2: { std::uint32_t item{}, actor{}; if (!read(item) || !read(actor)) return 2;
+            sources.harvested().send(RE::TESHarvestedEvent{{item}, {actor}}); break; }
+        case 3: { std::uint32_t target{}, cause{}, source{}, projectile{}; std::uint8_t flags{};
+            if (!read(target) || !read(cause) || !read(source) || !read(projectile) || !read(flags)) return 3;
+            sources.hit().send(RE::TESHitEvent{{target}, {cause}, {source}, {projectile}, {flags}}); break; }
+        case 4: { std::uint32_t form{}; std::uint8_t loaded{}; if (!read(form) || !read(loaded)) return 4;
+            sources.object_loaded().send(RE::TESObjectLoadedEvent{{form}, loaded != 0}); break; }
+        case 5: { std::uint32_t quest{}; std::uint16_t stage{}; std::uint8_t item{};
+            if (!read(quest) || !read(stage) || !read(item)) return 5;
+            sources.quest_stage().send(RE::TESQuestStageEvent{{quest}, stage, item}); break; }
+        default: return 6;
+        }
+    }
+    const auto call = RE::request_hook(RE::HookKind::CallSite);
+    const auto branch = RE::request_hook(RE::HookKind::Branch);
+    const auto vtable = RE::request_hook(RE::HookKind::Vtable);
+    return state.events == 5 && state.valid && call.code == RE::HookErrorCode::Unsupported &&
+        branch.code == RE::HookErrorCode::Unsupported && vtable.code == RE::HookErrorCode::Unsupported &&
+        std::strcmp(SKSE::TRAMPOLINE.what,
+            "SKSE::Trampoline patches machine code and has no target in this engine") == 0 ? 0 : 7;
+}
+"#,
+    )
+    .expect("write live C++ fixture");
+    let executable = scratch.join("live_events");
+    let compile = Command::new("c++")
+        .arg("-std=c++20")
+        .arg("-I")
+        .arg(root.join("../commonlib-shim/include"))
+        .arg(&source)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("a C++20 compiler is required by the SHM-22 done check");
+    assert!(
+        compile.status.success(),
+        "live C++ fixture compile failed:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let mut child = Command::new(executable)
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("start C++ live event consumer");
+    let input = Rc::new(RefCell::new(
+        child.stdin.take().expect("piped fixture stdin"),
+    ));
+    (child, input)
+}
+
+#[test]
+fn shm_22_world_events_reach_the_cpp_mit_event_sinks() {
+    let mut game = fixture();
+    let (mut cpp, input) = cpp_event_consumer();
+    {
+        let mut world = game.world_mut();
+        let consumer = CppConsumer::<TesGrabReleaseEvent>(input.clone(), std::marker::PhantomData);
+        world
+            .commonlib_event_sources()
+            .grab_release()
+            .add_sink(Box::new(consumer));
+        let consumer = CppConsumer::<TesHarvestedEvent>(input.clone(), std::marker::PhantomData);
+        world
+            .commonlib_event_sources()
+            .harvested()
+            .add_sink(Box::new(consumer));
+        let consumer = CppConsumer::<TesHitEvent>(input.clone(), std::marker::PhantomData);
+        world
+            .commonlib_event_sources()
+            .hit()
+            .add_sink(Box::new(consumer));
+        let consumer = CppConsumer::<TesObjectLoadedEvent>(input.clone(), std::marker::PhantomData);
+        world
+            .commonlib_event_sources()
+            .object_loaded()
+            .add_sink(Box::new(consumer));
+        let consumer = CppConsumer::<TesQuestStageEvent>(input.clone(), std::marker::PhantomData);
+        world
+            .commonlib_event_sources()
+            .quest_stage()
+            .add_sink(Box::new(consumer));
+    }
+    game.world_mut().set_grabbed_reference(Some(id(REFERENCE)));
+    let mut allocate = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+    assert!(game
+        .world_mut()
+        .harvest_item(id(0x900), id(0xA10), 1, &mut allocate));
+    game.melee_hit(MeleeHit {
+        attacker: id(0x900),
+        target: id(0x901),
+        weapon: id(0xA00),
+        is_bash: false,
+        is_power_attack: false,
+    })
+    .unwrap();
+    game.world_mut()
+        .attach_streaming_cells(&[id(CELL)])
+        .unwrap();
+    assert!(game.set_stage(id(0x820), 1));
+    drop(input);
+    drop(game);
+    assert!(cpp
+        .wait()
+        .expect("wait for C++ live event consumer")
+        .success());
 }
 
 #[test]

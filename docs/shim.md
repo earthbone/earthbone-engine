@@ -360,9 +360,13 @@ CommonLib bit values, and the executable quest callback pointer is omitted.
 `EventSource` sends each typed payload to registered sinks in registration
 order and stops when a sink returns `Stop`. `request_hook` returns an explicit
 `Unsupported` error for call-site, branch and vtable hooks. The SHM-22 C++
-fixture routes all five payloads into stateful receiver methods and checks the
-three hook results. It exercises the source-level API contract and does not
-link a plugin to a running game process.
+shim fixture checks the source-level event declarations and rejects the three
+hook kinds. Its game integration fixture registers C++ sinks through the MIT
+source-level API, then forwards payloads emitted by live `World` operations to
+a compiled C++ consumer over a test pipe. The C++ consumer reconstructs each
+payload, dispatches it through its event source and checks the fields seen by
+the sink. This test transport does not define a C ABI or link a plugin to a
+running game process.
 
 The payload field layout was checked against the alandtse
 `TESGrabReleaseEvent.h`, `ItemHarvested.h`, `TESHitEvent.h`,
@@ -447,8 +451,13 @@ SHM-11 C++ fixtures check the world type contract, and game tests exercise its R
 player and process-list reads against synthetic `World` state and through C++ callbacks that query
 a live Rust `World`. SHM-20 compiles the five typed event payload contracts and checks sink dispatch
 against synthetic state fixtures, as well as streaming events from live game producers to generated C++
-event sources. SHM-21 implements five event-state queries on `World` and checks live inventory, actor,
-deletion and furniture state plus unsupported-hook errors. SHM-22 checks the
+event sources. SHM-21 implements five event-state queries on `World`. Its compiled C++ fixture sends
+inventory, death, bleedout, deletion and furniture queries across a pipe, and the game answers each
+request from its current `World`. The C++ payload checks use those returned values, and the fixture
+checks unsupported vtable hooks. The pipe is test transport and does not add a C++ to Rust ABI.
+The event fields and enum values follow the local alandtse headers `TESContainerChangedEvent.h`,
+`TESDeathEvent.h`, `TESEnterBleedoutEvent.h`, `TESFormDeleteEvent.h` and `TESFurnitureEvent.h`.
+SHM-22 checks the
 additional payload contracts, live-state receiver calls and unsupported hook results in Rust and
 C++ fixtures. SHM-23 compiles and runs the quest event payload and verifies the explicit trampoline
 rejection marker. A game integration test streams live quest start and failed-stop events through the
@@ -537,6 +546,11 @@ The payloads follow CommonLibSSE-NG-alandtse `include/RE/D/DisarmedEvent.h`,
 `include/RE/L/LocationDiscovery.h` and
 `include/RE/S/ScriptEventSourceHolder.h`. The source-level declarations do
 not reproduce CommonLib pointer layouts or connect directly to a runtime.
+The SHM-19 game fixture subscribes a compiled C++ sink to each generated
+source, forwards payloads emitted by the live `World` over a test pipe, and
+checks the values received by those sinks. It also checks that vtable hook
+requests return an explicit unsupported result. The pipe is test transport,
+not a C++ to Rust ABI.
 
 ## Appendix: the 349 names by group
 

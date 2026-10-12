@@ -353,7 +353,10 @@ current actor death and unconscious flags, reference and winning-record deletion
 and each actor's reserved furniture seat. Handles resolve through the current
 load order. Unknown or uninstantiated references return no result. A current
 seat is represented as a furniture Enter event. Binary hook requests return
-the shim's named unsupported-hook error.
+the shim's named unsupported-hook error. SHM-21's C++ contract test sends each
+query over a test pipe and receives its result from the current `World`, including
+unknown-handle results. The pipe exercises the source-level MIT interface and
+does not provide a C++ to Rust ABI.
 
 ## What is in it
 
@@ -572,6 +575,10 @@ emits the caster and target after the weapon is dropped. `AddToMap` emits
 location discovery only when it first adds the reference, using the cell's
 resolved worldspace when available. Level increase reads the current player
 identity and rejects levels outside the event's `u16` field before dispatch.
+The SHM-19 integration fixture forwards events emitted by a live `World` to
+compiled C++ sinks subscribed through `RE::ScriptEventSourceHolder`. It checks
+the received payloads and unsupported vtable-hook result over a test pipe,
+which is not a C++ to Rust ABI.
 The grab and release channel follows held-reference changes, harvest follows a
 successful `World::harvest_item` inventory addition, hit follows a committed
 melee contact, object loaded follows reference 3D residency changes, and quest
@@ -581,6 +588,9 @@ reference identities use the live load order's runtime IDs. These channels add
 no saved state. Disarm, dragon soul awards and location discovery remain event
 entry points for gameplay callers, with successful weapon disarms, accepted
 dragon soul changes and first-time map additions already wired to dispatch.
+SHM-22 sends these five live World-produced payloads through a test pipe to
+compiled C++ sinks, which reconstruct and dispatch them through the MIT shim
+event sources. The fixture checks received fields and unsupported hook results.
 Binary hook requests return the requested hook name as an unsupported result
 without changing runtime state. Event payloads, generated C++
 declarations, the CommonLib source-level API, and its contract fixtures are in
@@ -1842,7 +1852,9 @@ player spell addition and streamed cell arrival. Their payloads resolve from
 the same world and load order. Binary hooks return explicit unsupported errors.
 A game integration fixture forwards these live events to compiled C++ sinks
 over a test pipe and checks the responses. This test transport is not an engine
-plugin ABI. See [shim](shim.md#event-binding-batch-shm-18) for the projected C++
+plugin ABI. SHM-21 also queries inventory, actor death, bleedout, deletion and
+furniture state from C++ over a pipe, with each result read from the same live
+`World`. See [shim](shim.md#event-binding-batch-shm-18) for the projected C++
 payload contract and unsupported binary hook boundary.
 
 ## Conformance table
