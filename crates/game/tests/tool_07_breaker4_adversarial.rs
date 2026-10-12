@@ -40,7 +40,13 @@ fn tool_07_breaker4_traceuser_returns_false_for_a_closed_log() {
         .local("result", "Var")
         .ins(
             CallStatic,
-            vec![s("Debug"), s("TraceUser"), ident("result"), s("Missing"), s("message")],
+            vec![
+                s("Debug"),
+                s("TraceUser"),
+                ident("result"),
+                s("Missing"),
+                s("message"),
+            ],
         )
         .ins(Return, vec![ident("result")]);
     game.load_script(
@@ -55,7 +61,10 @@ fn tool_07_breaker4_traceuser_returns_false_for_a_closed_log() {
         .unwrap();
     game.run_until_idle(32);
 
-    assert!(matches!(game.vm.thread_result(thread), Some(Value::Bool(false))));
+    assert!(matches!(
+        game.vm.thread_result(thread),
+        Some(Value::Bool(false))
+    ));
     assert!(!PathBuf::from(&root)
         .join("Logs/Script/User/Missing.0.log")
         .exists());

@@ -340,7 +340,11 @@ fn malformed_child_counts_are_rejected_without_recursion() {
 
 #[test]
 fn unsupported_group_types_hold_instead_of_running_a_descendant() {
-    let tree = travel(branch(template(), "Simultaneous", 1, false), 0, false);
+    let tree = travel(
+        travel(branch(template(), "Simultaneous", 2, false), 0, false),
+        1,
+        false,
+    );
     let mut game = game(tree, 0);
     advance(&mut game, 20);
     assert_eq!(position(&mut game), 0.0);

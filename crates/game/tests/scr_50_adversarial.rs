@@ -30,5 +30,8 @@ fn scr_50_negative_budget_index_uses_empty_name_without_panicking() {
             .unwrap();
     assert!(g.run_until_idle(32));
     assert_eq!(g.vm.thread_result(t), Some(Value::string("")));
-    assert!(g.traces().is_empty());
+    assert!(g
+        .vm
+        .log
+        .contains("Utility.GetBudgetName: call GetCurrentMemory first"));
 }

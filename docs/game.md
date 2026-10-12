@@ -2324,11 +2324,13 @@ Their CK contracts are described by
 `GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture fed
 by `Game::tick`. Without captured frames, they return `None` and log that beta
 capture data is unavailable. `GetCurrentMemory`, `GetBudgetCount`, and
-`GetBudgetName` require memory tracking. The runtime has no game-owned memory
-tracker, so `GetCurrentMemory` and `GetBudgetCount` return `None` and log an
-explicit error. `GetBudgetName` validates its single integer index, returns an
-empty string for invalid indices, and logs an error before returning an empty
-string when tracking is unavailable. The scheduler methods `GetCurrentBudget`
+`GetBudgetName` expose the Rust allocation counters. `GetCurrentMemory`
+initializes the queries and returns their total live bytes, including zero
+when the host has no tracked allocations. Until that initialization,
+`GetBudgetCount` returns `None` and `GetBudgetName` returns an empty string,
+with an explicit error in both cases. The initialization check also applies
+to negative indices. After initialization, invalid indices return an empty
+name. The scheduler methods `GetCurrentBudget`
 and `OverBudget` read separate runtime counters for Papyrus instructions per
 slice and exterior cell loads per update. `GetCurrentBudget` reads the
 instruction count returned by the most recent VM scheduler slice or the number
@@ -2743,7 +2745,7 @@ existing native rows:
   `GetCurrentCrosshairRef`, `GetPlayerGrabbedRef`.
 - SCR-32: `FindClosestActor`, `FindRandomActor`,
   `FindClosestReferenceOfType`, `FindRandomReferenceOfType`, `GetFormEx2`.
-- SCR-28 implements the five Game bindings above. The SCR-28 Papyrus tests
+- SCR-28: Implements the five Game bindings above. The SCR-28 Papyrus tests
   check fade arguments, invalid timings and host request ordering.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides
@@ -9620,3 +9622,38 @@ activation while still sending OnActivate, following local UESP BOOK.
 Successful player BOOK default processing also queues a transient ReadBook
 host request. This includes Papyrus default-only Activate calls. Actor pickups
 do not request a player menu. Menu requests are not saved.
+
+## Integration test reconciliation, 2026-10-12
+
+The combined game tests retain newer contracts where earlier rows overlap.
+MAG-40 supplies IsHostileToActor and IsUndead to the AI-41 and AI-83 condition
+tests. Detect Life keeps one application on its explicit target and uses EFIT
+area as its detection radius instead of MAG-06's ordinary area fanout.
+AI-14 supports one simultaneous Travel child, so the older package
+sequence rejection fixture uses two Travel children. SCR-11 registers
+SetEssential on ActorBase, and the SCR-02 inventory checks use that declaring
+class. SCR-50 initializes Rust memory queries, replacing PRF-10's earlier
+unavailable-memory expectation. No saved state or section is added.
+
+Simultaneous completion checks every completed child with the package-success
+flag, so an arriving Travel child can cancel a longer successful Wait.
+GetSitState reports wanting to sit before arrival even when a stale stand
+request is present. Disabled references reject activation. An available
+speaker without eligible dialogue closes its session and returns no line.
+
+Synthetic save fixtures rebuild their location table and choose change-form
+length widths before public ESS serialization. SAV-07's native-envelope offset includes SAV-58's file-table
+identity field. Native saves with an empty plugin table have no file positions
+to remap. Unresolved-record expectations retain SAV-59's lowercase plugin
+identity. TST-16 owns all root test registrations and shared UI helper imports.
+
+The local source review used UESP `CELL.wikitext` for one-byte and two-byte
+DATA, CommonLibSSE-NG `ExtraPoison.h` and `ExtraOutfitItem.h` for ALCH and
+OTFT identities, CK GetSitState and SetAllowFlying pages for state codes and
+defaults, and FallrimTools `VSVal.java` and `ChangeForm.java` for shifted
+extra-list counts and payload length widths.
+xEdit `wbDefinitionsTES5.pas` identifies Health as actor value 24 and Recover
+as MGEF flag bit 1. The Grab Actor companion fixture uses both so its immediate
+health assertion exercises the caster target. Existing Rust readers and
+public save profiling supply the fixture encoding, with no reference code
+copied or dependency added.

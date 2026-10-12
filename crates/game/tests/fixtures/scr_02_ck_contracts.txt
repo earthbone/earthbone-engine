@@ -134,6 +134,8 @@ Actor|ck-wiki/Actor_Script.wikitext|SetActorValue(String asValueName, Float afVa
 Actor|ck-wiki/Actor_Script.wikitext|SetAlert(Bool abAlerted)
 Actor|ck-wiki/Actor_Script.wikitext|SetAllowFlying(Bool abAllowed)
 Actor|ck-wiki/Actor_Script.wikitext|SetAllowFlyingEx(Bool abAllowed, Bool abAllowCrash, Bool abAllowSearch)
+Actor|ck-wiki/SetAllowFlying_-_Actor.wikitext|None SetAllowFlying(Bool abAllowed = true)
+Actor|ck-wiki/SetAllowFlyingEx_-_Actor.wikitext|None SetAllowFlyingEx(Bool abAllowed = true, Bool abAllowCrash = true, Bool abAllowSearch = false)
 Actor|ck-wiki/Actor_Script.wikitext|SetAlpha(Float afTargetAlpha, Bool abFade)
 Actor|ck-wiki/Actor_Script.wikitext|SetAttackActorOnSight(Bool abAttackOnSight)
 Actor|ck-wiki/Actor_Script.wikitext|SetAV(String asValueName, Float afValue)

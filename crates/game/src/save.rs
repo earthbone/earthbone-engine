@@ -275,7 +275,7 @@ fn native_file_map(
     saved: &SaveProvenance,
     current: &SaveProvenance,
 ) -> Result<Option<Vec<Option<u16>>>, VmError> {
-    if saved.plugins.iter().any(|plugin| plugin.file == u16::MAX) {
+    if saved.plugins.is_empty() || saved.plugins.iter().any(|plugin| plugin.file == u16::MAX) {
         return Ok(None);
     }
     let size = saved

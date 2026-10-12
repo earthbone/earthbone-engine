@@ -2932,7 +2932,7 @@ impl World {
                 vec![source]
             } else if werewolf_race.is_some()
                 || vampire_form.is_some()
-                || matches!(data.archetype, LOCK | OPEN)
+                || matches!(data.archetype, LOCK | OPEN | DETECT_LIFE_ARCHETYPE)
             {
                 vec![target]
             } else if definition.data.delivery == 4 {

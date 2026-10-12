@@ -158,12 +158,12 @@ impl World {
     pub fn sit_state(&mut self, id: GlobalFormId) -> Option<i32> {
         let actor = self.actor(id)?;
         Some(if actor.ai.procedure == crate::ai::Procedure::Sit {
-            if actor.sit_wants_to_stand {
-                4
-            } else if actor.ai.arrived {
-                3
-            } else {
+            if !actor.ai.arrived {
                 2
+            } else if actor.sit_wants_to_stand {
+                4
+            } else {
+                3
             }
         } else {
             0

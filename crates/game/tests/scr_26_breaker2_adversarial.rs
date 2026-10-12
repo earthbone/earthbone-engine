@@ -25,8 +25,10 @@ fn fixture() -> Game {
 
 fn global(game: &mut Game, args: &[Value]) {
     let script = format!("Scr26Breaker2{}", game.vm.time().to_bits());
-    let mut function = FunctionBuilder::new("Run", "Var").global();
-    let mut operands = vec![s("Game"), s("ShakeCamera")];
+    let mut function = FunctionBuilder::new("Run", "Var")
+        .global()
+        .local("result", "Var");
+    let mut operands = vec![s("Game"), s("ShakeCamera"), ident("result")];
     for (index, value) in args.iter().enumerate() {
         let parameter = format!("arg{index}");
         function = function.param(

@@ -41,7 +41,7 @@ fn tool_07_breaker3_open_user_log_reports_duplicate_and_reopen_results() {
         )
         .ins(
             CallStatic,
-            vec![s("Debug"), s("Trace"), ident("result"), s("first")],
+            vec![s("Debug"), s("Trace"), ident("result"), ident("result")],
         )
         .ins(
             CallStatic,
@@ -49,7 +49,7 @@ fn tool_07_breaker3_open_user_log_reports_duplicate_and_reopen_results() {
         )
         .ins(
             CallStatic,
-            vec![s("Debug"), s("Trace"), ident("result"), s("duplicate")],
+            vec![s("Debug"), s("Trace"), ident("result"), ident("result")],
         )
         .ins(
             CallStatic,
@@ -61,7 +61,7 @@ fn tool_07_breaker3_open_user_log_reports_duplicate_and_reopen_results() {
         )
         .ins(
             CallStatic,
-            vec![s("Debug"), s("Trace"), ident("result"), s("reopened")],
+            vec![s("Debug"), s("Trace"), ident("result"), ident("result")],
         );
     game.load_script(
         &ScriptBuilder::new("Tool07OpenResultProbe", "Form")

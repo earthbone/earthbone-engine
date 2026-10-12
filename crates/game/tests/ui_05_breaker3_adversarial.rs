@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "support/ui_05_fixture.rs"]
-mod compiled;
+use crate::support::ui_05_fixture as compiled;
 
 use soe_esm::GlobalFormId;
 use soe_papyrus::Value;

@@ -50,7 +50,7 @@ fn sav_58_mixed_links_keep_identity_order_and_unrelated_pose_after_two_reloads()
         light: true,
         object: 0x0abc,
     };
-    let orphan = UnresolvedRecord {
+    let mut orphan = UnresolvedRecord {
         id: orphan_id,
         payload: vec![0xff, 0, 0x80, 0x10, 0, 0x80],
         links: vec![retained_link.clone(), missing_link.clone(), retained_link],
@@ -67,6 +67,7 @@ fn sav_58_mixed_links_keep_identity_order_and_unrelated_pose_after_two_reloads()
         .world_mut()
         .retain_unresolved_record(orphan.clone())
         .unwrap();
+    orphan.id.plugin.make_ascii_lowercase();
     let first = original.save_state().unwrap();
 
     let mut without_plugins = Game::new(order(&[

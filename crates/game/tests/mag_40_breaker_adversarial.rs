@@ -56,6 +56,8 @@ fn fixture(area: u32, magnitude: f32, shader: u32, positions: &[[f32; 3]]) -> Ga
     let mut order = LoadOrder::new();
     order.add("DetectLife.esm", plugin).unwrap();
     let game = Game::new(order);
+    let player = game.world_mut().player();
+    game.world_mut().reference(player).unwrap().position = [10_000.0, 0.0, 0.0];
     for index in 0..positions.len() {
         game.world_mut()
             .set_actor_value(id(0x100 + index as u32), "health", 100.0)

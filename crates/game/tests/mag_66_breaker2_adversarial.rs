@@ -46,8 +46,11 @@ fn fixture(cast_type: u32, delivery: u32, companion: bool) -> Game {
     }
     plugin.push_top(Record::new(Tag(*b"MGEF"), GRAB).sub(Tag(*b"DATA"), effect_data(45, 0)));
     if companion {
-        plugin
-            .push_top(Record::new(Tag(*b"MGEF"), COMPANION).sub(Tag(*b"DATA"), effect_data(0, 0)));
+        plugin.push_top(Record::new(Tag(*b"MGEF"), COMPANION).sub(Tag(*b"DATA"), {
+            let mut data = effect_data(0, 24);
+            put(&mut data, 0, 1 << 1);
+            data
+        }));
     }
     let mut spell = Record::new(Tag(*b"SPEL"), SPELL)
         .sub(Tag(*b"SPIT"), spell_data)

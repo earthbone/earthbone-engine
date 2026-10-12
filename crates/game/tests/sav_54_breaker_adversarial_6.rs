@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use crate::vanilla_save::references::{fixture, set_form_mask};
+use crate::vanilla_save::references::{fixture, set_form_mask, write_fixture};
 use soe_save::Save;
 
 #[test]
@@ -13,7 +13,7 @@ fn sav_54_public_save_round_trip_keeps_both_words_and_the_opaque_suffix() {
     let suffix: Vec<u8> = (0..=255).cycle().take(257).collect();
     change.data.extend_from_slice(&suffix);
 
-    let encoded = save.write().unwrap();
+    let encoded = write_fixture(&mut save);
     let parsed = Save::parse(&encoded).unwrap();
     let change = &parsed.change_forms[1];
     let header = change.reference_header(form_version).unwrap().unwrap();
@@ -31,7 +31,7 @@ fn sav_54_public_save_round_trip_keeps_payload_when_mask_flag_is_absent() {
     let suffix: Vec<u8> = (0..=255).rev().collect();
     change.data.extend_from_slice(&suffix);
 
-    let encoded = save.write().unwrap();
+    let encoded = write_fixture(&mut save);
     let parsed = Save::parse(&encoded).unwrap();
     let change = &parsed.change_forms[1];
     let header = change.reference_header(form_version).unwrap().unwrap();

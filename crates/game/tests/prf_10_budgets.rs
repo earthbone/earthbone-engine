@@ -39,8 +39,11 @@ fn call_global(game: &mut Game, name: &str, args: &[Value]) -> Value {
 fn prf_10_budget_queries_measure_scheduler_usage_and_limits() {
     let mut game = Game::new(LoadOrder::new());
 
-    assert_eq!(call_global(&mut game, "GetCurrentMemory", &[]), Value::None);
-    assert!(game
+    assert_eq!(
+        call_global(&mut game, "GetCurrentMemory", &[]),
+        Value::Int(0)
+    );
+    assert!(!game
         .vm
         .log
         .contains("Utility.GetCurrentMemory: memory tracking is unavailable"));
@@ -61,11 +64,19 @@ fn prf_10_budget_queries_measure_scheduler_usage_and_limits() {
         Value::Bool(false)
     );
 
-    for index in [-1, 2, i32::MAX] {
+    let count = call_global(&mut game, "GetBudgetCount", &[]).as_int();
+    assert_eq!(count, soe_trace::SYSTEM_COUNT as i32);
+    assert_eq!(
+        call_global(&mut game, "GetBudgetName", &[Value::Int(2)]),
+        Value::string("ai_movement")
+    );
+    for index in [-1, count, i32::MAX] {
         assert_eq!(
             call_global(&mut game, "GetBudgetName", &[Value::Int(index)]),
             Value::string("")
         );
+    }
+    for index in [-1, 2, i32::MAX] {
         assert_eq!(
             call_global(&mut game, "GetCurrentBudget", &[Value::Int(index)]),
             Value::Int(0)
