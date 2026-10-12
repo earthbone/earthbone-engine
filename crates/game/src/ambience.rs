@@ -48,16 +48,22 @@ pub fn descriptors_for_cell(
         .filter(|record| record.tag == T(b"CELL"))
         .ok_or_else(|| Error::Invalid(format!("missing CELL {cell}")))?;
     let cell_data = Cell::from_record(record, false)?;
-    let mut regions: Vec<_> = cell_data
-        .regions
-        .iter()
-        .filter_map(|raw| world.resolve_from(cell, *raw))
-        .collect();
+    let mut regions = Vec::new();
+    for raw in cell_data.regions.iter().copied().filter(|raw| *raw != 0) {
+        regions.push(
+            world
+                .resolve_from(cell, raw)
+                .ok_or_else(|| Error::Invalid(format!("invalid CELL region link at {cell}")))?,
+        );
+    }
     let mut sounds = Vec::new();
-    if let Some(space) = cell_data
-        .acoustic_space
-        .and_then(|raw| world.resolve_from(cell, raw))
-    {
+    let acoustic_space = match cell_data.acoustic_space.filter(|raw| *raw != 0) {
+        Some(raw) => Some(world.resolve_from(cell, raw).ok_or_else(|| {
+            Error::Invalid(format!("invalid CELL acoustic-space link at {cell}"))
+        })?),
+        None => None,
+    };
+    if let Some(space) = acoustic_space {
         let space_record = world
             .record(space)
             .filter(|record| record.tag == T(b"ASPC"))

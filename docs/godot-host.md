@@ -1170,8 +1170,13 @@ outdoor WTHR lighting.
 The MUST track lookup and non-positional `SoundBank::play_ambience` entry
 point remain available. `tests/aud_09_godot_ambience.rs` uses a generated WAV
 fixture to check that entry point's AudioStreamPlayer start and release in a
-windowed 640 by 360 process. PlayerNode uses the ambient SNDR descriptors
-connected by AUD-11 below.
+windowed 640 by 360 process. The same test file runs
+`godot/aud_09_player_cell_test.gd` with installed data. It starts gameplay in
+WhiterunBanneredMare, changes the PlayerNode to WhiterunOrigin, and checks
+that destination ambience starts and the departed descriptor players stop.
+Direct `PlayerNode::enter_cell` changes during a live Game synchronize cell
+ambience and music. PlayerNode uses the ambient SNDR descriptors connected by
+AUD-11 below.
 
 ## Walkthrough audio, AUD-11
 
@@ -4239,6 +4244,15 @@ SoundBank in Godot with three synthetic archive tracks. It checks both players
 during the first fade, verifies each configured fade changes player volume,
 then interrupts the fade and checks that the reused slot no longer has the
 first track assigned. AudioEffectCapture confirms mixer output during playback.
+
+`aud_05_player_music_selection_reaches_godot_with_vanilla_fades` surveys the
+installed base masters for an eligible MUSC track with nonzero authored fades.
+It starts installed gameplay through PlayerNode, selects the record through
+`select_music_type`, checks Godot playback and its fade, and confirms captured
+mixer output. The record fields follow the
+local `TES5Edit/Core/wbDefinitionsTES5.pas` definitions for MUSC and MUST.
+Godot playback uses its `AudioStreamPlayer` players and mixer facilities as
+documented in `godot-docs/classes/class_audioserver.rst`.
 
 ### Asynchronous music and ambience (AUD-12)
 

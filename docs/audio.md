@@ -292,20 +292,23 @@ the viseme types and the race mapping work with no tool present.
 ### INFO response hints, AUD-10
 
 `Rhubarb::visemes_for_response` takes the plain text carried by an ESM `INFO` response and passes
-it to Rhubarb through `--dialogFile`. Rhubarb still recognizes the recording, while preferring
-words and phrases that match the hint. A localized string ID is not resolved in this crate, so the
+it to Rhubarb through `--dialogFile`, which accepts plain ASCII or UTF-8 text. Rhubarb still
+recognizes the recording, while preferring words and phrases that match the hint. It ignores text
+where the recording audibly differs. A localized string ID is not resolved in this crate, so the
 caller must resolve it before generating cues. Missing or unresolved text uses audio-only
-recognition.
+recognition. Rhubarb reports cue times in hundredths of a second.
 
 The gated AUD-10 check selects eight matching Skyrim.esm INFO responses in ascending form ID and
 response number from the English voice archive. It generates each track both with and without the
 response text and checks that each reported track duration differs from decoded audio duration by
 no more than 50 ms. This measures temporal coverage only. Rhubarb exports mouth cues rather than
 recognized words, so the check does not claim that hints improve transcript accuracy or exact
-phoneme alignment.
+phoneme alignment. When the required game files and ffmpeg are available, the check requires
+Rhubarb and fails with a tool requirement message if none of the configured locations provides it.
 
-The installed-data run on 2026-10-02 passed for all eight responses with Rhubarb Lip Sync 1.14.0
-and ffmpeg. Both tracks for every response stayed within the 50 ms duration bound.
+The installed-data run on 2026-10-09 passed for all eight responses with Rhubarb Lip Sync 1.14.0
+and ffmpeg. Mean absolute duration error was 5.4 ms for both hinted and unhinted tracks, and each
+track stayed within the 50 ms duration bound.
 
 ### Shapes onto phonemes
 
@@ -404,6 +407,12 @@ within 60 ms, and requires at least 0.8 waveform correlation. The comparison sea
 sample priming offset in 32 sample steps and samples every eighth PCM value. It also checks the
 native result is non-silent and has the container's sample rate and channel count. This verifies
 one vanilla line, not every entry in the archive.
+
+On 2026-10-09, both default-build single-line checks passed against the installed archive. The
+archive-order line scored 1.000 and the sorted-first line scored 0.992. The eight-line survey
+scored at least 0.986, with each line decoded twice to check repeatability. The native decoder
+does not use the `xwma-ffmpeg` feature. The ffmpeg executable is used only as the comparison
+reference in these tests.
 
 The open path, end to end on one real line: the vanilla xWMA decodes to 2.136 s, the same line
 re-encoded to Ogg Vorbis decodes through `lewton` to 2.136 s at 44,100 Hz, and re-encoded to Ogg

@@ -236,7 +236,7 @@ fn aud_10_info_text_hints_keep_viseme_tracks_aligned_to_the_voice_duration() {
         eprintln!("skipping: the ffmpeg binary is not on the path");
         return;
     }
-    let Some(source) = rhubarb() else { return };
+    let source = rhubarb().expect("AUD-10 needs Rhubarb when Skyrim data is installed");
 
     let mut voice_files = std::collections::BTreeMap::new();
     for name in archive.files() {
