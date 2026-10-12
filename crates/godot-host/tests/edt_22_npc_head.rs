@@ -337,13 +337,9 @@ fn edt_22_head_assets_follow_the_supplied_vfs_precedence() {
 #[test]
 fn edt_22_ambiguous_tri_shape_binding_is_rejected() {
     let fixture = Fixture::new();
-    let mut file = soe_nif::parse(&head_nif("Head", &POINTS)).unwrap();
-    let shape = file.blocks.last().unwrap().clone();
-    file.roots.push(soe_nif::BlockRef(file.blocks.len() as i32));
-    file.blocks.push(shape);
     std::fs::write(
         fixture.directory.path().join("meshes/Head.nif"),
-        file.to_bytes().unwrap(),
+        head_nif_shapes(&[("Head", POINTS), ("DuplicateHead", POINTS)]),
     )
     .unwrap();
     assert!(matches!(

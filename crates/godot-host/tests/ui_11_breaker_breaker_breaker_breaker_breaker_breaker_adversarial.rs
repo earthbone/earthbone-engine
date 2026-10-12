@@ -9,6 +9,9 @@ use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, IAdd};
 use soe_papyrus::Value;
 
+#[path = "support/ui_11_protocol.rs"]
+mod protocol;
+
 const CONFIG_QUEST: u32 = 0x800;
 
 fn fixture() -> Game {
@@ -32,7 +35,17 @@ fn fixture() -> Game {
     order.add("ConfigFixture.esm", plugin).unwrap();
     let mut game = Game::new(order);
     game.load_script(
-        &ScriptBuilder::new("ConfigFixture", "Quest")
+        &protocol::with_protocol(
+            ScriptBuilder::new("SKI_ConfigBase", "Quest")
+                .auto_property("ModName", "String", soe_papyrus::asm::s("Fixture Mod"))
+                .auto_property("Pages", "String[]", soe_papyrus::asm::none())
+                .function(FunctionBuilder::new("OpenConfig", "None").build()),
+        )
+        .bytes(),
+    )
+    .unwrap();
+    game.load_script(
+        &ScriptBuilder::new("ConfigFixture", "SKI_ConfigBase")
             .variable("selection_count", "Int", i(0))
             .variable("selected_option", "Int", i(-1))
             .function(
@@ -107,6 +120,7 @@ fn ui_11_hidden_disabled_and_unknown_ids_never_call_the_script() {
         .unwrap();
     let available = page.add_text("Available", "", 0).unwrap();
 
+    protocol::publish(&mut game, form, &page);
     assert!(!page.select(&mut game, form, hidden));
     assert!(!page.select(&mut game, form, disabled));
     assert!(!page.select(&mut game, form, 0x1ff));
@@ -127,6 +141,7 @@ fn ui_11_repeated_selection_sends_one_page_strided_callback_each_time() {
     let id = page.add_toggle("Enabled", false, 0).unwrap();
 
     assert_eq!(id, 0x0012_3400);
+    protocol::publish(&mut game, form, &page);
     assert!(page.select(&mut game, form, id));
     assert_eq!(variable(&mut game, "selection_count"), Value::Int(1));
     assert_eq!(

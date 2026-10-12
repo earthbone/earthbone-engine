@@ -99,6 +99,7 @@ fn ui_23_scaleform_research_documents_tags_and_extensions() {
 #[test]
 fn ui_23_ruffle_api_gaps_are_checked_at_a_pinned_revision() {
     let doc = std::fs::read_to_string(repo_root().join("docs/ui-frameworks.md")).unwrap();
+    let doc = doc.split_whitespace().collect::<Vec<_>>().join(" ");
     for required in [
         "Ruffle nightly 2026-10-09 at commit `fbb4ce8`",
         "Its AVM1 global registration has no `gfx` namespace",
@@ -115,7 +116,7 @@ fn ui_23_ruffle_api_gaps_are_checked_at_a_pinned_revision() {
             "Ruffle API audit is missing {required}"
         );
     }
-    assert!(!doc.contains("Method-level API gaps\n  therefore remain unverified"));
+    assert!(!doc.contains("Method-level API gaps therefore remain unverified"));
 }
 
 #[test]

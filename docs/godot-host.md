@@ -5029,6 +5029,12 @@ viewport and quits. It requires
 project before running it. Capture and output go to `target/ui_11_host`.
 The sources also include local SkyUI `src/ModConfigPanel/ConfigPanel.as` and
 `OptionsListEntry.as` for buffers, cursor updates and presentation flags.
+The synthetic host suites share `tests/support/ui_11_protocol.rs`. It transmits
+packed flags, labels, values and row counts through the same UI natives as
+SkyUI-Community's `source/scripts/SKI_ConfigBase.psc::FlushOptionBuffers`.
+Synthetic selection requires an open config and its current published page,
+including after enabled flags change. Unpublished, stale and closed pages
+remain rejected.
 
 ### MCM slider and menu dialogs, UI-12
 

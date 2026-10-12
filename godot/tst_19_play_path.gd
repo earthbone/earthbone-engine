@@ -194,7 +194,7 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 		_key(false)
 		var stationary: Vector3 = player.call("position")
 		_check("route.walk", false, {"destination": str(target), "position": str(stationary), "distance": initial.distance_to(stationary), "path_points": points.size(), "seconds": 0.0, "reason": "NAVM path missing or trivial"})
-		get_tree().quit(1)
+		quit(1)
 		return false
 	for point in points:
 		while not finished:
@@ -219,7 +219,7 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	reached = reached and distance > 1.0
 	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
 	if not reached:
-		get_tree().quit(1)
+		quit(1)
 	return reached
 
 func _reference(predicate: Callable) -> Dictionary:

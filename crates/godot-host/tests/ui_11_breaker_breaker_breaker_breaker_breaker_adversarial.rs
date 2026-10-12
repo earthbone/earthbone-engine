@@ -9,6 +9,9 @@ use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, IAdd};
 use soe_papyrus::Value;
 
+#[path = "support/ui_11_protocol.rs"]
+mod protocol;
+
 const CONFIG_QUEST: u32 = 0x800;
 
 fn config_game() -> Game {
@@ -32,7 +35,17 @@ fn config_game() -> Game {
     order.add("ConfigFixture.esm", plugin).unwrap();
     let mut game = Game::new(order);
     game.load_script(
-        &ScriptBuilder::new("ConfigFixture", "Quest")
+        &protocol::with_protocol(
+            ScriptBuilder::new("SKI_ConfigBase", "Quest")
+                .auto_property("ModName", "String", soe_papyrus::asm::s("Fixture Mod"))
+                .auto_property("Pages", "String[]", soe_papyrus::asm::none())
+                .function(FunctionBuilder::new("OpenConfig", "None").build()),
+        )
+        .bytes(),
+    )
+    .unwrap();
+    game.load_script(
+        &ScriptBuilder::new("ConfigFixture", "SKI_ConfigBase")
             .variable("selection_count", "Int", i(0))
             .variable("selected_option", "Int", i(-1))
             .function(
@@ -96,6 +109,7 @@ fn ui_11_out_of_range_selection_does_not_dispatch_or_change_the_option() {
     let id = page.add_text("Status", "Ready", 0).unwrap();
     let before = page.rows().to_vec();
 
+    protocol::publish(&mut game, form, &page);
     assert!(!page.select(&mut game, form, 0x1ff));
     assert_eq!(page.rows(), before);
     assert_eq!(script_var(&mut game, "selection_count"), Value::Int(0));
