@@ -2,7 +2,6 @@
 
 //! Godot controls for the player status meters and heading compass.
 
-use godot::builtin::Side;
 use godot::classes::control::{LayoutPreset, MouseFilter};
 use godot::classes::{CanvasLayer, ColorRect, Control, Label, ProgressBar, VBoxContainer};
 use godot::prelude::*;
@@ -20,7 +19,6 @@ pub(super) struct HudView {
     stamina_bar: Gd<ProgressBar>,
     compass: Gd<Label>,
     activation_prompt: Gd<Label>,
-    activation: Gd<Label>,
     cart_mode: Gd<Label>,
     blood_overlay: Gd<ColorRect>,
     presentation: crate::hud::GameUiPresentation,
@@ -56,15 +54,6 @@ impl HudView {
         activation_prompt.set_custom_minimum_size(Vector2::new(200.0, 50.0));
         activation_prompt.set_horizontal_alignment(godot::global::HorizontalAlignment::CENTER);
 
-        let mut activation = Label::new_alloc();
-        activation.set_name("ActivationPrompt");
-        activation.set_anchors_and_offsets_preset(LayoutPreset::CENTER);
-        activation.set_offset(Side::LEFT, -70.0);
-        activation.set_offset(Side::RIGHT, 70.0);
-        activation.set_offset(Side::TOP, 24.0);
-        activation.set_offset(Side::BOTTOM, 64.0);
-        activation.hide();
-
         let mut cart_mode = Label::new_alloc();
         cart_mode.set_name("CartMode");
         cart_mode.set_anchors_and_offsets_preset(LayoutPreset::CENTER_TOP);
@@ -82,7 +71,6 @@ impl HudView {
         root.add_child(&stats);
         root.add_child(&compass);
         root.add_child(&activation_prompt);
-        root.add_child(&activation);
         root.add_child(&cart_mode);
         root.add_child(&blood_overlay);
         layer.add_child(&root);
@@ -98,7 +86,6 @@ impl HudView {
             stamina_bar: stamina.1,
             compass,
             activation_prompt,
-            activation,
             cart_mode,
             blood_overlay,
             presentation: crate::hud::GameUiPresentation::default(),
@@ -129,19 +116,16 @@ impl HudView {
         );
         self.compass.set_text(&snapshot.compass);
         let prompt = super::activation::prompt(game);
-        self.activation_prompt.set_text(
-            &prompt.map_or_else(String::new, |(name, action, _)| format!("{action}\n{name}")),
-        );
         let focused = game.world().crosshair_reference();
-        let prompt = focused
+        let speaker = focused
             .filter(|speaker| game.player_dialogue_available(*speaker))
             .and_then(|speaker| game.world().name_of(speaker));
-        self.activation.set_text(
-            &prompt
-                .as_ref()
-                .map_or_else(String::new, |name| format!("Talk\n{name}")),
+        let text = speaker.map_or_else(
+            || prompt.map_or_else(String::new, |(name, action, _)| format!("{action}\n{name}")),
+            |name| format!("Talk\n{name}"),
         );
-        self.activation.set_visible(prompt.is_some());
+        self.activation_prompt.set_text(&text);
+        self.activation_prompt.set_visible(!text.is_empty());
     }
 
     pub(super) fn hide(&mut self) {

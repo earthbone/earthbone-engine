@@ -39,11 +39,7 @@ fn hst_25_installed_player_has_a_record_selected_body_and_rig() {
     assert!(!first.skeleton.bones.is_empty());
     let mut results = Vec::new();
     for (rig, first_person) in [(&assets, false), (&first, true)] {
-        let mut vm = soe_hkx::interp::Interpreter::new(
-            &rig.graph,
-            &rig.clips,
-            rig.skeleton.reference_pose.clone(),
-        );
+        let mut vm = rig.interpreter();
         vm.character_properties
             .set_by_name("IsThirdPerson", f32::from(u8::from(!first_person)));
         for (name, value) in [

@@ -112,6 +112,45 @@ return to play. `dialogue_state` exposes the shared conversation for host
 diagnostics. `SkinnedActorNode::dialogue_mouth_state` reports the mouth morph
 weights sent to its head surfaces.
 
+## Actor integration corrections, 2026-10-12
+
+HST-23 exported FaceGen shapes retain the selected HDPT model's expression and
+mouth deltas when vertex counts and triangle indices match. NPC geometry and
+face tint remain the exported assets. This connects HST-23's exported faces to
+HST-28's voice-clock mouth weights. Local xEdit's HDPT and RACE definitions,
+UESP's HDPT page and the existing ANM-59 TRI loader supply the contracts. No
+new reader, dependency, saved field or reference node is added.
+
+HST-26 item prompts and HST-28 Talk prompts share one ActivationPrompt label.
+ANM-59's rendered head check uses its own SubViewport and a fixed skeletal
+pose, so its held-expression pixel assertion is independent of HST-23 NPC
+animation. Its installed target survey admits the mouth targets HST-28 adds
+while retaining vertex alignment and finite-delta checks. The female-head
+fixture includes the rig's animation archive. EDT-22 selects Lydia by her
+installed HousecarlWhiterun editor ID and accepts model-less HDPT records while
+still resolving their extra parts, as the published layout permits. It shares
+HST-23's dynamic-position correction before binding a chargen TRI.
+
+Both HST-25 player interpreters retain their selected character-file property
+defaults, following the initialization added for HST-23 NPCs. The first-person
+rig uses its own character properties. The installed player checks still fail
+to advance authored draw and attack clips or produce their contacts, as the
+original HST-25 draft recorded. Their assertions remain required.
+HST-23's exterior manifest follows the RND-27 grid-cell focus.
+Its guard camera finds a clear view of the current runtime placement while
+the player remains at the inn exit, and the test advances the existing cold
+texture fade before capturing the guard.
+
+Validation on the combined integration checkout passes 451 scoped tier 1
+tests, including data-gated early returns, and seven exact installed checks:
+Hulda's head and idle, NPC pixels and residency, all three ANM-59 checks,
+EDT-22's vanilla chargen TRI and HST-28 dialogue. Scoped formatting, clippy
+with all targets and the release extension build exit successfully. The final
+60-second TST-18 sample has 7,001 frames, p99 10.838 ms, worst 13.093 ms and
+zero budget violations. An earlier run exceeded the same budget on four
+frames, with worst 46.948 ms. These corrections do not change performance
+code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## Streamed skinned NPCs, HST-23
 
 `PlayerNode` reconciles enabled ACHRs from World's contact view with rendered

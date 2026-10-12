@@ -125,7 +125,7 @@ fn hst_23_installed_npc_pixels_residency_movement_and_tst_18_budget() {
             (door_position[1] / 4096.0).floor() as i32,
         )
         .expect("grid outside Bannered Mare");
-    let exterior_name = parent.to_string();
+    let exterior_name = exterior_cell.to_string();
     game.change_cell(Some(exterior_cell));
     let grid = source.cell_index().grid_of(exterior_cell).unwrap();
     let mut neighbors: Vec<_> = (-2..=2)

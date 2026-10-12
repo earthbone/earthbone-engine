@@ -120,6 +120,7 @@ pub struct ActorSurface {
 }
 
 /// One named CK expression target in Godot surface coordinates.
+#[derive(Clone)]
 pub struct ExpressionShape {
     /// The CK target name used by `SetExpressionOverride`.
     pub name: String,
@@ -238,8 +239,8 @@ fn packfile(bytes: &[u8], path: &str) -> Result<Packfile, ActorError> {
 }
 
 impl ActorAssets {
-    /// Create a streamed NPC graph with its sex and host locomotion inputs.
-    pub fn npc_interpreter(&self, female: bool) -> soe_hkx::interp::Interpreter<'_> {
+    /// Create a graph with the property defaults authored by its character file.
+    pub fn interpreter(&self) -> soe_hkx::interp::Interpreter<'_> {
         let mut vm = soe_hkx::interp::Interpreter::new(
             &self.graph,
             &self.clips,
@@ -250,6 +251,12 @@ impl ActorAssets {
                 vm.character_properties.set_word(index, *word);
             }
         }
+        vm
+    }
+
+    /// Create a streamed NPC graph with its sex and host locomotion inputs.
+    pub fn npc_interpreter(&self, female: bool) -> soe_hkx::interp::Interpreter<'_> {
+        let mut vm = self.interpreter();
         vm.character_properties
             .set_by_name("IsFemale", f32::from(female));
         for name in ["IsMale", "IsMale00", "IsMale01"] {
@@ -373,6 +380,20 @@ impl ActorAssets {
                     reason: error.to_string(),
                 }
             })?;
+        assets.character_properties = character
+            .character_property_names
+            .iter()
+            .cloned()
+            .zip(
+                character
+                    .character_property_values
+                    .as_ref()
+                    .map(|values| values.word_values.as_slice())
+                    .unwrap_or_default()
+                    .iter()
+                    .copied(),
+            )
+            .collect();
         let skeleton_path = rooted_asset_path(&root, &character.rig_name);
         let behavior_path = rooted_asset_path(&root, &character.behavior_filename);
         let (skeleton, _) = Self::load_skeleton_at(vfs, &skeleton_path)?;
@@ -751,6 +772,26 @@ impl ActorAssets {
             }
             exported = remaining;
             let from_export = !head.is_empty();
+            if from_export {
+                if let Some(model) = &part.model {
+                    let templates = Self::load_attached_surfaces(
+                        vfs,
+                        &asset_path(model),
+                        skeleton,
+                        0,
+                        Some("NPC Head [Head]"),
+                        mouth_targets,
+                    )?;
+                    for surface in &mut head {
+                        if let Some(template) = templates.iter().find(|template| {
+                            template.arrays.positions.len() == surface.arrays.positions.len()
+                                && template.arrays.indices == surface.arrays.indices
+                        }) {
+                            surface.expression_shapes = template.expression_shapes.clone();
+                        }
+                    }
+                }
+            }
             if head.is_empty() {
                 if let Some(model) = &part.model {
                     head = Self::load_attached_surfaces(
@@ -955,7 +996,7 @@ fn authored_tint(mesh: &soe_nif::Mesh) -> Option<[f32; 3]> {
     }
 }
 
-fn apply_dynamic_positions(
+pub(crate) fn apply_dynamic_positions(
     shape: &soe_nif::blocks::BsTriShape,
     positions: &mut Vec<[f32; 3]>,
 ) -> Result<(), String> {
@@ -1496,9 +1537,8 @@ mod tests {
         let mut game = source.localized_game().unwrap();
         let cell = game.form("WhiterunBanneredMare").unwrap();
         game.change_cell(Some(cell));
-        let hulda = game
-            .world_mut()
-            .contact_actors()
+        let contacts = game.world_mut().contact_actors();
+        let hulda = contacts
             .into_iter()
             .find(|actor| game.world().name_of(actor.actor).as_deref() == Some("Hulda"))
             .unwrap()
@@ -1539,6 +1579,17 @@ mod tests {
             .find(|surface| surface.head_part_type == Some(1))
             .unwrap();
         assert!(head.face_tint.is_some(), "Hulda's exported face tint loads");
+        assert!(
+            head.expression_shapes.iter().any(|shape| {
+                crate::facial::is_mouth_target(&shape.name)
+                    && shape
+                        .positions
+                        .iter()
+                        .flatten()
+                        .any(|delta| delta.abs() > 0.001)
+            }),
+            "Hulda's exported face retains the head part's mouth morph deltas"
+        );
         assert_eq!(appearance.facegen.as_ref().unwrap().object, 0x13BA3);
         let mut vm = assets.npc_interpreter(appearance.female);
         vm.update(1.0 / 60.0);

@@ -1189,11 +1189,7 @@ impl SkinnedActorNode {
                     .is_some_and(|appearance| appearance.female),
             )
         } else {
-            Interpreter::new(
-                &borrowed.graph,
-                &borrowed.clips,
-                borrowed.skeleton.reference_pose.clone(),
-            )
+            borrowed.interpreter()
         });
         self.stats
             .set("skeleton_bones", borrowed.skeleton.bones.len() as i64);
