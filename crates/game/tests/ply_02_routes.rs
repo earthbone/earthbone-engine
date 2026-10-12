@@ -562,13 +562,44 @@ fn ply_02_soe_play_runs_a_corpus_save_headless_and_reports_failure_status() {
     let reference = world.reference_ref(player).unwrap();
     let cell = reference.cell.unwrap();
     assert_eq!(cell.file, 0);
-    let (graph, _) = soe_navmesh::vanilla::from_load_order(world.order(), |record| {
-        record.placement.cell == Some(cell.object)
-    });
+    let order = world.order();
+    let scope = world.cell_coordinate_space(cell);
+    let mut builder = soe_navmesh::vanilla::Builder::new();
+    let mut cells = Vec::new();
+    for (id, record) in order.winners_of(Tag(*b"NAVM")) {
+        let key = soe_navmesh::vanilla::key_of(id);
+        if record.is_deleted() {
+            builder.mark_deleted(key);
+            continue;
+        }
+        let source = order.winner_ref(id).unwrap();
+        let Some(parent) = record
+            .placement
+            .cell
+            .map(|raw| order.resolve(source.file, raw))
+        else {
+            continue;
+        };
+        if world.cell_coordinate_space(parent) != scope {
+            continue;
+        }
+        let nav = soe_esm::records::navm::NavMesh::from_record(record).unwrap();
+        if let Some(geometry) = nav.geometry {
+            builder.add(key, &geometry, |raw| {
+                Some(soe_navmesh::vanilla::key_of(
+                    order.resolve(source.file, raw),
+                ))
+            });
+            cells.push(parent);
+        }
+    }
+    let (graph, _) = builder.build();
     let node = graph
         .locate(reference.position)
         .expect("corpus starting point has a walkable NAVM footprint");
     let point = graph.centroid(node);
+    let cell = cells[node.mesh as usize];
+    assert_eq!(cell.file, 0);
     let gold = world.form("Gold001").unwrap();
     let count = reference.inventory.count(gold);
     drop(world);

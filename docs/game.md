@@ -793,6 +793,11 @@ contract. `quest_flow` checks inherited quest properties, overrides, script
 removal and single activation delivery. The installed Helgen trigger's MQ101
 property is authored on its base activator.
 
+The SCR-05 installed survey therefore reports eleven missing attachments:
+the original nine form carriers plus placed references inheriting
+`DLC1TestPhilAtronach` and `dlc1testPhilVortexTrigSCRIPT`. It checks both the
+counts by script and the complete set of script/owner pairs.
+
 Local CK `PathToReference_-_Actor.wikitext` supplies path failure and interruption
 semantics, and `Activate_-_ObjectReference.wikitext` supplies default activation
 and blocked OnActivate behavior. `GetItemCount_-_ObjectReference.wikitext` describes
@@ -7679,6 +7684,10 @@ Its six ordered parameters are PathStart, PointRadius, Repeatable,
 StartAtNearestPoint, RideHorseIfPossible and StaticPathing. The read-only
 Skyrim.esm survey found 45 Patrol branches and confirmed the order on the
 vanilla Patrol template. Some branches omit optional inputs using index 255.
+The installed survey finds 2 omitted RideHorseIfPossible inputs and 32 omitted
+StaticPathing inputs. Repeatable and StartAtNearestPoint are always authored.
+StaticPathing is explicitly true once and false twelve times. Authored fixtures
+check omitted suffixes and each optional 255 sentinel against explicit false.
 Omitted Repeatable, StartAtNearestPoint, RideHorseIfPossible and StaticPathing
 inputs default to false. Missing PathStart or PointRadius remains unsupported.
 The CK procedure-tree tutorial authors Static Pathing as a boolean input but

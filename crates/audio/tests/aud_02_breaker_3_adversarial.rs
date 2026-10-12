@@ -130,9 +130,11 @@ fn aud_02_stereo_vanilla_line_preserves_interleaved_frames_against_ffmpeg() {
         reference.len(),
         "{name}: frame count matches ffmpeg"
     );
+    let score = correlation(&native.samples, &reference);
+    eprintln!("AUD-02 stereo correlation: {score}");
     assert!(
-        correlation(&native.samples, &reference) >= 0.8,
-        "{name}: stereo waveform matches ffmpeg"
+        score >= 0.8,
+        "{name}: stereo waveform matches ffmpeg, correlation {score}"
     );
 }
 

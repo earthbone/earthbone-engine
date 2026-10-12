@@ -5,6 +5,7 @@
 //! [`Native`] decodes WMA v2 in process through `oxideav-wma`. It follows the
 //! packet and synthesized setup rules in FFmpeg's `libavformat/xwma.c`,
 //! and the channel-independent exponent-reuse flag in `libavcodec/wmadec.c`.
+//! Low-rate noise-band clipping follows `libavcodec/wma.c`.
 //! [`Ffmpeg`] remains an optional out-of-process comparison implementation.
 //! The xWMA wrapper is parsed by [`crate::xwma`].
 
@@ -12,6 +13,8 @@ use crate::error::Error;
 use crate::error::Result;
 use crate::pcm::Pcm;
 use crate::xwma::Xwma;
+
+mod low_rate;
 
 /// Anything that can turn a complete xWMA file into samples.
 ///
@@ -167,10 +170,12 @@ fn decode_packets(xwma: &Xwma<'_>) -> Result<Vec<f32>> {
     // CONTEXT: oxideav-wma 0.0.4's factory restricts exponent reuse to
     // stereo. FFmpeg's wma_decode_block reads the flag on all short blocks.
     let mut parser = FrameParser::new(&config, &starts).with_reuse(ReuseRule::ShortBlockPerBlock);
+    let mut low_rate = (config.sample_rate >= 44_100 && config.rate_float < 0.61)
+        .then(|| low_rate::Parser::new(&config, &starts));
     let mut synth = BlockSynth::new(&config);
     let mut output = Vec::new();
     let mut cursor = stream.packets.first().map_or(0, |p| p.frames_start_bit());
-    for packet in &stream.packets {
+    for (packet_index, packet) in stream.packets.iter().enumerate() {
         if packet.discontinuity {
             return Err(Error::Decode(
                 "WMA packet sequence is discontinuous".to_string(),
@@ -183,12 +188,21 @@ fn decode_packets(xwma: &Xwma<'_>) -> Result<Vec<f32>> {
                 ));
             }
             parser.raise_latch();
+            if let Some(parser) = &mut low_rate {
+                parser.raise_latch();
+            }
         }
         let mut reader = stream.reader_at(packet.frames_start_bit());
-        for _ in 0..packet.header.frame_count {
-            let frame = parser
-                .parse_frame(&mut reader)
-                .map_err(|error| Error::Decode(format!("WMA frame: {error}")))?;
+        for frame_index in 0..packet.header.frame_count {
+            let parsed_frame = match &mut low_rate {
+                Some(parser) => parser.parse_frame(&mut reader),
+                None => parser.parse_frame(&mut reader),
+            };
+            let frame = parsed_frame.map_err(|error| {
+                Error::Decode(format!(
+                    "WMA packet {packet_index} frame {frame_index}: {error}"
+                ))
+            })?;
             for block in &frame.blocks {
                 append_samples(&mut output, &synth.block(block))?;
             }
@@ -196,6 +210,17 @@ fn decode_packets(xwma: &Xwma<'_>) -> Result<Vec<f32>> {
         cursor = reader.position() as u64;
     }
     append_samples(&mut output, &synth.flush())?;
+    if low_rate.is_some() {
+        // CONTEXT: FFmpeg sets WMA2 decoder delay to two frames. The low-rate
+        // parser carries their coefficients through synthesis before trimming.
+        let priming = 2 * usize::from(config.frame_length) * usize::from(config.channels);
+        if output.len() <= priming {
+            return Err(Error::Decode(
+                "WMA stream contains only decoder priming".to_string(),
+            ));
+        }
+        output.drain(..priming);
+    }
     Ok(output)
 }
 

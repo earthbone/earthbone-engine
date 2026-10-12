@@ -160,6 +160,21 @@ fn ai_90_each_missing_optional_suffix_matches_explicit_false_inputs() {
 }
 
 #[test]
+fn ai_90_each_optional_sentinel_matches_explicit_false_inputs() {
+    let mut explicit = game(Settings::default());
+    explicit.tick(2.0);
+    for optional_position in 2..6 {
+        let mut omitted = game(Settings {
+            omitted: 1 << optional_position,
+            ..Settings::default()
+        });
+        omitted.tick(2.0);
+        assert_eq!(position(&mut omitted), position(&mut explicit));
+        assert_eq!(state(&omitted), state(&explicit));
+    }
+}
+
+#[test]
 fn ai_90_missing_required_path_start_or_radius_stays_unsupported() {
     for required_index in [0, 1] {
         let mut game = game(Settings {
@@ -257,18 +272,14 @@ fn ai_90_installed_patrol_inputs_keep_order_types_defaults_and_static_values() {
         }
     }
     assert_eq!(branches, 45);
-    for (position, omissions) in omissions_by_position.iter().enumerate() {
-        assert!(
-            omissions > &0,
-            "no installed Patrol omitted optional position {}",
-            position + 2
-        );
-    }
-    assert!(static_pathing_true > 0, "no true StaticPathing input found");
-    assert!(
-        static_pathing_false > 0,
-        "no false StaticPathing input found"
+    assert_eq!(
+        omissions_by_position,
+        [0, 0, 2, 32],
+        "Skyrim.esm omits only RideHorseIfPossible and StaticPathing"
     );
+    assert_eq!(optional_omissions, 34);
+    assert_eq!(static_pathing_true, 1);
+    assert_eq!(static_pathing_false, 12);
     eprintln!(
         "Skyrim.esm Patrol survey: {branches} branches, {optional_omissions} optional omissions by position {omissions_by_position:?}, StaticPathing true {static_pathing_true}, false {static_pathing_false}"
     );
