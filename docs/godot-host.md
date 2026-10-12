@@ -4370,9 +4370,9 @@ lint tools present. Installed-data checks are separate from that gate.
 `PlayerNode.select_music_type(file, object, draw)` resolves the supplied MUSC
 through the shared `Game`, evaluates MUST conditions against the player, and
 passes the selected leaf to its SoundBank. A silent MUST fades the current
-music out. Other tracks decode through the active VFS into stereo
-`AudioStreamWav` resources and use two non-positional `AudioStreamPlayer`
-children. A transition fades the old MUST using its authored fade-out and
+music out. Other tracks decode through the active VFS into stereo PCM on a worker.
+Two non-positional `AudioStreamPlayer` children consume that PCM through
+`AudioStreamGenerator` resources. A transition fades the old MUST using its authored fade-out and
 brings in the selected track using the MUSC fade. Abrupt transitions skip both
 ramps. Starting another transition stops the earlier outgoing slot, so it
 cannot continue under the latest selection.
@@ -4394,20 +4394,22 @@ documented in `godot-docs/classes/class_audioserver.rst`.
 
 ### Asynchronous music and ambience (AUD-12)
 
-Music and ambience requests decode on a worker. The main thread creates the
-`AudioStreamWav` only after PCM is ready, then starts playback. A newer request
+Music and direct ambience requests decode on a worker. The main thread feeds
+bounded PCM chunks to `AudioStreamGenerator` after decoding completes.
+Descriptor ambience retains its worker decode and `AudioStreamWav` playback. A newer request
 invalidates an older decode result, and the current music continues playing
 until its replacement is ready. Decoded music and ambience paths share a
 cache with a 64 MiB audio-data budget. Effects and voices
 keep their existing path, which decodes synchronously.
 
-SoundBank retains decode workers and joins them before destruction, so no
-worker executes extension code after the library unloads. Finished workers
-are joined during polling. This follows the local
+SoundBank retains descriptor decode workers and joins them before destruction.
+Finished descriptor workers are joined during polling. The music and direct
+ambience worker owns its cache, receives retired PCM and exits when its
+channels close. This follows the local
 `godot-docs/tutorials/performance/using_multiple_threads.rst` shutdown example.
 An accepted request can still fail during decoding, which updates `last_error`
-without incrementing the playback start count. The AUD-11 counter check waits
-for decode completion before checking missing assets and restarts.
+without incrementing the playback start count. The AUD-11 counter check requires immediate rejection for absent indexed
+paths and waits for decode completion before checking successful restarts.
 
 `aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes` checks
 request latency, replacement cancellation, continued current playback, cache
@@ -7466,8 +7468,15 @@ omitted. It runs headless because these assertions concern mixer samples,
 ownership and cell identities. Captured samples are split into half-second
 windows for 20 seconds after each door crossing, requiring each window's
 peak above -60 dB. Sampling follows the mix rate rather than render frames.
-In Whiterun it also seeks the current music near its end and checks that
-another selection starts.
+In Whiterun it also seeks the current decoded music near its end through
+`SoundBank.seek_music` and checks that another selection starts.
+`current_music_duration` reports the retained PCM duration, since Godot
+generators have no file duration or seekable file playback. Seeking rebuilds
+the generator at the requested PCM frame without a decode or selection.
+Invalid positions leave playback unchanged. The local Godot
+`class_audiostreamgeneratorplayback.rst` and `class_audiostreamplayback.rst`
+supply the buffer and stream-seek contracts. The synthetic AUD-12 scene checks
+invalid seeks, unchanged counters and finite playback draining after a seek.
 Both scenes quit and the Rust runners require successful process exit.
 The runners use isolated projects with explicit extension registration, so
 a fresh checkout needs no shared Godot import cache for these checks.
@@ -7644,3 +7653,67 @@ project helper, including RND-36's night shader, and requires an explicit
 Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
+
+
+### Audio integration corrections, second round, 2026-10-12
+
+AUD-12's stop-fade and cancellation scenes require the GDScript `stop_music`
+export alongside the Rust entry point used by AUD-11 and AUD-13. The merged
+AUD-11 counter scene now has one decode deadline, removing a duplicate local
+variable introduced by its AUD-12 conflict resolution. The failed-replacement
+fixture supplies the locale-selected voice archive required by profile loading.
+
+AUD-05's installed selection scenes and AUD-09's cell scene run at 60 FPS,
+retaining their frame-count limits while giving worker completion a stable
+wall-clock interval. AUD-09 observes descriptor players and waits for AUD-13's
+one-second outgoing fade before checking release. Music survives that cell
+change and is outside the departed descriptor set. AUD-12's replacement wait
+observes a start after its baseline before checking cancellation. Its request
+latency, cache cap and mixer assertions retain their original limits.
+
+The original quarter-second generator reserve underruns during a 600 ms
+synthetic host stall. Installed AUD-13 also reproduced silent half-second
+windows during door work, with a reported 5.585 second host hitch. Music now
+reserves eight seconds, filled across frames through the existing 16,384-frame
+chunk limit. Direct ambience keeps its quarter-second reserve. The generator
+reserve is active playback memory outside the decoded PCM cache. Godot's local
+`class_audiostreamgenerator.rst` documents this buffer-length tradeoff. The
+synthetic scene requires zero skipped buffers after its fixed 600 ms stall.
+The installed scene retains its -60 dB floor and twenty-second sampling period.
+
+AUD-12's large-cache scene waits for playback start, since the worker's decode
+counter counts attempts at their start. This checks the cache after completion
+and prevents scene shutdown while its last oversized track is still decoding.
+
+AUD-09's live `enter_cell` path now updates the shared player's cell and pose
+before selecting audio. Its original WhiterunOrigin destination remains in the
+scene. AUD-11's descriptor conditions read that shared reference, so leaving
+its cell at the Bannered Mare rejected every exterior descriptor. The host and
+Game now agree before condition evaluation. The local UESP
+`Raw_Function_Data.wikitext` identifies GetInWorldspace's reference contract,
+and the existing shared CTDA evaluator resolves that reference's cell.
+
+The newer AUD-12 request path rejects missing indexed assets before queuing a
+decode. Existing but malformed assets still fail asynchronously. AUD-11's
+counter scene now follows that distinction, requiring the immediate path error
+and zero starts for the missing asset before checking two successful restarts.
+
+Generator startup locks Godot's audio driver across playback creation and the
+first bounded PCM push, then unlocks on either result. Without that lock, the
+mixer can consume an empty generator before its first chunk and report skipped
+buffers. The local `class_audioserver.rst` documents the driver lock and unlock
+pair. The original zero-skip assertion remains in the synthetic scene.
+
+AUD-13's walking scene chooses its route direction per applied movement
+substep. A seven-second first-frame hitch previously advanced the route timer
+past the initial five-second forward leg before moving, leaving the player
+against the gate's side. Catch-up steps now execute both authored route legs.
+The distance, exterior cell crossing and mixer window assertions are unchanged.
+
+Audio selection resolves an exterior persistent CELL to the landing position's
+physical grid cell through the existing CellIndex. Logical reference ownership
+stays intact. The Whiterun gate targets Tamriel's persistent `0:000D74`, whose
+regional descriptor list is empty. Its landing grid cell supplies the ambience
+and regional music before the first movement step. This follows the existing
+persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
+CELL and regional selection contract.

@@ -6,6 +6,7 @@ var failures := 0
 
 
 func _initialize() -> void:
+	Engine.max_fps = 60
 	call_deferred("_run")
 
 
@@ -37,18 +38,26 @@ func _run() -> void:
 	if bank == null:
 		quit(1)
 		return
+	for _frame in range(600):
+		if int(bank.call("ambience_start_count")) > 0:
+			break
+		await process_frame
 	var initial_starts := int(bank.call("ambience_start_count"))
 	_check(initial_starts > 0, "source cell selected no playable ambience descriptors")
 	var departed_players: Array[AudioStreamPlayer] = []
 	for child in bank.get_children():
-		if child is AudioStreamPlayer and child.playing:
+		if child is AudioStreamPlayer and child.has_meta("descriptor") and child.playing:
 			departed_players.append(child)
 	_check(not departed_players.is_empty(), "source cell has no active ambience player")
 	_check(player.call("enter_cell", "WhiterunOrigin", 0.0, 0.0, 500.0) > 0,
 		"player did not change to the destination cell")
-	await process_frame
+	for _frame in range(600):
+		if int(bank.call("ambience_start_count")) > initial_starts:
+			break
+		await process_frame
 	_check(int(bank.call("ambience_start_count")) > initial_starts,
 		"destination cell did not start its eligible ambience")
+	await create_timer(1.1).timeout
 	for old_player in departed_players:
 		_check(not is_instance_valid(old_player) or not old_player.playing,
 			"departed cell ambience kept playing")

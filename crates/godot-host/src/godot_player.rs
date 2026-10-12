@@ -1228,8 +1228,15 @@ impl PlayerNode {
         self.last_activate_reference = None;
         self.release_carry();
         if let Some(game) = &mut self.game {
-            game.world_mut().set_grabbed_reference(None);
-            game.world_mut().set_crosshair_reference(None);
+            let player = game.player();
+            let mut world = game.world_mut();
+            world.set_grabbed_reference(None);
+            world.set_crosshair_reference(None);
+            if let Some(reference) = world.reference(player) {
+                reference.cell = Some(cell_id);
+                reference.position = [x, y, z];
+                reference.rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
+            }
         }
         if changed_cell && self.game.is_some() {
             self.sync_cell_ambience(cell_id);

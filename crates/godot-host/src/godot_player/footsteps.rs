@@ -10,6 +10,20 @@ use super::PlayerNode;
 use crate::input::InputState;
 
 impl PlayerNode {
+    fn audio_cell(&self, cell: soe_esm::GlobalFormId) -> soe_esm::GlobalFormId {
+        let Some(source) = self.data_source.as_ref() else {
+            return cell;
+        };
+        let index = source.cell_index();
+        let Some(world) = index.persistent_cell_world(cell) else {
+            return cell;
+        };
+        let feet = self.feet();
+        let coord = crate::streaming::CellCoord::containing(crate::units::SkyrimPos::new(
+            feet.x, feet.y, feet.z,
+        ));
+        index.exterior_cell(world, coord.x, coord.y).unwrap_or(cell)
+    }
     pub(super) fn start_footstep_audio(&mut self) {
         let Some(source) = self.data_source.clone() else {
             return;
@@ -32,6 +46,7 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_cell_ambience(&mut self, cell: soe_esm::GlobalFormId) {
+        let cell = self.audio_cell(cell);
         let Some(bank) = &mut self.sound_bank else {
             return;
         };
@@ -103,6 +118,7 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_cell_music(&mut self, cell: soe_esm::GlobalFormId) {
+        let cell = self.audio_cell(cell);
         let Some(game) = self.game.as_mut() else {
             return;
         };

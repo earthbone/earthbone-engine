@@ -55,6 +55,10 @@ func _run() -> void:
 	check(peak > 0.01 and stereo_difference > 0.01, "generator reaches the mixer and preserves music stereo")
 	var playback := first.get_stream_playback() as AudioStreamGeneratorPlayback
 	check(playback.get_skips() == 0, "chunked playback has no buffer underrun")
+	await create_timer(0.2).timeout
+	OS.delay_msec(600)
+	check(playback.get_skips() == 0, "prefilled music survives a host loading stall")
+	await process_frame
 
 	check(bank.call("play_music_track", "music/second.wav", 0.0, 0.0, true), "second request accepted")
 	check(first.playing and str(bank.call("current_music_path")) == "music/first.wav", "current music keeps playing while replacement is pending")
@@ -88,6 +92,19 @@ func _run() -> void:
 	await wait_path(bank, "music", "music/short.wav")
 	await create_timer(0.35).timeout
 	check(not first.playing and not second.playing, "generator stops after its finite PCM drains")
+	check(bank.call("play_music_track", "music/first.wav", 0.0, 0.0, true), "cached long track restarts for seeking")
+	await wait_path(bank, "music", "music/first.wav")
+	var starts := int(bank.call("music_start_count"))
+	decodes = int(bank.call("decoded_count"))
+	var duration := float(bank.call("current_music_duration"))
+	check(is_equal_approx(duration, 8.0), "music duration comes from decoded PCM")
+	check(not bank.call("seek_music", -1.0), "negative music seek is rejected")
+	check(not bank.call("seek_music", duration + 1.0), "seek beyond duration is rejected")
+	check(first.playing or second.playing, "invalid seeks retain current playback")
+	check(bank.call("seek_music", duration - 0.1), "decoded music seeks near its end")
+	check(int(bank.call("music_start_count")) == starts and int(bank.call("decoded_count")) == decodes, "seeking preserves selection and decode counts")
+	await create_timer(0.35).timeout
+	check(not first.playing and not second.playing, "sought generator drains its remaining PCM")
 	AudioServer.remove_bus_effect(0, AudioServer.get_bus_effect_count(0) - 1)
 	bank.queue_free()
 	print("aud_12_generator_playback_cache_cancellation_and_errors: ", "PASS" if failures == 0 else "FAIL")
