@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Boundary checks for RACE skill boost actor-value indices.
+//! PRG-09 race skill bonus lifecycle checks.
+//! Sources: local UESP CLAS.wikitext Weight Calculations, UESP NPC.wikitext,
+//! TES5Edit Core/wbDefinitionsTES5.pas CLAS and RACE DATA layouts, and skymp
+//! GetBaseActorValues.cpp for resolved race and NPC source ownership.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{npc, Game};
 
-const RACE: u32 = 0x700;
-const CLASS: u32 = 0x701;
-const NPC: u32 = 0x800;
+const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
-fn game() -> Game {
-    // xEdit RACE DATA stores full actor-value indices, while CLAS weights
-    // and NPC DNAM skills use the 18-skill ordering beginning at AV 6.
-    let mut race_data = vec![0; 128];
-    race_data[0..4].copy_from_slice(&[6, 7, 23, 9]);
+fn race(raw: u32, actor_value: i8, boost: i8) -> Record {
+    let mut data = vec![0u8; 128];
+    data[0] = actor_value as u8;
+    data[1] = boost as u8;
     for (offset, value) in [
         (36, 100.0f32),
         (40, 50.0),
@@ -31,50 +31,94 @@ fn game() -> Game {
         (96, 4.0),
         (100, 64.0),
     ] {
-        race_data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
+    Record::new(T(b"RACE"), raw).sub(T(b"DATA"), data)
+}
 
-    let mut class_data = vec![0; 35];
-    class_data[6] = 1;
-    class_data[23] = 1;
-    let config = npc::Config {
-        flags: npc::flags::AUTO_CALC_STATS,
-        level: 1,
-        ..npc::Config::default()
-    };
+fn auto_game(race_record: Record, actor_value: i8, level: u16) -> Game {
+    let mut class_data = vec![0u8; 35];
+    class_data[6 + usize::try_from(actor_value - 6).unwrap()] = 1;
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"RACE"), RACE).sub(Tag(*b"DATA"), race_data));
-    plugin.push_top(Record::new(Tag(*b"CLAS"), CLASS).sub(Tag(*b"DATA"), class_data));
+    plugin.push_top(race_record);
+    plugin.push_top(Record::new(T(b"CLAS"), 0x701).sub(T(b"DATA"), class_data));
     plugin.push_top(
         npc::build_record(
-            NPC,
-            "BoundarySkills",
-            "Boundary Skills",
-            config,
+            0x800,
+            "RaceSkillActor",
+            "Race Skill Actor",
+            npc::Config {
+                flags: npc::flags::AUTO_CALC_STATS,
+                level,
+                ..npc::Config::default()
+            },
             npc::Stats::default(),
         )
-        .sub(Tag(*b"RNAM"), RACE.to_le_bytes())
-        .sub(Tag(*b"CNAM"), CLASS.to_le_bytes()),
+        .sub(T(b"RNAM"), 0x700u32.to_le_bytes())
+        .sub(T(b"CNAM"), 0x701u32.to_le_bytes()),
     );
     let mut order = LoadOrder::new();
-    order.add("Prg09Boundary.esm", plugin).unwrap();
+    order.add("Prg09Breaker.esm", plugin).unwrap();
     Game::new(order)
 }
 
+fn skill(values: &[(String, f32)], name: &str) -> f32 {
+    let name = name.to_ascii_lowercase();
+    values
+        .iter()
+        .find(|(candidate, _)| candidate == &name)
+        .unwrap()
+        .1
+}
+
 #[test]
-fn prg_09_first_and_last_skill_boost_indices_map_to_correct_skills() {
-    // CLAS.wikitext gives 15 + racial bonus at level 1. AV 6 is OneHanded,
-    // AV 23 is Enchanting, and adjacent AV 7 is TwoHanded.
-    let mut game = game();
+fn prg_09_spawned_race_bonus_is_seeded_once_and_save_keeps_actor_changes() {
+    let mut game = auto_game(race(0x700, 11, 15), 11, 1);
     let player = game.player();
     let mut world = game.world_mut();
-    let actor = world.place_at(id(NPC), player, false);
-    assert_eq!(world.base_actor_value(actor, "onehanded"), 22.0);
-    assert_eq!(world.base_actor_value(actor, "twohanded"), 15.0);
-    assert_eq!(world.base_actor_value(actor, "enchanting"), 24.0);
+    let first = world.place_at(id(0x800), player, false);
+    assert_eq!(world.base_actor_value(first, "heavyarmor"), 30.0);
+    world.set_actor_value(first, "heavyarmor", 77.0).unwrap();
 
     let saved = world.save_state();
     world.load_state(&saved).unwrap();
-    assert_eq!(world.base_actor_value(actor, "onehanded"), 22.0);
-    assert_eq!(world.base_actor_value(actor, "enchanting"), 24.0);
+    assert_eq!(world.base_actor_value(first, "heavyarmor"), 77.0);
+
+    let second = world.place_at(id(0x800), player, false);
+    assert_eq!(world.base_actor_value(second, "heavyarmor"), 30.0);
+}
+
+#[test]
+fn prg_09_signed_negative_race_bonus_targets_the_authored_skill_slot() {
+    let game = auto_game(race(0x700, 23, -5), 23, 1);
+    let values = game.world().initial_actor_values(id(0x800)).unwrap();
+    assert_eq!(skill(&values, npc::SKILLS[17]), 10.0);
+    assert_eq!(skill(&values, npc::SKILLS[16]), 15.0);
+}
+
+#[test]
+fn prg_09_missing_race_record_rejects_autocalculated_skill_seed() {
+    let mut class_data = vec![0u8; 35];
+    class_data[6 + 5] = 1;
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(T(b"CLAS"), 0x701).sub(T(b"DATA"), class_data));
+    plugin.push_top(
+        npc::build_record(
+            0x800,
+            "MissingRace",
+            "Missing Race",
+            npc::Config {
+                flags: npc::flags::AUTO_CALC_STATS,
+                level: 5,
+                ..npc::Config::default()
+            },
+            npc::Stats::default(),
+        )
+        .sub(T(b"RNAM"), 0x700u32.to_le_bytes())
+        .sub(T(b"CNAM"), 0x701u32.to_le_bytes()),
+    );
+    let mut order = LoadOrder::new();
+    order.add("Prg09MissingRace.esm", plugin).unwrap();
+    let game = Game::new(order);
+    assert!(game.world().initial_actor_values(id(0x800)).is_err());
 }

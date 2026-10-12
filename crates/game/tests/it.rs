@@ -1108,12 +1108,24 @@ mod prg_07_adversarial;
 mod prg_07_character_level;
 #[path = "prg_08_adversarial.rs"]
 mod prg_08_adversarial;
+#[path = "prg_08_breaker2_adversarial.rs"]
+mod prg_08_breaker2_adversarial;
+#[path = "prg_08_breaker3_adversarial.rs"]
+mod prg_08_breaker3_adversarial;
+#[path = "prg_08_breaker4_adversarial.rs"]
+mod prg_08_breaker4_adversarial;
 #[path = "prg_08_breaker_adversarial.rs"]
 mod prg_08_breaker_adversarial;
+#[path = "prg_08_vanilla.rs"]
+mod prg_08_vanilla;
 #[path = "prg_09_adversarial.rs"]
 mod prg_09_adversarial;
+#[path = "prg_09_breaker3_adversarial.rs"]
+mod prg_09_breaker3_adversarial;
 #[path = "prg_09_breaker_adversarial.rs"]
 mod prg_09_breaker_adversarial;
+#[path = "prg_09_breaker_adversarial_2.rs"]
+mod prg_09_breaker_adversarial_2;
 #[path = "prg_09_race_skill_initialization.rs"]
 mod prg_09_race_skill_initialization;
 #[path = "prg_10_adversarial.rs"]
