@@ -61,3 +61,41 @@ fn reports_physical_record_count_changes_per_form_id() {
         "the xEdit and engine dumps have different physical counts for each FormID"
     );
 }
+
+#[test]
+fn reports_per_form_id_multiplicity_even_when_signature_totals_match() {
+    let expected = subject::parse_dump(concat!(
+        "RECORD\tCELL\t00000001\n",
+        "RECORD\tCELL\t00000001\n",
+        "RECORD\tCELL\t00000002\n",
+    ))
+    .unwrap();
+
+    let actual = subject::parse_dump(concat!(
+        "RECORD\tCELL\t00000001\n",
+        "RECORD\tCELL\t00000002\n",
+        "RECORD\tCELL\t00000002\n",
+    ))
+    .unwrap();
+
+    let found = subject::differences(&expected, &actual);
+    assert!(
+        !found.is_empty(),
+        "per-FormID physical record count differences must be reported"
+    );
+}
+
+#[test]
+fn parses_fields_for_repeated_physical_records_with_the_same_form_id() {
+    let manifest = concat!(
+        "RECORD\tCELL\t00000001\n",
+        "FIELD\tCELL\t00000001\tEDID\t0\t41\n",
+        "RECORD\tCELL\t00000001\n",
+        "FIELD\tCELL\t00000001\tEDID\t0\t42\n",
+    );
+
+    assert!(
+        subject::parse_dump(manifest).is_ok(),
+        "field ordinals restart for each physical record"
+    );
+}
