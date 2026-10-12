@@ -99,6 +99,12 @@ fn fixture() -> Game {
 #[test]
 fn mag_65_unknown_disguise_semantics_are_rejected_without_applying() {
     let mut game = fixture();
+    let factions_before = {
+        let mut world = game.world_mut();
+        let target = world.actor(id(TARGET)).expect("fixture target is an actor");
+        target.factions.insert(id(0x990), 2);
+        target.factions.clone()
+    };
     let shared = game.shared_world();
     let applied = shared.borrow_mut().cast_spell(
         id(SPELL),
@@ -114,4 +120,11 @@ fn mag_65_unknown_disguise_semantics_are_rejected_without_applying() {
         ))
     ));
     assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(
+        game.world_mut()
+            .actor(id(TARGET))
+            .expect("fixture target remains an actor")
+            .factions,
+        factions_before
+    );
 }
