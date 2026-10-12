@@ -910,6 +910,10 @@ mod mag_40_breaker_adversarial;
 mod mag_40_detect_life;
 #[path = "mag_41_adversarial.rs"]
 mod mag_41_adversarial;
+#[path = "mag_41_breaker_2_adversarial.rs"]
+mod mag_41_breaker_2_adversarial;
+#[path = "mag_41_breaker_3_adversarial.rs"]
+mod mag_41_breaker_3_adversarial;
 #[path = "mag_41_breaker_adversarial.rs"]
 mod mag_41_breaker_adversarial;
 #[path = "mag_41_breaker_extra_adversarial.rs"]

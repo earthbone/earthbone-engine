@@ -1542,6 +1542,8 @@ impl World {
         self.player_controls = player_controls;
         self.ini = ini;
         self.restore_effect_shaders(effect_shaders);
+        self.concentration_cast = None;
+        self.telekinesis_grab = None;
         Ok(())
     }
 }
