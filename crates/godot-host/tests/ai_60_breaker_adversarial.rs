@@ -8,10 +8,13 @@ use std::process::Command;
 
 #[test]
 fn ai_60_host_reports_validate_context_values_and_rig_lifetime() {
-    let godot = std::env::var_os("SOE_GODOT_BIN")
-        .map(PathBuf::from)
-        .unwrap();
-    let data = std::env::var_os("SKYRIM_DATA").map(PathBuf::from).unwrap();
+    let (Some(godot), Some(data)) = (
+        std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from),
+        std::env::var_os("SKYRIM_DATA").map(PathBuf::from),
+    ) else {
+        eprintln!("skipping: SKYRIM_DATA and SOE_GODOT_BIN are required");
+        return;
+    };
     let target = std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"));

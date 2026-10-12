@@ -43,7 +43,10 @@ fn modifier(tint: f32, blur: f32, depth: f32, threshold_mult: f32, threshold_add
 fn mag_71_rendered_stack_uses_winning_override_for_animated_imad_channels() {
     let mut base = Plugin::new(FileHeader::default());
     base.push_top(modifier(0.1, 0.5, 0.2, 0.5, 0.1));
-    let mut patch = Plugin::new(FileHeader::default());
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Mag71Base.esm".into()],
+        ..Default::default()
+    });
     patch.push_top(modifier(0.8, 4.0, 0.8, 1.2, 0.2));
 
     let mut order = LoadOrder::new();
@@ -51,7 +54,7 @@ fn mag_71_rendered_stack_uses_winning_override_for_animated_imad_channels() {
     order.add("Mag71Patch.esp", patch).unwrap();
     let mut game = Game::new(order);
     game.world_mut().apply_image_space(id(1), 0.25).unwrap();
-    game.tick(2.0);
+    game.tick(1.0);
 
     let mut stack = ImageSpaceStack::default();
     stack.sync(&game.world()).unwrap();
@@ -63,6 +66,10 @@ fn mag_71_rendered_stack_uses_winning_override_for_animated_imad_channels() {
     assert!((rendered.tint[0] - 0.2).abs() < 0.00001);
     assert!((rendered.blur_radius - 1.0).abs() < 0.00001);
     assert!((rendered.depth_strength - 0.2).abs() < 0.00001);
-    assert!((rendered.depth_distance - 2.5).abs() < 0.00001);
+    assert!((rendered.depth_distance - 5.0).abs() < 0.00001);
     assert!((rendered.bloom_threshold - 0.875).abs() < 0.00001);
+
+    game.tick(1.0);
+    stack.sync(&game.world()).unwrap();
+    assert!(stack.render_layers(&game.world()).unwrap().is_empty());
 }

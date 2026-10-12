@@ -86,6 +86,9 @@ func aud_13_scene_crossfades_acoustic_and_regional_ambience() -> void:
 	_check(int(bank.call("music_playing_count")) == 0, "one-second tracks finished")
 	var decoded := int(bank.call("decoded_count"))
 	_check(bank.call("play_music_track", "sound/b.wav", 0.0, 0.0, false), "ended track restart")
+	music_wait = Time.get_ticks_msec()
+	while int(bank.call("music_start_count")) < 3 and Time.get_ticks_msec() - music_wait < 5000:
+		await process_frame
 	_check(int(bank.call("music_start_count")) == 3 and int(bank.call("music_playing_count")) == 1, "ended cached music restarts")
 	_check(int(bank.call("decoded_count")) == decoded, "music restart reused decode")
 	audio_root.free()

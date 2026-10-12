@@ -110,6 +110,44 @@ fn aud_05_music_uses_the_music_type_fade_when_transition_is_not_abrupt() {
 }
 
 #[test]
+fn aud_05_palette_fade_overrides_child_and_rejects_invalid_values() {
+    for fade in [None, Some(0.0), Some(3.25), Some(-1.0), Some(f32::NAN)] {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(
+            Record::new(T(b"MUSC"), MUSIC)
+                .sub(T(b"FNAM"), 0_u32.to_le_bytes())
+                .sub(T(b"PNAM"), [0; 4])
+                .sub(T(b"TNAM"), PALETTE.to_le_bytes()),
+        );
+        let mut palette = Record::new(T(b"MUST"), PALETTE)
+            .sub(T(b"CNAM"), 0x23F6_78C3_u32.to_le_bytes())
+            .sub(T(b"SNAM"), TRACK.to_le_bytes());
+        if let Some(fade) = fade {
+            palette = palette.sub(T(b"DNAM"), fade.to_le_bytes());
+        }
+        plugin.push_top(palette);
+        plugin.push_top(
+            Record::new(T(b"MUST"), TRACK)
+                .sub(T(b"CNAM"), 0x6ED7_E048_u32.to_le_bytes())
+                .sub(T(b"DNAM"), 4.0_f32.to_le_bytes())
+                .zsub(T(b"ANAM"), "Sound/Music/Leaf.xwm"),
+        );
+        let mut order = LoadOrder::new();
+        order.add("Skyrim.esm", plugin).unwrap();
+        let mut game = Game::new(order);
+        let player = game.player();
+        let selected = music::select(&mut game, id(MUSIC), player, 0.5);
+        if fade.is_some_and(|value| !value.is_finite() || value < 0.0) {
+            assert!(selected.unwrap_err().to_string().contains("invalid DNAM"));
+        } else {
+            let selected = selected.unwrap();
+            assert_eq!(selected.track, id(TRACK));
+            assert_eq!(selected.fade_out, fade.unwrap_or(4.0));
+        }
+    }
+}
+
+#[test]
 fn aud_05_music_selects_a_vanilla_music_type_when_game_data_is_installed() {
     let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping vanilla music survey");

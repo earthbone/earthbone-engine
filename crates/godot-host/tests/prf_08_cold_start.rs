@@ -4,9 +4,15 @@
 //! PRF-08 loading and cold-start reporting, from Godot's pipeline compilation
 //! guide. Headless checks exercise contracts, windowed checks measure the host.
 
-use std::path::{Path, PathBuf};
+#[path = "common/isolated_project.rs"]
+mod isolated_project;
+
+#[cfg(feature = "godot")]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(feature = "godot")]
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -17,48 +23,33 @@ fn workspace() -> PathBuf {
 }
 
 fn godot_binary() -> Option<PathBuf> {
-    if let Some(binary) =
-        std::env::var_os("SOE_GODOT_BIN").or_else(|| std::env::var_os("SOE_GODOT"))
-    {
-        return Some(binary.into());
+    std::env::var_os("SOE_GODOT_BIN")
+        .or_else(|| std::env::var_os("SOE_GODOT"))
+        .map(PathBuf::from)
+}
+
+#[test]
+fn prf_08_isolated_contract_project_copies_transitive_preloads() {
+    let project =
+        isolated_project::project(&["prf_08_test.gd", "bench.gd", "walkthrough.gd"], None);
+    for resource in [
+        "record_sky.gd",
+        "record_night_sky.gdshader",
+        "record_fog.gdshader",
+        "load_diagnostics.gd",
+    ] {
+        assert!(project.path().join(resource).is_file(), "{resource}");
     }
-    Command::new("godot")
-        .arg("--version")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|_| "godot".into())
 }
 
 #[test]
 fn prf_08_loading_reporting_and_repetition_contracts_in_stock_godot() {
     let Some(godot) = godot_binary() else {
-        eprintln!("SOE_GODOT not set and godot not installed, skipping GDScript contracts");
+        eprintln!("SOE_GODOT_BIN and SOE_GODOT not set, skipping GDScript contracts");
         return;
     };
-    let root = workspace();
-    let project = tempfile::tempdir_in(&root).unwrap();
-    std::fs::write(
-        project.path().join("project.godot"),
-        "config_version=5\n[application]\nconfig/name=\"PRF-08 contracts\"\n",
-    )
-    .unwrap();
-    for script in [
-        "render_warmup.gd",
-        "bench_metrics.gd",
-        "bench_runs.gd",
-        "prf_08_test.gd",
-        "bench.gd",
-        "system_overlay.gd",
-        "transition_metrics.gd",
-        "load_diagnostics.gd",
-        "walkthrough.gd",
-        "record_sky.gd",
-        "record_sky.gdshader",
-        "record_fog.gdshader",
-    ] {
-        std::fs::copy(root.join("godot").join(script), project.path().join(script)).unwrap();
-    }
+    let project =
+        isolated_project::project(&["prf_08_test.gd", "bench.gd", "walkthrough.gd"], None);
     for script in ["prf_08_test.gd", "bench.gd", "walkthrough.gd"] {
         let mut command = Command::new(&godot);
         command

@@ -6883,7 +6883,11 @@ list through the shared condition evaluator, and descends eligible MUST
 palettes to one leaf. A leaf returns its normalized filename or silent-track
 marker, duration, fade-out, loop range and count, cue points, and the parent
 music type's fade, priority, ducking amount, and flags. Unsupported condition
-functions and malformed links or fields return errors. An abrupt-transition
+functions and malformed links or fields return errors. A palette's authored
+DNAM overrides its selected child's fade-out, including an explicit zero.
+An absent palette DNAM retains the child's value. This follows local UESP
+`MUST.wikitext` and CommonLibSSE-NG `BGSMusicPaletteTrack.h`, with the existing
+Rust selector carrying the palette setting into host playback. An abrupt-transition
 flag makes the selected fade-in zero. A missing candidate or a palette with no
 eligible child returns an error instead of selecting an ineligible track.
 

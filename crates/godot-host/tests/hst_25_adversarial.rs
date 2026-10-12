@@ -16,10 +16,16 @@ fn hst_25_invalid_actor_identity_fails_before_loading_first_person_assets() {
         file: u16::MAX,
         object: u32::MAX,
     };
-    assert!(matches!(
-        ActorAssets::load_player_first_person(&mut world, missing, &soe_bsa::Vfs::new()),
-        Err(ActorError::MissingRaceModel { .. })
-    ));
+    let error = ActorAssets::load_player_first_person(&mut world, missing, &soe_bsa::Vfs::new())
+        .err()
+        .expect("missing actor is rejected before loading assets");
+    let ActorError::Appearance(soe_esm::Error::Invalid(message)) = error else {
+        panic!("expected invalid actor identity, got {error:?}");
+    };
+    assert_eq!(
+        message,
+        format!("animation rig requires an actor: {missing}")
+    );
 }
 
 #[test]

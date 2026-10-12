@@ -221,7 +221,7 @@ fn rnd_16_far_level_uses_coarsest_level_under_one_pixel() {
     let errors = [0.0, 0.35, 0.8, 1.0];
     assert_eq!(select_far_level(errors, 0.99), Some(LodLevel::L16));
     assert_eq!(select_far_level(errors, 0.79), Some(LodLevel::L8));
-    assert_eq!(select_far_level(errors, 0.0), Some(LodLevel::L4));
+    assert_eq!(select_far_level(errors, 0.0), None);
     assert_eq!(
         select_far_level([0.1, f32::NAN, 0.6, f32::INFINITY], 0.99),
         Some(LodLevel::L16)

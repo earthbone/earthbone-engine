@@ -3,8 +3,16 @@
 
 //! Player-location state checks at the host adapter's input boundary.
 
-use soe_esm::{GlobalFormId, LoadOrder};
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
+
+fn load_order() -> LoadOrder {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag(*b"CELL"), 0x1234).sub(Tag(*b"DATA"), [1]));
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    order
+}
 
 #[test]
 fn sav_19_restored_player_cell_and_pose_survive_native_save_load() {
@@ -12,7 +20,7 @@ fn sav_19_restored_player_cell_and_pose_survive_native_save_load() {
         file: 0,
         object: 0x1234,
     };
-    let mut restored = Game::new(LoadOrder::new());
+    let mut restored = Game::new(load_order());
     let player = restored.player();
     {
         let mut world = restored.world_mut();
@@ -23,7 +31,7 @@ fn sav_19_restored_player_cell_and_pose_survive_native_save_load() {
     }
 
     let bytes = restored.save_state().unwrap();
-    let mut resumed = Game::new(LoadOrder::new());
+    let mut resumed = Game::new(load_order());
     resumed.load_state(&bytes).unwrap();
 
     let player = resumed.player();
@@ -36,7 +44,7 @@ fn sav_19_restored_player_cell_and_pose_survive_native_save_load() {
 
 #[test]
 fn sav_19_missing_player_cell_remains_missing_after_native_save_load() {
-    let mut restored = Game::new(LoadOrder::new());
+    let mut restored = Game::new(load_order());
     let player = restored.player();
     {
         let mut world = restored.world_mut();
@@ -46,7 +54,7 @@ fn sav_19_missing_player_cell_remains_missing_after_native_save_load() {
     }
 
     let bytes = restored.save_state().unwrap();
-    let mut resumed = Game::new(LoadOrder::new());
+    let mut resumed = Game::new(load_order());
     resumed.load_state(&bytes).unwrap();
 
     let player = resumed.player();

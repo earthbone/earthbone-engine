@@ -7577,3 +7577,25 @@ survey first and a built, imported release extension. Its script frames a
 waterfall outlet `0:090D19` beside Whiterun's water grate against the city
 geometry, captures samples half a second apart, and measures downward texture displacement and partial
 backdrop transmission through the production material.
+
+## Integration test contracts, 2026-10-12
+
+RND-39's lighting UV fixture enables RND-24's emission flags and colour before
+checking glow sampling. RND-16's boundary fixtures follow its latest judge
+change: projected error must be strictly below the pixel limit, including a
+zero limit. HST-25 rejects an invalid actor through ANM-55's typed appearance
+validation before loading assets. MAG-71's override fixture declares its
+master, samples before MAG-25 expiry and uses the shared 70 units per metre.
+SAV-19's pose fixtures load a named plugin for SAV-58's saved identity mapping.
+
+AUD-09's scene waits for AUD-12 decode completion and AUD-13 fade-out before
+checking departed voice release. AUD-13's cached restart also waits for worker
+completion while preserving its decode-reuse assertion. AUD-12 and AUD-13
+scene runners register the debug extension beside the current test executable
+in an isolated project. Starting replacement music retires slots outside its
+transition, including the outgoing slot of an interrupted stop fade.
+PRF-08 copies transitive resources through the shared
+project helper, including RND-36's night shader, and requires an explicit
+Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
+unset. These changes preserve the scene assertions. Debug checks without
+Godot or installed data do not establish mixer or rendered acceptance.
