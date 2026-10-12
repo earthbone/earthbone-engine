@@ -70,7 +70,7 @@ impl Drop for Fixture {
 #[test]
 fn mod_01_same_base_actors_keep_distinct_upstream_seeded_results() {
     let fixture = Fixture::new();
-    let mut game = fixture.game();
+    let game = fixture.game();
     let observed: Vec<_> = ACTORS
         .iter()
         .map(|actor| {

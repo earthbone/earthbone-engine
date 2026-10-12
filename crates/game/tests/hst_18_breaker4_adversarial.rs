@@ -28,7 +28,7 @@ fn hst_18_crosshair_and_grabbed_refs_are_transient_across_world_load() {
     plugin.push_top(Record::new(Tag::new(b"REFR"), 0x456));
     let mut order = LoadOrder::new();
     order.add("Hst18Transient.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     game.world_mut().set_crosshair_reference(Some(GlobalFormId {
         file: 0,
         object: 0x123,

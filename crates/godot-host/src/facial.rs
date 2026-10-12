@@ -189,10 +189,6 @@ mod tests {
     use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
     use soe_game::{npc, World};
 
-    const fn tag(bytes: &[u8; 4]) -> Tag {
-        Tag::new(bytes)
-    }
-
     fn female_actor_world() -> (World, GlobalFormId) {
         let mut plugin = Plugin::new(FileHeader::default());
         plugin.push_top(npc::build_record(
@@ -206,9 +202,9 @@ mod tests {
             npc::Stats::default(),
         ));
         plugin.push_top(
-            Record::new(tag(b"ACHR"), 0x101)
-                .sub(tag(b"NAME"), 0x100_u32.to_le_bytes())
-                .sub(tag(b"DATA"), vec![0; 24]),
+            Record::new(Tag::new(b"ACHR"), 0x101)
+                .sub(Tag::new(b"NAME"), 0x100_u32.to_le_bytes())
+                .sub(Tag::new(b"DATA"), vec![0; 24]),
         );
         let mut order = LoadOrder::new();
         order.add("ANM59Female.esm", plugin).unwrap();

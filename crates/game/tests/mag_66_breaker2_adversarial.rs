@@ -89,7 +89,8 @@ fn cast(
     game: &mut Game,
 ) -> Result<Vec<soe_game::world::magic::EffectId>, soe_game::world::magic::MagicError> {
     let shared = game.shared_world();
-    shared.borrow_mut().cast_grab_actor_spell(
+    let mut world = shared.borrow_mut();
+    world.cast_grab_actor_spell(
         id(SPELL),
         id(SOURCE),
         Some(id(CASTER)),

@@ -564,7 +564,7 @@ mod scr_47_tests {
 
         assert_eq!(
             spell_art_model_paths(
-                game.world(),
+                &game.world(),
                 soe_esm::GlobalFormId {
                     file: 0,
                     object: 0x800

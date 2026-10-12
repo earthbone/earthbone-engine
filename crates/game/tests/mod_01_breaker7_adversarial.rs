@@ -205,7 +205,7 @@ impl Drop for Fixtures {
 fn mod_01_restored_save_id_drives_distinct_repeatable_spid_actor_results() {
     let fixtures = Fixtures::new();
     let save = fixtures.save();
-    let mut first = fixtures.game(&save);
+    let first = fixtures.game(&save);
     assert_eq!(first.world().player_character_id(), PLAYER_ID);
     let results: Vec<_> = ACTORS
         .iter()
@@ -220,7 +220,7 @@ fn mod_01_restored_save_id_drives_distinct_repeatable_spid_actor_results() {
         .collect();
     assert_eq!(results, [false, false, true]);
 
-    let mut second = fixtures.game(&save);
+    let second = fixtures.game(&save);
     let reversed: Vec<_> = ACTORS
         .iter()
         .rev()

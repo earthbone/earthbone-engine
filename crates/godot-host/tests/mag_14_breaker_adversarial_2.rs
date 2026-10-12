@@ -17,7 +17,7 @@ fn mag_14_host_snapshot_tracks_replay_refresh_and_pair_scoped_stop() {
     plugin.push_top(Record::new(Tag::new(b"REFR"), 0x803));
     let mut order = LoadOrder::new();
     order.add("Mag14Breaker.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     let mut host = EffectShaderStack::default();
 
     game.world_mut()

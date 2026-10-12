@@ -13,3 +13,6 @@ soe-esm = { path = "../esm" }
 soe-papyrus = { path = "../papyrus" }
 soe-navmesh = { path = "../navmesh" }
 thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3"

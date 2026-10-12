@@ -16,6 +16,7 @@ fn ui_05_adversarial_host_shows_pages_from_the_live_script() {
     };
     let directory =
         std::env::temp_dir().join(format!("soe-ui05-adversarial-{}", std::process::id()));
+    fixture.game();
     fixture.write(&directory);
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = std::process::Command::new(godot)

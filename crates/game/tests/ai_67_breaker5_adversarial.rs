@@ -217,7 +217,7 @@ fn ai_67_patrol_failure_releases_mount_condition_state() {
 
 #[test]
 fn ai_67_is_being_ridden_is_false_for_a_non_mount_actor() {
-    let mut game = game();
+    let game = game();
     game.world_mut()
         .set_mount_rider(id(HORSE), id(ACTOR), true)
         .unwrap();

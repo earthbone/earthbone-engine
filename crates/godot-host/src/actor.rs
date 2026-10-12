@@ -853,7 +853,7 @@ impl ActorAssets {
                         }
                     })?;
                     surface.expression_shapes =
-                        expression_shapes(vfs, mesh_path, mesh, &surface.arrays)?;
+                        expression_shapes(vfs, mesh_path, mesh, &surface.arrays, mouth_targets)?;
                     out.push(surface);
                 }
                 continue;
@@ -1615,7 +1615,7 @@ mod tests {
                 translation: soe_nif::types::Vec3::new(10.0, 20.0, 30.0),
                 ..NifTransform::IDENTITY
             },
-            bound: Default::default(),
+            bound: soe_nif::Bound::default(),
             positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
             normals: Vec::new(),
             tangents: Vec::new(),
@@ -1626,7 +1626,7 @@ mod tests {
             bone_weights: Vec::new(),
             bone_indices: Vec::new(),
             skin: None,
-            material: Default::default(),
+            material: soe_nif::Material::default(),
         };
         let surface = rigid_surface(&mesh, "SHIELD", &skeleton).unwrap();
         assert_eq!(surface.map.matched(), 1);

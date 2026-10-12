@@ -74,7 +74,11 @@ fn scr_30_cache_and_camera_requests_do_not_survive_game_save_load() {
     let player_object = Value::Object(game.object_of_form(player));
     call(&mut game, "PrecacheCharGen", &[]);
     call(&mut game, "PrecacheCharGenClear", &[]);
-    call(&mut game, "ShowTrainingMenu", &[player_object.clone()]);
+    call(
+        &mut game,
+        "ShowTrainingMenu",
+        std::slice::from_ref(&player_object),
+    );
     call(&mut game, "SetCameraTarget", &[player_object]);
     call(&mut game, "ShowFirstPersonGeometry", &[Value::Bool(false)]);
 
@@ -83,6 +87,9 @@ fn scr_30_cache_and_camera_requests_do_not_survive_game_save_load() {
     restored.load_state(&saved).unwrap();
 
     assert!(restored.world().menu_requests.is_empty());
-    assert_eq!(restored.world().camera_controls, Default::default());
+    assert_eq!(
+        restored.world().camera_controls,
+        soe_game::world::CameraControls::default()
+    );
     assert_eq!(restored.world_mut().take_training_menu_request(), None);
 }

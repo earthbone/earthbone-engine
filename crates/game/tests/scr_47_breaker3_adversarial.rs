@@ -20,7 +20,7 @@ fn game() -> Game {
 
 #[test]
 fn scr_47_art_request_drain_is_ordered_and_does_not_repeat_old_work() {
-    let mut game = game();
+    let game = game();
     let first = id(0x800);
     let second = id(0x801);
 
@@ -56,7 +56,7 @@ fn scr_47_art_request_drain_is_ordered_and_does_not_repeat_old_work() {
 
 #[test]
 fn scr_47_invalid_art_request_does_not_consume_another_spells_request() {
-    let mut game = game();
+    let game = game();
     let spell = id(0x800);
 
     game.world_mut().preload_spell_art(spell).unwrap();
@@ -80,7 +80,7 @@ fn scr_47_invalid_art_request_does_not_consume_another_spells_request() {
 
 #[test]
 fn scr_47_preload_unload_preserve_spell_identity_without_casting() {
-    let mut game = game();
+    let game = game();
     let spell = id(0x801);
     game.world_mut().preload_spell_art(spell).unwrap();
     game.world_mut().unload_spell_art(spell).unwrap();

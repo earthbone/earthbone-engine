@@ -13,7 +13,7 @@ fn id(object: u32) -> GlobalFormId {
 #[test]
 fn aud_05_palette_cycle_is_rejected_instead_of_selecting_a_stale_leaf() {
     let music_id = 0x800;
-    let palette_id = 0x801;
+    let palette_id = 0x801_u32;
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
         Record::new(T(b"MUSC"), music_id)

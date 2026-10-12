@@ -56,7 +56,8 @@ fn anm_36_rejects_real_speed_out_binding_to_int32_variable() {
     let bytes = graph_with_integer_speed_output();
     let packfile = Packfile::parse(&bytes).unwrap();
     let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
-    let mut vm = Interpreter::new(&graph, &ClipLibrary::new(), vec![QsTransform::IDENTITY]);
+    let clips = ClipLibrary::new();
+    let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
 
     assert_eq!(
         graph.data.variable_infos[0].ty,

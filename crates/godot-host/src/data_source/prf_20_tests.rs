@@ -20,6 +20,7 @@ fn prf_20_record_memory_counts_losing_overrides_in_the_defining_plugin() {
     let source = DataSource {
         order: Arc::new(order),
         vfs: Arc::new(Vfs::new()),
+        data_roots: Vec::new(),
         threads: 1,
         workers: WorkerPools::default(),
         textures: TextureCache::default(),

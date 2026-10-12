@@ -25,7 +25,7 @@ fn game_with_telekinesis() -> soe_game::Game {
     plugin.push_top(spell);
     let mut order = LoadOrder::new();
     order.add("TelekinesisRestoreBreaker.esm", plugin).unwrap();
-    let mut game = soe_game::Game::new(order);
+    let game = soe_game::Game::new(order);
     game.world_mut()
         .set_actor_value(id(CASTER), "magicka", 100.0)
         .unwrap();

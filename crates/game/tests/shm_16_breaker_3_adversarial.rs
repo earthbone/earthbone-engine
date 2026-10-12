@@ -68,16 +68,17 @@ fn reference_pointer_reads_current_transform_flags_and_cell() {
     state.deleted = true;
     state.cell = Some(cell_id);
 
-    let reference = world.commonlib_reference(reference_id).unwrap();
-    assert_eq!(reference.position().x, 21.0);
-    assert_eq!(reference.position().y, -3.0);
-    assert_eq!(reference.position().z, 7.5);
-    assert_eq!(reference.rotation().z, 0.75);
-    assert_eq!(reference.parent_cell(), Some(FormId(0x802)));
-    assert!(reference.is_disabled());
-    assert!(reference.is_deleted());
-    let pointer = reference.pointer();
-    drop(reference);
+    let pointer = {
+        let reference = world.commonlib_reference(reference_id).unwrap();
+        assert_eq!(reference.position().x, 21.0);
+        assert_eq!(reference.position().y, -3.0);
+        assert_eq!(reference.position().z, 7.5);
+        assert_eq!(reference.rotation().z, 0.75);
+        assert_eq!(reference.parent_cell(), Some(FormId(0x802)));
+        assert!(reference.is_disabled());
+        assert!(reference.is_deleted());
+        reference.pointer()
+    };
     assert_eq!(
         world.commonlib_reference_ptr(pointer).unwrap().form_id(),
         FormId(0x801)

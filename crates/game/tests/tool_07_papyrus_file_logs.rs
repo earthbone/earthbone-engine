@@ -3,7 +3,7 @@
 
 use soe_esm::{FileHeader, LoadOrder, Plugin};
 use soe_game::{Game, PapyrusLogSettings};
-use soe_papyrus::asm::{s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::asm::{b, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::CallStatic;
 use soe_papyrus::Value;
 use std::path::{Path, PathBuf};
@@ -96,7 +96,7 @@ fn tool_07_script_trace_user_log_and_vm_error_write_vanilla_log_files() {
                 s("TraceConditional"),
                 s("result"),
                 s("conditional trace probe"),
-                Value::Bool(true),
+                b(true),
             ],
         )
         .ins(
@@ -106,7 +106,7 @@ fn tool_07_script_trace_user_log_and_vm_error_write_vanilla_log_files() {
                 s("TraceConditional"),
                 s("result"),
                 s("suppressed conditional probe"),
-                Value::Bool(false),
+                b(false),
             ],
         )
         .ins(

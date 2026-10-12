@@ -69,9 +69,10 @@ fn scr_26_breaker_shake_uses_the_three_declared_arguments_and_setting_duration()
         "ShakeCamera",
         &[Value::None, Value::Float(0.5), Value::Float(0.0)],
     );
+    let player = game.player();
     let shakes = &game.world().camera_shakes;
     assert_eq!(shakes.len(), 1);
-    assert_eq!(shakes[0].source, game.world().player());
+    assert_eq!(shakes[0].source, player);
     assert_eq!(shakes[0].strength, 0.5);
     assert_eq!(shakes[0].duration, 1.25);
 }
@@ -123,12 +124,13 @@ fn scr_26_breaker_shake_rejects_missing_extra_and_wrong_typed_arguments() {
     );
     global(&mut game, "ShakeCamera", &[Value::None, Value::Float(0.5)]);
 
+    let player = game.player();
     assert_eq!(game.world().camera_shakes.len(), 3);
-    assert_eq!(game.world().camera_shakes[0].source, game.world().player());
+    assert_eq!(game.world().camera_shakes[0].source, player);
     assert_eq!(game.world().camera_shakes[0].strength, 0.5);
     assert_eq!(game.world().camera_shakes[1].source, id(1));
     assert_eq!(game.world().camera_shakes[1].strength, 0.5);
-    assert_eq!(game.world().camera_shakes[2].source, game.world().player());
+    assert_eq!(game.world().camera_shakes[2].source, player);
     assert_eq!(game.world().camera_shakes[2].strength, 0.5);
     assert_eq!(game.world().native_errors.len(), 3);
 }

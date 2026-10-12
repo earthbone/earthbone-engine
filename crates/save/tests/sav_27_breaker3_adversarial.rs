@@ -191,7 +191,7 @@ fn sav_27_corpus_accounts_for_every_spatial_form_and_round_trip() {
             };
             match decoded {
                 Ok(Some(bytes)) => {
-                    assert_eq!(bytes.as_slice(), original.payload().unwrap().as_ref())
+                    assert_eq!(bytes.as_slice(), original.payload().unwrap().as_ref());
                 }
                 Err(Error::SpatialChange { .. }) => {
                     // Unknown or incomplete source layouts remain accounted raw data.

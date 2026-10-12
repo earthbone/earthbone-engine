@@ -20,7 +20,7 @@ fn hst_17_non_player_target_moves_third_person_camera_anchor() {
     host.apply(controls);
 
     let anchor = host.anchor(Vec3::ZERO, 128.0, Some((target, feet, 176.0)));
-    let mut rig = CameraRig::default().with_mode(CameraMode::Third);
+    let rig = CameraRig::default().with_mode(CameraMode::Third);
     let targeted_eye = rig.eye(anchor.0, anchor.1, None);
     let player_eye = rig.eye(Vec3::ZERO, 128.0, None);
 

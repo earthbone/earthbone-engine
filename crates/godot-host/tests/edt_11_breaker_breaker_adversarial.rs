@@ -8,7 +8,7 @@ use soe_editor::EditorDocument;
 use soe_esm::plugin::{FileHeader, Plugin, Record};
 use soe_esm::{GlobalFormId, Tag};
 
-fn write_plugin(directory: &tempfile::TempDir, name: &str, plugin: Plugin) -> std::path::PathBuf {
+fn write_plugin(directory: &tempfile::TempDir, name: &str, plugin: &Plugin) -> std::path::PathBuf {
     let path = directory.path().join(name);
     fs::write(&path, plugin.to_bytes()).unwrap();
     path
@@ -27,10 +27,10 @@ fn edt_11_same_editor_id_on_different_forms_does_not_join_their_chains() {
     let mut base = Plugin::new(FileHeader::default());
     base.push_top(Record::new(Tag(*b"STAT"), 0x800).zsub(Tag(*b"EDID"), "SharedName"));
     base.push_top(Record::new(Tag(*b"STAT"), 0x801).zsub(Tag(*b"EDID"), "SharedName"));
-    let base_path = write_plugin(&directory, "Base.esm", base);
+    let base_path = write_plugin(&directory, "Base.esm", &base);
     let mut patch = Plugin::new(master_header(&["Base.esm"]));
     patch.push_top(Record::new(Tag(*b"STAT"), 0x800).zsub(Tag(*b"EDID"), "SharedName"));
-    let patch_path = write_plugin(&directory, "Patch.esp", patch);
+    let patch_path = write_plugin(&directory, "Patch.esp", &patch);
     let document = EditorDocument::open(&[base_path, patch_path], "Patch.esp").unwrap();
 
     let changed = document.override_chain(GlobalFormId {
@@ -58,10 +58,10 @@ fn edt_11_same_form_id_keeps_versions_when_editor_id_changes() {
     let directory = tempfile::tempdir().unwrap();
     let mut base = Plugin::new(FileHeader::default());
     base.push_top(Record::new(Tag(*b"STAT"), 0x800).zsub(Tag(*b"EDID"), "OldName"));
-    let base_path = write_plugin(&directory, "Base.esm", base);
+    let base_path = write_plugin(&directory, "Base.esm", &base);
     let mut patch = Plugin::new(master_header(&["Base.esm"]));
     patch.push_top(Record::new(Tag(*b"STAT"), 0x800).zsub(Tag(*b"EDID"), "NewName"));
-    let patch_path = write_plugin(&directory, "Patch.esp", patch);
+    let patch_path = write_plugin(&directory, "Patch.esp", &patch);
     let document = EditorDocument::open(&[base_path, patch_path], "Patch.esp").unwrap();
 
     let chain = document.override_chain(GlobalFormId {

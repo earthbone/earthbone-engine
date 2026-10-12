@@ -4,7 +4,6 @@
 use soe_esm::{plugin::flags, FileHeader, Plugin, Tag};
 use soe_game::quest::{self, flags as quest_flags};
 use soe_game::vmad::{ScriptEntry, Vmad};
-use soe_game::Game;
 use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
 
@@ -129,7 +128,7 @@ fn fixture() -> crate::compiled::Fixture {
     }
 }
 
-#[path = "../../game/tests/support/ui_05_fixture.rs"]
+#[path = "../../game/tests/support/ui_fixture.rs"]
 mod compiled;
 
 #[test]
@@ -139,14 +138,7 @@ fn ui_05_godot_renders_declared_pages_in_script_order() {
         return;
     };
     let fixture = fixture();
-    let mut game = Game::new({
-        let mut order = soe_esm::LoadOrder::new();
-        order.add("Ui05Config.esm", fixture.plugin.clone()).unwrap();
-        order
-    });
-    for (_, bytes) in &fixture.scripts {
-        game.load_script(bytes).unwrap();
-    }
+    let mut game = fixture.game();
     assert!(game.start().scripts_missing.is_empty());
     let directory = std::env::temp_dir().join(format!("soe-ui05-host-{}", std::process::id()));
     fixture.write(&directory);

@@ -393,15 +393,12 @@ fn ply_05_installed_city_bot_opens_doors_activates_objects_and_starts_conversati
                                 .is_ok();
                         }
                         _ if record_tag == Tag(*b"ACHR") && !conversation => {
-                            if game
+                            conversation = game
                                 .apply_player_input(&soe_game::player_input::Command::Activate {
                                     target,
                                 })
                                 .is_ok()
-                                && game.world().dialogue_session().is_some()
-                            {
-                                conversation = true;
-                            }
+                                && game.world().dialogue_session().is_some();
                         }
                         _ => {}
                     }

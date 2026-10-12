@@ -1076,10 +1076,10 @@ impl World {
         self.record(book)
             .filter(|record| record.tag == T(b"BOOK"))
             .is_some_and(|record| {
-                !record
+                record
                     .find(T(b"DATA"))
                     .and_then(|data| data.first())
-                    .is_some_and(|flags| flags & 2 != 0)
+                    .is_none_or(|flags| flags & 2 == 0)
             })
     }
 

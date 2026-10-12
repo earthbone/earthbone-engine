@@ -56,7 +56,7 @@ fn game_with(records: Vec<Record>) -> Game {
     }
     let mut order = LoadOrder::new();
     order.add("PerkDispatch.esm", plugin).expect("valid plugin");
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     let actor = game.world_mut().player();
     game.world_mut()
         .actor(actor)

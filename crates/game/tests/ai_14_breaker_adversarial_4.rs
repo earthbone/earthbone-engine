@@ -62,13 +62,16 @@ fn game() -> Game {
 fn ai_14_equal_wait_children_finish_once_on_the_shared_deadline() {
     let mut game = game();
     game.tick(0.25);
-    let ai = &game.world().actor_ref(id(ACTOR)).unwrap().ai;
+    let world = game.world();
+    let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
     assert_eq!(ai.wait_until, Some(1.25));
     assert!(ai.tree.as_ref().unwrap().active);
+    drop(world);
 
     game.tick(0.5);
     game.tick(0.5);
-    let ai = &game.world().actor_ref(id(ACTOR)).unwrap().ai;
+    let world = game.world();
+    let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
     assert_eq!(game.world().clock.real_seconds, 1.25);
     assert!(ai.tree.as_ref().unwrap().finished);
     assert_eq!(ai.completed.get(&id(PACK)), Some(&0));
@@ -85,7 +88,8 @@ fn ai_14_saved_wait_group_keeps_one_deadline_after_restore() {
     original.tick(0.75);
     restored.tick(0.75);
     for current in [&original, &restored] {
-        let ai = &current.world().actor_ref(id(ACTOR)).unwrap().ai;
+        let world = current.world();
+        let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
         assert_eq!(current.world().clock.real_seconds, 1.0);
         assert_eq!(ai.wait_until, Some(1.25));
         assert!(ai.tree.as_ref().unwrap().active);
@@ -95,7 +99,8 @@ fn ai_14_saved_wait_group_keeps_one_deadline_after_restore() {
     original.tick(0.25);
     restored.tick(0.25);
     for current in [&original, &restored] {
-        let ai = &current.world().actor_ref(id(ACTOR)).unwrap().ai;
+        let world = current.world();
+        let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
         assert_eq!(current.world().clock.real_seconds, 1.25);
         assert!(ai.tree.as_ref().unwrap().finished);
         assert_eq!(ai.completed.get(&id(PACK)), Some(&0));

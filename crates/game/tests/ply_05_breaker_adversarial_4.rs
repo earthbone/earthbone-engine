@@ -25,7 +25,8 @@ fn ply_05_disconnected_navmesh_route_fails_without_moving_the_player() {
         "{}",
         report.format()
     );
-    let moved = game.world().reference_ref(player).expect("player");
+    let world = game.world();
+    let moved = world.reference_ref(player).expect("player");
     assert_eq!(moved.position, start);
     assert!(moved.position.into_iter().all(f32::is_finite));
 }

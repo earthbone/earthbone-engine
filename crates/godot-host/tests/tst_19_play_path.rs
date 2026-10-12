@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-const CHECKS: &[&str] = &[
+pub(crate) const CHECKS: &[&str] = &[
     "window",
     "capture",
     "route.walk",
@@ -143,16 +143,16 @@ fn policy_for(baseline: &Value, backlog: &str) -> Value {
     Value::Object(result)
 }
 
-const STOP_CHECKS: &[&str] = &[
+pub(crate) const STOP_CHECKS: &[&str] = &[
     "npc.drawn",
     "npc.head_hair",
     "doors.drawn",
     "frame.max_ms",
     "watchdog.max_ms",
 ];
-const EXTERIOR_CHECKS: &[&str] = &["terrain.textures", "object.white", "object.height"];
+pub(crate) const EXTERIOR_CHECKS: &[&str] = &["terrain.textures", "object.white", "object.height"];
 
-fn validate(stdout: &str, policy: &Value, duration: f64) -> Result<(), String> {
+pub(crate) fn validate(stdout: &str, policy: &Value, duration: f64) -> Result<(), String> {
     let mut seen = BTreeSet::new();
     let mut stops = BTreeSet::new();
     let mut at_stop = BTreeSet::new();
@@ -177,10 +177,9 @@ fn validate(stdout: &str, policy: &Value, duration: f64) -> Result<(), String> {
                     | "route.market"
                     | "route.gate"
                     | "route.return"
-            ) {
-                if !route_order.iter().any(|(prior, _)| prior == check) {
-                    route_order.push((check.to_owned(), stop.to_owned()));
-                }
+            ) && !route_order.iter().any(|(prior, _)| prior == check)
+            {
+                route_order.push((check.to_owned(), stop.to_owned()));
             }
             if !row["value"].is_object()
                 || row["value"]

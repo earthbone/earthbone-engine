@@ -33,17 +33,17 @@ fn game() -> Game {
 
 #[test]
 fn hst_26_owned_pickup_disables_reference_and_preserves_stolen_stack_after_save() {
+    let loaded = game();
     let mut game = game();
     let player = game.player();
     assert!(game.world_mut().loose_item_is_stealing(id(43), player));
     assert!(game.activate(id(43), player));
     assert!(!game.world().reference_ref(id(43)).unwrap().enabled);
     let saved = game.world().save_state();
-    let mut loaded = Game::new(game.world().order().clone());
     loaded.world_mut().load_state(&saved).unwrap();
     assert!(!loaded.world().reference_ref(id(43)).unwrap().enabled);
-    let stack = &loaded
-        .world()
+    let world = loaded.world();
+    let stack = &world
         .reference_ref(player)
         .unwrap()
         .inventory

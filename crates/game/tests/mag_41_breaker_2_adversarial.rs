@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "support/mod.rs"]
-mod support;
-
-use support::magic_adversarial as fixture;
+use crate::support::magic_adversarial as fixture;
 
 use fixture::*;
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};

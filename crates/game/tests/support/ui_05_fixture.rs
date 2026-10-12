@@ -4,46 +4,21 @@
 //! External, unmodified SkyUI PEX inputs with a minimal config quest.
 //! The callbacks follow local SkyUI's ConfigMenuTemplate.psc interface.
 
-use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Tag};
+use soe_esm::{plugin::flags, FileHeader, Plugin, Tag};
 use soe_game::quest::{self, flags as quest_flags};
 use soe_game::vmad::{ScriptEntry, Vmad};
-use soe_game::Game;
 use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub const CONFIG: u32 = 0x800;
 pub const MANAGER: u32 = 0x801;
 pub const CHILD: &str = "Ui05ExecutableChild";
 
-pub struct Fixture {
-    pub plugin: Plugin,
-    pub scripts: Vec<(String, Vec<u8>)>,
-}
+#[path = "ui_fixture.rs"]
+mod fixture;
 
-impl Fixture {
-    pub fn game(&self) -> Game {
-        let mut order = LoadOrder::new();
-        order.add("Ui05Config.esm", self.plugin.clone()).unwrap();
-        let mut game = Game::new(order);
-        for (_, bytes) in &self.scripts {
-            game.load_script(bytes).unwrap();
-        }
-        let bound = game.start();
-        assert!(bound.scripts_missing.is_empty(), "{bound:?}");
-        game
-    }
-
-    /// Write a standalone plugin and loose scripts for the host checks.
-    #[allow(dead_code)]
-    pub fn write(&self, directory: &Path) {
-        std::fs::create_dir_all(directory.join("Scripts")).unwrap();
-        std::fs::write(directory.join("Ui05Config.esm"), self.plugin.to_bytes()).unwrap();
-        for (name, bytes) in &self.scripts {
-            std::fs::write(directory.join("Scripts").join(format!("{name}.pex")), bytes).unwrap();
-        }
-    }
-}
+pub use fixture::Fixture;
 
 pub fn load() -> Option<Fixture> {
     let mut vfs = soe_bsa::Vfs::new();

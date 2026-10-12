@@ -57,8 +57,8 @@ mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
-mod play_path;
 mod npcs;
+mod play_path;
 mod profiling;
 mod quick_loot;
 mod race;
@@ -1698,7 +1698,7 @@ impl PlayerNode {
             if humanoid {
                 result.push(i64::from(actor.file));
                 result.push(i64::from(actor.object));
-                result.push(if rig.female { 1 } else { 0 });
+                result.push(i64::from(rig.female));
                 break;
             }
         }

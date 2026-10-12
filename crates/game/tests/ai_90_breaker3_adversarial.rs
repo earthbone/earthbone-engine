@@ -99,6 +99,7 @@ fn ai_90_omitted_repeatable_does_not_inherit_true_template_value() {
             expected
         );
     }
-    let actor = game.world().actor_ref(id(ACTOR)).unwrap();
+    let world = game.world();
+    let actor = world.actor_ref(id(ACTOR)).unwrap();
     assert!(actor.ai.completed.contains_key(&id(PACK)));
 }

@@ -31,6 +31,7 @@ fn source(root: &Path) -> DataSource {
     DataSource {
         order: Arc::new(order),
         vfs: Arc::new(vfs),
+        data_roots: vec![root.to_path_buf()],
         threads: 1,
         workers: WorkerPools::default(),
         textures: TextureCache::default(),

@@ -68,7 +68,7 @@ fn prf_15_boolean_format_version_is_rejected_as_malformed() {
         serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
     saved["format"] = serde_json::Value::Bool(true);
     fs::write(&baseline, serde_json::to_vec(&saved).unwrap()).unwrap();
-    let checked = Command::new("python3")
+    let output = Command::new("python3")
         .arg(checker)
         .arg("check")
         .arg("--output")
@@ -79,8 +79,8 @@ fn prf_15_boolean_format_version_is_rejected_as_malformed() {
         .output()
         .unwrap();
 
-    assert_eq!(checked.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&checked.stderr);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("baseline format must be 1"));
     assert!(!stderr.contains("Traceback"));
     let _ = fs::remove_file(measured);
