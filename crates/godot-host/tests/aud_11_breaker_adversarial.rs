@@ -76,6 +76,9 @@ func run() -> void:
 		deadline = Time.get_ticks_msec() + 5000
 		while int(bank.call("ambience_start_count")) < expected and Time.get_ticks_msec() < deadline:
 			await process_frame
+		var deadline := Time.get_ticks_msec() + 5_000
+		while int(bank.call("ambience_start_count")) < expected and Time.get_ticks_msec() < deadline:
+			await process_frame
 		if int(bank.call("ambience_start_count")) != expected:
 			printerr("ambience count did not match successful start ", expected)
 			quit(1)
