@@ -58,8 +58,12 @@ mod prf_19_adversarial;
 #[path = "prf_19_breaker_adversarial.rs"]
 mod prf_19_breaker_adversarial;
 
+#[path = "scr_02_breaker6_adversarial.rs"]
+mod scr_02_breaker6_adversarial;
 #[path = "scr_11_breaker3_adversarial.rs"]
 mod scr_11_breaker3_adversarial;
+#[path = "scr_11_breaker6_adversarial.rs"]
+mod scr_11_breaker6_adversarial;
 #[path = "scr_23_breaker_adversarial.rs"]
 mod scr_23_breaker_adversarial;
 
@@ -1381,10 +1385,16 @@ mod scr_02_adversarial;
 mod scr_02_breaker2_adversarial;
 #[path = "scr_02_breaker3_adversarial.rs"]
 mod scr_02_breaker3_adversarial;
+#[path = "scr_02_breaker4_adversarial.rs"]
+mod scr_02_breaker4_adversarial;
+#[path = "scr_02_breaker5_adversarial.rs"]
+mod scr_02_breaker5_adversarial;
 #[path = "scr_02_breaker_adversarial.rs"]
 mod scr_02_breaker_adversarial;
 #[path = "scr_02_native_contract_inventory.rs"]
 mod scr_02_native_contract_inventory;
+#[path = "scr_02_signature_parity.rs"]
+mod scr_02_signature_parity;
 #[path = "scr_03_adversarial.rs"]
 mod scr_03_adversarial;
 #[path = "scr_03_component.rs"]
@@ -1423,6 +1433,10 @@ mod scr_11_actor_state_bindings;
 mod scr_11_adversarial;
 #[path = "scr_11_breaker2_adversarial.rs"]
 mod scr_11_breaker2_adversarial;
+#[path = "scr_11_breaker4_adversarial.rs"]
+mod scr_11_breaker4_adversarial;
+#[path = "scr_11_breaker5_adversarial.rs"]
+mod scr_11_breaker5_adversarial;
 #[path = "scr_11_breaker_adversarial.rs"]
 mod scr_11_breaker_adversarial;
 #[path = "scr_12_adversarial.rs"]

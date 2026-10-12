@@ -1587,15 +1587,6 @@ fn actor(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
-    method!(vm, w, "Actor", "SetEssential", |world, call, me| {
-        if call.args.len() != 1 || !matches!(call.arg(0), Value::Bool(_)) {
-            call.log
-                .push(call.time, "Actor.SetEssential expects one Bool argument");
-            return none();
-        }
-        world.set_actor_essential(me, call.arg(0).as_bool());
-        none()
-    });
     method!(vm, w, "Actor", "GetSitState", |world, call, me| {
         if !call.args.is_empty() {
             call.log
@@ -4288,6 +4279,13 @@ fn actor_base(vm: &mut Vm, w: &Shared) {
         ("SetInvulnerable", 2),
     ] {
         method!(vm, w, "ActorBase", name, |world, call, me| {
+            if field == 0 && (call.args.len() != 1 || !matches!(call.arg(0), Value::Bool(_))) {
+                call.log.push(
+                    call.time,
+                    "ActorBase.SetEssential expects one Bool argument",
+                );
+                return none();
+            }
             let on = call.args.first().is_none_or(Value::as_bool);
             match field {
                 0 => world.set_actor_base_essential(me, on),
@@ -5123,7 +5121,7 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     // search permissions, which need the same flight the flag waits on.
     for name in ["SetAllowFlying", "SetAllowFlyingEx"] {
         method!(vm, w, "Actor", name, |world, call, me| {
-            let allowed = call.arg(0).as_bool();
+            let allowed = call.args.first().is_none_or(Value::as_bool);
             if let Some(a) = world.actor(me) {
                 a.allow_flying = allowed;
             }
@@ -5141,13 +5139,18 @@ fn dlc(vm: &mut Vm, w: &Shared) {
             return i(0);
         }
         i(world.actor(me).map_or(0, |actor| {
-            i32::from(actor.flying_state.unwrap_or_else(|| {
-                if actor.ai.procedure == crate::ai::Procedure::Hover {
-                    3
-                } else {
-                    0
-                }
-            }))
+            i32::from(
+                actor
+                    .flying_state
+                    .filter(|state| *state <= 4)
+                    .unwrap_or_else(|| {
+                        if actor.ai.procedure == crate::ai::Procedure::Hover {
+                            3
+                        } else {
+                            0
+                        }
+                    }),
+            )
         }))
     });
     method!(vm, w, "Actor", "SetVehicle", |world, call, me| {
@@ -5220,7 +5223,7 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     // "Enables or disables this actor's AI." Stored inverted so an actor
     // nobody touched still thinks.
     method!(vm, w, "Actor", "EnableAI", |world, call, me| {
-        let enable = call.arg(0).as_bool();
+        let enable = call.args.first().is_none_or(Value::as_bool);
         if let Some(a) = world.actor(me) {
             a.ai_disabled = !enable;
         }

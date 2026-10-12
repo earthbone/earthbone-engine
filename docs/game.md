@@ -1289,15 +1289,16 @@ placement without mutating it. The host contract and its split between
 collision and rendering change detection are documented in
 [godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
 
-`Actor.SetEssential` delegates to `World::set_actor_essential`. For actors
-with a base-data source it updates that source and initialized inheriting
-actors, using the same path as `ActorBase.SetEssential`. Baseless actors update
-their runtime flag. `GetSitState` reports 0 without a Sit procedure, 2 while
-that procedure is approaching furniture, and 3 after arrival. Transient
-animation states 1 and 4 are unavailable because the host does not report sit
-transition animations. `GetFlyingState`
-returns the live movement state when present, otherwise 3 for the AI Hover
-procedure and 0 in other cases.
+`ActorBase.SetEssential` delegates to `World::set_actor_base_essential`, which
+updates the base and initialized inheriting actors. `GetSitState` reports 0
+without a Sit procedure, 2 while
+that procedure is approaching furniture, 3 after arrival, and 4 while its live
+sit animation reports a transition to stand. `World::set_actor_sit_wants_to_stand`
+supplies that transient input, which is not saved. State 1 remains unavailable
+because the host does not report the transition into sitting. `GetFlyingState`
+returns a live movement state from 0 to 4 when present, otherwise 3 for the AI
+Hover procedure and 0 in other cases. Out-of-range host states use that same
+AI fallback.
 
 `SetVehicle` stores a placed-reference target on the actor. `None` and the
 actor itself detach it. `SetLookAt` stores its placed-reference target and
@@ -1318,10 +1319,10 @@ tick uses restored placements.
 
 The bindings follow the local CK `SetVehicle_-_Actor.wikitext`,
 `GetSitState_-_Actor.wikitext` and `GetFlyingState_-_Actor.wikitext` pages, plus
-the `Actor_Script.wikitext` signatures and descriptions. The CK sources define
-the vehicle attach/detach contract and flying-state codes. The engine keeps
-sit transition animation states unavailable because the host does not report
-them.
+the `Actor_Script.wikitext` and `ActorBase_Script.wikitext` signatures and
+descriptions. The CK sources define the vehicle attach/detach contract,
+flying-state codes and `ActorBase.SetEssential` ownership. The host does not
+report the transition into sitting.
 
 **Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
 current time-driven sun position in Skyrim units, on the runtime's 100,000-unit
@@ -1904,6 +1905,7 @@ restraint, and active magic. The concrete contract differences found were:
 | Actor.SetForcedLandingMarker | Store the reference an actor should use when it lands. | Retain the selected reference in shared actor state. | SCR-14. |
 | Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | HasLOS accepts finite positions for references in the same cell. PathToReference returns true only for a valid speed and an already reached target. | SCR-10. |
 | Actor.IsFlying | Reports the actor's flight state. | Reads live movement flight flags or the Hover package procedure. | SCR-10. |
+| Actor.SetAllowFlying and SetAllowFlyingEx | `abAllowed` defaults to true. SetAllowFlyingEx also defaults `abAllowCrash` to true and `abAllowSearch` to false. Both return None. | Both methods use true when `abAllowed` is omitted and return None. The crash and search options are not represented in actor state. | The local CK pages `SetAllowFlying_-_Actor.wikitext` and `SetAllowFlyingEx_-_Actor.wikitext` define the signatures and defaults. SCR-10 owns the unmodeled flight behavior. |
 | Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | GetSleepState maps the sleep procedure and sleeping flag to 0, 2 or 3. | SCR-10 and SCR-11. |
 | Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | The actor retains protected equipped forms, rejects replacement and direct unequip for them, and queues an `Equipped <name>` notification unless silent. `UnequipAll` and `RemoveAllItems` clear the protection. Actor protection survives save/load in the `SCR-74` actor section. | The local CK `EquipItem` and `UnequipItem` pages specify the replacement, removal, and bulk-removal rules. |
 
@@ -1936,6 +1938,18 @@ defaults and its `None` return, with the native invocation. Calling the native
 with only the required item exercises those defaults: it equips the item,
 emits the ordinary equip notification and returns `None`. `SCR-74` owns the
 prevent-removal and silent-message behavior and tests those explicit arguments.
+The SCR-02 signature test parses every direct Actor and ActiveMagicEffect
+registry binding against the complete CK or shipped PSC declaration in the
+contract fixture, including parameter types, optional values and return type.
+Vanilla `Actor.psc` declares `EnableAI(bool abEnable = true)`. The native uses
+that default when invoked without an argument, and returns `None` for both the
+default and explicit-argument calls.
+The CK pages `SetAllowFlying_-_Actor.wikitext` and
+`SetAllowFlyingEx_-_Actor.wikitext` declare a true default for `abAllowed`.
+Both natives now use that default and return `None` for omitted and explicit
+arguments. `SetAllowFlyingEx` currently retains only `abAllowed`; its crash
+landing and search options are not represented by actor state and remain
+assigned to SCR-10 with the other unmodeled flight behavior.
 
 `Actor.KeepOffsetFromActor` stores the target, required body-space XYZ offset,
 optional XYZ angles and catch-up/follow radii on the calling actor. Omitted
@@ -2000,7 +2014,7 @@ an SKSE member.
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
 | ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Is3DLoaded, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, DamageObject, GetCurrentDestructionStage, ClearDestruction, SetNoFavorAllowed, PlayAnimation, PlayAnimationAndWait, WaitForAnimationEvent, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe, GetCurrentScene, CreateDetectionEvent, TetherToHorse, ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, Reset | IsFurnitureInUse, PlayGamebryoAnimation, SetMotionType, ApplyHavokImpulse, KnockAreaEffect, PushActorAway and 6 more, plus the DLC furniture marker and translation functions: IsFurnitureMarkerInUse, TranslateTo, SplineTranslateTo, StopTranslation |
 | ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Is3DLoaded, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, DamageObject, GetCurrentDestructionStage, ClearDestruction, SetNoFavorAllowed, PlayAnimation, PlayAnimationAndWait, WaitForAnimationEvent, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, IsInDialogueWithPlayer, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe, GetCurrentScene, CreateDetectionEvent, TetherToHorse, ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, Reset | IsFurnitureInUse, PlayGamebryoAnimation, SetMotionType, ApplyHavokImpulse, KnockAreaEffect, PushActorAway and 6 more, plus the DLC furniture marker and translation functions: IsFurnitureMarkerInUse, TranslateTo, SplineTranslateTo, StopTranslation |
-| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), ShowGiftMenu, SetExpressionOverride, ClearExpressionOverride, IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, SetEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, RemoveAllSpells, HasSpell, EquipItem, UnequipItem, UnequipAll, IsEquipped, GetEquippedWeapon, GetEquippedShield, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, IsRunning, IsSprinting, IsHostileToActor, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells, StartVampireFeed | EvaluatePackage, SetLookAt and 34 more, plus DLC methods without a system: IsFlying, GetWarmthRating, StartCannibal, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation, WillIntimidateSucceed |
+| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), ShowGiftMenu, SetExpressionOverride, ClearExpressionOverride, IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, RemoveAllSpells, HasSpell, EquipItem, UnequipItem, UnequipAll, IsEquipped, GetEquippedWeapon, GetEquippedShield, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, IsRunning, IsSprinting, IsHostileToActor, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells, StartVampireFeed | EvaluatePackage, SetLookAt and 34 more, plus DLC methods without a system: IsFlying, GetWarmthRating, StartCannibal, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation, WillIntimidateSucceed |
 | ActorBase | GetSkin, SetSkin, GetRace, GetClass, GetGiftFilter, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | |
 | Quest | Start, Stop, Reset, IsRunning, IsStarting, IsStopping, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | |
 | Alias, ReferenceAlias, LocationAlias | TryToEnable, TryToEnableNoWait, TryToDisable, TryToDisableNoWait (ReferenceAlias only), GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |

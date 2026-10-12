@@ -63,7 +63,7 @@ fn set_essential_clears_protection_for_every_actor_sharing_the_base() {
     assert!(game.world_mut().actor(first).unwrap().protected);
     assert!(game.world_mut().actor(sibling).unwrap().protected);
 
-    call(&mut game, first, "SetEssential", &[Value::Bool(true)]);
+    call(&mut game, base, "SetEssential", &[Value::Bool(true)]);
 
     assert!(game.world_mut().actor_base(base).unwrap().essential);
     for actor in [first, sibling] {

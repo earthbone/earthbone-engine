@@ -414,6 +414,8 @@ pub struct ActorState {
     /// re-signals it from the live graph after load, through
     /// `World::set_blocking`.
     pub blocking: bool,
+    /// The live sit animation is seated and transitioning to stand.
+    pub sit_wants_to_stand: bool,
     /// Ward animation state supplied by the host. `None` means the host has
     /// not reported a state for this actor in the current session.
     pub ward_state: Option<u32>,

@@ -153,12 +153,14 @@ impl World {
             .map(|actor| actor.head_tracking.unwrap_or(true))
     }
 
-    /// Return the Papyrus sit state supported by the active furniture procedure.
+    /// Return the Papyrus sit state from the active furniture procedure and live transition input.
     #[must_use]
     pub fn sit_state(&mut self, id: GlobalFormId) -> Option<i32> {
         let actor = self.actor(id)?;
         Some(if actor.ai.procedure == crate::ai::Procedure::Sit {
-            if actor.ai.arrived {
+            if actor.sit_wants_to_stand {
+                4
+            } else if actor.ai.arrived {
                 3
             } else {
                 2
@@ -166,6 +168,22 @@ impl World {
         } else {
             0
         })
+    }
+
+    /// Report whether the actor's live sit animation is transitioning to stand.
+    ///
+    /// # Errors
+    /// Returns an error when the form is not an actor.
+    pub fn set_actor_sit_wants_to_stand(
+        &mut self,
+        id: GlobalFormId,
+        wants_to_stand: bool,
+    ) -> Result<(), String> {
+        let actor = self
+            .actor(id)
+            .ok_or_else(|| format!("{id} is not an actor"))?;
+        actor.sit_wants_to_stand = wants_to_stand;
+        Ok(())
     }
 
     /// Attach an actor to a placed reference, or detach it when the target is absent or self.

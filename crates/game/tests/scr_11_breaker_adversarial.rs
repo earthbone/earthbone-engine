@@ -82,13 +82,14 @@ fn flying_state_preserves_each_defined_native_state() {
 fn set_essential_can_be_repeated_and_updates_inheriting_actor_state() {
     let mut game = fixture();
     let actor = id(0x801);
-    call(&mut game, actor, "SetEssential", &[Value::Bool(true)]);
+    let base = id(0x800);
+    call(&mut game, base, "SetEssential", &[Value::Bool(true)]);
     assert!(game.world_mut().actor(actor).unwrap().essential);
     assert!(game.world_mut().actor_base(id(0x800)).unwrap().essential);
-    call(&mut game, actor, "SetEssential", &[Value::Bool(false)]);
+    call(&mut game, base, "SetEssential", &[Value::Bool(false)]);
     assert!(!game.world_mut().actor(actor).unwrap().essential);
     assert!(!game.world_mut().actor_base(id(0x800)).unwrap().essential);
-    call(&mut game, actor, "SetEssential", &[Value::Bool(false)]);
+    call(&mut game, base, "SetEssential", &[Value::Bool(false)]);
     assert!(!game.world_mut().actor(actor).unwrap().essential);
 }
 
@@ -181,10 +182,12 @@ fn actor_state_natives_reject_wrong_arity_and_types_before_mutating() {
         .log
         .contains("SetLookAt expects ObjectReference and Bool arguments"));
 
-    call(&mut game, actor, "SetEssential", &[Value::Bool(true)]);
+    let base = id(0x800);
+    call(&mut game, base, "SetEssential", &[Value::Bool(true)]);
+    call(&mut game, base, "SetEssential", &[Value::Int(1)]);
     call(
         &mut game,
-        actor,
+        base,
         "SetEssential",
         &[Value::Bool(false), Value::Bool(false)],
     );
