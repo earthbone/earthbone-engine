@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use soe_audio::SoundSource;
-use soe_bsa::Vfs;
+use soe_bsa::{write_bsa, BsaFile, BsaVersion, Vfs};
 use soe_esm::{cursor::zstring, LoadOrder, Plugin, Tag};
 
 #[test]
@@ -76,6 +76,15 @@ fn aud_12_failed_music_and_ambience_replacements_keep_current_tracks() {
         )
         .unwrap();
     }
+    let voices = write_bsa(
+        &[BsaFile {
+            path: "sound/voice/aud12/placeholder.wav",
+            bytes: &[],
+        }],
+        BsaVersion::SkyrimSe,
+    )
+    .unwrap();
+    std::fs::write(data.join("Skyrim - Voices_en0.bsa"), voices).unwrap();
     write_wave(&data.join("Music/valid.wav"), 5.0);
     std::fs::write(data.join("Music/broken.wav"), b"not a wave").unwrap();
     let script = fixture.path().join("aud_12_failed_replacement.gd");

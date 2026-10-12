@@ -939,6 +939,8 @@ impl SoundBank {
         Ok(())
     }
 
+    /// Cancel pending music and fade out the current record selection.
+    #[func]
     pub(crate) fn stop_music(&mut self) {
         self.music_repeat = false;
         self.silent_remaining = 0.0;
@@ -1213,6 +1215,44 @@ impl SoundBank {
             .into()
     }
 
+    /// Duration of the current decoded music selection, in seconds.
+    #[func]
+    fn current_music_duration(&self) -> f64 {
+        self.music_current
+            .and_then(|slot| self.music_feeds[slot].as_ref())
+            .map_or(0.0, |feed| feed.pcm.duration_seconds())
+    }
+
+    /// Seek within the current decoded music without selecting or decoding a track.
+    /// Invalid positions leave playback unchanged and return false.
+    #[func]
+    fn seek_music(&mut self, seconds: f64) -> bool {
+        let Some(slot) = self.music_current else {
+            return false;
+        };
+        let Some(feed) = self.music_feeds[slot].as_ref() else {
+            return false;
+        };
+        if !seconds.is_finite() || seconds < 0.0 || seconds > feed.pcm.duration_seconds() {
+            return false;
+        }
+        let pcm = Arc::clone(&feed.pcm);
+        let cursor = ((seconds * f64::from(pcm.sample_rate)) as usize).min(pcm.frames());
+        let replacement =
+            GeneratorFeed::start_at(&mut self.music_players[slot], pcm, false, cursor);
+        match replacement {
+            Ok(feed) => {
+                retire_feed(&mut self.music_feeds[slot], self.decoder.as_ref());
+                self.music_feeds[slot] = Some(feed);
+                true
+            }
+            Err(error) => {
+                self.last_error = error.as_str().into();
+                false
+            }
+        }
+    }
+
     /// Current ambience path, set only after the selected decode completes.
     #[func]
     fn current_ambience_path(&self) -> GString {
@@ -1335,27 +1375,45 @@ impl GeneratorFeed {
         pcm: Arc<Pcm>,
         mono: bool,
     ) -> Result<Self, String> {
+        Self::start_at(player, pcm, mono, 0)
+    }
+
+    fn start_at(
+        player: &mut Gd<AudioStreamPlayer>,
+        pcm: Arc<Pcm>,
+        mono: bool,
+        cursor: usize,
+    ) -> Result<Self, String> {
         player.stop();
         let mut generator = AudioStreamGenerator::new_gd();
         generator.set_mix_rate(pcm.sample_rate as f32);
-        generator.set_buffer_length(0.25);
+        // CONTEXT: Installed door work can block the host for over five seconds.
+        // Prefill music across frames while direct ambience keeps its short buffer.
+        generator.set_buffer_length(if mono { 0.25 } else { 8.0 });
         player.set_stream(&generator);
-        player.play();
-        let playback = player
-            .get_stream_playback()
-            .ok_or_else(|| "Godot generator has no playback".to_owned())?
-            .try_cast::<AudioStreamGeneratorPlayback>()
-            .map_err(|_| "Godot generator playback has an unexpected type".to_owned())?;
-        let capacity = playback.get_frames_available().max(0) as usize;
-        let mut feed = Self {
-            pcm,
-            cursor: 0,
-            mono,
-            capacity,
-            playback,
-        };
-        feed.pump();
-        Ok(feed)
+        // CONTEXT: The mixer must not consume the generator before its first chunk.
+        let mut server = godot::classes::AudioServer::singleton();
+        server.lock();
+        let result = (|| {
+            player.play();
+            let playback = player
+                .get_stream_playback()
+                .ok_or_else(|| "Godot generator has no playback".to_owned())?
+                .try_cast::<AudioStreamGeneratorPlayback>()
+                .map_err(|_| "Godot generator playback has an unexpected type".to_owned())?;
+            let capacity = playback.get_frames_available().max(0) as usize;
+            let mut feed = Self {
+                pcm,
+                cursor,
+                mono,
+                capacity,
+                playback,
+            };
+            feed.pump();
+            Ok(feed)
+        })();
+        server.unlock();
+        result
     }
 
     fn pump(&mut self) -> bool {

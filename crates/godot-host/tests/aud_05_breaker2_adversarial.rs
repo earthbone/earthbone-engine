@@ -126,6 +126,7 @@ func wait_for_count(bank: Node, expected: int) -> bool:
 		await process_frame
 	return false
 func _initialize() -> void:
+	Engine.max_fps = 60
 	call_deferred("run")
 func run() -> void:
 	if not ClassDB.class_exists("PlayerNode"):

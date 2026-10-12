@@ -3,6 +3,7 @@ extends SceneTree
 var failures := 0
 
 func _initialize() -> void:
+	Engine.max_fps = 60
 	call_deferred("_run")
 
 func _check(ok: bool, message: String) -> void:

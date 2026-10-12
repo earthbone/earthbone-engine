@@ -43,11 +43,12 @@ func _sample(player: Node, bank: Node, capture: AudioEffectCapture, walk: bool) 
 			var now := Time.get_ticks_msec()
 			var seconds := float(now - last_motion) / 1000.0
 			last_motion = now
-			walk_seconds += seconds
-			var direction := Vector3(sin(facing.x), cos(facing.x), 0) if walk_seconds < 5.0 else Vector3(0, -1, 0)
 			var steps := maxi(1, int(ceil(seconds * 60.0)))
+			var step_seconds := maxf(seconds / steps, 0.001)
 			for _step in range(steps):
-				_check(int(player.call("sample_detection_walk", maxf(seconds / steps, 0.001), direction)) >= 0, "host walking and streaming")
+				var direction := Vector3(sin(facing.x), cos(facing.x), 0) if walk_seconds < 5.0 else Vector3(0, -1, 0)
+				_check(int(player.call("sample_detection_walk", step_seconds, direction)) >= 0, "host walking and streaming")
+				walk_seconds += step_seconds
 		cells[player.call("gameplay_cell")] = true
 		var frames := capture.get_frames_available()
 		if frames > 0:
@@ -109,10 +110,12 @@ func aud_13_bannered_mare_to_plains_continuous_audio() -> void:
 	await _sample(player, bank, capture, false)
 	await _wait_music(bank)
 	var starts := int(bank.call("music_start_count"))
-	for slot in range(2):
-		var music := bank.get_node("MusicPlayer" + str(slot)) as AudioStreamPlayer
-		if music.playing:
-			music.seek(maxf(0.0, music.stream.get_length() - 0.1))
+	var duration := float(bank.call("current_music_duration"))
+	_check(duration > 0.1, "decoded music has a file duration")
+	_check(not bank.call("seek_music", -1.0), "negative music seek is rejected")
+	_check(not bank.call("seek_music", duration + 1.0), "seek beyond music duration is rejected")
+	_check(bank.call("seek_music", maxf(0.0, duration - 0.1)), "seek decoded music near its end")
+	_check(int(bank.call("music_start_count")) == starts, "seeking does not select another track")
 	var end_wait := Time.get_ticks_msec()
 	while int(bank.call("music_start_count")) == starts and Time.get_ticks_msec() - end_wait < 15000:
 		await process_frame

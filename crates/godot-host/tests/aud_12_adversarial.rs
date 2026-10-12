@@ -94,6 +94,7 @@ fn aud_12_music_and_ambience_requests_do_not_block_and_reuse_decodes() {
 var failures: Array[String] = []
 
 func _initialize() -> void:
+	Engine.max_fps = 60
 	call_deferred("run")
 
 func elapsed_ms(callable: Callable) -> float:
@@ -128,7 +129,7 @@ func run() -> void:
 		failures.append("ambience request blocked %.2f ms" % ambience_ms)
 	for _frame in range(120):
 		await process_frame
-		if int(bank.call("music_start_count")) > 0 and int(bank.call("ambience_start_count")) > 0:
+		if int(bank.call("music_start_count")) > starts_before_requests and int(bank.call("ambience_start_count")) > 0:
 			break
 	if int(bank.call("music_start_count")) != starts_before_requests + 1:
 		failures.append("superseded music request started %d tracks" % int(bank.call("music_start_count")))
@@ -163,14 +164,17 @@ func run() -> void:
 	if int(bank.call("effect_start_count")) != effects_before + 1 or int(bank.call("voice_start_count")) != voices_before + 1:
 		failures.append("effect and voice start counters did not advance")
 	for path in ["music/aud12_cap_a.wav", "music/aud12_cap_b.wav"]:
-		var before := int(bank.call("decoded_count"))
+		var before := int(bank.call("music_start_count"))
 		bank.call("play_music_track", path, 0.0, 0.0, true)
 		for _frame in range(600):
 			await process_frame
-			if int(bank.call("decoded_count")) > before:
+			if int(bank.call("music_start_count")) > before:
 				break
+		if str(bank.call("current_music_path")) != path:
+			failures.append("large music decode did not finish: " + path)
 	if int(bank.call("music_cache_bytes")) > 64 * 1024 * 1024:
 		failures.append("decoded cache exceeded its 64 MiB limit")
+	bank.free()
 	if failures.is_empty():
 		print("AUD-12 PASS")
 	else:
@@ -351,6 +355,7 @@ fn aud_12_stop_fade_does_not_leave_a_stale_player_after_a_new_track_starts() {
         r#"extends SceneTree
 
 func _initialize() -> void:
+	Engine.max_fps = 60
 	call_deferred("_run")
 
 func check(ok: bool, message: String) -> bool:
