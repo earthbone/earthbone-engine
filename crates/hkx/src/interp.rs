@@ -660,6 +660,16 @@ impl Target {
                 | Target::InterpOutput
         )
     }
+
+    fn expected_variable_type(self) -> Option<VariableType> {
+        match self {
+            Target::SpeedSamplerState => Some(VariableType::Int32),
+            Target::SpeedSamplerDirection
+            | Target::SpeedSamplerGoalSpeed
+            | Target::SpeedSamplerSpeedOut => Some(VariableType::Real),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1645,6 +1655,26 @@ impl<'a> Interpreter<'a> {
                         graph.node(node).class
                     ),
                 ),
+                (Some(target), Some(variable))
+                    if target.expected_variable_type().is_some_and(|expected| {
+                        let actual = if b.binding_type == 1 {
+                            self.character_properties.ty(variable)
+                        } else {
+                            self.variables.ty(variable)
+                        };
+                        actual != Some(expected)
+                    }) =>
+                {
+                    push_unique(
+                        &mut self.unsupported.unbound,
+                        format!(
+                            "{}.{} ({})",
+                            graph.node(node).name,
+                            b.member_path,
+                            graph.node(node).class
+                        ),
+                    );
+                }
                 (Some(target), Some(variable)) => self.bindings.push(ResolvedBinding {
                     node,
                     target,

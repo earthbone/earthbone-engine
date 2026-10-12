@@ -954,8 +954,8 @@ pub enum NodeKind {
         axis_of_rotation: [f32; 4],
     },
     /// `BSSpeedSamplerModifier`: publishes its goal speed to `speedOut`.
-    /// The graph's `state` and `direction` inputs are accepted, but no
-    /// sampling formula for them is established by the available sources.
+    /// `state` and `direction` are graph context inputs. The available sources
+    /// do not establish a sampling formula that uses them.
     SpeedSampler {
         enable: bool,
         state: i32,
