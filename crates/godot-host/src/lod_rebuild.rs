@@ -53,10 +53,35 @@ impl LoadOrderHash {
         }
         self
     }
+
+    /// Build an identity from the resolved ESM load-order fingerprint.
+    #[must_use]
+    pub fn from_content_fingerprint(fingerprint: [u8; 32]) -> Self {
+        Self::of(&LoadOrder {
+            entries: Vec::new(),
+            problems: Vec::new(),
+        })
+        .with_content_fingerprint(fingerprint)
+    }
+
+    /// Mix a world and block identity into this load-order key.
+    #[must_use]
+    pub fn with_block(mut self, world: u32, level: i32, x: i32, y: i32) -> Self {
+        for byte in world
+            .to_le_bytes()
+            .into_iter()
+            .chain(level.to_le_bytes())
+            .chain(x.to_le_bytes())
+            .chain(y.to_le_bytes())
+        {
+            self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        self
+    }
 }
 
 /// Object and terrain output produced as one load-order snapshot.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GeneratedLod<TObject, TTerrain> {
     pub object: TObject,
     pub terrain: TTerrain,
@@ -168,7 +193,7 @@ impl<T> LodBuildRequest<T> {
     }
 }
 
-/// Choose the coarsest level whose projected silhouette error is at or below
+/// Choose the coarsest level whose projected silhouette error is below
 /// the pixel limit. The input order is L4, L8, L16 and L32. Negative errors,
 /// non-finite errors and invalid pixel limits are rejected.
 #[must_use]
@@ -180,7 +205,7 @@ pub fn select_far_level(projected_error_pixels: [f32; 4], pixel_limit: f32) -> O
     levels
         .iter()
         .zip(projected_error_pixels)
-        .filter(|(_, error)| error.is_finite() && *error >= 0.0 && *error <= pixel_limit)
+        .filter(|(_, error)| error.is_finite() && *error >= 0.0 && *error < pixel_limit)
         .map(|(level, _)| *level)
         .next_back()
 }

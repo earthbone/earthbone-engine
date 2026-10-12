@@ -105,6 +105,10 @@ fn parse_asset(path: &str, bytes: &[u8]) -> Result<(), String> {
         "wav" => soe_audio::riff::Riff::parse(bytes)
             .map(|_| ())
             .map_err(|error| error.to_string()),
+        "ogg" => soe_audio::SoundSource::new(&soe_bsa::Vfs::new())
+            .decode(bytes)
+            .map(|_| ())
+            .map_err(|error| error.to_string()),
         _ => Ok(()),
     }
 }
@@ -206,7 +210,18 @@ fn scan_mod(root: &Path, available: &BTreeSet<String>) -> ModReport {
         }
         if !matches!(
             extension.as_str(),
-            "esp" | "esm" | "esl" | "nif" | "hkx" | "dds" | "pex" | "fuz" | "lip" | "wav" | "xwm"
+            "esp"
+                | "esm"
+                | "esl"
+                | "nif"
+                | "hkx"
+                | "dds"
+                | "pex"
+                | "fuz"
+                | "lip"
+                | "wav"
+                | "xwm"
+                | "ogg"
         ) {
             continue;
         }
@@ -373,6 +388,23 @@ fn tst_12_reports_parser_failures_per_mod() {
     );
     assert!(rendered.contains("bad.esp"), "{rendered}");
     assert!(rendered.contains("bad.nif"), "{rendered}");
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[test]
+fn tst_12_reports_invalid_ogg_as_a_parser_failure() {
+    let temp = TempDir::new("ogg");
+    let mod_dir = temp.0.join("BrokenAudioMod");
+    std::fs::create_dir_all(&mod_dir).unwrap();
+    std::fs::write(mod_dir.join("broken.ogg"), b"not an Ogg stream").unwrap();
+
+    let reports = run_corpus(&temp.0);
+    let rendered = render(&reports);
+    assert!(
+        rendered.contains("BrokenAudioMod: 1 files, 1 parser failures"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("broken.ogg"), "{rendered}");
 }
 
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
