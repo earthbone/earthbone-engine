@@ -2703,6 +2703,9 @@ fn ignores_combat(world: &mut World, actor: GlobalFormId) -> bool {
 }
 
 fn ignores_combat_inner(world: &mut World, actor: GlobalFormId) -> bool {
+    if !world.debug_combat_ai_enabled {
+        return true;
+    }
     world
         .actor_ref(actor)
         .and_then(|state| state.ai.package)

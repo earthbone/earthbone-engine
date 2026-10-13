@@ -140,7 +140,7 @@ func _start() -> void:
 		return
 	loading_label.queue_free()
 	loading_label = null
-	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, R ready weapon, mouse buttons attack or cast, F3 system timings, Esc pause menu")
+	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, R ready weapon, mouse buttons attack or cast, F3 system timings, tilde/grave console, Esc pause menu")
 	loaded = true
 	if OS.get_environment("SOE_AUD_11_TEST") == "1":
 		await _run_aud_11_check()

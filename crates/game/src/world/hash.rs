@@ -144,6 +144,7 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.enabled);
     h.bool(s.persistent);
     h.bool(s.deleted);
+    h.bool(s.console_delete_pending);
     h.bool(s.activation_blocked);
     h.bool(s.opened);
     h.u8(match s.open_transition {
@@ -1348,6 +1349,9 @@ mod tests {
 
     #[test]
     fn every_reference_field_moves_the_refs_part() {
+        moves("console_delete_pending", refs, |w| {
+            reference(w).console_delete_pending = true;
+        });
         moves("owner", refs, |w| reference(w).owner = Some(id(9)));
         moves("location", refs, |w| reference(w).location = Some(id(9)));
         moves("on_map", refs, |w| reference(w).on_map = true);

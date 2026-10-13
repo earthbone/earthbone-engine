@@ -294,6 +294,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +506,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -7973,7 +7975,6 @@ Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
 
-
 ### Audio integration corrections, second round, 2026-10-12
 
 AUD-12's stop-fade and cancellation scenes require the GDScript `stop_music`
@@ -8036,3 +8037,27 @@ regional descriptor list is empty. Its landing grid cell supplies the ambience
 and regional music before the first movement step. This follows the existing
 persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
 CELL and regional selection contract.
+
+## Shared in-game console, UI-31
+
+PlayerNode constructs the console overlay, so `walkthrough.gd` and the play
+path have identical input and selection behavior. Grave, tilde or physical
+grave opens it. Escape or the same key closes it. The console intercepts world
+input before inventory, activation, combat and mouse-look handling. Closing
+clears held inputs and restores the prior mouse mode. A visible pointer selects
+references using the existing Godot ray query and static, dynamic or actor body
+mapping. No node is allocated per selected or changed reference.
+
+Lines go to the same `soe_game::debug::Console::run` used by scenarios and Rust
+tests. Reference changes synchronize rendering and collision, and player pose
+changes reach the existing cell replacement path. Ordered host requests cover
+camera settings, free camera, menus and verified named saves. See the
+[command coverage table](game.md#console-command-coverage) for exact semantics
+and pending or skipped commands. UI-31 does not complete the entire UESP table.
+
+The installed regression is `console_overlay.rs`, running
+`console_overlay_test.gd` through the real walkthrough headless on Xvfb :99.
+Build the release extension through the run cargo wrapper first and set
+SOE_CONSOLE_EXTENSION to that library. The test requires SKYRIM_DATA and
+SOE_GODOT_BIN. The threaded simulation draft pauses host input but has no
+console command execution bridge yet.

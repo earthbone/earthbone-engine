@@ -425,6 +425,14 @@ impl World {
         );
         self.mark_cell_3d_loaded(cell);
         self.reset_cell_on_load(cell);
+        for reference in self
+            .refs
+            .values_mut()
+            .filter(|r| r.cell == Some(cell) && r.console_delete_pending)
+        {
+            reference.deleted = true;
+            reference.console_delete_pending = false;
+        }
         self.attached_cells.insert(cell);
         self.loaded_cell = Some(cell);
         built

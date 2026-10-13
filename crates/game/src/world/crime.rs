@@ -63,6 +63,85 @@ impl World {
         Ok(bounty)
     }
 
+    /// Pay a console bounty, optionally moving to jail and confiscating stolen stacks.
+    ///
+    /// # Errors
+    /// Missing faction, inventory, gold, jail or evidence markers, or insufficient gold.
+    pub fn console_pay_crime_gold(
+        &mut self,
+        faction: GlobalFormId,
+        jail: bool,
+        confiscate: bool,
+    ) -> Result<(), String> {
+        let player = self.player();
+        let gold = self.form("Gold001").ok_or("missing gold form")?;
+        let state = self.faction(faction).ok_or("not a faction")?;
+        let owed = state
+            .crime_gold_violent
+            .saturating_add(state.crime_gold_nonviolent)
+            .max(0);
+        let marker = if jail {
+            Some(
+                self.faction_container(faction, T(b"JAIL"))
+                    .ok_or("faction has no jail marker")?,
+            )
+        } else {
+            None
+        };
+        let evidence = if confiscate {
+            Some(
+                self.faction_container(faction, T(b"STOL"))
+                    .ok_or("faction has no evidence chest")?,
+            )
+        } else {
+            None
+        };
+        if let Some(marker) = marker {
+            self.reference(marker).ok_or("missing jail reference")?;
+        }
+        let mut inventory = self
+            .reference(player)
+            .ok_or("missing player")?
+            .inventory
+            .clone();
+        if inventory.count(gold) < owed {
+            return Err("not enough gold to pay bounty".into());
+        }
+        inventory.take(gold, owed);
+        let mut chest = evidence
+            .map(|chest| {
+                self.reference(chest)
+                    .map(|r| r.inventory.clone())
+                    .ok_or("missing evidence chest")
+            })
+            .transpose()?;
+        if let Some(chest) = chest.as_mut() {
+            let items: Vec<_> = inventory.iter().map(|(id, _)| *id).collect();
+            for item in items {
+                let stolen = inventory.take_stacks_where(item, |stack| {
+                    stack
+                        .extra(33)
+                        .is_some_and(|e| matches!(e.fields.as_slice(), [Field::Form(Some(_))]))
+                });
+                chest.receive(item, stolen).map_err(|e| e.to_string())?;
+            }
+        }
+        self.reference(player).ok_or("missing player")?.inventory = inventory;
+        if let Some((id, chest)) = evidence.zip(chest) {
+            self.reference(id)
+                .ok_or("missing evidence chest")?
+                .inventory = chest;
+        }
+        let state = self.faction(faction).ok_or("missing faction")?;
+        state.crime_gold_violent = 0;
+        state.crime_gold_nonviolent = 0;
+        if let Some(marker) = marker {
+            self.debug_player_move_to_reference(marker);
+        }
+        self.stop_combat_alarm(player);
+        Ok(())
+    }
+
     /// Serve the player's bounty with `faction` and mark the player arrested
     /// when a positive sentence is served.
     ///

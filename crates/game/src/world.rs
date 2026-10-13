@@ -224,6 +224,8 @@ pub struct RefState {
     pub enabled: bool,
     pub persistent: bool,
     pub deleted: bool,
+    /// Console MarkForDelete is consumed on the next cell load.
+    pub console_delete_pending: bool,
     pub activation_blocked: bool,
     pub opened: bool,
     /// A door animation in progress. The settled destination is in `opened`.
@@ -303,6 +305,7 @@ impl RefState {
             enabled: true,
             persistent: false,
             deleted: false,
+            console_delete_pending: false,
             activation_blocked: false,
             opened: false,
             open_transition: None,
@@ -979,6 +982,11 @@ pub struct World {
     /// Runtime switches changed by the Papyrus `Debug` globals.
     pub debug_god_mode: bool,
     pub debug_ai_enabled: bool,
+    /// Transient console switches, reset when a World is constructed.
+    pub debug_combat_ai_enabled: bool,
+    pub debug_detection_enabled: bool,
+    pub debug_scripts_enabled: bool,
+    pub debug_immortal_mode: bool,
     pub debug_collisions_enabled: bool,
     /// The state requested by `Debug.SetFootIK` for host actor presentation.
     pub debug_foot_ik: bool,
@@ -1331,6 +1339,10 @@ impl World {
             camera_controls: CameraControls::default(),
             debug_god_mode: false,
             debug_ai_enabled: true,
+            debug_combat_ai_enabled: true,
+            debug_detection_enabled: true,
+            debug_scripts_enabled: true,
+            debug_immortal_mode: false,
             debug_collisions_enabled: true,
             debug_foot_ik: true,
             debug_ref_positions: BTreeSet::new(),

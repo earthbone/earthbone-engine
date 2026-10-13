@@ -61,6 +61,9 @@ impl World {
         target: GlobalFormId,
         observer: GlobalFormId,
     ) -> Result<bool, Error> {
+        if !self.debug_detection_enabled {
+            return Ok(false);
+        }
         self.check_detection_actor(target)?;
         self.check_detection_actor(observer)?;
         Ok(self
@@ -92,6 +95,9 @@ impl World {
 
     /// One observer's awareness of one target.
     pub fn awareness(&self, observer: GlobalFormId, target: GlobalFormId) -> Option<Awareness> {
+        if !self.debug_detection_enabled {
+            return None;
+        }
         self.detection
             .pool(target)?
             .observers
@@ -118,6 +124,9 @@ impl World {
     ) -> Result<(), Error> {
         if !elapsed.is_finite() || elapsed < 0.0 {
             return Err(Error::Observation);
+        }
+        if !self.debug_detection_enabled {
+            return Ok(());
         }
         let settings = self.detection_settings()?;
         let mut pairs = BTreeSet::new();

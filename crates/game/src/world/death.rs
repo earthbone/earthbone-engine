@@ -129,6 +129,9 @@ impl World {
         killer: Option<GlobalFormId>,
         silent: bool,
     ) -> bool {
+        if self.debug_immortal_mode && self.is_player(id) {
+            return false;
+        }
         let base = self.base_of(id);
         let Some(actor) = self.actor(id) else {
             return false;

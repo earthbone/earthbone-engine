@@ -302,6 +302,30 @@ impl World {
         Ok(())
     }
 
+    /// Console IncPCS grants one skill rank through the ordinary usage curve.
+    ///
+    /// # Errors
+    /// Missing AVIF or settings, invalid actor values or a nonpositive use multiplier.
+    pub fn increment_skill(&mut self, actor: GlobalFormId, name: &str) -> Result<(), Error> {
+        let skill = canonical_skill(name).ok_or_else(|| Error::Skill(name.to_owned()))?;
+        let data = skill_use(self, skill)?;
+        let curve = curve_setting(self)?;
+        let state = self.actor(actor).ok_or(Error::Actor(actor))?;
+        let level = state.values.get(skill).base();
+        if level >= MAX_SKILL {
+            return Ok(());
+        }
+        let partial = state.skill_experience.get(skill).copied().unwrap_or(0.0);
+        let needed = data.improve_mult * level.powf(curve) + data.improve_offset;
+        if data.use_mult <= 0.0 || !needed.is_finite() || needed <= 0.0 {
+            return Err(Error::ActorValueInfo(skill.to_owned()));
+        }
+        let use_amount = ((needed - partial - data.use_offset) / data.use_mult)
+            .max(0.0)
+            .next_up();
+        self.advance_skill(actor, skill, use_amount)
+    }
+
     /// Partial usage experience for one actor skill, or zero before first use.
     #[must_use]
     pub fn skill_experience(&self, actor_id: GlobalFormId, name: &str) -> Option<f32> {

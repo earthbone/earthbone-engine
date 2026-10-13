@@ -270,6 +270,14 @@ impl Bundle {
         }
     }
 
+    /// Copies have no original item or container identity.
+    pub(crate) fn clear_reference_identity(&mut self) {
+        for stack in &mut self.stacks {
+            stack.clear_extra(32);
+            stack.clear_extra(28);
+        }
+    }
+
     pub(crate) fn inherit_owner(&mut self, owner: Option<GlobalFormId>) {
         let Some(owner) = owner else { return };
         let represented: i32 = self.stacks.iter().map(Stack::count).sum();
