@@ -9736,3 +9736,111 @@ location definitions, plus the existing `ai::select`, `procedure_of` and
 `resolve_location` contracts. The local residency and navigation comparison
 reports distinguish physical grid presentation from logical record ownership.
 No host model or physics resource is prepared by this pass.
+
+## Merchant dialogue and priced barter, UI-31
+
+The played 735176dff checkpoint had several disconnected paths. GetIsVoiceType
+accepted only VTYP, although vanilla generic dialogue supplies voice-type FLSTs.
+Menu requests were not consumed during a modal dialogue. The barter opener
+listed base values without retaining the merchant/faction needed by its buttons.
+
+GetIsVoiceType now accepts a VTYP or an FLST of VTYPs and rejects wrong-type
+members. Local Mutagen Skyrim ConditionDatas.xml declares VoiceTypeOrList,
+and FormList.xml and VoiceType.xml implement that interface. Mudcrab's supplied
+comparison report identified the DefaultNPCVoiceTypes failure. Its permitted
+ai-quests-dialogue notes confirm speaker/target and CTDA grouping semantics.
+No condition is bypassed to expose a service.
+
+xEdit's wbConditionParam1Decider and wbConditionParam2Decider apply Use Aliases
+and Use Package Data only to reference, actor and package parameters. Those
+selectors do not change other typed parameters, including GetIsID's base
+object, faction, voice type and absent parameters. Reference selectors retain
+their existing typed rejection until alias/package-data resolution is available.
+GetOffersServicesNow (255 in xEdit's function table)
+now evaluates the same vendor hours, location and FACT conditions as barter,
+without materializing stock or consuming leveled-item RNG. A recursive service
+condition returns a typed error. Other services are outside this vendor query.
+The installed sales prompt is the custom OfferServicesTopic branch. SHOW is
+follower inventory dialogue and is not added to merchant topic discovery.
+
+The installed INFO 0:0A963D names both Fragment_1 and Fragment_2 in VMAD,
+but its shipped TIF__000A963D PEX contains only Fragment_2. Before drawing
+a response variant, dialogue validates every named begin and end callback.
+Invalid variants are rejected and logged with their INFO identity and error,
+then selection draws from the executable alternatives. When none remain,
+the same typed script error is returned before consuming Say Once or moving
+the conversation cursor. The existing missing_fragment_rejects check remains
+unchanged, and a new fixture requires both rejection reporting and execution
+of a valid alternative's begin and end callbacks. No missing callback is
+replaced with an empty body, and no game executable was used.
+
+CK GetFactionRank_-_Actor distinguishes a member at rank -1 from a non-member
+at -2. Condition 71 now tests membership, matching the existing IsInFaction
+native, instead of excluding authored job factions at rank -1. This is the
+observed Belethor JobMerchantFaction and Hulda JobRentRoomFaction failure.
+Game::merchant_vendor_service selects faction memberships in FormID
+order, preferring an available service. Existing winning FACT fields supply the
+chest, buy/sell list, hours, location and conditions. VEND is the merchandise
+FLST and VENC is the merchant chest REFR, as declared by local xEdit and UESP
+FACT. CK ShowBarterMenu_-_Actor documents empty menus for unloaded actors or
+failed faction service conditions. The existing Actor native and INFO fragment
+runner remain the invocation path.
+
+Game::barter_prices reads current Speechcraft, the equipment/blessing
+SpeechcraftModifier and potion SpeechcraftPowerModifier. Its base factor is
+fBarterMax minus (fBarterMax minus fBarterMin) times clamped Speech divided by
+100. PERK entry points 8 and 60 modify buy and sell factors with the merchant
+as the second condition tab. This includes Haggling and Allure. Fortify factors
+multiply independently. fBarterBuyMin and fBarterSellMax bound the factors.
+Prices round per item before quantity multiplication, following local SkyUI's
+BarterDataSetter. Quoted and committed prices use the same shared API.
+
+The formula is documented by [UESP Speech Prices](https://en.uesp.net/wiki/Skyrim:Speech#Prices).
+The local corpus contains FACT and PERK layouts but no Speech page. UESP
+returned HTTP 403 during this task. The published
+[BazaarRealmPlugin source](https://git.hallada.net/thallada/BazaarRealmPlugin/src/commit/0f1b01715845f8bec2e0de2118051af33b19e442/src/BRMerchandiseList.cpp)
+explicitly credits and implements that UESP formula, including the separate
+Fortify factors. It was read as corroboration, with no C++ implementation or
+executable-derived behavior ported. The engine uses its existing record,
+actor-value and perk evaluators instead. No dependency was added.
+
+Game::trade_vendor_item validates the live quote, service, stock, merchandise
+policy and quantity, then exchanges item and gold inventories atomically.
+Paid exchanges remove equipped and ownership extras from the moved item,
+notify reference instances and clear exhausted source equipment. Failed trades
+retain both inventories. Gold is never a sell row. Vendor stolen-item permission
+allows stolen goods instead of disabling all sales. Transient menu state adds
+no world-save section and leaves SAVE_VERSION at 37.
+
+The ui_31_ fixtures cover voice-type lists, known prices, Haggling, Fortify,
+Speech limits, price caps, settings overrides and buy/sell/rejection behavior.
+The installed Belethor regression requires the actual offered topic and its
+fragment-generated menu request. Host validation is described in godot-host.md.
+
+Validation checkpoint on 2026-10-13: all eight new synthetic UI-31 game checks
+pass, including the valid fragment alternative. The unchanged missing-fragment
+failure check also passes. Nineteen AI-85 condition checks pass after replacing the old
+255 unsupported expectations with its no-service result and typed parameter,
+target and actor-context checks. The other unsupported function checks remain.
+The release extension builds successfully. Formatting, all four Clippy passes,
+comment, prose, TOML, Markdown and fuzz formatting pass. Cargo deny and audit
+are absent and were skipped. The 52 performance-runner contract tests pass.
+
+The complete first gate exited 101 with 15 game failures. Three were the obsolete
+255 assertions corrected above. The other 12 are AI follow, travel, sleep and
+obstacle fixtures. All 12 fail identically in the comparison worktree's built
+test binary, whose game and navmesh sources match 735176dff. Those route checks
+are retained. The final workspace test run is recorded separately from the
+wrapper-driven rerun, which was cancelled at a queued fuzz-formatting step.
+The final workspace run exits 101 with 5,243 passes, 12 baseline failures and
+11 existing ignored cases. Its game integration binary reports 4,250 passes,
+12 failures and four existing ignored cases. The failed game binary stops the
+workspace run before the host tests, whose two focused checks pass separately.
+
+Installed attempts used SKYRIM_DATA, DISPLAY=:99 and one test thread through
+the run's cargo wrapper. The initial diagnostics established the real offered
+sales branch and the orphaned Fragment_1. The completed implementation's two
+installed acceptance checks remain blocked by another job's installed slot.
+UI-31 stays wip. This checkpoint does not establish live Belethor buying,
+Hulda or Ysolda's conditional merchant role, themed barter artwork or the
+experimental threaded host mode.

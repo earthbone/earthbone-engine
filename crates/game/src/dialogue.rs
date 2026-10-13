@@ -1365,43 +1365,60 @@ impl Game {
             .clone()
             .ok_or(Error::State("no conversation"))?;
         let speaker = session.speaker;
-        let mut infos = self.dialogue_candidates(topic, &session)?.infos;
+        let infos = self.dialogue_candidates(topic, &session)?.infos;
         if infos.is_empty() {
             return Err(Error::State("no eligible INFO"));
         }
-        let index = if infos.len() > 1 {
+        let mut executable = Vec::new();
+        let mut rejected = None;
+        for (info_id, info) in infos {
+            let fragments = info
+                .vmad
+                .as_ref()
+                .map(|raw| Vmad::parse(raw, Tag(*b"INFO")))
+                .transpose()?;
+            let object = self.object_of_form(info_id);
+            let missing = fragments
+                .as_ref()
+                .and_then(|vmad| vmad.info_fragments.as_ref())
+                .and_then(|fragments| {
+                    [&fragments.begin, &fragments.end]
+                        .into_iter()
+                        .flatten()
+                        .find(|fragment| {
+                            !self
+                                .vm
+                                .has_script_method(object, &fragment.script, &fragment.function)
+                        })
+                });
+            if let Some(fragment) = missing {
+                let error = VmError::UnknownFunction {
+                    class: fragment.script.clone(),
+                    name: fragment.function.clone(),
+                };
+                let time = self.vm.time();
+                self.vm
+                    .log
+                    .push(time, format!("dialogue INFO {info_id} rejected: {error}"));
+                rejected = Some(Error::Script(error));
+            } else {
+                executable.push((info_id, info, fragments));
+            }
+        }
+        if executable.is_empty() {
+            return Err(rejected.unwrap_or(Error::State("no executable INFO")));
+        }
+        let index = if executable.len() > 1 {
             self.world.borrow_mut().random_int_for(
                 crate::world::RngStream::Dialogue,
                 0,
-                infos.len() as i32 - 1,
+                executable.len() as i32 - 1,
             ) as usize
         } else {
             0
         };
-        let (info_id, info) = infos.swap_remove(index);
+        let (info_id, info, fragments) = executable.swap_remove(index);
         self.world.borrow().response_data(info_id)?;
-        let fragments = info
-            .vmad
-            .as_ref()
-            .map(|raw| Vmad::parse(raw, Tag(*b"INFO")))
-            .transpose()?;
-        let object = self.object_of_form(info_id);
-        if let Some(fragments) = fragments
-            .as_ref()
-            .and_then(|vmad| vmad.info_fragments.as_ref())
-        {
-            for fragment in [&fragments.begin, &fragments.end].into_iter().flatten() {
-                if !self
-                    .vm
-                    .has_script_method(object, &fragment.script, &fragment.function)
-                {
-                    return Err(Error::Script(VmError::UnknownFunction {
-                        class: fragment.script.clone(),
-                        name: fragment.function.clone(),
-                    }));
-                }
-            }
-        }
         {
             let mut world = self.world.borrow_mut();
             let branch = world.topic_branch(topic)?;
@@ -1449,7 +1466,7 @@ impl Game {
                 != 0
             {
                 let completed = world.dialogue.repeated.entry(topic).or_default();
-                if infos.iter().all(|(id, _)| completed.contains(id)) {
+                if executable.iter().all(|(id, _, _)| completed.contains(id)) {
                     completed.clear();
                 }
                 completed.insert(info_id);

@@ -1440,6 +1440,53 @@ fn missing_fragment_rejects_without_consuming_say_once() {
 }
 
 #[test]
+fn ui_31_invalid_fragment_variant_is_reported_and_valid_alternative_runs() {
+    let mut invalid = info(INFO, 4 | 2, &["Invalid variant"], true);
+    let raw = invalid
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == T(b"VMAD"))
+        .unwrap();
+    let mut vmad = Vmad::parse(&raw.data, T(b"INFO")).unwrap();
+    vmad.info_fragments
+        .as_mut()
+        .unwrap()
+        .begin
+        .as_mut()
+        .unwrap()
+        .function = "Missing".into();
+    raw.data = vmad.write(T(b"INFO"));
+    let valid = info(INFO + 1, 2 | 32, &["Executable variant"], true);
+    let mut game = game(plugin(vec![invalid, valid]));
+    open(&mut game);
+    let line = game.choose_dialogue(id(TOPIC)).unwrap().unwrap();
+    assert_eq!(line.info, id(INFO + 1));
+    assert!(game
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("rejected") && trace.contains("Missing")));
+    let object = game.object_of_form(line.info);
+    assert_eq!(
+        game.vm.get_var(object, "TopicFragments", "begins"),
+        Some(Value::Int(1))
+    );
+    game.advance_dialogue().unwrap();
+    assert_eq!(
+        game.vm.get_var(object, "TopicFragments", "ends"),
+        Some(Value::Int(1))
+    );
+    let rejected = game.object_of_form(id(INFO));
+    assert_eq!(
+        game.vm.get_var(rejected, "TopicFragments", "begins"),
+        Some(Value::Int(0))
+    );
+    assert_eq!(
+        game.vm.get_var(rejected, "TopicFragments", "ends"),
+        Some(Value::Int(0))
+    );
+}
+
+#[test]
 fn pnam_orders_inserted_info_and_keeps_deleted_anchors() {
     let base = plugin(vec![
         info(INFO, 0, &["Anchor"], false),
@@ -2183,4 +2230,114 @@ pub(crate) fn prf_13_fixture() -> Game {
     open(&mut game);
     game.start_quest(id(OTHER_QUEST));
     game
+}
+
+#[test]
+fn installed_belethor_dialogue_runs_barter_fragment() {
+    let Some(data) = installed::data_dir() else {
+        return;
+    };
+    let mut game = installed::game(&[
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ])
+    .unwrap();
+    let scripts = game.load_scripts_from_data(&data);
+    assert!(scripts.scripts_failed.is_empty());
+    game.start();
+    let speaker = game.form("BelethorRef").unwrap();
+    let cell = game.world_mut().reference(speaker).unwrap().cell.unwrap();
+    game.change_cell(Some(cell));
+    game.world_mut().clock.game_days = 0.5;
+    let player = game.player();
+    game.begin_dialogue(speaker, player).unwrap();
+    let services = game.form("OfferServicesTopic").unwrap();
+    let choices = game.dialogue_choices().unwrap();
+    eprintln!(
+        "Belethor offered: {:?}, rejected: {:?}",
+        choices.available, choices.rejected
+    );
+    let topic = choices
+        .available
+        .iter()
+        .find(|choice| {
+            choice
+                .prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.contains("sale"))
+        })
+        .expect("Belethor offers authored barter dialogue")
+        .topic;
+    assert_eq!(
+        topic, services,
+        "the authored shared sales branch is offered"
+    );
+    let mut line = game.choose_dialogue(topic).unwrap();
+    for _ in 0..16 {
+        if line.is_none() {
+            break;
+        }
+        line = game.advance_dialogue().unwrap();
+    }
+    assert!(line.is_none(), "barter response completes");
+    assert!(
+        game.world()
+            .menu_requests
+            .contains(&soe_game::world::MenuRequest::Barter(speaker)),
+        "authored fragment requests barter, traces: {:?}",
+        game.traces()
+    );
+    let service = game.merchant_vendor_service(speaker).unwrap().unwrap();
+    assert!(service.available);
+    let (item, stock) = service
+        .merchandise
+        .iter()
+        .find(|(item, _)| {
+            let value = game.world().item_value(**item);
+            value > 0 && value < 1000
+        })
+        .map(|(item, count)| (*item, count))
+        .unwrap();
+    let gold = game.form("Gold001").unwrap();
+    game.world_mut()
+        .set_actor_value(player, "speechcraft", 15.0)
+        .unwrap();
+    let quoted = game
+        .barter_prices(speaker)
+        .unwrap()
+        .unit_price(game.world().item_value(item), soe_game::barter::Side::Buy)
+        .unwrap();
+    assert_eq!(
+        quoted,
+        (f64::from(game.world().item_value(item)) * 3.105).round() as i32
+    );
+    let carried = game.world_mut().item_count(player, item);
+    let wallet = game.world_mut().item_count(player, gold);
+    game.world_mut().add_item(player, gold, 10000 - wallet);
+    let merchant_gold = game
+        .world_mut()
+        .item_count(service.merchant_container, gold);
+    game.trade_vendor_item(
+        service.faction,
+        speaker,
+        item,
+        1,
+        soe_game::barter::Side::Buy,
+    )
+    .unwrap();
+    assert_eq!(game.world_mut().item_count(player, item), carried + 1);
+    assert_eq!(
+        game.world_mut()
+            .item_count(service.merchant_container, item),
+        stock - 1
+    );
+    assert_eq!(game.world_mut().item_count(player, gold), 10000 - quoted);
+    assert_eq!(
+        game.world_mut()
+            .item_count(service.merchant_container, gold),
+        merchant_gold + quoted
+    );
 }

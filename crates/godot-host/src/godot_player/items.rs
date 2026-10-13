@@ -197,11 +197,7 @@ impl PlayerNode {
 
     fn refresh_item_menu(&mut self) -> bool {
         if let Some((merchant, faction)) = self.barter_menu {
-            let Some(game) = self.game.as_mut() else {
-                return false;
-            };
-            let rows = item_menu::barter(game, faction, merchant);
-            return self.present_items("barter", &rows);
+            return self.present_barter_items(merchant, faction);
         }
         if let Some((holder, _)) = self.container_menu {
             return self.present_container_items(holder);
@@ -212,6 +208,39 @@ impl PlayerNode {
             Some("Favorites") => self.present_favorite_items(),
             _ => false,
         }
+    }
+
+    pub(super) fn present_barter_items(
+        &mut self,
+        merchant: GlobalFormId,
+        faction: GlobalFormId,
+    ) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let rows = item_menu::barter(game, faction, merchant);
+        let player = game.player();
+        let gold = game.form("Gold001");
+        let player_gold = gold.map_or(0, |gold| game.world_mut().item_count(player, gold));
+        let merchant_gold = game
+            .resolve_vendor_service(faction, merchant)
+            .ok()
+            .flatten()
+            .map_or(0, |service| service.gold);
+        if !self.present_items("barter", &rows) {
+            return false;
+        }
+        if let Some(mut view) = self
+            .menu_content()
+            .and_then(|content| content.get_node_or_null("ItemMenu"))
+        {
+            let _guard = self.base_mut();
+            view.call(
+                "set_gold",
+                &[player_gold.to_variant(), merchant_gold.to_variant()],
+            );
+        }
+        true
     }
 }
 

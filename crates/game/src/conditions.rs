@@ -107,6 +107,8 @@ pub enum Error {
     Inventory,
     #[error("intimidation perk entry point: {0}")]
     IntimidationPerk(String),
+    #[error("vendor service condition: {0}")]
+    VendorService(String),
     #[error("condition function {0} has no usable query contract")]
     NoConditionContract(u16),
 }
@@ -445,6 +447,7 @@ pub fn supports_function(function: u16) -> bool {
             | 415
             | 416
             | 426
+            | 255
             | 432
             | 463
             | 1024
@@ -555,7 +558,11 @@ fn evaluate_one_with_vm_for_caller(
         1,
     );
     soe_trace::count(soe_trace::Operation::Conditions, 1);
-    if c.flags & 0x0a != 0 {
+    // CONTEXT: xEdit's parameter deciders apply selectors only to reference,
+    // actor and package parameters. Other parameter types retain their meaning.
+    if c.flags & 0x0a != 0
+        && (!supports_function(c.function) || parameter_selectors_apply(c.function))
+    {
         return Err(Error::Flags(c.flags & 0x1f));
     }
     if c.function == 726 {
@@ -600,6 +607,52 @@ fn evaluate_one_with_vm_for_caller(
         return Err(Error::NonFinite);
     }
     compare(actual, expected, c)
+}
+
+// CONTEXT: xEdit wbConditionFunctions ptReference, ptActor and ptPackage slots.
+fn parameter_selectors_apply(function: u16) -> bool {
+    matches!(
+        function,
+        1 | 27
+            | 32
+            | 42..=45
+            | 53
+            | 60
+            | 66
+            | 99
+            | 122
+            | 136
+            | 161
+            | 162
+            | 172
+            | 180
+            | 230
+            | 258
+            | 259
+            | 261
+            | 370
+            | 403
+            | 408
+            | 414
+            | 449
+            | 463
+            | 477
+            | 513
+            | 515..=518
+            | 522..=525
+            | 577
+            | 584
+            | 603
+            | 624
+            | 630
+            | 639
+            | 650
+            | 652
+            | 678
+            | 705
+            | 719
+            | 720
+    )
 }
 
 fn expected_value(world: &mut World, owner: GlobalFormId, c: &Condition) -> Result<f32, Error> {
@@ -2080,14 +2133,17 @@ fn function_value(
         }
         71 | 73 => {
             let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
-            let rank = world
-                .actor(subject)
-                .and_then(|actor| actor.factions.get(&faction).copied())
-                .unwrap_or(-1);
             if c.function == 71 {
-                boolean(rank >= 0)
+                boolean(
+                    world
+                        .actor(subject)
+                        .is_some_and(|actor| actor.factions.contains_key(&faction)),
+                )
             } else {
-                rank as f32
+                world
+                    .actor(subject)
+                    .and_then(|actor| actor.factions.get(&faction).copied())
+                    .unwrap_or(-1) as f32
             }
         }
         80 => world.actor(subject).map_or(0.0, |actor| actor.level as f32),
@@ -2791,8 +2847,31 @@ fn function_value(
             world.actor(subject).ok_or(Error::Form(subject))?;
             return Err(Error::UnavailableContract(c.function));
         }
+        255 => {
+            no_parameter(c)?;
+            boolean(
+                crate::services::offers_services_now(world, lookup, subject)
+                    .map_err(|error| Error::VendorService(error.to_string()))?,
+            )
+        }
         426 => {
-            let voice_type = resolve(world, context.owner, raw, Some(*b"VTYP"))?;
+            let voice_type = resolve(world, context.owner, raw, None)?;
+            let voices = match world.tag_of(voice_type) {
+                Some(Tag([b'V', b'T', b'Y', b'P'])) => vec![voice_type],
+                Some(Tag([b'F', b'L', b'S', b'T'])) => {
+                    let voices = world
+                        .form_list(voice_type)
+                        .cloned()
+                        .ok_or(Error::Form(voice_type))?;
+                    for voice in &voices {
+                        if world.tag_of(*voice) != Some(Tag(*b"VTYP")) {
+                            return Err(Error::Form(*voice));
+                        }
+                    }
+                    voices
+                }
+                _ => return Err(Error::Form(voice_type)),
+            };
             if world.actor(subject).is_none() {
                 return Err(Error::Form(subject));
             }
@@ -2807,7 +2886,7 @@ fn function_value(
                         .then(|| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
                 })
                 .and_then(|raw| world.resolve_from(source, raw));
-            boolean(voice == Some(voice_type))
+            boolean(voice.is_some_and(|voice| voices.contains(&voice)))
         }
         432 => {
             if raw == 0 || i32::try_from(raw).is_err() {

@@ -131,7 +131,7 @@ fn ai_85_water_object_rejects_references_without_a_valid_water_base() {
 #[test]
 fn ai_85_parameterless_implemented_functions_reject_each_parameter_slot() {
     let game = fixture();
-    for function in [244, 304, 716] {
+    for function in [244, 255, 304, 716] {
         for slot in 0..2 {
             let mut query = condition(function, 0.0);
             query.parameters[slot] = 1;
@@ -148,8 +148,16 @@ fn ai_85_parameterless_implemented_functions_reject_each_parameter_slot() {
 fn ai_85_functions_without_behavior_contracts_keep_explicit_diagnostics() {
     let game = fixture();
     for function in [255, 265, 266, 267, 332] {
-        assert!(!conditions::supports_function(function));
+        assert_eq!(conditions::supports_function(function), function == 255);
         for expected in [0.0, 1.0] {
+            if function == 255 {
+                assert_eq!(
+                    evaluate(&game, id(0x900), &condition(function, expected)),
+                    Ok(expected == 0.0),
+                    "actor has no vendor service"
+                );
+                continue;
+            }
             assert_eq!(
                 evaluate(&game, id(0x900), &condition(function, expected)),
                 Err(conditions::Error::Function(function)),

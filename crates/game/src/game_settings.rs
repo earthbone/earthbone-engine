@@ -8,6 +8,7 @@
 //! linked in docs/combat.md. Detection and stealth-point defaults come from a
 //! runtime listing of every TES5 GMST, cited in docs/combat-ai.md.
 //! Dialogue range comes from Skyrim.esm, detailed in game.md DLG-06.
+//! Barter defaults come from UESP Skyrim Speech Prices, detailed in game.md UI-31.
 //! No local or UESP source states a vanilla stagger threshold or duration,
 //! so fStaggerThreshold and fStaggerDuration are engineering estimates,
 //! documented as such in docs/combat.md CMB-14. fBashStaminaCost is the
@@ -25,7 +26,8 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         "fdiffmulthpbypcve"
         | "fdiffmulthptopcvh"
         | "fblockskillmult"
-        | "fsneakdistanceattenuationexponent" => 2.0,
+        | "fsneakdistanceattenuationexponent"
+        | "fbartermin" => 2.0,
         "fdiffmulthptopcve"
         | "fdiffmulthpbypcvh"
         | "fspeciallootminpclevelmult"
@@ -56,6 +58,9 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         "fshieldscalingfactor" | "fbleedoutdefault" | "fsneaklightrunmult" => 0.2,
         "fcombatstealthpointmax" => 100.0,
         "faiindialoguemodewithplayerdistance" => 500.0,
+        "fbartermax" => 3.3,
+        "fbarterbuymin" => 1.05,
+        "fbartersellmax" => 0.95,
         "fcombatstealthpointregenalertwaittime" => 30.0,
         "fcombatstealthpointregenlostwaittime" => 10.0,
         "fsneakequippedweightbase" => 12.0,

@@ -18,34 +18,33 @@ impl PlayerNode {
             .as_ref()
             .and_then(|game| game.world().name_of(merchant))
             .map_or_else(|| "Barter".to_owned(), |name| format!("Barter: {name}"));
-        if !self.open_menu(GString::from(&title)) {
+        let dialogue = self.menu.title() == Some("Dialogue");
+        let opened = if dialogue {
+            self.stop_dialogue_voice();
+            self.replace_menu(&title)
+        } else {
+            self.open_menu(GString::from(&title))
+        };
+        if !opened {
             return false;
         }
-        let goods = self.game.as_mut().and_then(|game| {
-            let mut factions: Vec<_> = game
-                .world()
-                .actor_ref(merchant)
-                .map(|actor| actor.factions.keys().copied().collect())
-                .unwrap_or_default();
-            factions.sort();
-            factions.into_iter().find_map(|faction| {
-                game.resolve_vendor_service(faction, merchant)
-                    .ok()
-                    .flatten()
-                    .map(|service| {
-                        if !service.available {
-                            return Vec::new();
-                        }
-                        service
-                            .merchandise
-                            .iter()
-                            .map(|(item, count)| (crate::item_menu::item(game, *item, count), 0))
-                            .collect::<Vec<_>>()
-                    })
-            })
-        });
-        let rows = goods.unwrap_or_default();
-        self.present_items("barter", &rows)
+        self.barter_dialogue = dialogue;
+        let service =
+            self.game
+                .as_mut()
+                .and_then(|game| match game.merchant_vendor_service(merchant) {
+                    Ok(service) => service,
+                    Err(error) => {
+                        godot_error!("PlayerNode: merchant service: {error}");
+                        None
+                    }
+                });
+        if let Some(service) = service {
+            self.barter_menu = Some((merchant, service.faction));
+            self.present_barter_items(merchant, service.faction)
+        } else {
+            self.present_items("barter", &[])
+        }
     }
 
     pub(super) fn open_gift_menu(&mut self) -> bool {

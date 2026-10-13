@@ -135,35 +135,6 @@ pub fn toggle_favorite(game: &Game, form: GlobalFormId) -> bool {
     true
 }
 
-fn accepted_sale(
-    game: &Game,
-    service: &soe_game::services::VendorService,
-    item: GlobalFormId,
-) -> bool {
-    let player = game.world_mut().player();
-    let mut world = game.world_mut();
-    let currency = world.form("Gold001").unwrap_or(GlobalFormId {
-        file: 0,
-        object: 15,
-    });
-    if item == currency || world.item_value(item) <= 0 || service.only_buys_stolen {
-        return false;
-    }
-    let list = world
-        .form_list(service.buy_sell_list)
-        .cloned()
-        .unwrap_or_default();
-    let listed = list.contains(&item)
-        || world
-            .keywords(item)
-            .iter()
-            .any(|keyword| list.contains(keyword));
-    let owned = world.reference(player).is_some_and(|reference| reference.inventory.stacks(item).iter().any(|stack| {
-        matches!(stack.extra(33).map(|extra| extra.fields.as_slice()), Some([soe_game::inventory::Field::Form(Some(owner))]) if *owner != player)
-    }));
-    listed != service.not_sell_buy && !owned
-}
-
 /// Snapshot current merchant merchandise and eligible player stacks.
 pub fn barter(game: &mut Game, faction: GlobalFormId, merchant: GlobalFormId) -> Vec<(Row, i64)> {
     let Ok(Some(service)) = game.resolve_vendor_service(faction, merchant) else {
@@ -172,22 +143,36 @@ pub fn barter(game: &mut Game, faction: GlobalFormId, merchant: GlobalFormId) ->
     if !service.available {
         return Vec::new();
     }
+    let Ok(prices) = game.barter_prices(merchant) else {
+        return Vec::new();
+    };
     let mut rows: Vec<_> = service
         .merchandise
         .iter()
-        .map(|(form, count)| (item(game, *form, count), 0))
+        .filter_map(|(form, count)| {
+            let mut row = item(game, *form, count);
+            row.value = prices
+                .unit_price(row.value, soe_game::barter::Side::Buy)
+                .ok()?;
+            Some((row, 0))
+        })
         .collect();
     let player = game.player();
     rows.extend(
         inventory(game, player)
             .into_iter()
-            .filter(|row| accepted_sale(game, &service, row.form))
-            .map(|row| (row, 1)),
+            .filter(|row| game.vendor_accepts_sale(&service, row.form))
+            .filter_map(|mut row| {
+                row.value = prices
+                    .unit_price(row.value, soe_game::barter::Side::Sell)
+                    .ok()?;
+                Some((row, 1))
+            }),
     );
     rows
 }
 
-/// Exchange one selected stack at the record value, the default UI multiplier.
+/// Exchange one selected stack at the current shared barter quote.
 /// Invalid service, stock, ownership, quantity or gold leaves both inventories intact.
 pub fn trade(
     game: &mut Game,
@@ -197,47 +182,11 @@ pub fn trade(
     count: i32,
     side: i64,
 ) -> bool {
-    let price = game.world().item_value(item);
-    if count <= 0 || price <= 0 {
-        return false;
-    }
-    if side == 0 {
-        return game
-            .buy_vendor_item(faction, merchant, item, count, price)
-            .is_ok();
-    }
-    if side != 1 {
-        return false;
-    }
-    let Ok(Some(service)) = game.resolve_vendor_service(faction, merchant) else {
-        return false;
+    let side = match side {
+        0 => soe_game::barter::Side::Buy,
+        1 => soe_game::barter::Side::Sell,
+        _ => return false,
     };
-    if !service.available || !accepted_sale(game, &service, item) {
-        return false;
-    }
-    let Some(total) = count.checked_mul(price) else {
-        return false;
-    };
-    let player = game.player();
-    let currency = game.form("Gold001").unwrap_or(GlobalFormId {
-        file: 0,
-        object: 15,
-    });
-    let world = game.shared_world();
-    let success = world
-        .borrow_mut()
-        .trade_items_notified(
-            player,
-            item,
-            count,
-            service.merchant_container,
-            currency,
-            total,
-            &mut |name, class| game.vm.create_object_of(name, class),
-        )
-        .is_ok();
-    if success {
-        game.run_until_idle(64);
-    }
-    success
+    game.trade_vendor_item(faction, merchant, item, count, side)
+        .is_ok()
 }

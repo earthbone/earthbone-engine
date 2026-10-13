@@ -99,7 +99,7 @@ fn ai_85_water_object_uses_the_reference_base_record_and_validates_context() {
 #[test]
 fn ai_85_documented_parameterless_functions_reject_both_slots_and_missing_targets() {
     let game = fixture();
-    for function in [244, 304, 716] {
+    for function in [244, 255, 304, 716] {
         let mut first = condition(function, 0.0);
         first.parameters[0] = 1;
         assert_eq!(
@@ -158,6 +158,24 @@ fn ai_85_restraint_and_real_clock_queries_survive_engine_save_load() {
 fn ai_85_undocumented_functions_remain_explicit_diagnostics() {
     let game = fixture();
     for function in [255, 265, 266, 267, 332] {
+        if function == 255 {
+            assert!(conditions::supports_function(function));
+            assert_eq!(
+                evaluate(&game, id(0x900), &condition(function, 0.0)),
+                Ok(true)
+            );
+            assert!(matches!(
+                evaluate(&game, id(0x910), &condition(function, 1.0)),
+                Err(conditions::Error::VendorService(_))
+            ));
+            let mut missing_target = condition(function, 1.0);
+            missing_target.run_on = 1;
+            assert_eq!(
+                evaluate(&game, id(0x900), &missing_target),
+                Err(conditions::Error::Target(1))
+            );
+            continue;
+        }
         assert!(!conditions::supports_function(function));
         assert_eq!(
             evaluate(&game, id(0x900), &condition(function, 0.0)),

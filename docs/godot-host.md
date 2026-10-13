@@ -8357,3 +8357,36 @@ and tests the market stalls through the normal activation ray and E input.
 Each item must present Take or Steal, enter player inventory and become
 disabled. Owned items must retain stolen ownership metadata. This fixture
 uses installed assets in place and writes only logs and temporary scripts.
+
+## Merchant dialogue to barter, UI-31
+
+The host drains Actor.ShowBarterMenu requests while a modal menu is active.
+A request during Dialogue replaces its presentation, retaining the shared
+conversation, input ownership and paused game clock. Closing barter restores
+that conversation and its topic list. Closing dialogue then resumes play.
+Standalone native calls retain their ordinary close-to-play behavior.
+
+The barter opener stores its merchant/faction identity and uses the same
+item presenter as the container menu. Both sides show live shared inventories,
+per-item Game barter quotes and current player/merchant gold. Quantity clicks
+revalidate through Game::trade_vendor_item and refresh both sides and wallets.
+Existing sorting, category filtering, search and buy/sell tabs remain available.
+No world reference node or alternate inventory database was added.
+
+ui_31_installed_belethor_topic_menu_buy_sell_and_return records an installed
+Game at noon with a funded player and Speech 15 through the existing SOER
+session API. The isolated Godot scene restores that fixture, talks to Belethor,
+clicks the authored barter topic and completes its response. It requires a
+barter presenter with merchant stock, clicks Buy and Sell, checks both wallets
+and stock, then closes back to the same dialogue and finally to play.
+The test uses installed masters and PEX files, never a synthetic barter
+fragment or a native-call shortcut. It requires SOE_GODOT_BIN and the built
+release extension when SKYRIM_DATA is set, and runs on Xvfb :99.
+
+Checkpoint validation on 2026-10-13 passes the installed scene's GDScript
+syntax check, the existing item-presenter scene and the modal-replacement
+unit test. Both scene checks run headlessly on :99. The final release build
+exits zero. The installed merchant scene has not run because the shared
+installed slot remains occupied. Its acceptance is pending, and UI-31 remains
+wip. The Game conditions, quote and transaction fixtures pass, as reported
+in game.md. The full gate's unrelated AI route failures are retained.

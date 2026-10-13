@@ -34,6 +34,9 @@ var favorite: Button
 var tabs: HBoxContainer
 var debounce: Timer
 var columns: Array = []
+var gold_label: Label
+var player_gold := 0
+var merchant_gold := 0
 
 func _ready() -> void:
 	name = "ItemMenu"
@@ -77,6 +80,9 @@ func _ready() -> void:
 	tabs = HBoxContainer.new()
 	tabs.name = "Tabs"
 	list.add_child(tabs)
+	gold_label = Label.new()
+	gold_label.name = "Gold"
+	list.add_child(gold_label)
 	search = LineEdit.new()
 	search.name = "Search"
 	search.placeholder_text = "Search"
@@ -130,6 +136,11 @@ func configure(menu_mode: String, data: Array, cache: String = "") -> void:
 func replace_rows(data: Array) -> void:
 	source_rows = data
 	refresh()
+
+func set_gold(player_amount: int, merchant_amount: int) -> void:
+	player_gold = player_amount
+	merchant_gold = merchant_amount
+	gold_label.text = "Your gold: %d    Merchant gold: %d" % [player_gold, merchant_gold]
 
 func _resize_card() -> void:
 	card.custom_minimum_size.x = maxf(112.0, size.x * 0.24)
@@ -262,6 +273,7 @@ func _cell(control: Control, key: String) -> void:
 func refresh() -> void:
 	if not is_node_ready():
 		return
+	gold_label.visible = mode == "barter"
 	_clear(categories)
 	_clear(header)
 	_clear(rows)

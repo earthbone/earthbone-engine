@@ -6,7 +6,7 @@
 
 use soe_esm::records::gameplay::Condition;
 use soe_esm::{Error as EsmError, GlobalFormId, Record, Tag};
-use soe_papyrus::Vm;
+use soe_papyrus::{ObjectId, Value, Vm};
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
@@ -178,6 +178,121 @@ pub enum TradeError {
     Vendor(#[from] VendorError),
     #[error("inventory trade: {0}")]
     Inventory(#[from] crate::inventory::Error),
+    #[error("barter quote: {0}")]
+    Quote(#[from] crate::barter::Error),
+}
+
+impl crate::Game {
+    /// Select an available vendor faction from the actor's memberships.
+    /// If all services are unavailable, retain the first for an empty menu.
+    ///
+    /// # Errors
+    /// Reports invalid vendor data rather than silently discarding a service.
+    pub fn merchant_vendor_service(
+        &mut self,
+        merchant: GlobalFormId,
+    ) -> Result<Option<VendorService>, VendorError> {
+        let mut factions: Vec<_> = self
+            .world_mut()
+            .actor(merchant)
+            .map(|actor| actor.factions.keys().copied().collect())
+            .unwrap_or_default();
+        factions.sort();
+        let mut unavailable = None;
+        for faction in factions {
+            if let Some(service) = self.resolve_vendor_service(faction, merchant)? {
+                if service.available {
+                    return Ok(Some(service));
+                }
+                if unavailable.is_none() {
+                    unavailable = Some(service);
+                }
+            }
+        }
+        Ok(unavailable)
+    }
+
+    /// Check the vendor list, keyword policy, value and stolen-item setting.
+    pub fn vendor_accepts_sale(&self, service: &VendorService, item: GlobalFormId) -> bool {
+        let mut world = self.world_mut();
+        let player = world.player();
+        let currency = world.form("Gold001").unwrap_or(GlobalFormId {
+            file: 0,
+            object: 15,
+        });
+        if item == currency || world.item_value(item) <= 0 {
+            return false;
+        }
+        let Some(list) = world.form_list(service.buy_sell_list).cloned() else {
+            return false;
+        };
+        let listed = list.contains(&item)
+            || world
+                .keywords(item)
+                .iter()
+                .any(|keyword| list.contains(keyword));
+        let stolen = world.reference(player).is_some_and(|reference| reference.inventory.stacks(item).iter().any(|stack| {
+            matches!(stack.extra(33).map(|extra| extra.fields.as_slice()), Some([crate::inventory::Field::Form(Some(owner))]) if *owner != player)
+        }));
+        listed != service.not_sell_buy && (!stolen || service.only_buys_stolen)
+    }
+
+    /// Exchange a selected quantity at the current vanilla barter quote.
+    ///
+    /// # Errors
+    /// Rejects unavailable service, disallowed items, invalid quantities,
+    /// malformed quotes, insufficient stock or gold and inventory overflow.
+    pub fn trade_vendor_item(
+        &mut self,
+        faction: GlobalFormId,
+        merchant: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        side: crate::barter::Side,
+    ) -> Result<(), TradeError> {
+        if count <= 0 {
+            return Err(TradeError::Price);
+        }
+        if self
+            .world_mut()
+            .actor(merchant)
+            .is_none_or(|actor| !actor.factions.contains_key(&faction))
+        {
+            return Err(TradeError::Unavailable);
+        }
+        let price = self
+            .barter_prices(merchant)?
+            .unit_price(self.world().item_value(item), side)?;
+        if side == crate::barter::Side::Buy {
+            return self.buy_vendor_item(faction, merchant, item, count, price);
+        }
+        let service = self
+            .resolve_vendor_service(faction, merchant)?
+            .filter(|service| service.available)
+            .ok_or(TradeError::Unavailable)?;
+        let player = self.player();
+        if !self.vendor_accepts_sale(&service, item)
+            || self.world_mut().item_count(player, item) < count
+        {
+            return Err(TradeError::Stock);
+        }
+        let total = count.checked_mul(price).ok_or(TradeError::Price)?;
+        let currency = self.form("Gold001").unwrap_or(GlobalFormId {
+            file: 0,
+            object: 15,
+        });
+        self.world.borrow_mut().trade_vendor_items_notified(
+            player,
+            item,
+            count,
+            service.merchant_container,
+            currency,
+            total,
+            &mut |name, class| self.vm.create_object_of(name, class),
+        )?;
+        self.run_until_idle(64);
+        Ok(())
+    }
 }
 
 /// Resolve the service exposed by `faction` to `merchant` at the current time.
@@ -194,6 +309,46 @@ pub fn resolve_vendor_service(
     vm: &Vm,
     faction: GlobalFormId,
     merchant: GlobalFormId,
+) -> Result<Option<VendorService>, VendorError> {
+    let lookup = |object, name: String| vm.conditional_vars(object, &name);
+    vendor_service_view(world, Some(&lookup), faction, merchant, VendorView::Stock)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VendorView {
+    Eligibility,
+    Stock,
+}
+
+pub(crate) fn offers_services_now(
+    world: &mut World,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
+    merchant: GlobalFormId,
+) -> Result<bool, VendorError> {
+    let mut factions: Vec<_> = world
+        .actor(merchant)
+        .ok_or(VendorError::Invalid("service subject is not an actor"))?
+        .factions
+        .keys()
+        .copied()
+        .collect();
+    factions.sort();
+    for faction in factions {
+        if vendor_service_view(world, lookup, faction, merchant, VendorView::Eligibility)?
+            .is_some_and(|service| service.available)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn vendor_service_view(
+    world: &mut World,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
+    faction: GlobalFormId,
+    merchant: GlobalFormId,
+    view: VendorView,
 ) -> Result<Option<VendorService>, VendorError> {
     let record = world
         .record(faction)
@@ -231,29 +386,31 @@ pub fn resolve_vendor_service(
     let list = resolve_record_link(world, faction, &record, T(b"VEND"), T(b"FLST"))?;
     let container = resolve_record_link(world, faction, &record, T(b"VENC"), T(b"REFR"))?;
     let conditions = faction_conditions(&record)?;
+    if conditions.iter().any(|condition| condition.function == 255) {
+        return Err(VendorError::Invalid("recursive vendor service condition"));
+    }
     let player = world.player();
     let merchant_loaded = world.is_reference_loaded(merchant);
+    let context = Context {
+        owner: faction,
+        subject: merchant,
+        target: Some(player),
+        quest: None,
+        tempering_enchanted: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
+        magic_item: None,
+        dual_cast: None,
+        skill_use: None,
+        light_level: None,
+    };
     let conditions_met = merchant_loaded
         && vendor_location_met(world, merchant, faction, &record, radius)?
-        && conditions::evaluate(
-            world,
-            vm,
-            Context {
-                owner: faction,
-                subject: merchant,
-                target: Some(player),
-                quest: None,
-                tempering_enchanted: None,
-                tempering_item: None,
-                alchemy_making_poison: None,
-                alchemy_effect: None,
-                magic_item: None,
-                dual_cast: None,
-                skill_use: None,
-                light_level: None,
-            },
-            &conditions,
-        )?;
+        && match lookup {
+            Some(lookup) => conditions::evaluate_with_lookup(world, context, &conditions, lookup)?,
+            None => conditions::evaluate_without_vm(world, context, &conditions)?,
+        };
     let hour = world.clock.game_hours().rem_euclid(24.0);
     let within_hours = match start_hour.cmp(&end_hour) {
         Ordering::Equal => true,
@@ -264,7 +421,7 @@ pub fn resolve_vendor_service(
 
     let mut merchandise = Inventory::default();
     let mut gold = 0;
-    if available {
+    if available && view == VendorView::Stock {
         let items = world
             .form_list(list)
             .cloned()

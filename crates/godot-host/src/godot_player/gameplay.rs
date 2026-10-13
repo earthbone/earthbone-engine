@@ -1245,7 +1245,7 @@ impl PlayerNode {
         }
     }
 
-    fn present_game_menu_requests(&mut self) {
+    pub(super) fn present_game_menu_requests(&mut self) {
         let training_request = self
             .game
             .as_mut()
