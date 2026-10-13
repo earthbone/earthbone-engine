@@ -74,8 +74,16 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
             if !eye.is_finite() || !radius.is_finite() {
                 continue;
             }
-            low = Vector3::new(low.x.min(eye.x - radius), low.y.min(eye.y - radius), low.z.min(eye.z - radius));
-            high = Vector3::new(high.x.max(eye.x + radius), high.y.max(eye.y + radius), high.z.max(eye.z + radius));
+            low = Vector3::new(
+                low.x.min(eye.x - radius),
+                low.y.min(eye.y - radius),
+                low.z.min(eye.z - radius),
+            );
+            high = Vector3::new(
+                high.x.max(eye.x + radius),
+                high.y.max(eye.y + radius),
+                high.z.max(eye.z + radius),
+            );
             heads.push((actor, eye, radius));
         }
         if heads.len() < 2 {
