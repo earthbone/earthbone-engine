@@ -443,11 +443,7 @@ fn ply_03_saved_keep_scene_phase_start_runs_stage_174_fragment() {
         return;
     };
     let source = save_path(&PathBuf::from(corpus), CHECKPOINTS[1]);
-    let saved = soe_save::Save::open(&source).unwrap();
     let mut game = play::load_world_checkpoint(&PathBuf::from(data), &source).unwrap();
-    game.world_mut()
-        .restore_vanilla_dialogue_scene_changes(&saved)
-        .unwrap();
     let scene = GlobalFormId {
         file: 0,
         object: 0xdedbb,
@@ -456,6 +452,8 @@ fn ply_03_saved_keep_scene_phase_start_runs_stage_174_fragment() {
         file: 0,
         object: 0xd0593,
     };
+    assert_eq!(game.world().scene_phase(scene), Some(5));
+    game.tick(0.0);
     assert_eq!(game.world().scene_phase(scene), Some(5));
     assert!(!game.world().quest(quest).unwrap().done.contains(&174));
     let record = game.world().record(scene).unwrap().clone();
