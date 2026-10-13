@@ -74,6 +74,7 @@ pub(super) struct NpcActors {
     source: Option<Arc<DataSource>>,
     loading: Arc<LoadingTasks>,
     rigs: RigCache,
+    pub(super) textures: crate::godot_layer::SharedTextures,
     appearances: BTreeMap<GlobalFormId, ActorAppearance>,
     next_appearance: Option<Instant>,
     hidden: bool,
@@ -277,6 +278,10 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_npc_actors(&mut self, delta: f32) {
+        self.npc_actors
+            .textures
+            .borrow_mut()
+            .retain(|_, texture| texture.get_reference_count() > 1);
         let _scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         let started = Instant::now();
         let Some(source) = self.data_source.as_ref().map(Arc::clone) else {
@@ -290,6 +295,7 @@ impl PlayerNode {
         {
             self.npc_actors.clear();
             self.npc_actors.rigs = RigCache::default();
+            self.npc_actors.textures = crate::godot_layer::SharedTextures::default();
             self.npc_actors.source = Some(Arc::clone(&source));
         }
         let mut placements = BTreeMap::new();
@@ -471,6 +477,9 @@ impl PlayerNode {
                                 .node
                                 .take()
                                 .unwrap_or_else(SkinnedActorNode::new_alloc);
+                            node.bind_mut().use_material_textures(std::rc::Rc::clone(
+                                &self.npc_actors.textures,
+                            ));
                             if let Some(streamer) = &self.game_streamer {
                                 node.bind_mut().use_material_shaders(
                                     streamer.bind().shared_material_shaders(),
@@ -543,6 +552,28 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Shared NPC texture upload payload estimates, with no image readback.
+    #[func]
+    fn npc_texture_memory_attribution(&self) -> VarDictionary {
+        let mut report = crate::memory::AssetMemory::default();
+        for texture in self.npc_actors.textures.borrow().values() {
+            let format = texture
+                .get_meta("soe_memory_format")
+                .to::<GString>()
+                .to_string();
+            let bytes = texture.get_meta("soe_memory_bytes").to::<i64>().max(0) as usize;
+            report.add("texture_count", 1);
+            report.add("texture_upload_bytes", bytes);
+            report.add(&format!("texture_{format}_count"), 1);
+            report.add(&format!("texture_{format}_bytes"), bytes);
+        }
+        let mut result = VarDictionary::new();
+        for (name, value) in report.values {
+            result.set(name.as_str(), value as i64);
+        }
+        result
+    }
+
     /// Living resident NPC capsule positions and nearby collision support, in game units.
     #[func]
     pub fn npc_grounding_status(&self) -> Array<VarDictionary> {

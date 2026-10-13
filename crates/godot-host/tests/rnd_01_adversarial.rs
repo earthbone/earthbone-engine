@@ -70,7 +70,7 @@ fn rnd_01_zero_base_uses_the_dirt_fallback_and_sparse_alpha_stays_clear() {
     assert_eq!(pixel(&baked, 0, 255), [200, 210, 220, 255]);
     assert_eq!(pixel(&baked, 8, 255), [10, 20, 30, 255]);
     assert_eq!(pixel(&baked, 128, 255), [10, 20, 30, 255]);
-    let missing = terrain_texture::bake(&land, |_| None);
+    let missing = terrain_texture::bake(&land, |_| None::<Image>);
     assert_eq!(pixel(&missing, 0, 255), [91, 76, 54, 255]);
 }
 

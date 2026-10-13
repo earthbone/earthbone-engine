@@ -22,6 +22,7 @@ pub mod audio;
 #[cfg(feature = "godot")]
 mod background_audio;
 pub mod batch;
+mod byte_cache;
 pub mod camera;
 #[cfg(feature = "godot")]
 mod carry;
@@ -50,6 +51,8 @@ pub mod item_menu;
 pub mod lod_rebuild;
 pub mod magic_menu;
 pub mod mcm_menu;
+#[cfg(feature = "godot")]
+mod memory;
 pub mod mesh;
 pub mod nif_effect;
 pub mod nif_effect_animation;

@@ -356,9 +356,7 @@ impl DataSource {
                 }
                 diffuse
             };
-            self.textures
-                .decode_rgba(&self.vfs, &path)
-                .map(|image| (*image).clone())
+            self.textures.decode_rgba(&self.vfs, &path)
         };
         super::terrain_texture::bake(land, &mut image_for)
     }

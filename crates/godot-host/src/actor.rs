@@ -1026,15 +1026,6 @@ impl ActorAssets {
                 path: mesh_path.to_string(),
             });
         }
-        let textures = crate::data_source::resolve_material_textures(
-            vfs,
-            &out.iter()
-                .map(|surface| surface.arrays.material.clone())
-                .collect::<Vec<_>>(),
-        );
-        for (surface, textures) in out.iter_mut().zip(textures) {
-            surface.textures = textures;
-        }
         let materials: Vec<_> = out
             .iter()
             .map(|surface| surface.arrays.material.clone())

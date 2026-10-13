@@ -203,7 +203,41 @@ pub struct CellBodies {
 /// Main-thread time one sync may spend indexing newly added placements.
 const PLACEMENT_INDEX_BUDGET: std::time::Duration = std::time::Duration::from_micros(12);
 
+fn shape_source_bytes(shape: &Shape) -> usize {
+    std::mem::size_of::<Shape>()
+        + match shape {
+            Shape::ConvexHull { points } => std::mem::size_of_val(points.as_slice()),
+            Shape::TriangleMesh {
+                vertices,
+                triangles,
+                materials,
+            } => {
+                std::mem::size_of_val(vertices.as_slice())
+                    + std::mem::size_of_val(triangles.as_slice())
+                    + std::mem::size_of_val(materials.as_slice())
+            }
+            Shape::Material { shape, .. } => shape_source_bytes(shape),
+            Shape::Compound(children) => children
+                .iter()
+                .map(|(_, child)| std::mem::size_of::<Iso>() + shape_source_bytes(child))
+                .sum(),
+            _ => 0,
+        }
+}
+
 impl CellBodies {
+    pub(crate) fn source_bytes(&self) -> usize {
+        self.entries
+            .iter()
+            .map(|entry| shape_source_bytes(&entry.source.shape))
+            .sum::<usize>()
+            + self
+                .movable
+                .iter()
+                .map(|entry| shape_source_bytes(&entry.source.shape))
+                .sum::<usize>()
+    }
+
     /// Adopt additional placed bodies, retaining their reference sync metadata.
     pub(crate) fn append(&mut self, mut other: Self) {
         self.stats.bodies += other.stats.bodies;

@@ -1,5 +1,11 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Installed memory attribution, PRF-39
+
+[Memory residency](memory-residency.md) records the installed inn and gate
+capture, retained payload accounting, image and LOD cache budgets, actor
+texture sharing, before and after RSS, and the limits of Godot byte counters.
+
 ## Play path fix checkpoint, 2026-10-13
 
 The first live gate on `ee278da20` exited 101 after the 360-second process
@@ -294,6 +300,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +512,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -7972,7 +7980,6 @@ project helper, including RND-36's night shader, and requires an explicit
 Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
-
 
 ### Audio integration corrections, second round, 2026-10-12
 
