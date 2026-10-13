@@ -2919,13 +2919,19 @@ impl CellStreamerNode {
         for instance in &self.instances {
             let desc = &instance.arrays.material;
             let effect = desc.effect.as_ref();
-            let key = crate::mesh::MaterialKey::from(desc);
-            let Some(material) = self.materials.materials.get(&key) else {
+            let material = match &instance.mesh {
+                InstanceMesh::Array(mesh) => mesh.surface_get_material(0),
+                InstanceMesh::Multi(mesh) => mesh
+                    .get_mesh()
+                    .and_then(|mesh| mesh.surface_get_material(0)),
+            };
+            let Some(material) = material else {
                 continue;
             };
             let mut row = VarDictionary::new();
             row.set("rid", instance.rid);
-            row.set("material", material);
+            row.set("material", &material);
+            row.set("animated", instance.animation.is_some());
             row.set("source", desc.diffuse.as_deref().unwrap_or_default());
             row.set(
                 "palette",
@@ -2933,6 +2939,12 @@ impl CellStreamerNode {
             );
             row.set("effect", effect.is_some());
             row.set("refraction", desc.refraction.is_some());
+            row.set(
+                "clamp_mode",
+                desc.refraction
+                    .as_ref()
+                    .map_or(-1, |r| i64::from(r.clamp_mode)),
+            );
             row.set("flags1", i64::from(desc.shader_flags_1));
             row.set("flags2", i64::from(desc.shader_flags_2));
             row.set(
@@ -2948,6 +2960,11 @@ impl CellStreamerNode {
                 BatchTable::Instances(members) => members.clone(),
             };
             let mut models = std::collections::BTreeSet::new();
+            let reference_ids: Array<GString> = references
+                .iter()
+                .map(|reference| GString::from(reference.to_string().as_str()))
+                .collect();
+            row.set("references", &reference_ids);
             if let Some(source) = &self.data_source {
                 let order = source.order();
                 for reference in references {
@@ -4996,11 +5013,7 @@ fn nif_refraction_material(
     );
     material.set_shader_parameter(
         "wrap_uv",
-        &Vector2i::new(
-            i32::from(refraction.clamp_mode & 2 != 0),
-            i32::from(refraction.clamp_mode & 1 != 0),
-        )
-        .to_variant(),
+        &crate::nif_effect::wrap_bits((refraction.clamp_mode & 3) as u8).to_variant(),
     );
     material
 }

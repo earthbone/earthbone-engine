@@ -44,12 +44,26 @@ fn rnd_38_installed_hearth_audits_every_effect_layer() {
             .entry(surface.reference)
             .or_insert((model.clone(), [0_usize; 4]));
         let desc = &surface.arrays.material;
+        println!(
+            "RND-38 reference={} model={} source={:?} animated={} effect={} refraction={} alpha={:?}",
+            surface.reference,
+            model,
+            desc.diffuse,
+            surface.animation.is_some(),
+            desc.effect.is_some(),
+            desc.refraction.is_some(),
+            desc.alpha,
+        );
         if desc
             .diffuse
             .as_deref()
             .is_some_and(|path| path.to_ascii_lowercase().contains("vaportilenormal"))
         {
             counts.1[1] += 1;
+            assert!(
+                surface.animation.is_some(),
+                "{model}: installed heat hull exercises the private animated material path"
+            );
             assert!(
                 desc.refraction.is_some(),
                 "{model}: normal-map hull takes the distortion path"
