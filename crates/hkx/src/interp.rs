@@ -802,6 +802,7 @@ struct Runtime {
     child_weights: Vec<Option<f32>>,
     child_bone_weights_pointers: Vec<BoundMaskPointer>,
     selected: Option<usize>,
+    selected_generator: Option<NodeId>,
     enabled: Option<bool>,
     /// A bound `startStateId`, read when the machine activates.
     start_state: Option<i32>,
@@ -3041,8 +3042,9 @@ impl<'a> Interpreter<'a> {
                     .selected
                     .unwrap_or(usize::try_from(*selected_generator_index).unwrap_or(0));
                 self.nodes[id.0].selected = Some(index);
-                if let Some(Some(g)) = generators.get(index) {
-                    self.activate(*g);
+                self.nodes[id.0].selected_generator = generators.get(index).copied().flatten();
+                if let Some(g) = self.nodes[id.0].selected_generator {
+                    self.activate(g);
                 }
             }
             NodeKind::ModifierGenerator {
@@ -3736,16 +3738,11 @@ impl<'a> Interpreter<'a> {
             NodeKind::ManualSelector { generators, .. } => {
                 let wanted = self.nodes[id.0].selected.unwrap_or(0);
                 let target = generators.get(wanted).copied().flatten();
-                let active: Vec<NodeId> = generators
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .filter(|g| self.nodes[g.0].active)
-                    .collect();
-                for g in active {
-                    if Some(g) != target {
-                        self.deactivate(g);
+                if self.nodes[id.0].selected_generator != target {
+                    if let Some(previous) = self.nodes[id.0].selected_generator {
+                        self.deactivate(previous);
                     }
+                    self.nodes[id.0].selected_generator = target;
                 }
                 match target {
                     Some(g) => {
@@ -4952,6 +4949,65 @@ mod tests {
         while !bytes.len().is_multiple_of(4) {
             bytes.push(0);
         }
+    }
+
+    #[test]
+    fn hst_25_selector_keeps_shared_clip_active_through_the_selected_wrapper() {
+        let node = |id, name: &str, kind| Node {
+            id: NodeId(id),
+            offset: 0,
+            class: name.into(),
+            name: name.into(),
+            user_data: 0,
+            bindings: None,
+            kind,
+        };
+        let graph = BehaviorGraph {
+            name: "shared selector child".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                node(
+                    0,
+                    "hkbManualSelectorGenerator",
+                    NodeKind::ManualSelector {
+                        generators: vec![Some(NodeId(1)), Some(NodeId(2))],
+                        selected_generator_index: 0,
+                        current_generator_index: 0,
+                    },
+                ),
+                node(
+                    1,
+                    "hkbModifierGenerator",
+                    NodeKind::ModifierGenerator {
+                        modifier: None,
+                        generator: Some(NodeId(2)),
+                    },
+                ),
+                node(
+                    2,
+                    "hkbClipGenerator",
+                    NodeKind::Clip(ClipGenerator {
+                        animation_name: "modifier-pose".into(),
+                        playback_speed: 1.0,
+                        ..Default::default()
+                    }),
+                ),
+            ],
+        };
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        for frame in 1..=5 {
+            vm.update(0.1);
+            let time = vm.clip_time(NodeId(2)).unwrap();
+            assert!((time - frame as f32 * 0.1).abs() < 1e-6, "clip time {time}");
+        }
+        vm.nodes[0].selected = Some(1);
+        vm.update(0.1);
+        assert!(!vm.is_active(NodeId(1)));
+        assert!(vm.is_active(NodeId(2)));
     }
 
     #[test]

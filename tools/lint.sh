@@ -12,6 +12,46 @@ step() {
   echo "==> $1"
 }
 
+history_step() {
+  local kind="$1"
+  shift
+  if [ -z "${SOE_TEST_HISTORY:-}" ]; then
+    "$@"
+    return
+  fi
+  local directory="${SOE_TEST_HISTORY_LOG_DIR:-${SOE_TEST_HISTORY}.logs}"
+  local log started ended code stdout_pid stderr_pid
+  if ! mkdir -p "$directory"; then
+    "$@"
+    return
+  fi
+  if ! log="$(mktemp "$directory/$kind.XXXXXXXX.log")"; then
+    "$@"
+    return
+  fi
+  if ! mkfifo "$log.stdout.pipe" "$log.stderr.pipe"; then
+    rm -f "$log.stdout.pipe" "$log.stderr.pipe"
+    "$@"
+    return
+  fi
+  tee -a "$log" < "$log.stdout.pipe" &
+  stdout_pid=$!
+  tee -a "$log" < "$log.stderr.pipe" >&2 &
+  stderr_pid=$!
+  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if "$@" > "$log.stdout.pipe" 2> "$log.stderr.pipe"; then
+    code=0
+  else
+    code=$?
+  fi
+  wait "$stdout_pid" || :
+  wait "$stderr_pid" || :
+  rm -f "$log.stdout.pipe" "$log.stderr.pipe"
+  ended="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  tools/test-history-record.sh "$kind" "$log" "$code" "$started" "$ended" >/dev/null 2>&1 || :
+  return "$code"
+}
+
 step "cargo fmt --all --check"
 cargo fmt --all --check
 
@@ -21,7 +61,7 @@ cargo fmt --all --check
 # gets the same production-code guarantee without adding that noise. See
 # docs/style.md "Running the gate" for the measurement command this mirrors.
 step "cargo clippy --workspace --lib --bins -- -D warnings"
-cargo clippy --workspace --lib --bins -- -D warnings
+history_step clippy-prod cargo clippy --workspace --lib --bins -- -D warnings
 
 step "library logging facade"
 cargo clippy --workspace --lib -- -D warnings -D clippy::print_stdout -D clippy::print_stderr
@@ -29,7 +69,7 @@ cargo clippy --workspace --lib -- -D warnings -D clippy::print_stdout -D clippy:
 # Code behind an off-by-default feature never compiles in the run above, so it
 # rots unseen. The dds encode path drifted that way until 2026-09-18.
 step "cargo clippy --workspace --all-features --all-targets -- -D warnings"
-cargo clippy --workspace --all-features --all-targets -- -D warnings
+history_step clippy-all cargo clippy --workspace --all-features --all-targets -- -D warnings
 
 # Both ends of the feature range, because a helper gated on one feature while
 # its callers need two reads as dead code in between. That is how the viseme
@@ -37,7 +77,7 @@ cargo clippy --workspace --all-features --all-targets -- -D warnings
 # This does not cover every combination, so a crate with more than two features
 # wants cargo hack rather than another line here.
 step "cargo clippy --workspace --no-default-features --all-targets -- -D warnings"
-cargo clippy --workspace --no-default-features --all-targets -- -D warnings
+history_step clippy-nodef cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
 step "cargo deny check"
 if command -v cargo-deny >/dev/null 2>&1; then
@@ -96,6 +136,6 @@ step "performance runner contracts"
 python3 -m unittest discover -s tools/tests
 
 step "cargo test --workspace (tier 1, gated tests skipped)"
-env -u SKYRIM_DATA -u SOE_TEST_SAVE -u SOE_TEST_SAVES cargo test --workspace
+history_step tier1 env -u SKYRIM_DATA -u SOE_TEST_SAVE -u SOE_TEST_SAVES cargo test --workspace
 
 echo "==> lint gate passed"

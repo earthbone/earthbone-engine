@@ -17,6 +17,7 @@ type Bucket = (GlobalFormId, [i32; 3]);
 #[derive(Default)]
 struct TargetSample<'a> {
     nearby: Option<&'a ContactActor>,
+    nearby_distance: f32,
     sound: Option<(usize, &'a DetectionEvent)>,
 }
 
@@ -171,10 +172,14 @@ impl DetectionSpaces {
                 if let Some(indices) = actor_grid.get(&(self.space(observer.cell), key)) {
                     for &i in indices {
                         let target = &actors[i];
-                        if target.actor != observer.actor
-                            && length(sub(observer.position, target.position)) <= range
-                        {
-                            targets.entry(target.actor).or_default().nearby = Some(target);
+                        if target.actor == observer.actor {
+                            continue;
+                        }
+                        let distance = length(sub(observer.position, target.position));
+                        if distance <= range {
+                            let sample = targets.entry(target.actor).or_default();
+                            sample.nearby = Some(target);
+                            sample.nearby_distance = distance;
                         }
                     }
                 }
@@ -225,7 +230,11 @@ impl DetectionSpaces {
                 out.push(Observation {
                     observer: observer.actor,
                     target: id,
-                    distance: length(sub(observer.position, target.position)),
+                    distance: if nearby.is_some() {
+                        sample.nearby_distance
+                    } else {
+                        length(sub(observer.position, target.position))
+                    },
                     line_of_sight: nearby.is_some() && visible(observer, target),
                     light_level,
                     motion: motions.get(&id).copied().unwrap_or_default(),

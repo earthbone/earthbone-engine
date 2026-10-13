@@ -452,6 +452,9 @@ for native save inputs.
 
 Detection batches cache each observer's Sneak, Blindness and combat target,
 and each target's Sneak, invisibility, movement noise and worn armor weight.
+Actor identity and liveness are validated once per identity within a batch,
+then read afresh on the next batch. Input validation still follows observation
+order and completes before any pool or LOS state changes.
 An observer's combat awareness is indexed once per batch. Alert and busy
 modifiers remain specific to each pair. Previously known pairs absent from a
 batch receive a negative value, the lesser of the base detection value and
@@ -748,8 +751,7 @@ suspended call tables. It does not claim complete vanilla-save resumption.
 An explicit fourth argument, `--world-checkpoint`, imports the supported world
 passes without saved VM variables or execution and binds fresh scripts. It
 prints that choice on stderr and never falls back from strict import. This
-allows world assertions and authored input from corpus checkpoints while the
-existing importer rejects their unresolved ReferenceAlias identities. Checkpoint
+allows world assertions and authored input from corpus checkpoints. Checkpoint
 startup omits saved timers and queued calls. It does not reproduce a resumed
 quest's script variables. Both modes reject failed world passes. Neither mode
 changes the external save. `load_world_checkpoint` exposes this startup choice
@@ -782,15 +784,81 @@ import saved VM variables, scene execution or timers.
 
 Installed-data validation on 2026-10-11 reaches the first route's final marker
 after resolving its start point on the overlapping adjacent-cell navmesh. It
-still stops at MQ101 stage 190 while the successor save records stage 192 and
-additional completed stages. The second pair's earlier run lacked stages 174
-and 195 in MQ101DragonAttack (0xD0593). A later route edit waits for stage 195,
+reaches MQ101 stage 180 and MQ101DragonAttack (0xD0593) stage 190. The successor
+records stage 192 and additional completed stages for MQ101DragonAttack.
+PLY-03 round 8, commit `915d66cb8`, added a wait for stage 192 on MQ101
+(0x3372B), which has no such stage. The corrected fixture waits for
+MQ101DragonAttack stage 192 and asserts both quest stages separately. The
+installed `ply_03_installed_route_stages_belong_to_the_named_quest` check reads
+the quest definitions and validates every authored stage operand.
+The first route's trace shows `defaultSetStageTRIGSpecificActor` on
+`dunCGsetStage192REF` rejecting the player because its required base is Hadvar.
+The second pair's earlier run lacked stages 174 and 195 in MQ101DragonAttack.
+A later route edit waits for stage 195,
 but has not passed the installed-data acceptance check. The `Activate` step on
 `Skyrim.esm:25fae` logs `Error: GetTriggerObjectCount called on a non-trigger`
 from the lever script on REFR 0x945B9 (MQ101CollapsingBridgeLever, base script
 TrapLever on TrapTriggerBase). The local CK page says the call errors on a
 non-trigger. This route does not apply `expect-no-vm-error` after that known
 call. The assertion now catches the same error prefix regardless of case.
+
+Integration revalidation on 2026-10-13 with the corrected quest operand still
+finds three first-pair differences in MQ101DragonAttack: current stage,
+highest stage and completed stages. The second pair differs in completed
+stages 174 and 195. These gaps were documented in PLY-03 before integration.
+A diagnostic using SAV-19's strict `load_save` for both source saves imports
+their VM state and reproduces the same differences. The full successor
+comparisons and their 600-tick waits remain required.
+
+The next integration repair connects NPC AI movement to HST-14 trigger
+membership updates. Hadvar now fires `dunCGsetStage192REF`, and the first
+route completes its stage waits and VM-error assertion. Its checkpoint still
+differs in 16 earlier completed stages. The source ESS has only stages 5 and
+10 completed on MQ101DragonAttack, so the route must also reproduce the
+tower and scene progression that it currently skips.
+The second route now approaches `dunCGsetstage195REF` in exterior cell
+0x982B before entering the keep. Both stage waits complete. Its checkpoint
+still lacks stage 174, which the installed
+`SF_MQ101DragonAttackSceneDTo_000DEDBB.Fragment_0` sets at phase 7 start.
+World-checkpoint startup omits saved scene execution. At that checkpoint the
+saved keep scene is in phase 5. The acceptance tests keep their full
+completed-stage comparison. `hst_14_ai_movement_delivers_npc_trigger_crossings_once`
+checks AI-driven enter, occupancy, leave and the NPC event argument without
+installed data. The trigger event contract follows local CK
+`OnTriggerEnter_-_ObjectReference.wikitext`.
+Trigger indexing reads the existing cell-reference index for each queried
+cell and caches empty cells too. A global REFR scan on the first NPC crossing
+cost 207 ms in the installed PRF-11 check, exceeding its eight-millisecond
+AI frame limit. With per-cell indexing, the same 3,600-frame check passed with
+seven NPCs and a worst AI frame of 0.3044 ms.
+
+The third integration repair connects SCEN begin, end and phase boundaries
+to FMT-18's decoded VMAD callbacks using their named script and function.
+The callback flags and ordering follow local xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas`, `wbVMADFragmentedSCEN`.
+The DLG-09 phase driver, introduced by `495690109`, still requires explicit
+action completion and phase advancement. Its boundary callbacks now run
+once when those operations succeed. Two synthetic checks verify ordered
+callbacks, rejection without callbacks, named script ownership and engine
+save restoration without replaying earlier callbacks.
+`Scene.GetOwningQuest` also uses the existing SCEN record view. A package
+action carries its own PNAM entries before the trailer's parent quest PNAM,
+as local UESP `uesp-modfileformat/SCEN.wikitext` and xEdit `wbRecord(SCEN)`
+declare. The earlier native used the first PNAM and returned a package for
+the installed keep scene. SCR-62's ownership audit did not cover that shape.
+`scr_62_scene_owner_uses_parent_quest_after_action_packages` checks it without
+installed data.
+`ply_03_saved_keep_scene_phase_start_runs_stage_174_fragment` restores the
+installed keep scene at phase 5, explicitly completes the actions ending in
+phases 5 and 6, then verifies that entering phase 7 runs the installed fragment
+and records stage 174. It does not establish automatic action completion.
+PLY-03's six full checkpoint acceptance tests still require tower progression
+for the first pair and saved scene playback for the second pair. Their stage
+history assertions remain unchanged.
+Validation on 2026-10-13 passes 4,259 debug integration tests and 238 library
+tests, with four existing integration ignores. The installed stage-174
+fragment check passes. Each of the six installed checkpoint tests still
+fails on the stage-history gaps above when run alone on one thread.
 
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
@@ -9983,3 +10051,9 @@ engine-relevant adapters remain unimplemented, as identified explicitly.
 | ToggleVerletDebug (tvd) | tvd returns an explicit error. There is no Verlet cape solver and the host uses Jolt |
 | TrapUpdate | No sourced console trap-update contract independent of ordinary world and Papyrus ticks |
 | VisualRefPosition (VRP) | VRP uses the selected-reference position axes |
+PRF-27 adds automatic greeting and force-greet phases after the actor driver.
+Their enclosing durations now contribute to PRF-11's AI total, so every
+inclusive phase remains bounded by the total. Nested idle-chatter and
+force-greet evaluations are counted through the enclosing greeting duration.
+The synthetic PRF-27 phase check and installed PRF-11 sixty-second check
+retain the phase bounds and the original eight-millisecond frame budget.

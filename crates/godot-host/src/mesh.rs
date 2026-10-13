@@ -34,9 +34,8 @@ pub struct MaterialDesc {
     pub alpha: AlphaMode,
     /// Two-sided rendering, from the shader flags or an NiStencilProperty.
     pub double_sided: bool,
-    /// Set only on the synthetic surface a cell's water plane builds, from
-    /// its WATR record. Every ordinary NIF-sourced surface leaves this
-    /// `None`.
+    /// WATR shading for cell water planes and placed BSWaterShaderProperty
+    /// meshes whose ACTI base resolves a water type.
     pub water: Option<WaterMaterial>,
     /// BSEffectShaderProperty fields and its NiAlphaProperty contract.
     pub effect: Option<EffectMaterial>,

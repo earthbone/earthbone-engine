@@ -1686,6 +1686,7 @@ impl Game {
         }
         if !menu_mode && ai_seconds.is_some() {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
+            let started = std::time::Instant::now();
             let greetings = crate::ai::measure_phase(
                 &mut self.world.borrow_mut(),
                 crate::ai::metrics::Phase::ForceGreetEvaluation,
@@ -1700,6 +1701,7 @@ impl Game {
                     self.close_dialogue();
                 }
             }
+            self.world.borrow_mut().ai.planning_time += started.elapsed();
         }
         if !menu_mode && ai_seconds.is_some() {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);

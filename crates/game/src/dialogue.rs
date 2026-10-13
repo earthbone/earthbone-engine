@@ -480,11 +480,13 @@ impl Game {
         let started = std::time::Instant::now();
         let result = self.update_automatic_greetings_inner();
         let mut world = self.world.borrow_mut();
+        let elapsed = started.elapsed();
+        world.ai.planning_time += elapsed;
         *world
             .ai
             .planning_phases
             .entry("greeting_evaluation")
-            .or_default() += started.elapsed();
+            .or_default() += elapsed;
         *world
             .ai
             .phase_calls

@@ -20,6 +20,7 @@ members = [
     "crates/probe",
     "crates/save",
     "crates/swf-convert",
+    "crates/test-history",
     "crates/trace",
 ]
 

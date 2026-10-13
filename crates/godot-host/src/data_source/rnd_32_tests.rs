@@ -258,6 +258,93 @@ fn rnd_32_counts_markers_disable_causes_failures_and_outside_parents() {
 }
 
 #[test]
+fn rnd_32_placed_water_uses_the_winning_bases_water_namespace() {
+    let (directory, source) = fixture();
+    let mut writer = super::fixture::NifWriter::new(100);
+    let mut shader = super::fixture::Buf::default();
+    shader
+        .i32(-1)
+        .u32(0)
+        .i32(-1)
+        .u32(0x8000_0008)
+        .u32(0x21)
+        .floats(&[0.0, 0.0, 1.0, 1.0])
+        .u32(0xC4);
+    let shader = writer.add("BSWaterShaderProperty", shader.0);
+    let (vertices, triangles) = super::fixture::quad();
+    let shape = writer.bs_tri_shape(
+        "Water",
+        [0.0; 3],
+        -1,
+        shader,
+        -1,
+        soe_nif::vertex::attr::VERTEX,
+        &vertices,
+        &triangles,
+        true,
+    );
+    let shape = writer.add("BSTriShape", shape);
+    writer.roots = vec![shape];
+    std::fs::write(directory.path().join("meshes/water.nif"), writer.finish()).unwrap();
+    let mut plugin = source.order.file(0).plugin.clone();
+    plugin.push_top(Record::new(Tag::new(b"ACTI"), 0x840).zsub(b"MODL", "water.nif"));
+    let cell = plugin.push_record(
+        Record::new(tag::CELL, 0x8101)
+            .zsub(b"EDID", "Rnd32WaterCell")
+            .sub(b"DATA", [1, 0]),
+    );
+    let mut temporary = Group::new(GroupKind::CellTemporary(0x8101));
+    temporary
+        .entries
+        .push(Entry::Record(plugin.push_record(reference(0x940, 0x840))));
+    let mut children = Group::new(GroupKind::CellChildren(0x8101));
+    children.entries.push(Entry::Group(temporary));
+    let mut cells = Group::new(GroupKind::Top(tag::CELL));
+    cells
+        .entries
+        .extend([Entry::Record(cell), Entry::Group(children)]);
+    plugin.groups.push(cells);
+    std::fs::write(directory.path().join("Skyrim.esm"), plugin.to_bytes()).unwrap();
+    let mut update = Plugin::new(FileHeader {
+        masters: vec!["Skyrim.esm".into()],
+        ..FileHeader::default()
+    });
+    update.push_top(
+        Record::new(Tag::new(b"ACTI"), 0x840)
+            .zsub(b"MODL", "water.nif")
+            .sub(b"WNAM", 0x0100_0850_u32.to_le_bytes()),
+    );
+    let mut colors = [0; 52];
+    colors[40..44].copy_from_slice(&[32, 64, 96, 0]);
+    let water = Record::new(Tag::new(b"WATR"), 0x0100_0850)
+        .sub(b"ANAM", [128])
+        .sub(b"DNAM", colors);
+    let expected = water_material_from(&water);
+    update.push_top(water);
+    std::fs::write(directory.path().join("Update.esm"), update.to_bytes()).unwrap();
+    let source = DataSource::open(directory.path()).unwrap();
+    let cell = source.resolve_cell("Rnd32WaterCell").unwrap();
+    for loaded in [
+        source.stream_cell_id(cell).unwrap(),
+        source.stream_reference(id(0x940)).unwrap(),
+    ] {
+        assert_eq!(loaded.surfaces.len(), 1);
+        let material = &loaded.surfaces[0].arrays.material;
+        assert_eq!(material.water.as_ref(), Some(&expected));
+        assert_eq!(material.alpha, AlphaMode::Blend);
+        assert!(material.double_sided);
+    }
+    let loaded = source.stream_cell_id(cell).unwrap();
+    assert_eq!(loaded.stats.reference_counts[&Tag::new(b"ACTI")].built, 1);
+    assert!(loaded.stats.reference_skips.is_empty());
+    let refr = Refr::from_record(&reference(0x940, 0x840)).unwrap();
+    let LoadedStatic::Surfaces { built, .. } = source
+        .load_static_surfaces("water.nif", &refr, false)
+        .unwrap();
+    assert!(built.is_empty(), "unbound water must not draw plain white");
+}
+
+#[test]
 fn rnd_32_installed_cells_account_for_every_placed_reference() {
     let Some(data) = std::env::var_os("SKYRIM_DATA") else {
         eprintln!("SKYRIM_DATA unset, skipping RND-32 installed cells");
@@ -307,8 +394,9 @@ fn rnd_32_installed_cells_account_for_every_placed_reference() {
             );
         }
         let mut objects = Vec::new();
+        let mut doors = Vec::new();
         let mut expected = BTreeSet::new();
-        for &id in source.cell_index().references(cell) {
+        for &id in source.presentation_references(cell) {
             let owner = source.order.winner_ref(id).unwrap();
             let record = source.order.record(owner);
             if record.tag != tag::REFR {
@@ -371,6 +459,9 @@ fn rnd_32_installed_cells_account_for_every_placed_reference() {
                 objects.push(serde_json::json!({"file": id.file, "object": id.object,
                     "kind": base.tag.to_string(), "position": reference.transform.unwrap().position}));
             }
+            if enabled && base.tag == Tag::new(b"DOOR") && drawn.contains(&id) {
+                doors.push(serde_json::json!({"file": id.file, "object": id.object}));
+            }
         }
         assert_eq!(drawn, expected, "built count must equal model-bearing placed references minus markers and truly disabled references");
         assert_eq!(
@@ -388,7 +479,7 @@ fn rnd_32_installed_cells_account_for_every_placed_reference() {
                 "initial": counts.initially_disabled, "parent": counts.enable_parent,
                 "runtime": counts.runtime_disabled, "markers": counts.markers, "other": counts.other
             }))).collect();
-        manifest.push(serde_json::json!({"cell": name, "id": cell.to_string(), "counts": counts, "objects": objects}));
+        manifest.push(serde_json::json!({"cell": name, "id": cell.to_string(), "counts": counts, "objects": objects, "doors": doors}));
         assert_eq!(loaded.stats.meshes_failed, 0, "{name} mesh failures");
     }
     let target = std::env::var_os("CARGO_TARGET_DIR")

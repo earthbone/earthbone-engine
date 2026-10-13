@@ -1911,6 +1911,64 @@ prevents new installed-data or Godot runs for this follow-up, so the changes
 have no new before/after timings or successful windowed acceptance measurement.
 Earlier measurements below describe their original builds.
 
+### Integration verification, 2026-10-13
+
+The exact installed
+`prf_31_installed_windowed_gate_walk_keeps_every_detection_update_under_two_ms`
+check still fails on the integration checkout with the release extension,
+Godot 4.4.1 and llvmpipe. Its 60-second walk samples 372 updates across two
+cells. The maximum is 5,776 microseconds, with 149 updates above the unchanged
+2,000-microsecond limit. Movement passes at 309.7 units inside Whiterun and
+888.4 units in Tamriel.
+
+The Whiterun phase's observation construction averages 2,092 microseconds,
+before synchronization and world evaluation. Sampled stage maxima also exceed
+the limit independently in synchronization and evaluation. This is the same
+unfinished budget documented in PRF-31's backlog evidence and source changes
+`5146225f9` and `836a0228b`. The HST-25 selector and capture corrections leave
+its detection implementation, route and acceptance thresholds unchanged.
+
+The second integration follow-up removes redundant ray-origin setters and
+uses one dictionary lookup for the hit RID. It also rejects sight when a
+third synchronized static actor capsule proves an obstruction before the
+target's outer bounds. Held and thrown bodies remain on the Godot query path.
+The proof uses smaller interior spheres and larger target bounds, with
+double-precision arithmetic. Uncertain rays still query the live Godot space.
+Actor membership, observations, sound ownership and detection evaluation stay
+unchanged.
+
+The local Jolt `Jolt/Geometry/RaySphere.h` and the existing generated controller
+shape supply the geometry model. This is an occlusion witness, so it needs no
+replacement physics world or dependency. The synthetic nearest-hit comparison
+requires at least 100 rejected rays across a dense neighborhood with mixed
+actor scales. The separate installed
+`prf_31_installed_actor_occlusion_matches_godot_rays` check requires at least
+100 shortcut decisions and compares each one with Godot's original nearest-hit
+query. It also requires a reciprocal lookup to be exercised.
+
+Reciprocal sight is shared only within one update. A Godot shape query first
+checks a sphere around each capsule's on-axis eye, excluding that actor's
+body. Both endpoint spheres must be clear of other bodies. The ray slope is
+bounded so both capsule intersections remain inside those spheres, and
+back-face hits must be enabled. Exact endpoint matching keeps camera changes
+and independent sound-source positions on their own query paths.
+
+The host collision builder enables two-sided mesh collision. Its prepared
+body index follows creation, replacement, removal and cell ownership changes.
+Four covering sphere queries check for other geometry before reciprocal reuse.
+Their centers surround the endpoint volume, so an intersecting one-sided
+triangle is seen from its front by at least one query. Any unclassified body
+hit returns the batch to independent rays. This guard follows Godot 4.4's
+[Jolt double-sided shape implementation](https://github.com/godotengine/godot/blob/4.4/modules/jolt_physics/shapes/jolt_custom_double_sided_shape.cpp),
+which can override the requested ray back-face mode. One temporary sphere
+shape serves the checks and is freed before observations are evaluated.
+
+Observation construction reuses the exact distance calculated for range
+membership. World validates each actor identity and death state once per
+batch, retaining observation order, reference-target validation and atomic
+pool updates. A separate unit check changes death state between batches and
+requires the next batch to reject it without changing detection state.
+
 ### Follow-up local verification
 
 The 2026-10-11 follow-up retains draft commits `836a0228b` and `ab27b7705`
