@@ -9701,3 +9701,27 @@ as MGEF flag bit 1. The Grab Actor companion fixture uses both so its immediate
 health assertion exercises the caster target. Existing Rust readers and
 public save profiling supply the fixture encoding, with no reference code
 copied or dependency added.
+
+## Initial exterior actor placement, HST-32
+
+Loading or attaching an exterior cell resolves first package locations for
+enabled persistent ACHRs in its worldspace, temporary ACHRs in attached
+grids and actors in interiors linked by doors inside those grids. This
+makes actors whose editor positions are clustered or inside homes available
+at their current exterior package locations before the host selects models.
+The existing package selector and location resolver handle schedules,
+conditions, linked markers and alias ownership. Package walking remains in
+the existing driver and host controller.
+
+A running package, a previous evaluation or a pose changed from DATA is
+retained. Only finite destinations in the entering exterior worldspace are
+applied. References remain in the shared World table, with no saved fields,
+version change or secondary gameplay state. The candidate set is sorted by
+FormID. Cell prefetch does not apply placement. Inline and threaded gameplay
+both reach the same cell loading and attachment methods.
+
+Sources are local xEdit `wbDefinitionsTES5.pas` ACHR DATA, REFR XTEL and PACK
+location definitions, plus the existing `ai::select`, `procedure_of` and
+`resolve_location` contracts. The local residency and navigation comparison
+reports distinguish physical grid presentation from logical record ownership.
+No host model or physics resource is prepared by this pass.

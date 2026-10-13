@@ -201,7 +201,11 @@ impl DataSource {
             stats.failed += found.failed;
             stats.skipped_blocks += found.skipped_blocks;
             let mut bodies = Vec::new();
-            for placed in placed.into_iter().filter(|p| p.collider.is_static()) {
+            for placed in placed {
+                if !placed.collider.is_static() {
+                    placed_colliders.push(placed);
+                    continue;
+                }
                 let _build = soe_trace::LoadMeasure::new(soe_trace::LoadStage::CollisionBuild, "");
                 let before = world.primitive_count();
                 let body = world.add_static(&placed.collider);
@@ -292,7 +296,7 @@ impl DataSource {
             .collect()
     }
 
-    fn location_colliders(
+    pub(crate) fn location_colliders(
         &self,
         cell: GlobalFormId,
         loaded: &LoadedCell,
@@ -300,6 +304,15 @@ impl DataSource {
         let (mut placed, stats) = self.placed_cell_colliders(cell)?;
         let _build = soe_trace::LoadMeasure::new(soe_trace::LoadStage::CollisionBuild, "");
         for surface in &loaded.surfaces {
+            if !surface
+                .arrays
+                .material
+                .diffuse
+                .as_deref()
+                .is_some_and(|path| path.starts_with("terrain:"))
+            {
+                continue;
+            }
             if self
                 .order
                 .winner(surface.reference)
@@ -322,13 +335,22 @@ impl DataSource {
                     mass: 0.0,
                     transform: Iso::IDENTITY,
                     shape: Shape::TriangleMesh {
+                        radius: 0.0,
                         materials: Vec::new(),
                         vertices: arrays
                             .positions
                             .iter()
                             .map(|p| {
                                 let p = GodotPos::new(p[0], p[1], p[2]).to_skyrim();
-                                Vec3::new(p.x, p.y, p.z)
+                                // CONTEXT: LAND vertices lie on the native 128-unit
+                                // grid. Undo coordinate conversion roundoff at cell seams.
+                                let step = CELL_UNITS
+                                    / (soe_esm::records::land::VERTS_PER_SIDE - 1) as f32;
+                                Vec3::new(
+                                    (p.x / step).round() * step,
+                                    (p.y / step).round() * step,
+                                    p.z,
+                                )
                             })
                             .collect(),
                         // SurfaceArrays uses Godot's clockwise front faces.

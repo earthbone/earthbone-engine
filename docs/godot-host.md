@@ -294,6 +294,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +506,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -7973,7 +7975,6 @@ Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
 
-
 ### Audio integration corrections, second round, 2026-10-12
 
 AUD-12's stop-fade and cancellation scenes require the GDScript `stop_music`
@@ -8036,3 +8037,46 @@ regional descriptor list is empty. Its landing grid cell supplies the ambience
 and regional music before the first movement step. This follows the existing
 persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
 CELL and regional selection contract.
+
+## Exterior world fixes, HST-31 to HST-33
+
+Location replacement formerly cleared the streamer's Jolt bodies and
+installed only rendering. PlayerNode rebuilt static query bodies, while
+movable item bodies disappeared after an inn exit. Prepared locations now
+retain movable colliders alongside controller statics. The streamer installs
+those movable bodies after replacement and for new grid cells, retaining their
+FormIDs for activation, grabbing and shared World pose synchronization.
+Departing cells release their bodies. Newly enabled references use rendered
+cell residency rather than the single original collision cell.
+
+Walking cell arrivals also install their static Jolt query bodies and remove
+them on departure. These use the same prepared collision as SimpleWorld,
+including inherited LAND. Activation keeps its normal first-hit ordering,
+eye origin, 180-unit reach and ownership rules.
+
+Exterior actor placement uses ACHR records through the actor path, separate
+from the REFR-only geometry presentation index. The initial WhiterunWorld
+record survey found 32 enabled ACHRs, all present in the attached contact
+view. Most guard DATA positions cluster near Dragonsreach. Before first
+presentation, World resolves current package locations for actors in
+the worldspace and its directly door-linked interiors. A running package or
+an existing changed pose is retained. Only locations in the target exterior
+worldspace are applied. Runtime references remain in World, and the existing
+contact, appearance, SkinnedActorNode and grounding paths select models only
+for actors in loaded collision and render grids. No movement solver, saved
+state, dependency or per-reference node is added.
+
+Cell loading and attachment apply this placement in World, covering inline
+and threaded gameplay. Prefetch alone leaves actor placement unchanged.
+
+Sources are local xEdit `wbDefinitionsTES5.pas` ACHR DATA, REFR XTEL and PACK
+location definitions, the existing game package selector and resolver, and
+`log/comparison/residency.md` and `navigation/navigation.md`. The comparison
+supports spatial selection without replacing logical reference identity.
+
+The installed scene regression crosses the authored Bannered Mare exit under
+Xvfb `:99`, compares drawn NPCs with an independent enabled ACHR record survey,
+and tests the market stalls through the normal activation ray and E input.
+Each item must present Take or Steal, enter player inventory and become
+disabled. Owned items must retain stolen ownership metadata. This fixture
+uses installed assets in place and writes only logs and temporary scripts.

@@ -59,6 +59,7 @@ mod detection;
 mod dialogue_scene_restore;
 mod doorway;
 mod driver;
+mod exterior_actors;
 mod package_overrides;
 pub use package_overrides::PackageOverride;
 pub mod effect_shader;

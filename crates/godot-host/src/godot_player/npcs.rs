@@ -639,6 +639,49 @@ impl PlayerNode {
         self.sync_npc_actors(0.0);
     }
 
+    /// Enabled ACHR records whose current placement occupies a loaded collision grid.
+    /// This independent record survey does not use the render resident table.
+    #[func]
+    pub fn exterior_actor_reference_ids(&self) -> PackedStringArray {
+        let (Some(game), Some(source), Some(exterior)) =
+            (&self.game, &self.data_source, &self.exterior)
+        else {
+            return PackedStringArray::new();
+        };
+        let world = game.world();
+        source
+            .order()
+            .winners_of(soe_esm::tag::ACHR)
+            .filter_map(|(id, _)| {
+                let reference = world.reference_ref(id)?;
+                let cell = reference.cell?;
+                if reference.deleted
+                    || reference.destroyed
+                    || !world.reference_enabled(id)
+                    || world.cell_coordinate_space(cell) != exterior.world
+                {
+                    return None;
+                }
+                let position = reference.position;
+                if position.iter().any(|value| !value.is_finite()) {
+                    return None;
+                }
+                let coordinate = crate::streaming::CellCoord::containing(
+                    crate::units::SkyrimPos::new(position[0], position[1], position[2]),
+                );
+                let cell = source.cell_index().exterior_cell(
+                    exterior.world,
+                    coordinate.x,
+                    coordinate.y,
+                )?;
+                exterior
+                    .cells
+                    .contains_key(&cell)
+                    .then(|| GString::from(id.to_string().as_str()))
+            })
+            .collect()
+    }
+
     /// Number of enabled resident ACHRs expected and currently drawn.
     #[func]
     pub fn npc_visual_counts(&self) -> VarDictionary {

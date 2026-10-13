@@ -43,8 +43,8 @@ fn payload(versioned_scale: bool) -> Vec<u8> {
 fn fmt_09_pre_10_1_layout_omits_scale_and_keeps_filter_cardinality() {
     let block = bhk::decode("bhkNiTriStripsShape", &payload(false), &header(0x0A00_0000)).unwrap();
     assert!(
-        matches!(block, Bhk::NiTriStrips { material: 9, scale, strips, filters }
-        if scale == soe_physics::Vec3::new(1.0, 1.0, 1.0)
+        matches!(block, Bhk::NiTriStrips { material: 9, radius, scale, strips, filters }
+        if radius == 0.1 && scale == soe_physics::Vec3::new(1.0, 1.0, 1.0)
             && strips == [soe_nif::BlockRef(7)] && filters.len() == 1)
     );
 

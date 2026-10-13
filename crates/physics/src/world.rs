@@ -185,15 +185,22 @@ pub trait PhysicsWorld {
 /// in so the character only needs three closest-point routines.
 #[derive(Clone, Copy, Debug)]
 enum Prim {
-    Tri(Vec3, Vec3, Vec3),
+    Tri(Vec3, Vec3, Vec3, f32),
     Sphere(Vec3, f32),
     Capsule(Vec3, Vec3, f32),
 }
 
 impl Prim {
+    fn shell(&self) -> f32 {
+        match *self {
+            Prim::Tri(_, _, _, radius) => radius,
+            _ => 0.0,
+        }
+    }
+
     fn aabb(&self) -> Aabb {
         match *self {
-            Prim::Tri(a, b, c) => Aabb::of_points([a, b, c]),
+            Prim::Tri(a, b, c, radius) => Aabb::of_points([a, b, c]).grow(radius),
             Prim::Sphere(c, r) => Aabb::of_points([c]).grow(r),
             Prim::Capsule(a, b, r) => Aabb::of_points([a, b]).grow(r),
         }
@@ -305,7 +312,8 @@ impl SimpleWorld {
                 let (on_prim, on_seg) = closest_prim_segment(&self.statics[si].prims[pi], a, b);
                 let d = on_seg - on_prim;
                 let dist = d.length();
-                if dist >= s.radius {
+                let radius = s.radius + self.statics[si].prims[pi].shell();
+                if dist >= radius {
                     continue;
                 }
                 let normal = if dist > 1e-4 {
@@ -313,7 +321,7 @@ impl SimpleWorld {
                 } else {
                     prim_normal_toward(&self.statics[si].prims[pi], on_seg)
                 };
-                let push = s.radius - dist;
+                let push = radius - dist;
                 position = position + normal * push;
                 let vn = velocity.dot(normal);
                 if vn < 0.0 {
@@ -345,7 +353,7 @@ impl SimpleWorld {
                 continue;
             }
             let (on_prim, on_seg) = closest_prim_segment(&self.statics[si].prims[pi], a, b);
-            if (on_seg - on_prim).length() < radius - 1e-3 {
+            if (on_seg - on_prim).length() < radius + self.statics[si].prims[pi].shell() - 1e-3 {
                 return true;
             }
         }
@@ -656,6 +664,7 @@ fn flatten(
                     corners[tri[0] as usize],
                     corners[tri[1] as usize],
                     corners[tri[2] as usize],
+                    0.0,
                 ));
             }
         }
@@ -670,10 +679,12 @@ fn flatten(
                     pts[tri[0] as usize],
                     pts[tri[1] as usize],
                     pts[tri[2] as usize],
+                    0.0,
                 ));
             }
         }
         Shape::TriangleMesh {
+            radius,
             vertices,
             triangles,
             materials: face_materials,
@@ -685,7 +696,7 @@ fn flatten(
                     pts.get(tri[1] as usize),
                     pts.get(tri[2] as usize),
                 ) {
-                    out.push(Prim::Tri(a, b, c));
+                    out.push(Prim::Tri(a, b, c, radius * t.scale));
                     materials.push(face_materials.get(index).copied().flatten().or(material));
                 }
             }
@@ -703,7 +714,7 @@ fn flatten(
 /// `(on the primitive, on the segment)`.
 fn closest_prim_segment(p: &Prim, a: Vec3, b: Vec3) -> (Vec3, Vec3) {
     match *p {
-        Prim::Tri(t0, t1, t2) => closest_segment_triangle(a, b, t0, t1, t2),
+        Prim::Tri(t0, t1, t2, _) => closest_segment_triangle(a, b, t0, t1, t2),
         Prim::Sphere(c, r) => {
             let on_seg = closest_point_segment(c, a, b);
             let dir = (on_seg - c).normalized();
@@ -721,7 +732,7 @@ fn closest_prim_segment(p: &Prim, a: Vec3, b: Vec3) -> (Vec3, Vec3) {
 /// primitive's normal on the side `toward` lies.
 fn prim_normal_toward(p: &Prim, toward: Vec3) -> Vec3 {
     match *p {
-        Prim::Tri(t0, t1, t2) => {
+        Prim::Tri(t0, t1, t2, _) => {
             let n = (t1 - t0).cross(t2 - t0).normalized();
             if n.dot(toward - t0) < 0.0 {
                 -n
@@ -921,11 +932,36 @@ fn ray_sphere(from: Vec3, to: Vec3, c: Vec3, r: f32) -> Option<f32> {
 /// First hit of the segment on a primitive, with the surface normal there.
 fn ray_prim(p: &Prim, from: Vec3, to: Vec3) -> Option<(f32, Vec3)> {
     match *p {
-        Prim::Tri(t0, t1, t2) => ray_triangle(from, to, t0, t1, t2).map(|t| {
-            let n = (t1 - t0).cross(t2 - t0).normalized();
-            let n = if n.dot(to - from) > 0.0 { -n } else { n };
-            (t, n)
-        }),
+        Prim::Tri(t0, t1, t2, radius) => {
+            let normal = (t1 - t0).cross(t2 - t0).normalized();
+            if radius == 0.0 {
+                return ray_triangle(from, to, t0, t1, t2).map(|t| {
+                    let n = if normal.dot(to - from) > 0.0 {
+                        -normal
+                    } else {
+                        normal
+                    };
+                    (t, n)
+                });
+            }
+            let mut best: Option<(f32, Vec3)> = None;
+            for side in [-1.0, 1.0] {
+                let offset = normal * (radius * side);
+                if let Some(t) = ray_triangle(from, to, t0 + offset, t1 + offset, t2 + offset) {
+                    if best.is_none_or(|hit| t < hit.0) {
+                        best = Some((t, normal * side));
+                    }
+                }
+            }
+            for (a, b) in [(t0, t1), (t1, t2), (t2, t0)] {
+                if let Some(hit) = ray_prim(&Prim::Capsule(a, b, radius), from, to) {
+                    if best.is_none_or(|prior| hit.0 < prior.0) {
+                        best = Some(hit);
+                    }
+                }
+            }
+            best
+        }
         Prim::Sphere(c, r) => ray_sphere(from, to, c, r).map(|t| {
             let hit = from + (to - from) * t;
             (t, (hit - c).normalized())
@@ -1005,6 +1041,7 @@ mod tests {
                 mass: 0.0,
                 transform: Iso::IDENTITY,
                 shape: Shape::TriangleMesh {
+                    radius: 0.0,
                     materials: Vec::new(),
                     vertices: vec![
                         Vec3::new(-500.0, -500.0, z),
@@ -1081,5 +1118,68 @@ mod tests {
         let (t, n) = ray_prim(&cap, Vec3::new(-5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0)).unwrap();
         assert!((t - 0.4).abs() < 1e-5);
         assert!((n - Vec3::new(-1.0, 0.0, 0.0)).length() < 1e-5);
+    }
+}
+
+#[cfg(test)]
+mod triangle_shell_tests {
+    use super::*;
+    use crate::{Iso, MotionType};
+
+    fn seam(radius: f32) -> Collider {
+        Collider {
+            node: soe_nif::BlockRef(0),
+            node_name: "quantized seam".into(),
+            layer: Layer::STATIC,
+            motion: MotionType::Fixed,
+            mass: 0.0,
+            transform: Iso::IDENTITY,
+            shape: Shape::TriangleMesh {
+                radius,
+                vertices: vec![
+                    Vec3::new(-64.0, -64.0, 0.0),
+                    Vec3::new(-0.03, -64.0, 0.0),
+                    Vec3::new(-0.03, 64.0, 0.0),
+                    Vec3::new(-64.0, 64.0, 0.0),
+                    Vec3::new(0.03, -64.0, 0.0),
+                    Vec3::new(64.0, -64.0, 0.0),
+                    Vec3::new(64.0, 64.0, 0.0),
+                    Vec3::new(0.03, 64.0, 0.0),
+                ],
+                triangles: vec![[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]],
+                materials: vec![Some(7); 4],
+            },
+        }
+    }
+
+    #[test]
+    fn authored_triangle_shell_closes_quantized_seams_without_expanding_the_ray() {
+        let from = Vec3::new(0.0, 0.0, 10.0);
+        let to = from - Vec3::Z * 20.0;
+        let mut core = SimpleWorld::new();
+        core.add_static(&seam(0.0));
+        assert!(core.raycast(from, to).is_none());
+        let mut rounded = SimpleWorld::new();
+        rounded.add_static(&seam(0.35));
+        let hit = rounded
+            .raycast(from, to)
+            .expect("authored skin closes seam");
+        assert!(hit.point.z >= 0.34 && hit.point.z <= 0.35);
+        assert_eq!(hit.material, Some(7));
+        let outside = Vec3::new(64.36, 0.0, 10.0);
+        assert!(rounded.raycast(outside, outside - Vec3::Z * 20.0).is_none());
+    }
+
+    #[test]
+    fn character_rests_on_authored_triangle_shell() {
+        let mut world = SimpleWorld::new();
+        world.add_static(&seam(0.35));
+        let id = world.create_character(CharacterSettings::default(), Vec3::new(20.0, 0.0, 40.0));
+        for _ in 0..180 {
+            world.step(1.0 / 60.0);
+        }
+        let character = world.character(id).expect("character");
+        assert!(character.on_ground);
+        assert!((character.position.z - 0.35).abs() < 0.01);
     }
 }

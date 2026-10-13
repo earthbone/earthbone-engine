@@ -144,6 +144,8 @@ impl RigidBody {
 pub struct CompressedChunk {
     pub translation: Vec3,
     pub material_index: u32,
+    /// Geometry chunk index, or `u16::MAX` for geometry stored here.
+    pub reference: u16,
     pub transform_index: u16,
     /// Quantised positions, metres times a thousand, relative to the chunk
     /// translation.
@@ -243,6 +245,7 @@ pub enum Bhk {
     /// `NiTriStripsData` blocks.
     NiTriStrips {
         material: u32,
+        radius: f32,
         scale: Vec3,
         strips: Vec<BlockRef>,
         filters: Vec<(Layer, u8, u16)>,
@@ -629,6 +632,7 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
             }
             Bhk::NiTriStrips {
                 material,
+                radius,
                 scale,
                 strips,
                 filters,
@@ -726,7 +730,7 @@ fn compressed_mesh_data(s: &mut Stream<'_>) -> Result<CompressedMeshData> {
     for _ in 0..n {
         let translation = vec4(s)?;
         let material_index = s.u32()?;
-        s.u16()?;
+        let reference = s.u16()?;
         let transform_index = s.u16()?;
         let n = s.counted(2)?;
         if n % 3 != 0 {
@@ -753,6 +757,7 @@ fn compressed_mesh_data(s: &mut Stream<'_>) -> Result<CompressedMeshData> {
         chunks.push(CompressedChunk {
             translation,
             material_index,
+            reference,
             transform_index,
             vertices,
             indices,
@@ -882,6 +887,7 @@ mod tests {
         let c = CompressedChunk {
             translation: Vec3::ZERO,
             material_index: 0,
+            reference: u16::MAX,
             transform_index: 0,
             vertices: vec![[0; 3]; 6],
             indices: vec![0, 1, 2, 3, 4, 5, 0],

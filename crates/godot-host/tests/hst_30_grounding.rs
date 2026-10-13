@@ -153,6 +153,7 @@ fn hst_30_capsule_walks_stairs_and_sloped_terrain_with_gravity() {
     }
     let mut ramp = floor(0.0);
     ramp.shape = Shape::TriangleMesh {
+        radius: 0.0,
         vertices: vec![
             Vec3::new(400.0, -200.0, 96.0),
             Vec3::new(800.0, -200.0, 176.0),

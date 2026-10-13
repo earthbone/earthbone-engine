@@ -50,6 +50,7 @@ fn mesh(name: &str, vertices: Vec<Vec3>, triangles: Vec<[u32; 3]>) -> Collider {
         mass: 0.0,
         transform: soe_physics::Iso::IDENTITY,
         shape: Shape::TriangleMesh {
+            radius: 0.0,
             materials: Vec::new(),
             vertices,
             triangles,
