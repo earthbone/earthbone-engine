@@ -136,6 +136,9 @@ func _process(_delta: float) -> bool:
 			over_budget += 1
 			if over_budget <= 3:
 				_check("frame.max_ms", false, {"ms": frame_ms, "frame": measured_frames, "limit_ms": Checks.FRAME_MS})
+	if player.has_method("is_location_preparing") and player.call("is_location_preparing"):
+		_heartbeat()
+		return false
 	npc_checks.sample(player, Time.get_ticks_msec())
 	if not movement_window_logged and Time.get_ticks_msec() - npc_checks.started_msec >= NpcChecks.WINDOW_MSEC:
 		movement_window_logged = true
@@ -224,6 +227,7 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 		path_units += points[index - 1].distance_to(points[index])
 	var waypoint_index := 0
 	var sampling_msec := 0
+	var failure_reason := ""
 	var reached := points.size() >= 2
 	if not reached:
 		_key(false)
@@ -246,6 +250,12 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 				print("PLAY_PATH_WALK_PROGRESS ", JSON.stringify({"stop": stop_name, "waypoint": waypoint_index, "position": str(position), "target": str(point), "physics_s": walking_seconds - walking_start, "travelled_units": travelled_units, "key": Input.is_physical_key_pressed(KEY_W), "menu": player.call("is_menu_open") if player.has_method("is_menu_open") else false}))
 				next_progress = walking_seconds + 0.5
 			var difference := point - position
+			if absf(difference.z) > 128.0:
+				failure_reason = "player left the NAVM waypoint height band"
+				if player.has_method("play_path_ground"):
+					print("PLAY_PATH_FLOOR_FAILURE ", JSON.stringify({"position": str(position), "waypoint": str(point), "ground": player.call("play_path_ground", point)}))
+				reached = false
+				break
 			var arrival := 36.0 if waypoint_index == points.size() - 1 else 16.0
 			if Vector2(difference.x, difference.y).length() < arrival:
 				break
@@ -263,7 +273,7 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	var final: Vector3 = player.call("position")
 	var distance := initial.distance_to(final)
 	reached = reached and waypoint_index == points.size() and distance > 1.0
-	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "travelled_units": travelled_units, "path_points": points.size(), "path_units": path_units, "waypoint_index": waypoint_index, "waypoints": str(points) if not reached else "", "sampling_s": sampling_msec / 1000.0, "walking_s": walking_seconds - walking_start, "budget_s": seconds, "goal": str(navigation.get("goal", target)), "approach_distance": navigation.get("approach_distance", 0.0), "approach_limit": navigation.get("approach_limit", 0.0), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
+	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "travelled_units": travelled_units, "path_points": points.size(), "path_units": path_units, "waypoint_index": waypoint_index, "waypoints": str(points) if not reached else "", "reason": failure_reason, "sampling_s": sampling_msec / 1000.0, "walking_s": walking_seconds - walking_start, "budget_s": seconds, "goal": str(navigation.get("goal", target)), "approach_distance": navigation.get("approach_distance", 0.0), "approach_limit": navigation.get("approach_limit", 0.0), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
 	if not reached:
 		if not output_directory.is_empty():
 			var failure_image := await _capture()
@@ -281,6 +291,15 @@ func _activate(reference: Dictionary) -> bool:
 	if reference.is_empty():
 		return false
 	return player.call("activate_reference", reference.file, reference.object)
+
+func _settle_location() -> bool:
+	while not finished and player.call("is_location_preparing"):
+		await process_frame
+	var ready: bool = not finished and player.call("gameplay_location_ready")
+	if not ready:
+		_check("location.ready", false, {"cell": str(player.call("gameplay_cell")), "world": str(player.call("detection_worldspace"))})
+		_finish()
+	return ready
 
 func _stop(name: String) -> void:
 	stop_name = name
@@ -422,8 +441,11 @@ func _route() -> void:
 		if not await _walk_to(pose.position, 10.0):
 			return
 	var crossed := _activate(exit_door)
+	if crossed:
+		crossed = await _settle_location()
 	await process_frame
-	_check("route.exit", crossed and player.call("detection_worldspace") == "WhiterunWorld", {"crossed": crossed, "world": str(player.call("detection_worldspace")), "cell": str(player.call("gameplay_cell"))})
+	crossed = crossed and player.call("detection_worldspace") == "WhiterunWorld"
+	_check("route.exit", crossed, {"crossed": crossed, "world": str(player.call("detection_worldspace")), "cell": str(player.call("gameplay_cell"))})
 	if crossed and not movement_reported:
 		npc_checks.restart_movement_window(Time.get_ticks_msec())
 		movement_window_logged = false
@@ -480,6 +502,8 @@ func _route() -> void:
 			return
 		if completed_loops == 0 and not finished:
 			var entered := _activate({"file": exit_door.far_file, "object": exit_door.far_object})
+			if entered:
+				entered = await _settle_location()
 			await process_frame
 			entered = entered and str(player.call("gameplay_cell")) == inn_cell
 			_check("route.inn_return", entered, {"cell": str(player.call("gameplay_cell")), "expected_cell": inn_cell, "door_file": exit_door.far_file, "door_object": exit_door.far_object})
@@ -495,6 +519,8 @@ func _route() -> void:
 			if not await _walk_to(exit_pose.position, 10.0):
 				return
 			var resumed := _activate(exit_door)
+			if resumed:
+				resumed = await _settle_location()
 			await process_frame
 			resumed = resumed and player.call("detection_worldspace") == "WhiterunWorld"
 			_check("route.exit", resumed, {"crossed": resumed, "world": str(player.call("detection_worldspace")), "cell": str(player.call("gameplay_cell"))})
@@ -510,6 +536,8 @@ func _grass_leg(gate: Dictionary) -> void:
 		_check("audio.grass", false, {"reason": "gate crossing failed"})
 		_finish()
 		return
+	if not await _settle_location():
+		return
 	await process_frame
 	var origin: Vector3 = player.call("position")
 	var returning: Dictionary = {}
@@ -522,7 +550,10 @@ func _grass_leg(gate: Dictionary) -> void:
 	await _stop("grass")
 	if not await _walk_to(origin, 10.0):
 		return
-	_check("route.grass_return", _activate(returning), {"return_door": str(returning)})
+	var returned := _activate(returning)
+	if returned:
+		returned = await _settle_location()
+	_check("route.grass_return", returned, {"return_door": str(returning)})
 
 func _capture() -> Image:
 	await RenderingServer.frame_post_draw
@@ -686,7 +717,7 @@ func _surface_checks(camera: Camera3D) -> void:
 			RenderingServer.instance_set_visible(rid, true)
 		white = await _analyse(Checks.plain_white.bind(shown, control))
 		drawn_pixels = await _analyse(Checks.difference.bind(shown, control, Rect2i(Vector2i.ZERO, shown.get_size())))
-	if stop_name in ["market", "gate", "grass", "return", "exit"]:
+	if not str(player.call("detection_worldspace")).is_empty():
 		_check("terrain.textures", terrains > 0 and untextured == 0, {"surfaces": terrains, "without_texture": untextured})
 		_check("object.white", objects > 0 and drawn_pixels >= Checks.MIN_DRAWN_PIXELS and white == 0, {"objects": objects, "lods": lods, "batches": object_rids.size(), "drawn_pixels": drawn_pixels, "white_pixels": white})
 		_check("object.height", measured > 0 and floating == 0, {"measured": measured, "floating": floating, "highest_units": highest, "limit_units": Checks.MAX_HEIGHT_UNITS})
@@ -718,12 +749,21 @@ func _hearth_pixels(reference: Dictionary) -> void:
 					flames.append(surface.rid)
 					bounds = surface.bounds if first else bounds.merge(surface.bounds)
 					first = false
+	# CONTEXT: SceneTree pause holds actor and camera poses, and Engine time
+	# scale holds shader TIME, per the local Godot class and shader references.
+	var prior_pause := paused
+	var prior_time_scale := Engine.time_scale
+	paused = true
+	Engine.time_scale = 0.0
+	await process_frame
 	var shown := await _capture()
 	for rid in flames:
 		RenderingServer.instance_set_visible(rid, false)
 	var control := await _capture()
 	for rid in flames:
 		RenderingServer.instance_set_visible(rid, true)
+	paused = prior_pause
+	Engine.time_scale = prior_time_scale
 	var result: Dictionary = await _analyse(Checks.additive.bind(shown, control, Checks.projected(root.get_camera_3d(), bounds)))
 	result.effect_surfaces = flames.size()
 	result.additive_contract = additive_contract

@@ -212,6 +212,7 @@ pub struct CellStreamerNode {
     /// camera to frame the scene without walking mesh nodes.
     bounds: Option<crate::mesh::Aabb>,
     last_stats: VarDictionary,
+    location_totals: Option<(usize, StreamTotals)>,
     load_profiles: std::collections::BTreeMap<GlobalFormId, soe_trace::LoadRecorder>,
     work_frame: Option<soe_trace::WorkFrame>,
     /// Static bodies this node put into the physics space, freed with the
@@ -773,6 +774,7 @@ impl INode3D for CellStreamerNode {
             materials: MaterialMap::new(),
             bounds: None,
             last_stats: VarDictionary::new(),
+            location_totals: None,
             load_profiles: std::collections::BTreeMap::new(),
             work_frame: None,
             collision: crate::godot_physics::CellBodies::default(),
@@ -1492,6 +1494,40 @@ impl CellStreamerNode {
             .reduce(crate::batch::merge_bounds);
         self.last_stats = totals.to_dictionary(self.materials.len() - before);
         self.sync_terrain_lod_join();
+        true
+    }
+
+    /// Begin a required location replacement whose cells arrive over host frames.
+    pub(crate) fn begin_location_replace(&mut self) -> bool {
+        if self.scenario().is_none() {
+            return false;
+        }
+        self.clear();
+        self.location_totals = Some((self.materials.len(), StreamTotals::default()));
+        true
+    }
+
+    /// Install one prepared cell through the ordinary server-resource path.
+    pub(crate) fn install_location_cell(
+        &mut self,
+        id: GlobalFormId,
+        cell: &LoadedCell,
+        world: &soe_game::World,
+        last: bool,
+    ) -> bool {
+        let Some(scenario) = self.scenario() else {
+            return false;
+        };
+        let Some((before, mut totals)) = self.location_totals.take() else {
+            return false;
+        };
+        totals.cell_list.push(id.to_string());
+        self.install_cell(id, cell, scenario, &mut totals, Some(world));
+        if last {
+            self.last_stats = totals.to_dictionary(self.materials.len() - before);
+        } else {
+            self.location_totals = Some((before, totals));
+        }
         true
     }
 
@@ -3884,6 +3920,7 @@ impl CellStreamerNode {
     /// included, and forgets the bounds. Releases unused material cache entries.
     #[func]
     pub fn clear(&mut self) {
+        self.location_totals = None;
         self.load_profiles.clear();
         self.collision.free();
         self.tethers.free();

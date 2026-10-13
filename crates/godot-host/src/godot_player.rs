@@ -213,6 +213,8 @@ pub struct PlayerNode {
     quick_loot_view: Option<crate::quick_loot::QuickLootView>,
     exterior: Option<exterior::ExteriorRuntime>,
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
+    location_preparing: bool,
+    location_install: Option<gameplay::LocationInstall>,
     interior_prefetch_elapsed: f64,
     camera: Option<Gd<Camera3D>>,
     camera_state: CameraHostState,
@@ -361,6 +363,8 @@ impl INode3D for PlayerNode {
             door_fade_view: None,
             exterior: None,
             interior_prefetch: crate::interior_prefetch::InteriorPrefetch::default(),
+            location_preparing: false,
+            location_install: None,
             interior_prefetch_elapsed: 0.0,
             camera: None,
             camera_state: CameraHostState::default(),
@@ -574,13 +578,18 @@ impl INode3D for PlayerNode {
         self.physics_ticks_since_process = self.physics_ticks_since_process.saturating_add(1);
         if self.auto_step {
             let frame = Engine::singleton().get_process_frames();
-            if let Some((elapsed, motion)) = self.automatic_detection.before_step(frame) {
-                self.advance_detection(elapsed, motion);
+            if !self.location_preparing {
+                if let Some((elapsed, motion)) = self.automatic_detection.before_step(frame) {
+                    self.advance_detection(elapsed, motion);
+                }
             }
             self.automatic_physics_step = true;
             self.advance(delta);
             self.automatic_physics_step = false;
             self.profile_applied_inputs.append(&mut self.profile_inputs);
+            if self.location_preparing {
+                return;
+            }
             if self.simulation.is_some() {
                 self.sync_simulation_bodies();
             } else {
@@ -592,11 +601,13 @@ impl INode3D for PlayerNode {
 
     fn process(&mut self, delta: f64) {
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
-        self.present_simulation();
-        self.sync_npc_grounding(0.0);
-        self.sync_npc_actors(delta as f32);
-        self.sync_dialogue_mouth();
-        self.flush_reference_sync();
+        if !self.location_preparing {
+            self.present_simulation();
+            self.sync_npc_grounding(0.0);
+            self.sync_npc_actors(delta as f32);
+            self.sync_dialogue_mouth();
+            self.flush_reference_sync();
+        }
         self.last_physics_queries = soe_trace::physics_query_stats();
         soe_trace::reset_physics_queries();
         self.last_physics_steps = std::mem::take(&mut self.physics_ticks_since_process)
@@ -700,6 +711,8 @@ impl INode3D for PlayerNode {
         self.debug_ref_marker_mesh = None;
         self.debug_ref_marker_material = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
+        self.location_preparing = false;
+        self.location_install = None;
         self.query_collision.free();
         self.actor_bodies.free();
 
@@ -1120,6 +1133,8 @@ impl PlayerNode {
     pub fn load_data(&mut self, path: GString) -> bool {
         self.clear_player_input();
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
+        self.location_preparing = false;
+        self.location_install = None;
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
                 self.load_control_map(&source);
@@ -1163,6 +1178,8 @@ impl PlayerNode {
             self.register_actions();
         }
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
+        self.location_preparing = false;
+        self.location_install = None;
         self.interface_cache = None;
         self.data_source = Some(source);
         self.game = None;
@@ -1309,7 +1326,9 @@ impl PlayerNode {
                 .is_some_and(|r| r.cell != self.loaded_cell)
         });
         if pending_location && !self.sync_game_pose() {
-            self.auto_step = false;
+            if !self.location_preparing {
+                self.auto_step = false;
+            }
             return;
         }
         if !self.auto_step {
@@ -2321,7 +2340,28 @@ impl PlayerNode {
             return false;
         };
         let ok = self.activate_game_reference(GlobalFormId { file, object });
-        self.sync_game_pose() && ok
+        let installed = self.sync_game_pose();
+        ok && (installed || self.location_preparing)
+    }
+
+    /// A required location is being prepared while host frames continue.
+    #[func]
+    pub fn is_location_preparing(&self) -> bool {
+        self.location_preparing
+    }
+
+    /// The loaded collision and rendering cell agree with the shared player.
+    #[func]
+    pub fn gameplay_location_ready(&self) -> bool {
+        !self.location_preparing
+            && self.character().is_some()
+            && self.game.as_ref().is_some_and(|game| {
+                let mut world = game.world_mut();
+                let player = world.player();
+                world
+                    .reference_ref(player)
+                    .is_some_and(|reference| reference.cell == self.loaded_cell)
+            })
     }
 
     /// Run an Actor menu native through Papyrus for the SCR-13 host check.

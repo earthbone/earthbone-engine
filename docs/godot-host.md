@@ -1,5 +1,72 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Exterior door preparation, HST-31
+
+The first installed run of `78981e93` reaches every inn approach. Hulda offers
+two topics, selecting magic displays its localized response and starts voice
+slot zero. Container travel completes all 16 waypoints in 4.433 physics seconds
+against the existing five-second budget. Taking an item and loose pickup pass.
+The installed headless controller independently reaches the barrel in 4.45
+physics seconds. The 27-point exit approach passes in 7.167 physics seconds.
+
+The load-door crossing then fails the unchanged two-second watchdog. Location
+CPU preparation and host installation run synchronously in `sync_game_pose`.
+The trace spans about 1.3 seconds before upload and another 0.8 seconds of
+upload before termination. The old nearby-door selector excludes exterior
+destinations, so the existing background worker never prepares Whiterun.
+Logs and captures are retained under `target/tst_19/78981-first-live`.
+
+The host now schedules ordinary load-door destinations through that worker.
+Selection still reads the source reference's coordinate frame and authored
+XTEL landing. Interior-only callers retain their existing API. Exterior
+requests use the ordinary grid and small-world cell selection and identify
+their cache by destination cell, landing grid and radius. Changing a grid
+cancels stale work even when both doors name one persistent cell.
+
+Speculative admission retains 4,096 authored references, 384 MiB of mesh and unique texture
+payload and 100,000 collision primitives. Prepared locations also have a
+128-cell bound covering physical cells and inherited terrain. There remains
+one worker or retained result. GPU and physics installation stay on the host
+thread, with query statics and cell uploads spread across process frames. No additional host node or saved field is added.
+
+The installed Whiterun location contains 114 cells, 2,589 authored references,
+839,651,176 bytes of payload and 371,734 collision primitives. It exceeds both
+speculative payload and primitive limits. Those limits retain their existing
+values, and the admission regression requires this rejection. Required
+transitions prepare the normal full location on the worker, using the
+ordinary validated radius and cell selection, before main-thread GPU and
+physics installation. Speculative admission caps remain on speculative work.
+A large-world persistent cell owns references from the whole world and
+cannot supply a required landing admission count. Automatic
+movement and detection wait for preparation. Manual fixed-step callers retain
+their synchronous contract. Preparing a location does not remove distant
+geometry or terrain products.
+
+The route awaits actual location readiness after an accepted load-door request.
+Failed preparation or installation remains a required failure. Host heartbeats
+continue while the CPU worker runs, with the same two-second stall limit and
+whole-run deadline. This host preparation state adds no saved game field.
+
+Local OpenMW `apps/openmw/mwworld/scene.cpp`,
+`preloadTeleportDoorDestinations` and `preloadCellWithSurroundings`, prepares
+exterior surroundings as well as interiors. Its renderer is separate from
+this engine's record-backed Godot resources, so the existing `load_location`
+builder supplies the products here. The installed required-preparation test
+passes. A second live attempt reaches the exit but the unsliced installation
+still exceeds the watchdog. Query static chunks and individual cell uploads
+now yield to host frames. Final crossing acceptance is pending.
+
+Surface observations now use the player's loaded worldspace. The exit approach
+is still inside the inn, where it previously reported missing exterior terrain
+and terrain support. The surface fixture requires those observations after
+the worldspace changes and requires missing exterior surfaces to fail. Image,
+height, movement and watchdog thresholds retain their original values.
+The walker also rejects a position outside its 128-unit NAVM height band,
+so horizontal waypoint progress cannot turn a floor fall into a passed stop.
+Hearth shown and control images pause node processing and shader time for
+the capture pair. The local Godot SceneTree and spatial shader references
+supply that contract. The zero-dark-pixel assertion remains unchanged.
+
 ## Play path continuation, 2026-10-13
 
 The resumed `50e0c3861` checkout contained the dialogue and distant heads, but

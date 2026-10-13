@@ -49,12 +49,17 @@ func _run_fixture() -> void:
 	var failed := not await _walk_to(Vector3(0, 150, 0), 0.25)
 	var blocked_ok: bool = failed and finished and player.call("position") == Vector3.ZERO and walks.size() == 2 and not walks[1].reached and walks[1].walking_s >= 0.25 and walks[1].walking_s <= 0.25 + 2.0 / 60.0
 	finished = false
+	player.set("feet", Vector3(0, 0, -256))
 	player.set("blocked", false)
+	var fallen := not await _walk_to(Vector3(0, 150, 0), 1.0)
+	var fallen_ok: bool = fallen and finished and walks.size() == 3 and not walks[2].reached and walks[2].walking_s == 0.0
+	finished = false
+	player.set("feet", Vector3.ZERO)
 	_interrupt_walk()
 	var interrupted := not await _walk_to(Vector3(0, 150, 0), 1.0)
-	var interrupted_ok: bool = interrupted and finished and walks.size() == 3 and not walks[2].reached and player.call("position").y < 114.0
-	print("TST19_WALKING_CLOCK ", "PASS" if moving_ok and blocked_ok and interrupted_ok else "FAIL", " moving=", moving_ok, " blocked=", blocked_ok, " interrupted=", interrupted_ok, " wall_s=", wall_s, " walks=", walks)
-	quit(0 if moving_ok and blocked_ok and interrupted_ok else 1)
+	var interrupted_ok: bool = interrupted and finished and walks.size() == 4 and not walks[3].reached and player.call("position").y < 114.0
+	print("TST19_WALKING_CLOCK ", "PASS" if moving_ok and blocked_ok and fallen_ok and interrupted_ok else "FAIL", " moving=", moving_ok, " blocked=", blocked_ok, " fallen=", fallen_ok, " interrupted=", interrupted_ok, " wall_s=", wall_s, " walks=", walks)
+	quit(0 if moving_ok and blocked_ok and fallen_ok and interrupted_ok else 1)
 
 func _check(id: String, passed: bool, measured: Dictionary) -> void:
 	if id == "route.walk":

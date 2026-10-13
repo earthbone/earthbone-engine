@@ -719,6 +719,11 @@ fn tst_19_physics_time_budget_survives_slow_rendering_and_fails_a_blocked_walk()
     walker_fixture("tst_19_walking_clock_test.gd", "TST19_WALKING_CLOCK PASS");
 }
 
+#[test]
+fn tst_19_exterior_observations_follow_the_loaded_worldspace() {
+    walker_fixture("tst_19_surface_scope_test.gd", "TST19_SURFACE_SCOPE PASS");
+}
+
 fn walker_fixture(script: &str, success: &str) {
     let Some(binary) = std::env::var_os("SOE_GODOT_BIN") else {
         return;

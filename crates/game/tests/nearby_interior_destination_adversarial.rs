@@ -163,6 +163,12 @@ fn an_exterior_destination_is_never_selected_as_an_interior_prefetch_target() {
         "an exterior destination (cell {far_cell:?}) was selected as an \
          interior prefetch target: {found:?}"
     );
+    let selected = game
+        .world()
+        .nearby_load_destination(cell, door_position, 1.0)
+        .expect("ordinary load-door selection includes the exterior");
+    assert_eq!(selected.door, door);
+    assert_eq!(selected.cell, far_cell);
 }
 
 #[test]

@@ -150,7 +150,9 @@ pub use reference_translation::{RefTranslation, TranslationPath};
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use dialogue_scene_restore::DialogueSceneRestoreReport;
-pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
+pub use doorway::{
+    DoorDestination, Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE,
+};
 pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};

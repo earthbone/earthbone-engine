@@ -1,5 +1,19 @@
 # soe-game: the runtime form table and the first natives
 
+## Nearby load-door destinations, HST-31
+
+`nearby_load_destination` selects both interior and exterior XTEL destinations
+through the existing source-coordinate-frame query. The interior-only API
+keeps its destination filter. Source enabled/deleted state, distance bounds
+and FormID tie order retain their existing rules. Selection reads forms and
+does not move references, change residency or send cell events.
+
+The host uses the authored landing to prepare exterior surroundings on its
+existing worker, following local OpenMW `scene.cpp`
+`preloadTeleportDoorDestinations` and `preloadCellWithSurroundings`.
+`InteriorDestination` remains an alias of `DoorDestination` for existing callers.
+No saved field is added.
+
 ## Bounded capsule approach steering, AI-95
 
 `navigation_approach_path_with_portal_inset` uses the same record-backed CELL

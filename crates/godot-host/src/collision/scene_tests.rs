@@ -233,3 +233,98 @@ fn tst_19_container_corridor_reaches_every_waypoint_in_five_physics_seconds() {
         path.points
     );
 }
+
+#[test]
+fn tst_19_loose_corridor_stays_above_the_inn_floor() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open(std::path::Path::new(&data)).expect("data opens");
+    let cell = source.resolve_cell("WhiterunBanneredMare").expect("cell");
+    let game = soe_game::Game::from_shared_order(source.shared_order());
+    let anchor = game
+        .world_mut()
+        .reference(soe_esm::GlobalFormId {
+            file: 0,
+            object: 0x059050,
+        })
+        .expect("loose item")
+        .position;
+    for catchup in [1, 2] {
+        for offset in [-1.0, 0.0, 1.0] {
+            let collision = source.collide_cell_id(cell).expect("collision");
+            let mut world = collision.world;
+            let id = world.create_character(
+                CharacterSettings::default(),
+                Vec3::new(457.1329 + offset, -518.4153, 67.9895),
+            );
+            for _ in 0..60 {
+                world.step_character(id, 1.0 / 60.0);
+            }
+            let feet = world.character(id).expect("character").position;
+            let path = soe_game::play::navigation_approach_path_with_portal_inset(
+                &game,
+                cell,
+                [feet.x, feet.y, feet.z],
+                anchor,
+                128.0,
+                CharacterSettings::default().radius,
+            )
+            .expect("loose corridor");
+            let mut waypoint = 0;
+            let mut tick = 0;
+            let mut walking_seconds = 0.0;
+            // Match the walker's logical clock and arrival-before-budget order.
+            loop {
+                let feet = world.character(id).expect("character").position;
+                assert!(feet.z > 36.0, "catchup={catchup} offset={offset} tick={tick} waypoint={waypoint} feet={feet:?}");
+                while let Some(point) = path.points.get(waypoint) {
+                    let arrival = if waypoint == path.points.len() - 1 {
+                        36.0
+                    } else {
+                        16.0
+                    };
+                    if (point[0] - feet.x).hypot(point[1] - feet.y) >= arrival {
+                        break;
+                    }
+                    waypoint += 1;
+                }
+                if waypoint == path.points.len() {
+                    break;
+                }
+                if walking_seconds >= 5.0 {
+                    break;
+                }
+                let point = path.points[waypoint];
+                let yaw = f64::from(point[0] - feet.x).atan2(f64::from(point[1] - feet.y)) as f32;
+                let mut camera = crate::camera::CameraRig::default();
+                camera.set_facing(yaw, 0.0);
+                world.walk(id, camera.move_direction(0.0, 1.0), soe_physics::JOG_SPEED);
+                for _ in 0..catchup {
+                    world.step_character(id, 1.0 / 60.0);
+                    walking_seconds += 1.0 / 60.0;
+                    tick += 1;
+                }
+            }
+            let feet = world.character(id).expect("character").position;
+            while let Some(point) = path.points.get(waypoint) {
+                let arrival = if waypoint == path.points.len() - 1 {
+                    36.0
+                } else {
+                    16.0
+                };
+                if (point[0] - feet.x).hypot(point[1] - feet.y) >= arrival {
+                    break;
+                }
+                waypoint += 1;
+            }
+            assert!(feet.z > 36.0, "final feet={feet:?}");
+            assert_eq!(
+                waypoint,
+                path.points.len(),
+                "catchup={catchup} offset={offset} feet={feet:?} goal={:?}",
+                path.points.last()
+            );
+        }
+    }
+}
