@@ -14,6 +14,13 @@ const MONITOR_FIELDS := [
 	"navigation_free_edges", "navigation_obstacles", "audio_output_latency_ms", "pipeline_canvas",
 	"pipeline_mesh", "pipeline_surface", "pipeline_draw", "pipeline_specialization",
 ]
+const NAVIGATION_COUNTERS := [
+	["active_maps", "ACTIVE_MAPS"], ["regions", "REGION_COUNT"],
+	["agents", "AGENT_COUNT"], ["links", "LINK_COUNT"],
+	["polygons", "POLYGON_COUNT"], ["edges", "EDGE_COUNT"],
+	["edge_merges", "EDGE_MERGE_COUNT"], ["edge_connections", "EDGE_CONNECTION_COUNT"],
+	["free_edges", "EDGE_FREE_COUNT"], ["obstacles", "OBSTACLE_COUNT"],
+]
 var failures := 0
 
 
@@ -54,6 +61,19 @@ func run() -> void:
 	for name in MONITOR_FIELDS:
 		check(metrics.has(name), "missing Performance monitor " + name)
 		check(is_finite(float(metrics.get(name, NAN))), "non-finite Performance monitor " + name)
+	var unavailable: Dictionary = metrics.get("monitor_unavailable", {})
+	for dimension in [2, 3]:
+		for counter in NAVIGATION_COUNTERS:
+			var field: String = "navigation_%dd_%s" % [dimension, counter[0]]
+			var constant: String = "NAVIGATION_%dD_%s" % [dimension, counter[1]]
+			check(metrics.has(field), "missing navigation monitor " + field)
+			if ClassDB.class_has_integer_constant("Performance", constant):
+				var monitor := ClassDB.class_get_integer_constant("Performance", constant)
+				check(metrics[field] == Performance.get_monitor(monitor), "navigation monitor differs from Performance " + field)
+				check(not unavailable.has(field), "available navigation monitor has an unavailable reason " + field)
+			else:
+				check(metrics.get(field) == null, "unsupported navigation monitor must be null " + field)
+				check(not str(unavailable.get(field, "")).is_empty(), "unsupported navigation monitor lacks a reason " + field)
 	for pass_name in ["visible", "shadow", "canvas"]:
 		var pass_data: Dictionary = metrics.get(pass_name, {})
 		for field in ["objects", "draw_calls", "primitives"]:

@@ -383,6 +383,13 @@ The local Godot `Performance` reference notes that some monitors can lag by up
 to one second and that rendering info is zero until two frames have rendered.
 The report samples during presentation, after the viewport has rendered.
 
+Separate 2D and 3D navigation counters follow the local `Performance` reference.
+The overlay discovers their enum values through `ClassDB` and samples them
+when the running Godot exposes them. Godot 4.4.1 exposes only the aggregate
+navigation monitors. Each separate field remains null on that runtime, with
+a reason in `monitor_unavailable`. The scene check compares supported counters
+with `Performance` and checks unavailable counters have reasons.
+
 ## AI breakdown and overlay, PRF-27
 
 `PlayerNode::ai_breakdown` returns permanent procedure and decision phase slots,
@@ -6600,10 +6607,11 @@ through its existing selection path. No per-reference scene nodes are added.
 
 The ACTI models selected by RND-17 also expose `WRStairsStreamLACT` water
 geometry. Its `BSWaterShaderProperty` is retained as an unknown NIF block and
-has no host material binding. Visual streaming excludes that surface instead
-of drawing a default opaque white material. Its effect-shader foam remains
-visible. CELL/WATR water planes keep their existing rendering path. Binding
-NIF water shaders remains outside this correction.
+now binds the winning ACTI base's WNAM water type through the existing WATR
+material path. RND-32 requires these enabled placed meshes to remain visible.
+Unbound water shapes remain excluded. Its effect-shader foam remains visible.
+CELL/WATR water planes keep their existing rendering path. Water shading uses
+record colors and opacity, with wave, flow and reflection shading still absent.
 
 The expanded ACTI survey also retains reference `0:04221F`, base `0:021513`
 (`NorLever01`, `Dungeons/Nordic/Levers/RuinsLever01/NorLever01.nif`). Its
@@ -7129,6 +7137,39 @@ must have a counted reason. The survey writes its counts and plant placements
 to `target/rnd_32_whiterun.json`. The windowed
 `godot/rnd_32_references_test.gd` verifies uploaded TREE and FLOR identities
 and captures their placements under `target/rnd_32` at 640 by 360.
+
+The integration census selects physical presentation references, including
+nearby world-persistent placements, following RND-27's streaming contract.
+RND-20's unbound-water exclusion had also removed the enabled
+`0:06EA28` TundraStreamBend01WaterB placement in WhiterunExterior13. Placed
+BSWaterShaderProperty meshes now reuse the CELL water material path with
+their ACTI base's WNAM water type. The winning base's file resolves that link,
+so overrides keep their own plugin namespace. Hidden subtrees, shaderless
+helpers and unbound water remain filtered. The synthetic
+`rnd_32_placed_water_uses_the_winning_bases_water_namespace` checks cell and
+deferred streaming against an overridden ACTI and a WATR in Update.esm.
+The existing installed census retains its exact built-reference equality.
+Local xEdit's ACTI WNAM declaration and nifxml/nifly's BSWaterShaderProperty
+definition supply this binding. No NIF water-property parser or new dependency
+is added. Water waves, flow, depth and reflection effects remain outside the
+existing WATR color and opacity material.
+The `water_planes` diagnostic continues to select generated CELL/WATR surfaces,
+excluding placed REFR water from its plane count.
+The windowed census also follows HST-21's resident door controls. Its manifest
+names every built door, and the scene requires exactly those control node
+identities while ordinary placed geometry still adds no nodes. Cell clear
+must release all of the door controls.
+
+The installed integration check on 2026-10-13 passed with 637 built references
+of 697 placed in the Bannered Mare, 131 of 329 in Exterior04, 77 of 160 in
+Exterior13 and 134 of 144 in Exterior17. Physical selection includes nearby
+world-persistent placements. The windowed scene verified all 133 plant
+identities, zero checker albedos, the single exterior door control and its
+release, and the generated-plane diagnostic count. The tree and flora captures
+contain 160,833 and 153,309 foreground pixels, above the existing 100-pixel
+threshold. All 430 debug host library tests passed with installed data unset.
+Host clippy with all targets and warnings denied passed. The full workspace
+gate was outside this integration fix's requested checks.
 
 ### Installed cell census, 2026-10-06
 
@@ -7721,7 +7762,6 @@ project helper, including RND-36's night shader, and requires an explicit
 Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
-
 
 ### Audio integration corrections, second round, 2026-10-12
 
