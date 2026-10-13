@@ -72,11 +72,21 @@ func _start() -> void:
 		_check(drawn.has(reference), "admitted full model missing " + reference)
 	_check(count > 0 and count < expected.all.size(), "bounded visible demand replaces whole-world preparation")
 	print("FULL_LOD_WORLD expected=", expected.all.size(), " drawn=", count, " near=", expected.near.size())
+	_report_memory()
 	var position: Vector3 = player.call("position")
 	var peak := Vector3(float(expected.peak[0]), float(expected.peak[1]), float(expected.peak[2]))
 	var delta := peak - position
 	player.call("set_facing", atan2(delta.x, delta.y), atan2(delta.z, Vector2(delta.x, delta.y).length()) * 0.6)
 	await _measure("gate", count)
+	# CONTEXT: RND-27's outside-gate viewpoint clears the roof and player geometry.
+	var gameplay_camera := root.get_camera_3d()
+	var camera := Camera3D.new()
+	root.add_child(camera)
+	camera.position = Vector3(18000, -3272, 17000) / 70.0
+	camera.far = 4000.0
+	camera.look_at(Vector3(peak.x, -3272 + (peak.z + 3272) * 0.6, -peak.y) / 70.0)
+	camera.make_current()
+	print("FULL_LOD_CAMERA ", JSON.stringify({"feet": str(position), "peak": str(peak), "camera": str(camera.global_position), "forward": str(-camera.global_basis.z), "third_person": player.call("is_third_person"), "native": player.call("camera_state")}))
 	root.use_occlusion_culling = true
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_COLOR
@@ -98,7 +108,8 @@ func _start() -> void:
 	var terrain := root.get_texture().get_image()
 	_check(terrain.save_png(directory.path_join("gate-terrain.png")) == OK, "save terrain control")
 	var silhouette_pixels := 0
-	var sky := terrain.get_pixel(0, 0)
+	var sky := terrain.get_pixel(320, 0)
+	_check(terrain.get_pixel(0, 0).is_equal_approx(sky) and terrain.get_pixel(639, 0).is_equal_approx(sky), "sky spans the top of the landmark control")
 	for y in range(20, 200):
 		for x in range(80, 560):
 			var a := landmark.get_pixel(x, y)
@@ -109,12 +120,8 @@ func _start() -> void:
 	_check(silhouette_pixels >= 500, "distant mountain clears terrain ridge")
 	print("FULL_LOD_LANDMARK pixels=", silhouette_pixels, " threshold=500")
 	streamer.call("set_object_lod_visible", true)
-	var memory := {}
-	for system: String in player.call("system_frame_breakdown"):
-		var sample: Dictionary = player.call("system_frame_breakdown")[system]
-		if sample.has("live_bytes"):
-			memory[system] = sample.live_bytes
-	print("FULL_LOD_MEMORY ", JSON.stringify({"rust": memory, "godot_static": Performance.get_monitor(Performance.MEMORY_STATIC), "video_bytes": Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED), "texture_bytes": Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED), "plugin_records": streamer.call("plugin_record_memory"), "chargen": streamer.call("chargen_resident_bytes"), "lod_cache": streamer.call("lod_cache_memory")}))
+	gameplay_camera.make_current()
+	camera.queue_free()
 	_check(player.call("activate_reference", gate.far_file, gate.far_object), "return to Whiterun")
 	player.call("advance", 0.0)
 	for _frame in range(90):
@@ -137,6 +144,16 @@ func _start() -> void:
 	await _measure("city", city_count)
 	print("FULL_LOD_RESULT ", "PASS" if failures == 0 else "FAIL")
 	quit(0 if failures == 0 else 1)
+
+
+func _report_memory() -> void:
+	var memory := {}
+	var breakdown: Dictionary = player.call("system_frame_breakdown")
+	for system: String in breakdown:
+		var sample: Dictionary = breakdown[system]
+		if sample.has("live_bytes"):
+			memory[system] = sample.live_bytes
+	print("FULL_LOD_MEMORY ", JSON.stringify({"rust": memory, "godot_static": Performance.get_monitor(Performance.MEMORY_STATIC), "video_bytes": Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED), "texture_bytes": Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED), "plugin_records": streamer.call("plugin_record_memory"), "chargen": streamer.call("chargen_resident_bytes"), "lod_cache": streamer.call("lod_cache_memory")}))
 
 
 func _measure(location: String, count: int) -> void:

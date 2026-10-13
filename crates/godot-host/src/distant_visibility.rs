@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Record-only full-model demand and terrain sight lines. OBND follows xEdit
-//! wbOBND and UESP REFR. Mudcrab PR 210 supplies nearby demand before loading,
-//! PR 211 bounds admitted jobs, and PR 225 keeps uncertain visibility drawn.
+//! Record-only full-model demand and terrain sight lines. OBND follows xEdit's
+//! `wbObjectBounds` in `wbDefinitionsCommon.pas` and UESP `OBND_Field`.
+//! Mudcrab PR 210 supplies nearby demand before loading, PR 211 bounds admitted
+//! jobs, and PR 225 keeps uncertain visibility drawn.
 //! The host retains Godot's whole-instance AABB occlusion test.
 
 use soe_esm::GlobalFormId;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 /// Selection works in Skyrim XYZ units, independent of camera heading.
 #[derive(Debug, Clone)]
@@ -29,7 +30,6 @@ impl Candidate {
             return None;
         }
         let matrix = crate::units::skyrim_euler_matrix(rotation);
-        let scale = if scale == 0.0 { 1.0 } else { scale };
         let mut min = [f32::INFINITY; 3];
         let mut max = [f32::NEG_INFINITY; 3];
         for corner in 0..8 {
@@ -115,12 +115,18 @@ pub struct Selector {
     last_eye: Option<[f32; 3]>,
     revision: u64,
     resident: BTreeMap<GlobalFormId, Residency>,
+    pending: VecDeque<GlobalFormId>,
 }
 
 impl Selector {
-    /// Cheap movement and resident-terrain invalidation test.
+    /// Cheap movement, terrain, pending admission and deferred release test.
     pub fn needs_evaluation(&self, eye: [f32; 3], revision: u64) -> bool {
         self.revision != revision
+            || !self.pending.is_empty()
+            || self
+                .resident
+                .values()
+                .any(|state| state.hidden_checks >= 3 && state.hidden_frames >= 29)
             || self.last_eye.is_none_or(|last| {
                 (0..3).map(|i| (last[i] - eye[i]).powi(2)).sum::<f32>() >= 512.0_f32.powi(2)
             })
@@ -164,22 +170,19 @@ impl Selector {
                     additions.push((candidate.distance(eye), candidate.id));
                 }
             }
-            self.resident.retain(|id, state| {
-                candidates.iter().any(|c| c.id == *id)
-                    && !(state.hidden_checks >= 3 && state.hidden_frames >= 30)
-            });
+            self.resident
+                .retain(|id, _| candidates.iter().any(|c| c.id == *id));
             additions.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-            for (_, id) in additions.into_iter().take(8) {
-                self.resident.insert(id, Residency::default());
-            }
+            self.pending = additions.into_iter().map(|(_, id)| id).collect();
+        }
+        self.resident
+            .retain(|_, state| !(state.hidden_checks >= 3 && state.hidden_frames >= 30));
+        self.pending
+            .retain(|id| candidates.iter().any(|candidate| candidate.id == *id));
+        for id in self.pending.drain(..self.pending.len().min(8)) {
+            self.resident.insert(id, Residency::default());
         }
         self.resident.keys().copied().collect()
-    }
-
-    /// Re-evaluate pending demand after a bounded admission batch, without
-    /// rescanning every idle frame once all eligible models have been admitted.
-    pub fn continue_admission(&mut self) {
-        self.last_eye = None;
     }
 }
 
@@ -364,6 +367,36 @@ mod tests {
             .is_empty());
     }
     #[test]
+    fn hidden_release_finishes_at_rest_without_resampling_terrain() {
+        let candidates = [candidate(2000)];
+        let eye = [0.0, 0.0, 100.0];
+        let mut selector = Selector::default();
+        selector.update(&candidates, eye, 0, ridge);
+        for revision in 1..=3 {
+            assert_eq!(
+                selector
+                    .update(&candidates, eye, revision, |_, _| Some(10000.0))
+                    .len(),
+                1
+            );
+        }
+        for _frame in 4..=29 {
+            assert!(!selector.needs_evaluation(eye, 3));
+            assert_eq!(
+                selector
+                    .update(&[], eye, 3, |_, _| panic!("idle terrain query"))
+                    .len(),
+                1
+            );
+        }
+        assert!(selector.needs_evaluation(eye, 3));
+        assert!(selector
+            .update(&candidates, eye, 3, |_, _| panic!("release terrain query"))
+            .is_empty());
+        assert!(!selector.needs_evaluation(eye, 3));
+    }
+
+    #[test]
     fn scale_and_rotation_transform_every_corner() {
         let candidate = Candidate::from_bounds(
             GlobalFormId { file: 0, object: 1 },
@@ -376,6 +409,22 @@ mod tests {
         assert!((candidate.min[0] - 60.0).abs() < 0.001);
         assert!((candidate.max[1] - 120.0).abs() < 0.001);
         assert_eq!(candidate.max[2], 160.0);
+    }
+
+    #[test]
+    fn zero_scale_creates_no_distant_demand() {
+        let candidate = Candidate::from_bounds(
+            GlobalFormId { file: 0, object: 1 },
+            [-100, -100, 0, 100, 100, 2000],
+            [4000.0, 0.0, 0.0],
+            [0.0; 3],
+            0.0,
+        )
+        .unwrap();
+        assert_eq!(candidate.pixels([0.0; 3]), 0.0);
+        assert!(Selector::default()
+            .update(&[candidate], [0.0; 3], 0, |_, _| None)
+            .is_empty());
     }
     #[test]
     fn release_reach_exceeds_admission_reach() {
@@ -424,6 +473,47 @@ mod tests {
             selected.iter().map(|id| id.object).collect::<Vec<_>>(),
             (1..=8).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn pending_admission_does_not_resample_terrain() {
+        let candidates: Vec<_> = (1..=16)
+            .map(|object| Candidate {
+                id: GlobalFormId { file: 0, object },
+                ..candidate(2000)
+            })
+            .collect();
+        let eye = [0.0, 0.0, 100.0];
+        let mut selector = Selector::default();
+        assert_eq!(selector.update(&candidates, eye, 0, ridge).len(), 8);
+        assert!(selector.needs_evaluation(eye, 0));
+        assert_eq!(
+            selector
+                .update(&candidates, eye, 0, |_, _| panic!("pending terrain query"))
+                .len(),
+            16
+        );
+        assert!(!selector.needs_evaluation(eye, 0));
+    }
+
+    #[test]
+    fn terrain_change_cancels_pending_hidden_demand() {
+        let candidates: Vec<_> = (1..=16)
+            .map(|object| Candidate {
+                id: GlobalFormId { file: 0, object },
+                ..candidate(2000)
+            })
+            .collect();
+        let eye = [0.0, 0.0, 100.0];
+        let mut selector = Selector::default();
+        assert_eq!(selector.update(&candidates, eye, 0, ridge).len(), 8);
+        assert_eq!(
+            selector
+                .update(&candidates, eye, 1, |_, _| Some(10000.0))
+                .len(),
+            8
+        );
+        assert!(!selector.needs_evaluation(eye, 1));
     }
     #[test]
     fn loaded_land_replaces_the_hidden_btr_height() {

@@ -13,6 +13,7 @@ fn opaque_surface(id: u32, triangles: usize) -> LoadedSurface {
         indices: (0..triangles).flat_map(|_| [0, 1, 2]).collect(),
         material: MaterialDesc {
             alpha: AlphaMode::Opaque,
+            double_sided: true,
             ..MaterialDesc::default()
         },
         ..MeshData::default()

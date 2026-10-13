@@ -15,6 +15,7 @@ fn rnd_07_skinned_actor_geometry_is_not_used_as_a_static_occluder() {
         bone_weights: Some(vec![[1.0, 0.0, 0.0, 0.0]; 3]),
         material: MaterialDesc {
             alpha: AlphaMode::Opaque,
+            double_sided: true,
             ..MaterialDesc::default()
         },
         ..MeshData::default()

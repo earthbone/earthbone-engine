@@ -383,12 +383,16 @@ struct PresentationReferences {
     physical: HashMap<GlobalFormId, Vec<GlobalFormId>>,
 }
 
-/// UESP REFR bit 16 and xEdit STAT bit 2 select persistent full models.
+/// xEdit names header bit 2 Never Fades on STAT and MSTT, not every base type.
+fn base_never_fades(base: &Record) -> bool {
+    matches!(base.tag.as_bytes(), b"STAT" | b"MSTT")
+        && base.flags & soe_esm::records::stat::flags::NEVER_FADES != 0
+}
+
+/// UESP REFR bit 16 and xEdit Never Fades select persistent full models.
 fn persistent_full_model(reference: &Refr, base: &Record) -> bool {
     reference.is_persistent()
-        && (reference.record_flags & 0x0001_0000 != 0
-            || (base.tag == tag::STAT
-                && base.flags & soe_esm::records::stat::flags::NEVER_FADES != 0))
+        && (reference.record_flags & 0x0001_0000 != 0 || base_never_fades(base))
 }
 
 /// A winning cell record prepared for the editor's worldspace and cell tree.

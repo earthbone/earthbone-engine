@@ -8208,15 +8208,18 @@ requires successful process exit after its count assertions.
 
 ## Persistent full-model visibility, RND-40 and RND-41
 
-Full LOD and persistent STAT Never Fades placements render in their physical
+Full LOD and persistent STAT or MSTT Never Fades placements render in their physical
 near cells. Beyond the grid, record bounds select visible demand before any
 model preparation. A two-pixel projected diagonal and any clear sight line
 to the top or a corner over resident terrain LOD admit the full model.
 Missing terrain retains visibility. The camera rig supplies the eye position.
 Selection runs after 512 units of movement or a worldspace, grid or terrain
 change. A 1.5-pixel release threshold, three hidden observations and thirty
-update frames retain models across ridge movement. Admission starts at most
-eight references per update, nearest first. Large-world persistent-cell loads
+update frames retain models across ridge movement. The frame delay finishes
+at rest after the third hidden observation, without another terrain query.
+Admission starts at most
+eight references per update, nearest first, without resampling terrain for
+each admission batch. Large-world persistent-cell loads
 prepare no whole-world model set. Object LOD leaves these references to this
 full-model path. Small worlds retain their full-city presentation.
 
@@ -8224,9 +8227,23 @@ Shared MultiMesh geometry, materials and textures survive selection updates.
 Worldspace replacement frees distant surfaces, instances and height samples.
 Collision stays in the near grid. No saved state or per-reference node is
 added. Cell occluders and project occlusion culling default to enabled.
-Exact opaque closed or two-sided static triangles supply cell blockers, which
+Exact opaque two-sided static triangles supply cell blockers, which
 are removed when their source state changes. Effects and transparent surfaces
-supply no blockers. Joined terrain blockers retain their holes and are lowered
+supply no blockers. TREE_ANIM shader motion also excludes a surface from
+occluder selection. Joined terrain blockers retain their holes and are lowered
 two metres. Godot's whole-instance bounds remain intact for partial visibility.
 Sources, acceptance checks, historical RND-40 counts and measured evidence are
 in [full-lod-residency.md](full-lod-residency.md).
+
+The 2026-10-13 continuation measured 325 loaded flagged models at the gate,
+including 324 distant models, out of 785 eligible drawable Tamriel placements.
+Godot 4.4.1 under llvmpipe at 640 by 360 reduced gate draw calls from 3989 to
+1839 with occlusion enabled. Inside Whiterun, all Tamriel distant models were
+released and draw calls fell from 2889 to 1010. The city fixture has zero
+authored flagged models. The separate partial-visibility fixture retained all
+266 exposed pixels while reducing draw calls from three to two.
+The installed process peaked at 12.373745 GiB VmRSS and failed the unchanged
+six GiB acceptance check. The residency rows remain unfinished for that
+failure. The final outside-gate landmark capture passed with 1308 pixels
+against the unchanged 500-pixel threshold and passed visual review against
+its terrain control. The gameplay camera is restored before city measurement.

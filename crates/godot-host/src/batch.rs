@@ -158,26 +158,9 @@ pub struct BatchStats {
 pub const CELL_OCCLUDER_SURFACES: usize = 4;
 
 fn opaque_from_both_sides(surface: &SurfaceArrays) -> bool {
-    if surface.material.double_sided {
-        return true;
-    }
-    // SAFETY: Godot occluder triangles are two-sided. An open one-sided
-    // sheet is invisible from its back, so it cannot be a blocker there.
-    let mut edges = std::collections::HashMap::new();
-    for triangle in surface.indices.as_chunks::<3>().0 {
-        for edge in 0..3 {
-            let a = surface.positions[triangle[edge] as usize].map(f32::to_bits);
-            let b = surface.positions[triangle[(edge + 1) % 3] as usize].map(f32::to_bits);
-            let key = if a < b { (a, b) } else { (b, a) };
-            let count = edges.entry(key).or_insert((0u32, 0i32));
-            count.0 += 1;
-            count.1 += if a < b { 1 } else { -1 };
-        }
-    }
-    !edges.is_empty()
-        && edges
-            .values()
-            .all(|&(count, winding)| count == 2 && winding == 0)
+    // SAFETY: Godot occluders are two-sided. Closure alone cannot prove
+    // opacity, since a camera inside a one-sided shell sees its culled backs.
+    surface.material.double_sided
 }
 
 /// Flatten the largest opaque source surfaces into one cell-local occluder
@@ -195,6 +178,7 @@ pub fn cell_occluder_mesh(surfaces: &[LoadedSurface]) -> (Vec<[f32; 3]>, Vec<i32
                 && surface.arrays.material.water.is_none()
                 && surface.arrays.material.effect.is_none()
                 && surface.arrays.material.refraction.is_none()
+                && surface.arrays.material.shader_flags_2 & soe_nif::blocks::flags2::TREE_ANIM == 0
                 && !surface.arrays.is_skinned()
                 && surface.animation.is_none()
                 && surface.arrays.triangle_count() > 0
@@ -522,6 +506,34 @@ mod tests {
     fn distant_occluder_rejects_open_single_sided_geometry() {
         let mut surface = repeated_triangle(0.0, 1);
         surface.arrays.material.double_sided = false;
+        assert!(cell_occluder_mesh(&[surface]).0.is_empty());
+    }
+
+    #[test]
+    fn distant_occluder_rejects_closed_single_sided_geometry() {
+        let data = MeshData {
+            positions: vec![
+                [0.0; 3],
+                [10.0, 0.0, 0.0],
+                [0.0, 10.0, 0.0],
+                [0.0, 0.0, 10.0],
+            ],
+            indices: vec![0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3],
+            ..MeshData::default()
+        };
+        let mut surface = repeated_triangle(0.0, 1);
+        surface.arrays = build_surface(&data, MeshOptions::default()).unwrap();
+        assert!(!surface.arrays.material.double_sided);
+        assert!(cell_occluder_mesh(&[surface.clone()]).0.is_empty());
+        surface.arrays.material.double_sided = true;
+        assert!(!cell_occluder_mesh(&[surface]).0.is_empty());
+    }
+
+    #[test]
+    fn distant_occluder_rejects_shader_animated_tree_geometry() {
+        let mut surface = repeated_triangle(0.0, 1);
+        assert!(!cell_occluder_mesh(&[surface.clone()]).0.is_empty());
+        surface.arrays.material.shader_flags_2 |= soe_nif::blocks::flags2::TREE_ANIM;
         assert!(cell_occluder_mesh(&[surface]).0.is_empty());
     }
 

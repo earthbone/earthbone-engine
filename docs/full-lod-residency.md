@@ -15,8 +15,10 @@ nifloader.cpp also excludes. Full LOD does not make those markers visible.
 The rule follows local UESP REFR.wikitext, Wrye Bash
 [dev]-Record-Header-Flags.md, TES5Edit/Core/wbDefinitionsTES5.pas and
 CommonLibSSE TESObjectREFR.h and TESObjectSTAT.h. REFR bit 16 selects Full LOD.
-STAT header bit 2 selects Never Fades. A similarly numbered bit on another
-base type does not select Never Fades.
+STAT and MSTT header bit 2 selects Never Fades in xEdit. A similarly numbered
+bit on an unrelated base type does not select Never Fades. The earlier survey
+below counted only STAT Never Fades. The continuation corrects MSTT selection
+and keeps the MISC flag exclusion in the synthetic ownership test.
 
 The 2026-10-13 visibility decision supersedes whole-world residency.
 Inside loaded grid cells, both kinds use physical presentation. Beyond those
@@ -551,8 +553,10 @@ wrapper process, so it did not capture the Godot thread stacks.
 
 Selection reads winning REFR DATA and XSCL, its base OBND, and the existing
 Full LOD or STAT Never Fades flags before requesting any NIF. All eight
-rotated and scaled bounds corners contribute to the world AABB. Missing,
-zero or malformed bounds use a conservative 4096-unit cube at the placement.
+rotated and scaled bounds corners contribute to the world AABB.
+Bounds use the signed 16-bit XYZ minimum and maximum declared by xEdit's
+`wbObjectBounds` in `wbDefinitionsCommon.pas` and UESP `OBND_Field.wikitext`.
+Missing, zero or malformed bounds use a conservative 4096-unit cube at the placement.
 The diagonal must project to at least two pixels at a reference 720-pixel
 height and 75-degree vertical field of view. This normalized screen threshold
 is independent of actual window resolution and camera heading.
@@ -575,8 +579,12 @@ queries. The camera rig supplies first-person and third-person eye placement.
 Already admitted references retain a 1.5-pixel threshold, giving a release
 reach one third larger than admission. Three hidden observations and thirty
 update frames are required for release. Heading changes never evict a model.
+Once three hidden observations have accumulated, the frame debounce finishes
+even when the player stops, without repeating terrain queries.
 At most eight newly admitted references prepare per update, nearest first
-with FormID tie breaks. Further admission batches continue until demand settles.
+with FormID tie breaks. Further admission batches drain the retained visible
+demand without repeating sight lines. Movement or terrain changes replace
+pending demand before another model is prepared.
 Admitted demand uses live enable state, so an authored disabled flag does not
 reject a reference that the game enabled.
 All paths preparing a large-world persistent cell directly return no models.
@@ -592,9 +600,10 @@ per-reference node is added.
 Cell occluders and the project's occlusion setting default to enabled.
 Occluders use exact opaque source triangles and placement transforms, with
 no hull or expanded box. Water, cutouts, effects, refraction, skinning and
-animation are excluded. Open single-sided surfaces are also excluded because
-Godot treats occluder triangles as two-sided. Other surfaces must be closed
-with opposing edge winding. A source pose, enable or destruction change
+animation are excluded, including TREE_ANIM vertex motion in the material
+shader. Single-sided surfaces are excluded because Godot treats occluder
+triangles as two-sided. A closed shell can still have invisible back faces
+when the camera is inside it. A source pose, enable or destruction change
 removes its old cell occluder. Missing blockers reduce culling rather than
 hide visible geometry.
 
@@ -642,3 +651,71 @@ landmark capture. Old capture files are not evidence for a newer run.
 The next observation uses MALLOC_ARENA_MAX=2, MALLOC_TRIM_THRESHOLD_=65536 and
 LP_NUM_THREADS=4, alongside the run wrapper's installed slot and memory floor.
 Those are test-host settings, not changes to the project or the six GiB check.
+
+## Continuation of the timed attempt, 2026-10-13
+
+This work continues detached `dfa8db6f2` in the lead-play-visibility scratch
+worktree. Pending admissions retain the nearest-first visible IDs instead of
+repeating every terrain sight line after each eight-model batch. A terrain
+revision replaces pending demand. Deferred release completes at rest after
+three hidden observations and thirty update frames. An explicit zero XSCL
+produces zero projected size, while an absent XSCL retains the reader's unit
+scale default.
+
+The local xEdit MSTT definition, lines 5333 to 5351, names Never Fades at
+header bit 2. Persistent MSTT models now use the same visible-demand path as
+STAT models. The ownership fixture admits the new MSTT candidate, retains
+the MISC exclusion, and still prepares zero models from a direct large-world
+persistent-cell load. Cell blockers require two-sided opaque materials.
+Closed topology alone cannot prove that a surface blocks from both sides.
+TREE_ANIM shader motion also excludes a surface from blocker selection.
+RND-07's placement and index fixtures and the skinning and RND-23 animation
+fixtures now use two-sided opaque materials. Their assertions stay unchanged
+and still isolate those contracts from the one-sided exclusion.
+
+Fourteen selector and terrain tests and three occluder regressions passed.
+The MSTT ownership fixture passed separately. The Godot 4.4.1 fixture on
+Xvfb :99 reduced draw calls from three to two and retained all 266 exposed
+pixels. Every installed observation now keeps a unique `target/full-lod/run-*`
+directory and prints its path, so an earlier capture cannot fill a newer run.
+Memory telemetry is emitted before the draw-call and landmark captures.
+The six GiB check, landmark pixel threshold and city-release assertions stay
+unchanged. No dependency, saved section or production per-reference node was
+added.
+
+Context7 and Serena were unavailable in this continuation. The existing API
+adapter was checked against the local Godot documentation and the versioned
+Godot 4.4 OccluderInstance3D and occlusion guide. The earlier Context7 query
+remains recorded above. The continuation rebuilt the release extension through
+the run's cargo wrapper. Installed observations used Xvfb :99, the wrapper's
+installed slot and the allocator and llvmpipe settings recorded above. No
+hand-started Godot process or Skyrim process was used.
+
+The completed `target/full-lod/run-5D9ucg` observation measured the following
+with Godot 4.4.1 and llvmpipe at 640 by 360:
+
+| Location | Loaded flagged models | Distant models | Draw calls off | Draw calls on |
+| --- | ---: | ---: | ---: | ---: |
+| Whiterun gate | 325 | 324 | 3989 | 1839 |
+| Inside Whiterun | 0 | 0 | 2889 | 1010 |
+
+The gate had 785 eligible drawable Tamriel placements and 251 near-grid
+flagged references. Admission is 325, rather than the whole-world eligible
+set. The city has no authored flagged models in this fixture. Returning to
+Whiterun released all Tamriel full models and distant ownership. Gate
+occluders comprised two cell meshes and 261 terrain blocks, with 280150820
+bytes of resident height samples and 3547564 bytes of distant CPU geometry.
+The city retained two cell occluders and 260 parent terrain blocks.
+
+Godot exited normally, but the Rust test returned 101 because its measured
+peak VmRSS was 12.373745 GiB, above the unchanged six GiB limit. These are
+whole-process bytes, not an estimate of model payload. The observed budget
+failure remains open. RND-40 and RND-41 remain `wip`, with no completed
+evidence claim. An earlier observation peaked at 13.076820 GiB. Its capture's
+1698-pixel result was a false positive from foreground geometry, found by
+inspecting the PNG. That image does not prove a landmark over a ridge.
+The final capture uses RND-27's separate outside-gate camera and requires
+clear sky across the control image's top edge. It passes with 1308 pixels
+against the unchanged 500-pixel threshold. Both its landmark and terrain
+control PNGs were inspected, showing mountain geometry above the foreground
+ridge. The gameplay camera is restored before city measurements.

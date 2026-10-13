@@ -75,6 +75,7 @@ fn fixture_with_disabled(disabled: bool) -> (tempfile::TempDir, DataSource) {
         (0x900, tag::STAT, 0),
         (0x901, tag::STAT, 4),
         (0x902, Tag::new(b"MISC"), 4),
+        (0x903, Tag::new(b"MSTT"), 4),
     ] {
         let mut base = Record::new(kind, object).zsub(b"MODL", "missing.nif");
         base.flags = flags;
@@ -96,6 +97,7 @@ fn fixture_with_disabled(disabled: bool) -> (tempfile::TempDir, DataSource) {
             (2, 0x901, 0x400, 20.0),
             (3, 0x901, 0x10400, -20.0),
             (4, 0x902, 0x400, 0.0),
+            (5, 0x903, 0x400, 40.0),
         ] {
             let mut reference = Record::new(tag::REFR, world + 0x10 + offset)
                 .sub(b"NAME", base.to_le_bytes())
@@ -171,7 +173,12 @@ fn persistent_full_lod_residency_is_world_scoped_and_disjoint_from_grid() {
     for world in [0x100, 0x200] {
         assert_eq!(
             source.presentation_references(id(world + 1)),
-            &[id(world + 0x11), id(world + 0x12), id(world + 0x13)]
+            &[
+                id(world + 0x11),
+                id(world + 0x12),
+                id(world + 0x13),
+                id(world + 0x15),
+            ]
         );
         assert_eq!(
             source.presentation_references(id(world + 2)),
@@ -187,7 +194,7 @@ fn persistent_full_lod_residency_is_world_scoped_and_disjoint_from_grid() {
                 .sum::<usize>(),
             3
         );
-        assert_eq!(source.cell_index().references(id(world + 1)).len(), 5);
+        assert_eq!(source.cell_index().references(id(world + 1)).len(), 6);
         assert_eq!(source.physical_references(id(world + 1)), &[]);
         assert_eq!(
             source.physical_references(id(world + 2)),
@@ -202,7 +209,7 @@ fn persistent_full_lod_residency_is_world_scoped_and_disjoint_from_grid() {
                 .meshes_failed,
             0
         );
-        assert_eq!(source.distant_candidates(id(world)).len(), 3);
+        assert_eq!(source.distant_candidates(id(world)).len(), 4);
     }
 }
 
@@ -244,8 +251,7 @@ fn persistent_full_lod_installed_survey() {
             let base_id = source.order.resolve(owner.file, reference.base);
             let base = source.order.winner(base_id).unwrap();
             let is_full = record.flags & 0x0001_0000 != 0;
-            let is_never = base.tag == tag::STAT
-                && base.flags & soe_esm::records::stat::flags::NEVER_FADES != 0;
+            let is_never = base_never_fades(base);
             full += usize::from(is_full);
             never += usize::from(is_never);
             both += usize::from(is_full && is_never);
@@ -314,16 +320,13 @@ fn persistent_full_lod_installed_whiterun_draws_and_releases() {
             .order
             .winner(source.order.resolve(owner.file, reference.base))
             .unwrap();
-        if reference.is_persistent()
-            && (record.flags & 0x0001_0000 != 0 || (base.tag == tag::STAT && base.flags & 4 != 0))
-        {
+        if persistent_full_model(&reference, base) {
             assert!(
                 source.presentation_references(persistent).contains(&id),
                 "full model not world-resident: {id}"
             );
         }
-        if !reference.is_persistent()
-            || (record.flags & 0x0001_0000 == 0 && !(base.tag == tag::STAT && base.flags & 4 != 0))
+        if !persistent_full_model(&reference, base)
             || !soe_game::World::authored_reference_enabled(&source.order, id)
             || models::render_model_for(base).is_none()
         {
@@ -367,7 +370,7 @@ fn persistent_full_lod_installed_whiterun_draws_and_releases() {
                 .winner(source.order.resolve(owner.file, reference.base))
                 .unwrap();
             if (record.flags & 0x0001_0000 != 0
-                || (reference.is_persistent() && base.tag == tag::STAT && base.flags & 4 != 0))
+                || (reference.is_persistent() && base_never_fades(base)))
                 && soe_game::World::authored_reference_enabled(&source.order, id)
                 && models::render_model_for(base)
                     .is_some_and(|model| !marker_only_asset(&source, &model, &mut marker_assets))
@@ -381,8 +384,14 @@ fn persistent_full_lod_installed_whiterun_draws_and_releases() {
         .unwrap()
         .parent()
         .unwrap();
-    let directory = root.join("target/full-lod");
-    std::fs::create_dir_all(&directory).unwrap();
+    let parent = root.join("target/full-lod");
+    std::fs::create_dir_all(&parent).unwrap();
+    let directory = tempfile::Builder::new()
+        .prefix("run-")
+        .tempdir_in(parent)
+        .unwrap()
+        .keep();
+    eprintln!("FULL_LOD_ARTIFACTS {}", directory.display());
     let manifest = directory.join("expected.json");
     let mountain = source
         .load_object_lod_block(
@@ -548,9 +557,7 @@ fn persistent_full_lod_installed_whiterun_prepares_models() {
             .order
             .winner(source.order.resolve(owner.file, reference.base))
             .unwrap();
-        if reference.is_persistent()
-            && (record.flags & 0x0001_0000 != 0 || (base.tag == tag::STAT && base.flags & 4 != 0))
-        {
+        if persistent_full_model(&reference, base) {
             assert!(
                 source.presentation_references(persistent).contains(&id),
                 "full model not world-resident: {id}"
@@ -562,8 +569,7 @@ fn persistent_full_lod_installed_whiterun_prepares_models() {
             (p[1] / crate::units::CELL_UNITS).floor() as i32,
         ];
         if !selected.contains(&id)
-            || !reference.is_persistent()
-            || (record.flags & 0x0001_0000 == 0 && !(base.tag == tag::STAT && base.flags & 4 != 0))
+            || !persistent_full_model(&reference, base)
             || grid[0].abs_diff(origin[0]) > 20
             || grid[1].abs_diff(origin[1]) > 20
             || !soe_game::World::authored_reference_enabled(&source.order, id)

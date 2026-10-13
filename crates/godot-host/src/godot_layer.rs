@@ -4886,9 +4886,6 @@ impl CellStreamerNode {
                 .or_default()
                 .push(surface);
         }
-        if additions.len() == 8 {
-            self.distant.selector.continue_admission();
-        }
         if !self.apply_cell_delta(&[], &[owner], world) {
             return false;
         }
