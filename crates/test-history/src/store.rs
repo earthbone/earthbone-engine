@@ -313,7 +313,19 @@ impl TursoStore {
             self.insert_rows(table, &values).await?;
         }
         for fingerprint in fingerprints {
-            self.connection.execute("UPDATE failures SET first_commit=(SELECT r.commit_id FROM failures f JOIN runs r ON r.id=f.run WHERE f.fingerprint=?1 AND r.commit_id IS NOT NULL ORDER BY COALESCE(r.started,r.ended,''),r.id LIMIT 1),last_commit=(SELECT r.commit_id FROM failures f JOIN runs r ON r.id=f.run WHERE f.fingerprint=?1 AND r.commit_id IS NOT NULL ORDER BY COALESCE(r.started,r.ended,'') DESC,r.id DESC LIMIT 1) WHERE fingerprint=?1", [fingerprint]).await?;
+            let bounds = self.sql("SELECT (SELECT r.commit_id FROM failures f JOIN runs r ON r.id=f.run WHERE f.fingerprint=?1 AND r.commit_id IS NOT NULL ORDER BY COALESCE(r.started,r.ended,''),r.id LIMIT 1) AS first_commit,(SELECT r.commit_id FROM failures f JOIN runs r ON r.id=f.run WHERE f.fingerprint=?1 AND r.commit_id IS NOT NULL ORDER BY COALESCE(r.started,r.ended,'') DESC,r.id DESC LIMIT 1) AS last_commit", std::slice::from_ref(&fingerprint)).await?;
+            let params = std::iter::once(turso::Value::Text(fingerprint)).chain(
+                ["first_commit", "last_commit"].into_iter().map(|key| {
+                    bounds
+                        .first()
+                        .and_then(|row| row.get(key))
+                        .and_then(Value::as_str)
+                        .map_or(turso::Value::Null, |value| {
+                            turso::Value::Text(value.to_owned())
+                        })
+                }),
+            );
+            self.connection.execute("UPDATE failures SET first_commit=?2,last_commit=?3 WHERE fingerprint=?1 AND (first_commit IS NOT ?2 OR last_commit IS NOT ?3)",turso::params_from_iter(params)).await?;
         }
         Ok(())
     }

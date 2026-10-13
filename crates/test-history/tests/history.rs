@@ -281,9 +281,17 @@ mod database {
             let status_text = std::fs::read_to_string(root.join("status.log"))?;
             let facts = parse::integration_facts(&status_text)?;
             let summary_path = Path::new(&logs).join("integration/summary.txt");
-            let expected = parse::summary_lines(&std::fs::read_to_string(&summary_path)?);
+            let summary_path = std::fs::canonicalize(summary_path)?;
+            let summary_text = std::fs::read_to_string(&summary_path)?;
+            let expected = parse::summary_lines(&summary_text);
+            let mut summary = parse::text_log(&summary_path, &summary_text, &ids())?;
+            summary.run.extend(facts.clone());
+            store.record(&summary).await?;
             let files = parse::discover(std::slice::from_ref(&logs))?;
             for (index, path) in files.iter().enumerate() {
+                if path == &summary_path {
+                    continue;
+                }
                 let context = if path.parent() == summary_path.parent() {
                     parse::current_stage_facts(
                         &status_text,
