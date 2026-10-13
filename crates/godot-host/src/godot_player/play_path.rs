@@ -29,6 +29,11 @@ impl PlayerNode {
         let mut result = VarDictionary::new();
         match self.query_player_path(destination) {
             Ok(points) => {
+                if let Some(goal) = points.as_slice().last() {
+                    result.set("goal", *goal);
+                    result.set("approach_distance", destination.distance_to(*goal));
+                    result.set("approach_limit", 128.0);
+                }
                 result.set("points", &points);
                 result.set("reason", "");
             }
@@ -173,11 +178,12 @@ impl PlayerNode {
             .ok_or("player has no inline gameplay world")?;
         let cell = self.loaded_cell.ok_or("player has no collision cell")?;
         let feet = self.feet();
-        soe_game::play::navigation_path(
+        soe_game::play::navigation_approach_path(
             game,
             cell,
             [feet.x, feet.y, feet.z],
             [destination.x, destination.y, destination.z],
+            128.0,
         )
         .map(|path| {
             path.points

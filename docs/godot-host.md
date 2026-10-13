@@ -1,5 +1,31 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Play path fix checkpoint, 2026-10-13
+
+The first live gate on `ee278da20` exited 101 after the 360-second process
+budget. It never emitted a route.walk or route.exit result. Slow observation
+captures restarted before the walker could resume or the duration check could
+finish. At Hulda, all six capsules stood on collision in 253 samples. Maximum
+below-ground distance was 0.000008 units and maximum below-NAVM distance was
+2.361435 units. Poses changed in all four paired actors at the final sample,
+but their reference positions stayed fixed and npc.moves was not reported.
+The last frame measurement had 5,425 frames over 50 ms and worst 673.368 ms.
+The process-budget failure was logged as watchdog.max_ms with stale_ms 25.
+These are partial observations, not a completed route.
+
+The next correction initializes enabled attached ACHR states before AI
+scheduling. Contact placements come from the shared reference table. Cell
+prefetch alone does not activate actors. Two synthetic regressions cover both
+sides of that boundary. The scheduler finishes before starting another capture
+when its duration is reached, and schedules the next capture one second after
+completion. The headless scheduling fixture uses the real walker with a
+1.1-second observation and verifies movement and completion. The old code
+failed its eight-second watchdog, while corrected code completed in 3.186
+seconds. No movement, grounding, duration or frame threshold changed.
+
+Validation and complete live observations are recorded after the final run.
+`tools/lint.sh` is excluded by the task's scoped-check instruction.
+
 ## Play path observations, TST-19
 
 `godot/tst_19_play_path.gd` extends the playable walkthrough and reports
@@ -12,7 +38,11 @@ and skin transforms are observations of the production host resources.
 The run modes, row completion rule and watchdog are described in
 [validation.md](validation.md).
 
-The player route queries `play::navigation_path` using its collision cell.
+The player route queries `play::navigation_approach_path` using its collision cell.
+The approach query clamps to a walkable polygon boundary only when the
+anchor has no walkable footprint, with a 128-unit bound. It reports the goal
+and approach distance. Object tops from a ground ray do not replace NAVM floor
+heights. Strict point queries retain their off-mesh rejection.
 The existing game route helper filters winning NAVMs to that interior or
 worldspace and projects endpoints onto their walkable surfaces. Unrestricted
 queries on the AI graph can select an unrelated interior that overlaps in XY.

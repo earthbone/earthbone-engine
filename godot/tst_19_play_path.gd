@@ -131,7 +131,7 @@ func _process(_delta: float) -> bool:
 	if not movement_window_logged and Time.get_ticks_msec() - npc_checks.started_msec >= NpcChecks.WINDOW_MSEC:
 		movement_window_logged = true
 		print("PLAY_PATH_NPC_WINDOW ", JSON.stringify({"units": npc_checks.max_units, "walk_frames": npc_checks.walk_frames, "packages": player.call("npc_package_states"), "planning": player.call("ai_planning_details")}))
-	if not movement_reported and Time.get_ticks_msec() - npc_checks.started_msec >= NpcChecks.WINDOW_MSEC and (npc_checks.max_units >= NpcChecks.MOVE_UNITS or stop_name in ["market", "gate", "return", "grass"]):
+	if not movement_reported and ((npc_checks.max_units >= NpcChecks.MOVE_UNITS and npc_checks.walk_frames > 0) or (Time.get_ticks_msec() - npc_checks.started_msec >= NpcChecks.WINDOW_MSEC and stop_name in ["market", "gate", "return", "grass"])):
 		movement_reported = true
 		_check("npc.moves", npc_checks.max_units >= NpcChecks.MOVE_UNITS and npc_checks.walk_frames > 0, {"units": npc_checks.max_units, "window_s": 30, "walk_frames": npc_checks.walk_frames, "packages": player.call("npc_package_states")})
 	_drain_audio()
@@ -197,9 +197,6 @@ func _look_at(target: Vector3) -> void:
 func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	while sampling and not finished:
 		await process_frame
-	var ground: Dictionary = player.call("play_path_ground", target + Vector3(0, 0, 80))
-	if not ground.is_empty():
-		target.z = ground.height
 	var navigation: Dictionary = player.call("play_path_navigation_details", target)
 	var points: PackedVector3Array = navigation.points
 	var start := Time.get_ticks_msec()
@@ -232,7 +229,7 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	var final: Vector3 = player.call("position")
 	var distance := initial.distance_to(final)
 	reached = reached and distance > 1.0
-	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
+	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "goal": str(navigation.get("goal", target)), "approach_distance": navigation.get("approach_distance", 0.0), "approach_limit": navigation.get("approach_limit", 0.0), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
 	if not reached:
 		_finish()
 	return reached
@@ -306,7 +303,7 @@ func _route() -> void:
 	for container: Dictionary in containers:
 		var pose: Dictionary = player.call("gameplay_reference_pose", container.file, container.object)
 		if not pose.is_empty():
-			if not await _walk_to(pose.position + Vector3(0, -160, 0), 5.0):
+			if not await _walk_to(pose.position, 5.0):
 				return
 		if not player.call("open_container_inventory", container.file, container.object):
 			continue
@@ -333,7 +330,7 @@ func _route() -> void:
 	var loose := _reference(func(ref: Dictionary) -> bool: return ref.file == 0 and ref.object == 0x059050 and ref.kind == "ALCH")
 	var picked := false
 	if not loose.is_empty():
-		if not await _walk_to(loose.position + Vector3(0, -150, 0), 5.0):
+		if not await _walk_to(loose.position, 5.0):
 			return
 		_look_at(loose.position)
 		var before: int = player.call("play_path_item_count", loose.base_file, loose.base_object)
@@ -353,7 +350,7 @@ func _route() -> void:
 	stop_name = "hearth"
 	var hearth := _reference(func(ref: Dictionary) -> bool: return ref.editor_id == "Campfire01Burning" and ref.file == 0 and ref.object == 0x05D691)
 	if not hearth.is_empty():
-		if not await _walk_to(hearth.position + Vector3(0, -180, 0), 8.0):
+		if not await _walk_to(hearth.position, 8.0):
 			return
 		_look_at(hearth.position + Vector3(0, 0, 50))
 	_check("route.hearth", not hearth.is_empty(), {"reference": hearth.get("id", "missing")})
