@@ -143,6 +143,8 @@ impl RuntimeSurface {
                     )
                     .to_variant(),
                 );
+            } else if desc.refraction.is_some() {
+                material.set_shader_parameter("base_alpha", &alpha.to_variant());
             } else {
                 material.set_shader_parameter(
                     "emission_color",
@@ -179,6 +181,15 @@ impl CellStreamerNode {
             nif_effect_material(
                 &desc,
                 effect,
+                &surface.textures,
+                &mut self.materials.textures,
+                &self.materials.shaders,
+            )
+            .upcast()
+        } else if let Some(refraction) = &desc.refraction {
+            nif_refraction_material(
+                &desc,
+                refraction,
                 &surface.textures,
                 &mut self.materials.textures,
                 &self.materials.shaders,

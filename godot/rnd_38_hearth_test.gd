@@ -5,6 +5,7 @@ const MIN_FIRE_PIXELS := 100
 const MIN_EDGE_PIXELS := 20
 const COLOR_TOLERANCE := 0.20
 const ADDITIVE_TOLERANCE := 0.035
+const MAX_SATURATED_HUE_SPREAD := 0.20
 var failures := 0
 var hearth: Array[Dictionary] = []
 var palette_colors: Array[Vector3] = []
@@ -52,6 +53,29 @@ func palette_distance(color: Vector3) -> float:
 		distance = minf(distance, color.distance_to(palette))
 	return distance
 
+func check_hues(fire: Image, empty: Image, name: String) -> void:
+	var hues: Array[float] = []
+	for y in range(fire.get_height()):
+		for x in range(fire.get_width()):
+			var rendered := rgb(fire.get_pixel(x, y))
+			var contribution := (rendered - rgb(empty.get_pixel(x, y))).max(Vector3.ZERO)
+			if strength(contribution) <= 0.025:
+				continue
+			# Refraction moves background colours, whose difference hue is not a rendered hue.
+			var color := Color(rendered.x, rendered.y, rendered.z)
+			if color.s > 0.45:
+				hues.append(color.h)
+	check(hues.size() >= MIN_FIRE_PIXELS, name + " has measurable saturated flame pixels")
+	hues.sort()
+	var largest_gap := 1.0
+	if not hues.is_empty():
+		largest_gap = 1.0 + hues.front() - hues.back()
+		for i in range(1, hues.size()):
+			largest_gap = maxf(largest_gap, hues[i] - hues[i - 1])
+	var spread := 1.0 - largest_gap
+	check(spread <= MAX_SATURATED_HUE_SPREAD, "%s saturated hue spread: %f" % [name, spread])
+	print("RND-38 ", name, " saturated_pixels=", hues.size(), " hue_spread=", spread)
+
 func read_palette(texture: Texture2D, path: String) -> void:
 	var image := texture.get_image()
 	if image.is_compressed():
@@ -87,6 +111,8 @@ func _start() -> void:
 	player.tree_exiting.disconnect(Callable(system_overlay, "_write_on_player_exit"))
 	player.set_process(false)
 	player.set_physics_process(false)
+	streamer.set_process(false)
+	streamer.call("step_object_animations", 0.75)
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(output))
 	for environment_node: WorldEnvironment in root.find_children("*", "WorldEnvironment", true, false):
 		environment_node.environment.tonemap_mode = Environment.TONE_MAPPER_LINEAR
@@ -111,11 +137,18 @@ func _start() -> void:
 	var bounds := AABB()
 	var effect_bounds_set := false
 	var palettes := {}
+	var fireplace_center := Vector3.ZERO
+	for row: Dictionary in surfaces:
+		if row.models.has("clutter/woodfires/fireplacewood01burning.nif") and row.effect:
+			fireplace_center = row.bounds.get_center()
+			break
 	for row: Dictionary in surfaces:
 		if legacy_inspection:
 			row.effect = true
 			row.refraction = false
-		if not row.models.has("clutter/woodfires/fireplacewood01burning.nif"):
+		var fireplace: bool = row.models.has("clutter/woodfires/fireplacewood01burning.nif")
+		var nearby_campfire: bool = row.models.has("clutter/woodfires/campfire01burning.nif") and row.bounds.get_center().distance_to(fireplace_center) < 3.0
+		if not fireplace and not nearby_campfire:
 			continue
 		if not row.effect and not str(row.source).to_lower().contains("vaportilenormal"):
 			continue
@@ -127,8 +160,10 @@ func _start() -> void:
 		check(material != null, "all visible hearth layers use their NIF shader path: " + row.source)
 		if material == null:
 			continue
+		material.set_shader_parameter("animation_time", 0.75)
 		print("RND-38 layer source=", row.source, " palette=", row.palette,
 			" flags=", row.flags1, "/", row.flags2, " blend=", row.src_blend, "/", row.dst_blend,
+			" references=", row.get("references", []), " animated=", row.get("animated", false),
 			" bounds=", row.bounds, " palette_bound=", material.get_shader_parameter("palette_texture") != null)
 		check(material.shader.code.contains("depth_draw_never"), "hearth layer does not write depth: " + row.source)
 		if row.effect:
@@ -136,6 +171,11 @@ func _start() -> void:
 		else:
 			check(row.refraction and material.shader.code.contains("ALBEDO = textureLod(screen_texture,"), "normal-map plane only distorts the background")
 			check(material.render_priority < 0, "distortion precedes transparent flames")
+			check(row.get("animated", false), "heat hull exercises the private animated material path")
+			check(material.get_shader_parameter("distortion_texture") is Texture2D, "animated heat hull binds distortion vectors")
+			var clamp_mode := int(row.get("clamp_mode", 3))
+			var wrap_bits := int((clamp_mode & 2) != 0) | (int((clamp_mode & 1) != 0) << 1)
+			check(material.get_shader_parameter("wrap_uv") == wrap_bits, "animated heat hull retains authored wrapping on both axes")
 		if not str(row.palette).is_empty():
 			var palette := material.get_shader_parameter("palette_texture") as Texture2D
 			check(palette != null, "authored palette is bound: " + row.palette)
@@ -143,6 +183,7 @@ func _start() -> void:
 				palettes[row.palette] = true
 				read_palette(palette, str(row.palette))
 	check(not hearth.is_empty(), "resident fireplace effect layers exist")
+	check(hearth.filter(func(row: Dictionary) -> bool: return row.refraction).size() == 2, "both live hearth heat hulls are measured")
 	check(hearth.any(func(row: Dictionary) -> bool: return (int(row.flags1) & 64) != 0), "authored falloff remains enabled")
 	check(not palette_colors.is_empty(), "installed effects palette colours exist")
 	if hearth.is_empty() or palette_colors.is_empty():
@@ -166,10 +207,16 @@ func _start() -> void:
 	camera.global_position = center + Vector3(1, 0.3, 1).normalized() * extent * 1.6
 	camera.look_at(center)
 	camera.near = 0.02
+	for canvas: CanvasLayer in root.find_children("*", "CanvasLayer", true, false):
+		canvas.hide()
 	await capture("walkthrough_room")
 	camera.global_position = center + Vector3(0.0, 0.8, -1.2) * extent * 0.65
 	camera.look_at(center)
-	await capture("walkthrough_hearth")
+	visible_hearth(false)
+	var room_empty := await capture("walkthrough_hearth_empty")
+	visible_hearth(true)
+	var room_fire := await capture("walkthrough_hearth")
+	check_hues(room_fire, room_empty, "furnished_hearth")
 	if legacy_inspection:
 		print("RESULT: ", "FAIL" if failures > 0 else "PASS", " rnd_33_bannered_mare_hearth_capture")
 		quit(1 if failures > 0 else 0)
@@ -217,6 +264,7 @@ func _start() -> void:
 	var dark_empty := await capture("dark_empty")
 	visible_hearth(true)
 	var dark_fire := await capture("dark_fire")
+	check_hues(dark_fire, dark_empty, "whole_hearth")
 	backdrop_material.set_shader_parameter("backdrop_color", Vector3(0.08, 0.12, 0.16))
 	visible_hearth(false)
 	var light_empty := await capture("light_empty")

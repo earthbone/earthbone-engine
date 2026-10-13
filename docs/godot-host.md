@@ -8005,6 +8005,86 @@ both burning wood models and their streamed effect, falloff and distortion
 layers. Synthetic tests check distortion inputs, cache separation and screen
 sampling. Captures and process logs are written to `target/rnd_38`.
 
+### Animated hearth correction, 2026-10-13
+
+The integrated walkthrough still drew two rainbow hulls at `735176dff`.
+Both heat surfaces carry object animation, so `add_cell` sends them to
+`add_animated_surface` before the ordinary batching path. That function
+selected the lighting material directly and bypassed `material_for`'s
+refraction selection. `VaporTileNormal_n.dds` became opaque albedo again.
+The shader cache retained the supplied shader correctly, but the supplied
+shader was the lighting variant. Flame palettes, source-green lookup and
+NiAlphaProperty blend factors were already correct.
+
+The installed baseline capture identifies fireplace references `0:0602CB`
+and `0:0616F2`. Both live heat hulls had the lighting shader, lacked depth-write
+suppression and bound no distortion texture. Furnished-hearth saturated hue
+spread was 0.864 against the fixed 0.20 limit. The isolated hearth spread was
+0.838, and 7,586 pixels failed flat-background transmission. The additive
+flame check passed independently, showing why the earlier material tests
+missed the visible bug. Baseline images and logs are retained under
+`target/rnd_38_baseline/capture`.
+
+Private animated heat surfaces now select the existing refraction builder
+and update its `base_alpha` uniform along with UV tracks. The clamp upload
+uses Godot's integer encoding for `bvec2`, shared with the effect path.
+The heat hulls transmit the background, and the authored additive flame
+layers retain their palette and falloff shading. No reference nodes or
+saved state are added.
+
+The former `nif_surfaces` inspection looked only in the shared material map.
+Private animated materials were absent there, hiding both live heat hulls
+from the capture. Inspection now reads the material attached to each
+uploaded mesh and reports its animation and reference identity. The capture
+selects all fireplaces and any campfire within three metres, freezes object
+playback, advances its pose by 0.75 seconds and samples shader tracks at
+0.75 seconds. It measures saturated hue spread over the furnished hearth
+and the same resident layers over a controlled background. Its hue-spread
+limit is 0.20. Existing palette, falloff, additive transmission and edge
+checks remain required.
+
+Hue selection uses the same pixels that brighten by more than 0.025, but
+measures their rendered colour. Subtracting a shifted backdrop creates hues
+that are absent from the image. An independent PNG analysis measured a
+rendered spread of 0.850 in the baseline and 0.109 in the first fixed capture,
+against the unchanged 0.20 limit. The difference-image spread was 0.652 in
+that fixed capture, despite its warm rendered pixels. The isolated hearth
+spread was 0.134, with zero opaque-haze, palette or additive errors.
+
+Local nifly `src/Shaders.cpp`, nifxml `nif.xml` and CommonLibSSE-NG
+`include/RE/B/BSEffectShaderMaterial.h` confirm the separate source and palette
+textures, falloff and alpha fields. Community Shaders `Effect.hlsl` confirms
+the source-green palette coordinate. OpenMW `nifloader.cpp` retains texture
+controllers when it selects lighting refraction. The local UESP modfile
+corpus has no BSEffectShaderProperty page. This correction reuses the host's
+existing material builders instead of porting another renderer.
+
+Installed validation passes seven checks: the final walkthrough capture,
+RND-22's mist and window capture, three RND-33 material checks and two
+RND-38 layer checks. The final script rejects the preserved baseline
+library with furnished hue spread 0.772 and 7,586 opaque-haze pixels. The
+fixed library gives spread 0.109, 1,075 additive flame pixels, 648 dim-edge
+pixels, 843 falloff-response pixels and zero palette, haze or additive
+errors. The release build exits 0. Rendering uses Godot 4.4.1 Forward+
+Vulkan on Xvfb :99 with llvmpipe. No desktop walkthrough was launched.
+
+`tools/lint.sh` passes formatting, all clippy configurations, logging,
+comment lint, prose, TOML, Markdown, fuzz formatting and 52 Python tests.
+Its exit status is 101 because `soe-game --test it` has 12 AI/package
+navigation failures, with 4,241 passes and four existing ignored tests in
+that binary. Follow actors stay in the old cell, travel and sleep packages
+do not cross the navmesh cell, and disconnected routes pass an obstacle.
+Those failures occur in `ai_22_adversarial`, `ai_22_follow` and the package
+fixtures imported by `ai_32_adversarial` and `determinism`. This correction
+changes neither `game` nor `navmesh`. RND-38 stays blocked on the repository
+gate. Optional cargo-deny and cargo-audit are unavailable. Gate and installed
+logs remain under `target/rnd_38*`.
+
+An additional `cargo test -p soe-godot-host` run without installed data
+stalled in `aud_13_scene_crossfades_acoustic_and_regional_ambience_and_cancels_stale_decodes`.
+It was interrupted with exit 130, so it supplies no complete host-suite result.
+Its partial output remains in `target/rnd_38_host_tests.log`.
+
 ## Waterfall texture controllers, RND-39
 
 Effect surfaces carry linked standalone
