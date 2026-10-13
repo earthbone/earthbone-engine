@@ -1,5 +1,82 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Character corrections, 2026-10-13
+
+The watched `735176dff` play path exposed three character integration bugs.
+First-person assembly selected ARMA first-person models but also appended the
+third-person HDPT and exported FaceGen parts. Both initial assembly and the
+appearance cache now omit those head parts. CommonLibSSE-NG's
+`include/RE/P/PlayerCharacter.h` declares a separate `firstPerson3D`, and the
+installed first-person character supplies its own rig and addon meshes.
+
+Hulda's exported head diffuse and per-NPC tint both loaded from the archives.
+The material multiplied those colors, omitted texture slot 3's FaceGen detail
+map, and treated `femalehead_msn.dds` as a tangent-space normal map. The face
+shader now follows the detail/tint blend and X,Z,Y model-normal packing in the
+local `skyrim-community-shaders/package/Shaders/Lighting.hlsl`, specifically
+`GetFacegenBaseColor` and its `MODELSPACENORMALS` branch. That source permits
+GPL-3.0-or-later reuse. Its HLSL targets Skyrim shader registers, so the host
+adapts those formulas to Godot's material interface. Nifly's `src/Shaders.cpp` distinguishes FaceTint and
+SkinTint. CommonLib's `BSLightingShaderMaterialFacegenTint.h` declares the
+separate constant tint contract. Hulda's exported head has no constant tint,
+so no guessed skin color is added. The host passes each face's existing
+skinning normal matrices to its shader, preserving animated head rotation.
+Godot's vertex stage skins input geometry before the material vertex code,
+so the material explicitly transforms the sampled model-space normal with
+those same matrices. The host renderer's
+[vertex shader source](https://github.com/godotengine/godot/blob/4.4/servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered.glsl)
+supplies that ordering.
+
+The installed idle played in 3.05 seconds although HKX declares 9.133333
+seconds and playback speed 1.0. Three graph branches reached the same clip
+generator and advanced its one playhead three times per update. The interpreter
+now caches generated outputs for each update. The same installed clip then
+plays in 9.141667 seconds, within the fixed 5 percent tolerance. Serde-hkx's
+`assets/classes/hkbClipGenerator.json` confirms the playback-speed field and
+local-time identity. This reuses the existing decoder and clip sampler.
+
+`installed_first_person_excludes_all_head_parts` covers initial and refreshed
+geometry. `installed_npc_clip_plays_for_authored_duration` measures a complete
+installed idle cycle. `installed_face_pixels_and_first_person_camera_visibility`
+runs `godot/character_regression_test.gd` on Xvfb :99. It isolates Hulda's head,
+checks colored face pixels, compares the material against decoded authored
+texture pixels, rejects the old multiplication shader, and checks that the
+first-person arms have no head parts and the third-person body is hidden.
+The HKX unit fixture verifies one playhead advance and one trigger when three
+branches share a clip. No new reference nodes, saved fields or dependencies
+are added. These checks do not establish complete first-person combat or
+complete FaceGen lighting, including subsurface scattering and specular maps.
+
+This is a partial checkpoint on the detached `lead-play-characters` worktree,
+based on `735176dff`. The two library suites pass 436 host and 116 HKX tests.
+Two HST-20 cases pass after supplying their required Godot binary. Installed
+first-person assembly and refresh, Hulda's head assets, and the complete idle
+duration check pass individually through the run's cargo wrapper. Xvfb :99
+is the only windowed test display used. No Skyrim process was launched.
+
+The final debug render reports 3,295 colored head pixels with mean red
+0.484549. Its authored-pixel reference is RGB 0.339209, 0.260365, 0.238878,
+and the rendered sample is 0.333333, 0.254902, 0.235294, inside the 0.04 bound.
+Both camera checks pass with two arm surfaces, zero head parts and zero visible
+third-person surfaces. Godot then dumps core during shutdown, so the Rust
+runner rejects the run despite the script's PASS. The color-only quad fixture
+now omits bone-attribute reads because it has no skeleton. That final fixture
+change still needs a clean process exit. The final release build passes in
+5 minutes 12 seconds. Its render rerun could not acquire the shared build and
+installed-data slots and was stopped while waiting. All tracked test processes
+have exited, and the project's release-library paths are restored.
+
+The full gate exits 101 with 5,234 Rust passes, 12 failed unchanged game AI
+and package fixtures, and 11 existing ignored cases. The failures cover
+cross-cell Follow, Travel and Sleep, plus obstacle fallback, including repeated
+fixture imports. No game source or check was changed. A later gate attempt
+passes formatting, every clippy variant, comment lint, prose lint, TOML and
+Markdown checks, fuzz formatting and 52 Python cases, then waits for a cargo
+slot before the workspace tests. That waiting attempt was stopped.
+Cargo deny and audit are absent and were skipped. The three new backlog rows
+remain wip while these validation gaps remain. Complete player combat,
+other FaceGen lighting features and the full play route were not validated.
+
 ## Play path fix checkpoint, 2026-10-13
 
 The first live gate on `ee278da20` exited 101 after the 360-second process
@@ -294,6 +371,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +583,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -7972,7 +8051,6 @@ project helper, including RND-36's night shader, and requires an explicit
 Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
-
 
 ### Audio integration corrections, second round, 2026-10-12
 

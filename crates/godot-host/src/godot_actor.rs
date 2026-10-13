@@ -7,8 +7,8 @@
 //! is a `RenderingServer` skeleton RID rather than a `Skeleton3D` node with a
 //! `Skin` resource. At that level a bone's transform **is** the final skinning
 //! matrix, pose combined with inverse bind, which is exactly what
-//! [`crate::skinned::skinning_transforms_into`] produces. Nothing here does
-//! arithmetic, it copies.
+//! [`crate::skinned::skinning_transforms_into`] produces. The upload copies
+//! those transforms and derives normal matrices for FaceGen materials.
 //!
 //! Every frame: tick the interpreter, lift its local pose into model space,
 //! combine with the mesh's bind pose, copy into the skeleton. The two buffers
@@ -598,12 +598,9 @@ impl SkinnedActorNode {
                 server.skeleton_bone_set_transform(skeleton, i as i32, Transform3D::IDENTITY);
             }
             let mut mesh = actor_array_mesh_from(&surface.arrays, &surface.expression_shapes);
-            let material = if let Some((path, tint)) = &surface.face_tint {
+            let material = if surface.face_tint.is_some() {
                 crate::godot_layer::face_material_from(
-                    &surface.arrays.material,
-                    &surface.textures,
-                    path,
-                    tint,
+                    surface,
                     &mut textures,
                     &self.material_shaders,
                 )
@@ -914,7 +911,9 @@ impl SkinnedActorNode {
                 });
         let mut applied_expression_weights = std::collections::BTreeMap::new();
         self.uploaded_skins.clear();
-        for (surface, rids) in self.surfaces.iter().zip(&self.shapes) {
+        for ((surface, rids), material) in
+            self.surfaces.iter().zip(&self.shapes).zip(&self.materials)
+        {
             server.instance_set_transform(rids.instance, placement);
             for (index, shape) in surface.expression_shapes.iter().enumerate() {
                 let weight = if let Some(binding) = &self.appearance {
@@ -939,6 +938,7 @@ impl SkinnedActorNode {
                 soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
                 return;
             }
+            let mut normal_bases = Array::<Basis>::new();
             for (i, skin) in self.skins.iter().enumerate() {
                 let mut pose = to_transform3d(skin);
                 if let (Some(ragdoll), Some(map), Some(Some(bone))) = (
@@ -953,7 +953,18 @@ impl SkinnedActorNode {
                     }
                 }
                 server.skeleton_bone_set_transform(rids.skeleton, i as i32, pose);
+                if surface.face_tint.is_some() {
+                    normal_bases.push(pose.basis.inverse().transposed());
+                }
                 self.uploaded_skins.push(pose);
+            }
+            if surface.face_tint.is_some() {
+                if let Ok(mut shader) = material
+                    .clone()
+                    .try_cast::<godot::classes::ShaderMaterial>()
+                {
+                    shader.set_shader_parameter("skin_normals", &normal_bases.to_variant());
+                }
             }
         }
         self.applied_expression_weights = applied_expression_weights;
@@ -1026,12 +1037,21 @@ impl SkinnedActorNode {
         for ((surface, mesh), rids) in self.surfaces.iter().zip(&self.meshes).zip(&self.shapes) {
             let mut shape = VarDictionary::new();
             shape.set("name", surface.name.as_str());
+            shape.set(
+                "head_part_type",
+                surface.head_part_type.map_or(-1, i64::from),
+            );
+            shape.set(
+                "visible",
+                self.geometry_visible && !self.invisible && !self.presentation_hidden,
+            );
             shape.set("mesh", mesh);
             shape.set("rid", rids.instance);
             shapes.push(&shape);
         }
         row.set("shapes", &shapes);
         row.set("poses", &self.uploaded_skin_poses());
+        row.set("placement", self.actor_placement());
         row
     }
 
