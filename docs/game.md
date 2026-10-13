@@ -3717,6 +3717,14 @@ procedure page. No existing local implementation covered this procedure. The
 word's recovery duration, waiting through an existing recovery, save/load, and
 rejection of a SHOU that does not contain exactly three 12-byte `SNAM` entries.
 
+Attached actor references initialize their existing ActorState before process
+scheduling. Cell loading and appearance lookup can build an ACHR without
+reading its stats, so the AI table must not depend on a Papyrus stat native.
+The scheduler uses sorted enabled contact placements from attached cells,
+including the active exterior grids. Prefetched cells do not qualify. Two
+synthetic tests and an installed Bannered Mare registration check cover the
+boundary. This adds no actor fields or saved sections.
+
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
 A route is `find_path_between` from the actor to the place. The actor follows

@@ -16,6 +16,12 @@ impl World {
         use crate::ai::ProcessClock;
         use std::collections::HashMap;
 
+        // CONTEXT: Cell loading and rendering build references without actor stats.
+        // AI must not wait for a script to initialize an attached NPC.
+        for contact in self.contact_actor_placements() {
+            let _ = self.actor(contact.actor);
+        }
+
         let player = self
             .player
             .filter(|id| self.actors.contains_key(id))
@@ -225,5 +231,111 @@ impl World {
     /// Advance every driven actor by `real_seconds`.
     pub fn ai_tick(&mut self, real_seconds: f64, alloc: Alloc<'_>) {
         crate::ai::tick(self, real_seconds, alloc);
+    }
+}
+
+#[cfg(test)]
+mod placed_actor_registration_tests {
+    use crate::{npc, Game};
+    use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+
+    const CELL: GlobalFormId = GlobalFormId {
+        file: 0,
+        object: 0x800,
+    };
+    const ACTOR: GlobalFormId = GlobalFormId {
+        file: 0,
+        object: 0x802,
+    };
+
+    fn placed_npc() -> Game {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"CELL"), CELL.object).sub(Tag(*b"DATA"), [1, 0]));
+        plugin.push_top(npc::build_record(
+            0x801,
+            "Walker",
+            "Walker",
+            npc::Config::default(),
+            npc::Stats::default(),
+        ));
+        let mut reference = Record::new(Tag(*b"ACHR"), ACTOR.object)
+            .sub(Tag(*b"NAME"), 0x801_u32.to_le_bytes())
+            .sub(Tag(*b"DATA"), [0_u8; 24]);
+        reference.placement.cell = Some(CELL.object);
+        plugin.push_top(reference);
+        let mut order = LoadOrder::new();
+        order.add("Placed.esm", plugin).unwrap();
+        Game::new(order)
+    }
+
+    #[test]
+    fn attached_npc_enters_ai_without_a_script_reading_its_stats() {
+        let mut game = placed_npc();
+        game.world_mut().load_cell(CELL);
+        assert!(game
+            .world_mut()
+            .contact_actors()
+            .iter()
+            .any(|contact| contact.actor == ACTOR));
+        assert!(game.world().actor_ref(ACTOR).is_none());
+        game.tick(1.0 / 60.0);
+        assert!(
+            game.world().actor_ref(ACTOR).is_some(),
+            "a placed NPC must enter the AI table without a native stat lookup"
+        );
+    }
+
+    #[test]
+    fn prefetch_does_not_activate_npc_ai() {
+        let mut game = placed_npc();
+        game.world_mut().prefetch_cell(CELL);
+        game.tick(1.0 / 60.0);
+        assert!(game.world().actor_ref(ACTOR).is_none());
+    }
+    #[test]
+    fn installed_bannered_mare_contacts_enter_ai_without_stat_natives() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let mut order = LoadOrder::new();
+        for name in [
+            "Skyrim.esm",
+            "Update.esm",
+            "Dawnguard.esm",
+            "HearthFires.esm",
+            "Dragonborn.esm",
+        ] {
+            let bytes = std::fs::read(std::path::Path::new(&data).join(name)).unwrap();
+            order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
+        }
+        let mut game = Game::new(order);
+        let cell = game
+            .world_mut()
+            .cell_by_editor_id("WhiterunBanneredMare")
+            .unwrap();
+        game.change_cell(Some(cell));
+        let contacts = game.world_mut().contact_actor_placements();
+        assert!(!contacts.is_empty());
+        game.tick(1.0 / 60.0);
+        assert!(contacts
+            .iter()
+            .all(|contact| game.world().actor_ref(contact.actor).is_some()));
+        for _ in 0..60 {
+            game.tick(1.0 / 60.0);
+        }
+        for contact in contacts {
+            let world = game.world();
+            let state = world.actor_ref(contact.actor).unwrap();
+            let reference = world.reference_ref(contact.actor).unwrap();
+            println!(
+                "NPC_RUNTIME {} package={:?} procedure={:?} path={} cell={:?} position={:?}",
+                contact.actor,
+                state.ai.package,
+                state.ai.procedure,
+                state.ai.path.len(),
+                reference.cell,
+                reference.position
+            );
+        }
     }
 }
