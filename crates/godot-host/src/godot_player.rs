@@ -252,6 +252,7 @@ pub struct PlayerNode {
     mcm_page: Option<crate::mcm_menu::ConfigPage>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     barter_menu: Option<(GlobalFormId, GlobalFormId)>,
+    barter_dialogue: bool,
     crafting_bench: Option<GlobalFormId>,
     lockpick_target: Option<GlobalFormId>,
     lockpick_angle: f32,
@@ -394,6 +395,7 @@ impl INode3D for PlayerNode {
             mcm_page: None,
             container_menu: None,
             barter_menu: None,
+            barter_dialogue: false,
             crafting_bench: None,
             lockpick_target: None,
             lockpick_angle: 0.0,
@@ -1300,6 +1302,7 @@ impl PlayerNode {
             if let Some(game) = &mut self.game {
                 self.menu.tick(game, delta);
             }
+            self.present_game_menu_requests();
             return;
         }
         let pending_location = self.game.as_mut().is_some_and(|game| {

@@ -77,6 +77,15 @@ impl MenuState {
         self.title.take().is_some()
     }
 
+    /// Replace a modal presentation while retaining its pause and input ownership.
+    pub fn replace(&mut self, title: &str) -> bool {
+        if !self.is_open() || title.trim().is_empty() {
+            return false;
+        }
+        self.title = Some(title.into());
+        true
+    }
+
     pub fn is_open(&self) -> bool {
         self.title.is_some()
     }

@@ -130,6 +130,18 @@ fn ai_85_parameterless_time_query_rejects_parameters_and_missing_run_on_target()
 fn ai_85_functions_without_a_usable_contract_return_diagnostics() {
     let game = fixture();
     for function in [255, 265, 266, 267, 332] {
+        if function == 255 {
+            assert!(conditions::supports_function(function));
+            assert_eq!(
+                evaluate(&game, id(0x900), &condition(function, 1.0)),
+                Ok(false)
+            );
+            assert_eq!(
+                evaluate(&game, id(0x900), &condition(function, 0.0)),
+                Ok(true)
+            );
+            continue;
+        }
         assert!(!conditions::supports_function(function));
         assert_eq!(
             evaluate(&game, id(0x900), &condition(function, 1.0)),

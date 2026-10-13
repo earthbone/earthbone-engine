@@ -227,3 +227,103 @@ fn ui_20_skyui_install_supplies_external_converted_art() {
     assert!(cache.movies.keys().any(|path| path.contains("icons_item")));
     run_scene(Some(&cache.directory));
 }
+
+#[test]
+fn ui_31_modal_replacement_keeps_pause_and_rejects_empty_titles() {
+    let mut menu = soe_godot_host::ui::MenuState::default();
+    assert!(!menu.replace("Barter"));
+    assert!(menu.open("Dialogue"));
+    assert!(!menu.open("Barter"));
+    assert!(!menu.replace(" "));
+    assert_eq!(menu.title(), Some("Dialogue"));
+    assert!(menu.replace("Barter"));
+    assert!(menu.is_open());
+    assert!(menu.replace("Dialogue"));
+    assert_eq!(menu.title(), Some("Dialogue"));
+    assert!(menu.close());
+}
+
+#[test]
+fn ui_31_installed_belethor_topic_menu_buy_sell_and_return() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let data = PathBuf::from(data);
+    let source = soe_godot_host::data_source::DataSource::open(&data).unwrap();
+    let mut game = source.localized_game().unwrap();
+    game.apply_mod_data(std::slice::from_ref(&data));
+    assert!(game.load_scripts_from_data(&data).scripts_failed.is_empty());
+    game.start();
+    let merchant = game.form("BelethorRef").unwrap();
+    let (cell, position) = {
+        let mut world = game.world_mut();
+        let reference = world.reference(merchant).unwrap();
+        (reference.cell.unwrap(), reference.position)
+    };
+    let cell_name = game
+        .world()
+        .record(cell)
+        .unwrap()
+        .editor_id()
+        .unwrap()
+        .clone();
+    game.change_cell(Some(cell));
+    let player = game.player();
+    {
+        let mut world = game.world_mut();
+        world.clock.game_days = 0.5;
+        world.reference(player).unwrap().position = position;
+        world.set_actor_value(player, "speechcraft", 15.0).unwrap();
+        let gold = world.form("Gold001").unwrap();
+        let current = world.item_count(player, gold);
+        world.add_item(player, gold, 10000 - current);
+    }
+    let service = game.merchant_vendor_service(merchant).unwrap().unwrap();
+    assert!(service.available);
+    assert!(!service.merchandise.is_empty());
+    let project = isolated_project::project(
+        &["ui_31_barter_test.gd", "ui/item_menu.gd"],
+        Some(
+            &PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| "target".into()))
+                .join("release/libsoe_godot_host.so"),
+        ),
+    );
+    let session_path = project.path().join("barter.soer");
+    let mut driver = soe_game::player_input::Driver::default();
+    driver.start_recording(&mut game, 31).unwrap();
+    driver
+        .finish_recording(&game)
+        .unwrap()
+        .write(&session_path)
+        .unwrap();
+    drop(game);
+    drop(source);
+    let output = Command::new(
+        std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN for installed host checks"),
+    )
+    .args(["--headless", "--path"])
+    .arg(project.path())
+    .args(["--script", "ui_31_barter_test.gd"])
+    .env("DISPLAY", ":99")
+    .env("SOE_THREADED_SIMULATION", "0")
+    .env("SOE_INTERFACE_CACHE", "")
+    .env("SOE_UI_31_SESSION", session_path)
+    .env("SOE_UI_31_CELL", cell_name)
+    .env("SOE_UI_31_MERCHANT_FILE", merchant.file.to_string())
+    .env("SOE_UI_31_MERCHANT_OBJECT", merchant.object.to_string())
+    .env_remove("SOE_CAPTURE_PATH")
+    .output()
+    .unwrap();
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.status.success(),
+        "UI-31 host exit {:?}: {log}",
+        output.status.code()
+    );
+    assert!(!log.contains("SCRIPT ERROR:"), "{log}");
+    assert!(log.contains("PASS ui_31"), "{log}");
+}

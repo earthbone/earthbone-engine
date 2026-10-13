@@ -232,3 +232,61 @@ fn ai_48_functions_without_a_usable_local_contract_report_diagnostics() {
         );
     }
 }
+
+#[test]
+fn ui_31_voice_condition_accepts_lists_and_rejects_wrong_members() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(T(b"NPC_"), 0x901)
+            .sub(T(b"ACBS"), vec![0; 24])
+            .sub(T(b"VTCK"), 0xA00_u32.to_le_bytes()),
+    );
+    plugin.push_top(Record::new(T(b"ACHR"), ACTOR).sub(T(b"NAME"), 0x901_u32.to_le_bytes()));
+    for voice in [0xA00, 0xA01] {
+        plugin.push_top(Record::new(T(b"VTYP"), voice));
+    }
+    plugin.push_top(
+        Record::new(T(b"FLST"), 0xA02)
+            .sub(T(b"LNAM"), 0xA00_u32.to_le_bytes())
+            .sub(T(b"LNAM"), 0xA01_u32.to_le_bytes()),
+    );
+    plugin.push_top(Record::new(T(b"FLST"), 0xA03));
+    plugin.push_top(Record::new(T(b"FLST"), 0xA04).sub(T(b"LNAM"), 0x901_u32.to_le_bytes()));
+    let mut order = LoadOrder::new();
+    order.add("Voices.esm", plugin).unwrap();
+    let game = Game::new(order);
+    assert_eq!(
+        evaluate(&game, id(ACTOR), &condition(426, [0xA00, 0], 1.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(ACTOR), &condition(426, [0xA01, 0], 1.0)),
+        Ok(false)
+    );
+    assert_eq!(
+        evaluate(&game, id(ACTOR), &condition(426, [0xA02, 0], 1.0)),
+        Ok(true)
+    );
+    for flag in [2, 8] {
+        let mut listed = condition(426, [0xA02, 0], 1.0);
+        listed.flags = flag;
+        assert_eq!(evaluate(&game, id(ACTOR), &listed), Ok(true));
+        let mut identity = condition(72, [0x901, 0], 1.0);
+        identity.flags = flag;
+        assert_eq!(evaluate(&game, id(ACTOR), &identity), Ok(true));
+        let mut reference = condition(1, [ACTOR, 0], 1.0);
+        reference.flags = flag;
+        assert_eq!(
+            evaluate(&game, id(ACTOR), &reference),
+            Err(conditions::Error::Flags(flag))
+        );
+    }
+    assert_eq!(
+        evaluate(&game, id(ACTOR), &condition(426, [0xA03, 0], 1.0)),
+        Ok(false)
+    );
+    assert_eq!(
+        evaluate(&game, id(ACTOR), &condition(426, [0xA04, 0], 1.0)),
+        Err(conditions::Error::Form(id(0x901)))
+    );
+}

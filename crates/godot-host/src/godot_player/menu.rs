@@ -50,6 +50,30 @@ pub(super) struct MenuView {
 }
 
 impl PlayerNode {
+    pub(super) fn replace_menu(&mut self, title: &str) -> bool {
+        if !self.menu.replace(title) {
+            return false;
+        }
+        self.item_card_view = None;
+        self.container_menu = None;
+        self.barter_menu = None;
+        if let Some(view) = self.menu_view.as_ref() {
+            let mut label = view.title.clone();
+            let mut content = view.content.clone();
+            let mut panel = view.panel.clone();
+            let _guard = self.base_mut();
+            label.set_text(title);
+            panel.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
+            for mut child in content.get_children().iter_shared() {
+                content.remove_child(&child);
+                child.queue_free();
+            }
+        }
+        self.base_mut()
+            .emit_signal("menu_opened", &[title.to_variant()]);
+        true
+    }
+
     pub(super) fn item_panel_layout(&mut self) {
         if let Some(view) = self.menu_view.as_mut() {
             use godot::builtin::Side;
@@ -256,7 +280,7 @@ impl PlayerNode {
         true
     }
 
-    fn stop_dialogue_voice(&mut self) {
+    pub(super) fn stop_dialogue_voice(&mut self) {
         if let Some(bank) = self.sound_bank.as_mut() {
             crate::dialogue_menu::replace_voice(
                 &mut *bank.bind_mut(),
@@ -620,6 +644,7 @@ impl PlayerNode {
         );
         self.container_menu = None;
         self.barter_menu = None;
+        self.barter_dialogue = false;
         self.crafting_bench = None;
         self.item_card_view = None;
         let previous_focus = self
@@ -670,6 +695,32 @@ impl PlayerNode {
     /// Close once, discard queued gameplay presses, and restore focus and mouse mode.
     #[func]
     pub fn close_menu(&mut self) -> bool {
+        if self.barter_dialogue {
+            self.barter_dialogue = false;
+            if let (Some((merchant, _)), Some(game)) = (self.barter_menu, self.game.as_mut()) {
+                if game.world().dialogue_session().is_none() {
+                    let player = game.player();
+                    if let Err(error) = game.begin_dialogue(merchant, player) {
+                        godot_error!("PlayerNode: returning from barter: {error}");
+                    }
+                }
+            }
+            let session = self
+                .game
+                .as_ref()
+                .is_some_and(|game| game.world().dialogue_session().is_some());
+            if session && self.replace_menu("Dialogue") {
+                if let Some(line) = self
+                    .game
+                    .as_ref()
+                    .and_then(|game| game.dialogue_line().ok().flatten())
+                {
+                    self.play_dialogue_voice(&line);
+                    return self.dialogue_response_content(line.text.as_deref().unwrap_or(""));
+                }
+                return self.dialogue_content();
+            }
+        }
         if let Some(title) = self.menu.title().map(str::to_owned) {
             self.base_mut().emit_signal(
                 "transition_requested",
@@ -689,6 +740,8 @@ impl PlayerNode {
             return false;
         }
         self.item_card_view = None;
+        self.barter_menu = None;
+        self.container_menu = None;
         self.crafting_bench = None;
         self.lockpick_target = None;
         self.lockpick_status = None;
@@ -1162,7 +1215,14 @@ impl PlayerNode {
         let Some(game) = self.game.as_mut() else {
             return false;
         };
-        match game.advance_dialogue() {
+        let response = game.advance_dialogue();
+        if response.is_ok() {
+            self.present_game_menu_requests();
+            if self.menu.title() != Some("Dialogue") {
+                return true;
+            }
+        }
+        match response {
             Ok(Some(line)) => {
                 self.play_dialogue_voice(&line);
                 self.dialogue_response_content(line.text.as_deref().unwrap_or(""))

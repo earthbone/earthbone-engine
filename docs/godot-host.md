@@ -294,6 +294,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +506,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -7973,7 +7975,6 @@ Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
 
-
 ### Audio integration corrections, second round, 2026-10-12
 
 AUD-12's stop-fade and cancellation scenes require the GDScript `stop_music`
@@ -8036,3 +8037,36 @@ regional descriptor list is empty. Its landing grid cell supplies the ambience
 and regional music before the first movement step. This follows the existing
 persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
 CELL and regional selection contract.
+
+## Merchant dialogue to barter, UI-31
+
+The host drains Actor.ShowBarterMenu requests while a modal menu is active.
+A request during Dialogue replaces its presentation, retaining the shared
+conversation, input ownership and paused game clock. Closing barter restores
+that conversation and its topic list. Closing dialogue then resumes play.
+Standalone native calls retain their ordinary close-to-play behavior.
+
+The barter opener stores its merchant/faction identity and uses the same
+item presenter as the container menu. Both sides show live shared inventories,
+per-item Game barter quotes and current player/merchant gold. Quantity clicks
+revalidate through Game::trade_vendor_item and refresh both sides and wallets.
+Existing sorting, category filtering, search and buy/sell tabs remain available.
+No world reference node or alternate inventory database was added.
+
+ui_31_installed_belethor_topic_menu_buy_sell_and_return records an installed
+Game at noon with a funded player and Speech 15 through the existing SOER
+session API. The isolated Godot scene restores that fixture, talks to Belethor,
+clicks the authored barter topic and completes its response. It requires a
+barter presenter with merchant stock, clicks Buy and Sell, checks both wallets
+and stock, then closes back to the same dialogue and finally to play.
+The test uses installed masters and PEX files, never a synthetic barter
+fragment or a native-call shortcut. It requires SOE_GODOT_BIN and the built
+release extension when SKYRIM_DATA is set, and runs on Xvfb :99.
+
+Checkpoint validation on 2026-10-13 passes the installed scene's GDScript
+syntax check, the existing item-presenter scene and the modal-replacement
+unit test. Both scene checks run headlessly on :99. The final release build
+exits zero. The installed merchant scene has not run because the shared
+installed slot remains occupied. Its acceptance is pending, and UI-31 remains
+wip. The Game conditions, quote and transaction fixtures pass, as reported
+in game.md. The full gate's unrelated AI route failures are retained.
