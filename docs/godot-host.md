@@ -264,10 +264,14 @@ that model use the same mesh and material path as item previews. Player input
 requests spell start and release events for the spell's casting type and
 delivery. The existing MAG-22 Game adapter still executes casting.
 
-This draft does not complete HST-25. The installed master graph currently
-stays at the first draw frame, so the stronger installed attack and contact
-acceptance fails. That adapter rejects aimed Flames before
-projectile delivery. NIF particle casting art is not rendered by the static
+The integration selector correction described in [hkx.md](hkx.md#integration-player-selector-correction-hst-25)
+restores authored draw, attack and HitFrame progression in both views. Both
+installed HST-25 player checks pass, including the headless walkthrough and
+windowed body and sword captures. The capture samples the uploaded pose at
+HitFrame and requires it to differ from both pre-attack and settled poses.
+
+This draft does not complete HST-25. The casting adapter rejects aimed Flames
+before projectile delivery. NIF particle casting art is not rendered by the static
 surface path. The full live spell, adjacent-actor contact and both-hand pixel
 acceptance remains unverified. The armor appearance view supplies body and
 outfit geometry, without adding head-part construction here. A rigid shield
