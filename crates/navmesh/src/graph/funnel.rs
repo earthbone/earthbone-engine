@@ -39,10 +39,45 @@ impl NavGraph {
         from: Point,
         to: Point,
     ) -> (Vec<Point>, Vec<NodeId>) {
+        self.pull_path_inset(nodes, from, to, 0.0)
+    }
+
+    pub(super) fn pull_path_inset(
+        &self,
+        nodes: &[NodeId],
+        from: Point,
+        to: Point,
+        inset: f32,
+    ) -> (Vec<Point>, Vec<NodeId>) {
         let mut points = vec![from];
         let mut owners = vec![nodes[0]];
         let mut portals = Vec::new();
         let mut start = from;
+        let borders: std::collections::BTreeMap<_, Vec<_>> = if inset > 0.0 {
+            nodes
+                .iter()
+                .map(|node| node.mesh)
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .map(|id| {
+                    let mesh = &self.meshes[id as usize];
+                    let mut borders = Vec::new();
+                    for triangle in &mesh.triangles {
+                        for edge in 0..3 {
+                            if triangle.neighbors[edge].is_none() {
+                                borders.push((
+                                    mesh.vertices[triangle.vertices[edge] as usize],
+                                    mesh.vertices[triangle.vertices[(edge + 1) % 3] as usize],
+                                ));
+                            }
+                        }
+                    }
+                    (id, borders)
+                })
+                .collect()
+        } else {
+            std::collections::BTreeMap::new()
+        };
         for pair in nodes.windows(2) {
             let (here, next) = (pair[0], pair[1]);
             let edge = self
@@ -51,7 +86,27 @@ impl NavGraph {
                 .iter()
                 .position(|n| *n == Some(next))
                 .unwrap_or(0);
-            if let Some(portal) = self.portal(here, edge, next) {
+            if let Some(mut portal) = self.portal(here, edge, next) {
+                // CONTEXT: Detour's point funnel assumes radius-eroded geometry.
+                // Native NAVM endpoints need clearance perpendicular to borders.
+                let length =
+                    (portal.right[0] - portal.left[0]).hypot(portal.right[1] - portal.left[1]);
+                if length > 0.0 && inset > 0.0 {
+                    let (left, right) = (portal.left, portal.right);
+                    let edges = borders
+                        .get(&here.mesh)
+                        .into_iter()
+                        .flatten()
+                        .chain(borders.get(&next.mesh).into_iter().flatten())
+                        .copied()
+                        .collect::<Vec<_>>();
+                    let left_inset = border_inset(left, right, inset, &edges);
+                    let right_inset = border_inset(right, left, inset, &edges);
+                    let scale =
+                        f64::from(length) / (left_inset + right_inset).max(f64::from(length));
+                    portal.left = lerp(left, right, left_inset * scale / f64::from(length));
+                    portal.right = lerp(left, right, 1.0 - right_inset * scale / f64::from(length));
+                }
                 portals.push(portal);
             } else {
                 let departure = self.meshes[here.mesh as usize].edge_midpoint(here.triangle, edge);
@@ -99,6 +154,38 @@ impl NavGraph {
         }
         None
     }
+}
+
+// A diagonal portal needs more along-edge travel to provide the requested
+// perpendicular clearance. Interior vertices add no boundary constraint.
+fn border_inset(endpoint: Point, other: Point, radius: f32, borders: &[(Point, Point)]) -> f64 {
+    let dx = f64::from(other[0]) - f64::from(endpoint[0]);
+    let dy = f64::from(other[1]) - f64::from(endpoint[1]);
+    let portal_length = dx.hypot(dy);
+    let mut inset = 0.0_f64;
+    for &(a, b) in borders {
+        let opposite = if same_xy(endpoint, a) && (endpoint[2] - a[2]).abs() < 0.01 {
+            b
+        } else if same_xy(endpoint, b) && (endpoint[2] - b[2]).abs() < 0.01 {
+            a
+        } else {
+            continue;
+        };
+        let ex = f64::from(opposite[0]) - f64::from(endpoint[0]);
+        let ey = f64::from(opposite[1]) - f64::from(endpoint[1]);
+        let border_length = ex.hypot(ey);
+        if border_length == 0.0 {
+            continue;
+        }
+        let distance = if dx * ex + dy * ey <= 0.0 {
+            f64::from(radius)
+        } else {
+            let perpendicular = (dx * ey - dy * ex).abs() / (portal_length * border_length);
+            f64::from(radius) / perpendicular.max(1e-6)
+        };
+        inset = inset.max(distance);
+    }
+    inset
 }
 
 // Unlike Detour's compact link bounds, NAVM links name a triangle. Intersect

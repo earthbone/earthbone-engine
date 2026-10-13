@@ -1104,6 +1104,30 @@ impl NavGraph {
         self.find_path_impl(a, b, Some((from, to)), PathCosts::default())
     }
 
+    /// Resmooth a corridor with steering points inset from portal endpoints.
+    /// Boundary angles determine along-edge travel. Overlapping constraints
+    /// share a finite point. Physics decides whether a capsule fits the route.
+    /// Returns None for invalid bounds, empty paths or unknown triangle owners.
+    pub fn path_with_portal_inset(&self, path: &Path, inset: f32) -> Option<Path> {
+        if !inset.is_finite() || inset < 0.0 || path.nodes.is_empty() {
+            return None;
+        }
+        for node in &path.nodes {
+            self.meshes
+                .get(node.mesh as usize)?
+                .triangles
+                .get(node.triangle as usize)?;
+        }
+        let (from, to) = (*path.points.first()?, *path.points.last()?);
+        let (points, point_nodes) = self.pull_path_inset(&path.nodes, from, to, inset);
+        Some(Path {
+            nodes: path.nodes.clone(),
+            points,
+            point_nodes,
+            cost: path.cost,
+        })
+    }
+
     fn assemble(
         &self,
         from: NodeId,

@@ -1,5 +1,67 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Counter-corner steering measurement, AI-95
+
+The instrumented play gate confirms W is held and no menu is open during
+container travel. At 2.667 movement physics seconds, feet are
+`(192.0668, -292.0176, 69.0718)`. At 3.200 seconds they are
+`(192.0922, -287.2119, 68.7943)`, only 4.808 more units travelled.
+The point-agent funnel touches the counter corner while the player controller
+has a 32-unit capsule radius. The movement clock correction alone therefore
+does not resolve this collision loss.
+
+The host now supplies that radius to AI-95's optional portal steering inset.
+Intermediate waypoint arrival uses 16 units, half the capsule radius, retaining
+36 for the final bounded object approach. An eight-unit trial stalled 8.4 units
+from a waypoint where record geometry and collision differ. Capsule settings,
+movement speed, five-second
+container budget, 128-unit approach bound and physical collision remain intact.
+Geometric tests pass for both windings, corridor containment, endpoints,
+ownership, invalid bounds and short portals. Installed acceptance is pending.
+
+The first along-edge inset still stalls at `(193, -280)` while steering east.
+The installed headless controller reproduces waypoint 7 of 16 and reports
+nearby reference `0:0C8FA7`, `Clutter/BarSet/BarStraight01.nif`. Moving a portal
+endpoint along a diagonal does not supply that distance perpendicular to the
+boundary. The revised inset accounts for incident boundary angles, leaves
+interior vertices unconstrained and measures whole-segment corner clearance.
+The five-physics-second headless regression uses the actual barrel, NAVM and
+collision. The revised inset passes that installed regression, with all
+waypoints reached before the unchanged budget. Godot play acceptance is pending.
+
+## Combined play fixer checkpoint, 2026-10-13
+
+Detached checkpoint `a64a3e0e7510100842815a33ccb98b02e260026e` includes
+integration `7fda42af7`, dialogue `3e9866b5e` and distant rendering `c4b8adce6`.
+The prior dialogue merge `19bc7b662` retains coordinate-space queries and
+authored navigation links. Backlog and host documentation keep both reports.
+The full lint gate exits zero with 8,597 reported passes and 14 existing ignores.
+Library counts are game 248, host 441 and navmesh 53. Cargo-deny and cargo-audit
+are absent and skipped. The run with optional Godot fixtures enabled reports
+741.13 seconds across test binaries, including nested release builds and
+wrapper lock waits. This exceeds the five-minute tier 1 budget. Timing with
+warm artifacts remains unverified.
+
+The installed Hulda library survey passes one case in 40.38 seconds. AI-94
+admits her traits voice through DefaultNPCVoiceTypes. Her two offered topics
+remain magic and gossip. The selected magic response resolves its FemaleNord
+FUZ asset, and her CELL remains `0:01605E` after ten seconds of AI. Room rental
+is still excluded. JobRentRoomFaction, JobInnkeeperFaction and
+JobMerchantFaction each have rank -1 in this startup state.
+
+The first combined play gate fails one case in 29.28 seconds. Hulda's walk
+passes with 12 points, 347.004 units of displacement and two movement physics
+seconds. Topic selection displays the localized magic response and starts
+voice slot zero, with the voice-start counter increasing from three to four
+and the player still playing. The container walk fails at waypoint 11 of 16
+after 5.017 movement physics seconds and 8.810 wall seconds. Its NAVM path is
+716.177 units long and its endpoint remains within 84.790 units of the barrel
+anchor. Final feet are `(341.9341, -324.0834, 67.9895)`. The run fails instead
+of skipping the container. Load-door crossing, exterior walking and inn return
+remain unmeasured on this checkpoint. Progress logging now records travelled
+distance and waypoint position at half-second physics intervals to locate
+the remaining movement loss.
+
 ## Walker physics budget, 2026-10-13
 
 TST-19 charges its movement budget in physics seconds while walking input is
@@ -271,10 +333,10 @@ is true at startup. MG01 and DialogueWhiterun have both filled and empty aliases
 The selected INFO records do not depend on an alias, so those empty fills do not
 explain the missing response.
 
-The innkeeper service survey also finds DialogueGeneric `0:013EB3` running.
-Its quest condition GetIsVoiceType rejects `DefaultNPCVoiceTypes` `0:03B4A5`
-because that record is FLST. The current evaluator accepts only VTYP, while
-xEdit's `ptVoiceType` permits both. AI-94 tracks that separate contract defect.
+The earlier innkeeper service survey finds DialogueGeneric `0:013EB3` running.
+Its quest condition GetIsVoiceType rejected `DefaultNPCVoiceTypes` `0:03B4A5`
+because that record is FLST. AI-94 now accepts both VTYP and FLST, following
+xEdit's `ptVoiceType`. The installed survey admits Hulda through that list.
 RentRoomTopic `0:09CC92` has INFO records `0:09CC93`, `0:09CC94`, `0:079B1A`
 and `0:09CC95`. Their predicates do not match Hulda at this startup, including
 GetInFaction for JobRentRoomFaction `0:09CC97`. These service exclusions remain

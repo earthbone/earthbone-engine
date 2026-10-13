@@ -1,5 +1,16 @@
 # soe-game: the runtime form table and the first natives
 
+## Bounded capsule approach steering, AI-95
+
+`navigation_approach_path_with_portal_inset` uses the same record-backed CELL
+or WRLD graph and object-anchor bound as `navigation_approach_path`. It passes
+the caller's steering inset to the graph after A* selects the corridor.
+The bounded endpoint and its ownership remain intact. Invalid insets fail
+before graph construction. The host supplies its actual capsule radius.
+The existing point query supplies zero inset, and no World pose is changed.
+The local Recast agent-radius contract and geometric checks are documented
+in [navmesh.md](navmesh.md). No saved field or dependency is added.
+
 ## Navigation coordinate spaces, AI-92
 
 Navigation's winning NAVM graph contains interior local coordinates and

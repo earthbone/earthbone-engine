@@ -140,3 +140,96 @@ fn bannered_mare_walking_routes() {
         eprintln!("WALK {name} largest vertical change {largest}");
     }
 }
+
+#[test]
+fn tst_19_container_corridor_reaches_every_waypoint_in_five_physics_seconds() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open(std::path::Path::new(&data)).expect("data opens");
+    let cell = source.resolve_cell("WhiterunBanneredMare").expect("cell");
+    let game = soe_game::Game::from_shared_order(source.shared_order());
+    let anchor = game
+        .world_mut()
+        .reference(soe_esm::GlobalFormId {
+            file: 0,
+            object: 0x060359,
+        })
+        .expect("barrel")
+        .position;
+    let collision = source.collide_cell_id(cell).expect("collision");
+    let mut world = collision.world;
+    let id = world.create_character(
+        CharacterSettings::default(),
+        Vec3::new(166.1684, -576.653, 69.2457),
+    );
+    for _ in 0..60 {
+        world.step_character(id, 1.0 / 60.0);
+    }
+    let feet = world.character(id).expect("character").position;
+    let path = soe_game::play::navigation_approach_path_with_portal_inset(
+        &game,
+        cell,
+        [feet.x, feet.y, feet.z],
+        anchor,
+        128.0,
+        CharacterSettings::default().radius,
+    )
+    .expect("container corridor");
+    let mut waypoint = 0;
+    for tick in 0..300 {
+        let feet = world.character(id).expect("character").position;
+        while let Some(point) = path.points.get(waypoint) {
+            let arrival = if waypoint == path.points.len() - 1 {
+                36.0
+            } else {
+                16.0
+            };
+            if (point[0] - feet.x).hypot(point[1] - feet.y) >= arrival {
+                break;
+            }
+            waypoint += 1;
+        }
+        if waypoint == path.points.len() {
+            eprintln!(
+                "TST19_CONTAINER physics_s={} waypoints={waypoint} feet={feet:?}",
+                tick as f32 / 60.0
+            );
+            return;
+        }
+        let point = path.points[waypoint];
+        world.walk(
+            id,
+            Vec3::new(point[0] - feet.x, point[1] - feet.y, 0.0),
+            soe_physics::JOG_SPEED,
+        );
+        world.step_character(id, 1.0 / 60.0);
+    }
+    let feet = world.character(id).expect("character").position;
+    for angle in 0..8 {
+        let angle = angle as f32 * std::f32::consts::FRAC_PI_4;
+        let from = feet + Vec3::Z * 64.0;
+        let to = from + Vec3::new(angle.cos(), angle.sin(), 0.0) * 96.0;
+        if let Some(hit) = world.raycast(from, to) {
+            let reference = collision.references.get(&hit.body).copied();
+            let model = reference.and_then(|reference| {
+                let owner = source.order().winner_ref(reference)?;
+                let refr = Refr::from_record(source.order().record(owner)).ok()?;
+                model_for(
+                    source
+                        .order()
+                        .winner(source.order().resolve(owner.file, refr.base))?,
+                )
+            });
+            eprintln!(
+                "CONTAINER_CONTACT reference={reference:?} model={model:?} point={:?} normal={:?}",
+                hit.point, hit.normal
+            );
+        }
+    }
+    panic!(
+        "container waypoint {waypoint}/{} feet={feet:?} points={:?}",
+        path.points.len(),
+        path.points
+    );
+}

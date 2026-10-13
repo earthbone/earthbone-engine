@@ -216,6 +216,9 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	var start := Time.get_ticks_msec()
 	var walking_start := walking_seconds
 	var initial: Vector3 = player.call("position")
+	var prior_position := initial
+	var travelled_units := 0.0
+	var next_progress := walking_start + 0.5
 	var path_units := 0.0
 	for index in range(1, points.size()):
 		path_units += points[index - 1].distance_to(points[index])
@@ -237,8 +240,14 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 				sampling_msec += Time.get_ticks_msec() - pause_start
 				continue
 			var position: Vector3 = player.call("position")
+			travelled_units += Vector2(position.x - prior_position.x, position.y - prior_position.y).length()
+			prior_position = position
+			if walking_seconds >= next_progress:
+				print("PLAY_PATH_WALK_PROGRESS ", JSON.stringify({"stop": stop_name, "waypoint": waypoint_index, "position": str(position), "target": str(point), "physics_s": walking_seconds - walking_start, "travelled_units": travelled_units, "key": Input.is_physical_key_pressed(KEY_W), "menu": player.call("is_menu_open") if player.has_method("is_menu_open") else false}))
+				next_progress = walking_seconds + 0.5
 			var difference := point - position
-			if Vector2(difference.x, difference.y).length() < 36.0:
+			var arrival := 36.0 if waypoint_index == points.size() - 1 else 16.0
+			if Vector2(difference.x, difference.y).length() < arrival:
 				break
 			if walking_seconds - walking_start >= seconds:
 				reached = false
@@ -254,8 +263,11 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	var final: Vector3 = player.call("position")
 	var distance := initial.distance_to(final)
 	reached = reached and waypoint_index == points.size() and distance > 1.0
-	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "path_units": path_units, "waypoint_index": waypoint_index, "waypoints": str(points) if not reached else "", "sampling_s": sampling_msec / 1000.0, "walking_s": walking_seconds - walking_start, "budget_s": seconds, "goal": str(navigation.get("goal", target)), "approach_distance": navigation.get("approach_distance", 0.0), "approach_limit": navigation.get("approach_limit", 0.0), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
+	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "travelled_units": travelled_units, "path_points": points.size(), "path_units": path_units, "waypoint_index": waypoint_index, "waypoints": str(points) if not reached else "", "sampling_s": sampling_msec / 1000.0, "walking_s": walking_seconds - walking_start, "budget_s": seconds, "goal": str(navigation.get("goal", target)), "approach_distance": navigation.get("approach_distance", 0.0), "approach_limit": navigation.get("approach_limit", 0.0), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
 	if not reached:
+		if not output_directory.is_empty():
+			var failure_image := await _capture()
+			failure_image.save_png(output_directory.path_join(stop_name + "_walk_failure.png"))
 		_finish()
 	return reached
 

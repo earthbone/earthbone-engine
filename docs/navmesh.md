@@ -2,6 +2,29 @@
 
 Two halves, one graph type between them.
 
+## Portal steering inset, AI-95
+
+`path_with_portal_inset` resmooths an existing A* corridor with portal endpoints
+inset by the caller's perpendicular boundary clearance. Incident boundary
+angles determine along-edge travel. Interior vertices add no constraint.
+Overlapping constraints share a finite point on the edge. Requested endpoints, triangle
+owners, directed links and search cost retain their original meanings.
+Point queries use zero inset. Invalid insets and unknown triangle owners fail.
+
+Local `recastnavigation/RecastDemo/Source/Sample_SoloMesh.cpp` erodes generated
+walkable areas by agent radius before using Detour's point funnel. Native NAVM
+geometry is retained here. This optional steering inset moves the pulled
+centreline away from portal vertices without rebuilding record geometry.
+It does not certify capsule passability. The character controller still
+resolves collision, and an unreachable scripted walk still fails its budget.
+The existing Detour adaptation and license notice remain in place.
+
+`portal_inset_retains_endpoints_and_moves_the_corner_inside_the_corridor`
+checks both windings, samples each segment against the original corridor and
+measures whole-segment clearance from the inner corner.
+The companion test checks invalid distances, short portals and zero-inset
+equivalence. No dependency or saved state is added.
+
 ## Coordinate-space endpoint eligibility, AI-92
 
 Point queries accept a caller's mesh eligibility predicate through

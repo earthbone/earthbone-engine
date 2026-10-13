@@ -25,7 +25,7 @@ pub fn navigation_path(
 }
 
 /// Query a cell-owned path to a walkable approach near an object anchor.
-/// Off-mesh anchors choose a walkable triangle centroid within the given bound.
+/// Off-mesh anchors choose a walkable surface within the given bound.
 ///
 /// # Errors
 /// Returns the reason when no bounded walkable approach or route exists.
@@ -37,6 +37,23 @@ pub fn navigation_approach_path(
     max_distance: f32,
 ) -> Result<soe_navmesh::Path, String> {
     navigation::query_approach(game, cell, from, anchor, max_distance)
+}
+
+/// Query a bounded object approach with inset portal steering points.
+/// Uses the same CELL or WRLD scope and keeps the bounded endpoint intact.
+/// Physics remains responsible for capsule contacts and narrow passages.
+///
+/// # Errors
+/// Returns invalid bounds or the reason a bounded approach is unavailable.
+pub fn navigation_approach_path_with_portal_inset(
+    game: &crate::Game,
+    cell: soe_esm::GlobalFormId,
+    from: [f32; 3],
+    anchor: [f32; 3],
+    max_distance: f32,
+    inset: f32,
+) -> Result<soe_navmesh::Path, String> {
+    navigation::query_approach_inset(game, cell, from, anchor, max_distance, inset)
 }
 
 pub use checkpoint::{Checkpoint, QuestCheckpoint};
