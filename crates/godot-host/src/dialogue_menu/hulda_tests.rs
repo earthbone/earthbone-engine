@@ -121,6 +121,27 @@ fn report_services(game: &mut Game, speaker: GlobalFormId) {
                 },
                 &quest_conditions,
             );
+            if quest_name.as_deref() == Some("DialogueGeneric") {
+                let voice_conditions: Vec<_> = quest_conditions
+                    .iter()
+                    .filter(|condition| condition.function == 426)
+                    .cloned()
+                    .collect();
+                assert!(!voice_conditions.is_empty());
+                assert_eq!(
+                    conditions::evaluate(
+                        &mut world,
+                        &game.vm,
+                        conditions::Context {
+                            owner: quest,
+                            ..context
+                        },
+                        &voice_conditions,
+                    ),
+                    Ok(true),
+                    "DefaultNPCVoiceTypes must admit Hulda's traits voice"
+                );
+            }
             let info_match = conditions::evaluate(&mut world, &game.vm, context, &data.conditions);
             if quest_match == Ok(true) && info_match == Ok(true) {
                 let functions: Vec<_> = data
@@ -175,6 +196,16 @@ fn installed_hulda_activation_offers_localized_topics_and_resolved_response_voic
         reference.position = position;
     }
     game.change_cell(Some(cell));
+    {
+        let mut world = game.world_mut();
+        let factions = world.actor(speaker).unwrap().factions.clone();
+        for (id, rank) in factions {
+            eprintln!(
+                "Hulda faction {id} {:?} rank={rank}",
+                world.record(id).and_then(soe_esm::Record::editor_id)
+            );
+        }
+    }
     report_services(&mut game, speaker);
     eprintln!(
         "Hulda startup quests={} cell={cell} speaker={speaker}",

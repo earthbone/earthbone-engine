@@ -2792,7 +2792,12 @@ fn function_value(
             return Err(Error::UnavailableContract(c.function));
         }
         426 => {
-            let voice_type = resolve(world, context.owner, raw, Some(*b"VTYP"))?;
+            // CONTEXT: xEdit ptVoiceType permits VTYP and FLST parameters.
+            let voice_type = resolve(world, context.owner, raw, None)?;
+            let tag = world.tag_of(voice_type).ok_or(Error::Form(voice_type))?;
+            if tag != Tag(*b"VTYP") && tag != Tag(*b"FLST") {
+                return Err(Error::Form(voice_type));
+            }
             if world.actor(subject).is_none() {
                 return Err(Error::Form(subject));
             }
@@ -2807,7 +2812,15 @@ fn function_value(
                         .then(|| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
                 })
                 .and_then(|raw| world.resolve_from(source, raw));
-            boolean(voice == Some(voice_type))
+            boolean(if tag == Tag(*b"FLST") {
+                voice.is_some_and(|voice| {
+                    world
+                        .form_list(voice_type)
+                        .is_some_and(|list| list.contains(&voice))
+                })
+            } else {
+                voice == Some(voice_type)
+            })
         }
         432 => {
             if raw == 0 || i32::try_from(raw).is_err() {

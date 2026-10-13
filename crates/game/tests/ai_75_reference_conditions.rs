@@ -128,7 +128,7 @@ fn ai_75_functions_reject_wrong_forms_and_invalid_parameters() {
         Err(conditions::Error::Form(_))
     ));
     assert!(matches!(
-        evaluate(&game, id(0x900), &condition(426, 0x820, 1.0)),
+        evaluate(&game, id(0x900), &condition(426, 0x810, 1.0)),
         Err(conditions::Error::Form(_))
     ));
     assert_eq!(
@@ -151,6 +151,41 @@ fn ai_75_functions_reject_wrong_forms_and_invalid_parameters() {
         evaluate(&game, id(0x900), &condition(463, 0, 1.0)),
         Err(conditions::Error::Form(_))
     ));
+}
+
+#[test]
+fn ai_94_voice_lists_match_members_and_follow_runtime_list_changes() {
+    let game = fixture();
+    game.world_mut().form_list(id(0x820)).unwrap().clear();
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(426, 0x820, 1.0)),
+        Ok(false)
+    );
+    game.world_mut()
+        .form_list(id(0x820))
+        .unwrap()
+        .push(id(0x830));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(426, 0x820, 1.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(426, 0x820, 1.0)),
+        Ok(false)
+    );
+    game.world_mut()
+        .form_list(id(0x820))
+        .unwrap()
+        .push(id(0x831));
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(426, 0x820, 1.0)),
+        Ok(true)
+    );
+    game.world_mut().form_list(id(0x820)).unwrap().clear();
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(426, 0x820, 1.0)),
+        Ok(false)
+    );
 }
 
 #[test]

@@ -36,6 +36,8 @@ var previous_poses: Dictionary = {}
 var output_directory := ""
 var heartbeat_path := ""
 var moving := false
+var walking := false
+var walking_seconds := 0.0
 var step_requests: Array[Dictionary] = []
 var step_materials: Dictionary = {}
 var footstep_capture: AudioEffectCapture
@@ -112,6 +114,13 @@ func _start() -> void:
 		_check("capture", image.save_png(output_directory.path_join("startup.png")) == OK, {"path": "startup.png"})
 	await _route()
 
+# CONTEXT: MainLoop and the controller share logical physics ticks. Captures
+# release movement input, and capped catch-up advances less than wall time.
+func _physics_process(delta: float) -> bool:
+	if moving and not sampling:
+		walking_seconds += delta
+	return false
+
 func _process(_delta: float) -> bool:
 	_disconnect_exit_report()
 	if not loaded or finished or route_start == 0:
@@ -137,8 +146,7 @@ func _process(_delta: float) -> bool:
 	_drain_audio()
 	_heartbeat()
 	if _elapsed() >= duration_s:
-		if not sampling:
-			_finish()
+		_finish_when_due()
 		return false
 	if now >= next_sample and not sampling and not player.call("is_menu_open"):
 		next_sample = now + 1_000_000
@@ -168,6 +176,11 @@ func _heartbeat() -> void:
 func _elapsed() -> float:
 	return (Time.get_ticks_usec() - route_start) / 1_000_000.0
 
+func _finish_when_due() -> bool:
+	if _elapsed() >= duration_s and not sampling and not walking and completed_loops >= 1:
+		_finish()
+	return finished
+
 func _check(id: String, passed: bool, measured: Dictionary) -> void:
 	var owner := str(policy.get(id, {}).get("owner", OWNERS.get(id, "TST-19")))
 	var expected: bool = not passed and bool(policy.get(id, {}).get("expected", false))
@@ -195,11 +208,13 @@ func _look_at(target: Vector3) -> void:
 	player.call("set_facing", atan2(direction.x, direction.y), atan2(direction.z, Vector2(direction.x, direction.y).length()))
 
 func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
+	walking = true
 	while sampling and not finished:
 		await process_frame
 	var navigation: Dictionary = player.call("play_path_navigation_details", target)
 	var points: PackedVector3Array = navigation.points
 	var start := Time.get_ticks_msec()
+	var walking_start := walking_seconds
 	var initial: Vector3 = player.call("position")
 	var path_units := 0.0
 	for index in range(1, points.size()):
@@ -209,6 +224,7 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	var reached := points.size() >= 2
 	if not reached:
 		_key(false)
+		walking = false
 		var stationary: Vector3 = player.call("position")
 		_check("route.walk", false, {"destination": str(target), "position": str(stationary), "distance": initial.distance_to(stationary), "path_points": points.size(), "seconds": 0.0, "reason": navigation.get("reason", "NAVM path missing or trivial")})
 		_finish()
@@ -224,7 +240,7 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 			var difference := point - position
 			if Vector2(difference.x, difference.y).length() < 36.0:
 				break
-			if Time.get_ticks_msec() - start >= int(seconds * 1000.0):
+			if walking_seconds - walking_start >= seconds:
 				reached = false
 				break
 			player.call("set_facing", atan2(difference.x, difference.y), 0.0)
@@ -234,10 +250,11 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 			break
 		waypoint_index += 1
 	_key(false)
+	walking = false
 	var final: Vector3 = player.call("position")
 	var distance := initial.distance_to(final)
-	reached = reached and distance > 1.0
-	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "path_units": path_units, "waypoint_index": waypoint_index, "waypoints": str(points) if not reached else "", "sampling_s": sampling_msec / 1000.0, "goal": str(navigation.get("goal", target)), "approach_distance": navigation.get("approach_distance", 0.0), "approach_limit": navigation.get("approach_limit", 0.0), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
+	reached = reached and waypoint_index == points.size() and distance > 1.0
+	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "path_units": path_units, "waypoint_index": waypoint_index, "waypoints": str(points) if not reached else "", "sampling_s": sampling_msec / 1000.0, "walking_s": walking_seconds - walking_start, "budget_s": seconds, "goal": str(navigation.get("goal", target)), "approach_distance": navigation.get("approach_distance", 0.0), "approach_limit": navigation.get("approach_limit", 0.0), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
 	if not reached:
 		_finish()
 	return reached
@@ -258,7 +275,7 @@ func _stop(name: String) -> void:
 	_key(false)
 	while sampling and not finished:
 		await process_frame
-	if finished:
+	if _finish_when_due():
 		return
 	await _sample_view()
 	await create_timer(1.05).timeout
@@ -272,20 +289,21 @@ func _stop(name: String) -> void:
 	if not output_directory.is_empty():
 		_check("capture", image.save_png(output_directory.path_join(name + ".png")) == OK, {"path": name + ".png"})
 	sampling = false
+	_finish_when_due()
 
-func _route() -> void:
-	var inn_cell := str(player.call("gameplay_cell"))
-	stop_name = "hulda"
+func _talk_to_hulda() -> bool:
 	var hulda := _reference(func(ref: Dictionary) -> bool: return ref.editor_id == "Hulda")
 	if not hulda.is_empty():
 		if not await _walk_to(hulda.position + Vector3(-160, -150, 0), 8.0):
-			return
+			return false
 		_look_at(hulda.position + Vector3(0, 0, 115))
 	var activated := _activate(hulda)
 	await process_frame
 	var content: Control = player.call("menu_content")
 	var topics: Array = content.find_children("*", "Button", true, false) if content != null else []
 	var chosen := false
+	var bank := player.get_node_or_null("SoundBank")
+	var starts_before: int = bank.call("voice_start_count") if bank != null else 0
 	if not topics.is_empty():
 		topics[0].emit_signal("pressed")
 		chosen = true
@@ -297,8 +315,22 @@ func _route() -> void:
 		if label.is_visible_in_tree() and not label.text.is_empty():
 			response += label.text
 	_check("route.hulda", activated and chosen and not response.is_empty() and player.call("is_menu_open"), {"reference": hulda.get("id", "missing"), "topics": topics.size(), "activated": activated, "chosen": chosen, "response": response})
+	var state: Dictionary = player.call("dialogue_state")
+	var slot := int(state.get("voice_slot", -1))
+	var voice: AudioStreamPlayer3D = bank.get_child(slot) if bank != null and slot >= 0 else null
+	var starts_after: int = bank.call("voice_start_count") if bank != null else 0
+	var playing := voice != null and voice.is_playing()
+	_check("response.audio", chosen and starts_after > starts_before and playing, {"slot": slot, "starts_before": starts_before, "starts_after": starts_after, "playing": playing, "response": state.get("text", "")})
 	await _menu_theme("dialogue")
 	player.call("close_menu")
+	return activated and chosen and not response.is_empty() and playing
+
+func _route() -> void:
+	var inn_cell := str(player.call("gameplay_cell"))
+	stop_name = "hulda"
+	if not await _talk_to_hulda():
+		_finish()
+		return
 	await _stop("hulda")
 
 	stop_name = "container"
@@ -405,6 +437,8 @@ func _route() -> void:
 			return
 		_look_at(gate_position + Vector3(0, 0, 150))
 		await _stop("market")
+		if finished:
+			return
 		stop_name = "gate"
 		reached = await _walk_to(gate_position, 30.0)
 		_check("route.gate", reached, {"position": str(player.call("position")), "reference": str(gate)})
@@ -412,6 +446,8 @@ func _route() -> void:
 			return
 		_look_at(gate_position + Vector3(0, 0, 160))
 		await _stop("gate")
+		if finished:
+			return
 		# CONTEXT: The short outside leg supplies actual grass steps, then returns
 		# through the same gate. Door transitions retain their authored landings.
 		if completed_loops == 0 and not finished:
@@ -428,6 +464,8 @@ func _route() -> void:
 		if not reached:
 			return
 		await _stop("return")
+		if finished:
+			return
 		if completed_loops == 0 and not finished:
 			var entered := _activate({"file": exit_door.far_file, "object": exit_door.far_object})
 			await process_frame
@@ -436,6 +474,11 @@ func _route() -> void:
 			if not entered:
 				_finish()
 				return
+			stop_name = "inn_return"
+			if not await _talk_to_hulda():
+				_finish()
+				return
+			await _stop("inn_return")
 			var exit_pose: Dictionary = player.call("gameplay_reference_pose", exit_door.file, exit_door.object)
 			if not await _walk_to(exit_pose.position, 10.0):
 				return

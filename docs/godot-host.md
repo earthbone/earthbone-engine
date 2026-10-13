@@ -1,5 +1,26 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Walker physics budget, 2026-10-13
+
+TST-19 charges its movement budget in physics seconds while walking input is
+active. Observation captures release that input and do not consume the budget.
+Normal duration completion waits for the current leg and first full loop.
+The Rust parent's whole-process cap still rejects a run that cannot finish.
+The interim inline-game cap runs at most two physics ticks per rendered frame.
+Local Godot `class_engine.rst`, `max_physics_steps_per_frame`, documents the
+resulting slowdown under low rendering FPS. Wall-clock route duration and the
+watchdog keep their existing limits. Increasing catch-up would repeat inline
+game work and aggravate stalls, so the walker uses the controller's clock.
+
+`tst_19_physics_time_budget_survives_slow_rendering_and_fails_a_blocked_walk`
+runs a ten-FPS fixture with that two-tick cap and a 1.1-second observation pause.
+The reachable walk takes 5.223 wall seconds and 0.650 physics seconds against
+its unchanged one-second budget. A blocked walk fails at 0.267 physics seconds
+against a 0.250-second budget. Interruption before the last waypoint also fails.
+The installed container retains its five-second movement budget and 128-unit
+NAVM approach bound. The script adds a required response.audio check for the
+chosen topic and repeats Hulda activation after returning to the inn.
+
 ## Play path fix checkpoint, 2026-10-13
 
 The first live gate on `ee278da20` exited 101 after the 360-second process
@@ -8202,3 +8223,22 @@ handles are pruned when another decoder retires. The local gdext
 The synthetic AUD-12 shutdown test checks nonblocking drop and completed
 worker teardown. PRF-14 retains both release and isolated debug checks and
 requires successful process exit after its count assertions.
+
+## Persistent full-model residency, RND-40
+
+Large-world persistent references with REFR Full LOD or a STAT Never Fades
+base retain their full models on the persistent cell, independent of the
+loaded grid. Other persistent geometry keeps its physical grid ownership.
+Collision remains on the physical grid. Static world-resident models share
+local geometry through MultiMesh, with the existing shared texture and
+material caches. Location replacement releases their rendering resources
+and prepared CPU textures. Exterior previews install the same persistent
+selection and clear it on worldspace changes.
+
+The vanilla survey covers all 47 worldspaces in the five masters. Tamriel
+has 951 flagged persistent references. Within 20 cells of the Whiterun gate,
+251 have drawable enabled models, 110 are invisible editor-marker furniture
+and two are disabled. All 251 now produce live full-model RIDs at the gate.
+The world check submits 785 drawable Tamriel references and retains zero on
+return to Whiterun. The count table, complete near-gate list, local sources
+and memory evidence are in [full-lod-residency.md](full-lod-residency.md).

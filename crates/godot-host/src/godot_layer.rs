@@ -2436,6 +2436,26 @@ impl CellStreamerNode {
         self.chargen_cache.resident_bytes() as i64
     }
 
+    /// CPU products retained after LOD upload, including products outside residency.
+    #[func]
+    pub fn lod_cache_memory(&self) -> VarDictionary {
+        let mut entries = 0i64;
+        let mut geometry = 0usize;
+        let mut payload = 0u64;
+        for products in self.lod_build_cache.values() {
+            entries += 1;
+            for result in [&products.object, &products.terrain, &products.tree] {
+                if let Ok(Some(loaded)) = result {
+                    payload = payload.saturating_add(loaded.approx_bytes);
+                    for surface in &loaded.surfaces {
+                        geometry = geometry.saturating_add(surface.arrays.mesh_byte_count());
+                    }
+                }
+            }
+        }
+        vdict! { "entries" => entries, "geometry_bytes" => geometry as i64, "payload_bytes" => payload as i64 }
+    }
+
     /// Completed load phases and budget diagnostics, also included in Trace exports.
     #[func]
     pub fn load_timing_dump(&self) -> GString {
@@ -2704,12 +2724,19 @@ impl CellStreamerNode {
         let Some(scenario) = self.scenario() else {
             return -1;
         };
+        let source = Arc::clone(source);
+        if self.rendered_cells.iter().any(|cell| {
+            source
+                .exterior_world(*cell)
+                .is_some_and(|world| world != block.world)
+        }) {
+            self.clear();
+        }
         let materials_before = self.materials.len();
         let mut totals = StreamTotals {
             world: block.world_editor_id.clone().unwrap_or_default(),
             ..StreamTotals::default()
         };
-        let source = Arc::clone(source);
         let result = source.stream_exterior_each(&block, |cell, loaded_cell, has_land| {
             if has_land {
                 totals.land_cells += 1;
@@ -2722,6 +2749,18 @@ impl CellStreamerNode {
         if let Err(e) = result {
             soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_exterior: {e}");
             return -1;
+        }
+        if let Some(persistent) = source.cell_index().world_persistent_cell(block.world) {
+            if !self.rendered_cells.contains(&persistent) {
+                let loaded = match source.stream_cell_id(persistent) {
+                    Ok(loaded) => loaded,
+                    Err(error) => {
+                        soe_trace::error!(target: "host::layer", system = "host::layer", "worldspace full models: {error}");
+                        return -1;
+                    }
+                };
+                self.install_cell(persistent, &loaded, scenario, &mut totals, None);
+            }
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         self.last_stats.set("origin_x", block.origin.0);
@@ -3866,6 +3905,9 @@ impl CellStreamerNode {
         self.clear_tree_lod();
         self.bounds = None;
         self.materials.prune_unused();
+        if let Some(source) = &self.data_source {
+            source.clear_prepared_textures();
+        }
     }
 
     /// The form that owns `triangle` of the `instance`th instance this node
@@ -4050,7 +4092,15 @@ impl CellStreamerNode {
                 totals.instances += 1;
             }
         }
-        let (groups, remainder) = instancing_candidates(&ordinary);
+        let (groups, remainder) = if self
+            .data_source
+            .as_ref()
+            .is_some_and(|source| source.cell_index().persistent_cell_world(cell).is_some())
+        {
+            crate::batch::worldspace_instancing_candidates(&ordinary)
+        } else {
+            instancing_candidates(&ordinary)
+        };
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
             totals.instances += 1;

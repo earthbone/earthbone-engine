@@ -845,9 +845,9 @@ tower and scene progression that it currently skips.
 The second route now approaches `dunCGsetstage195REF` in exterior cell
 0x982B before entering the keep. Both stage waits complete. Its checkpoint
 still lacks stage 174, which the installed
-`SF_MQ101DragonAttackSceneDTo_000DEDBB.Fragment_0` sets on scene end.
-World-checkpoint startup omits saved scene execution, and the scene runtime
-does not dispatch SCEN VMAD fragments. The acceptance tests keep their full
+`SF_MQ101DragonAttackSceneDTo_000DEDBB.Fragment_0` sets at phase 7 start.
+World-checkpoint startup omits saved scene execution. At that checkpoint the
+saved keep scene is in phase 5. The acceptance tests keep their full
 completed-stage comparison. `hst_14_ai_movement_delivers_npc_trigger_crossings_once`
 checks AI-driven enter, occupancy, leave and the NPC event argument without
 installed data. The trigger event contract follows local CK
@@ -857,6 +857,34 @@ cell and caches empty cells too. A global REFR scan on the first NPC crossing
 cost 207 ms in the installed PRF-11 check, exceeding its eight-millisecond
 AI frame limit. With per-cell indexing, the same 3,600-frame check passed with
 seven NPCs and a worst AI frame of 0.3044 ms.
+
+The third integration repair connects SCEN begin, end and phase boundaries
+to FMT-18's decoded VMAD callbacks using their named script and function.
+The callback flags and ordering follow local xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas`, `wbVMADFragmentedSCEN`.
+The DLG-09 phase driver, introduced by `495690109`, still requires explicit
+action completion and phase advancement. Its boundary callbacks now run
+once when those operations succeed. Two synthetic checks verify ordered
+callbacks, rejection without callbacks, named script ownership and engine
+save restoration without replaying earlier callbacks.
+`Scene.GetOwningQuest` also uses the existing SCEN record view. A package
+action carries its own PNAM entries before the trailer's parent quest PNAM,
+as local UESP `uesp-modfileformat/SCEN.wikitext` and xEdit `wbRecord(SCEN)`
+declare. The earlier native used the first PNAM and returned a package for
+the installed keep scene. SCR-62's ownership audit did not cover that shape.
+`scr_62_scene_owner_uses_parent_quest_after_action_packages` checks it without
+installed data.
+`ply_03_saved_keep_scene_phase_start_runs_stage_174_fragment` restores the
+installed keep scene at phase 5, explicitly completes the actions ending in
+phases 5 and 6, then verifies that entering phase 7 runs the installed fragment
+and records stage 174. It does not establish automatic action completion.
+PLY-03's six full checkpoint acceptance tests still require tower progression
+for the first pair and saved scene playback for the second pair. Their stage
+history assertions remain unchanged.
+Validation on 2026-10-13 passes 4,259 debug integration tests and 238 library
+tests, with four existing integration ignores. The installed stage-174
+fragment check passes. Each of the six installed checkpoint tests still
+fails on the stage-history gaps above when run alone on one thread.
 
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
@@ -4891,7 +4919,12 @@ batch.
 `IsInList` tests whether the subject reference's base form is a member of the
 resolved FLST. `Exists` accepts a placed ACHR or REFR and returns false for a
 deleted reference. `GetIsVoiceType` compares the actor's traits-source NPC_ VTCK
-with a resolved VTYP. `GetIsObjectType` compares the subject base record's
+with a resolved VTYP or tests membership in a resolved FLST. AI-94 follows
+local xEdit `wbDefinitionsTES5.pas`, whose `ptVoiceType` accepts both tags.
+The list is read from World, including runtime additions and removals.
+`ai_94_voice_lists_match_members_and_follow_runtime_list_changes` checks empty
+lists, matching and nonmatching voices, additions and clearing. Wrong record
+types still fail. `GetIsObjectType` compares the subject base record's
 CommonLib form-type code. `IsPC1stPerson` reads the host POV state, while
 `IsPlayerGrabbedRef` compares its resolved REFR parameter with the grabbed
 reference. Group member and target counts walk live actor combat-target links:

@@ -104,6 +104,11 @@ impl<T> Default for LodBuildCache<T> {
 }
 
 impl<T> LodBuildCache<T> {
+    #[cfg(feature = "godot")]
+    pub(crate) fn values(&self) -> impl Iterator<Item = &T> {
+        self.entries.values().map(Arc::as_ref)
+    }
+
     #[must_use]
     pub fn get(&self, key: LoadOrderHash) -> Option<Arc<T>> {
         self.entries.get(&key).cloned()

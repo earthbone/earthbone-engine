@@ -366,6 +366,21 @@ struct InstanceKey {
 /// falls back to the remainder, since a `MultiMesh` of one or two instances
 /// has no case for its own draw call.
 pub fn instancing_candidates(surfaces: &[LoadedSurface]) -> (Vec<InstanceGroup>, Vec<usize>) {
+    group_instancing_candidates(surfaces, INSTANCE_MIN_PLACEMENTS)
+}
+
+/// World-resident full models share geometry even with few placements.
+#[cfg(any(feature = "godot", test))]
+pub(crate) fn worldspace_instancing_candidates(
+    surfaces: &[LoadedSurface],
+) -> (Vec<InstanceGroup>, Vec<usize>) {
+    group_instancing_candidates(surfaces, 1)
+}
+
+fn group_instancing_candidates(
+    surfaces: &[LoadedSurface],
+    minimum: usize,
+) -> (Vec<InstanceGroup>, Vec<usize>) {
     let mut by_key: HashMap<InstanceKey, usize> = HashMap::new();
     let mut groups: Vec<InstanceGroup> = Vec::new();
     let mut remainder: Vec<usize> = Vec::new();
@@ -402,9 +417,8 @@ pub fn instancing_candidates(surfaces: &[LoadedSurface]) -> (Vec<InstanceGroup>,
             }
         }
     }
-    let (groups, short): (Vec<_>, Vec<_>) = groups
-        .into_iter()
-        .partition(|g| g.members.len() >= INSTANCE_MIN_PLACEMENTS);
+    let (groups, short): (Vec<_>, Vec<_>) =
+        groups.into_iter().partition(|g| g.members.len() >= minimum);
     remainder.extend(
         short
             .iter()
@@ -510,6 +524,28 @@ mod tests {
                 assert!((actual - expected).abs() < 1e-6);
             }
         }
+    }
+
+    #[test]
+    fn persistent_full_models_share_geometry_below_the_grid_instancing_threshold() {
+        let mut surfaces = vec![quad(0.0, "shared.dds"), quad(0.0, "shared.dds")];
+        for (i, surface) in surfaces.iter_mut().enumerate() {
+            surface.reference.object = i as u32;
+            surface.mesh_identity = Some(Arc::from("full-model#0"));
+            surface.instance_transform = Some(GodotTransform {
+                basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                origin: crate::units::GodotPos::new(i as f32 * 1000.0, 0.0, 0.0),
+            });
+        }
+        let (groups, remaining) = worldspace_instancing_candidates(&surfaces);
+        assert!(remaining.is_empty());
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].arrays.positions.len(), 4);
+        assert_eq!(groups[0].members.len(), 2);
+        assert_eq!(groups[0].members[1].transform.origin.x, 1000.0);
+        let (groups, remaining) = worldspace_instancing_candidates(&surfaces[..1]);
+        assert!(remaining.is_empty());
+        assert_eq!(groups[0].members.len(), 1);
     }
 
     #[test]
