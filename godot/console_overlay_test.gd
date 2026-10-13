@@ -4,7 +4,11 @@ var console_test_started := false
 var failures: Array[String] = []
 
 func _configure_player() -> void:
+    root.size = Vector2i(1280, 720)
     player.set("capture_mouse", false)
+
+func _spawn_position(_streamer: Node3D) -> Vector3:
+    return Vector3(-125.0, -800.0, 120.0)
 
 func _process(delta: float) -> bool:
     super._process(delta)
@@ -38,7 +42,11 @@ func _console_test() -> void:
     var before: Vector3 = player.call("position")
     var days_before: float = player.call("gameplay_days")
     var old_mouse := Input.mouse_mode
-    var gold_before := int(str(player.call("console_execute", "player.getitemcount f")))
+    var gold_before_text := str(player.call("console_execute", "player.getitemcount f"))
+    var gold_before := int(gold_before_text)
+    _check(gold_before_text.is_valid_int(), "getitemcount returns an integer")
+    var gold_lookup := str(player.call("console_execute", "lookup f"))
+    _check(gold_lookup.contains("Gold001") and gold_lookup.contains("0000000F"), "short FormID wins over editor ID F")
     _key(KEY_QUOTELEFT)
     _check(player.call("console_is_open"), "grave opens console")
     var line: LineEdit = player.get_node("ConsoleLayer/Console/Content/Input")
@@ -88,7 +96,9 @@ func _console_test() -> void:
     _check(line.text == command, "Up recalls history")
     _key(KEY_DOWN)
     _check(line.text.is_empty(), "Down restores draft")
-    var gold_after := int(str(player.call("console_execute", "player.getitemcount f")))
+    var gold_after_text := str(player.call("console_execute", "player.getitemcount f"))
+    var gold_after := int(gold_after_text)
+    _check(gold_after_text.is_valid_int(), "updated getitemcount returns an integer")
     _check(gold_after == gold_before + 7, "typed command adds seven gold")
     var bad := str(player.call("console_execute", "thiscommanddoesnotexist"))
     _check(bad.begins_with("error:") and output.text.contains(bad), "errors print in overlay")

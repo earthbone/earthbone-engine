@@ -29,6 +29,7 @@ fn fixture() -> (Game, Console) {
     );
     for (object, tag, name) in [
         (0xf, b"MISC", "Gold001"),
+        (0xb00, b"DIAL", "F"),
         (0x200, b"MISC", "TestItem"),
         (0x300, b"CONT", "TestContainer"),
         (0x400, b"DOOR", "TestDoorBase"),
@@ -1382,4 +1383,63 @@ fn drop_clears_equipment_when_the_last_item_leaves_inventory() {
         .unwrap()
         .equipped
         .contains(&id(0xa21)));
+}
+
+#[test]
+fn short_form_id_wins_over_the_vanilla_f_editor_id_collision() {
+    let (mut game, mut console) = fixture();
+    console.run(&mut game, "player.additem f 7").unwrap();
+    assert_eq!(
+        console
+            .run(&mut game, "player.getitemcount 0000000f")
+            .unwrap(),
+        Outcome::Int(1007)
+    );
+}
+
+#[test]
+fn quest_cell_and_global_name_arguments_keep_hex_shaped_editor_ids() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(quest::with_stage(
+        quest::build_record(0x800, "DA05", 0),
+        10,
+        0,
+        0,
+        "Stage",
+    ));
+    plugin.push_top(
+        Record::new(T(b"CELL"), 0x700)
+            .zsub(T(b"EDID"), "DAD")
+            .sub(T(b"DATA"), [1, 0]),
+    );
+    plugin.push_top(
+        Record::new(T(b"GLOB"), 0x900)
+            .zsub(T(b"EDID"), "CAFE")
+            .sub(T(b"TNAM"), [b'f'])
+            .sub(T(b"FLTV"), 1_f32.to_le_bytes()),
+    );
+    for object in [0xda05, 0xdad, 0xcafe] {
+        plugin.push_top(Record::new(T(b"MISC"), object));
+    }
+    let mut order = LoadOrder::new();
+    order.add("Test.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let mut console = Console::new();
+    console.run(&mut game, "setstage DA05 10").unwrap();
+    assert_eq!(
+        console.run(&mut game, "getstage DA05").unwrap(),
+        Outcome::Int(10)
+    );
+    console.run(&mut game, "sqs DA05").unwrap();
+    console.run(&mut game, "set CAFE to 2").unwrap();
+    assert_eq!(
+        console.run(&mut game, "getglobalvalue CAFE").unwrap(),
+        Outcome::Float(2.0)
+    );
+    console.run(&mut game, "coc DAD").unwrap();
+    let player = game.player();
+    assert_eq!(
+        game.world().reference_ref(player).unwrap().cell,
+        Some(id(0x700))
+    );
 }

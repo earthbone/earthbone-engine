@@ -148,7 +148,7 @@ impl Console {
             }
             "showglobalvars" => return super::help(game, &["", "2"]),
             "resetinterior" => {
-                let cell = args.form(game, 0)?;
+                let cell = args.editor_form(game, 0)?;
                 game.world_mut()
                     .reset_cell(cell)
                     .map_err(|e| e.to_string())?;
@@ -230,14 +230,14 @@ impl Console {
 fn teleport(game: &mut Game, name: &str, args: &Args<'_>) -> Result<Outcome, String> {
     let index = CellIndex::build(game.world().order());
     let (cell, position) = if name == "coc" {
-        let cell = args.form(game, 0)?;
+        let cell = args.editor_form(game, 0)?;
         if game.world().tag_of(cell) != Some(Tag(*b"CELL")) {
             return Err("coc requires a cell".into());
         }
         (cell, [0.0; 3])
     } else {
         let world = if name == "cow" {
-            args.form(game, 0)?
+            args.editor_form(game, 0)?
         } else {
             super::super::resolve(game, "Tamriel")?
         };

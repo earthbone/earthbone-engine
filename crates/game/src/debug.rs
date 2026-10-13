@@ -550,7 +550,7 @@ impl Console {
                 ))
             }
             "listrefs" => {
-                let cell = resolve(game, arg(0)?)?;
+                let cell = resolve_editor(game, arg(0)?)?;
                 let refs = game.world_mut().cell_references(cell);
                 let world = game.world();
                 Ok(Outcome::List(
@@ -565,7 +565,7 @@ impl Console {
 
             // ----- quests -----
             "setstage" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let stage = play::integer(arg(1)?, 0, i32::from(u16::MAX))? as u16;
                 if game.set_stage(quest, stage) {
                     game.run_until_idle(64);
@@ -575,12 +575,12 @@ impl Console {
                 }
             }
             "getstage" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let stage = game.world_mut().quest_state(quest).map_or(0, |q| q.highest);
                 Ok(Outcome::Int(i64::from(stage)))
             }
             "getstagedone" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let stage = play::integer(arg(1)?, 0, i32::from(u16::MAX))? as u16;
                 let done = game
                     .world_mut()
@@ -589,18 +589,18 @@ impl Console {
                 Ok(Outcome::Bool(done))
             }
             "startquest" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let started = game.start_quest(quest);
                 game.run_until_idle(64);
                 Ok(Outcome::Bool(started))
             }
             "stopquest" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let stopped = game.world_mut().stop_quest(quest);
                 Ok(Outcome::Bool(stopped))
             }
             "objective" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let index = play::integer(arg(1)?, 0, i32::from(u16::MAX))? as u16;
                 let field = arg(2)?.to_ascii_lowercase();
                 let on = flag(args.get(3).copied())?;
@@ -620,7 +620,7 @@ impl Console {
                 Ok(Outcome::Done)
             }
             "forcealias" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let alias = number(arg(1)?)? as u32;
                 let target = resolve(game, arg(2)?)?;
                 if game.world_mut().force_alias(quest, alias, Some(target)) {
@@ -631,7 +631,7 @@ impl Console {
             }
             "showquestaliases" => {
                 let named = arg(0)?.to_string();
-                let quest = resolve(game, &named)?;
+                let quest = resolve_editor(game, &named)?;
                 let mut world = game.world_mut();
                 let state = world
                     .quest_state(quest)
@@ -671,7 +671,7 @@ impl Console {
             }
             "movetocell" => {
                 let id = self.target_of(game, target)?;
-                let cell = resolve(game, arg(0)?)?;
+                let cell = resolve_editor(game, arg(0)?)?;
                 let mut world = game.world_mut();
                 let reference = world
                     .reference(id)
@@ -882,7 +882,7 @@ impl Console {
                     arg(1)?
                 };
                 let value = number(rest)? as f32;
-                let global = resolve(game, arg(0)?)?;
+                let global = resolve_editor(game, arg(0)?)?;
                 if game.world().tag_of(global) != Some(soe_esm::Tag(*b"GLOB")) {
                     return Err("set requires a global variable".into());
                 }
@@ -890,7 +890,7 @@ impl Console {
                 Ok(Outcome::Done)
             }
             "getglobalvalue" => {
-                let global = resolve(game, arg(0)?)?;
+                let global = resolve_editor(game, arg(0)?)?;
                 Ok(Outcome::Float(f64::from(
                     game.world_mut().global_value(global),
                 )))
@@ -923,15 +923,11 @@ fn split_target(head: &str) -> (Option<&str>, &str) {
 }
 
 /// A name, a hex FormID or `player`. Hex is accepted with an `0x` prefix and
-/// bare, the way the console takes `prid 1a332`, but a bare form that also
-/// names a form is read as the name first, since editor ids win in the
-/// console too.
+/// bare, the way the console takes `prid 1a332`. A valid numeric ID takes
+/// priority over an editor ID, including the vanilla F versus Gold001 collision.
 fn resolve(game: &mut Game, name: &str) -> Result<GlobalFormId, String> {
     if name.eq_ignore_ascii_case("player") {
         return Ok(game.player());
-    }
-    if let Some(id) = game.form(name) {
-        return Ok(id);
     }
     let hex = name
         .strip_prefix("0x")
@@ -939,10 +935,23 @@ fn resolve(game: &mut Game, name: &str) -> Result<GlobalFormId, String> {
         .unwrap_or(name);
     if let Ok(raw) = u32::from_str_radix(hex, 16) {
         if let Some(id) = game.world().from_runtime_id(raw) {
-            return Ok(id);
+            if game.world().tag_of(id).is_some() || game.world().reference_ref(id).is_some() {
+                return Ok(id);
+            }
         }
     }
+    if let Some(id) = game.form(name) {
+        return Ok(id);
+    }
     Err(format!("no form named {name}"))
+}
+
+/// Quest, cell and global-name arguments accept editor IDs before numeric fallback.
+fn resolve_editor(game: &mut Game, name: &str) -> Result<GlobalFormId, String> {
+    match game.form(name) {
+        Some(id) => Ok(id),
+        None => resolve(game, name),
+    }
 }
 
 fn number(s: &str) -> Result<f64, String> {

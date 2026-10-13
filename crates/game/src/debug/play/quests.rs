@@ -35,7 +35,7 @@ pub(super) fn run(game: &mut Game, name: &str, args: &Args<'_>) -> Result<Outcom
     if name == "sqo" || name == "sqt" {
         return journal(game, name);
     }
-    let id = args.form(game, 0)?;
+    let id = args.editor_form(game, 0)?;
     if game.world_mut().quest_state(id).is_none() {
         return Err("requires a quest".into());
     }

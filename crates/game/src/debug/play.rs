@@ -71,6 +71,9 @@ impl Args<'_> {
     pub fn form(&self, game: &mut Game, i: usize) -> Result<GlobalFormId, String> {
         resolve(game, self.word(i)?)
     }
+    pub fn editor_form(&self, game: &mut Game, i: usize) -> Result<GlobalFormId, String> {
+        super::resolve_editor(game, self.word(i)?)
+    }
     pub fn flag(&self, i: usize, default: bool) -> Result<bool, String> {
         self.0.get(i).map_or(Ok(default), |w| super::flag(Some(w)))
     }
