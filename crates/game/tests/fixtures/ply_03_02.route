@@ -1,4 +1,6 @@
 expect-stage MQ101 180
+play-scene Skyrim.esm:dedbb 7 600
+wait-stage MQ101DragonAttack 174 600
 navigate-marker Skyrim.esm:982b 15488 -79504 8192 600 3600
 wait-stage MQ101DragonAttack 195 600
 activate Skyrim.esm:25fae

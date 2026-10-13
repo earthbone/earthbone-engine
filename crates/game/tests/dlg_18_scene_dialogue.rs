@@ -25,6 +25,10 @@ const INFO: u32 = 0xA00;
 const SCENE: u32 = 0xB00;
 
 fn fixture(alias_filled: bool, responses: &[&str]) -> Game {
+    fixture_with_phase_gate(alias_filled, responses, false)
+}
+
+fn fixture_with_phase_gate(alias_filled: bool, responses: &[&str], gated: bool) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
         Record::new(tag(b"NPC_"), 7)
@@ -73,12 +77,21 @@ fn fixture(alias_filled: bool, responses: &[&str]) -> Game {
     dial.entries.push(Entry::Group(children));
     plugin.groups.push(dial);
 
-    let scene = Record::new(tag(b"SCEN"), SCENE)
+    let mut scene = Record::new(tag(b"SCEN"), SCENE)
         .sub(tag(b"HNAM"), [])
         .zsub(tag(b"NAM0"), "First")
         .sub(tag(b"NEXT"), [])
         .sub(tag(b"HNAM"), [])
-        .zsub(tag(b"NAM0"), "Second")
+        .sub(tag(b"HNAM"), [])
+        .zsub(tag(b"NAM0"), "Second");
+    if gated {
+        let mut condition = vec![0; 32];
+        condition[4..8].copy_from_slice(&1.0f32.to_le_bytes());
+        condition[8..10].copy_from_slice(&72u16.to_le_bytes());
+        condition[12..16].copy_from_slice(&BASE.to_le_bytes());
+        scene = scene.sub(tag(b"CTDA"), condition);
+    }
+    scene = scene
         .sub(tag(b"HNAM"), [])
         .sub(tag(b"ANAM"), 0u16.to_le_bytes())
         .zsub(tag(b"NAM0"), "Assigned line")
@@ -154,4 +167,56 @@ fn dlg_18_scene_dialogue_rejects_unfilled_alias_without_opening_conversation() {
     assert!(!game
         .world_mut()
         .advance_scene_phase(id(SCENE), &mut allocate));
+}
+
+#[test]
+fn ply_03_scene_playback_presents_every_response_before_advancing() {
+    let mut game = fixture(true, &["First", "Second"]);
+    start_scene(&mut game);
+    let route = soe_game::play::Route::parse("play-scene SceneDialogue.esp:b00 1 3").unwrap();
+    let report = soe_game::play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    assert_eq!(report.ticks, 3);
+    assert_eq!(game.world().scene_phase(id(SCENE)), Some(1));
+    assert_eq!(
+        game.world().scene_action_slot_complete(id(SCENE), 0),
+        Some(true)
+    );
+    assert!(game.dialogue_line().unwrap().is_none());
+}
+
+#[test]
+fn ply_03_scene_playback_waits_for_phase_conditions() {
+    let mut game = fixture_with_phase_gate(true, &["First"], true);
+    start_scene(&mut game);
+    let route = soe_game::play::Route::parse("play-scene SceneDialogue.esp:b00 1 3").unwrap();
+    let report = soe_game::play::run(&mut game, &route);
+    assert!(
+        report
+            .failure
+            .as_deref()
+            .unwrap()
+            .contains("timeout playing"),
+        "{}",
+        report.format()
+    );
+    assert_eq!(game.world().scene_phase(id(SCENE)), Some(0));
+    assert_eq!(
+        game.world().scene_action_slot_complete(id(SCENE), 0),
+        Some(true)
+    );
+}
+
+#[test]
+fn ply_03_scene_playback_rejects_an_unfilled_speaker_without_advancing() {
+    let mut game = fixture(false, &["Hidden"]);
+    start_scene(&mut game);
+    let route = soe_game::play::Route::parse("play-scene SceneDialogue.esp:b00 1 3").unwrap();
+    let report = soe_game::play::run(&mut game, &route);
+    assert!(
+        report.failure.as_deref().unwrap().contains("unfilled"),
+        "{}",
+        report.format()
+    );
+    assert_eq!(game.world().scene_phase(id(SCENE)), Some(0));
 }

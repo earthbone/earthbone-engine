@@ -43,6 +43,10 @@ fn fixture_game() -> Game {
 }
 
 fn package_scene() -> Game {
+    package_scene_ending(0)
+}
+
+fn package_scene_ending(end_phase: u32) -> Game {
     const QUEST: u32 = 0x810;
     const PRIOR: u32 = 0x811;
     const ASSIGNED: u32 = 0x812;
@@ -89,7 +93,7 @@ fn package_scene() -> Game {
         .sub(Tag(*b"ALID"), 0i32.to_le_bytes())
         .sub(Tag(*b"INAM"), 1u32.to_le_bytes())
         .sub(Tag(*b"SNAM"), 0u32.to_le_bytes())
-        .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
+        .sub(Tag(*b"ENAM"), end_phase.to_le_bytes())
         .sub(Tag(*b"PNAM"), ASSIGNED.to_le_bytes())
         .sub(Tag(*b"ANAM"), [])
         .sub(Tag(*b"PNAM"), QUEST.to_le_bytes());
@@ -214,4 +218,39 @@ fn dlg_19_scene_package_action_restores_the_actor_package() {
         restored.world().actor_ref(actor).unwrap().ai.scene_package,
         None
     );
+}
+
+#[test]
+fn dlg_19_restored_phase_starts_an_unfinished_spanning_package() {
+    let mut game = package_scene_ending(1);
+    assert!(game.start_quest(id(0x810)));
+    game.world_mut().drive_actor(id(0x815));
+    game.world_mut().force_alias(id(0x810), 0, Some(id(0x815)));
+    let mut allocate = |_: &str, _: &str| ObjectId(1);
+    assert!(game.world_mut().start_scene(id(0x800), &mut allocate));
+    assert!(game
+        .world_mut()
+        .advance_scene_phase(id(0x800), &mut allocate));
+    let saved = game.save_state().unwrap();
+    let mut restored = package_scene_ending(1);
+    restored.load_state(&saved).unwrap();
+    restored.tick(0.1);
+    assert_eq!(restored.world().scene_phase(id(0x800)), Some(1));
+    assert_eq!(restored.world().current_package(id(0x815)), Some(id(0x812)));
+}
+
+#[test]
+fn dlg_19_completed_timer_does_not_restart_in_its_phase() {
+    let mut game = fixture_game();
+    let mut allocate = |_: &str, _: &str| ObjectId(1);
+    assert!(game.world_mut().start_scene(id(0x800), &mut allocate));
+    game.tick(1.0);
+    game.tick(2.0);
+    assert_eq!(
+        game.world().scene_action_slot_complete(id(0x800), 0),
+        Some(true)
+    );
+    let before = game.world().save_state();
+    game.world_mut().tick_scene_actions(&mut allocate);
+    assert_eq!(game.world().save_state(), before);
 }
