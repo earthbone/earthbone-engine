@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use soe_esm::GlobalFormId;
+use soe_physics::PhysicsWorld;
 
 use crate::data_source::{DataSource, DataSourceError, LoadedLocation, TextureData};
 
@@ -216,7 +217,7 @@ impl InteriorPrefetch {
             destination,
             Box::new(move || {
                 let source = source.speculative_view();
-                let location = source.load_location(destination, position, radius)?;
+                let mut location = source.load_location(destination, position, radius)?;
                 if preparation == Preparation::Speculative && !admitted(&location) {
                     soe_trace::warn!(target: "host::interior_prefetch", system = "host::interior_prefetch",
                         "interior_prefetch: rejected {destination} payload={} primitives={}",
@@ -225,6 +226,10 @@ impl InteriorPrefetch {
                     );
                     return Ok(None);
                 }
+                // Retain the batch attachment's resolved FormID event order.
+                location.cells.sort_unstable_by_key(|(cell, _)| *cell);
+                // Build the immutable static broad phase before any host movement.
+                location.collision.world.step(0.0);
                 Ok(Some(location))
             }),
         );
@@ -730,9 +735,64 @@ mod tests {
             prefetch.poll();
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        assert!(prefetch
+        let mut ready = prefetch
             .take_location(&source, destination.cell, destination.landing.position, 1)
-            .is_some());
+            .expect("required location");
+        let worldspace = source.exterior_world(destination.cell).unwrap();
+        let runtime_cells: Vec<_> = ready
+            .cells
+            .iter()
+            .filter(|(id, _)| source.exterior_world(*id) == Some(worldspace))
+            .map(|(id, _)| *id)
+            .collect();
+        let inherited_land = ready
+            .cells
+            .iter()
+            .flat_map(|(_, loaded)| &loaded.surfaces)
+            .any(|surface| {
+                let Some(owner) = source.order().winner_ref(surface.reference) else {
+                    return false;
+                };
+                let record = source.order().record(owner);
+                record.tag == soe_esm::tag::LAND
+                    && record
+                        .placement
+                        .cell
+                        .map(|raw| source.order().resolve(owner.file, raw))
+                        .is_some_and(|cell| {
+                            source
+                                .exterior_world(cell)
+                                .is_some_and(|parent| parent != worldspace)
+                        })
+            });
+        assert!(
+            inherited_land,
+            "parent terrain must remain a separate runtime scope"
+        );
+        assert_eq!(
+            runtime_cells.len(),
+            ready.cells.len(),
+            "inherited LAND remains on local cells"
+        );
+        assert_eq!(
+            runtime_cells
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>(),
+            cells.into_iter().collect()
+        );
+        let position = destination.landing.position;
+        let id = ready.collision.world.create_character(
+            soe_physics::CharacterSettings::default(),
+            soe_physics::Vec3::new(position[0], position[1], position[2]),
+        );
+        let started = std::time::Instant::now();
+        ready.collision.world.step_character(id, 1.0 / 60.0);
+        let first_step = started.elapsed();
+        eprintln!("DOOR_PREFETCH first_step={first_step:?}");
+        assert!(
+            first_step < std::time::Duration::from_millis(50),
+            "prepared first step takes {first_step:?}"
+        );
     }
     #[test]
     fn installed_bannered_mare_prefetch_admission() {

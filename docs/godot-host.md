@@ -54,7 +54,17 @@ this engine's record-backed Godot resources, so the existing `load_location`
 builder supplies the products here. The installed required-preparation test
 passes. A second live attempt reaches the exit but the unsliced installation
 still exceeds the watchdog. Query static chunks and individual cell uploads
-now yield to host frames. Final crossing acceptance is pending.
+now yield to host frames. The sliced upload run passes every inn approach and the hearth control pair,
+with 9,227 bright pixels and zero dark pixels. It still stalls after uploads.
+Runtime cell attachment now follows each upload frame in resolved FormID order,
+retaining the previous batch event order, and accepts cells from
+the destination world. The installed survey disproves a separate-parent-cell
+assumption: all 114 prepared cells belong to Whiterun. Their inherited LAND
+references belong to Tamriel and remain on the local cells. The acceptance
+check requires that scope relationship and preserves every terrain product. The worker also builds the
+static physics broad phase before publishing its location. The installed
+acceptance test fixes a 50 ms first-movement limit before its first run.
+Final crossing acceptance is pending.
 
 Surface observations now use the player's loaded worldspace. The exit approach
 is still inside the inn, where it previously reported missing exterior terrain

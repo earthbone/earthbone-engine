@@ -1459,7 +1459,7 @@ impl PlayerNode {
                     return false;
                 }
                 let (Some(streamer), Some(game)) =
-                    (self.game_streamer.as_mut(), self.game.as_ref())
+                    (self.game_streamer.as_mut(), self.game.as_mut())
                 else {
                     return false;
                 };
@@ -1471,6 +1471,13 @@ impl PlayerNode {
                     return false;
                 };
                 let last = pending.cells + 1 == location.cells.len();
+                if *id != cell && worldspace.is_some() && source.exterior_world(*id) == worldspace {
+                    soe_trace::info!(target: "host::gameplay", system = "host::gameplay", "LOCATION_INSTALL phase=runtime cell={id}");
+                    if let Err(error) = game.attach_streaming_cells(&[*id]) {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+                        return false;
+                    }
+                }
                 if !node.install_location_cell(*id, loaded, &game.world(), last) {
                     return false;
                 }
@@ -1548,7 +1555,11 @@ impl PlayerNode {
                     .cells
                     .keys()
                     .copied()
-                    .filter(|id| Some(*id) != pending && *id != cell)
+                    .filter(|id| {
+                        Some(*id) != pending
+                            && *id != cell
+                            && source.exterior_world(*id) == Some(previous.world)
+                    })
                     .collect();
                 if !departing.is_empty() {
                     if let Err(error) = runtime.detach_streaming_cells(&departing) {
@@ -1581,14 +1592,16 @@ impl PlayerNode {
                     .cells
                     .iter()
                     .map(|(id, _)| *id)
-                    .filter(|id| *id != cell)
+                    .filter(|id| *id != cell && source.exterior_world(*id) == Some(worldspace))
                     .collect();
                 let Some(game) = self.game.as_mut() else {
                     return false;
                 };
-                if let Err(error) = game.attach_streaming_cells(&entered) {
-                    soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
-                    return false;
+                if !self.auto_step {
+                    if let Err(error) = game.attach_streaming_cells(&entered) {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+                        return false;
+                    }
                 }
                 self.exterior = Some(super::exterior::ExteriorRuntime {
                     world: worldspace,
