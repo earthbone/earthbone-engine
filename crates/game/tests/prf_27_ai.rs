@@ -18,8 +18,16 @@ fn prf_27_permanent_phases_cover_packages_schedules_sandbox_and_steering() {
     let mut observed = std::collections::BTreeSet::new();
     for _ in 0..6 {
         game.tick(1.0 / 60.0);
+        let world = game.world();
+        for (phase, duration) in &world.ai.planning_phases {
+            assert!(
+                *duration <= world.ai.planning_time,
+                "{phase}={duration:?} exceeds the AI total {:?}",
+                world.ai.planning_time
+            );
+        }
         observed.extend(
-            game.world()
+            world
                 .ai
                 .planning_phases
                 .iter()

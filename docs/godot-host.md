@@ -7825,3 +7825,18 @@ regional descriptor list is empty. Its landing grid cell supplies the ambience
 and regional music before the first movement step. This follows the existing
 persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
 CELL and regional selection contract.
+
+RND-18's shader-speed assertion follows RND-25's conversion from authored
+weather velocity to UV units per second, dividing both axes by 400. The local
+OpenMW `apps/openmw/mwrender/sky.cpp` supplies that time scale. Its noon,
+night and rendered cloud-motion thresholds remain unchanged.
+
+PRF-14's isolated debug extension reproduced an AUD-12 decoder still reading
+xWMA while Godot unloaded its library. Ordinary decoder drop still cancels
+without waiting on the host frame. Retired decoder handles are retained until
+the extension's Scene deinitialization joins them before unload. Completed
+handles are pruned when another decoder retires. The local gdext
+`godot-core/src/init/mod.rs` supplies the deinitialization boundary.
+The synthetic AUD-12 shutdown test checks nonblocking drop and completed
+worker teardown. PRF-14 retains both release and isolated debug checks and
+requires successful process exit after its count assertions.
