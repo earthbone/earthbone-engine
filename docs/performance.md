@@ -1911,6 +1911,23 @@ prevents new installed-data or Godot runs for this follow-up, so the changes
 have no new before/after timings or successful windowed acceptance measurement.
 Earlier measurements below describe their original builds.
 
+### Integration verification, 2026-10-13
+
+The exact installed
+`prf_31_installed_windowed_gate_walk_keeps_every_detection_update_under_two_ms`
+check still fails on the integration checkout with the release extension,
+Godot 4.4.1 and llvmpipe. Its 60-second walk samples 372 updates across two
+cells. The maximum is 5,776 microseconds, with 149 updates above the unchanged
+2,000-microsecond limit. Movement passes at 309.7 units inside Whiterun and
+888.4 units in Tamriel.
+
+The Whiterun phase's observation construction averages 2,092 microseconds,
+before synchronization and world evaluation. Sampled stage maxima also exceed
+the limit independently in synchronization and evaluation. This is the same
+unfinished budget documented in PRF-31's backlog evidence and source changes
+`5146225f9` and `836a0228b`. The HST-25 selector and capture corrections leave
+its detection implementation, route and acceptance thresholds unchanged.
+
 ### Follow-up local verification
 
 The 2026-10-11 follow-up retains draft commits `836a0228b` and `ab27b7705`

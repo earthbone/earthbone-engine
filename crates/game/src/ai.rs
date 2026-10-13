@@ -212,7 +212,7 @@ pub struct AiWorld {
     markers: markers::Planner,
     /// Time spent in automatic package evaluation during the most recent tick.
     pub evaluation_time: std::time::Duration,
-    /// Wall-clock duration of the most recent AI driver tick, including door refresh and query slices.
+    /// Wall-clock duration of the most recent AI driver tick and automatic greetings.
     pub planning_time: std::time::Duration,
     /// Door refresh duration within the most recent AI driver tick.
     pub door_refresh_time: std::time::Duration,
@@ -2330,6 +2330,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
     for (actor, dt) in updates {
         let _entity =
             soe_trace::EntityScope::new(|| world.profile_entity("actor", actor, "movement"), 1);
+        let prior_pose = world
+            .reference_ref(actor)
+            .map(|reference| (reference.cell, reference.position));
         let ((), actor_time) = measure_phase_timed(world, Phase::ActorDriver, |world| {
             if world.is_player(actor) && !world.player_ai_driven {
                 return;
@@ -2474,6 +2477,16 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             }
         });
         if !world.is_player(actor) {
+            if let Some((prior_cell, from)) = prior_pose {
+                let pose = world
+                    .reference_ref(actor)
+                    .map(|reference| (reference.cell, reference.position));
+                if let Some((cell, to)) = pose {
+                    if prior_cell != cell || from != to {
+                        world.update_trigger_actor_position(actor, cell, from, to, alloc);
+                    }
+                }
+            }
             let progress = world.actor_ref(actor).and_then(|state| {
                 world.reference_ref(actor).and_then(|reference| {
                     metrics::Metrics::path_progress(
