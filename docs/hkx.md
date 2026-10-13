@@ -1609,3 +1609,30 @@ compares these cases to `SOE_PROBE_CAPTURE/Papyrus.0.log` when both
 skips. The probe does not import Skyrim's master-graph state, character
 inputs or contacts. No original-runtime capture has established these rules.
 See [probe.md](probe.md#transition-tie-capture-anm-54) for capture instructions.
+
+## Integration player selector correction, HST-25
+
+The installed first-person graph shares its main body generator between a
+selected offset wrapper and an unselected sibling slot. A manual selector now
+retains its own selected generator and releases that generator only when its
+selection changes. Global node activation is not selector membership. Reading
+it as membership deactivated the selected wrapper's body, while selectors
+sharing draw clips could reset their playheads on every update.
+
+The local `serde-hkx/assets/classes/hkbManualSelectorGenerator.json` names the
+separate selected and current generator indices and its array of generator
+pointers. The existing reader already preserves those pointers. This correction
+uses the interpreter's own runtime selection state, with no new parser or
+dependency. The source predates the crate rename at `f4a45ec0`, and HST-25's
+installed draw, attack and contact checks exposed its shared-child assumption.
+`hst_25_selector_keeps_shared_clip_active_through_the_selected_wrapper` verifies
+five advancing playhead samples and release of the wrapper after a selection
+change. The Rust installed assertions remain unchanged. The walkthrough samples the
+uploaded attack pose at the first authored HitFrame and requires it to differ
+from both the pre-attack and settled poses. This checks movement across the
+contact, even when the clip returns to its starting idle pose after two seconds.
+
+Verification on 2026-10-13 passes all 116 HKX library tests, the five-test
+HST-25 debug target with installed inputs unset, and both exact installed
+HST-25 player checks on one thread. Scoped clippy with all targets passes for
+HKX and the Godot host. The release extension and Godot import also pass.

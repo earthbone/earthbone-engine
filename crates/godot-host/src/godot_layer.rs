@@ -2853,12 +2853,22 @@ impl CellStreamerNode {
     #[func]
     pub fn water_planes(&mut self) -> Array<VarDictionary> {
         let mut out = Array::new();
-        let drawn: Vec<(GlobalFormId, Rid, MaterialDesc, f32)> = self
-            .instances
-            .iter()
-            .filter(|i| i.arrays.material.water.is_some())
-            .map(|i| (i.cell, i.rid, i.arrays.material.clone(), i.bounds.min.y))
-            .collect();
+        let Some(source) = &self.data_source else {
+            return out;
+        };
+        let drawn: Vec<(GlobalFormId, Rid, MaterialDesc, f32)> =
+            self.instances
+                .iter()
+                .filter(|i| i.arrays.material.water.is_some())
+                .filter(|i| {
+                    i.table.reference_of_triangle(0).is_some_and(|reference| {
+                        source.order().winner(reference).is_some_and(|record| {
+                            matches!(record.tag.as_bytes(), b"CELL" | b"WATR")
+                        })
+                    })
+                })
+                .map(|i| (i.cell, i.rid, i.arrays.material.clone(), i.bounds.min.y))
+                .collect();
         for (cell, rid, desc, height) in drawn {
             let Some(water) = desc.water.as_ref() else {
                 continue;

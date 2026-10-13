@@ -69,6 +69,19 @@ const MONITORS := {
 	"pipeline_draw": Performance.PIPELINE_COMPILATIONS_DRAW,
 	"pipeline_specialization": Performance.PIPELINE_COMPILATIONS_SPECIALIZATION,
 }
+const NAVIGATION_COUNTERS := {
+	"active_maps": "ACTIVE_MAPS",
+	"regions": "REGION_COUNT",
+	"agents": "AGENT_COUNT",
+	"links": "LINK_COUNT",
+	"polygons": "POLYGON_COUNT",
+	"edges": "EDGE_COUNT",
+	"edge_merges": "EDGE_MERGE_COUNT",
+	"edge_connections": "EDGE_CONNECTION_COUNT",
+	"free_edges": "EDGE_FREE_COUNT",
+	"obstacles": "OBSTACLE_COUNT",
+}
+var navigation_monitors := _navigation_monitor_ids()
 var frame_samples: Array[float] = []
 const FRAME_SAMPLE_LIMIT := 240
 var transition_metrics := TransitionMetrics.new()
@@ -196,6 +209,13 @@ func refresh() -> void:
 	var godot := godot_metrics()
 	text += "Godot frame: %.1f fps, %d resources, static memory max %d, message buffer max %d, render buffers %.1f MiB\n" % [godot.fps, godot.resources, godot.static_memory_max_bytes, godot.message_buffer_max_bytes, godot.render_buffer_memory_bytes / 1048576.0]
 	text += "Physics 2D: %d objects, %d pairs, %d islands; navigation: %d maps, %d regions, %d agents, %d links, %d polygons\n" % [godot.physics_2d_active_objects, godot.physics_2d_collision_pairs, godot.physics_2d_islands, godot.navigation_active_maps, godot.navigation_regions, godot.navigation_agents, godot.navigation_links, godot.navigation_polygons]
+	for dimension in [2, 3]:
+		var prefix := "navigation_%dd_" % dimension
+		var counters: Array[String] = []
+		for counter in NAVIGATION_COUNTERS:
+			var field: String = prefix + counter
+			counters.append("%s: %s" % [counter, str(godot[field]) if godot[field] != null else "unavailable"])
+		text += "Navigation %dD: %s\n" % [dimension, ", ".join(counters)]
 	text += "Godot ms: process %.3f, physics %.3f, navigation %.3f\n" % [godot.process_ms, godot.physics_ms, godot.navigation_ms]
 	text += "Godot objects: %d, nodes: %d, orphans: %d%s\n" % [godot.objects, godot.nodes, godot.orphan_nodes, " WARNING: orphan nodes grew over 10s" if orphan_warning else ""]
 	text += "Render visible/shadow/canvas objects: %d / %d / %d, draw calls: %d, primitives: %d\n" % [godot.visible.objects, godot.shadow.objects, godot.canvas.objects, godot.visible.draw_calls, godot.visible.primitives]
@@ -295,6 +315,16 @@ func ai_text(report: Dictionary) -> String:
 	return text
 
 
+func _navigation_monitor_ids() -> Dictionary:
+	var monitors := {}
+	for dimension in [2, 3]:
+		for counter in NAVIGATION_COUNTERS:
+			var constant: String = "NAVIGATION_%dD_%s" % [dimension, NAVIGATION_COUNTERS[counter]]
+			var field: String = "navigation_%dd_%s" % [dimension, counter]
+			monitors[field] = ClassDB.class_get_integer_constant("Performance", constant) if ClassDB.class_has_integer_constant("Performance", constant) else -1
+	return monitors
+
+
 func godot_metrics() -> Dictionary:
 	var viewport := get_viewport()
 	if not is_instance_valid(viewport):
@@ -302,6 +332,15 @@ func godot_metrics() -> Dictionary:
 	var values := {}
 	for name in MONITORS:
 		values[name] = Performance.get_monitor(MONITORS[name])
+	var monitor_unavailable := {}
+	for field in navigation_monitors:
+		var monitor: int = navigation_monitors[field]
+		if monitor >= 0:
+			values[field] = Performance.get_monitor(monitor)
+		else:
+			values[field] = null
+			monitor_unavailable[field] = "This Godot runtime does not expose separate 2D and 3D Performance navigation monitors"
+	values["monitor_unavailable"] = monitor_unavailable
 	var server := RenderingServer
 	var rid := viewport.get_viewport_rid()
 	var passes := {}

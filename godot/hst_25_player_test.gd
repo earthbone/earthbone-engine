@@ -125,17 +125,22 @@ func _check_hands() -> void:
 		player_body.call("advance", 0.0)
 		player_arms.call("advance", 0.0)
 		var before: Array = visual.call("uploaded_skin_poses")
+		var contact_pose: Array = before
+		var contact_sampled := false
 		var markers := contacts
 		var attack_clip := false
 		_check(player.call("attack_with_hand", false, false), "right attack was rejected")
 		for _step in 120:
 			player_body.call("advance", 1.0 / 60.0)
 			player_arms.call("advance", 1.0 / 60.0)
+			if contacts > markers and not contact_sampled:
+				contact_pose = visual.call("uploaded_skin_poses")
+				contact_sampled = true
 			for clip in visual.call("active_clips"):
 				if "attack" in str(clip).to_lower():
 					attack_clip = true
 			await process_frame
-		_check(before != visual.call("uploaded_skin_poses"), view + " attack did not advance skeleton")
+		_check(contact_sampled and before != contact_pose and contact_pose != visual.call("uploaded_skin_poses"), view + " attack did not advance skeleton")
 		_check(attack_clip, view + " authored attack clip did not play")
 		_check(contacts > markers, view + " body did not submit an authored contact")
 		print("HST-25 ", view, " attack clips ", visual.call("active_clips"))
