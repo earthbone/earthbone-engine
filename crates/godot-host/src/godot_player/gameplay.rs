@@ -767,6 +767,21 @@ impl PlayerNode {
         }
         // CONTEXT: Apply game edits before reading simulated body poses back
         // into World, then draw the shared placement on this tick.
+        if !self.auto_step {
+            if let Some(streamer) = &mut self.game_streamer {
+                streamer.bind_mut().advance_doors(delta as f32);
+            }
+        }
+        if let Some(door) = self.pending_load_door {
+            if self
+                .game_streamer
+                .as_ref()
+                .is_none_or(|streamer| streamer.bind().load_door_animation_finished(door))
+            {
+                self.pending_load_door = None;
+                self.activate_game_reference_immediate(door);
+            }
+        }
         self.sync_references_for_tick();
         if !self.advance_exterior() {
             self.auto_step = false;
@@ -1185,6 +1200,7 @@ impl PlayerNode {
         self.data_source = None;
         self.game_streamer = None;
         self.loaded_cell = None;
+        self.pending_load_door = None;
         self.exterior = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.collision_references.clear();
@@ -1241,6 +1257,45 @@ impl PlayerNode {
     }
 
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
+        if self.pending_load_door.is_some() {
+            return self.pending_load_door == Some(target);
+        }
+        let eligible = self.game.as_mut().is_some_and(|game| {
+            let player = game.player();
+            let load_door = {
+                let mut world = game.world_mut();
+                world.reference_enabled(target)
+                    && world.reference(target).is_some_and(|reference| {
+                        reference.teleport.is_some() && !reference.activation_blocked
+                    })
+            };
+            if !load_door {
+                return false;
+            }
+            let key = game.world().key(target);
+            let has_key = key.is_some_and(|key| game.world_mut().item_count(player, key) > 0);
+            let world = game.world();
+            world.reference_enabled(target)
+                && world.reference_ref(target).is_some_and(|reference| {
+                    reference.teleport.is_some()
+                        && !reference.activation_blocked
+                        && (!reference.locked || has_key)
+                })
+        });
+        if eligible
+            && self
+                .game_streamer
+                .as_mut()
+                .is_some_and(|streamer| streamer.bind_mut().begin_load_door_animation(target))
+        {
+            self.pending_load_door = Some(target);
+            self.sync_door_presentation();
+            return true;
+        }
+        self.activate_game_reference_immediate(target)
+    }
+
+    fn activate_game_reference_immediate(&mut self, target: GlobalFormId) -> bool {
         let is_load_door = self.game.as_ref().is_some_and(|game| {
             game.world()
                 .reference_ref(target)

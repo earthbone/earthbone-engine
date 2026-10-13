@@ -1,9 +1,9 @@
 extends SceneTree
 
-## HST-27 installed front doors retain their node and clear all collision paths.
-## Thresholds: a full cycle per door, a blocked closed control, zero open
-## contacts, less than 0.01 metres of capsule travel error and 100 changed
-## capture pixels when the visible mesh swings or disappears.
+## HST-27 installed doors retain their node, leaf pose and animated collision.
+## Thresholds: a full cycle per door, a blocked closed control, retained load
+## contacts, less than 0.01 metres of open swing-door capsule travel error and
+## 100 changed capture pixels when the visible mesh swings or disappears.
 
 var failures := 0
 var target := ""
@@ -169,23 +169,26 @@ func _hst_27_resident_doors() -> void:
                 camera.look_at(leaf_center)
                 _check(player.call("set_reference_open", int(swing.file), int(swing.object), false), "close swing fixture")
                 player.call("advance", 0.0)
-                streamer.call("advance_doors", 1.0)
+                streamer.call("advance_doors", 10.0)
                 _leaf_at_hinge(streamer.call("door_state", int(swing.file), int(swing.object)), hinge, swing_radius)
                 await _capture_leaf(captures.path_join("house_swing_closed.png"), streamer.call("door_state", int(swing.file), int(swing.object)))
                 _check(player.call("activate_reference", int(swing.file), int(swing.object)), "activate house swing door")
-                streamer.call("advance_doors", 0.5)
+                streamer.call("advance_doors", float(state.open_duration) * 0.5)
                 var swing_opening: Dictionary = streamer.call("door_state", int(swing.file), int(swing.object))
                 _check(swing_opening.opened and is_equal_approx(swing_opening.fraction, 0.5), "activation reaches the opening pose")
                 _leaf_at_hinge(swing_opening, hinge, swing_radius)
                 _check(streamer.call("rendered_reference_pose", int(swing.file), int(swing.object)).get("visible", false), "activation keeps presentation visible")
                 await _capture_leaf(captures.path_join("house_swing_opening.png"), streamer.call("door_state", int(swing.file), int(swing.object)))
-                streamer.call("advance_doors", 1.0)
+                streamer.call("advance_doors", 10.0)
                 var swing_open: Dictionary = streamer.call("door_state", int(swing.file), int(swing.object))
                 _check(swing_open.fraction == 1.0, "activation reaches the open pose")
                 _leaf_at_hinge(swing_open, hinge, swing_radius)
                 await _capture_leaf(captures.path_join("house_swing_open.png"), streamer.call("door_state", int(swing.file), int(swing.object)))
+                player.call("advance", 0.0)
+                var swing_walk: Dictionary = await _walk(capsule, hinge, leaf_bounds)
+                _check(not swing_walk.blocked and swing_walk.error < 0.01, "capsule walks through the authored open swing door: " + str(swing_walk))
                 _check(player.call("activate_reference", int(swing.file), int(swing.object)), "activate house swing door to close")
-                streamer.call("advance_doors", 0.5)
+                streamer.call("advance_doors", float(state.close_duration) * 0.5)
                 var swing_closing: Dictionary = streamer.call("door_state", int(swing.file), int(swing.object))
                 _check(not swing_closing.opened and is_equal_approx(swing_closing.fraction, 0.5), "activation reaches the closing pose")
                 _leaf_at_hinge(swing_closing, hinge, swing_radius)
@@ -214,7 +217,7 @@ func _hst_27_resident_doors() -> void:
         for cycle in 1:
             _check(player.call("set_reference_open", file, object, false), "close World door")
             player.call("advance", 0.0)
-            streamer.call("advance_doors", 1.0)
+            streamer.call("advance_doors", 10.0)
             await _physics_settle()
             var closed: Dictionary = streamer.call("door_state", file, object)
             _leaf_at_hinge(closed, placement, radius)
@@ -228,31 +231,31 @@ func _hst_27_resident_doors() -> void:
                 closed_image = await _capture_leaf(captures.path_join(entry.cell + "_closed.png"), closed)
             _check(player.call("set_reference_open", file, object, true), "open World door")
             player.call("advance", 0.0)
-            streamer.call("advance_doors", 0.5)
+            streamer.call("advance_doors", float(attached.open_duration) * 0.5)
             var midway: Dictionary = streamer.call("door_state", file, object)
             _leaf_at_hinge(midway, placement, radius)
             _check(streamer.call("rendered_reference_pose", file, object).get("visible", false), "opening keeps reference presentation visible")
             if cycle == 0:
                 await _capture_leaf(captures.path_join(entry.cell + "_opening.png"), midway)
             _check(midway.fraction >= 0.5 and midway.visible, "opening swings a visible mesh")
-            _check(not placement.basis.is_equal_approx(midway.transform.basis), "actual door basis swings")
-            streamer.call("advance_doors", 1.0)
+            _check(placement.basis.is_equal_approx(midway.transform.basis) and midway.world_vertices != closed.world_vertices, "reference basis stays fixed while leaf vertices swing")
+            streamer.call("advance_doors", 10.0)
             await _physics_settle()
             var opened: Dictionary = streamer.call("door_state", file, object)
             _leaf_at_hinge(opened, placement, radius)
             _check(int(opened.node) == identity and opened.fraction == 1.0 and opened.visible, "open retains visible node identity")
             _check(opened.surfaces == attached.surfaces and opened.instances == attached.instances and streamer.get_child_count() == children, "no geometry or node is rebuilt")
             bodies = player.call("reference_collision_bodies", file, object)
-            _check(bodies.movement == 0 and bodies.query == 0, "open door has no player movement or query wall")
-            _check(streamer.call("reference_collision_bodies", file, object) == 0, "open door has no streamer wall")
+            _check(bodies.movement > 0 and bodies.query > 0, "authored load opening retains moving player collision")
+            _check(streamer.call("reference_collision_bodies", file, object) > 0, "authored load opening retains moving streamer collision")
             var walked: Dictionary = await _walk(capsule, placement, bounds)
-            _check(not walked.blocked and walked.error < 0.01, "capsule walks through open doorway: " + str(walked))
+            _check(walked.blocked and walked.error > 0.01, "load doorway blocks the capsule until teleport: " + str(walked))
             if cycle == 0:
                 open_image = await _capture_leaf(captures.path_join(entry.cell + "_open.png"), opened)
                 _check(_changed(closed_image, open_image) >= 100, "actual door geometry visibly swings")
         _check(player.call("set_reference_open", file, object, false), "start closing")
         player.call("advance", 0.0)
-        streamer.call("advance_doors", 0.5)
+        streamer.call("advance_doors", float(attached.open_duration) * 0.5)
         _leaf_at_hinge(streamer.call("door_state", file, object), placement, radius)
         await _capture_leaf(captures.path_join(entry.cell + "_closing.png"), streamer.call("door_state", file, object))
         _check(player.call("set_reference_enabled", file, object, false), "disable door")
@@ -268,7 +271,7 @@ func _hst_27_resident_doors() -> void:
         _check(bodies.movement == 0 and bodies.query == 0 and streamer.call("reference_collision_bodies", file, object) == 0, "disable removes every collision path")
         _check(player.call("set_reference_open", file, object, false), "close disabled door")
         player.call("advance", 0.0)
-        streamer.call("advance_doors", 1.0)
+        streamer.call("advance_doors", 10.0)
         bodies = player.call("reference_collision_bodies", file, object)
         _check(bodies.movement == 0 and bodies.query == 0, "closing disabled door keeps collision absent")
         _check(player.call("set_reference_enabled", file, object, true), "enable door")
@@ -280,6 +283,7 @@ func _hst_27_resident_doors() -> void:
         _check(player.call("set_reference_open", file, object, true), "unlock load door")
         _check(player.call("activate_reference", file, object), "activate interior load door")
         player.call("advance", 0.0)
+        player.call("advance", 1.0)
         player.call("advance", 0.25)
         _check(not player.call("door_fade_active"), "load-door fade finishes before capture")
         await process_frame
@@ -308,6 +312,7 @@ func _hst_27_resident_doors() -> void:
         _check(player.call("set_reference_open", int(entry.far_file), int(entry.far_object), true), "unlock return door")
         _check(player.call("activate_reference", int(entry.far_file), int(entry.far_object)), "activate exterior house door and return")
         player.call("advance", 0.0)
+        player.call("advance", 1.0)
         player.call("advance", 0.25)
         _check(not player.call("door_fade_active"), "load-door fade finishes before capture")
         await process_frame

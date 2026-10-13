@@ -294,6 +294,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +506,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -4497,6 +4499,64 @@ animated physics body and shape follow the mesh transform.
 
 ### Resident doors, HST-21
 
+The 2026-10-13 HST-31 correction supersedes the quarter-turn presentation
+and open-state collision removal described below. `add_cell` diverted DOOR
+surfaces out of RND-23, and `add_door` retained only their initial model pose.
+ResidentDoor then rotated the whole reference about its placement origin.
+The interpolator name binding in the NIF sampler already worked.
+
+Resident doors now retain their controller asset and sample Open or Close at
+the sequence's authored rate. Rendering applies each shape's sampled
+model-space transform below the reference placement. The reference control
+node stays at that placement. Sequence-less models retain the earlier
+fallback. An asset with sequence blocks never takes the root fallback,
+including inactive managers, missing names and sequences with no executable track.
+World still owns open and enable state. Load-door activation waits for Open
+before invoking the existing activation and deferred-unload lifecycle.
+
+Collision follows the sampled NiAVObject identified by `Collider::node`.
+The delta between its authored rest transform and sampled transform moves
+the original Havok collider, retaining its shape-local offset. Player
+movement rebuilds only changed door primitives. Player query bodies and
+optional streamer bodies retain their RIDs and receive the same node delta.
+Open leaves keep their collision. Disabled doors detach collision, and cells
+outside the player's resident set do not add movement collision. Playback and
+collision cursors are transient, with no saved fields or dependencies.
+
+Sources read locally were nifly `include/Animation.hpp` and
+`src/Animation.cpp`, nifxml `nif.xml` ControlledBlock, NiControllerSequence
+and bhkNiCollisionObject, UESP `DOOR.wikitext` and CK
+`SetOpen_-_ObjectReference.wikitext`. They supply sequence timing, child-name
+binding, collision attachment and the World open-state contract. The Mudcrab
+comparison reports had no door sequence playback implementation to adopt.
+The Rust sampler and existing Godot server paths fit this engine's retained
+asset and collision interfaces without another playback dependency.
+
+`door_sequences` compares every submitted vertex with the installed NIF's
+sampled child pose, checks fixed offset hinges and reference transforms, and
+probes both movement and host collision at each leaf. It covers five enabled
+Bannered Mare doors and the Breezehome door, through Open and Close twice,
+then verifies that load doors teleport after Open. Its limits are 0.01 game
+units of hinge drift, 32 units of ordinary swing-door free-edge movement and
+0.0002 metres of submitted vertex error. Node and render identities remain
+fixed. HST-21 and HST-27 retain their capture, identity, disable and detach
+checks, using authored durations and leaf motion instead of root rotation.
+Load doors retain collision during their small authored opening. The ordinary
+swing-door capsule check remains in HST-27. No scene node path is added.
+
+Validation of this scratch-worktree correction is incomplete. The locked
+release build exited zero, and the focused synthetic offset-hinge playback
+test passed. An initial installed asset survey found all six door assets and
+their Open and Close tracks. The production scene attempt exited unsuccessfully
+because the fresh project had no generated extension list. The regression now
+uses the existing isolated-project helper to register the release extension
+explicitly. Its rerun remained queued on occupied shared cargo slots and was
+stopped with exit 130. The final full gate passed formatting and its first
+Clippy pass, then remained queued at the library logging pass and was stopped
+with exit 130. No final gate pass or installed collision and transition result
+is claimed. HST-21, HST-27 and the gameplay scene still need installed reruns.
+The earlier gate attempts reported cargo-deny and cargo-audit absent.
+
 Cell installation separates DOOR surfaces from ordinary material batches.
 Each built door has one control `Node3D` and RenderingServer mesh instances,
 with the winning reference transform and the normal cached materials. Both
@@ -7972,7 +8032,6 @@ project helper, including RND-36's night shader, and requires an explicit
 Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
-
 
 ### Audio integration corrections, second round, 2026-10-12
 

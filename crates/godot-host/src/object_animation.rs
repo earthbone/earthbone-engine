@@ -11,6 +11,86 @@ use soe_nif::{mesh::Skin, Transform};
 use crate::mesh::MaterialDesc;
 use crate::skinned::Affine;
 
+/// Transient door playback derived from World's open state. Sequence tracks
+/// retain their child-node bindings and never alter the reference placement.
+#[derive(Debug)]
+pub struct DoorAnimation {
+    pub asset: Arc<ObjectAnimation>,
+    fraction: f32,
+    opened: bool,
+    sequence: &'static str,
+}
+
+impl DoorAnimation {
+    /// Retain an authored door sequence even if its opposite is absent.
+    /// A missing sequence holds the pose instead of rotating the reference.
+    pub fn new(asset: Arc<ObjectAnimation>, opened: bool) -> Option<Self> {
+        asset.has_sequences().then_some(Self {
+            asset,
+            fraction: if opened { 1.0 } else { 0.0 },
+            opened,
+            sequence: "Open",
+        })
+    }
+
+    /// Select Open or Close on a state change, preserving swing progress.
+    pub fn set_opened(&mut self, opened: bool) {
+        if self.opened != opened {
+            self.opened = opened;
+            self.sequence = if opened { "Open" } else { "Close" };
+        }
+    }
+
+    /// Advance at the authored sequence rate and hold the final pose.
+    pub fn advance(&mut self, delta: f32) -> bool {
+        if !delta.is_finite() || delta <= 0.0 {
+            return false;
+        }
+        let Some(duration) = self.asset.sequence_duration(self.sequence) else {
+            return false;
+        };
+        let step = if duration > 0.0 {
+            delta / duration
+        } else {
+            1.0
+        };
+        let next = if self.opened {
+            (self.fraction + step).min(1.0)
+        } else {
+            (self.fraction - step).max(0.0)
+        };
+        let changed = self.fraction != next;
+        self.fraction = next;
+        changed
+    }
+
+    /// Current sequence name and elapsed seconds for diagnostics and sampling.
+    pub fn playback(&self) -> (&str, f32) {
+        let duration = self.asset.sequence_duration(self.sequence).unwrap_or(0.0);
+        let progress = if self.sequence == "Open" {
+            self.fraction
+        } else {
+            1.0 - self.fraction
+        };
+        (self.sequence, progress * duration)
+    }
+
+    /// Sample the leaf hierarchy, holding the authored rest pose for a missing track.
+    pub fn pose(&self) -> ObjectPose {
+        let (name, elapsed) = self.playback();
+        if self.asset.sequence_duration(name).is_some() {
+            self.asset.sample(elapsed, Some(name))
+        } else {
+            self.asset.rest_pose()
+        }
+    }
+
+    /// Fraction between the closed and open endpoints.
+    pub fn fraction(&self) -> f32 {
+        self.fraction
+    }
+}
+
 /// Transient playback clock shared by the pure sampler and RID update path.
 #[cfg(any(feature = "godot", test))]
 #[derive(Debug, Default)]
@@ -39,8 +119,140 @@ impl ObjectAnimationClock {
 
 #[cfg(test)]
 mod clock_tests {
-    use super::{ObjectAnimation, ObjectAnimationClock};
-    use crate::data_source::fixture::{NifWriter, IDENTITY};
+    use super::{DoorAnimation, ObjectAnimation, ObjectAnimationClock};
+    use crate::data_source::fixture::{Buf, NifWriter, IDENTITY};
+    use std::sync::Arc;
+
+    fn door_asset(close: bool, manager_flags: u16) -> Arc<ObjectAnimation> {
+        let mut writer = NifWriter::new(100);
+        let root = writer.reserve("NiNode");
+        let hinge = writer.reserve("NiNode");
+        let manager = writer.reserve("NiControllerManager");
+        let mut sequences = Vec::new();
+        for (name, from, to, duration, frequency) in
+            [("Open", 0.0, 1.0, 2.0, 2.0), ("Close", 1.0, 0.0, 3.0, 1.0)]
+        {
+            if name == "Close" && !close {
+                continue;
+            }
+            let rotation = |angle: f32| [(angle * 0.5).cos(), 0.0, 0.0, (angle * 0.5).sin()];
+            let data = writer.transform_data_linear(
+                &[(5.0, rotation(from)), (5.0 + duration, rotation(to))],
+                &[],
+                &[],
+            );
+            let data = writer.add("NiTransformData", data);
+            let interp =
+                writer.transform_interpolator([-f32::MAX; 3], [-f32::MAX; 4], -f32::MAX, data);
+            let interp = writer.add("NiTransformInterpolator", interp);
+            let mut sequence = Buf::default();
+            sequence
+                .u32(writer.string(name))
+                .u32(1)
+                .u32(1)
+                .i32(interp)
+                .i32(-1)
+                .u8(0);
+            sequence
+                .u32(writer.string("Hinge"))
+                .u32(u32::MAX)
+                .u32(writer.string("NiTransformController"))
+                .u32(u32::MAX)
+                .u32(u32::MAX);
+            sequence
+                .f32(1.0)
+                .i32(-1)
+                .u32(2)
+                .f32(frequency)
+                .f32(5.0)
+                .f32(5.0 + duration);
+            sequence.i32(manager).u32(u32::MAX).u16(0);
+            sequences.push(writer.add("NiControllerSequence", sequence.0));
+        }
+        let mut bytes = Buf::default();
+        bytes
+            .i32(-1)
+            .u16(manager_flags)
+            .f32(1.0)
+            .f32(0.0)
+            .f32(0.0)
+            .f32(3.0)
+            .i32(root)
+            .bool(false)
+            .refs(&sequences)
+            .i32(-1);
+        writer.fill(manager, bytes.0);
+        let bytes = writer.ni_node("Hinge", [10.0, 20.0, 0.0], IDENTITY, 1.0, &[]);
+        writer.fill(hinge, bytes);
+        let bytes = writer.ni_node_with_controller(
+            "Root",
+            [7.0, 0.0, 0.0],
+            IDENTITY,
+            1.0,
+            &[hinge],
+            manager,
+        );
+        writer.fill(root, bytes);
+        writer.roots = vec![root];
+        Arc::new(ObjectAnimation::from_file(&soe_nif::parse(&writer.finish()).unwrap()).unwrap())
+    }
+
+    #[test]
+    fn door_sequences_bind_offset_child_hinges_and_use_separate_authored_durations() {
+        let asset = door_asset(true, 8);
+        assert_eq!(asset.sequence_duration("Open"), Some(1.0));
+        assert_eq!(asset.sequence_duration("close"), Some(3.0));
+        let rest = asset.rest_pose();
+        let mut door = DoorAnimation::new(asset, false).unwrap();
+        door.set_opened(true);
+        assert!(door.advance(0.5));
+        let half = door.pose();
+        assert_eq!(half.transforms[0], rest.transforms[0]);
+        assert_eq!(
+            half.transforms[1].translation,
+            rest.transforms[1].translation
+        );
+        assert_ne!(half.transforms[1].rotation, rest.transforms[1].rotation);
+        door.advance(1.0);
+        let open = door.pose();
+        assert_eq!(door.fraction(), 1.0);
+        assert!(!door.advance(1e9));
+        assert_eq!(door.pose(), open);
+        door.set_opened(false);
+        door.advance(1.5);
+        assert_eq!(door.fraction(), 0.5);
+        assert_eq!(door.pose(), half);
+        door.set_opened(true);
+        assert_eq!(door.pose(), half);
+        for delta in [f32::NAN, f32::INFINITY, -1.0, 0.0] {
+            assert!(!door.advance(delta));
+            assert_eq!(door.pose(), half);
+        }
+    }
+
+    #[test]
+    fn door_with_one_sequence_holds_authored_pose_when_the_opposite_is_missing() {
+        let asset = door_asset(false, 8);
+        let mut door = DoorAnimation::new(asset.clone(), false).unwrap();
+        door.set_opened(true);
+        door.advance(1.0);
+        door.set_opened(false);
+        assert!(!door.advance(1e9));
+        assert_eq!(door.pose(), asset.rest_pose());
+        assert!(DoorAnimation::new(Arc::new(self::asset(0)), false).is_none());
+    }
+
+    #[test]
+    fn door_with_inactive_manager_holds_the_authored_pose_without_a_root_fallback() {
+        let asset = door_asset(true, 0);
+        assert!(!asset.is_animated());
+        assert!(asset.has_sequences());
+        assert_eq!(asset.sequence_duration("Open"), None);
+        let mut door = DoorAnimation::new(asset.clone(), false).unwrap();
+        door.set_opened(true);
+        assert!(!door.advance(1e9));
+        assert_eq!(door.pose(), asset.rest_pose());
+    }
 
     fn asset(cycle: u16) -> ObjectAnimation {
         let mut writer = NifWriter::new(100);

@@ -1,9 +1,9 @@
 extends SceneTree
 
-## HST-21 installed front doors retain their node and clear all collision paths.
-## Thresholds: ten full cycles per door, a blocked closed control, zero open
-## contacts, less than 0.01 metres of capsule travel error and 100 changed
-## capture pixels when the visible mesh swings or disappears.
+## HST-21 installed load doors retain their node and animated collision.
+## Thresholds: ten full cycles per door, a blocked closed control, retained
+## contacts during the authored load opening, and 100 changed capture pixels
+## when the visible mesh swings or disappears.
 
 var failures := 0
 var target := ""
@@ -132,7 +132,7 @@ func _hst_21_resident_doors() -> void:
         for cycle in 10:
             _check(player.call("set_reference_open", file, object, false), "close World door")
             player.call("advance", 0.0)
-            streamer.call("advance_doors", 1.0)
+            streamer.call("advance_doors", 10.0)
             await _physics_settle()
             var closed: Dictionary = streamer.call("door_state", file, object)
             _check(int(closed.node) == identity and closed.fraction == 0.0 and closed.visible, "close keeps the original visible node")
@@ -145,20 +145,20 @@ func _hst_21_resident_doors() -> void:
                 closed_image = await _capture(captures.path_join(entry.cell + "_closed.png"))
             _check(player.call("set_reference_open", file, object, true), "open World door")
             player.call("advance", 0.0)
-            streamer.call("advance_doors", 0.5)
+            streamer.call("advance_doors", float(attached.open_duration) * 0.5)
             var midway: Dictionary = streamer.call("door_state", file, object)
             _check(midway.fraction >= 0.5 and midway.visible, "opening swings a visible mesh")
-            _check(not placement.basis.is_equal_approx(midway.transform.basis), "actual door basis swings")
-            streamer.call("advance_doors", 1.0)
+            _check(placement.basis.is_equal_approx(midway.transform.basis) and midway.world_vertices != closed.world_vertices, "reference basis stays fixed while leaf vertices swing")
+            streamer.call("advance_doors", 10.0)
             await _physics_settle()
             var opened: Dictionary = streamer.call("door_state", file, object)
             _check(int(opened.node) == identity and opened.fraction == 1.0 and opened.visible, "open retains visible node identity")
             _check(opened.surfaces == attached.surfaces and opened.instances == attached.instances and streamer.get_child_count() == children, "no geometry or node is rebuilt")
             bodies = player.call("reference_collision_bodies", file, object)
-            _check(bodies.movement == 0 and bodies.query == 0, "open door has no player movement or query wall")
-            _check(streamer.call("reference_collision_bodies", file, object) == 0, "open door has no streamer wall")
+            _check(bodies.movement > 0 and bodies.query > 0, "authored load opening retains moving player collision")
+            _check(streamer.call("reference_collision_bodies", file, object) > 0, "authored load opening retains moving streamer collision")
             var walked: Dictionary = await _walk(capsule, placement, bounds)
-            _check(not walked.blocked and walked.error < 0.01, "capsule walks through open doorway: " + str(walked))
+            _check(walked.blocked and walked.error > 0.01, "load doorway blocks the capsule until teleport: " + str(walked))
             if cycle == 0:
                 open_image = await _capture(captures.path_join(entry.cell + "_open.png"))
                 _check(_changed(closed_image, open_image) >= 100, "actual door geometry visibly swings")
@@ -175,7 +175,7 @@ func _hst_21_resident_doors() -> void:
         _check(bodies.movement == 0 and bodies.query == 0 and streamer.call("reference_collision_bodies", file, object) == 0, "disable removes every collision path")
         _check(player.call("set_reference_open", file, object, false), "close disabled door")
         player.call("advance", 0.0)
-        streamer.call("advance_doors", 1.0)
+        streamer.call("advance_doors", 10.0)
         bodies = player.call("reference_collision_bodies", file, object)
         _check(bodies.movement == 0 and bodies.query == 0, "closing disabled door keeps collision absent")
         _check(player.call("set_reference_enabled", file, object, true), "enable door")

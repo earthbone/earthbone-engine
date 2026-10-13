@@ -115,6 +115,7 @@ fn rnd_23_inactive_standalone_and_manager_controllers_hold_authored_pose() {
         let file = soe_nif::parse(&w.finish()).unwrap();
         let asset = ObjectAnimation::from_file(&file).unwrap();
         assert!(!asset.is_animated());
+        assert_eq!(asset.has_sequences(), manager);
         assert_eq!(asset.sample(1.0, None).transforms[1].translation.x, 7.0);
     }
 }
@@ -186,6 +187,51 @@ fn rnd_23_manager_idle_and_named_sequences_obey_authored_cycles() {
             .translation
             .x,
         22.0
+    );
+}
+
+#[test]
+fn door_sequence_duration_uses_frequency_and_nonzero_authored_start() {
+    for (frequency, start, stop, expected) in [
+        (2.0, 5.0, 7.0, 1.0),
+        (1.0, 5.0, 8.0, 3.0),
+        (0.0, 5.0, 7.0, 0.0),
+        (-1.0, 5.0, 7.0, 0.0),
+        (f32::NAN, 5.0, 7.0, 0.0),
+        (f32::INFINITY, 5.0, 7.0, 0.0),
+        (1.0, 7.0, 5.0, 0.0),
+        (1.0, f32::NAN, 7.0, 0.0),
+        (1.0, 5.0, f32::INFINITY, 0.0),
+    ] {
+        let mut writer = fixture(true);
+        let sequence = writer
+            .blocks
+            .iter_mut()
+            .filter(|(kind, _)| kind == "NiControllerSequence")
+            .nth(1)
+            .unwrap();
+        sequence.1[53..57].copy_from_slice(&frequency.to_le_bytes());
+        sequence.1[57..61].copy_from_slice(&start.to_le_bytes());
+        sequence.1[61..65].copy_from_slice(&stop.to_le_bytes());
+        let asset = ObjectAnimation::from_file(&soe_nif::parse(&writer.finish()).unwrap()).unwrap();
+        assert_eq!(asset.sequence_duration("open"), Some(expected));
+        assert_eq!(asset.sequence_duration("Missing"), None);
+    }
+}
+
+#[test]
+fn door_rest_pose_accumulates_authored_parents_without_sampling_controllers() {
+    let asset =
+        ObjectAnimation::from_file(&soe_nif::parse(&fixture(true).finish()).unwrap()).unwrap();
+    let rest = asset.rest_pose();
+    assert_eq!(rest.transforms[1].translation, Vec3::new(7.0, 0.0, 0.0));
+    assert_ne!(
+        rest.transforms[1],
+        asset.sample(1.0, Some("Open")).transforms[1]
+    );
+    assert_eq!(
+        rest.transforms[0],
+        asset.sample(1.0, Some("Open")).transforms[0]
     );
 }
 

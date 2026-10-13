@@ -90,6 +90,8 @@ func _run() -> void:
 		_check(not chosen.is_empty(), "no unlocked load door")
 		if not chosen.is_empty():
 			_check(player.call("activate_reference", chosen.file, chosen.object), "outbound activation failed")
+			_check(player.call("gameplay_cell") == start, "authored Open precedes outbound teleport")
+			player.call("advance", 1.0)
 			_check_door_fade(player, "outbound")
 			var outside: String = player.call("gameplay_cell")
 			_check(outside != start, "player did not leave the interior")
@@ -102,6 +104,8 @@ func _run() -> void:
 			var grounded: Vector3 = player.call("position")
 			_check(absf(grounded.z - landing.z) < 256.0, "player fell away from exterior landing")
 			_check(player.call("activate_reference", chosen.far_file, chosen.far_object), "return activation failed")
+			_check(player.call("gameplay_cell") == outside, "authored Open precedes return teleport")
+			player.call("advance", 1.0)
 			_check_door_fade(player, "return")
 			_check(player.call("gameplay_cell") == start, "return did not restore interior identity")
 			_check(streamer.call("instance_count") > 0, "returned interior has no draw instances")
@@ -132,6 +136,8 @@ func _run() -> void:
 			for door: Dictionary in doors:
 				known_door = known_door or picked == "%d:%06X" % [door.file, door.object]
 			_check(known_door, "Activate ray did not identify a load door: " + picked)
+			_check(player.call("gameplay_cell") == start, "input activation starts the authored door opening")
+			player.call("advance", 1.0)
 			_check(player.call("gameplay_cell") == outside, "Activate input did not cross the door")
 			_check_door_fade(player, "input")
 			print("GAMEPLAY INPUT: hit=", player.call("last_activate_hit"), " picked=", picked,

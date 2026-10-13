@@ -1307,7 +1307,8 @@ impl DataSource {
         let animation = Arc::new(soe_nif::object_animation::ObjectAnimation::from_file(
             &file,
         )?);
-        let animated = playback == SurfacePlayback::Live && animation.is_animated();
+        let animated = playback == SurfacePlayback::Live
+            && (animation.is_animated() || animation.has_sequences());
         let instancing = instancing && !animated;
         let mut animations = Vec::new();
         let mut meshes = file.meshes()?;
