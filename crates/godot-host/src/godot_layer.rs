@@ -1436,6 +1436,10 @@ impl CellStreamerNode {
         self.data_source.clone()
     }
 
+    pub(crate) fn sight_exclusions(&self) -> Option<&Array<Rid>> {
+        self.collision.sight_exclusions()
+    }
+
     /// Install new cells before releasing departed cells. Retained instances keep their RIDs.
     pub(crate) fn apply_cell_delta(
         &mut self,
