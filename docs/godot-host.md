@@ -7868,3 +7868,23 @@ PRF-37 timing gate passed individually with one test thread and development
 optimization level 1, using the built release extension on the private display.
 Package Clippy with all targets and warnings denied, and package formatting,
 passed. The full lint gate was excluded from this integration repair.
+
+### Barricade runner fixture lifetime, 2026-10-13
+
+The next installed pass lost both RND-17 Godot processes before their result
+markers. The earlyoom journal records SIGTERM at 19:12:29 and 19:12:52, with
+11,542 MiB and 6,723 MiB RSS respectively. This was a process termination,
+with no failed barricade assertion reported.
+
+Both Rust runners now release their checked World, DataSource and retained
+cell geometry before starting the live scene. RND-32's additional reference
+kinds, RND-27's complete city and parent LOD, and HST-23's resident characters
+remain in the scene. The runners retain every geometry, collision, placement
+and pixel assertion and include the child exit status in failure messages.
+
+Both installed RND-17 cases passed individually with development optimization
+level 1 and one test thread, using the built release extension and imported
+project on the private display. With installed inputs unset, the debug library
+suite passed 435 tests and both debug runner checks passed. Package Clippy
+with all targets and warnings denied and package formatting passed.
+The full lint script was excluded by the integration repair task.
