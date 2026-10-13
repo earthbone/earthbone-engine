@@ -203,6 +203,7 @@ mod ground_probe {
             let mut world = SimpleWorld::new();
             let rise = 2000.0 * degrees.to_radians().tan();
             world.add_static(&collider(Shape::TriangleMesh {
+                radius: 0.0,
                 vertices: vec![
                     Vec3::new(0.0, -400.0, 0.0),
                     Vec3::new(2000.0, -400.0, rise),

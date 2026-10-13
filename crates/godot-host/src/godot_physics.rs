@@ -212,6 +212,7 @@ fn shape_source_bytes(shape: &Shape) -> usize {
                 vertices,
                 triangles,
                 materials,
+                ..
             } => {
                 std::mem::size_of_val(vertices.as_slice())
                     + std::mem::size_of_val(triangles.as_slice())
@@ -227,7 +228,6 @@ fn shape_source_bytes(shape: &Shape) -> usize {
 }
 
 impl CellBodies {
-<<<<<<< HEAD
     /// Submit the animated collision node's delta against the authored shape.
     /// Static shapes are already flattened in world coordinates, so moving
     /// their body by this delta preserves every authored shape-local offset.
@@ -286,7 +286,7 @@ impl CellBodies {
             );
         }
     }
-=======
+
     pub(crate) fn source_bytes(&self) -> usize {
         self.entries
             .iter()
@@ -299,7 +299,6 @@ impl CellBodies {
                 .sum::<usize>()
     }
 
->>>>>>> d1e1766445ffeb1407b67a40766689c9c15fe45a
     /// Adopt additional placed bodies, retaining their reference sync metadata.
     pub(crate) fn append(&mut self, mut other: Self) {
         self.stats.bodies += other.stats.bodies;

@@ -360,12 +360,10 @@ impl SimpleWorld {
                 let (on_prim, on_seg) = closest_prim_segment(&self.statics[si].prims[pi], a, b);
                 let d = on_seg - on_prim;
                 let dist = d.length();
-<<<<<<< HEAD
+                // The shell keeps a mesh's skin thickness (world fixer,
+                // 2026-10-13), on top of the controller's collision offset.
+                let radius = radius + self.statics[si].prims[pi].shell();
                 if dist > radius + 1e-3 {
-=======
-                let radius = s.radius + self.statics[si].prims[pi].shell();
-                if dist >= radius {
->>>>>>> 5a33964613991a20e707a64c7f95b7a841d6a45e
                     continue;
                 }
                 let normal = if dist > 1e-4 {
@@ -373,7 +371,6 @@ impl SimpleWorld {
                 } else {
                     prim_normal_toward(&self.statics[si].prims[pi], on_seg)
                 };
-<<<<<<< HEAD
                 let push = (radius - dist).max(0.0);
                 let resting_on_slope = normal.z >= s.min_slope_slide_cos
                     && normal.z < s.max_slope_cos
@@ -391,11 +388,6 @@ impl SimpleWorld {
                     normal
                 };
                 let vn = velocity.dot(slide_normal);
-=======
-                let push = radius - dist;
-                position = position + normal * push;
-                let vn = velocity.dot(normal);
->>>>>>> 5a33964613991a20e707a64c7f95b7a841d6a45e
                 if vn < 0.0 {
                     velocity = velocity - slide_normal * vn;
                 }
