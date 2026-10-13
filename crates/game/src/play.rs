@@ -236,6 +236,7 @@ fn load(data: &Path, save_path: &Path, mode: SaveMode) -> Result<Game, Error> {
                 world.restore_vanilla_reference_extras(&save)?;
                 world.restore_vanilla_quests(&save)?;
                 world.restore_vanilla_lists(&save)?;
+                world.restore_vanilla_dialogue_scene_changes(&save)?;
                 Ok(())
             };
             restore().map_err(|e| startup(e.to_string()))?;
