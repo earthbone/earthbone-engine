@@ -83,6 +83,7 @@ pub struct Mesh {
     min: [f32; 3],
     max: [f32; 3],
     spatial: SpatialIndex,
+    scope: Option<u64>,
 }
 
 impl Mesh {
@@ -287,6 +288,7 @@ fn triangle_overlaps_box_xy(triangle: [[f32; 3]; 3], min: [f32; 3], max: [f32; 3
 #[derive(Debug, Clone, Default)]
 pub struct NavGraph {
     meshes: Vec<Mesh>,
+    scoped: bool,
     /// NAVM door references mapped to the triangles authored for them.
     door_nodes: HashMap<u64, Vec<NodeId>>,
     /// Door nodes whose placed reference footprint overlaps their triangle.
@@ -377,6 +379,7 @@ impl NavGraph {
             min: [0.0; 3],
             max: [0.0; 3],
             spatial: SpatialIndex::default(),
+            scope: None,
         };
         mesh.recompute_bounds();
         mesh.spatial = SpatialIndex::triangles(&mesh);
@@ -385,6 +388,34 @@ impl NavGraph {
         self.components.take();
         self.meshes.push(mesh);
         (self.meshes.len() - 1) as u32
+    }
+
+    /// Associate a mesh with a caller's interior or worldspace identity.
+    /// Returns false for an unknown mesh. Changes cancel retained queries.
+    pub fn set_mesh_scope(&mut self, index: u32, scope: Option<u64>) -> bool {
+        let Some(mesh) = self.meshes.get_mut(index as usize) else {
+            return false;
+        };
+        if mesh.scope != scope {
+            mesh.scope = scope;
+            self.scoped = scope.is_some() || self.meshes.iter().any(|mesh| mesh.scope.is_some());
+            self.revision = self.revision.wrapping_add(1);
+        }
+        true
+    }
+
+    /// Coordinate-space identity assigned by the caller, if present.
+    pub fn mesh_scope(&self, index: u32) -> Option<u64> {
+        self.meshes.get(index as usize).and_then(|mesh| mesh.scope)
+    }
+
+    /// Whether any mesh carries a caller-assigned coordinate-space identity.
+    pub fn has_mesh_scopes(&self) -> bool {
+        self.scoped
+    }
+
+    fn matches_scope(&self, index: u32, scope: Option<u64>) -> bool {
+        scope.is_none_or(|scope| self.mesh_scope(index) == Some(scope))
     }
 
     /// Add a mesh and derive its in-mesh adjacency from shared vertex pairs.
@@ -659,7 +690,22 @@ impl NavGraph {
         self.locate_impl(point, |_| {})
     }
 
-    fn locate_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> Option<NodeId> {
+    /// Locate a point only among meshes in the named coordinate space.
+    pub fn locate_in_scope(&self, point: [f32; 3], scope: u64) -> Option<NodeId> {
+        soe_trace::count(soe_trace::Operation::NavmeshLocate, 1);
+        self.locate_scoped_impl(point, Some(scope), |_| {})
+    }
+
+    fn locate_impl(&self, point: [f32; 3], tested: impl FnMut(NodeId)) -> Option<NodeId> {
+        self.locate_scoped_impl(point, None, tested)
+    }
+
+    fn locate_scoped_impl(
+        &self,
+        point: [f32; 3],
+        scope: Option<u64>,
+        mut tested: impl FnMut(NodeId),
+    ) -> Option<NodeId> {
         if !point.iter().all(|p| p.is_finite()) {
             return None;
         }
@@ -668,6 +714,9 @@ impl NavGraph {
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_xy_nearest_height(point, &mut radius, |mi, radius| {
+                if !self.matches_scope(mi as u32, scope) {
+                    return;
+                }
                 let mesh = &self.meshes[mi];
                 if point[0] < mesh.min[0]
                     || point[0] > mesh.max[0]
@@ -731,7 +780,21 @@ impl NavGraph {
         self.nearest_impl(point, |_| {})
     }
 
-    fn nearest_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> Option<NodeId> {
+    /// Nearest triangle only among meshes in the named coordinate space.
+    pub fn nearest_in_scope(&self, point: [f32; 3], scope: u64) -> Option<NodeId> {
+        self.nearest_scoped_impl(point, Some(scope), |_| {})
+    }
+
+    fn nearest_impl(&self, point: [f32; 3], tested: impl FnMut(NodeId)) -> Option<NodeId> {
+        self.nearest_scoped_impl(point, None, tested)
+    }
+
+    fn nearest_scoped_impl(
+        &self,
+        point: [f32; 3],
+        scope: Option<u64>,
+        mut tested: impl FnMut(NodeId),
+    ) -> Option<NodeId> {
         if !point.iter().all(|p| p.is_finite()) {
             return None;
         }
@@ -739,6 +802,9 @@ impl NavGraph {
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_nearest(point, |mi, radius| {
+                if !self.matches_scope(mi as u32, scope) {
+                    return;
+                }
                 let mesh = &self.meshes[mi];
                 mesh.spatial
                     .visit_nearest_with_radius(point, radius, |ti, triangle_radius| {
@@ -873,6 +939,23 @@ impl NavGraph {
         self.start_search(a, b, Some((from, to)), PathCosts::default())
     }
 
+    /// Start a retained path whose endpoints and corridor stay in one space.
+    /// Returns None for missing endpoints or an unconnected scoped route.
+    pub fn start_path_between_in_scope(
+        &self,
+        from: [f32; 3],
+        to: [f32; 3],
+        scope: u64,
+    ) -> Option<PathSearch> {
+        let a = self
+            .locate_in_scope(from, scope)
+            .or_else(|| self.nearest_in_scope(from, scope))?;
+        let b = self
+            .locate_in_scope(to, scope)
+            .or_else(|| self.nearest_in_scope(to, scope))?;
+        self.start_search_scoped(a, b, Some((from, to)), PathCosts::default(), Some(scope))
+    }
+
     fn start_search(
         &self,
         from: NodeId,
@@ -880,6 +963,20 @@ impl NavGraph {
         endpoints: Option<([f32; 3], [f32; 3])>,
         costs: PathCosts,
     ) -> Option<PathSearch> {
+        self.start_search_scoped(from, to, endpoints, costs, None)
+    }
+
+    fn start_search_scoped(
+        &self,
+        from: NodeId,
+        to: NodeId,
+        endpoints: Option<([f32; 3], [f32; 3])>,
+        costs: PathCosts,
+        scope: Option<u64>,
+    ) -> Option<PathSearch> {
+        if !self.matches_scope(from.mesh, scope) || !self.matches_scope(to.mesh, scope) {
+            return None;
+        }
         let _span = soe_trace::Span::new("navmesh.find_path", "navmesh");
         soe_trace::trace!(target: "navmesh", system = "navmesh", from = ?from, to = ?to, "finding path");
         if !costs.is_valid() {
@@ -901,7 +998,7 @@ impl NavGraph {
         {
             return None;
         }
-        Some(PathSearch::new(self, from, to, endpoints, costs))
+        Some(PathSearch::new(self, from, to, endpoints, costs, scope))
     }
 
     /// Path between two world points, each located on the graph first.
@@ -1147,5 +1244,54 @@ mod tests {
         g.link(NodeId::new(a, 0), 1, NodeId::new(99, 7));
         assert!(g.find_path(NodeId::new(a, 0), NodeId::new(a, 0)).is_some());
         assert_eq!(g.reachable(NodeId::new(a, 0)).len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod coordinate_space_tests {
+    use super::{NavGraph, NodeId};
+    use std::task::Poll;
+
+    fn triangle(graph: &mut NavGraph, x: f32, z: f32, scope: u64) -> u32 {
+        let index = graph.add_mesh_with_adjacency(
+            vec![[x, 0.0, z], [x + 1.0, 0.0, z], [x, 1.0, z]],
+            &[[0, 1, 2]],
+        );
+        assert!(graph.set_mesh_scope(index, Some(scope)));
+        index
+    }
+
+    #[test]
+    fn scoped_lookup_rejects_a_nearer_triangle_in_another_interior() {
+        let mut graph = NavGraph::new();
+        let foreign = triangle(&mut graph, 0.0, 0.0, 9);
+        let owned = triangle(&mut graph, 0.0, -20.0, 7);
+        let from = [0.2, 0.2, 0.0];
+        assert_eq!(graph.locate(from), Some(NodeId::new(foreign, 0)));
+        assert_eq!(graph.locate_in_scope(from, 7), Some(NodeId::new(owned, 0)));
+        let mut search = graph
+            .start_path_between_in_scope(from, [0.4, 0.2, -20.0], 7)
+            .unwrap();
+        let Poll::Ready(Some(path)) = search.advance(&graph, usize::MAX) else {
+            panic!("owned route missing");
+        };
+        assert!(path.nodes.iter().all(|node| node.mesh == owned));
+        assert_eq!(path.points.first(), Some(&from));
+        assert_eq!(path.points.last(), Some(&[0.4, 0.2, -20.0]));
+    }
+
+    #[test]
+    fn scoped_corridor_cannot_cross_another_coordinate_space() {
+        let mut graph = NavGraph::new();
+        let a = triangle(&mut graph, 0.0, 0.0, 7);
+        let b = triangle(&mut graph, 2.0, 0.0, 9);
+        let c = triangle(&mut graph, 4.0, 0.0, 7);
+        graph.link(NodeId::new(a, 0), 1, NodeId::new(b, 0));
+        graph.link(NodeId::new(b, 0), 1, NodeId::new(c, 0));
+        let from = [0.2, 0.2, 0.0];
+        let to = [4.2, 0.2, 0.0];
+        assert!(graph.find_path_between(from, to).is_some());
+        let mut search = graph.start_path_between_in_scope(from, to, 7).unwrap();
+        assert_eq!(search.advance(&graph, usize::MAX), Poll::Ready(None));
     }
 }

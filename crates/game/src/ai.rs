@@ -2156,6 +2156,14 @@ fn ensure_nav_graph(world: &mut World) {
         }
         let (graph, _) = b.build();
         let mut graph = graph;
+        for (index, cell) in cells.iter().enumerate() {
+            if let Some(cell) = cell {
+                graph.set_mesh_scope(
+                    index as u32,
+                    Some(key_of(world.cell_coordinate_space(*cell))),
+                );
+            }
+        }
         let mut door_keys: Vec<_> = graph.door_keys().collect();
         door_keys.sort_unstable();
         let mut doors = BTreeMap::new();

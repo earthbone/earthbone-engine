@@ -17,6 +17,7 @@ pub struct PathSearch {
     goal: [f32; 3],
     endpoints: Option<([f32; 3], [f32; 3])>,
     costs: PathCosts,
+    scope: Option<u64>,
     revision: u64,
     open: BinaryHeap<Open>,
     g: HashMap<NodeId, f32>,
@@ -33,6 +34,7 @@ impl PathSearch {
         to: NodeId,
         endpoints: Option<([f32; 3], [f32; 3])>,
         costs: PathCosts,
+        scope: Option<u64>,
     ) -> Self {
         let goal = graph.centroid(to);
         let mut open = BinaryHeap::new();
@@ -47,6 +49,7 @@ impl PathSearch {
             goal,
             endpoints,
             costs,
+            scope,
             revision: graph.revision,
             open,
             g: HashMap::from([(from, 0.0)]),
@@ -118,7 +121,7 @@ impl PathSearch {
                 let Some(triangle) = mesh.triangles.get(next.triangle as usize) else {
                     continue;
                 };
-                if graph.node_blocked(next) {
+                if graph.node_blocked(next) || !graph.matches_scope(next.mesh, self.scope) {
                     continue;
                 }
                 let centroid = mesh.centroid(next.triangle);

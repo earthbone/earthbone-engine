@@ -50,6 +50,23 @@ cylinder and box obstacles that request compressed tile rebuilds through
 Recast tiles, so it applies door state directly to the associated triangle
 instead of introducing a tile-cache representation.
 
+## Runtime coordinate spaces, AI-92
+
+The caller can tag meshes with a coordinate-space key. Game packs the resolved
+interior CELL or exterior WRLD identity into that key. Scoped point queries
+reject meshes from other spaces before triangle tests, and retained A* searches
+reject foreign-space neighbours throughout the corridor. Endpoint and corridor
+scoping therefore use the same rule. Scope changes advance query_revision and
+cancel retained searches. Untagged graphs retain their existing generic API.
+No geometry copy, saved field or dependency is added.
+
+The existing mesh and triangle bounds trees supply the queries. Local xEdit
+wbNVNM Pathing Cell supplies the distinction between interior cells and
+exterior worldspaces. Game's existing cell_coordinate_space resolves the
+winning hierarchy. The change extends the existing Detour query adaptation
+rather than introducing another pathfinder. Two synthetic tests cover a nearer
+unrelated floor and a corridor whose only connection crosses another space.
+
 ## The graph
 
 `NavGraph::find_path` is `A*` over triangle adjacency with centroid distance as the

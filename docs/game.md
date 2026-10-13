@@ -3725,6 +3725,14 @@ including the active exterior grids. Prefetched cells do not qualify. Two
 synthetic tests and an installed Bannered Mare registration check cover the
 boundary. This adds no actor fields or saved sections.
 
+Runtime AI point and flee requests carry the actor's coordinate space through
+retained searches. NAVM tags derive from resolved mesh-owner cells through
+cell_coordinate_space. Both endpoint selection and corridor expansion exclude
+other interiors or worldspaces, so reaching a waypoint cannot silently move a
+sandboxing innkeeper into a different interior. The installed Bannered Mare
+regression checks actor initialization and coordinate-space retention after
+one second. It previously moved 0:01A66E from 0:01605E to 0:02D3E7.
+
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
 A route is `find_path_between` from the actor to the place. The actor follows

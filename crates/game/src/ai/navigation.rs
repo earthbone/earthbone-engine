@@ -96,6 +96,7 @@ enum Work {
 }
 
 struct Request {
+    scope: Option<u64>,
     from: [f32; 3],
     goal: Goal,
     revision: u64,
@@ -365,8 +366,23 @@ impl Planner {
         from: [f32; 3],
         goal: Goal,
     ) -> Poll<ResultPath> {
+        self.request_scoped(graph, cells, actor, from, goal, None)
+    }
+
+    fn request_scoped(
+        &mut self,
+        graph: &NavGraph,
+        cells: &[Option<GlobalFormId>],
+        actor: GlobalFormId,
+        from: [f32; 3],
+        goal: Goal,
+        scope: Option<u64>,
+    ) -> Poll<ResultPath> {
         if self.requests.get(&actor).is_some_and(|r| {
-            r.from != from || r.goal != goal || r.revision != graph.query_revision()
+            r.from != from
+                || r.goal != goal
+                || r.scope != scope
+                || r.revision != graph.query_revision()
         }) {
             self.cancel(actor);
         }
@@ -378,9 +394,16 @@ impl Planner {
                 .or_default()
                 .started(setup_started);
             let work = match goal {
-                Goal::Point { to, .. } => Work::Route(graph.start_path_between(from, to)),
+                Goal::Point { to, .. } => Work::Route(start_path(graph, from, to, scope)),
                 Goal::Flee { .. } => {
-                    let start = graph.locate(from).or_else(|| graph.nearest(from));
+                    let start = scope.map_or_else(
+                        || graph.locate(from).or_else(|| graph.nearest(from)),
+                        |scope| {
+                            graph
+                                .locate_in_scope(from, scope)
+                                .or_else(|| graph.nearest_in_scope(from, scope))
+                        },
+                    );
                     Work::Flee(Flee {
                         frontier: start.into_iter().collect(),
                         seen: HashSet::new(),
@@ -392,6 +415,7 @@ impl Planner {
                 }
             };
             Request {
+                scope,
                 from,
                 goal,
                 revision: graph.query_revision(),
@@ -434,6 +458,18 @@ impl Planner {
             Poll::Pending
         }
     }
+}
+
+fn start_path(
+    graph: &NavGraph,
+    from: [f32; 3],
+    to: [f32; 3],
+    scope: Option<u64>,
+) -> Option<PathSearch> {
+    scope.map_or_else(
+        || graph.start_path_between(from, to),
+        |scope| graph.start_path_between_in_scope(from, to, scope),
+    )
 }
 
 fn planned(
@@ -536,7 +572,12 @@ impl Request {
                     if !flee.flooded {
                         if let Some(node) = flee.frontier.pop() {
                             used += 1;
-                            if !flee.seen.insert(node) || !graph.is_walkable(node) {
+                            if !flee.seen.insert(node)
+                                || !graph.is_walkable(node)
+                                || self
+                                    .scope
+                                    .is_some_and(|scope| graph.mesh_scope(node.mesh) != Some(scope))
+                            {
                                 continue;
                             }
                             self.expanded += 1;
@@ -569,7 +610,7 @@ impl Request {
                     } else if let Some(candidate) = flee.candidates.pop() {
                         used += 1;
                         flee.destination = graph.centroid(candidate.node);
-                        flee.search = graph.start_path_between(self.from, flee.destination);
+                        flee.search = start_path(graph, self.from, flee.destination, self.scope);
                     } else {
                         self.failed = true;
                         self.result = Poll::Ready(None);
@@ -591,13 +632,28 @@ pub(super) fn request(
 ) -> Poll<ResultPath> {
     super::measure_phase(world, Phase::PathRequests, |world| {
         super::ensure_nav_graph(world);
+        let scope = world
+            .reference_ref(actor)
+            .and_then(|reference| reference.cell)
+            .map(|cell| soe_navmesh::vanilla::key_of(world.cell_coordinate_space(cell)));
         let Some(graph) = &world.ai.nav else {
             return Poll::Ready(None);
         };
-        world
-            .ai
-            .planner
-            .request(graph, &world.ai.nav_cells, actor, from, goal)
+        if let Some(scope) = scope.filter(|_| graph.has_mesh_scopes()) {
+            world.ai.planner.request_scoped(
+                graph,
+                &world.ai.nav_cells,
+                actor,
+                from,
+                goal,
+                Some(scope),
+            )
+        } else {
+            world
+                .ai
+                .planner
+                .request(graph, &world.ai.nav_cells, actor, from, goal)
+        }
     })
 }
 

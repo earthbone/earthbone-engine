@@ -327,6 +327,12 @@ mod placed_actor_registration_tests {
             let world = game.world();
             let state = world.actor_ref(contact.actor).unwrap();
             let reference = world.reference_ref(contact.actor).unwrap();
+            assert_eq!(
+                world.cell_coordinate_space(reference.cell.unwrap()),
+                world.cell_coordinate_space(cell),
+                "{} walked into another interior without a load door",
+                contact.actor
+            );
             println!(
                 "NPC_RUNTIME {} package={:?} procedure={:?} path={} cell={:?} position={:?}",
                 contact.actor,
