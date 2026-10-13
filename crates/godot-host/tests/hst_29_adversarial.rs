@@ -153,7 +153,8 @@ fn hst_29_vertical_displacement_contributes_to_world_speed() {
     let after = placement([0.0, 0.0, 12.0], 0.0);
     let motion = NpcMotion::between(before, after, 0.25).unwrap();
 
-    assert!((motion.speed - 48.0).abs() < 0.001);
+    assert!((motion.world_speed - 48.0).abs() < 0.001);
+    assert_eq!(motion.speed, 0.0);
     assert_eq!(motion.direction, 0.0);
 }
 

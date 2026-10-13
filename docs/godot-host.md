@@ -377,6 +377,22 @@ and it does not support threaded gameplay.
 save and returns the filename character ID used by deterministic SPID rules.
 ## NPC package presentation, HST-29
 
+The motion sampler separates horizontal `speed`, which drives walk and run,
+from `world_speed`, which includes vertical displacement. Gravity and spawn
+corrections therefore do not start a walk animation or qualify as a walking
+NPC in the movement probe. Nonfinite positions and headings, and graph rates
+that overflow, reject the sample before changing graph inputs. The existing
+world-speed regression retains its 48-unit measurement and also asserts zero
+horizontal speed. The breaker retains its zero-locomotion assertion.
+Two library tests cover an invalid previous heading and finite coordinates
+whose resulting graph speed overflows.
+
+The local Godotwind `src/core/character/controller/moves/walk_move.gd`
+sets horizontal velocity while preserving the gravity component. Its
+`move_container.gd` applies the controller once per update. These contracts
+inform the separation here. The host keeps its existing Rust sampler, HKX
+graph and RID presentation, with no new per-reference node or dependency.
+
 PlayerNode submits the shared Game actor placement to resident NPC RIDs on every
 render frame. Threaded gameplay uses the snapshot adapter's interpolated
 placement. `actor::npc_transform` carries the reference position, Euler heading
