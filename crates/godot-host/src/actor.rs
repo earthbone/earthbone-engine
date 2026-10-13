@@ -168,6 +168,8 @@ pub struct ActorSurface {
     pub head_part_type: Option<u32>,
     /// Exported face tint sampled alongside the head's diffuse map.
     pub face_tint: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
+    /// Authored FaceGen detail map from texture slot 3.
+    pub face_detail: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
     /// Authored SkinTint or HairTint RGB multiplier.
     pub tint_color: Option<[f32; 3]>,
     pub arrays: SurfaceArrays,
@@ -265,6 +267,8 @@ impl AppearanceCache {
         for part in &mut appearance.parts {
             part.model.clone_from(&part.first_person_model);
         }
+        appearance.head_parts.clear();
+        appearance.facegen = None;
         self.prepare_appearance(appearance, vfs, skeleton)
     }
 
@@ -475,6 +479,8 @@ impl ActorAssets {
         for part in &mut appearance.parts {
             part.model.clone_from(&part.first_person_model);
         }
+        appearance.head_parts.clear();
+        appearance.facegen = None;
         assets.surfaces = Self::appearance_surfaces(vfs, &appearance, &skeleton)?;
         assets.skeleton = skeleton;
         assets.skeleton_path = skeleton_path;
@@ -1006,6 +1012,7 @@ impl ActorAssets {
                 name: mesh.name.clone(),
                 head_part_type: None,
                 face_tint: None,
+                face_detail: None,
                 tint_color: authored_tint(mesh),
                 arrays,
                 expression_shapes,
@@ -1020,6 +1027,30 @@ impl ActorAssets {
                 partitions,
                 remapped,
             });
+            if mesh.material.kind
+                == soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::FaceTint)
+            {
+                if let Some(path) = mesh
+                    .material
+                    .textures
+                    .get(3)
+                    .filter(|path| !path.is_empty())
+                {
+                    let textures = crate::data_source::resolve_material_textures(
+                        vfs,
+                        &[crate::mesh::MaterialDesc {
+                            diffuse: Some(path.clone()),
+                            ..Default::default()
+                        }],
+                    );
+                    if let (Some(surface), Some(data)) = (
+                        out.last_mut(),
+                        textures.into_iter().next().and_then(|t| t.diffuse),
+                    ) {
+                        surface.face_detail = Some((path.clone(), data));
+                    }
+                }
+            }
         }
         if out.is_empty() && hidden_slots == 0 {
             return Err(ActorError::NotSkinned {
@@ -1583,6 +1614,7 @@ fn rigid_surface(
         name: mesh.name.clone(),
         head_part_type: None,
         face_tint: None,
+        face_detail: None,
         tint_color: authored_tint(mesh),
         arrays,
         expression_shapes: Vec::new(),
@@ -1598,6 +1630,152 @@ fn rigid_surface(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn installed_face_pixels_and_first_person_camera_visibility() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+        let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let directory = workspace.join("target/character-regression");
+        std::fs::create_dir_all(&directory).unwrap();
+        let output = std::process::Command::new(binary)
+            .arg("--path")
+            .arg(workspace.join("godot"))
+            .args([
+                "--resolution",
+                "640x360",
+                "--script",
+                "character_regression_test.gd",
+            ])
+            .env("SKYRIM_DATA", data)
+            .env("DISPLAY", ":99")
+            .env("SOE_CHARACTER_OUTPUT", &directory)
+            .env("SOE_GODOT_TIMEOUT", "180")
+            .output()
+            .unwrap();
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::fs::write(directory.join("test.log"), &log).unwrap();
+        assert!(
+            output.status.success()
+                && log.contains("RESULT: PASS character regression")
+                && !log.contains("SCRIPT ERROR"),
+            "{log}"
+        );
+        println!("{log}");
+    }
+
+    #[test]
+    fn installed_first_person_excludes_all_head_parts() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        let player = world.player();
+        let assets =
+            ActorAssets::load_player_first_person(&mut world, player, source.vfs()).unwrap();
+        let heads: Vec<_> = assets
+            .surfaces
+            .iter()
+            .filter(|s| s.head_part_type.is_some())
+            .map(|s| &s.name)
+            .collect();
+        assert!(heads.is_empty(), "first-person head parts: {heads:?}");
+        assert!(!assets.surfaces.is_empty(), "first-person arms remain");
+        let update = AppearanceCache::default()
+            .prepare_first_person(&mut world, player, source.vfs(), &assets.skeleton)
+            .unwrap()
+            .unwrap();
+        assert!(
+            update
+                .surfaces
+                .iter()
+                .all(|surface| surface.head_part_type.is_none()),
+            "appearance refresh also excludes head parts"
+        );
+    }
+
+    #[test]
+    fn installed_npc_clip_plays_for_authored_duration() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut game = source.localized_game().unwrap();
+        let cell = game.form("WhiterunBanneredMare").unwrap();
+        game.change_cell(Some(cell));
+        let contacts = game.world_mut().contact_actors();
+        let hulda = contacts
+            .into_iter()
+            .find(|actor| game.world().name_of(actor.actor).as_deref() == Some("Hulda"))
+            .unwrap()
+            .actor;
+        let appearance = game.world_mut().actor_appearance(hulda).unwrap();
+        let assets =
+            ActorAssets::load_for_actor(&mut game.world_mut(), hulda, source.vfs()).unwrap();
+        let mut vm = assets.npc_interpreter(appearance.female);
+        vm.update(0.0);
+        let active = vm.active_clips();
+        let mut failures = Vec::new();
+        let mut checked = 0;
+        for (id, _) in active {
+            let soe_hkx::behavior::NodeKind::Clip(generator) = &assets.graph.node(id).kind else {
+                continue;
+            };
+            if generator.mode != 1
+                || generator.playback_speed != 1.0
+                || generator.enforced_duration > 0.0
+            {
+                continue;
+            }
+            let duration = assets
+                .clips
+                .get(&generator.animation_name)
+                .unwrap()
+                .duration();
+            let mut vm = assets.npc_interpreter(appearance.female);
+            vm.update(0.0);
+            let initial = vm.clip_time(id).unwrap();
+            let mut previous = initial;
+            let dt = 1.0 / 120.0;
+            let mut played = None;
+            for frame in 1..=((duration * 1.1 / dt).ceil() as u32 + 1) {
+                vm.update(dt);
+                let Some(now) = vm.clip_time(id) else { break };
+                if now < previous {
+                    played = Some(frame as f32 * dt + initial);
+                    break;
+                }
+                previous = now;
+            }
+            println!(
+                "clip {} duration={duration} played={played:?} speed={} crops=({}, {})",
+                generator.animation_name,
+                generator.playback_speed,
+                generator.crop_start_amount_local_time,
+                generator.crop_end_amount_local_time
+            );
+            checked += 1;
+            let expected = duration
+                - generator.crop_start_amount_local_time
+                - generator.crop_end_amount_local_time;
+            if played.is_none_or(|played| (played - expected).abs() / expected > 0.05) {
+                failures.push((generator.animation_name.clone(), expected, played));
+            }
+        }
+        assert!(checked > 0, "NPC graph has authored idle clips");
+        assert!(
+            failures.is_empty(),
+            "clip durations outside 5 percent: {failures:?}"
+        );
+    }
 
     #[test]
     fn hst_23_installed_hulda_head_and_idle_pose() {
@@ -1650,6 +1828,18 @@ mod tests {
             .find(|surface| surface.head_part_type == Some(1))
             .unwrap();
         assert!(head.face_tint.is_some(), "Hulda's exported face tint loads");
+        assert!(
+            head.face_detail.is_some(),
+            "Hulda's FaceGen detail map loads"
+        );
+        assert!(
+            head.textures.diffuse.is_some(),
+            "head diffuse loads independently of tint"
+        );
+        assert_ne!(
+            head.arrays.material.shader_flags_1 & soe_nif::blocks::flags1::MODEL_SPACE_NORMALS,
+            0
+        );
         assert!(
             head.expression_shapes.iter().any(|shape| {
                 crate::facial::is_mouth_target(&shape.name)

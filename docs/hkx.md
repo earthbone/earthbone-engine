@@ -1,5 +1,15 @@
 # soe-hkx: Skyrim SE animation files and the behavior runtime design
 
+The 2026-10-13 character correction generates a shared graph node once per
+interpreter update and reuses its output across parent branches. Previously,
+Hulda's vanilla `MT_Idle.HKX` playhead advanced three times per update, playing
+9.133333 authored seconds in 3.05 simulation seconds at playback speed 1.0.
+The installed host regression now measures 9.141667 seconds, inside its fixed
+5 percent bound. The shared-clip unit fixture checks one time advance and one
+trigger through three branches. The local serde-hkx
+`assets/classes/hkbClipGenerator.json` supplies the playback-speed layout and
+single local-time field. The spline time lookup and authored rates are unchanged.
+
 The `hkx-rename` step renamed the former `soe-havok` package and `crates/havok`
 directory to `soe-hkx` and `crates/hkx`. Consumers import `soe_hkx` and the
 fuzz target is `fuzz-hkx`. The parser, writer and interpreter are unchanged.

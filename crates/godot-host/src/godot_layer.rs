@@ -5352,29 +5352,57 @@ pub(crate) fn actor_material_from(
     result
 }
 
-/// FaceGen RGB tint multiplies the head diffuse without replacing its detail.
+/// FaceGen detail and tint use Community Shaders' Lighting.hlsl color blend.
 pub(crate) fn face_material_from(
-    material: &MaterialDesc,
-    textures: &SurfaceTextures,
-    tint_path: &str,
-    tint: &crate::data_source::TextureData,
+    surface: &crate::actor::ActorSurface,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
     shaders: &ShaderCache,
 ) -> Gd<Material> {
-    let shader = shader_for_code(shaders, "shader_type spatial;\nuniform sampler2D diffuse_map : source_color;\nuniform sampler2D tint_map : source_color;\nuniform sampler2D normal_map : hint_normal;\nvoid fragment() { ALBEDO = texture(diffuse_map, UV).rgb * texture(tint_map, UV).rgb; NORMAL_MAP = texture(normal_map, UV).rgb; ROUGHNESS = 0.8; }\n".to_owned());
+    let material = &surface.arrays.material;
+    let textures = &surface.textures;
+    let shader = shader_for_code(
+        shaders,
+        include_str!("facegen.gdshader")
+            .replace("BONE_COUNT", &surface.map.len().max(1).to_string())
+            .replace(
+                "CULL_MODE",
+                if material.double_sided {
+                    "cull_disabled"
+                } else {
+                    "cull_back"
+                },
+            ),
+    );
     let mut mat = godot::classes::ShaderMaterial::new_gd();
     mat.set_shader(&shader);
     if let Some(texture) = albedo_texture(cache, material, textures) {
         mat.set_shader_parameter("diffuse_map", &texture.to_variant());
     }
-    if let Some(texture) = cached_texture(cache, Some(tint_path), tint) {
-        mat.set_shader_parameter("tint_map", &texture.to_variant());
+    if let Some((path, data)) = &surface.face_tint {
+        if let Some(texture) = cached_texture(cache, Some(path), data) {
+            mat.set_shader_parameter("tint_map", &texture.to_variant());
+        }
+    }
+    if let Some((path, data)) = &surface.face_detail {
+        if let Some(texture) = cached_texture(cache, Some(path), data) {
+            mat.set_shader_parameter("detail_map", &texture.to_variant());
+            mat.set_shader_parameter("has_detail", &true.to_variant());
+        }
     }
     if let Some(normal) = &textures.normal {
         if let Some(texture) = cached_texture(cache, material.normal.as_deref(), normal) {
             mat.set_shader_parameter("normal_map", &texture.to_variant());
+            mat.set_shader_parameter("has_normal", &true.to_variant());
         }
     }
+    mat.set_shader_parameter(
+        "model_space_normals",
+        &(material.shader_flags_1 & soe_nif::blocks::flags1::MODEL_SPACE_NORMALS != 0).to_variant(),
+    );
+    let bones: Array<Basis> = (0..surface.map.len().max(1))
+        .map(|_| Basis::IDENTITY)
+        .collect();
+    mat.set_shader_parameter("skin_normals", &bones.to_variant());
     mat.upcast()
 }
 

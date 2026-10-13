@@ -1300,6 +1300,7 @@ pub struct Interpreter<'a> {
     pub variables: Variables,
     pub character_properties: Variables,
     nodes: Vec<Runtime>,
+    generated: Vec<Option<Output>>,
     bindings: Vec<ResolvedBinding>,
     bone_weight_masks: HashMap<u32, Vec<f32>>,
     conditions: HashMap<Condition, std::result::Result<Expression, ExpressionError>>,
@@ -1372,6 +1373,7 @@ impl<'a> Interpreter<'a> {
                 &graph.data.character_property_infos,
             ),
             nodes,
+            generated: vec![None; graph.nodes.len()],
             bindings: Vec::new(),
             bone_weight_masks,
             conditions: HashMap::new(),
@@ -1942,6 +1944,7 @@ impl<'a> Interpreter<'a> {
     /// One frame: bindings, activation, events, generate, raised events.
     pub fn update(&mut self, dt: f32) -> &Output {
         self.frame += 1;
+        self.generated.fill(None);
         self.apply_bindings();
         if let Some(root) = self.graph.root {
             if !self.nodes[root.0].active {
@@ -3715,6 +3718,15 @@ impl<'a> Interpreter<'a> {
         if !self.nodes[id.0].active {
             return self.reference_output();
         }
+        if let Some(output) = &self.generated[id.0] {
+            return output.clone();
+        }
+        let output = self.generate_uncached(id, dt);
+        self.generated[id.0] = Some(output.clone());
+        output
+    }
+
+    fn generate_uncached(&mut self, id: NodeId, dt: f32) -> Output {
         let graph = self.graph;
         let node = graph.node(id);
         match &node.kind {
@@ -5086,6 +5098,74 @@ mod tests {
             extracted_motion: None,
         };
         Clip::from_parts("modifier-pose", animation, &[0]).unwrap()
+    }
+
+    #[test]
+    fn shared_clip_advances_once_and_emits_one_trigger_per_update() {
+        let graph = BehaviorGraph {
+            name: "shared clip".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "BSBoneSwitchGenerator".into(),
+                    name: "shared branches".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::BoneSwitch {
+                        default_generator: Some(NodeId(1)),
+                        children: vec![
+                            crate::behavior::BoneSwitchChild {
+                                generator: Some(NodeId(1)),
+                                bone_weights: Some(vec![0.5])
+                            };
+                            2
+                        ],
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "hkbClipGenerator".into(),
+                    name: "one playhead".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::Clip(ClipGenerator {
+                        animation_name: "modifier-pose".into(),
+                        playback_speed: 1.0,
+                        mode: 1,
+                        triggers: vec![crate::behavior::ClipTrigger {
+                            local_time: 0.1,
+                            event: crate::behavior::EventProperty {
+                                id: 7,
+                                has_payload: false,
+                            },
+                            relative_to_end_of_clip: false,
+                            acyclic: false,
+                            is_annotation: false,
+                        }],
+                        ..Default::default()
+                    }),
+                },
+            ],
+        };
+        let mut clips = ClipLibrary::default();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        vm.update(0.125);
+        assert_eq!(vm.clip_time(NodeId(1)), Some(0.125));
+        assert_eq!(
+            vm.take_events()
+                .iter()
+                .filter(|event| event.id == 7)
+                .count(),
+            1
+        );
+        vm.update(0.125);
+        assert_eq!(vm.clip_time(NodeId(1)), Some(0.25));
     }
 
     fn anm_14_rotation_graph(enable: bool) -> BehaviorGraph {
