@@ -22,7 +22,7 @@ pub fn support_height(world: &SimpleWorld, position: Vec3) -> Option<f32> {
         let Some(hit) = world.raycast(from, to) else {
             break;
         };
-        if hit.normal.z >= CharacterSettings::default().max_slope_cos
+        if hit.normal.z >= CharacterSettings::mudcrab().max_slope_cos
             && nearest
                 .is_none_or(|height| (hit.point.z - position.z).abs() < (height - position.z).abs())
         {
@@ -96,12 +96,15 @@ impl NpcGrounding {
         {
             return None;
         }
-        let defaults = CharacterSettings::default();
+        let defaults = CharacterSettings::mudcrab();
         let settings = CharacterSettings {
             radius: defaults.radius * scale,
             height: defaults.height * scale,
             crouch_height: defaults.crouch_height * scale,
             step_height: defaults.step_height * scale,
+            step_min_width: defaults.step_min_width * scale,
+            collision_offset: defaults.collision_offset * scale,
+            ground_snap: defaults.ground_snap * scale,
             ..defaults
         };
         if ![
@@ -109,13 +112,16 @@ impl NpcGrounding {
             settings.height,
             settings.crouch_height,
             settings.step_height,
+            settings.step_min_width,
+            settings.collision_offset,
+            settings.ground_snap,
         ]
         .into_iter()
         .all(|dimension| dimension.is_finite() && dimension > 0.0)
         {
             return None;
         }
-        let Some(cell) = collision_cell else {
+        let Some(cell) = collision_cell.filter(|_| world.static_count() > 0) else {
             if let Some(body) = self.bodies.remove(&actor) {
                 world.remove(body.id);
             }
@@ -157,17 +163,8 @@ impl NpcGrounding {
             } else {
                 Vec3::new(difference.x, difference.y, 0.0) * (1.0 / delta)
             };
-            let radius = character.settings.radius;
             world.move_character(body.id, desired);
-            // CONTEXT: Substeps keep lateral moves shorter than the capsule radius
-            // as well as bounding gravity integration on coarse AI updates.
-            let steps = (delta / (1.0 / 60.0))
-                .max(desired.length() * delta / (radius * 0.5))
-                .ceil()
-                .clamp(1.0, 4096.0) as u32;
-            for _ in 0..steps {
-                world.step_character(body.id, delta / steps as f32);
-            }
+            world.step_character(body.id, delta);
         }
         let position = world.character(body.id)?.position;
         Some([position.x, position.y, position.z])

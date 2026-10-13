@@ -90,6 +90,48 @@ impl PlayerPose {
     }
 }
 
+/// A resolved NPC capsule pose returned to its authoritative simulation cell.
+#[derive(Debug, Clone, Copy)]
+pub struct ActorPose {
+    pub actor: GlobalFormId,
+    pub cell: GlobalFormId,
+    /// Snapshot position before the host resolves collision.
+    pub source_position: [f32; 3],
+    pub position: [f32; 3],
+    pub rotation: [f32; 3],
+}
+
+#[derive(Default)]
+struct HostPoses {
+    player: Option<PlayerPose>,
+    actors: BTreeMap<GlobalFormId, ActorPose>,
+}
+
+impl HostPoses {
+    fn apply_actors(self, world: &mut crate::World) {
+        for pose in self.actors.into_values() {
+            if world.actor_ref(pose.actor).is_some_and(|actor| {
+                actor
+                    .ragdoll_forced
+                    .unwrap_or(actor.dead || actor.unconscious)
+            }) || world.grabbed_reference() == Some(pose.actor)
+            {
+                continue;
+            }
+            if world.reference_ref(pose.actor).is_some_and(|reference| {
+                reference.cell == Some(pose.cell)
+                    && reference.position == pose.source_position
+                    && reference.rotation == pose.rotation
+                    && reference.is_actor
+                    && reference.enabled
+                    && !reference.deleted
+            }) {
+                world.set_host_actor_pose(pose.actor, pose.position, pose.rotation);
+            }
+        }
+    }
+}
+
 /// Ordered, bounded host commands. A full queue rejects a command for retry.
 #[derive(Debug, Clone, Copy)]
 pub enum Command {
@@ -195,7 +237,7 @@ impl Snapshots {
 /// A simulation owner. Shutdown joins the worker, while frame methods never join.
 pub struct Simulation {
     snapshots: Arc<Snapshots>,
-    pose: Arc<Mutex<Option<PlayerPose>>>,
+    pose: Arc<Mutex<HostPoses>>,
     commands: SyncSender<Command>,
     stop: Arc<AtomicBool>,
     failure: Receiver<String>,
@@ -215,7 +257,7 @@ impl Simulation {
     ) -> Result<Self, Error> {
         let config = config.validate()?;
         let snapshots = Arc::new(Snapshots::default());
-        let pose = Arc::new(Mutex::new(None));
+        let pose = Arc::new(Mutex::new(HostPoses::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let (commands, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
         let (failed, failure) = mpsc::sync_channel(1);
@@ -274,7 +316,28 @@ impl Simulation {
         let Ok(mut latest) = self.pose.try_lock() else {
             return false;
         };
-        *latest = Some(pose);
+        latest.player = Some(pose);
+        true
+    }
+
+    /// Coalesce NPC physics feedback by FormID without waiting on the worker.
+    /// Returns false for invalid data, shutdown or mailbox contention.
+    /// The worker rejects a pose if its reference has departed the source cell.
+    pub fn set_actor_pose(&self, pose: ActorPose) -> bool {
+        if !pose
+            .position
+            .into_iter()
+            .chain(pose.source_position)
+            .chain(pose.rotation)
+            .all(f32::is_finite)
+            || self.stop.load(Ordering::Acquire)
+        {
+            return false;
+        }
+        let Ok(mut latest) = self.pose.try_lock() else {
+            return false;
+        };
+        latest.actors.insert(pose.actor, pose);
         true
     }
 
@@ -324,7 +387,7 @@ fn run(
     mut game: Game,
     config: Config,
     commands: &Receiver<Command>,
-    pose: &Mutex<Option<PlayerPose>>,
+    pose: &Mutex<HostPoses>,
     snapshots: &Snapshots,
     stop: &AtomicBool,
 ) {
@@ -373,7 +436,11 @@ fn run(
             } else {
                 ai.advance(dt)
             };
-            if let Some(pose) = pose.try_lock().ok().and_then(|mut latest| latest.take()) {
+            let latest = pose
+                .try_lock()
+                .ok()
+                .map(|mut latest| std::mem::take(&mut *latest));
+            if let Some(pose) = latest.as_ref().and_then(|latest| latest.player) {
                 let player = game.player();
                 let from = game
                     .world()
@@ -389,6 +456,9 @@ fn run(
                     }
                     game.update_trigger_actor_position(player, pose.cell, from, pose.position);
                 }
+            }
+            if let Some(latest) = latest {
+                latest.apply_actors(&mut game.world_mut());
             }
             game.tick_scheduled(dt, menu_mode, ai_seconds, script_budget);
         });
@@ -625,5 +695,136 @@ mod tests {
             ),
             Err(Error::Configuration)
         ));
+    }
+
+    #[test]
+    fn npc_physics_mailbox_coalesces_poses_and_rejects_invalid_or_contended_input() {
+        let (release, wait) = mpsc::channel();
+        let simulation = Simulation::spawn(Config::default(), move || {
+            wait.recv().unwrap();
+            Ok(Game::new(soe_esm::LoadOrder::new()))
+        })
+        .unwrap();
+        let mut pose = ActorPose {
+            actor: id(),
+            cell: GlobalFormId {
+                file: 0,
+                object: 0x801,
+            },
+            source_position: [0.0; 3],
+            position: [10.0, 0.0, 0.0],
+            rotation: [0.0; 3],
+        };
+        assert!(simulation.set_actor_pose(pose));
+        pose.position[0] = 20.0;
+        assert!(simulation.set_actor_pose(pose));
+        let held = simulation.pose.lock().unwrap();
+        assert_eq!(held.actors.len(), 1);
+        assert_eq!(held.actors[&id()].position, pose.position);
+        assert!(
+            !simulation.set_actor_pose(pose),
+            "submission must not wait on the worker"
+        );
+        drop(held);
+        pose.position[2] = f32::NAN;
+        assert!(!simulation.set_actor_pose(pose));
+        assert_eq!(
+            simulation.pose.lock().unwrap().actors[&id()].position,
+            [20.0, 0.0, 0.0]
+        );
+        release.send(()).unwrap();
+        drop(simulation);
+    }
+
+    #[test]
+    fn npc_physics_feedback_updates_world_and_rejects_departed_or_disabled_actors() {
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        plugin.push_top(crate::npc::build_record(
+            0x803,
+            "GroundedActor",
+            "Grounded Actor",
+            crate::npc::Config::default(),
+            crate::npc::Stats::default(),
+        ));
+        plugin.push_top(
+            soe_esm::Record::new(soe_esm::Tag(*b"ACHR"), id().object)
+                .sub(soe_esm::Tag(*b"NAME"), 0x803u32.to_le_bytes())
+                .sub(soe_esm::Tag(*b"DATA"), [0; 24]),
+        );
+        let mut order = soe_esm::LoadOrder::new();
+        order
+            .add(
+                "NpcPose.esm",
+                soe_esm::Plugin::parse(&plugin.to_bytes()).unwrap(),
+            )
+            .unwrap();
+        let game = Game::new(order);
+        let cell = GlobalFormId {
+            file: 0,
+            object: 0x801,
+        };
+        game.world_mut().reference(id()).unwrap().cell = Some(cell);
+        let pose = ActorPose {
+            actor: id(),
+            cell,
+            source_position: [0.0; 3],
+            position: [20.0, 0.0, 0.0],
+            rotation: [0.0; 3],
+        };
+        let apply = |world: &mut crate::World, pose| {
+            HostPoses {
+                player: None,
+                actors: BTreeMap::from([(id(), pose)]),
+            }
+            .apply_actors(world);
+        };
+        apply(&mut game.world_mut(), pose);
+        assert_eq!(
+            game.world().reference_ref(id()).unwrap().position,
+            pose.position
+        );
+        assert_eq!(
+            game.world().reference_ref(id()).unwrap().rotation,
+            pose.rotation
+        );
+        game.world_mut().reference(id()).unwrap().rotation[2] = 1.0;
+        let old_rotation = ActorPose {
+            source_position: pose.position,
+            ..pose
+        };
+        apply(&mut game.world_mut(), old_rotation);
+        assert_eq!(game.world().reference_ref(id()).unwrap().rotation[2], 1.0);
+        game.world_mut().reference(id()).unwrap().rotation = [0.0; 3];
+        game.world_mut().reference(id()).unwrap().position = [30.0, 0.0, 0.0];
+        apply(&mut game.world_mut(), pose);
+        assert_eq!(
+            game.world().reference_ref(id()).unwrap().position,
+            [30.0, 0.0, 0.0]
+        );
+        game.world_mut().reference(id()).unwrap().cell = Some(GlobalFormId {
+            file: 0,
+            object: 0x802,
+        });
+        let stale = ActorPose {
+            source_position: [30.0, 0.0, 0.0],
+            position: [40.0, 0.0, 0.0],
+            ..pose
+        };
+        apply(&mut game.world_mut(), stale);
+        assert_eq!(
+            game.world().reference_ref(id()).unwrap().position,
+            [30.0, 0.0, 0.0]
+        );
+        {
+            let mut world = game.world_mut();
+            let reference = world.reference(id()).unwrap();
+            reference.cell = Some(cell);
+            reference.enabled = false;
+        }
+        apply(&mut game.world_mut(), stale);
+        assert_eq!(
+            game.world().reference_ref(id()).unwrap().position,
+            [30.0, 0.0, 0.0]
+        );
     }
 }

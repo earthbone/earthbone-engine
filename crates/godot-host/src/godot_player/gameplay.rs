@@ -1543,7 +1543,7 @@ impl PlayerNode {
             }
             let collision = location.collision;
             let mut world = collision.world;
-            let id = world.create_character(CharacterSettings::default(), feet);
+            let id = world.create_character(CharacterSettings::mudcrab(), feet);
             self.world = Some(world);
             self.npc_grounding.reset();
             self.character = Some(id);
@@ -1569,7 +1569,7 @@ impl PlayerNode {
                 if let Some(old) = self.character.take() {
                     world.remove(old);
                 }
-                self.character = Some(world.create_character(CharacterSettings::default(), feet));
+                self.character = Some(world.create_character(CharacterSettings::mudcrab(), feet));
             }
             self.motion = CameraMotion::new(feet, self.capsule_height());
         }

@@ -183,3 +183,36 @@ fn coincident_off_mesh_and_portal_endpoints_are_preserved() {
         .unwrap();
     assert!(path.points.contains(&[1.0, 2.0, 0.0]));
 }
+
+#[test]
+fn walking_route_rejects_the_unsupported_single_waypoint_fallback() {
+    let mut graph = NavGraph::new();
+    graph.add_mesh_with_adjacency(
+        vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        &[[0, 1, 2]],
+    );
+    let from = [0.2, 0.2, 0.0];
+    let to = [-0.1, 0.2, 0.0];
+    let raw = graph.find_path_between(from, to).unwrap();
+    assert_eq!(raw.points.iter().skip(1).count(), 1);
+    assert_eq!(raw.points.last(), Some(&to));
+    assert!(graph.start_walk_path_between(from, to, None).is_none());
+    assert!(graph.start_walk_path_between(to, from, None).is_none());
+    assert!(graph.start_walk_path_between(to, to, None).is_none());
+}
+
+#[test]
+fn walking_route_accepts_one_supported_waypoint_and_projects_height() {
+    let graph = tiles(&[(0, 0)], false, |_| 0.0);
+    let mut search = graph
+        .start_walk_path_between([0.2, 0.2, 32.0], [0.3, 0.2, 10.0], None)
+        .unwrap();
+    let std::task::Poll::Ready(Some(path)) = search.advance(&graph, usize::MAX) else {
+        panic!("supported direct route must finish");
+    };
+    assert_eq!(path.points, [[0.2, 0.2, 0.0], [0.3, 0.2, 0.0]]);
+    assert_eq!(path.points.iter().skip(1).count(), 1);
+    assert!(graph
+        .start_walk_path_between([0.2, 0.2, 64.01], [0.3, 0.2, 0.0], None)
+        .is_none());
+}

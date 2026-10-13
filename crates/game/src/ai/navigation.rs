@@ -466,10 +466,7 @@ fn start_path(
     to: [f32; 3],
     scope: Option<u64>,
 ) -> Option<PathSearch> {
-    scope.map_or_else(
-        || graph.start_path_between(from, to),
-        |scope| graph.start_path_between_in_scope(from, to, scope),
-    )
+    graph.start_walk_path_between(from, to, scope)
 }
 
 fn planned(
@@ -549,13 +546,20 @@ impl Request {
                     let path = path
                         .map(|path| planned(path, cells, if fallback { None } else { cell }))
                         .or_else(|| {
-                            fallback.then(|| {
-                                if graph.contains_point(self.from) && graph.contains_point(to) {
-                                    (Vec::new(), Vec::new())
-                                } else {
-                                    (vec![to], vec![cell])
-                                }
-                            })
+                            if !fallback {
+                                return None;
+                            }
+                            // CONTEXT: A missing NAVM permits the existing
+                            // headless fallback. A populated graph must not
+                            // turn an unsupported endpoint into a direct walk.
+                            if graph.triangle_count() == 0 {
+                                return Some((vec![to], vec![cell]));
+                            }
+                            let supported = graph
+                                .start_walk_path_between(self.from, self.from, self.scope)
+                                .is_some()
+                                && graph.start_walk_path_between(to, to, self.scope).is_some();
+                            supported.then(|| (Vec::new(), Vec::new()))
                         });
                     *phases.entry("route_result").or_default() += started.elapsed();
                     self.result = Poll::Ready(path.map(|path| (to, path)));
@@ -1337,11 +1341,44 @@ mod tests {
         };
         assert_eq!(
             planner.request(&graph, &[None], actor(1), from, off_mesh),
-            Poll::Ready(Some((
-                [10.0, 400.0, 0.0],
-                (vec![[10.0, 400.0, 0.0]], vec![None])
-            )))
+            Poll::Ready(None)
         );
+    }
+
+    #[test]
+    fn unsupported_single_waypoint_fails_even_when_fallback_is_requested() {
+        let mut graph = NavGraph::new();
+        graph.add_mesh_with_adjacency(
+            vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        let from = [10.0, 10.0, 0.0];
+        let to = [-20.0, 10.0, 0.0];
+        let raw = graph.find_path_between(from, to).unwrap();
+        assert_eq!(planned(raw, &[None], None).0.len(), 1);
+        let mut planner = Planner::default();
+        for fallback in [false, true] {
+            let goal = Goal::Point {
+                to,
+                cell: None,
+                fallback,
+            };
+            assert_eq!(
+                planner.request(&graph, &[None], actor(1), from, goal),
+                Poll::Ready(None)
+            );
+        }
+        let goal = Goal::Point {
+            to: [20.0, 10.0, 0.0],
+            cell: None,
+            fallback: true,
+        };
+        let Poll::Ready(Some((_, (waypoints, _)))) =
+            planner.request(&graph, &[None], actor(1), from, goal)
+        else {
+            panic!("one supported waypoint must remain valid");
+        };
+        assert_eq!(waypoints, [[20.0, 10.0, 0.0]]);
     }
     #[test]
     fn prf_27_sliced_path_reports_ready_latency_expansions_and_polyline_length() {

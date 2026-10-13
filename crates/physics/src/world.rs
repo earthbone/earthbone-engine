@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// Ported from Mudcrab (github.com/Mudcrab-Team/mudcrab, crates/engine/src/physics.rs at 268f988 and PR 232), MIT License, Copyright (c) the Mudcrab contributors
 
 //! The collision world. [`PhysicsWorld`] is the seam, and [`SimpleWorld`] is
 //! the plain Rust implementation the headless engine steps: statics, rays,
@@ -62,6 +63,16 @@ pub struct CharacterSettings {
     /// The fastest the capsule falls. Capped again per step by the radius
     /// over the timestep, so a long frame cannot tunnel a thin floor.
     pub terminal_velocity: f32,
+    /// Clearance outside the capsule, measured in game units.
+    pub collision_offset: f32,
+    /// Minimum free landing width for an automatic step.
+    pub step_min_width: f32,
+    /// Maximum downward ground probe distance.
+    pub ground_snap: f32,
+    /// Normals below this cosine permit automatic sliding.
+    pub min_slope_slide_cos: f32,
+    /// Horizontal velocity change per second.
+    pub horizontal_acceleration: f32,
 }
 
 impl Default for CharacterSettings {
@@ -76,11 +87,36 @@ impl Default for CharacterSettings {
             step_height: 36.0,
             jump_height: 76.0,
             terminal_velocity: 1920.0,
+            collision_offset: 0.0,
+            step_min_width: 0.0,
+            ground_snap: 8.0,
+            min_slope_slide_cos: 0.7,
+            horizontal_acceleration: f32::INFINITY,
         }
     }
 }
 
 impl CharacterSettings {
+    /// Mudcrab's controller tuning in Creation units, shared by host walkers.
+    /// Foot positions include the collision margin below the geometric capsule.
+    #[must_use]
+    pub fn mudcrab() -> Self {
+        Self {
+            radius: 28.0,
+            height: 100.8,
+            max_slope_cos: 50.0_f32.to_radians().cos(),
+            min_slope_slide_cos: 55.0_f32.to_radians().cos(),
+            gravity: 900.0,
+            jump_height: 340.0 * 340.0 / (2.0 * 900.0),
+            collision_offset: 2.0,
+            step_height: 36.0,
+            step_min_width: 28.0,
+            ground_snap: 12.0,
+            horizontal_acceleration: 1800.0,
+            ..Self::default()
+        }
+    }
+
     /// The launch speed that reaches [`Self::jump_height`] under this
     /// gravity.
     #[must_use]
@@ -99,15 +135,20 @@ impl CharacterSettings {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Character {
     pub settings: CharacterSettings,
-    /// The bottom of the capsule, where the feet are.
+    /// Foot support position, beneath the capsule's collision margin.
     pub position: Vec3,
     pub velocity: Vec3,
+    /// Integrated horizontal request, before collision clips actual movement.
+    pub(crate) horizontal_velocity: Vec3,
+    pub(crate) vertical_velocity: f32,
     pub on_ground: bool,
     /// What the game layer wants this frame, applied horizontally.
     pub desired_velocity: Vec3,
     /// Set through [`PhysicsWorld::set_crouch`], which refuses to clear it
     /// under a ceiling too low for the standing capsule.
     pub crouching: bool,
+    pub(crate) jump_active: bool,
+    pub(crate) jump_requested: bool,
 }
 
 impl Character {
@@ -123,7 +164,11 @@ impl Character {
 
     /// The capsule's axis from the lower cap centre to the upper.
     pub fn axis(&self) -> (Vec3, Vec3) {
-        axis_at(self.position, self.settings.radius, self.height())
+        axis_at(
+            self.position + Vec3::Z * self.settings.collision_offset,
+            self.settings.radius,
+            self.height(),
+        )
     }
 }
 
@@ -156,8 +201,8 @@ pub trait PhysicsWorld {
     fn character(&self, id: BodyId) -> Option<&Character>;
     /// Set the horizontal velocity the character tries to keep this step.
     fn move_character(&mut self, id: BodyId, desired: Vec3);
-    /// Launch the character upward if it is standing. Answers whether it
-    /// left the ground, so a caller can play the animation or not.
+    /// Queue a fresh jump for the next controller update if standing.
+    /// Answers whether the press was accepted, so a caller can animate it.
     fn try_jump(&mut self, id: BodyId) -> bool;
     /// Crouch or stand. Standing up under a ceiling too low for the full
     /// capsule is refused, and the answer is the state that now holds.
@@ -281,22 +326,25 @@ impl SimpleWorld {
 
     /// Pushes a capsule out of everything it overlaps, reporting where it
     /// ended, what the contacts left of its velocity, and whether any contact
-    /// was flat enough to stand on. Pure, so the controller can try a move it
-    /// has not committed to.
+    /// was flat enough to stand on or blocked a walk. Pure, so the controller
+    /// can try a move it has not committed to.
     fn resolve(
         &self,
         position: Vec3,
         velocity: Vec3,
         s: &CharacterSettings,
         height: f32,
-    ) -> (Vec3, Vec3, bool) {
+    ) -> (Vec3, Vec3, bool, bool) {
         soe_trace::count(soe_trace::Operation::ShapeCasts, 1);
         let mut position = position;
         let mut velocity = velocity;
         let mut on_ground = false;
+        let mut blocked_walk = false;
+        let radius = s.radius + s.collision_offset;
         for _ in 0..6 {
-            let (a, b) = axis_at(position, s.radius, height);
-            let query = Aabb::of_points([a, b]).grow(s.radius + 1.0);
+            on_ground = false;
+            let (a, b) = axis_at(position + Vec3::Z * s.collision_offset, s.radius, height);
+            let query = Aabb::of_points([a, b]).grow(radius + 1.0);
             let mut moved = false;
             for (si, pi) in self.candidates(&query) {
                 if !self.statics[si].layer.blocks_characters() {
@@ -305,7 +353,7 @@ impl SimpleWorld {
                 let (on_prim, on_seg) = closest_prim_segment(&self.statics[si].prims[pi], a, b);
                 let d = on_seg - on_prim;
                 let dist = d.length();
-                if dist >= s.radius {
+                if dist > radius + 1e-3 {
                     continue;
                 }
                 let normal = if dist > 1e-4 {
@@ -313,15 +361,42 @@ impl SimpleWorld {
                 } else {
                     prim_normal_toward(&self.statics[si].prims[pi], on_seg)
                 };
-                let push = s.radius - dist;
-                position = position + normal * push;
-                let vn = velocity.dot(normal);
+                let push = (radius - dist).max(0.0);
+                let resting_on_slope = normal.z >= s.min_slope_slide_cos
+                    && normal.z < s.max_slope_cos
+                    && velocity.z <= 0.0
+                    && velocity.x.hypot(velocity.y) < 1e-3;
+                let flat_normal = Vec3::new(normal.x, normal.y, 0.0);
+                let blocked_climb = normal.z > 0.0
+                    && normal.z < s.max_slope_cos
+                    && velocity.z <= 0.0
+                    && velocity.dot(flat_normal) < 0.0;
+                blocked_walk |= normal.z < s.max_slope_cos && velocity.dot(flat_normal) < 0.0;
+                let slide_normal = if blocked_climb {
+                    flat_normal.normalized()
+                } else {
+                    normal
+                };
+                let vn = velocity.dot(slide_normal);
                 if vn < 0.0 {
-                    velocity = velocity - normal * vn;
+                    velocity = velocity - slide_normal * vn;
                 }
                 if normal.z >= s.max_slope_cos {
                     on_ground = true;
                 }
+                if resting_on_slope {
+                    velocity = Vec3::ZERO;
+                }
+                if push <= 1e-4 {
+                    continue;
+                }
+                position = if resting_on_slope {
+                    position + Vec3::Z * (push / normal.z)
+                } else if blocked_climb {
+                    position + slide_normal * (push / flat_normal.length())
+                } else {
+                    position + normal * push
+                };
                 moved = true;
                 // The axis moved, so re-query before touching more.
                 break;
@@ -330,15 +405,16 @@ impl SimpleWorld {
                 break;
             }
         }
-        (position, velocity, on_ground)
+        (position, velocity, on_ground, blocked_walk)
     }
 
     /// Whether a capsule of this height at this position is inside anything
     /// that blocks characters. This is what refuses a stand up under a
     /// ceiling the full capsule does not fit beneath.
-    fn overlaps(&self, position: Vec3, radius: f32, height: f32) -> bool {
+    fn overlaps(&self, position: Vec3, s: &CharacterSettings, height: f32) -> bool {
         soe_trace::count(soe_trace::Operation::ShapeCasts, 1);
-        let (a, b) = axis_at(position, radius, height);
+        let radius = s.radius + s.collision_offset;
+        let (a, b) = axis_at(position + Vec3::Z * s.collision_offset, s.radius, height);
         let query = Aabb::of_points([a, b]).grow(radius + 1.0);
         for (si, pi) in self.candidates(&query) {
             if !self.statics[si].layer.blocks_characters() {
@@ -364,36 +440,68 @@ impl SimpleWorld {
         height: f32,
     ) -> Option<Vec3> {
         let lifted = start + Vec3::Z * s.step_height;
-        if self.overlaps(lifted, s.radius, height) {
+        let lifts = (s.step_height / (s.radius * 0.25)).ceil().clamp(1.0, 256.0) as u32;
+        for step in 1..=lifts {
+            let (_, velocity, _, _) = self.resolve(
+                start + Vec3::Z * (s.step_height * step as f32 / lifts as f32),
+                Vec3::Z,
+                s,
+                height,
+            );
+            if velocity.z < 1.0 - 1e-3 {
+                return None;
+            }
+        }
+        if self.overlaps(lifted, s, height) {
             return None;
         }
-        let (moved, _, _) = self.resolve(lifted + wanted, Vec3::ZERO, s, height);
+        let (moved, _, _, _) = self.resolve(lifted + wanted, Vec3::ZERO, s, height);
         if flat_distance(moved, lifted) < 1e-3 {
             return None;
         }
         // Settle no further than the lift, so this never gains height it did
         // not actually step onto.
-        self.snap_down(moved, s, height)
+        let landing = self.snap_down(moved, s, height, s.step_height)?;
+        let landing_width = s.step_min_width.max(s.radius);
+        let ahead = moved + wanted.normalized() * landing_width;
+        if self.overlaps(ahead, s, height) {
+            return None;
+        }
+        let supported = self.snap_down(ahead, s, height, s.step_height)?;
+        if supported.z + 1e-3 < landing.z {
+            return None;
+        }
+        let landing = Vec3::new(moved.x, moved.y, supported.z.max(landing.z));
+        if landing.z > start.z + s.step_height + 1e-3 || self.overlaps(landing, s, height) {
+            return None;
+        }
+        Some(landing)
     }
 
     /// Follows a floor down by at most one step height, so walking off a
     /// riser reads as a step rather than as a fall.
-    fn snap_down(&self, from: Vec3, s: &CharacterSettings, height: f32) -> Option<Vec3> {
+    fn snap_down(
+        &self,
+        from: Vec3,
+        s: &CharacterSettings,
+        height: f32,
+        max_distance: f32,
+    ) -> Option<Vec3> {
         // OpenMW's Stepper traces down to the first supporting contact. This
         // endpoint solver approximates that trace in radius-bounded increments.
         // Limit the distance as well as the work for unusually small capsules,
         // so hitting the work cap cannot turn this back into one large drop.
-        if s.step_height <= 0.0 || s.radius <= 0.0 {
+        if max_distance <= 0.0 || s.radius <= 0.0 {
             return None;
         }
         let increment = s.radius * 0.25;
-        let distance = s.step_height.min(increment * 256.0);
+        let distance = max_distance.min(increment * 256.0);
         let steps = (distance / increment).ceil().clamp(1.0, 256.0) as usize;
         let drop = distance / steps as f32;
         let mut pos = from;
         for _ in 0..steps {
             let target = pos - Vec3::Z * drop;
-            let (landed, _, ground) = self.resolve(target, -Vec3::Z, s, height);
+            let (landed, _, ground, _) = self.resolve(target, -Vec3::Z, s, height);
             if ground {
                 let descent = from.z - landed.z;
                 return (descent <= distance + 1e-3 && landed.z <= from.z + 1e-3).then_some(landed);
@@ -417,31 +525,45 @@ impl SimpleWorld {
         if self.dirty {
             self.rebuild();
         }
+        let Some(ch) = self.characters.get(&id) else {
+            return;
+        };
+        // CONTEXT: Rapier sweeps its displacement. The endpoint resolver needs
+        // bounded substeps for horizontal walls and vertical contacts alike.
+        let steps = (dt / (1.0 / 60.0))
+            .max(ch.desired_velocity.length() * dt / (ch.settings.radius * 0.5))
+            .ceil()
+            .clamp(1.0, 4096.0) as u32;
+        for _ in 0..steps {
+            self.step_character_substep(id, dt / steps as f32);
+        }
+    }
+
+    fn step_character_substep(&mut self, id: BodyId, dt: f32) {
         let Some(mut ch) = self.characters.get(&id).copied() else {
             return;
         };
         let s = ch.settings;
         let height = ch.height();
-        let was_ground = ch.on_ground;
-
-        ch.velocity.x = ch.desired_velocity.x;
-        ch.velocity.y = ch.desired_velocity.y;
-        ch.velocity.z -= s.gravity * dt;
+        let grounded = ch.on_ground;
+        crate::controller::integrate_walk(&mut ch, dt, grounded);
+        let was_ground = ch.on_ground && !ch.jump_active;
         // Terminal velocity, and a second cap from the radius over the step so
         // a long frame cannot tunnel a floor thinner than the capsule.
         let max_drop = s.terminal_velocity.min(s.radius / dt.max(1e-6));
         if ch.velocity.z < -max_drop {
             ch.velocity.z = -max_drop;
+            ch.vertical_velocity = -max_drop;
         }
 
         let start = ch.position;
         let wanted = Vec3::new(ch.velocity.x, ch.velocity.y, 0.0) * dt;
-        let (mut pos, mut vel, mut ground) =
+        let (mut pos, mut vel, mut ground, blocked_walk) =
             self.resolve(start + ch.velocity * dt, ch.velocity, &s, height);
 
         // Retry a blocked walk from one step height up. Only from the ground,
         // so this cannot be used to climb in mid air.
-        if was_ground && wanted.length() > 1e-4 {
+        if was_ground && blocked_walk && wanted.length() > 1e-4 {
             let progressed = flat_distance(pos, start);
             if progressed + 1e-3 < wanted.length() {
                 if let Some(stepped) = self.step_up(start, wanted, &s, height) {
@@ -456,14 +578,13 @@ impl SimpleWorld {
 
         // CONTEXT: Follow a riser down without reversing the requested walk
         // to reach a lower surface beyond a rounded obstacle.
-        if was_ground && !ground && vel.z <= 0.0 {
+        if was_ground && !ground && ch.velocity.z <= 0.0 {
             // CONTEXT: Settling a raised stair trial needs the full step height,
             // but walking off an edge must not drop that far in one tick.
             if let Some(snapped) = self
-                .snap_down(pos, &s, height)
-                .filter(|landed| start.z - landed.z <= s.radius * 0.25)
+                .snap_down(pos, &s, height, s.ground_snap)
                 .filter(|snapped| (*snapped - start).dot(wanted) >= 0.0)
-                .filter(|snapped| start.z - snapped.z <= s.radius * 0.25)
+                .filter(|snapped| start.z - snapped.z <= s.ground_snap)
             {
                 pos = snapped;
                 vel.z = 0.0;
@@ -476,6 +597,9 @@ impl SimpleWorld {
         ch.on_ground = ground;
         if ch.on_ground && ch.velocity.z < 0.0 {
             ch.velocity.z = 0.0;
+        }
+        if !ch.jump_active {
+            ch.vertical_velocity = ch.velocity.z;
         }
         self.characters.insert(id, ch);
     }
@@ -534,9 +658,13 @@ impl PhysicsWorld for SimpleWorld {
                 settings,
                 position,
                 velocity: Vec3::ZERO,
+                horizontal_velocity: Vec3::ZERO,
+                vertical_velocity: 0.0,
                 on_ground: false,
                 desired_velocity: Vec3::ZERO,
                 crouching: false,
+                jump_active: false,
+                jump_requested: false,
             },
         );
         id
@@ -556,11 +684,10 @@ impl PhysicsWorld for SimpleWorld {
         let Some(c) = self.characters.get_mut(&id) else {
             return false;
         };
-        if !c.on_ground {
+        if !c.on_ground || c.jump_requested || (c.jump_active && c.vertical_velocity > 0.0) {
             return false;
         }
-        c.velocity.z = c.settings.jump_speed();
-        c.on_ground = false;
+        c.jump_requested = true;
         true
     }
 
@@ -573,7 +700,7 @@ impl PhysicsWorld for SimpleWorld {
         }
         // Standing up needs room for the taller capsule, and the ceiling is
         // the only thing that can refuse it.
-        if !crouching && self.overlaps(ch.position, ch.settings.radius, ch.settings.height) {
+        if !crouching && self.overlaps(ch.position, &ch.settings, ch.settings.height) {
             return true;
         }
         if let Some(c) = self.characters.get_mut(&id) {
@@ -1020,7 +1147,12 @@ mod tests {
         for height in [settings.height, settings.crouch_height] {
             for lift in [0.1, 1.0, 4.0, 12.0, 24.0, 35.0] {
                 let landed = world
-                    .snap_down(Vec3::new(0.0, 0.0, lift), &settings, height)
+                    .snap_down(
+                        Vec3::new(0.0, 0.0, lift),
+                        &settings,
+                        height,
+                        settings.step_height,
+                    )
                     .expect("floor within snap distance");
                 assert!(landed.z.abs() < 0.01, "snap from {lift} at capsule height {height} passed the first floor: {landed:?}");
             }
