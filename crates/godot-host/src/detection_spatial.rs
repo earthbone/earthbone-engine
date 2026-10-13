@@ -181,8 +181,9 @@ impl DetectionSpaces {
         }
         let mut levels = BTreeMap::new();
         let mut out = Vec::new();
+        let mut targets = Vec::with_capacity(actors.len());
         for observer in actors {
-            let mut targets: BTreeMap<GlobalFormId, TargetSample<'_>> = BTreeMap::new();
+            targets.clear();
             for key in neighbors(bucket(observer.position, range)) {
                 if let Some(indices) = actor_grid.get(&(self.space(observer.cell), key)) {
                     for &i in indices {
@@ -192,12 +193,27 @@ impl DetectionSpaces {
                         }
                         let distance = length(sub(observer.position, target.position));
                         if distance <= range {
-                            let sample = targets.entry(target.actor).or_default();
-                            sample.nearby = Some(target);
-                            sample.nearby_distance = distance;
+                            targets.push((
+                                target.actor,
+                                TargetSample {
+                                    nearby: Some(target),
+                                    nearby_distance: distance,
+                                    sound: None,
+                                },
+                            ));
                         }
                     }
                 }
+            }
+            targets.sort_by_key(|(id, _)| *id);
+            targets.dedup_by(|current, previous| {
+                if current.0 != previous.0 {
+                    return false;
+                }
+                std::mem::swap(&mut current.1, &mut previous.1);
+                true
+            });
+            for key in neighbors(bucket(observer.position, range)) {
                 if let Some(indices) = event_grid.get(&(self.space(observer.cell), key)) {
                     for &i in indices {
                         let event = &events[i];
@@ -206,7 +222,15 @@ impl DetectionSpaces {
                         {
                             continue;
                         }
-                        let sound = &mut targets.entry(event.owner).or_default().sound;
+                        let index = match targets.binary_search_by_key(&event.owner, |(id, _)| *id)
+                        {
+                            Ok(index) => index,
+                            Err(index) => {
+                                targets.insert(index, (event.owner, TargetSample::default()));
+                                index
+                            }
+                        };
+                        let sound = &mut targets[index].1.sound;
                         if sound.is_none_or(|(previous_index, previous)| {
                             event.sound_level > previous.sound_level
                                 || (event.sound_level == previous.sound_level && i > previous_index)
@@ -216,7 +240,7 @@ impl DetectionSpaces {
                     }
                 }
             }
-            for (id, sample) in targets {
+            for &(id, ref sample) in &targets {
                 let nearby = sample.nearby;
                 let sound = sample.sound.map(|(_, event)| event);
                 let source = sound.map(|event| ContactActor {

@@ -467,7 +467,10 @@ impl PlayerNode {
         let lights = crate::detection::LightSamples::new(&world, &cells);
         self.detection_stage_usec[1] = started.elapsed().as_micros() as i64;
         let started = std::time::Instant::now();
-        let Ok(mut rays) = ContactRays::new(space, &owners) else {
+        let queries = self
+            .detection_queries
+            .get_or_insert_with(crate::godot_combat::DetectionQueries::new);
+        let Ok(mut rays) = ContactRays::with_query(space, &owners, queries.ray.clone()) else {
             return -1;
         };
         let capsules = self.actor_bodies.sight_capsules();
@@ -494,13 +497,14 @@ impl PlayerNode {
         for &body in self.actor_bodies.owners().keys() {
             trusted.push(body);
         }
-        let mut symmetry = rays.sight_symmetry(&symmetric_capsules, &trusted);
+        let mut symmetry = rays.sight_symmetry(&symmetric_capsules, &trusted, queries);
         let verify_occlusion = std::env::var_os("SOE_VERIFY_DETECTION_OCCLUSION").is_some();
         let mut verified = 0;
         let mut reciprocal_verified = 0;
         let mut mismatches = 0;
         let setup_usec = started.elapsed().as_micros();
         let mut independent = 0;
+        let mut clear = 0;
         let observations = spaces.observations(
             &actors,
             &events,
@@ -524,17 +528,25 @@ impl PlayerNode {
                 let reuse = symmetry.lookup(observer.actor, target.actor, from, to);
                 let cached = reuse.cached();
                 let shortcut = cached.or_else(|| {
-                    (!self
+                    if self
                         .melee_bodies
                         .values()
                         .any(|&actor| actor == target.actor)
-                        && occlusion.blocked(
-                            observer.actor,
-                            target.actor,
-                            skyrim(from),
-                            skyrim(to),
-                        ))
-                    .then_some(false)
+                    {
+                        return None;
+                    }
+                    let start = skyrim(from);
+                    let end = skyrim(to);
+                    if symmetry.scenery_clear(from, to)
+                        && occlusion.clear(observer.actor, target.actor, start, end)
+                    {
+                        clear += 1;
+                        Some(true)
+                    } else {
+                        occlusion
+                            .blocked(observer.actor, target.actor, start, end)
+                            .then_some(false)
+                    }
                 });
                 let visible = shortcut.unwrap_or_else(|| {
                     independent += 1;
@@ -554,7 +566,10 @@ impl PlayerNode {
         );
         self.detection_stage_usec[2] = started.elapsed().as_micros() as i64;
         if verify_occlusion {
-            godot_print!("PRF31 sight setup_us={setup_usec} independent={independent}");
+            let regions = symmetry.clear_region_count();
+            godot_print!(
+                "PRF31 sight setup_us={setup_usec} independent={independent} clear={clear} regions={regions}"
+            );
             godot_print!("PRF31 occlusion checked={verified} mismatches={mismatches}");
             godot_print!("PRF31 reciprocal checked={reciprocal_verified}");
             if mismatches != 0 {

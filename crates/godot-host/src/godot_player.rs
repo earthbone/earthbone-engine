@@ -183,6 +183,7 @@ pub struct PlayerNode {
     /// One server body per loaded actor, rebuilt from the shared World on
     /// each physics tick. No scene node is allocated per reference.
     actor_bodies: crate::godot_physics::ActorBodies,
+    detection_queries: Option<crate::godot_combat::DetectionQueries>,
     /// The form the last HitFrame contact query struck, for diagnostics.
     last_melee_target: Option<GlobalFormId>,
     last_melee_obstruction: Option<Rid>,
@@ -334,6 +335,7 @@ impl INode3D for PlayerNode {
             melee_bodies: HashMap::new(),
             aimed_projectile_contacts: crate::combat::AimedProjectileContacts::default(),
             actor_bodies: crate::godot_physics::ActorBodies::default(),
+            detection_queries: None,
             last_melee_target: None,
             last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
@@ -699,6 +701,9 @@ impl INode3D for PlayerNode {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.query_collision.free();
         self.actor_bodies.free();
+        if let Some(queries) = self.detection_queries.take() {
+            queries.free();
+        }
 
         self.close_menu();
         self.quick_loot.close();
