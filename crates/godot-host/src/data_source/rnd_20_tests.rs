@@ -222,7 +222,14 @@ fn rnd_20_hidden_subtrees_and_shaderless_helpers_preserve_visible_siblings() {
             data: Vec::new(),
         },
     ];
-    assert_eq!(nonvisual_shape_indices(&blocks), HashSet::from([1, 3, 4]));
+    assert_eq!(
+        nonvisual_shape_indices(&blocks, false),
+        HashSet::from([1, 3, 4])
+    );
+    assert_eq!(
+        nonvisual_shape_indices(&blocks, true),
+        HashSet::from([1, 3])
+    );
 }
 
 #[test]
@@ -260,7 +267,7 @@ fn rnd_20_hidden_damage_stages_select_only_the_intact_range() {
     writer.roots = vec![root];
     let file = placed_model(&writer.finish()).unwrap();
     assert_eq!(
-        nonvisual_shape_indices(&file.blocks),
+        nonvisual_shape_indices(&file.blocks, false),
         HashSet::from([shapes[1]])
     );
     assert_eq!(file.meshes().unwrap().len(), 2);

@@ -693,7 +693,7 @@ impl DataSource {
         )?;
         let LoadedStatic::Surfaces {
             built, animations, ..
-        } = self.load_object_surfaces(model, &reference, false, SurfacePlayback::Live)?;
+        } = self.load_object_surfaces(model, &reference, false, SurfacePlayback::Live, None)?;
         Ok(built
             .into_iter()
             .zip(animations)
@@ -1142,7 +1142,8 @@ impl DataSource {
             .winner_ref(reference)
             .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
         let refr = Refr::from_record(self.order.record(winner))?;
-        let loaded = self.load_object_surfaces(model, &refr, false, playback)?;
+        let base = self.order.resolve(winner.file, refr.base);
+        let loaded = self.load_object_surfaces(model, &refr, false, playback, Some(base))?;
         let LoadedStatic::Surfaces {
             built,
             marker_shapes_filtered,
@@ -1265,7 +1266,7 @@ impl DataSource {
                     "base:{} mesh:{model}",
                     base.map_or_else(|| "unknown".to_owned(), |base| base.to_string())
                 ));
-                self.load_object_surfaces(model, refr, instancing, SurfacePlayback::Live)
+                self.load_object_surfaces(model, refr, instancing, SurfacePlayback::Live, base)
             })
     }
 
@@ -1279,7 +1280,7 @@ impl DataSource {
     /// vertex data, unchanged.
     #[cfg(any(feature = "godot", test))]
     fn load_static_surfaces(&self, model: &str, refr: &Refr, instancing: bool) -> BuiltStatic {
-        self.load_object_surfaces(model, refr, instancing, SurfacePlayback::Frozen)
+        self.load_object_surfaces(model, refr, instancing, SurfacePlayback::Frozen, None)
     }
 
     fn load_object_surfaces(
@@ -1288,6 +1289,7 @@ impl DataSource {
         refr: &Refr,
         instancing: bool,
         playback: SurfacePlayback,
+        base: Option<GlobalFormId>,
     ) -> BuiltStatic {
         let _span = soe_trace::Span::new("host.static", "host");
         let path = format!("meshes/{model}");
@@ -1303,7 +1305,8 @@ impl DataSource {
         };
         let _build = soe_trace::LoadScope::new("mesh_build", soe_trace::LoadCause::CpuBuild, path);
         let marker_blocks = editor_marker_shape_blocks(&file);
-        let nonvisual_blocks = nonvisual_shape_indices(&file.blocks);
+        let water = base.and_then(|base| self.placed_water_material(base));
+        let nonvisual_blocks = nonvisual_shape_indices(&file.blocks, water.is_some());
         let animation = Arc::new(soe_nif::object_animation::ObjectAnimation::from_file(
             &file,
         )?);
@@ -1333,6 +1336,11 @@ impl DataSource {
                     refr_transform.then(&shape.transform)
                 };
                 let mut data = mesh_data_from(shape, &combined);
+                if is_water_shape(&file.blocks, shape.block) {
+                    data.material.water = water.clone();
+                    data.material.alpha = AlphaMode::Blend;
+                    data.material.double_sided = true;
+                }
                 apply_refraction_material(&file, shape, &mut data.material);
                 if data.material.refraction.is_some() {
                     data.colors = Some(if shape.colors.is_empty() {
@@ -1385,6 +1393,18 @@ impl DataSource {
             marker_only,
             instance_transform,
         })
+    }
+
+    /// xEdit's ACTI WNAM selects WATR in the winning base record's namespace.
+    fn placed_water_material(&self, base: GlobalFormId) -> Option<WaterMaterial> {
+        let owner = self.order.winner_ref(base)?;
+        let record = self.order.record(owner);
+        if record.tag != Tag::new(b"ACTI") {
+            return None;
+        }
+        let raw = u32::from_le_bytes(record.find(Tag::new(b"WNAM"))?.try_into().ok()?);
+        let water = self.order.winner(self.order.resolve(owner.file, raw))?;
+        (water.tag == Tag::new(b"WATR") && !water.is_deleted()).then(|| water_material_from(water))
     }
 }
 
@@ -1541,16 +1561,17 @@ fn editor_marker_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usi
 }
 
 /// OpenMW's NiAVObject::Flag_Hidden excludes bounds and trigger meshes.
-/// Shaderless Skyrim shapes are emitter/helper geometry. NIF water shaders
-/// have no host material binding, so they must not become opaque white meshes.
-fn nonvisual_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usize> {
+/// Shaderless Skyrim shapes are emitter/helper geometry. NIF water shapes
+/// render through the base's WATR material only when that binding resolves.
+fn nonvisual_shape_indices(blocks: &[soe_nif::blocks::Block], water_bound: bool) -> HashSet<usize> {
     use soe_nif::blocks::Block;
     let unsupported = |shader: soe_nif::BlockRef| {
         shader.get().is_none()
-            || matches!(
-                shader.get().and_then(|index| blocks.get(index)),
-                Some(Block::Unknown { type_name, .. }) if type_name == "BSWaterShaderProperty"
-            )
+            || (!water_bound
+                && matches!(
+                    shader.get().and_then(|index| blocks.get(index)),
+                    Some(Block::Unknown { type_name, .. }) if type_name == "BSWaterShaderProperty"
+                ))
     };
     let mut hidden = HashSet::new();
     for (index, block) in blocks.iter().enumerate() {
@@ -1565,6 +1586,20 @@ fn nonvisual_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usize> 
         }
     }
     hidden
+}
+
+/// nifxml and nifly identify Skyrim water with BSWaterShaderProperty.
+fn is_water_shape(blocks: &[soe_nif::blocks::Block], index: usize) -> bool {
+    use soe_nif::blocks::Block;
+    let shader = match blocks.get(index) {
+        Some(Block::TriShape(shape)) => shape.shader,
+        Some(Block::BsTriShape(shape)) => shape.shader,
+        _ => return false,
+    };
+    matches!(
+        shader.get().and_then(|index| blocks.get(index)),
+        Some(Block::Unknown { type_name, .. }) if type_name == "BSWaterShaderProperty"
+    )
 }
 
 fn mark_descendant_shapes(

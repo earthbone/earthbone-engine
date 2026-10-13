@@ -52,18 +52,33 @@ func _run() -> void:
 	var children := streamer.get_child_count()
 	var audits := {}
 	var totals := {"TREE": 0, "FLOR": 0}
+	var water_plane_count := 0
+	var door_nodes := {}
 	for cell in manifest:
 		if cell.cell == "WhiterunBanneredMare":
 			continue
 		_check(streamer.call("stream_exterior", cell.cell, 0) > 0, "stream " + cell.cell)
 		var stats: Dictionary = streamer.call("last_stats")
+		water_plane_count += int(stats.get("water_planes", 0))
 		var counts: Dictionary = stats.get("reference_counts", {})
 		audits[cell.cell] = counts
 		for kind in ["TREE", "FLOR"]:
 			totals[kind] += int(counts.get(kind, {}).get("built", 0))
 		for kind in cell.counts:
 			_check(counts.get(kind, {}).get("built", -1) == cell.counts[kind].built, "host built count matches CPU " + cell.cell + " " + kind)
-	_check(streamer.get_child_count() == children, "placed models add no scene nodes")
+		for door in cell.doors:
+			var state: Dictionary = streamer.call("door_state", int(door.file), int(door.object))
+			_check(state.has("node"), "placed door has an HST-21 resident control")
+			_check(int(state.get("surfaces", 0)) > 0, "resident door has rendered surfaces")
+			if state.has("node"):
+				door_nodes[int(state.node)] = true
+	_check(int(streamer.call("door_count")) == door_nodes.size(), "exactly the census doors have resident controls")
+	_check(streamer.get_child_count() == children + door_nodes.size(), "ordinary placed models add no scene nodes")
+	for index in range(children, streamer.get_child_count()):
+		var child := streamer.get_child(index)
+		_check(child.get_class() == "Node3D" and door_nodes.has(child.get_instance_id()), "each added child is a census door control")
+	var water_planes: Array = streamer.call("water_planes")
+	_check(water_planes.size() == water_plane_count, "generated water plane diagnostics exclude placed water meshes")
 	var albedo: Dictionary = streamer.call("material_albedo_stats")
 	_check(int(albedo.get("checker", -1)) == 0, "audited plains have no checker albedo bindings")
 	for kind in ["TREE", "FLOR"]:
@@ -101,6 +116,8 @@ func _run() -> void:
 			await _capture(camera, selected[kind], directory.path_join(kind.to_lower() + ".png"))
 	print("rnd_32 checked_placements=", checked, " albedo=", albedo, " counts=", audits)
 	streamer.call("clear")
+	_check(streamer.get_child_count() == children, "cell clear releases every door control")
+	_check(int(streamer.call("door_count")) == 0, "cell clear leaves no resident doors")
 	streamer.free()
 	print("RESULT: ", "PASS" if failures == 0 else "FAIL", " rnd_32_windowed_plains_show_placed_trees_and_flora")
 	quit(0 if failures == 0 else 1)

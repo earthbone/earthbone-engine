@@ -91,7 +91,7 @@ fn installed_winning_model_signatures_keep_editor_markers_out_of_draws() {
         };
         let meshes = file.meshes().expect("parsed NIF meshes");
         let marker_blocks = editor_marker_shape_blocks(&file);
-        let nonvisual_blocks = nonvisual_shape_indices(&file.blocks);
+        let nonvisual_blocks = nonvisual_shape_indices(&file.blocks, false);
         let marker_shapes = meshes
             .iter()
             .filter(|mesh| marker_blocks.contains(&mesh.block))
