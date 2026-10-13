@@ -17,6 +17,7 @@ const OWNERS := {
 
 var npc_checks := NpcChecks.new()
 var movement_reported := false
+var movement_window_logged := false
 var mode := "gate"
 var duration_s := 180.0
 var route_start := 0
@@ -105,6 +106,7 @@ func _start() -> void:
 	previous_frame = route_start
 	next_sample = route_start + 1_000_000
 	_heartbeat()
+	print("PLAY_PATH_NPC_INITIAL ", JSON.stringify({"packages": player.call("npc_package_states"), "planning": player.call("ai_planning_details")}))
 	if not output_directory.is_empty():
 		var image := await _capture()
 		_check("capture", image.save_png(output_directory.path_join("startup.png")) == OK, {"path": "startup.png"})
@@ -126,16 +128,21 @@ func _process(_delta: float) -> bool:
 			if over_budget <= 3:
 				_check("frame.max_ms", false, {"ms": frame_ms, "frame": measured_frames, "limit_ms": Checks.FRAME_MS})
 	npc_checks.sample(player, Time.get_ticks_msec())
+	if not movement_window_logged and Time.get_ticks_msec() - npc_checks.started_msec >= NpcChecks.WINDOW_MSEC:
+		movement_window_logged = true
+		print("PLAY_PATH_NPC_WINDOW ", JSON.stringify({"units": npc_checks.max_units, "walk_frames": npc_checks.walk_frames, "packages": player.call("npc_package_states"), "planning": player.call("ai_planning_details")}))
 	if not movement_reported and Time.get_ticks_msec() - npc_checks.started_msec >= NpcChecks.WINDOW_MSEC and (npc_checks.max_units >= NpcChecks.MOVE_UNITS or stop_name in ["market", "gate", "return", "grass"]):
 		movement_reported = true
 		_check("npc.moves", npc_checks.max_units >= NpcChecks.MOVE_UNITS and npc_checks.walk_frames > 0, {"units": npc_checks.max_units, "window_s": 30, "walk_frames": npc_checks.walk_frames, "packages": player.call("npc_package_states")})
 	_drain_audio()
 	_heartbeat()
+	if _elapsed() >= duration_s:
+		if not sampling:
+			_finish()
+		return false
 	if now >= next_sample and not sampling and not player.call("is_menu_open"):
 		next_sample = now + 1_000_000
 		_sample_view()
-	if _elapsed() >= duration_s and not sampling:
-		_finish()
 	return false
 
 func _disconnect_exit_report() -> void:
@@ -370,6 +377,7 @@ func _route() -> void:
 	_check("route.exit", crossed and player.call("detection_worldspace") == "WhiterunWorld", {"crossed": crossed, "world": str(player.call("detection_worldspace")), "cell": str(player.call("gameplay_cell"))})
 	if crossed and not movement_reported:
 		npc_checks.restart_movement_window(Time.get_ticks_msec())
+		movement_window_logged = false
 	await _stop("exit")
 	if not crossed:
 		_finish()
@@ -478,6 +486,7 @@ func _sample_view() -> void:
 	var camera := root.get_camera_3d()
 	if camera == null:
 		_check("camera", false, {"camera": "missing"})
+		next_sample = Time.get_ticks_usec() + 1_000_000
 		sampling = false
 		return
 	_npc_grounded()
@@ -485,6 +494,7 @@ func _sample_view() -> void:
 	await _surface_checks(camera)
 	_check("frame.max_ms", over_budget == 0, {"worst_ms": worst_ms, "over_50_ms": over_budget, "frames": measured_frames, "warmup_s": Checks.WARMUP_S})
 	_check("watchdog.max_ms", stalls_ms <= Checks.STALL_MS, {"worst_ms": stalls_ms, "limit_ms": Checks.STALL_MS})
+	next_sample = Time.get_ticks_usec() + 1_000_000
 	sampling = false
 
 func _npc_grounded() -> void:

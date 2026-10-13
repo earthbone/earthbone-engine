@@ -709,6 +709,42 @@ fn tst_19_pixel_and_pose_predicates_reject_blank_frozen_and_opaque_controls() {
 }
 
 #[test]
+fn tst_19_slow_observations_allow_walking_and_duration_completion() {
+    let Some(binary) = std::env::var_os("SOE_GODOT_BIN") else {
+        return;
+    };
+    let directory = tempfile::tempdir_in(workspace()).unwrap();
+    let stdout_path = directory.path().join("scheduler.log");
+    let stderr_path = directory.path().join("scheduler-errors.log");
+    let mut command = Command::new(binary);
+    command
+        .args(["--headless", "--path"])
+        .arg(workspace().join("godot"))
+        .args(["--script", "tst_19_scheduler_test.gd"])
+        .env_remove("SKYRIM_DATA")
+        .env("SOE_GODOT_TIMEOUT", "15")
+        .stdout(File::create(&stdout_path).unwrap())
+        .stderr(File::create(&stderr_path).unwrap());
+    let mut child = spawn_owned(&mut command);
+    let (status, stalled) = watch(
+        &mut child.0,
+        &directory.path().join("heartbeat.json"),
+        &stdout_path,
+        Duration::from_secs(2),
+        Duration::from_secs(15),
+    );
+    let stdout = fs::read_to_string(stdout_path).unwrap();
+    let stderr = fs::read_to_string(stderr_path).unwrap();
+    assert!(
+        !stalled
+            && status.success()
+            && stdout.contains("TST19_SCHEDULER PASS")
+            && !stderr.contains("SCRIPT ERROR"),
+        "{stdout}\n{stderr}"
+    );
+}
+
+#[test]
 fn tst_19_installed_whiterun_play_path_checks_every_stop_and_continuous_observation() {
     let Some(data) = std::env::var_os("SKYRIM_DATA") else {
         return;
