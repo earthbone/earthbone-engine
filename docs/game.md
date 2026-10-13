@@ -857,6 +857,35 @@ DLG-09's phase advancement API. The game tick does not call either API.
 The first route also bypasses the tower progression. The six PLY-03 successor
 comparisons retain their complete stage histories and remain required.
 
+The headless route runner accepts `play-scene <scene> <phase> <max-ticks>`.
+It presents the active scene's dialogue through DLG-18, ticks package and timer
+actions through DLG-19, and advances through DLG-09 after required actions and
+phase conditions pass. Each presented response appears in the route trace.
+Playback rejects an inactive scene, a missing speaker and a phase outside the
+record, and stops at its authored tick bound. It never sets quest stages or
+marks dialogue actions complete directly. The second Helgen route plays the
+saved keep scene from phase 5 to phase 7, whose installed fragment sets stage
+174. Its separate second-pair acceptance test retains the complete quest and
+inventory comparison.
+
+SAV-30 restores a scene's phase without action execution state. DLG-19 now starts unfinished
+package and timer actions spanning that phase, including actions that began
+earlier, and leaves completed timers complete without restarting their
+deadlines. Native saves still retain existing started actions and deadlines.
+The phase ranges and CTDA placement follow local UESP `SCEN.wikitext` and
+xEdit `TES5Edit/Core/wbDefinitionsTES5.pas`, `wbRecord(SCEN)`. These changes
+use existing scene state and add no saved section or dependency.
+
+The 2026-10-13 debug check passes 4,265 integration tests and 239 library
+tests, with four existing integration ignores. Formatting and game-only
+all-target clippy pass. The installed keep scene has no phase conditions
+between phases 5 and 7. Its required actions are Hadvar's phase-5 line,
+Ralof's phase-6 line and two packages starting in phase 4. The installed
+replay check stayed queued behind the shared installed-test lock, so the
+second pair is not verified here. The first pair still requires the tower
+progression that its route bypasses. All six full checkpoint assertions
+remain in place.
+
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
 `Quest_Script.wikitext` defines highest completed stage queries. The installed

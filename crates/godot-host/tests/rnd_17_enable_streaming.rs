@@ -170,6 +170,10 @@ fn rnd_17_whiterun_barricade_has_no_surface_or_collision_until_parent_enabled() 
         );
     }
     if let Some(godot) = std::env::var_os("SOE_GODOT_BIN") {
+        // CONTEXT: The live scene loads its own runtime and assets.
+        drop(cells);
+        drop(world);
+        drop(source);
         let project = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../godot");
         let output = std::process::Command::new(godot)
             .arg("--path")
@@ -187,7 +191,8 @@ fn rnd_17_whiterun_barricade_has_no_surface_or_collision_until_parent_enabled() 
         assert!(
             output.status.success()
                 && stdout.contains("RESULT: PASS rnd_17_whiterun_runtime_enable_without_reload"),
-            "RND-17 windowed host check failed\n{stdout}\n{stderr}"
+            "RND-17 windowed host check failed ({})\n{stdout}\n{stderr}",
+            output.status
         );
         println!("{stdout}");
     }
