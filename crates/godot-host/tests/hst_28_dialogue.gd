@@ -57,6 +57,12 @@ func _run_hst_28() -> void:
         quit(1)
         return
     var actor := instance_from_id(int(hulda.node_id)) as Node
+    var bank := player.get_node("SoundBank")
+    _check(bank.call("play_music_track", OS.get_environment("SOE_HST_28_MUSIC_PATH"), 0.0, 0.5, false), "audible installed music queued for category check")
+    deadline = Time.get_ticks_msec() + 10_000
+    while int(bank.call("music_playing_count")) == 0 and Time.get_ticks_msec() < deadline:
+        await process_frame
+    _check(int(bank.call("music_playing_count")) > 0, "installed music starts before dialogue")
     var acquired := false
     for angle in range(12):
         var theta := angle * TAU / 12.0
@@ -78,12 +84,6 @@ func _run_hst_28() -> void:
     if not acquired:
         quit(1)
         return
-    var bank := player.get_node("SoundBank")
-    _check(bank.call("play_music_track", OS.get_environment("SOE_HST_28_MUSIC_PATH"), 0.0, 0.5, false), "audible installed music queued for category check")
-    deadline = Time.get_ticks_msec() + 10_000
-    while int(bank.call("music_playing_count")) == 0 and Time.get_ticks_msec() < deadline:
-        await process_frame
-    _check(int(bank.call("music_playing_count")) > 0, "installed music starts before dialogue")
     await process_frame
     await process_frame
     var prompt := player.get_node("HudLayer/Hud/ActivationPrompt") as Label
@@ -91,6 +91,7 @@ func _run_hst_28() -> void:
     _check(prompt.visible and prompt.text == "Talk\nHulda", "crosshair shows Talk and Hulda's name")
     _key(true)
     player.call("advance", 1.0 / 60.0)
+    print("hst_28 after E press: ", player.call("dialogue_state"))
     await physics_frame
     _key(false)
     player.call("advance", 1.0 / 60.0)
