@@ -23,8 +23,108 @@ completion. The headless scheduling fixture uses the real walker with a
 failed its eight-second watchdog, while corrected code completed in 3.186
 seconds. No movement, grounding, duration or frame threshold changed.
 
-Validation and complete live observations are recorded after the final run.
-`tools/lint.sh` is excluded by the task's scoped-check instruction.
+The final gate used the release extension from `48b6afde4` and additional
+route diagnostics. Its owned process exited 1, and the Rust command exited
+101 with seven cases passing and the installed route case failing. Runtime
+was 12.963 seconds. Logs, images and the complete check summary are in
+`target/tst_19/diagnostic-48b6afde4`. The preceding run is retained in
+`target/tst_19/approaches-48b6afde4`.
+
+The container leg is the first route blocker. Its record anchor has a valid
+16-point, 716.031-unit NAVM path. The capsule moved 305.909 units and stopped
+at waypoint 9 after 5.028 wall seconds, including 1.419 seconds held stationary
+for observations. The endpoint is 84.790 units from the anchor, inside the
+128-unit approach bound. The former shifted anchor was 190.886 units from
+walkable NAVM and still fails. The installed regression proves both results.
+The host jog speed is 180 units per simulation second. Inline gameplay caps
+catch-up at two physics ticks per rendered frame, so slow frames also reduce
+simulation travel relative to wall time. These timing constraints are present
+in the failure. Collision beyond waypoint 9 has not been surveyed. The
+five-second timeout remains unchanged and the walker fails at this leg.
+
+The load door, Whiterun exterior and inn return are untested in this run
+because the route stops at the container. Exterior NPC grounding is also
+untested. The three-minute duration fails, and the ten-minute GPU mode was
+not run under the task's gate-only instruction. The existing process-stack
+fallback was not exercised by a stall in this run. Hulda's empty response,
+the missing hair sample and surface or audio checks need their own evidence.
+One inn actor still reports Unsupported for a Patrol marker without idle
+time, and another has no package. The passing npc.moves result does not
+assert that every package procedure moves an actor.
+
+| Check | Result | Observed data |
+| --- | --- | --- |
+| gate_display | pass | :99 |
+| window | pass | X11, 640 by 360, gate mode |
+| capture | pass | startup.png and hulda.png saved |
+| route.walk | fail | Hulda passes, 12 points, 347.081 units, 4.979 s. Container fails, 16 points, 716.031 path units, 305.909 displacement units, waypoint 9, 5.028 s including 1.419 s sampling |
+| route.hulda | fail | activated, 3 topics, chosen, empty response |
+| route.container | fail | Not reached because the container leg timed out |
+| route.loose | fail | Not reached because the container leg timed out |
+| route.hearth | fail | Not reached because the container leg timed out |
+| route.exit | fail | Not reached because the container leg timed out |
+| route.market | fail | Not reached because the container leg timed out |
+| route.gate | fail | Not reached because the container leg timed out |
+| route.return | fail | Not reached because the container leg timed out |
+| route.inn_return | fail | Not reached because the container leg timed out |
+| route.repeat | fail | Not reached because the container leg timed out |
+| duration | fail | 12.963 s of 180 required, 0 loops |
+| npc.drawn | pass | 9 samples, all pass, last 1 drawn of 1 in view |
+| npc.head_hair | fail | 1 of 9 samples fails, 2 heads and 1 hair for 2 actors at Hulda |
+| npc.pose | pass | 7 samples, all pass, final 1 changed of 1 pair at 1 s |
+| npc.moves | pass | 65.206 units, 49 walk frames, observed at 2.465 s within the 30 s window |
+| npc.grounded | pass | 9 samples, 6 supported actors each, maximum below-ground 0.000008 and below-NAVM 2.361435 units, limit 32 |
+| frame.max_ms | pass | 86 frames after warmup, worst 47.818 ms, 0 over 50 ms, short run only |
+| watchdog.max_ms | pass | worst 270.623 ms, below 2000 ms |
+| fire.additive | fail | Not reached because the container leg timed out |
+| fire.hull | fail | Not reached because the container leg timed out |
+| terrain.textures | fail | Not reached because the container leg timed out |
+| object.white | fail | Not reached because the container leg timed out |
+| object.height | fail | Not reached because the container leg timed out |
+| doors.drawn | pass | 9 samples, 6 doors and 0 missing in final sample |
+| doors.states | fail | Not reached because the container leg timed out |
+| compass.offset | fail | Not reached because the container leg timed out |
+| menu.inventory_theme | fail | Not reached because the container leg timed out |
+| menu.container_theme | fail | Not reached because the container leg timed out |
+| menu.dialogue_theme | pass | installed default, applicable false, mod theme not tested |
+| audio.stone | fail | 0 stone steps, minimum peak -34.939 dB |
+| audio.grass | fail | 0 grass steps, minimum peak -34.939 dB |
+
+Validation on the approach change: formatting and all-target clippy passed
+for game, navmesh and godot-host. Library suites reported 246 game, 51 navmesh
+and 433 host passes, with installed-data cases returning early when their
+variables were absent. The installed barrel regression ran separately and
+passed. The installed actor registration and one-second coordinate-space
+retention regression passed before the approach change. Six NPC integration
+suites reported 31 cases, 25 synthetic cases executed and six installed cases
+returned early. The final play-path harness ran eight cases, seven passed
+including the slow-observation fixture and the installed route failed.
+Release build passed in 6m 29s, and both imports exited 0 with no script errors.
+`tools/lint.sh` was excluded by the task's scoped-check instruction.
+
+History stays on detached HEAD. The merge is `d27149268`, player query and
+route failure propagation `46b073cc8`, horizontal NPC locomotion `ee278da20`,
+attached actor registration `557f09a82`, observation scheduling `0abec2e5f`,
+AI coordinate-space isolation `eaf54863f`, bounded NAVM approaches `1578b1132`
+and host approach integration `48b6afde4`. The merge had formatting, all-target
+clippy and 684 reported library passes including physics. Later scoped checks
+passed before each implementation commit.
+
+Files after the merge cover the game play helper, AI planner and world driver,
+the navmesh graph, search and query tests, host actor motion and player path
+queries, the NPC adversarial and play-path tests, the play-path script and
+scheduler fixture, their crate docs and BACKLOG.csv. The merge also preserves
+the standalone HST-30 grounding survey and UID from master while retaining
+all checks in the broader play path. No dependency or save section was added.
+No production per-reference node path was added beyond the merged NPC bodies.
+
+Local sources read before implementing the changes: xEdit's wbNVNM Pathing
+Cell and Door Links, UESP NAVM prose, the existing game play navigation helper,
+Godotwind's character walk move and move container, and Detour's polygon
+boundary and straight-path code. NAVM ownership supplied the scope rule.
+Godotwind separates horizontal locomotion from gravity. Detour supplies the
+boundary approach model, adapted to authored Skyrim triangles and the existing
+bounds trees instead of a second navigation engine.
 
 ## Play path observations, TST-19
 

@@ -201,6 +201,11 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	var points: PackedVector3Array = navigation.points
 	var start := Time.get_ticks_msec()
 	var initial: Vector3 = player.call("position")
+	var path_units := 0.0
+	for index in range(1, points.size()):
+		path_units += points[index - 1].distance_to(points[index])
+	var waypoint_index := 0
+	var sampling_msec := 0
 	var reached := points.size() >= 2
 	if not reached:
 		_key(false)
@@ -211,7 +216,9 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	for point in points:
 		while not finished:
 			if sampling:
+				var pause_start := Time.get_ticks_msec()
 				await process_frame
+				sampling_msec += Time.get_ticks_msec() - pause_start
 				continue
 			var position: Vector3 = player.call("position")
 			var difference := point - position
@@ -225,11 +232,12 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 			await process_frame
 		if not reached or finished:
 			break
+		waypoint_index += 1
 	_key(false)
 	var final: Vector3 = player.call("position")
 	var distance := initial.distance_to(final)
 	reached = reached and distance > 1.0
-	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "goal": str(navigation.get("goal", target)), "approach_distance": navigation.get("approach_distance", 0.0), "approach_limit": navigation.get("approach_limit", 0.0), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
+	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "path_units": path_units, "waypoint_index": waypoint_index, "waypoints": str(points) if not reached else "", "sampling_s": sampling_msec / 1000.0, "goal": str(navigation.get("goal", target)), "approach_distance": navigation.get("approach_distance", 0.0), "approach_limit": navigation.get("approach_limit", 0.0), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
 	if not reached:
 		_finish()
 	return reached
