@@ -478,3 +478,23 @@ fn ply_03_saved_keep_scene_phase_start_runs_stage_174_fragment() {
         game.vm.log.entries
     );
 }
+
+#[test]
+fn ply_03_second_route_reaches_its_successor_checkpoint() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 second pair");
+        return;
+    };
+    let data = PathBuf::from(data);
+    let corpus = PathBuf::from(corpus);
+    let mut replay =
+        play::load_world_checkpoint(&data, &save_path(&corpus, CHECKPOINTS[1])).unwrap();
+    let mut successor =
+        play::load_world_checkpoint(&data, &save_path(&corpus, CHECKPOINTS[2])).unwrap();
+    let route = Route::parse(ROUTES[1]).unwrap();
+    let report = play::run_to_checkpoint(&mut replay, &route, &mut successor).unwrap();
+    assert!(report.passed(), "{}", report.format());
+}

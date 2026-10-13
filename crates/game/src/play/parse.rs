@@ -37,6 +37,11 @@ impl Route {
                         speaker: (*speaker).into(),
                         topic: (*topic).into(),
                     },
+                    ["play-scene", scene, phase, max_ticks] => Step::PlayScene {
+                        scene: (*scene).into(),
+                        phase: number(phase)?,
+                        max_ticks: ticks(max_ticks)?,
+                    },
                     ["wait-stage", quest, stage, max_ticks] => Step::WaitStage {
                         quest: (*quest).into(),
                         stage: number(stage)?,

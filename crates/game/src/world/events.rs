@@ -900,7 +900,15 @@ impl World {
                     .scene_runs
                     .get(&id)
                     .is_some_and(|run| run.started_actions.contains(&slot));
-                if action.start_phase == Some(phase) && !started {
+                let completed = self
+                    .scene_runs
+                    .get(&id)
+                    .is_some_and(|run| run.completed_actions.contains(&slot));
+                if action.start_phase.is_some_and(|start| start <= phase)
+                    && action.end_phase.is_some_and(|end| phase <= end)
+                    && !started
+                    && !completed
+                {
                     match &action.data {
                         SceneActionData::Package { packages } => {
                             let actor =

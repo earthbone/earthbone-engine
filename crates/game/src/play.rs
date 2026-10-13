@@ -8,6 +8,7 @@
 mod checkpoint;
 mod navigation;
 mod parse;
+mod scene;
 
 pub use checkpoint::{Checkpoint, QuestCheckpoint};
 
@@ -56,6 +57,11 @@ pub enum Step {
     Talk {
         speaker: String,
         topic: String,
+    },
+    PlayScene {
+        scene: String,
+        phase: u32,
+        max_ticks: u32,
     },
     WaitStage {
         quest: String,
@@ -341,6 +347,14 @@ fn execute(game: &mut Game, step: &Step, report: &mut Report) -> Result<(), Stri
             action(game, &Command::Activate { target }, report)?;
             action(game, &Command::ChooseTopic { topic }, report)?;
             action(game, &Command::ConfirmMenu(Confirmation::Dialogue), report)
+        }
+        Step::PlayScene {
+            scene,
+            phase,
+            max_ticks,
+        } => {
+            let scene = resolve(game, scene)?;
+            scene::play(game, scene, *phase, *max_ticks, report)
         }
         Step::WaitStage {
             quest,
