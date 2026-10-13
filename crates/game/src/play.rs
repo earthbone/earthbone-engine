@@ -9,6 +9,21 @@ mod checkpoint;
 mod navigation;
 mod parse;
 
+/// Query a path on the winning NAVMs of one interior or exterior worldspace.
+/// Endpoints project onto their walkable surfaces within 128 Skyrim units.
+/// This reads shared records and door state without moving any reference.
+///
+/// # Errors
+/// Returns the reason when a cell, endpoint or connected route is unavailable.
+pub fn navigation_path(
+    game: &crate::Game,
+    cell: soe_esm::GlobalFormId,
+    from: [f32; 3],
+    to: [f32; 3],
+) -> Result<soe_navmesh::Path, String> {
+    navigation::query_path(game, cell, from, to)
+}
+
 pub use checkpoint::{Checkpoint, QuestCheckpoint};
 
 use std::fmt::Write as _;

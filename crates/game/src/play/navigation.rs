@@ -48,7 +48,7 @@ fn scope(game: &Game, cell: GlobalFormId) -> Result<GlobalFormId, String> {
         .map_or(cell, |raw| world.order().resolve(source.file, raw)))
 }
 
-fn graph(game: &mut Game, cell: GlobalFormId) -> Result<(NavGraph, Vec<GlobalFormId>), String> {
+fn graph(game: &Game, cell: GlobalFormId) -> Result<(NavGraph, Vec<GlobalFormId>), String> {
     let wanted = scope(game, cell)?;
     let mut builder = Builder::new();
     let mut cells = Vec::new();
@@ -87,7 +87,7 @@ fn graph(game: &mut Game, cell: GlobalFormId) -> Result<(NavGraph, Vec<GlobalFor
     Ok((graph, cells))
 }
 
-fn refresh_doors(game: &mut Game, graph: &mut NavGraph) {
+fn refresh_doors(game: &Game, graph: &mut NavGraph) {
     let doors: Vec<_> = graph.door_keys().collect();
     for door in doors {
         let id = GlobalFormId {
@@ -124,6 +124,21 @@ fn surface(graph: &NavGraph, point: [f32; 3]) -> Result<([f32; 3], NodeId), Stri
         ));
     }
     Ok(([point[0], point[1], z], node))
+}
+
+pub(super) fn query_path(
+    game: &Game,
+    cell: GlobalFormId,
+    from: [f32; 3],
+    to: [f32; 3],
+) -> Result<soe_navmesh::Path, String> {
+    let space = scope(game, cell)?;
+    let (graph, _) = graph(game, cell)?;
+    let (from, _) = surface(&graph, from)?;
+    let (to, _) = surface(&graph, to)?;
+    graph
+        .find_path_between(from, to)
+        .ok_or_else(|| format!("no walkable NAVM path in {space} from {from:?} to {to:?}"))
 }
 
 /// Height of the corridor surface under `point`, from the path's own
@@ -313,4 +328,96 @@ pub(super) fn navigate(
         ));
     }
     Err(format!("navigation timeout after {max_ticks} ticks"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_esm::records::navm::{Geometry, NavGrid, Parent, Triangle};
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    fn overlapping_interiors() -> Game {
+        let mut plugin = Plugin::new(FileHeader::default());
+        for (cell, end, height) in [(0x800_u32, 80.0_f32, 0.0_f32), (0x801, 200.0, -20.0)] {
+            plugin.push_top(Record::new(Tag(*b"CELL"), cell).sub(Tag(*b"DATA"), [1, 0]));
+            let geometry = Geometry {
+                version: 12,
+                location_crc: 0,
+                parent: Parent::Cell(cell),
+                vertices: vec![
+                    [0.0, 0.0, height],
+                    [end, 0.0, height],
+                    [end, end, height],
+                    [0.0, end, height],
+                ],
+                triangles: vec![
+                    Triangle {
+                        vertices: [0, 1, 2],
+                        edges: [-1, -1, 1],
+                        flags: 0,
+                        cover_flags: 0,
+                    },
+                    Triangle {
+                        vertices: [0, 2, 3],
+                        edges: [0, -1, -1],
+                        flags: 0,
+                        cover_flags: 0,
+                    },
+                ],
+                edge_links: vec![],
+                door_links: vec![],
+                cover_triangles: vec![],
+                grid: NavGrid {
+                    divisor: 1,
+                    size: [end, end],
+                    min: [0.0, 0.0, height],
+                    max: [end, end, height],
+                    cells: vec![vec![0, 1]],
+                },
+            };
+            let mut nav =
+                Record::new(Tag(*b"NAVM"), cell + 0x1000).sub(Tag(*b"NVNM"), geometry.to_bytes());
+            nav.placement.cell = Some(cell);
+            plugin.push_top(nav);
+        }
+        let mut order = LoadOrder::new();
+        order.add("Overlapping.esm", plugin).unwrap();
+        Game::new(order)
+    }
+
+    #[test]
+    fn play_path_overlapping_interiors_use_the_named_cells_navmesh() {
+        let game = overlapping_interiors();
+        let cell = GlobalFormId {
+            file: 0,
+            object: 0x801,
+        };
+        let from = [20.0, 40.0, 0.0];
+        let to = [160.0, 40.0, -20.0];
+        assert!(
+            crate::ai::nav_graph(&mut game.world_mut())
+                .find_path_between(from, to)
+                .is_none(),
+            "an unrestricted point query selects the unrelated interior"
+        );
+        let (_, owners) = graph(&game, cell).unwrap();
+        let path = query_path(&game, cell, [20.0, 40.0, 0.0], to).unwrap();
+        assert!(path.points.len() >= 2);
+        assert!(path
+            .point_nodes
+            .iter()
+            .all(|node| owners[node.mesh as usize] == cell));
+        assert_eq!(path.points.first(), Some(&[20.0, 40.0, -20.0]));
+        assert_eq!(path.points.last(), Some(&to));
+    }
+    #[test]
+    fn play_path_rejects_endpoints_outside_the_named_interior() {
+        let game = overlapping_interiors();
+        let cell = GlobalFormId {
+            file: 0,
+            object: 0x800,
+        };
+        let error = query_path(&game, cell, [20.0, 40.0, 0.0], [160.0, 40.0, -20.0]).unwrap_err();
+        assert!(error.contains("outside walkable NAVM"), "{error}");
+    }
 }

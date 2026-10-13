@@ -12,6 +12,20 @@ and skin transforms are observations of the production host resources.
 The run modes, row completion rule and watchdog are described in
 [validation.md](validation.md).
 
+The player route queries `play::navigation_path` using its collision cell.
+The existing game route helper filters winning NAVMs to that interior or
+worldspace and projects endpoints onto their walkable surfaces. Unrestricted
+queries on the AI graph can select an unrelated interior that overlaps in XY.
+Two synthetic game tests cover the scoped route and rejection outside its
+interior. The route records query errors, stops after a failed walk, and uses
+the exit door's authored far reference to return inside the inn before resuming
+its city loop. `route.inn_return` is required by the Rust validator.
+
+The local xEdit `wbNVNM` Pathing Cell and Door Links declarations supply the
+coordinate-space and door-reference contracts. This change reuses the existing
+PLY-02 NAVM helper and Detour funnel instead of adding a second pathfinder.
+It adds no node path, dependency or saved field.
+
 PlayerNode's read-only probes return sorted resident reference identities,
 current World positions, inventory counts, the existing navigation path and
 collision ground material. CellStreamerNode exposes the submitted mesh and

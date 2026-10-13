@@ -696,6 +696,13 @@ expect-item <holder> <item> <count>
 expect-no-vm-error
 ```
 
+`play::navigation_path` exposes this scoped query to the host without moving
+references. It projects endpoints onto the existing NAVM surface within 128
+units and returns a failure reason for missing endpoints or routes. The
+`play_path_overlapping_interiors` regression shows why a position alone cannot
+select a NAVM in the graph of every interior. A nearer unrelated interior can
+otherwise replace the actor's cell and disconnect a valid route.
+
 Navigation uses winning NAVM records within the starting interior or worldspace,
 including resolved edge links and deleted meshes. Endpoints must have a walkable
 XY footprint in their named cells and lie within 128 units of the surface.

@@ -29,6 +29,7 @@ pub(crate) const CHECKS: &[&str] = &[
     "route.market",
     "route.gate",
     "route.return",
+    "route.inn_return",
     "route.repeat",
     "duration",
     "npc.drawn",

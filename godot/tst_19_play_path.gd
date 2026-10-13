@@ -193,15 +193,16 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	var ground: Dictionary = player.call("play_path_ground", target + Vector3(0, 0, 80))
 	if not ground.is_empty():
 		target.z = ground.height
-	var points: PackedVector3Array = player.call("play_path_navigation", target)
+	var navigation: Dictionary = player.call("play_path_navigation_details", target)
+	var points: PackedVector3Array = navigation.points
 	var start := Time.get_ticks_msec()
 	var initial: Vector3 = player.call("position")
 	var reached := points.size() >= 2
 	if not reached:
 		_key(false)
 		var stationary: Vector3 = player.call("position")
-		_check("route.walk", false, {"destination": str(target), "position": str(stationary), "distance": initial.distance_to(stationary), "path_points": points.size(), "seconds": 0.0, "reason": "NAVM path missing or trivial"})
-		quit(1)
+		_check("route.walk", false, {"destination": str(target), "position": str(stationary), "distance": initial.distance_to(stationary), "path_points": points.size(), "seconds": 0.0, "reason": navigation.get("reason", "NAVM path missing or trivial")})
+		_finish()
 		return false
 	for point in points:
 		while not finished:
@@ -226,7 +227,7 @@ func _walk_to(target: Vector3, seconds: float = 15.0) -> bool:
 	reached = reached and distance > 1.0
 	_check("route.walk", reached, {"destination": str(target), "position": str(final), "distance": distance, "path_points": points.size(), "seconds": (Time.get_ticks_msec() - start) / 1000.0})
 	if not reached:
-		quit(1)
+		_finish()
 	return reached
 
 func _reference(predicate: Callable) -> Dictionary:
@@ -261,10 +262,12 @@ func _stop(name: String) -> void:
 	sampling = false
 
 func _route() -> void:
+	var inn_cell := str(player.call("gameplay_cell"))
 	stop_name = "hulda"
 	var hulda := _reference(func(ref: Dictionary) -> bool: return ref.editor_id == "Hulda")
 	if not hulda.is_empty():
-		await _walk_to(hulda.position + Vector3(-160, -150, 0), 8.0)
+		if not await _walk_to(hulda.position + Vector3(-160, -150, 0), 8.0):
+			return
 		_look_at(hulda.position + Vector3(0, 0, 115))
 	var activated := _activate(hulda)
 	await process_frame
@@ -296,7 +299,8 @@ func _route() -> void:
 	for container: Dictionary in containers:
 		var pose: Dictionary = player.call("gameplay_reference_pose", container.file, container.object)
 		if not pose.is_empty():
-			await _walk_to(pose.position + Vector3(0, -160, 0), 5.0)
+			if not await _walk_to(pose.position + Vector3(0, -160, 0), 5.0):
+				return
 		if not player.call("open_container_inventory", container.file, container.object):
 			continue
 		await process_frame
@@ -322,7 +326,8 @@ func _route() -> void:
 	var loose := _reference(func(ref: Dictionary) -> bool: return ref.file == 0 and ref.object == 0x059050 and ref.kind == "ALCH")
 	var picked := false
 	if not loose.is_empty():
-		await _walk_to(loose.position + Vector3(0, -150, 0), 5.0)
+		if not await _walk_to(loose.position + Vector3(0, -150, 0), 5.0):
+			return
 		_look_at(loose.position)
 		var before: int = player.call("play_path_item_count", loose.base_file, loose.base_object)
 		picked = _activate(loose)
@@ -341,7 +346,8 @@ func _route() -> void:
 	stop_name = "hearth"
 	var hearth := _reference(func(ref: Dictionary) -> bool: return ref.editor_id == "Campfire01Burning" and ref.file == 0 and ref.object == 0x05D691)
 	if not hearth.is_empty():
-		await _walk_to(hearth.position + Vector3(0, -180, 0), 8.0)
+		if not await _walk_to(hearth.position + Vector3(0, -180, 0), 8.0):
+			return
 		_look_at(hearth.position + Vector3(0, 0, 50))
 	_check("route.hearth", not hearth.is_empty(), {"reference": hearth.get("id", "missing")})
 	await _stop("hearth")
@@ -357,8 +363,10 @@ func _route() -> void:
 			break
 	if not exit_door.is_empty():
 		var pose: Dictionary = player.call("gameplay_reference_pose", exit_door.file, exit_door.object)
-		await _walk_to(pose.position, 10.0)
+		if not await _walk_to(pose.position, 10.0):
+			return
 	var crossed := _activate(exit_door)
+	await process_frame
 	_check("route.exit", crossed and player.call("detection_worldspace") == "WhiterunWorld", {"crossed": crossed, "world": str(player.call("detection_worldspace")), "cell": str(player.call("gameplay_cell"))})
 	if crossed and not movement_reported:
 		npc_checks.restart_movement_window(Time.get_ticks_msec())
@@ -380,22 +388,51 @@ func _route() -> void:
 		stop_name = "market"
 		var reached := await _walk_to(market_position, 30.0)
 		_check("route.market", reached, {"position": str(player.call("position")), "reference": market.id})
+		if not reached:
+			return
 		_look_at(gate_position + Vector3(0, 0, 150))
 		await _stop("market")
 		stop_name = "gate"
 		reached = await _walk_to(gate_position, 30.0)
 		_check("route.gate", reached, {"position": str(player.call("position")), "reference": str(gate)})
+		if not reached:
+			return
 		_look_at(gate_position + Vector3(0, 0, 160))
 		await _stop("gate")
 		# CONTEXT: The short outside leg supplies actual grass steps, then returns
 		# through the same gate. Door transitions retain their authored landings.
 		if completed_loops == 0 and not finished:
 			await _grass_leg(gate)
+			if finished:
+				return
 		stop_name = "return"
 		reached = await _walk_to(market_position, 30.0)
-		reached = await _walk_to(city_start, 30.0) and reached
+		if not reached:
+			_check("route.return", false, {"reason": "return to the market failed"})
+			return
+		reached = await _walk_to(city_start, 30.0)
 		_check("route.return", reached, {"position": str(player.call("position")), "start": str(city_start)})
+		if not reached:
+			return
 		await _stop("return")
+		if completed_loops == 0 and not finished:
+			var entered := _activate({"file": exit_door.far_file, "object": exit_door.far_object})
+			await process_frame
+			entered = entered and str(player.call("gameplay_cell")) == inn_cell
+			_check("route.inn_return", entered, {"cell": str(player.call("gameplay_cell")), "expected_cell": inn_cell, "door_file": exit_door.far_file, "door_object": exit_door.far_object})
+			if not entered:
+				_finish()
+				return
+			var exit_pose: Dictionary = player.call("gameplay_reference_pose", exit_door.file, exit_door.object)
+			if not await _walk_to(exit_pose.position, 10.0):
+				return
+			var resumed := _activate(exit_door)
+			await process_frame
+			resumed = resumed and player.call("detection_worldspace") == "WhiterunWorld"
+			_check("route.exit", resumed, {"crossed": resumed, "world": str(player.call("detection_worldspace")), "cell": str(player.call("gameplay_cell"))})
+			if not resumed:
+				_finish()
+				return
 		completed_loops += 1
 		_check("route.repeat", completed_loops >= 1, {"loops": completed_loops, "elapsed_s": _elapsed()})
 
@@ -403,6 +440,7 @@ func _grass_leg(gate: Dictionary) -> void:
 	stop_name = "grass"
 	if not _activate(gate):
 		_check("audio.grass", false, {"reason": "gate crossing failed"})
+		_finish()
 		return
 	await process_frame
 	var origin: Vector3 = player.call("position")
@@ -411,9 +449,11 @@ func _grass_leg(gate: Dictionary) -> void:
 		if door.get("far_worldspace", "") == "WhiterunWorld" and not door.locked:
 			returning = door
 			break
-	await _walk_to(origin + Vector3(-350, -500, 0), 10.0)
+	if not await _walk_to(origin + Vector3(-350, -500, 0), 10.0):
+		return
 	await _stop("grass")
-	await _walk_to(origin, 10.0)
+	if not await _walk_to(origin, 10.0):
+		return
 	_check("route.grass_return", _activate(returning), {"return_door": str(returning)})
 
 func _capture() -> Image:

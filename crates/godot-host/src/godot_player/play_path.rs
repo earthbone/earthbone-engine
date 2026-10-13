@@ -14,25 +14,30 @@ impl PlayerNode {
     /// Existing NAVM path used to steer scripted key input, without moving World.
     #[func]
     pub fn play_path_navigation(&self, destination: Vector3) -> PackedVector3Array {
-        let Some(game) = &self.game else {
-            return PackedVector3Array::new();
-        };
-        let world = game.world();
-        let Some(graph) = world.ai.nav_graph() else {
-            return PackedVector3Array::new();
-        };
-        let feet = self.feet();
-        graph
-            .find_path_between(
-                [feet.x, feet.y, feet.z],
-                [destination.x, destination.y, destination.z],
-            )
-            .map_or_else(PackedVector3Array::new, |path| {
-                path.points
-                    .iter()
-                    .map(|point| Vector3::new(point[0], point[1], point[2]))
-                    .collect()
-            })
+        match self.query_player_path(destination) {
+            Ok(points) => points,
+            Err(reason) => {
+                godot_warn!("Player NAVM path: {reason}");
+                PackedVector3Array::new()
+            }
+        }
+    }
+
+    /// Cell-scoped NAVM waypoints or the reason the player cannot reach a point.
+    #[func]
+    pub fn play_path_navigation_details(&self, destination: Vector3) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        match self.query_player_path(destination) {
+            Ok(points) => {
+                result.set("points", &points);
+                result.set("reason", "");
+            }
+            Err(reason) => {
+                result.set("points", &PackedVector3Array::new());
+                result.set("reason", reason.as_str());
+            }
+        }
+        result
     }
 
     /// Enabled references in the player's resident cells, sorted by FormID.
@@ -157,5 +162,28 @@ impl PlayerNode {
         physics
             .raycast(eye, target)
             .is_none_or(|hit| (hit.point - target).length() < 24.0)
+    }
+}
+
+impl PlayerNode {
+    fn query_player_path(&self, destination: Vector3) -> Result<PackedVector3Array, String> {
+        let game = self
+            .game
+            .as_ref()
+            .ok_or("player has no inline gameplay world")?;
+        let cell = self.loaded_cell.ok_or("player has no collision cell")?;
+        let feet = self.feet();
+        soe_game::play::navigation_path(
+            game,
+            cell,
+            [feet.x, feet.y, feet.z],
+            [destination.x, destination.y, destination.z],
+        )
+        .map(|path| {
+            path.points
+                .iter()
+                .map(|point| Vector3::new(point[0], point[1], point[2]))
+                .collect()
+        })
     }
 }
