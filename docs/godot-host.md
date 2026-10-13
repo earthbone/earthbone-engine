@@ -150,6 +150,48 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+## NPC grounding, HST-30
+
+Living NPCs use transient `SimpleWorld` capsules over the same installed static
+collision as the player. Interior collision requires the controller's loaded
+cell. Exterior actors resolve their current XY grid through the source's cell
+index, including actors whose reference belongs to a persistent parent cell,
+and require that grid in the controller's collision ring. Render residency
+alone does not authorize an NPC placement. A new capsule snaps downward from
+the shared reference position to collision within 128 units. Capsule dimensions
+and step height use the contact view's resolved race, NPC and reference scale.
+
+After the inline Game tick, horizontal placement changes become capsule
+velocity. Gravity and the existing player stair and slope controller resolve
+the move in substeps. The host writes the resulting pose to the existing World
+reference, which supplies both animation presentation and Jolt contact bodies.
+Player physics advances only its own capsule. Disabled, departed, held and
+ragdoll actors release their walking capsule. A replaced collision world drops
+all old capsule handles. Cell changes, scale changes and successive source
+placement displacements greater than 128 units recreate the capsule and repeat
+spawn snapping. Falling beneath an unchanged snapshot does not restart gravity.
+The threaded adapter resolves snapshot positions for presentation without
+writing to the worker's World. `npc_grounding_status` reports living rendered
+NPC capsules, floor contact, nearby collision heights and the underfoot NAVM
+triangle's plane height in Skyrim units.
+
+This reuses `soe-physics`, rather than introducing another solver or a
+`CharacterBody3D` node per NPC. Godotwind's local
+`src/core/character/controller/move_container.gd` and
+`controller/moves/walk_move.gd` separate horizontal intent from gravity and
+perform one controller update. Its node controller does not fit this host's
+existing player capsule and RID contact ownership. No additional per-reference
+nodes or saved fields are added.
+
+`hst_30_grounding` checks deferred collision, the 128-unit snap bound, gravity,
+stairs, slopes, scale, teleport and departure handling. Its installed-data case
+uses Bannered Mare ACHRs. `godot/tst_19_play_path.gd` adds `npc.grounded` for
+`SOE_PLAY_PATH=gate`, checking NPCs at the inn, city, gate and plains stops
+against the 32-unit below-ground limit and saving windowed captures.
+The grounding harness bounds distant LOD to one cell beyond the two-cell
+collision radius and advances two seconds of simulation in four rendered
+batches at each stop. It reports asset loading failures separately from the
+capsule height checks.
 
 ## Streamed skinned NPCs, HST-23
 
@@ -319,6 +361,55 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+## NPC package presentation, HST-29
+
+PlayerNode submits the shared Game actor placement to resident NPC RIDs on every
+render frame. Threaded gameplay uses the snapshot adapter's interpolated
+placement. `actor::npc_transform` carries the reference position, Euler heading
+and scale through the existing Skyrim-to-Godot conversion. `NpcMotion::between`
+uses the render frame delta for Speed, heading-relative Direction and wrapped
+TurnDelta. A zero, negative or nonfinite delta leaves graph inputs unchanged.
+Visibility-only reconciliation supplies zero delta. Animation processing retains
+the race-selected behavior graph and clips, with movement and turn events at
+transitions and idle playback when stationary. These are presentation samples,
+not another authoritative actor position or new saved state. This adds no nodes
+beyond HST-23's existing control node and RID geometry.
+
+The source contracts are the existing game package driver, its linked-marker
+Patrol implementation and the HKX interpreter. The local serde-hkx
+`hkbCharacterStringData.json` describes character animation and property names.
+The local `hkbBehaviorReferenceGenerator.json` identifies referenced graph names.
+Behavior-root lookup ignores directory case, so the capitalized Behaviors path
+from vanilla RACE records resolves references under the actor root. It does not
+append a second Behaviors directory. Path tests cover human and creature roots.
+The existing loaders supply those assets and properties without a new parser,
+dependency or alternate animation library.
+
+`hst_29_npc_motion` drives a synthetic Patrol package through movement, marker
+dwell and completion. It uses the same transform and motion samplers as the node
+and requires no more than eight units of placement error on each frame. Separate
+checks cover the render delta, wrapped heading and invalid deltas. An installed
+Hulda rig check samples idle, verifies changing leg bones during walk playback
+and requires stopping to return to idle.
+`godot/tst_19_npc_checks.gd` requires each one-second pair of resident animated
+NPC uploaded skin transforms to change and measures at least 64 units of NPC displacement within 30 seconds,
+with a locomotion clip active during the observation. The installed-data
+`hst_29_walkthrough_test.gd` runs those PLAY_PATH npc.pose and npc.moves checks in
+the Bannered Mare for three minutes with SOE_PLAY_PATH=gate, checking visual
+placement against Game every frame. If the inn's first 30-second window has no
+qualifying movement, it activates the exit and starts another movement window
+in Whiterun after the inn nodes depart and every new resident NPC finishes
+loading. Pose comparisons continue across both locations.
+It runs normal gameplay, leaves package
+selection to Game and quits with a failing exit status if its checks fail.
+The reusable NPC probe can also be sampled by route scripts at each stop.
+`npc_package_states` reads selected packages, procedure names, route lengths,
+speeds and arrival flags for resident NPCs in inline gameplay.
+The runner retains the child process, drains its output and uses the six-minute
+scene watchdog and a fifteen-minute process bound that includes slot waiting.
+If the inherited extension configuration names the HST-23 scratch
+library, it creates an ignored target symlink to the current release library,
+leaving the configuration unchanged.
 
 ## Snapshot adapter, PRF-37 draft
 

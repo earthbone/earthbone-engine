@@ -3,9 +3,10 @@ extends "res://walkthrough.gd"
 ## TST-19 observes the live walkthrough. The Rust parent watches a heartbeat
 ## from another thread, including while this main thread cannot run a timer.
 const Checks := preload("res://tst_19_checks.gd")
+const NpcChecks := preload("res://tst_19_npc_checks.gd")
 const MARKET_MODEL := "wrmarket"
 const OWNERS := {
-	"npc.drawn": "HST-23", "npc.head_hair": "HST-23", "npc.pose": "HST-23",
+	"npc.drawn": "HST-23", "npc.head_hair": "HST-23", "npc.pose": "HST-23", "npc.moves": "HST-29", "npc.grounded": "HST-30",
 	"doors.drawn": "HST-21", "doors.states": "HST-21",
 	"fire.additive": "RND-33", "fire.hull": "RND-33",
 	"terrain.textures": "RND-01", "object.white": "RND-37", "object.height": "RND-39",
@@ -14,6 +15,8 @@ const OWNERS := {
 	"menu.inventory_theme": "UI-29", "menu.container_theme": "UI-29", "menu.dialogue_theme": "UI-30",
 }
 
+var npc_checks := NpcChecks.new()
+var movement_reported := false
 var mode := "gate"
 var duration_s := 180.0
 var route_start := 0
@@ -122,6 +125,10 @@ func _process(_delta: float) -> bool:
 			over_budget += 1
 			if over_budget <= 3:
 				_check("frame.max_ms", false, {"ms": frame_ms, "frame": measured_frames, "limit_ms": Checks.FRAME_MS})
+	npc_checks.sample(player, Time.get_ticks_msec())
+	if not movement_reported and Time.get_ticks_msec() - npc_checks.started_msec >= NpcChecks.WINDOW_MSEC and (npc_checks.max_units >= NpcChecks.MOVE_UNITS or stop_name in ["market", "gate", "return", "grass"]):
+		movement_reported = true
+		_check("npc.moves", npc_checks.max_units >= NpcChecks.MOVE_UNITS and npc_checks.walk_frames > 0, {"units": npc_checks.max_units, "window_s": 30, "walk_frames": npc_checks.walk_frames, "packages": player.call("npc_package_states")})
 	_drain_audio()
 	_heartbeat()
 	if now >= next_sample and not sampling and not player.call("is_menu_open"):
@@ -353,6 +360,8 @@ func _route() -> void:
 		await _walk_to(pose.position, 10.0)
 	var crossed := _activate(exit_door)
 	_check("route.exit", crossed and player.call("detection_worldspace") == "WhiterunWorld", {"crossed": crossed, "world": str(player.call("detection_worldspace")), "cell": str(player.call("gameplay_cell"))})
+	if crossed and not movement_reported:
+		npc_checks.restart_movement_window(Time.get_ticks_msec())
 	await _stop("exit")
 	if not crossed:
 		_finish()
@@ -431,11 +440,23 @@ func _sample_view() -> void:
 		_check("camera", false, {"camera": "missing"})
 		sampling = false
 		return
+	_npc_grounded()
 	await _npcs(camera)
 	await _surface_checks(camera)
 	_check("frame.max_ms", over_budget == 0, {"worst_ms": worst_ms, "over_50_ms": over_budget, "frames": measured_frames, "warmup_s": Checks.WARMUP_S})
 	_check("watchdog.max_ms", stalls_ms <= Checks.STALL_MS, {"worst_ms": stalls_ms, "limit_ms": Checks.STALL_MS})
 	sampling = false
+
+func _npc_grounded() -> void:
+	var grounded: Array = player.call("npc_grounding_status")
+	var supported := 0
+	var passed := not grounded.is_empty()
+	for actor: Dictionary in grounded:
+		var ok: bool = actor.position.is_finite() and (actor.has("ground_z") or actor.has("navmesh_z")) and actor.get("below_ground", 0.0) <= 32.0 and actor.get("below_navmesh", 0.0) <= 32.0
+		passed = passed and ok
+		if actor.on_ground:
+			supported += 1
+	_check("npc.grounded", passed and supported > 0, {"actors": grounded, "checked": grounded.size(), "supported": supported, "limit_units": 32.0})
 
 func _npcs(camera: Camera3D) -> void:
 	var nodes: Array = root.find_children("*", "SkinnedActorNode", true, false)
@@ -782,6 +803,8 @@ func _finish() -> void:
 		return
 	finished = true
 	_key(false)
+	if not movement_reported:
+		_check("npc.moves", false, {"units": npc_checks.max_units, "window_s": 30, "walk_frames": npc_checks.walk_frames, "reason": "no qualifying movement window completed"})
 	_check("duration", _elapsed() >= duration_s and completed_loops >= 1, {"elapsed_s": _elapsed(), "required_s": duration_s, "loops": completed_loops})
 	_check("frame.max_ms", measured_frames > 0 and over_budget == 0, {"frames": measured_frames, "worst_ms": worst_ms, "over_50_ms": over_budget})
 	_check("watchdog.max_ms", stalls_ms <= Checks.STALL_MS, {"worst_ms": stalls_ms})

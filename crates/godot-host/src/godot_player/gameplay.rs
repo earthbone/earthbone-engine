@@ -772,6 +772,7 @@ impl PlayerNode {
             self.auto_step = false;
             return;
         }
+        self.sync_npc_grounding(delta as f32);
         if let Some(target) = self.last_activate_reference {
             self.activate_game_reference(target);
         }
@@ -1192,6 +1193,7 @@ impl PlayerNode {
         self.last_melee_target = None;
         self.last_melee_obstruction = None;
         self.world = None;
+        self.npc_grounding.reset();
         self.query_collision.free();
         self.actor_bodies.free();
         self.character = None;
@@ -1488,6 +1490,7 @@ impl PlayerNode {
             let mut world = collision.world;
             let id = world.create_character(CharacterSettings::default(), feet);
             self.world = Some(world);
+            self.npc_grounding.reset();
             self.character = Some(id);
             self.collision_references = collision.references;
             self.rebuild_collision_bodies();

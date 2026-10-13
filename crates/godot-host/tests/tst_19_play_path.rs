@@ -34,6 +34,8 @@ pub(crate) const CHECKS: &[&str] = &[
     "npc.drawn",
     "npc.head_hair",
     "npc.pose",
+    "npc.moves",
+    "npc.grounded",
     "frame.max_ms",
     "watchdog.max_ms",
     "fire.additive",

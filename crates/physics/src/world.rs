@@ -408,7 +408,15 @@ impl SimpleWorld {
         None
     }
 
-    fn step_character(&mut self, id: BodyId, dt: f32) {
+    /// Advance one capsule without advancing the world's other characters.
+    /// Invalid or non-positive time leaves every character unchanged.
+    pub fn step_character(&mut self, id: BodyId, dt: f32) {
+        if !dt.is_finite() || dt <= 0.0 {
+            return;
+        }
+        if self.dirty {
+            self.rebuild();
+        }
         let Some(mut ch) = self.characters.get(&id).copied() else {
             return;
         };
