@@ -9670,3 +9670,10 @@ as MGEF flag bit 1. The Grab Actor companion fixture uses both so its immediate
 health assertion exercises the caster target. Existing Rust readers and
 public save profiling supply the fixture encoding, with no reference code
 copied or dependency added.
+
+PRF-27 adds automatic greeting and force-greet phases after the actor driver.
+Their enclosing durations now contribute to PRF-11's AI total, so every
+inclusive phase remains bounded by the total. Nested idle-chatter and
+force-greet evaluations are counted through the enclosing greeting duration.
+The synthetic PRF-27 phase check and installed PRF-11 sixty-second check
+retain the phase bounds and the original eight-millisecond frame budget.
