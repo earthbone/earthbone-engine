@@ -208,6 +208,62 @@ constraint. `fmt_23_limited_hinge_retains_body_links_frames_and_limits` checks
 all retained fields, while the companion rejection test covers malformed
 counts, limits and truncated payloads.
 
+## Mudcrab grounded controller port, 2026-10-13
+
+`controller.rs` ports `integrate_walk` from Mudcrab main at `268f988` and
+local PR 232 at `ef4070d`. `world.rs` translates `player_controller_bundle`
+onto the engine's existing Z-up capsule solver. Both carry the requested
+source header. The upstream MIT notice is in `THIRD_PARTY_NOTICES.md`.
+No Mudcrab code enters the MIT CommonLib shim.
+
+`CharacterSettings::mudcrab` retains radius 28, height 100.8, collision offset
+2, autostep height 36, landing width 28, climb limit 50 degrees, slide limit
+55 degrees, ground snap 12, horizontal acceleration 1800, gravity 900 and
+jump launch 340, all in Creation units. Jump height encodes that launch as
+340 squared divided by twice gravity. Crouch height and terminal velocity
+remain the engine's settings because Mudcrab has no matching crouch or
+terminal-velocity tuning in this source. Host locomotion speeds and camera
+placement still come from the engine's existing movement and camera paths,
+rather than Mudcrab's provisional walk/run/sprint and eye settings.
+Generic callers retain the old `CharacterSettings::default` dimensions and
+movement rates. Player and NPC host entry points select the Mudcrab preset.
+
+The controller consumes the previous update's ground feedback before sending
+movement to collision. It accelerates the horizontal request before applying
+gravity or a fresh jump. That request persists independently of collision
+clipping, as Mudcrab's WalkState does. Active jumps also retain their integrated
+vertical request independently of the backend's clipped velocity. A positive active jump filters a stale
+ground probe, consumes another press without relaunching, and accepts ground
+on descent. NPC AI supplies horizontal intent only. Resolved capsule positions
+return to the shared reference table.
+
+Rapier's KinematicCharacterController has no direct call in SimpleWorld.
+Its margin becomes an expanded closest-point contact radius. Feet denote the
+support point beneath that margin, keeping World and NAVM positions on the
+floor. The geometric capsule axis is raised by the margin. Ascent checks
+reject contacts that stop upward motion, and an autostep requires clearance
+and supporting landing width. Ordinary walkable ramp contacts do not start
+an autostep. A stair trial measures the supporting surface ahead and raises
+the feet to that height only when it fits within the step bound. Ground snap follows the requested vertical
+motion, including walks whose collision correction points upward. Rapier's
+shape sweeps are approximated by radius-bounded substeps and the existing
+six-pass contact solver, not a continuous time-of-impact query. Outside an
+active jump, its existing vertical contact-velocity feedback is retained.
+Rapier keeps the requested gravity velocity even when a slope clips movement. Separate
+climb and slide thresholds use contact normals. The interval between them
+holds a resting capsule without treating that face as walkable ground.
+Dynamic autosteps and impulse transfer remain disabled, matching Mudcrab's
+configuration. Dynamic bodies and Jolt simulation retain the host's existing
+server path. Bevy's before-backend-sync scheduling becomes the engine's
+integrate, resolve, then publish order. Jump apex/time telemetry is not copied
+because no engine caller consumes it.
+
+The ported PR ground-probe regression checks ten overlapping ascent probes,
+a rejected second press, gravity and landing. The headless jump regression
+checks more than 50 units of rise before landing on the same floor. Synthetic
+step and slope cases exercise the same preset over collision geometry.
+Existing controller and large-world checks remain enabled.
+
 ## SimpleWorld
 
 Statics are flattened to world-space primitives on insert: triangles
@@ -218,10 +274,10 @@ stepped by integrating gravity, moving, then resolving penetration up to
 six times against the closest point between the capsule axis and each
 nearby primitive (Ericson's segment-triangle, segment-segment and
 point-triangle routines). Contact normals above `max_slope_cos` set
-`on_ground` and cancel downward velocity. Walking snaps descend at most a
-quarter capsule radius per tick, so a larger drop continues as a fall across
-ticks instead of moving the character to the lower floor at once. Settling
-after a step-up trial can use the full step height. The fall per step is
+`on_ground` and cancel downward velocity. Walking snaps descend at most
+`ground_snap` per controller substep, eight units for generic callers and
+12 for the Mudcrab host preset. A larger drop continues as a fall across ticks.
+Settling and measuring a step-up trial can use the full step height. The fall per step is
 capped at one radius so a thin floor cannot be tunnelled. Rays test triangles,
 spheres and capsules (cylinder plus caps) and return the nearest hit with
 its normal and the body id. Layers that do not block characters (water,

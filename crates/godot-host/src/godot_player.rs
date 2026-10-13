@@ -1217,7 +1217,7 @@ impl PlayerNode {
         self.query_collision = query_collision;
         let mut world = collision.world;
         let bodies = collision.stats.bodies;
-        let id = world.create_character(CharacterSettings::default(), Vec3::new(x, y, z));
+        let id = world.create_character(CharacterSettings::mudcrab(), Vec3::new(x, y, z));
         self.character = Some(id);
         self.npc_grounding.reset();
         self.world = Some(world);

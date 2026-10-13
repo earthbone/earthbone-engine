@@ -1,5 +1,61 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Mudcrab player and NPC controller, 2026-10-13
+
+Player entry, load-door replacement and transient NPC bodies now select
+`CharacterSettings::mudcrab` in `soe-physics`. Movement and grounding use
+one controller entry point. NPC scale also scales the margin, landing width
+and ground snap. Cell collision availability still gates both body creation
+and actor presentation, including streamed exterior cells. Collision departure
+removes the capsule and reinstallation recreates it before movement resumes.
+Threaded gameplay coalesces resolved NPC poses by FormID in the existing
+nonblocking host-pose mailbox. The simulation worker publishes them into World
+before its tick and rejects feedback from a departed cell or a changed source pose. The same reference
+mutation applies in inline gameplay. No new node path, dependency, copied game
+asset or saved field was added.
+
+The source, upstream notice, exact physical tuning and differences from
+Rapier are documented in [physics.md](physics.md). The body geometry is a
+28-unit radius capsule, replacing the old 32-unit host capsule. NPC package
+steering stays in the existing game driver and publishes the controller's
+resolved position. A one-waypoint host regression must reach its supported
+destination and stay on the floor. Unsupported NAVM destinations reject before
+steering, covered separately by AI-94. This does not add a Mudcrab AI runtime.
+
+### Validation checkpoint, build queue blocked
+
+This scratch checkpoint remains partial. The earlier controller run passed
+21 physics library cases, 15 character cases and two large-world surveys.
+The navmesh library passed 53 cases. The game library passed 246 cases before
+the additional one-waypoint planner and worker-mailbox checks were added.
+Host motion and grounding suites reported 19 cases, including four installed
+cases that returned early without SKYRIM_DATA. Fifteen synthetic cases ran.
+These results precede the final independent vertical-request refinement.
+
+The first release extension build exited 0 in 7 minutes 15 seconds. It predates
+the worker mailbox and final vertical-request refinement. The mailbox's first
+run passed coalescing and failed its World-publication fixture, whose null
+NPC base prevented reference initialization. That fixture now uses a valid
+NPC base and parsed plugin, with the same assertions. The corrected mailbox
+run, latest controller checks and final release build are queued through the
+run's cargo wrapper. All three build slots remain occupied and their owners
+are hidden by the process namespace. No installed play-path case has run for
+this port, so Bannered Mare progress and live NPC floor support are unmeasured.
+The prior Hulda/container results below remain historical evidence only.
+
+The latest tools/lint.sh attempt passed its three Clippy configurations and
+logging check, comment-lint, prose, Taplo and Markdown checks, then waited for
+a cargo slot at fuzz formatting. Cargo deny and cargo audit were absent and
+reported skips. Later source refinements still need a complete gate run.
+The first gate selected Clippy 1.96 through a shortened PATH and rejected the
+wrapper's 1.99 lint names. The normal PATH selects 1.99 and resolved that tool
+mismatch without disabling a check. All route deadlines and floor thresholds
+remain unchanged. No ignore or allow attribute was added.
+
+HST-31, AI-94 and HST-32 remain wip until their final checks run. Installed
+threaded play is also untested. Changes are confined to physics, game,
+godot-host and their docs, plus the backlog and third-party notice.
+
 ## Play path fix checkpoint, 2026-10-13
 
 The first live gate on `ee278da20` exited 101 after the 360-second process
@@ -294,6 +350,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +562,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -7972,7 +8030,6 @@ project helper, including RND-36's night shader, and requires an explicit
 Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
-
 
 ### Audio integration corrections, second round, 2026-10-12
 

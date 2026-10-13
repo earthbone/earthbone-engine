@@ -67,6 +67,31 @@ winning hierarchy. The change extends the existing Detour query adaptation
 rather than introducing another pathfinder. Two synthetic tests cover a nearer
 unrelated floor and a corridor whose only connection crosses another space.
 
+## Supported walking endpoints, AI-94
+
+`start_walk_path_between` rejects an endpoint outside a walkable triangle
+footprint or farther than 64 units from its surface height. Accepted XY is
+unchanged and Z is projected onto that surface. Scope filtering applies to
+both endpoints and the corridor. AI point requests and flee route searches
+use this entry point. A populated graph's failed request cannot become an
+unsupported direct waypoint through the fallback flag. The existing empty
+NAVM graph fallback remains for standalone simulations without mesh data.
+
+Raw `find_path_between` and `start_path_between` retain their documented
+nearest-centroid fallback and exact endpoint contract. They do not establish
+physical support. The old off-mesh endpoint preservation check still runs.
+The new regression constructs a raw route with one waypoint beyond its
+triangle and requires walking queries to reject either unsupported endpoint.
+A supported single waypoint remains valid and projects its height.
+
+Local DetourNavMeshQuery.cpp `findNearestPoly` and
+`closestPointOnPolyBoundary` supply the distinction between polygon lookup
+and a supported point. The native NAVM graph remains the pathfinder.
+Mudcrab has no NAVM query or NPC package runtime to port. The 64-unit vertical
+bound follows the existing graph's door surface association tolerance. This
+change validates endpoints, not collision clearance or arbitrary gap links
+inside a corridor. The physics controller still resolves actual movement.
+
 ## The graph
 
 `NavGraph::find_path` is `A*` over triangle adjacency with centroid distance as the

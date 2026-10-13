@@ -178,7 +178,9 @@ impl PlayerNode {
     }
 
     fn npc_collision_cell(&self, cell: GlobalFormId, position: [f32; 3]) -> Option<GlobalFormId> {
-        self.world.as_ref()?;
+        if self.world.as_ref()?.static_count() == 0 {
+            return None;
+        }
         let source = self.data_source.as_ref()?;
         if let Some(world) = source.exterior_world(cell) {
             let coord = crate::streaming::CellCoord::containing(crate::units::SkyrimPos::new(
@@ -190,7 +192,9 @@ impl PlayerNode {
             return self
                 .exterior
                 .as_ref()
-                .and_then(|exterior| exterior.cells.contains_key(&cell).then_some(cell));
+                .and_then(|exterior| exterior.cells.get(&cell))
+                .filter(|bodies| !bodies.is_empty())
+                .map(|_| cell);
         }
         (self.loaded_cell == Some(cell)).then_some(cell)
     }
@@ -221,7 +225,9 @@ impl PlayerNode {
                 .contacts
                 .iter()
                 .filter_map(|contact| {
-                    if contact.actor == pair.current.player {
+                    if contact.actor == pair.current.player
+                        || self.actor_bodies.controls_motion(contact.actor)
+                    {
                         return None;
                     }
                     let placement = pair.placement(contact.actor, std::time::Instant::now())?;
@@ -270,6 +276,20 @@ impl PlayerNode {
                 if let Some(game) = &self.game {
                     game.world_mut()
                         .set_host_actor_pose(contact.actor, position, contact.rotation);
+                } else if let Some(simulation) = &self.simulation {
+                    if let Some(source) = self
+                        .simulation_pair
+                        .as_ref()
+                        .and_then(|pair| pair.current.actors.get(&contact.actor))
+                    {
+                        simulation.set_actor_pose(soe_game::simulation::ActorPose {
+                            actor: contact.actor,
+                            cell: contact.cell,
+                            source_position: source.position,
+                            position,
+                            rotation: source.rotation,
+                        });
+                    }
                 }
             }
         }

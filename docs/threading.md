@@ -85,3 +85,22 @@ mutation, package conditions, RNG and event emission remain on the caller.
 [ini]: https://ck.uesp.net/w/index.php?title=INI_Settings_%28Papyrus%29&veaction=edit
 [threading]: https://ck.uesp.net/wiki/Threading_Notes_(Papyrus)
 [rayon]: https://docs.rs/rayon
+
+## NPC collision feedback, HST-32
+
+The host-pose mailbox now coalesces both the player and NPCs. NPC entries are
+keyed by resolved FormID and applied in sorted order. Player publication retains
+its existing trigger and sprint state handling. The worker applies NPC feedback
+through World::set_host_actor_pose before ticking AI and scripts, so collision
+positions return to the authoritative reference table. It rejects feedback when
+the reference left its originating cell, changed its position or rotation,
+is disabled or was deleted. A newer scripted move therefore survives older
+collision feedback in the same cell.
+
+Mailbox locking uses try_lock on both sides. Presentation never waits for the
+worker and a contended submission can retry on the next physics update. Host
+objects stay on the main thread. Godot's local thread_safe_apis.rst and the
+existing player pose handoff supply this boundary. No new saved field, worker
+or per-reference node is added. Synthetic regressions check coalescing, World
+publication and stale-cell rejection. Installed threaded play remains a
+separate check from the default inline play-path run.

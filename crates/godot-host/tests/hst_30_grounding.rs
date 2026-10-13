@@ -66,6 +66,25 @@ fn hst_30_spawn_waits_for_cell_collision_and_never_falls_below_floor() {
 }
 
 #[test]
+fn npc_cell_identity_without_collision_cannot_spawn_a_capsule() {
+    let mut physics = SimpleWorld::new();
+    let mut grounding = NpcGrounding::default();
+    for _ in 0..120 {
+        assert_eq!(
+            grounding.update(&mut physics, ACTOR, Some(CELL), [0.0; 3], 1.0, DT),
+            None
+        );
+        assert!(grounding.character(&physics, ACTOR).is_none());
+    }
+    physics.add_static(&floor(0.0));
+    let position = grounding
+        .update(&mut physics, ACTOR, Some(CELL), [0.0; 3], 1.0, DT)
+        .unwrap();
+    assert!(position[2] >= -0.01);
+    assert!(grounding.character(&physics, ACTOR).unwrap().on_ground);
+}
+
+#[test]
 fn hst_30_spawn_snap_is_downward_and_bounded_to_128_units() {
     for (height, expected) in [(128.0, 0.0), (129.0, 129.0), (-10.0, -10.0), (-0.25, -0.25)] {
         let mut physics = SimpleWorld::new();
@@ -206,7 +225,7 @@ fn hst_30_departure_teleport_and_scale_recreate_controller() {
             .unwrap()
             .settings
             .radius,
-        16.0
+        14.0
     );
     assert_eq!(
         grounding.update(&mut physics, ACTOR, None, moved, 0.5, DT),
@@ -272,6 +291,63 @@ fn hst_30_coarse_horizontal_intent_is_blocked_by_cell_walls() {
     );
     grounding.retain(&mut physics, &BTreeSet::new());
     assert!(grounding.character(&physics, ACTOR).is_none());
+}
+
+#[test]
+fn single_waypoint_npc_route_is_resolved_through_the_player_controller() {
+    let mut physics = SimpleWorld::new();
+    physics.add_static(&floor(0.0));
+    let mut grounding = NpcGrounding::default();
+    let mut position = [0.0; 3];
+    let waypoints = [[160.0_f32, 0.0, 0.0]];
+    assert_eq!(waypoints.len(), 1);
+    for _ in 0..180 {
+        let advance = (waypoints[0][0] - position[0]).clamp(-160.0 * DT, 160.0 * DT);
+        position = grounding
+            .update(
+                &mut physics,
+                ACTOR,
+                Some(CELL),
+                [position[0] + advance, 0.0, position[2]],
+                1.0,
+                DT,
+            )
+            .unwrap();
+        assert!(
+            position[2] >= -0.01,
+            "waypoint steering must retain collision"
+        );
+    }
+    assert!((position[0] - waypoints[0][0]).abs() < 0.01);
+    let npc = grounding.character(&physics, ACTOR).unwrap();
+    assert!(npc.on_ground);
+    assert_eq!(npc.settings, CharacterSettings::mudcrab());
+}
+
+#[test]
+fn npc_collision_departure_defers_motion_until_reinstallation() {
+    let mut physics = SimpleWorld::new();
+    let floor_body = physics.add_static(&floor(0.0));
+    let mut grounding = NpcGrounding::default();
+    grounding
+        .update(&mut physics, ACTOR, Some(CELL), [0.0; 3], 1.0, DT)
+        .unwrap();
+    physics.remove(floor_body);
+    for _ in 0..120 {
+        assert_eq!(
+            grounding.update(&mut physics, ACTOR, None, [0.0; 3], 1.0, DT),
+            None
+        );
+        assert!(grounding.character(&physics, ACTOR).is_none());
+    }
+    physics.add_static(&floor(0.0));
+    for _ in 0..120 {
+        let position = grounding
+            .update(&mut physics, ACTOR, Some(CELL), [0.0; 3], 1.0, DT)
+            .unwrap();
+        assert!(position[2] >= -0.01);
+    }
+    assert!(grounding.character(&physics, ACTOR).unwrap().on_ground);
 }
 
 #[test]

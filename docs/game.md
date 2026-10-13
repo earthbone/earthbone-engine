@@ -3170,6 +3170,17 @@ registry's `Form` entry. Both are queued for the natives round.
 
 ## Packages
 
+Walking package point routes now use the surface-validated
+`NavGraph::start_walk_path_between`, described in [navmesh.md](navmesh.md).
+A populated graph rejects unsupported exact endpoints before A* and does not
+restore them as a direct waypoint on failure. The existing no-NAVM simulation
+fallback remains. Scoped route ownership and package selection are unchanged.
+Host NPC horizontal intent is resolved by the same Mudcrab-ported capsule
+controller as the player, then published back to the shared reference table.
+Threaded execution uses a coalesced NPC pose mailbox with source-cell and snapshot-pose checks
+before publishing collision corrections to the worker-owned World. No saved
+gameplay state or save version changed.
+
 `crates/game/src/package.rs` is the `PACK` view, `crates/game/src/ai.rs`
 the evaluation and the actor driver. Layout from `wbRecord(PACK` and
 `wbConditions` in `wbDefinitionsTES5.pas` and the UESP `PACK` page, the

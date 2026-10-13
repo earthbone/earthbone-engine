@@ -1002,6 +1002,35 @@ impl NavGraph {
         self.start_search(a, b, Some((from, to)), PathCosts::default())
     }
 
+    /// Start a walking route with both endpoints supported in the named space.
+    /// Endpoints must be over a walkable footprint within 64 units of surface Z.
+    /// Their XY is retained and Z is projected onto that surface. Unsupported
+    /// fallback approach segments are rejected before searching.
+    ///
+    /// # Errors
+    /// Returns `None` for unsupported endpoints or an impossible route.
+    ///
+    /// # Panics
+    /// This function does not panic for valid graph geometry.
+    pub fn start_walk_path_between(
+        &self,
+        from: [f32; 3],
+        to: [f32; 3],
+        scope: Option<u64>,
+    ) -> Option<PathSearch> {
+        let endpoint = |point: [f32; 3]| {
+            let node = self.locate_scoped_impl(point, scope, |_| {})?;
+            if self.node_blocked(node) {
+                return None;
+            }
+            let z = self.meshes[node.mesh as usize].height_at(node.triangle, point[0], point[1])?;
+            ((z - point[2]).abs() <= 64.0).then_some((node, [point[0], point[1], z]))
+        };
+        let (a, from) = endpoint(from)?;
+        let (b, to) = endpoint(to)?;
+        self.start_search_scoped(a, b, Some((from, to)), PathCosts::default(), scope)
+    }
+
     /// Start a retained path whose endpoints and corridor stay in one space.
     /// Returns None for missing endpoints or an unconnected scoped route.
     pub fn start_path_between_in_scope(
