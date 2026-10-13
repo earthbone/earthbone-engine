@@ -452,6 +452,9 @@ for native save inputs.
 
 Detection batches cache each observer's Sneak, Blindness and combat target,
 and each target's Sneak, invisibility, movement noise and worn armor weight.
+Actor identity and liveness are validated once per identity within a batch,
+then read afresh on the next batch. Input validation still follows observation
+order and completes before any pool or LOS state changes.
 An observer's combat awareness is indexed once per batch. Alert and busy
 modifiers remain specific to each pair. Previously known pairs absent from a
 batch receive a negative value, the lesser of the base detection value and

@@ -15,9 +15,14 @@ const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
 #[path = "detection_lights.rs"]
 mod lights;
+#[path = "detection_occlusion.rs"]
+#[cfg(any(feature = "godot", test))]
+mod occlusion;
 #[path = "detection_spatial.rs"]
 mod spatial;
 pub use lights::{light_level, LightSamples};
+#[cfg(feature = "godot")]
+pub(crate) use occlusion::ActorOcclusion;
 pub use spatial::{candidate_actors, observations_in_range, DetectionSpaces};
 
 #[cfg(test)]

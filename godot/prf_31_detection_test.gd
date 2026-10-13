@@ -36,15 +36,39 @@ func prf_31_gate_walk_keeps_detection_under_two_ms() -> void:
 	player.call("advance", 0.0)
 	await physics_frame
 	var actors: int = player.call("sync_contact_actors")
+	var directional := {}
+	if OS.get_environment("SOE_TEST_ONE_SIDED_DETECTION") == "1":
+		var positions := PackedFloat32Array()
+		var center := Vector3.ZERO
+		for row: Dictionary in player.call("contact_actor_bodies"):
+			if row.file == 0 and row.object == 0x14:
+				continue
+			positions.append(row.position.x)
+			center = row.position + Vector3.UP * 1.4
+		positions.sort()
+		center.x = positions[positions.size() / 2] + 0.1
+		var shape := PhysicsServer3D.concave_polygon_shape_create()
+		PhysicsServer3D.shape_set_data(shape, {"faces": PackedVector3Array([
+			center + Vector3(0, -200, -200), center + Vector3(0, 200, -200),
+			center + Vector3(0, 0, 200)]), "backface_collision": false})
+		var body := PhysicsServer3D.body_create()
+		PhysicsServer3D.body_set_mode(body, PhysicsServer3D.BODY_MODE_STATIC)
+		PhysicsServer3D.body_add_shape(body, shape)
+		PhysicsServer3D.body_set_space(body, player.get_world_3d().space)
+		directional = {"body": body, "shape": shape}
 	var started := Time.get_ticks_usec()
 	var pairs: int = player.call("sample_detection", 1.0 / 60.0)
 	var elapsed := Time.get_ticks_usec() - started
+	_check(pairs > 0, "resident exterior observations")
 	print("PRF31 exterior cell=", player.call("gameplay_cell"), " actors=", actors, " pairs=", pairs, " detection_us=", elapsed)
 	print("PRF31 stages sync/light/observations/evaluation=", player.call("detection_stage_times"))
 	print("PRF31 resident body placements=", player.call("contact_actor_bodies"))
 	if OS.get_environment("PRF_31_BASELINE") != "1":
 		_check(elapsed <= DETECTION_BUDGET_US, "detection exceeded 2 ms")
 		await _walk_gate(player)
+	if not directional.is_empty():
+		PhysicsServer3D.free_rid(directional.body)
+		PhysicsServer3D.free_rid(directional.shape)
 	player.free()
 	streamer.free()
 	print("RESULT: ", "PASS" if failures == 0 else "FAIL", " PRF31 detection")
