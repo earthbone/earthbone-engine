@@ -369,3 +369,25 @@ Scopes on simulation and navigation threads never enter the main thread's
 clock. Unscoped rendering waits remain in the wall-frame denominator and
 do not enter the engine total. The total describes instrumented engine
 callbacks, rather than GPU execution or every Godot/GDScript callback.
+
+## Streaming readiness, Mudcrab PR 206
+
+`StreamingFrame` ports the count and readiness separation from Mudcrab's
+`docs/research/streaming-trace.md` at PR 206 `1fd08d7`. Attribution and the MIT
+text are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+`FrameSnapshot` captures thread-local cumulative transitions at its boundary,
+and `FrameSample.streaming` reports the requested, CPU-completed, failed and
+stale-response deltas at completion. Desired, drawable and retained fields
+are current coverage gauges. Multiple planner updates in one frame add
+transitions rather than replacing them. Frames with no work have zero deltas
+while keeping the latest coverage. The counters share existing frame timing
+and `FrameHistory` order, adding no separate frame clock or worker latency sum.
+Coverage describes the latest reporting planner on this thread, rather than
+a sum over worldspaces or a renderer inventory. Exterior teardown clears the
+gauges when its planner leaves the active player location.
+
+Drawable coverage means accepted Godot RID submission or validated empty
+border coordinates. It does not establish pixels, GPU completion, collision
+registration or process memory. Godot lacks Bevy's RenderMesh inventory in
+this host path. No expensive render inventory scan or resource handle retention
+is added. The counters are transient and add no save section or dependency.

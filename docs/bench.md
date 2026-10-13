@@ -138,3 +138,13 @@ are gated on SKYRIM_DATA. Sources read include local UESP GMST, xEdit's
 The existing readers and host skinning implementation supply the algorithms.
 No new external dependency was added. HKX and NIF are existing workspace
 crates, NIF moved from a test dependency to a runtime dependency here.
+
+## Streaming acknowledgements
+
+The synchronous stress workload acknowledges requested cells only after its
+surfaces are built, then acknowledges drawable coverage. Its retirement pass
+releases old surfaces after replacement coverage is ready. The existing
+resident-count equality, 49-cell bound and work-count limits remain enforced.
+This adapts the benchmark to the host's Mudcrab-derived lifecycle without
+changing its workload or timing thresholds. Minute-based duration constructors
+preserve the existing two- and four-minute process deadlines.

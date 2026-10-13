@@ -294,6 +294,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +506,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -7973,7 +7975,6 @@ Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
 
-
 ### Audio integration corrections, second round, 2026-10-12
 
 AUD-12's stop-fade and cancellation scenes require the GDScript `stop_music`
@@ -8036,3 +8037,148 @@ regional descriptor list is empty. Its landing grid cell supplies the ambience
 and regional music before the first movement step. This follows the existing
 persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
 CELL and regional selection contract.
+
+## Mudcrab streaming port, HST-31
+
+The exterior planner follows Mudcrab main `268f988` cell response generation
+checks and PR 210 `4db055d` demand ordering. The GPL host port retains the MIT
+notices in its source and [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+The local comparison notes, Mudcrab's streaming source, PR 210 priority source
+and research note, PR 206 trace note and PR 212 comparison results were read.
+No executable-derived material was used.
+
+Each admitted attempt has a process-unique generation and moves from
+requested through loading to drawable, or to failed. CPU completion is a
+separate acknowledgement while loading. Only drawable and retiring cells are
+resident. Wrong-generation and wrong-state responses cannot change residency.
+Failures retry at most twice after delays of two and four planner ticks.
+An exhausted failure stays observable until it leaves the retention band or the caller
+explicitly resets it after repair. Canceling and reentering demand gets a new
+generation. Retirement keeps drawable ownership until its acknowledgement.
+Revival invalidates old retirement tokens. Reconfiguration cannot reuse an
+old request generation.
+
+Walking reprioritizes current demand from the camera direction in stable
+Skyrim coordinates. The scalar port preserves nearby collision protection
+within 4,096 units of the bounds surface, conservative view-facing bounds,
+projected radius, surface distance, stable age and coordinate ties. Each cell
+uses its horizontal bounding sphere as a conservative collision candidate.
+The current cell and the next cell along movement get ordinary priority.
+Every eighth served request uses the oldest relevant queued age. Budget scans
+that do not fit consume no service choices. Cell bounds do not describe
+individual building or clutter bounds. Godot submits the cell's existing
+batched geometry as one admission unit rather than Bevy scene placements.
+
+Old drawable cells outside the unload band remain until all replacement
+demand is drawable. This uses the old-cell handoff option and does not change
+distant visibility or Full LOD selection. Failed replacements retain that
+fallback and expose missing desired coverage. Persistent failure can retain
+old resources until demand changes or the failure is repaired. Cell windows
+and existing count, triangle and byte budgets retain their fixed defaults.
+No adaptive policy was added.
+
+`StreamPlan.requests` and `retirements` carry attempt tokens. Signal consumers
+capture `CellStreamerNode.cell_request_generation` and call `acknowledge_cell`
+with loading, completed, drawable, failed, retired or retirement_failed.
+`retire_exterior_cell` checks the captured generation before releasing RIDs.
+`mark_unloaded` remains an explicit reset for external resource disposal.
+`settle` drains planning only, and does not declare submitted requests resident.
+Startup acknowledges its already installed location. Walking reports each
+failed cell independently and retries without stopping the game loop.
+Byte-budget preflight still decodes candidates to measure their exact cost.
+That work is outside the admitted-request limits and can still hitch.
+
+Drawable means CPU geometry accepted by the existing Godot RID install path.
+It does not mean GPU execution completed or prove pixels or safe movement.
+Godot has no Bevy RenderMesh preparation record or recursive scene-job
+admission equivalent in this path. The host retains RenderingServer resources
+and bundled Jolt, with no Bevy, Rapier, new dependency or per-reference node.
+Frame counters distinguish requested and CPU-completed transitions from
+current desired, drawable and retained coordinate coverage. An absent border
+cell is acknowledged as validated empty coverage, without inventing a CELL
+record or a render resource. Drawable latency logs start at admission,
+excluding byte-budget preflight. Existing load attribution measures preflight.
+
+Exterior teardown clears the thread's coverage gauges before an interior or
+new exterior replaces the old location. Otherwise an interior frame could
+keep reporting the last exterior's drawable square.
+
+Validation used 29 focused streaming cases, including the scalar priority
+ports, ten HST-08 budget and adversarial cases, one trace frame-correlation
+case and seven stress cases. All passed. The stress consumer in `bench`
+needed explicit completion and retirement acknowledgements. Its original
+49-cell residency bound, work counts and release checks remain intact.
+That consumer adaptation is the implementation exception outside host and
+trace. Equal-duration spellings in bench and one game test, an equivalent
+option zip in host ragdoll code and three existing heading spacing defects
+were corrected for the current lint tools. No check was removed or weakened.
+
+The full `tools/lint.sh` run exited 101 after 5,232 passes, at twelve game
+AI/navigation failures. An archive of untouched `735176dff` reproduced the
+same twelve failures with 4,241 game integration passes. The failures cover
+follow across cells, travel across cells, sleep routing and runtime obstacle
+invalidation, including their repeated fixture imports. All preceding gate
+stages passed, including all feature and target clippy runs, prose, Markdown,
+TOML, fuzz formatting and 52 Python runner contracts. Cargo deny and cargo
+audit were absent and skipped. Fourteen existing ignored tests in the
+continued workspace run were retained. No ignore or lint exemption was added.
+The non-installed gate used the run's real cargo with two to four build jobs
+and two test threads. The wrapper's injected lint names are unsupported by this
+clippy. The project already emits an unknown-lint configuration warning and
+a dependency future-incompatibility warning. Installed tests and every
+release build still use the run's wrappers and release lock.
+
+A continued workspace run reported 8,568 passes and 27 failures. Besides the
+twelve baseline game failures, fifteen host checks required `SOE_GODOT_BIN`
+which was unset for that run. Synthetic reruns with the provided Godot wrapper
+on `:99` reported nineteen passes, including one installed-data early return.
+Warm-up, frame timing, mixer and menu registration checks passed. These reruns
+used real cargo without installed data and one test thread. The TOOL-06
+logging fixture's nested release build uses compile-time real cargo, bypassing
+the run's release lock. That invocation was stopped before hosted checks.
+The installed PLY-04 empty-route check was not rerun. No assertion was changed
+to hide either gap. The backlog rows stay unfinished while their gate and
+complete-route checks are unmet.
+
+## Mudcrab installed route evidence, HST-32
+
+The fixture walks the authored inn exit, the Whiterun gate approach, the
+return approach and the inn return door using ordinary player movement and
+NAVM points. It never teleports. Each walking leg has a sixty-second wall
+limit fixed before measurement. Hitches are frames over 33.4 ms, also fixed
+before measurement. Each fresh process uses the same 640 by 360 window,
+sixty FPS ceiling and five-second quiet period, with unchanged fixed budgets.
+The run's cargo and Godot wrappers serialize installed tests on Xvfb `:99`
+and select software Vulkan. This sandbox exposes no NVIDIA or DRM render
+device. No Skyrim process or desktop `:0` window was launched.
+
+The baseline reached the inn exit and city entry, then failed the gate walk.
+It reported 86 hitches across 150 frames, worst 6,721.006 ms, elapsed
+69.149485 seconds and peak Godot VmRSS 16,235,360 KiB. The first after attempt
+exited by signal before its route summary, with sampled peak VmRSS
+15,959,704 KiB. Hitch counts and drawable timings for that attempt are
+unavailable. The logs retain that failed attempt. Its terminating signal was
+not captured by the first collector, and no cause is inferred.
+
+The baseline observed submitted batches at `WhiterunWorld:6,-2` on its first
+focus probe, reporting 0 ms. This cell was already loaded. That value is
+first-focus observation to RID presence, not cold request-to-drawable time.
+The collector checks only every eighth frame and reports its own collection
+cost, 0.856 ms in the baseline. Admission-to-RID latency logs from the new
+planner exclude CPU cost preflight and do not prove GPU completion. The
+gate and return cells were not reached, so their latency is unmeasured.
+Partial routes and a terminated attempt cannot establish an improvement.
+Raw route artifacts are under `target/mudcrab_streaming/{before,after}`.
+
+A final release rebuild remained queued for over twenty-seven minutes with
+the installed-test and release locks occupied and less than the wrapper's
+24 GiB build threshold available. Its tracked session was stopped with exit
+130 before compilation began. A queued route repeat was also stopped with
+exit 130 during debug compilation, before Godot launched. The earlier port
+release build passed in seven minutes forty seconds and supplied the failed
+after route. The final exterior-teardown gauge clear compiled in every gate
+feature range but has not been tested in the hosted release. No extension
+was replaced while an owned route process was running.
+
+This report belongs to the scratch `lead-play-stream-port` checkout,
+detached from integration commit `735176dff`. No master branch was changed.

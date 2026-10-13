@@ -185,7 +185,7 @@ impl LiveRagdoll {
                 .bone_to_body
                 .iter()
                 .position(|entry| *entry == Some(soe_hkx::ragdoll::BodyIndex(index)))
-                .and_then(|bone| map.body_to_animated[index].map(|high| (bone, high)))
+                .zip(map.body_to_animated[index])
                 .and_then(|(bone, high)| {
                     animated_model.get(high).map(|pose| {
                         as_godot(&Affine::from_qs(pose))

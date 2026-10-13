@@ -268,6 +268,7 @@ pub fn with_timing_suspended<T>(work: impl FnOnce() -> T) -> T {
 pub struct FrameSnapshot {
     totals: [u64; SYSTEM_COUNT],
     memory: crate::MemorySnapshot,
+    streaming: crate::StreamingFrame,
     start: Instant,
     _thread: PhantomData<Rc<()>>,
 }
@@ -290,6 +291,7 @@ impl FrameSnapshot {
         Self {
             totals,
             memory: crate::MemorySnapshot::now(),
+            streaming: crate::streaming_snapshot(),
             start,
             _thread: PhantomData,
         }
@@ -301,6 +303,7 @@ impl FrameSnapshot {
         let end = Self::now();
         FrameSample {
             frame_ns: nanos(end.start.duration_since(self.start)),
+            streaming: end.streaming.since(self.streaming),
             system_ns: std::array::from_fn(|index| {
                 end.totals[index].saturating_sub(self.totals[index])
             }),
@@ -317,6 +320,8 @@ impl FrameSnapshot {
 /// uses time between presentation callbacks, including idle and rendering waits.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FrameSample {
+    /// Transitions since this frame boundary and current submitted-cell coverage.
+    pub streaming: crate::StreamingFrame,
     pub frame_ns: u64,
     pub system_ns: [u64; SYSTEM_COUNT],
     pub live_bytes: [u64; SYSTEM_COUNT],

@@ -695,7 +695,7 @@ fn tst_19_pixel_and_pose_predicates_reject_blank_frozen_and_opaque_controls() {
         &directory.path().join("heartbeat.json"),
         &stdout_path,
         Duration::from_secs(2),
-        Duration::from_secs(60),
+        Duration::from_mins(1),
     );
     let stdout = fs::read_to_string(stdout_path).unwrap();
     let stderr = fs::read_to_string(stderr_path).unwrap();

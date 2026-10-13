@@ -63,7 +63,7 @@ fn cmb_27_live_godot_hit_plays_reaction_returns_and_damages_once() {
         .spawn()
         .expect("Godot starts for the CMB-27 live hit check");
 
-    let Some(output) = wait_for_exit(child, Duration::from_secs(180)) else {
+    let Some(output) = wait_for_exit(child, Duration::from_mins(3)) else {
         panic!("CMB-27 live Godot check exceeded 180 seconds");
     };
     let stdout = String::from_utf8_lossy(&output.stdout);

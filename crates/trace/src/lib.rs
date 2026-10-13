@@ -38,7 +38,10 @@ pub use frame::{
 mod memory;
 pub use memory::{memory_allocated, memory_freed, MemorySnapshot};
 mod stream;
-pub use stream::{LoadCapture, LoadMeasure, LoadRecorder, LoadReport, LoadStage};
+pub use stream::{
+    streaming_coverage, streaming_snapshot, streaming_transition, LoadCapture, LoadMeasure,
+    LoadRecorder, LoadReport, LoadStage, StreamingFrame, StreamingTransition,
+};
 
 mod work;
 pub use work::{count, Operation, WorkCounts, WorkFrame, WorkRecorder};

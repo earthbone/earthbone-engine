@@ -109,6 +109,7 @@ mod tests {
             system_ns: std::array::from_fn(|index| (index as u64 + 1) * 1_000_000),
             live_bytes: [0; SYSTEM_COUNT],
             allocation_calls: [0; SYSTEM_COUNT],
+            streaming: soe_trace::StreamingFrame::default(),
         };
         let values = system_frame_values(&sample);
         assert_eq!(values.len(), System::ALL.len());

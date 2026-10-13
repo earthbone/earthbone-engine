@@ -54,6 +54,12 @@ fn hst_08_oversized_nearest_cell_is_deferred_while_later_cell_fits() {
         },
     );
     assert_eq!(plan.load, [CellCoord::new(-1, 0)]);
+    assert!(!streamer.is_resident(CellCoord::new(-1, 0)));
+    for request in plan.requests {
+        assert!(streamer.mark_loading(request));
+        assert!(streamer.mark_completed(request));
+        assert!(streamer.mark_drawable(request));
+    }
     assert!(streamer.is_resident(CellCoord::new(-1, 0)));
     assert!(!streamer.is_resident(CellCoord::new(0, 0)));
 }
@@ -97,7 +103,12 @@ fn hst_08_unloads_are_not_suppressed_by_load_mesh_budget() {
         max_unloads_per_tick: 0,
     })
     .unwrap();
-    streamer.update(SkyrimPos::new(0.0, 0.0, 0.0));
+    let initial = streamer.update(SkyrimPos::new(0.0, 0.0, 0.0));
+    for request in initial.requests {
+        assert!(streamer.mark_loading(request));
+        assert!(streamer.mark_completed(request));
+        assert!(streamer.mark_drawable(request));
+    }
     let plan = streamer.update_with_budget(
         SkyrimPos::new(4096.0 * 4.0, 0.0, 0.0),
         StreamBudget {
@@ -107,6 +118,23 @@ fn hst_08_unloads_are_not_suppressed_by_load_mesh_budget() {
         |_| StreamCost {
             triangles: 0,
             bytes: 0,
+        },
+    );
+    assert!(plan.unload.is_empty());
+    for request in plan.requests {
+        assert!(streamer.mark_loading(request));
+        assert!(streamer.mark_completed(request));
+        assert!(streamer.mark_drawable(request));
+    }
+    let plan = streamer.update_with_budget(
+        SkyrimPos::new(4096.0 * 4.0, 0.0, 0.0),
+        StreamBudget {
+            triangles: 1,
+            bytes: 1,
+        },
+        |_| StreamCost {
+            triangles: usize::MAX,
+            bytes: usize::MAX,
         },
     );
     assert_eq!(plan.unload, [CellCoord::new(0, 0)]);

@@ -152,22 +152,45 @@ impl Workload {
         if config.includes("streaming") {
             // A bounded back-and-forth route revisits allocations during a soak.
             let x = (self.tick % 64).min(64 - self.tick % 64) as f32;
-            let plan = self.streamer.update(SkyrimPos::new(
-                (x + 0.5) * CELL_UNITS,
-                0.5 * CELL_UNITS,
-                0.0,
-            ));
-            for cell in plan.unload {
-                self.cells.remove(&cell);
+            let focus = SkyrimPos::new((x + 0.5) * CELL_UNITS, 0.5 * CELL_UNITS, 0.0);
+            let plan = self.streamer.update(focus);
+            for request in plan.retirements {
+                self.cells.remove(&request.cell);
+                if !self.streamer.mark_retired(request) {
+                    return Err("stress retirement acknowledgement was rejected".into());
+                }
             }
-            for cell in plan.load {
+            for request in plan.requests {
+                if !self.streamer.mark_loading(request) {
+                    return Err("stress loading acknowledgement was rejected".into());
+                }
                 let surfaces: Result<Vec<_>, _> = (0..config.load)
                     .map(|_| {
                         build_surface(&self.mesh, MeshOptions::default()).map_err(|e| e.to_string())
                     })
                     .collect();
-                self.cells.insert(cell, surfaces?);
+                let surfaces = match surfaces {
+                    Ok(surfaces) => surfaces,
+                    Err(error) => {
+                        self.streamer.mark_failed(request);
+                        return Err(error);
+                    }
+                };
+                self.cells.insert(request.cell, surfaces);
+                if !self.streamer.mark_completed(request) || !self.streamer.mark_drawable(request) {
+                    return Err("stress drawable acknowledgement was rejected".into());
+                }
                 self.work += config.load as u64 * 64;
+            }
+            let retired = self.streamer.update(focus);
+            if !retired.load.is_empty() {
+                return Err("stress retirement pass admitted another load".into());
+            }
+            for request in retired.retirements {
+                self.cells.remove(&request.cell);
+                if !self.streamer.mark_retired(request) {
+                    return Err("stress retirement acknowledgement was rejected".into());
+                }
             }
         }
         self.tick += 1;

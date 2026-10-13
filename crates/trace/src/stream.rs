@@ -195,6 +195,80 @@ impl Drop for LoadMeasure {
     }
 }
 
+// Ported from Mudcrab (github.com/Mudcrab-Team/mudcrab,
+// docs/research/streaming-trace.md at PR 206), MIT License,
+// Copyright (c) the Mudcrab contributors
+/// Streaming transitions reported in this frame, and current presentation gauges.
+/// CPU completion and RID submission do not establish GPU or pixel readiness.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StreamingFrame {
+    pub requested: u64,
+    pub completed: u64,
+    pub failed: u64,
+    pub stale_responses: u64,
+    pub desired: u64,
+    pub drawable: u64,
+    pub retained: u64,
+}
+
+thread_local! {
+    static STREAMING: RefCell<StreamingFrame> = const { RefCell::new(StreamingFrame {
+        requested: 0, completed: 0, failed: 0, stale_responses: 0,
+        desired: 0, drawable: 0, retained: 0,
+    }) };
+}
+
+/// Cumulative transitions on this thread plus the latest coverage gauges.
+pub fn streaming_snapshot() -> StreamingFrame {
+    STREAMING.with(|streaming| *streaming.borrow())
+}
+
+/// Lifecycle transitions with independent frame counters.
+#[derive(Debug, Clone, Copy)]
+pub enum StreamingTransition {
+    Requested,
+    Completed,
+    Failed,
+    StaleResponse,
+}
+
+/// Record one observed transition on the caller's frame thread.
+pub fn streaming_transition(transition: StreamingTransition) {
+    STREAMING.with(|streaming| {
+        let mut streaming = streaming.borrow_mut();
+        let counter = match transition {
+            StreamingTransition::Requested => &mut streaming.requested,
+            StreamingTransition::Completed => &mut streaming.completed,
+            StreamingTransition::Failed => &mut streaming.failed,
+            StreamingTransition::StaleResponse => &mut streaming.stale_responses,
+        };
+        *counter = counter.saturating_add(1);
+    });
+}
+
+/// Replace current desired, submitted desired, and all retained drawable counts.
+pub fn streaming_coverage(desired: u64, drawable: u64, retained: u64) {
+    STREAMING.with(|streaming| {
+        let mut streaming = streaming.borrow_mut();
+        streaming.desired = desired;
+        streaming.drawable = drawable;
+        streaming.retained = retained;
+    });
+}
+
+impl StreamingFrame {
+    /// Transition deltas since the boundary, keeping current coverage gauges.
+    pub fn since(self, earlier: Self) -> Self {
+        Self {
+            requested: self.requested.saturating_sub(earlier.requested),
+            completed: self.completed.saturating_sub(earlier.completed),
+            failed: self.failed.saturating_sub(earlier.failed),
+            stale_responses: self.stale_responses.saturating_sub(earlier.stale_responses),
+            ..self
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +312,27 @@ mod tests {
         for stage in LoadStage::ALL {
             assert!(report.diagnostic().contains(stage.name()));
         }
+    }
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+
+    #[test]
+    fn streaming_frames_count_completions_separately_from_drawable_coverage() {
+        let start = crate::FrameSnapshot::now();
+        streaming_transition(StreamingTransition::Requested);
+        streaming_transition(StreamingTransition::Completed);
+        streaming_coverage(25, 0, 1);
+        let frame = start.finish();
+        assert_eq!(frame.streaming.requested, 1);
+        assert_eq!(frame.streaming.completed, 1);
+        assert_eq!(frame.streaming.drawable, 0);
+        assert_eq!(frame.streaming.retained, 1);
+        let next = crate::FrameSnapshot::now().finish();
+        assert_eq!(next.streaming.requested, 0);
+        assert_eq!(next.streaming.completed, 0);
+        assert_eq!(next.streaming.desired, 25);
     }
 }
