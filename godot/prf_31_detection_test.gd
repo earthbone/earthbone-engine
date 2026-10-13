@@ -118,6 +118,12 @@ func _walk_gate(player: Node3D) -> void:
 		var phase_stages := PackedInt64Array([0, 0, 0, 0])
 		var facing: Vector2 = player.call("facing")
 		var route = WalkRoute.new(facing.x, player.call("position"))
+		var phase_start: Vector3 = player.call("position")
+		var camera: Camera3D = player.get_viewport().get_camera_3d()
+		_check(camera != null, "walk has a live camera")
+		if camera == null:
+			return
+		var camera_start := camera.global_position
 		while Time.get_ticks_usec() - started < 30000000:
 			await physics_frame
 			var direction: Vector3 = route.direction()
@@ -136,6 +142,9 @@ func _walk_gate(player: Node3D) -> void:
 				phase_stages[stage] += stages[stage]
 			cells[player.call("gameplay_cell")] = true
 			var position: Vector3 = player.call("position")
+			var camera_delta := Vector2(camera.global_position.x - camera_start.x, camera.global_position.z - camera_start.z)
+			var feet_delta := Vector2(position.x - phase_start.x, phase_start.y - position.y) * 0.0142875
+			_check(camera_delta.distance_to(feet_delta) < 0.01, "camera follows capsule on frame " + str(frame))
 			route.update(position, 1.0 / 60.0)
 			if phase == 0:
 				city_movement = maxf(city_movement, Vector2(position.x, position.y).distance_to(Vector2(city_start.x, city_start.y)))

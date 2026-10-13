@@ -185,7 +185,7 @@ impl PlayerNode {
         self.advance_detection(elapsed, Motion::Still)
     }
 
-    /// Walk the host capsule and stream its exterior before a detection sample.
+    /// Walk the host capsule and camera, then stream before a detection sample.
     /// This harness holds NPC placements fixed and omits AI planning and VM
     /// ticks, while using the complete gameplay detection entry point.
     #[func]
@@ -213,6 +213,7 @@ impl PlayerNode {
         if !self.advance_exterior() {
             return -1;
         }
+        self.update_camera();
         self.advance_detection(elapsed, Motion::Walking)
     }
 
@@ -434,10 +435,12 @@ impl PlayerNode {
         drop(shared);
         let started = std::time::Instant::now();
         let mut spaces = None;
+        let mut participants = std::collections::HashSet::new();
         let Some(actors) = self.sync_actor_bodies_and_contacts_with(|world, mut actors| {
             actors.retain(|actor| world.actor_ref(actor.actor).is_none_or(|state| !state.dead));
             let frame = crate::detection::DetectionSpaces::new(world, &actors, &events, range);
-            let candidates = frame.candidate_actors(actors, &events);
+            let (candidates, nearby) = frame.candidate_actors_with_neighbors(actors, &events);
+            participants = nearby;
             spaces = Some(frame);
             candidates
         }) else {
@@ -469,11 +472,6 @@ impl PlayerNode {
         };
         let capsules = self.actor_bodies.sight_capsules();
         let occlusion = crate::detection::ActorOcclusion::new(&capsules);
-        let participants: std::collections::HashSet<_> = spaces
-            .candidate_actors(actors.clone(), &[])
-            .iter()
-            .map(|actor| actor.actor)
-            .collect();
         let symmetric_capsules: Vec<_> = capsules
             .iter()
             .copied()
@@ -501,6 +499,8 @@ impl PlayerNode {
         let mut verified = 0;
         let mut reciprocal_verified = 0;
         let mut mismatches = 0;
+        let setup_usec = started.elapsed().as_micros();
+        let mut independent = 0;
         let observations = spaces.observations(
             &actors,
             &events,
@@ -536,8 +536,10 @@ impl PlayerNode {
                         ))
                     .then_some(false)
                 });
-                let visible = shortcut
-                    .unwrap_or_else(|| rays.visible(observer.actor, target.actor, from, to));
+                let visible = shortcut.unwrap_or_else(|| {
+                    independent += 1;
+                    rays.visible(observer.actor, target.actor, from, to)
+                });
                 if verify_occlusion && shortcut.is_some() {
                     verified += 1;
                     reciprocal_verified += usize::from(cached.is_some());
@@ -552,6 +554,7 @@ impl PlayerNode {
         );
         self.detection_stage_usec[2] = started.elapsed().as_micros() as i64;
         if verify_occlusion {
+            godot_print!("PRF31 sight setup_us={setup_usec} independent={independent}");
             godot_print!("PRF31 occlusion checked={verified} mismatches={mismatches}");
             godot_print!("PRF31 reciprocal checked={reciprocal_verified}");
             if mismatches != 0 {
