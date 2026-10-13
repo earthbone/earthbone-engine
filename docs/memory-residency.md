@@ -164,18 +164,46 @@ cargo test -p soe-godot-host --test hst_23_characters -- --nocapture
 cargo test -p soe-godot-host --test rnd_19_player_lod_capture -- --nocapture
 ```
 
-## Validation and capture blocker
+## Validation and pending installed captures
 
-The checkpoint gate uses `tools/lint.sh` with four compiler jobs. Installed
-data and the optional Godot launcher are unset for Tier 1. The complete log
-is `target/memory-gate.log`. The independent byte-cache run passes all three
-eviction, oversized-slot and negative-cache cases. Feature-range clippy also
-checks the LOD cache and shared-image accounting cases.
+Source checkpoint `155597a82eb9723bee87ea688a6cf03cced6e15e` is committed
+on detached HEAD in the scratch worktree. The installed baseline is retained
+separately. The changed release build completed in 5 minutes 55 seconds.
+Its extension SHA-256 is
+`2a87618fb2011bfcc7f602b35ace8d0f5cd92ebf781174deeefa6d27269579d0`.
 
-After captures remain unmeasured while the shared
-`soe-run/locks/release.lock` is held by another run. The release build has
-not started compilation. The queued build retains that same lock and the
-12 GiB available-memory admission floor, with one compiler job. Installed
-capture commands retain the run's cargo wrapper and one installed slot.
-Release and installed-test locks remain in force. The row remains `wip`, and no
-under-8-GiB claim is made without those after measurements.
+The full `tools/lint.sh` run uses four compiler jobs and unsets installed
+data and the optional Godot launcher for Tier 1. Its log is
+`target/memory-gate.log`. Format, every clippy mode including all targets,
+the logging facade, comment lint, prose, TOML, Markdown and fuzz formatting
+pass. The 52 performance runner contracts pass. Cargo deny and cargo audit
+are absent and reported as skips. Comment lint emits advisory findings.
+
+The gate exits 101 in game integration tests, with 5,234 passes, 12 failures
+and 11 existing ignored cases across the completed binaries. Their combined
+reported test runtime is 153.65 seconds. Game integration itself reports
+4,241 passes, 12 failures and four existing ignored cases in 10.43 seconds.
+The failures are the unchanged AI-22 follow and package navigation fixtures
+listed in the gate log. Neither game nor navmesh has a worktree change, and
+game has no dependency on godot-host. No check is weakened or removed.
+
+A separate godot-host library run passes all 440 cases in 0.54 seconds,
+including the seven new cache and image-accounting cases. Its log is
+`target/memory-host-lib.log`. The independent byte-cache run passes all
+three eviction, oversized-slot and negative-cache cases. Gated cases that
+return early without installed inputs are not installed acceptance evidence.
+
+The changed installed attribution command was submitted twice through the
+run cargo wrapper, but neither attempt reached cargo. Both owned waiters were
+stopped before final reporting. A wrapper trace using installed data and
+`cargo test --help` passes the 12 GiB memory admission floor with 22,707,668
+KiB available, then blocks at `flock 8` on `installed-0.lock`. That diagnostic
+exits 124 at its 15-second limit. It launches no Godot scene. The trace is
+`target/memory-installed-wrapper.log`.
+
+After VmRSS for PRF-35, HST-23 and RND-19 remains unmeasured. The new capture
+has not yet established actor texture sharing, zero actor image retention,
+repeated-cell stability or the under-8-GiB target on installed data.
+`target/memory/after/binary.json` identifies the built extension. Release and
+installed-test locks remain in force. The row remains `wip` pending those
+captures and a passing integration gate.
