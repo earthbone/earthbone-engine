@@ -296,6 +296,13 @@ impl World {
                 out.kept += kept;
             }
         }
+        let exterior_spaces: BTreeSet<_> = entering
+            .iter()
+            .filter_map(|cell| {
+                let space = self.cell_coordinate_space(*cell);
+                (space != *cell).then_some(space)
+            })
+            .collect();
         for cell in entering {
             let cold = !self.cell_is_resident(cell);
             out.loaded += self.prefetch_cell(cell);
@@ -308,6 +315,9 @@ impl World {
             if cold {
                 self.queue_ref_event(&targets, "OnCellLoad", false);
             }
+        }
+        for space in exterior_spaces {
+            self.initialize_exterior_actor_placements(space);
         }
         self.loaded_cell = Some(focus);
         let player = self.player();
@@ -343,6 +353,13 @@ impl World {
             self.settle_unload();
         }
         let mut loaded = 0;
+        let exterior_spaces: std::collections::BTreeSet<_> = unique
+            .iter()
+            .filter_map(|cell| {
+                let space = self.cell_coordinate_space(*cell);
+                (space != *cell).then_some(space)
+            })
+            .collect();
         for cell in unique {
             if self.attached_cells.contains(&cell) {
                 continue;
@@ -358,6 +375,9 @@ impl World {
             if cold {
                 self.queue_ref_event(&targets, "OnCellLoad", false);
             }
+        }
+        for space in exterior_spaces {
+            self.initialize_exterior_actor_placements(space);
         }
         Ok(loaded)
     }
@@ -427,6 +447,10 @@ impl World {
         self.reset_cell_on_load(cell);
         self.attached_cells.insert(cell);
         self.loaded_cell = Some(cell);
+        let space = self.cell_coordinate_space(cell);
+        if space != cell {
+            self.initialize_exterior_actor_placements(space);
+        }
         built
     }
 

@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use godot::obj::WithBaseField;
 use soe_esm::GlobalFormId;
 use soe_physics::{BodyId, PhysicsWorld};
 
@@ -89,6 +90,7 @@ impl PlayerNode {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let feet = self.feet();
         let focus = SkyrimPos::new(feet.x, feet.y, feet.z);
+        let space = self.base().get_world_3d().map(|world| world.get_space());
         let (Some(exterior), Some(source), Some(streamer), Some(physics), Some(game)) = (
             self.exterior.as_mut(),
             self.data_source.as_ref(),
@@ -98,6 +100,7 @@ impl PlayerNode {
         ) else {
             return true;
         };
+        let Some(space) = space else { return false };
         game.record_exterior_cell_loads(0);
         let coord = CellCoord::containing(focus);
         if !advance_lod(
@@ -197,6 +200,11 @@ impl PlayerNode {
         }
         let entered: Vec<_> = prepared.iter().map(|cell| cell.id).collect();
         for cell in &prepared {
+            self.query_collision
+                .append(crate::godot_physics::add_placed_query_statics(
+                    space,
+                    &cell.colliders,
+                ));
             let mut bodies = Vec::new();
             for placed in cell.colliders.iter().filter(|p| p.collider.is_static()) {
                 let body = physics.add_static(&placed.collider);
@@ -213,6 +221,9 @@ impl PlayerNode {
         for id in &departed {
             if let Some(bodies) = exterior.cells.remove(id) {
                 for body in bodies {
+                    if let Some(reference) = self.collision_references.get(&body) {
+                        self.query_collision.remove_reference(*reference);
+                    }
                     physics.remove(body);
                     untrack_collision_body(
                         &mut self.collision_references,

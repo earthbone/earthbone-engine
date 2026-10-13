@@ -735,3 +735,91 @@ query. This counts the headless controller's endpoint queries, including
 its step and floor probes, rather than claiming they are continuous sweeps.
 Counts enter the active `soe_trace::WorkFrame` and add no saved physics state.
 `tests/prf_14_work.rs` checks missed rays and capsule work in an empty world.
+
+## World surface audit, HST-31
+
+The 2026-10-13 WhiterunWorld and Bannered Mare survey reads every enabled
+REFR model carrying a collision object. At the starting checkpoint it finds
+1,550 such references and 351 whose colliders are movable. Three models carry
+only water phantoms, so they supply no blocking rigid body: references
+`0:0587B0` and `0:0587B1` use `Water/Water1024.nif`, and `0:085FCB` uses
+`Architecture/WhiteRun/WRTerrain/WRWaterPool01.nif`. The audit names these
+exceptions and rejects any other undecoded or invalid collision model.
+
+The 351 movable references omitted by location replacement group as follows.
+Shape lists describe the model's shape tree, with repeated types counted once.
+
+| Shape tree | References |
+| --- | ---: |
+| Convex vertices | 211 |
+| Box, convex transform, list | 88 |
+| Box | 22 |
+| Box, convex transform, list, MOPP | 16 |
+| Convex vertices, list, MOPP | 7 |
+| Box, convex transform, convex vertices, list, MOPP | 6 |
+| Sphere | 1 |
+
+Compressed collision now retains each chunk's reference to shared geometry.
+The referenced chunk supplies vertices, indices and strip lengths. Each
+instance retains its own transform and material index. Dangling links and
+cycles return typed errors. This follows `nifxml/nif.xml`'s `bhkCMSChunk`,
+nifly `include/bhk.hpp` and `src/bhk.cpp`, and the local Havok
+chunk declarations. The serialized fields follow the licensed nifxml and
+nifly sources. No Havok code is copied or linked.
+
+SimpleWorld's box and convex faces now triangulate their ordered convex
+boundary. The former fixed-edge fan overlapped triangles and left holes in
+rectangular faces. Projection onto the largest normal axis, a sorted planar
+boundary and a fan cover the complete face while preserving outward winding.
+The local Jolt `Geometry/ConvexHullBuilder.cpp` and
+`ConvexHullBuilder2D.cpp` supplied the ordered face and boundary comparison.
+Its incremental C++ hull objects do not fit the existing neutral Rust shapes,
+so the existing supporting-plane discovery is retained with a planar boundary
+step. No dependency is added.
+
+A separate 225-point probe of the old and corrected hull functions found
+49 uncovered top-face samples before the change and zero afterward. The new
+synthetic box and shuffled-hull test casts 450 downward rays over their top
+faces. The installed floor test samples authored NAVM walkable
+triangles on a 32-unit XY lattice. Rendered architecture, rock and LAND
+triangles supply the visible surface height at each point, with collision
+required between 16 units above and 32 units below that surface. It covers the Bannered Mare main floor
+and Whiterun market square, including inherited LAND collision. The first
+inn run found five unsupported samples out of 1,008. These thresholds are
+fixed before the corrected run.
+
+Triangle meshes retain their authored convex shell radius. SimpleWorld expands
+broad-phase bounds and capsule contacts by that radius. Rays intersect both
+parallel triangle faces and the rounded edge capsules, rather than enlarging
+the ray itself. The Godot adapter forwards the radius through
+PhysicsServer3D's shape margin API. LAND and generated mesh fixtures keep
+radius zero. Reference scaling applies to both vertices and the radius.
+
+The installed `WRIntFloorMid02.nif` diagnostic reports a 0.005 metre radius,
+about 0.35 game units, around its two quantized triangles. Its core edge is
+0.056 units short of the authored 128-unit seam. Ignoring that shell caused
+the five inn lattice misses. Synthetic tests require support through a
+0.06-unit seam with the authored shell, no hit beyond the shell, preserved
+surface material, and a capsule resting at the shell's upper surface.
+
+The square fixture uses `load_location` at the market coordinates, rather
+than the unrelated `WhiterunOrigin` benchmark grid at (4, -2). This retains
+the real loader's cells, persistent reference selection and parent LAND.
+The square's tested bounds, lattice spacing and 32-unit support limit stay
+unchanged.
+
+The 43 remaining NAVM-height misses in the square diagnostic were on existing
+stairs, rock and building-base collision. Their NAVM planes differed from
+rendered surfaces, including about 20 units at `WRStairsWater01.nif` and
+44 units at `WRGreyManeBase.nif`. The surface regression retains every XY
+sample and checks the rendered walkable geometry instead of assuming that a
+NAVM interpolation is the drawn floor. At an exact gap between render triangles it retains the NAVM height, so
+missing render geometry never skips the collision check. Every sample must
+still find collision inside the original vertical support range.
+
+Terrain collision includes only heightfield surfaces marked by the loader's
+terrain texture identity. Grass surfaces share the LAND FormID for residency,
+but do not produce physics bodies. Heightfield XY coordinates retain the
+native 128-unit sample grid after conversion from Godot coordinates, preventing
+roundoff gaps at adjoining cell edges. Height values and quadrant triangles
+remain those of the loaded LAND, including inherited parent terrain.

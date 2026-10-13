@@ -25,6 +25,8 @@ use soe_physics::{BodyId, Collider, Iso, PhysicsWorld, Shape, SimpleWorld};
 mod furniture_tests;
 #[cfg(test)]
 mod scene_tests;
+#[cfg(test)]
+mod world_tests;
 
 /// What building a cell's collision found. Counts are per reference, not per
 /// base model, so a mesh placed twenty times counts twenty times, which is

@@ -35,6 +35,8 @@ pub enum Shape {
         points: Vec<Vec3>,
     },
     TriangleMesh {
+        /// Authored collision shell around each triangle, in game units.
+        radius: f32,
         vertices: Vec<Vec3>,
         triangles: Vec<[u32; 3]>,
         /// Skyrim Havok material IDs in triangle order. Missing entries are unknown.
@@ -67,10 +69,12 @@ impl Shape {
                 points: points.into_iter().map(|p| p * s).collect(),
             },
             Shape::TriangleMesh {
+                radius,
                 vertices,
                 triangles,
                 materials,
             } => Shape::TriangleMesh {
+                radius: radius * s,
                 vertices: vertices.into_iter().map(|p| p * s).collect(),
                 triangles,
                 materials,
@@ -122,9 +126,9 @@ impl Shape {
                 Aabb::of_points([t.apply(*a), t.apply(*b)]).grow(r)
             }
             Shape::ConvexHull { points } => Aabb::of_points(points.iter().map(|p| t.apply(*p))),
-            Shape::TriangleMesh { vertices, .. } => {
-                Aabb::of_points(vertices.iter().map(|p| t.apply(*p)))
-            }
+            Shape::TriangleMesh {
+                vertices, radius, ..
+            } => Aabb::of_points(vertices.iter().map(|p| t.apply(*p))).grow(radius * t.scale),
             Shape::Compound(children) => children
                 .iter()
                 .map(|(ct, c)| c.aabb(&t.then(ct)))
@@ -340,6 +344,7 @@ fn plane_mesh(normal: Vec3, distance: f32, half_extents: Vec3, center: Vec3) -> 
         .map(|i| [0, i as u32, (i + 1) as u32])
         .collect();
     Some(Shape::TriangleMesh {
+        radius: 0.0,
         vertices,
         triangles,
         materials: Vec::new(),
@@ -479,11 +484,14 @@ fn valid_phantom_shape(shape: &Shape) -> bool {
             points.len() >= 4 && points.iter().copied().all(finite_point)
         }
         Shape::TriangleMesh {
+            radius,
             vertices,
             triangles,
             ..
         } => {
-            !triangles.is_empty()
+            radius.is_finite()
+                && *radius >= 0.0
+                && !triangles.is_empty()
                 && vertices.iter().copied().all(finite_point)
                 && triangles
                     .iter()
@@ -745,9 +753,13 @@ impl<'a> Walker<'a> {
                     inner
                 }
             }
-            Bhk::CompressedMesh { data, scale, .. } => match self.bhk(data)? {
+            Bhk::CompressedMesh {
+                data,
+                scale,
+                radius,
+            } => match self.bhk(data)? {
                 Some(Bhk::CompressedMeshData(d)) => {
-                    let mesh = compressed_mesh(&d, scale);
+                    let mesh = compressed_mesh(&d, scale, radius)?;
                     if mesh.triangle_count() == 0 {
                         self.out
                             .skipped
@@ -764,7 +776,12 @@ impl<'a> Walker<'a> {
                     None
                 }
             },
-            Bhk::NiTriStrips { strips, scale, .. } => {
+            Bhk::NiTriStrips {
+                strips,
+                scale,
+                radius,
+                ..
+            } => {
                 let mut vertices = Vec::new();
                 let mut triangles = Vec::new();
                 let mut materials = Vec::new();
@@ -812,6 +829,7 @@ impl<'a> Walker<'a> {
                     None
                 } else {
                     Some(Shape::TriangleMesh {
+                        radius,
                         vertices,
                         triangles,
                         materials,
@@ -844,7 +862,10 @@ impl<'a> Walker<'a> {
 }
 
 /// Chunks and big triangles as one triangle mesh in the shape's space.
-fn compressed_mesh(d: &CompressedMeshData, scale: Vec3) -> Shape {
+fn compressed_mesh(d: &CompressedMeshData, scale: Vec3, radius: f32) -> Result<Shape> {
+    if !radius.is_finite() || radius < 0.0 {
+        return Err(Error::Invalid("compressed mesh radius".into()));
+    }
     let mut vertices = Vec::new();
     let mut triangles = Vec::new();
     let mut materials = Vec::new();
@@ -856,10 +877,26 @@ fn compressed_mesh(d: &CompressedMeshData, scale: Vec3) -> Shape {
             .get(chunk.transform_index as usize)
             .copied()
             .unwrap_or(Iso::IDENTITY);
-        vertices.extend(chunk.positions().map(|p| s(transform.apply(p))));
-        let n = chunk.vertices.len() as u16;
-        for t in chunk.triangles() {
-            if t.iter().all(|&i| i < n) {
+        let mut geometry = chunk;
+        let mut hops = 0;
+        while geometry.reference != u16::MAX {
+            geometry = d
+                .chunks
+                .get(usize::from(geometry.reference))
+                .ok_or_else(|| {
+                    Error::Invalid("compressed mesh chunk reference out of bounds".into())
+                })?;
+            hops += 1;
+            if hops > d.chunks.len() {
+                return Err(Error::Invalid(
+                    "compressed mesh chunk reference cycle".into(),
+                ));
+            }
+        }
+        vertices.extend(geometry.positions().map(|p| s(transform.apply(p))));
+        let n = geometry.vertices.len();
+        for t in geometry.triangles() {
+            if t.iter().all(|&i| usize::from(i) < n) {
                 triangles.push([base + t[0] as u32, base + t[1] as u32, base + t[2] as u32]);
                 materials.push(d.materials.get(chunk.material_index as usize).map(|m| m.0));
             }
@@ -874,9 +911,76 @@ fn compressed_mesh(d: &CompressedMeshData, scale: Vec3) -> Shape {
             materials.push(d.materials.get(*material_index as usize).map(|m| m.0));
         }
     }
-    Shape::TriangleMesh {
+    Ok(Shape::TriangleMesh {
+        radius,
         vertices,
         triangles,
         materials,
+    })
+}
+
+#[cfg(test)]
+mod chunk_reference_tests {
+    use super::*;
+    use crate::bhk::CompressedChunk;
+
+    fn data() -> CompressedMeshData {
+        CompressedMeshData {
+            error: 0.001,
+            aabb_min: Vec3::ZERO,
+            aabb_max: Vec3::new(10.0, 10.0, 10.0),
+            materials: vec![(1, Layer::STATIC), (2, Layer::GROUND)],
+            transforms: vec![
+                Iso::IDENTITY,
+                Iso::from_parts(crate::Mat3::IDENTITY, Vec3::new(5.0, 0.0, 0.0)),
+            ],
+            big_vertices: Vec::new(),
+            big_triangles: Vec::new(),
+            chunks: vec![
+                CompressedChunk {
+                    translation: Vec3::new(1.0, 0.0, 0.0),
+                    material_index: 0,
+                    reference: u16::MAX,
+                    transform_index: 0,
+                    vertices: vec![[0, 0, 0], [1000, 0, 0], [0, 1000, 0]],
+                    indices: vec![0, 1, 2],
+                    strips: Vec::new(),
+                },
+                CompressedChunk {
+                    translation: Vec3::ZERO,
+                    material_index: 1,
+                    reference: 0,
+                    transform_index: 1,
+                    vertices: Vec::new(),
+                    indices: Vec::new(),
+                    strips: Vec::new(),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn compressed_chunk_instance_retains_geometry_transform_and_material() {
+        let Shape::TriangleMesh {
+            vertices,
+            triangles,
+            materials,
+            radius: _,
+        } = compressed_mesh(&data(), Vec3::new(2.0, 2.0, 2.0), 0.0).expect("mesh")
+        else {
+            panic!("mesh")
+        };
+        assert_eq!(triangles, [[0, 1, 2], [3, 4, 5]]);
+        assert_eq!(vertices[3], Vec3::new(12.0, 0.0, 0.0));
+        assert_eq!(materials, [Some(1), Some(2)]);
+    }
+
+    #[test]
+    fn compressed_chunk_bad_reference_and_cycle_are_rejected() {
+        for reference in [2, 1] {
+            let mut data = data();
+            data.chunks[1].reference = reference;
+            assert!(compressed_mesh(&data, Vec3::new(1.0, 1.0, 1.0), 0.0).is_err());
+        }
     }
 }

@@ -33,6 +33,7 @@ fn material(id: u32, shape: Shape) -> Shape {
 #[test]
 fn mixed_faces_keep_materials_after_invalid_faces_are_skipped() {
     let shape = Shape::TriangleMesh {
+        radius: 0.0,
         vertices: vec![
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(20.0, 0.0, 0.0),
@@ -87,6 +88,7 @@ fn nested_materials_do_not_leak_to_sibling_shapes() {
             child(
                 30.0,
                 Shape::TriangleMesh {
+                    radius: 0.0,
                     vertices: vec![
                         Vec3::new(-2.0, -2.0, 0.0),
                         Vec3::new(2.0, -2.0, 0.0),

@@ -434,17 +434,20 @@ fn the_floor_collects_to_a_triangle_mesh_in_game_units() {
         vertices,
         triangles,
         materials,
+        radius,
     } = &col.shape
     else {
         panic!("expected a triangle mesh, got {:?}", col.shape);
     };
     assert_eq!(triangles.len(), 2);
+    assert_eq!(*radius, 0.005 * UNITS_PER_METER);
     assert_eq!(materials, &[Some(1), Some(1)]);
     let half = 10.0 * UNITS_PER_METER;
     assert!((vertices[0] - Vec3::new(-half, -half, 0.0)).length() < 0.05);
     assert!((vertices[2] - Vec3::new(half, half, 0.0)).length() < 0.05);
     let bb = col.aabb();
-    assert!((bb.max.x - half).abs() < 0.05 && bb.min.z.abs() < 1e-3);
+    let shell = 0.005 * UNITS_PER_METER;
+    assert!((bb.max.x - half - shell).abs() < 0.05 && (bb.min.z + shell).abs() < 1e-3);
 }
 
 #[test]
@@ -710,6 +713,7 @@ fn fmt_09_strips_fixture_preserves_collision_triangles_and_winding() {
     };
     let Bhk::NiTriStrips {
         material,
+        radius,
         scale,
         strips,
         filters,
@@ -718,6 +722,7 @@ fn fmt_09_strips_fixture_preserves_collision_triangles_and_winding() {
         panic!("expected a triangle strip shape");
     };
     assert_eq!(material, 0x1234);
+    assert_eq!(radius, 0.1);
     assert_eq!(scale, Vec3::new(2.0, 3.0, 1.0));
     assert_eq!(strips, [BlockRef(4)]);
     assert_eq!(filters, [(Layer::STATIC, 0, 0)]);
@@ -732,11 +737,13 @@ fn fmt_09_strips_fixture_preserves_collision_triangles_and_winding() {
         vertices,
         triangles,
         materials,
+        radius,
     } = shape.as_ref()
     else {
         panic!("expected a triangle mesh");
     };
     assert_eq!(triangles, &[[0, 1, 2], [2, 1, 3]]);
+    assert_eq!(*radius, 0.1 * UNITS_PER_METER);
     assert_eq!(materials, &[Some(0x1234), Some(0x1234)]);
     assert_eq!(vertices[1], Vec3::new(2.0, 0.0, 0.0) * UNITS_PER_METER);
     assert_eq!(vertices[3], Vec3::new(2.0, 3.0, 0.0) * UNITS_PER_METER);

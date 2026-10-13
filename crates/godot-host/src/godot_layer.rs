@@ -1450,11 +1450,23 @@ impl CellStreamerNode {
         let Some(scenario) = self.scenario() else {
             return false;
         };
+        let Some(space) = self.base().get_world_3d().map(|world| world.get_space()) else {
+            return false;
+        };
         let before = self.materials.len();
         let mut totals = StreamTotals::default();
         for cell in entered {
             totals.cell_list.push(cell.id.to_string());
             self.install_cell(cell.id, &cell.loaded, scenario, &mut totals, Some(world));
+            self.install_movable_collision(space, &cell.colliders);
+        }
+        if let Some(source) = &self.data_source {
+            for cell in departed {
+                for reference in source.presentation_references(*cell) {
+                    self.tethers.release_reference(*reference);
+                    self.collision.remove_reference(*reference);
+                }
+            }
         }
         let mut server = RenderingServer::singleton();
         self.effect_shaders.retain(|_, effect| {
@@ -1495,6 +1507,26 @@ impl CellStreamerNode {
         true
     }
 
+    /// Keep movable authored bodies when a door or grid load replaces presentation.
+    fn install_movable_collision(
+        &mut self,
+        space: Rid,
+        placed: &[crate::collision::PlacedCollider],
+    ) {
+        let movable: Vec<_> = placed
+            .iter()
+            .filter(|placed| !placed.collider.is_static())
+            .map(|placed| crate::collision::PlacedCollider {
+                reference: placed.reference,
+                collider: placed.collider.clone(),
+                original: placed.original,
+            })
+            .collect();
+        self.collision
+            .append(crate::godot_physics::add_placed_statics(space, &movable));
+        self.collision_space = Some(space);
+    }
+
     /// Replace drawn resources after CPU preparation succeeds, including resident door controls.
     pub(crate) fn replace_location(
         &mut self,
@@ -1504,7 +1536,11 @@ impl CellStreamerNode {
         let Some(scenario) = self.scenario() else {
             return false;
         };
+        let Some(space) = self.base().get_world_3d().map(|world| world.get_space()) else {
+            return false;
+        };
         self.clear();
+        self.install_movable_collision(space, &location.collision.placed);
         let before = self.materials.len();
         let mut totals = StreamTotals::default();
         for (id, cell) in &location.cells {
@@ -4030,7 +4066,8 @@ impl CellStreamerNode {
                 }
             }
             if let Some(space) = self.collision_space.filter(|_| {
-                self.collision_cell == Some(cell) && self.collision.body_for_reference(id).is_none()
+                self.rendered_cells.contains(&cell)
+                    && self.collision.body_for_reference(id).is_none()
             }) {
                 match source.placed_reference_colliders(id) {
                     Ok(placed) => self

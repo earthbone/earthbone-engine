@@ -273,7 +273,7 @@ impl CellBodies {
         self.movable.append(&mut other.movable);
     }
 
-    /// Release the static query bodies belonging to one reference.
+    /// Release every host body belonging to a departing reference.
     pub(crate) fn remove_reference(&mut self, reference: GlobalFormId) {
         let before = self.entries.len();
         let mut server = PhysicsServer3D::singleton();
@@ -290,10 +290,27 @@ impl CellBodies {
             self.stats.shapes = self.stats.shapes.saturating_sub(entry.shapes.len());
             false
         });
+        let movable_before = self.movable.len();
+        self.movable.retain(|entry| {
+            if entry.reference != reference {
+                return true;
+            }
+            server.free_rid(entry.body);
+            self.applied_collision_state.remove(&entry.body);
+            for &shape in &entry.shapes {
+                server.free_rid(shape);
+            }
+            self.stats.bodies = self.stats.bodies.saturating_sub(1);
+            self.stats.shapes = self.stats.shapes.saturating_sub(entry.shapes.len());
+            false
+        });
+        if self.grabbed_reference == Some(reference) {
+            self.grabbed_reference = None;
+        }
         // CONTEXT: Only a real removal changes the entry count, so the placement
         // index is rebuilt then and not on every call for a reference without
         // bodies. Without this each sync re-indexed every static entry.
-        if self.entries.len() != before {
+        if self.entries.len() != before || self.movable.len() != movable_before {
             self.indexed_counts = (usize::MAX, usize::MAX);
             self.collision_state_dirty = true;
         }
@@ -1205,7 +1222,7 @@ fn build_body(
     }
     if mode == BodyMode::RIGID {
         let count = prims.len();
-        prims.retain(|prim| !matches!(prim, GodotPrim::Trimesh(_)));
+        prims.retain(|prim| !matches!(prim, GodotPrim::Trimesh(_, _)));
         stats.skipped += count - prims.len();
     }
     if prims.is_empty() {
@@ -1222,7 +1239,7 @@ fn build_body(
     for prim in prims {
         let mut transform = Transform3D::IDENTITY;
         let shape = match prim {
-            GodotPrim::Trimesh(faces) => {
+            GodotPrim::Trimesh(faces, radius) => {
                 stats.triangles += faces.len() / 3;
                 let rid = server.concave_polygon_shape_create();
                 let mut data: Dictionary<Variant, Variant> = Dictionary::new();
@@ -1230,6 +1247,7 @@ fn build_body(
                 data.set("faces", &packed);
                 data.set("backface_collision", true);
                 server.shape_set_data(rid, &data.to_variant());
+                server.shape_set_margin(rid, radius);
                 rid
             }
             GodotPrim::Box {
@@ -1393,7 +1411,7 @@ fn report_repaired_hull_once(source_mesh: &str) -> bool {
 /// Primitive dimensions are in metres, following PhysicsServer3D's shape data.
 #[derive(Debug)]
 enum GodotPrim {
-    Trimesh(Vec<Vector3>),
+    Trimesh(Vec<Vector3>, f32),
     Convex(Vec<Vector3>),
     Box {
         half_extents: Vector3,
@@ -1468,6 +1486,7 @@ fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<GodotPrim>) {
             }
         }
         Shape::TriangleMesh {
+            radius,
             vertices,
             triangles,
             ..
@@ -1486,7 +1505,10 @@ fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<GodotPrim>) {
                 }
             }
             if !faces.is_empty() {
-                out.push(GodotPrim::Trimesh(faces));
+                out.push(GodotPrim::Trimesh(
+                    faces,
+                    radius * t.scale * crate::units::METRES_PER_UNIT,
+                ));
             }
         }
         Shape::Compound(children) => {
@@ -2092,6 +2114,7 @@ func _initialize():
             Vec3::new(30.75, 40.25, 0.125),
         ];
         let shape = Shape::TriangleMesh {
+            radius: 0.0,
             materials: Vec::new(),
             vertices: vertices.clone(),
             triangles: vec![[0, 1, 2]],
@@ -2101,7 +2124,7 @@ func _initialize():
                 let offset = Vec3::new(cell * 4096.0, y * 4096.0, 128.0);
                 let mut out = Vec::new();
                 flatten(&shape, &Iso::translation(offset), &mut out);
-                let GodotPrim::Trimesh(faces) = &out[0] else {
+                let GodotPrim::Trimesh(faces, _) = &out[0] else {
                     panic!("triangle mesh expected")
                 };
                 assert_eq!(faces.len(), 3);
