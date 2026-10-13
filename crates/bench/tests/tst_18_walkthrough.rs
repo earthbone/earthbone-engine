@@ -112,7 +112,7 @@ fn walkthrough(cell: &str) {
         .expect("launch walkthrough check");
     let stdout = drain(child.stdout.take().expect("stdout pipe"));
     let stderr = drain(child.stderr.take().expect("stderr pipe"));
-    let deadline = Instant::now() + Duration::from_secs(240);
+    let deadline = Instant::now() + Duration::from_mins(4);
     let mut timed_out = false;
     let status = loop {
         if let Some(status) = child.try_wait().expect("read child status") {

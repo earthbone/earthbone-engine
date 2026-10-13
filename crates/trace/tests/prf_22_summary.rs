@@ -14,6 +14,7 @@ fn prf_22_summary_preserves_metadata_and_excludes_overlapping_systems_from_plugi
         system_ns: [10; SYSTEM_COUNT],
         live_bytes: [0; SYSTEM_COUNT],
         allocation_calls: [0; SYSTEM_COUNT],
+        streaming: soe_trace::StreamingFrame::default(),
     };
     Profile::systems("game", &frame);
     assert!(Profile::summary().is_empty());

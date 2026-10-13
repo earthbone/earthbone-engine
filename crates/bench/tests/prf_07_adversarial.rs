@@ -31,7 +31,7 @@ fn cold_sample(binary: &Path) -> serde_json::Value {
         .stderr(Stdio::from(output))
         .spawn()
         .expect("launch optimized cold stress child");
-    let deadline = Instant::now() + Duration::from_secs(120);
+    let deadline = Instant::now() + Duration::from_mins(2);
     let mut timed_out = false;
     let status = loop {
         if let Some(status) = child.try_wait().expect("read stress child status") {

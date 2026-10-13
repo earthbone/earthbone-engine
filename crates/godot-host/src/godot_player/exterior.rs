@@ -3,7 +3,7 @@
 //! Walking grid deltas follow OpenMW Scene::changeCellGrid and the host's
 //! hysteresis planner. Render and physics resources retain their CELL owners.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 use godot::obj::WithBaseField;
 use soe_esm::GlobalFormId;
@@ -131,56 +131,77 @@ impl PlayerNode {
             self.loaded_cell = Some(cell);
             return true;
         }
-        // Commit the planner only after every requested cell has prepared successfully.
-        let mut planner = exterior.planner.clone();
+        let direction = self.rig.look_direction();
+        exterior.planner.set_view([
+            f64::from(direction.x),
+            f64::from(direction.y),
+            f64::from(direction.z),
+        ]);
         let budget = StreamBudget {
             triangles: usize::try_from(self.exterior_triangle_budget).unwrap_or_default(),
             bytes: usize::try_from(self.exterior_byte_budget).unwrap_or_default(),
         };
         let candidates = if budget == StreamBudget::default() {
-            planner.update(focus).load
+            exterior.planner.preview_loads(focus)
         } else {
-            planner.candidates(focus)
+            exterior.planner.candidates(focus)
         };
-        let prepared = match source.prepare_grid_cells(exterior.world, &candidates) {
-            Ok(cells) => cells,
-            Err(error) => {
-                soe_trace::error!(target: "host::exterior", system = "host::exterior", "PlayerNode: exterior preparation failed: {error}");
-                return false;
-            }
-        };
-        let costs: HashMap<CellCoord, StreamCost> = prepared
-            .iter()
-            .filter_map(|cell| {
-                candidates.iter().find_map(|coord| {
-                    (source
+        let mut outcomes = BTreeMap::new();
+        match source.prepare_grid_cells(exterior.world, &candidates) {
+            Ok(cells) => {
+                let mut prepared: BTreeMap<_, _> =
+                    cells.into_iter().map(|cell| (cell.id, cell)).collect();
+                for coord in candidates {
+                    let ready = source
                         .cell_index()
                         .exterior_cell(exterior.world, coord.x, coord.y)
-                        == Some(cell.id))
-                    .then(|| (*coord, cell.stream_cost()))
-                })
-            })
-            .collect();
-        planner = exterior.planner.clone();
-        let plan = planner.update_with_budget(focus, budget, |coord| {
-            costs.get(&coord).copied().unwrap_or_default()
+                        .and_then(|id| prepared.remove(&id));
+                    outcomes.insert(coord, Ok(ready));
+                }
+            }
+            Err(_) => {
+                for coord in candidates {
+                    let outcome = source
+                        .prepare_grid_cells(exterior.world, &[coord])
+                        .map(|cells| cells.into_iter().next());
+                    outcomes.insert(coord, outcome);
+                }
+            }
+        }
+        let plan = exterior.planner.update_with_budget(focus, budget, |coord| {
+            outcomes
+                .get(&coord)
+                .and_then(|result| result.as_ref().ok())
+                .and_then(Option::as_ref)
+                .map_or(StreamCost::default(), |cell| cell.stream_cost())
         });
+        let mut prepared = Vec::new();
+        let mut ready_requests = Vec::new();
+        for request in &plan.requests {
+            exterior.planner.mark_loading(*request);
+            match outcomes.remove(&request.cell) {
+                Some(Ok(Some(cell))) => {
+                    exterior.planner.mark_completed(*request);
+                    ready_requests.push(*request);
+                    prepared.push(cell);
+                }
+                Some(Ok(None)) => {
+                    exterior.planner.mark_completed(*request);
+                    exterior.planner.mark_drawable(*request);
+                }
+                Some(Err(error)) => {
+                    soe_trace::error!(target: "host::exterior", system = "host::exterior",
+                        "PlayerNode: exterior preparation failed at {},{}: {error}", request.cell.x, request.cell.y);
+                    exterior.planner.mark_failed(*request);
+                }
+                None => {
+                    exterior.planner.mark_failed(*request);
+                }
+            }
+        }
         if plan.is_empty() && self.loaded_cell == Some(cell) {
             return true;
         }
-        let selected: HashSet<GlobalFormId> = plan
-            .load
-            .iter()
-            .filter_map(|coord| {
-                source
-                    .cell_index()
-                    .exterior_cell(exterior.world, coord.x, coord.y)
-            })
-            .collect();
-        let prepared: Vec<_> = prepared
-            .into_iter()
-            .filter(|cell| selected.contains(&cell.id))
-            .collect();
         let departed: Vec<_> = plan
             .unload
             .iter()
@@ -196,7 +217,19 @@ impl PlayerNode {
                 .bind_mut()
                 .apply_cell_delta(&prepared, &departed, &game.world())
         {
-            return false;
+            for request in ready_requests {
+                exterior.planner.mark_failed(request);
+            }
+            for request in &plan.retirements {
+                exterior.planner.mark_retirement_failed(*request);
+            }
+            return true;
+        }
+        for request in ready_requests {
+            exterior.planner.mark_drawable(request);
+        }
+        for request in &plan.retirements {
+            exterior.planner.mark_retired(*request);
         }
         let entered: Vec<_> = prepared.iter().map(|cell| cell.id).collect();
         for cell in &prepared {
@@ -238,7 +271,6 @@ impl PlayerNode {
             return false;
         }
         game.record_exterior_cell_loads(entered.len());
-        exterior.planner = planner;
         let audio_changed = self.loaded_cell != Some(cell);
         self.loaded_cell = Some(cell);
         soe_trace::info!(target: "host::exterior", system = "host::exterior",

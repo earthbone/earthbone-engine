@@ -19,7 +19,7 @@ const FIRST: &str = "Sound/Voice/Dialogue.esm/VoiceHuman/First_00000A00_3.fuz";
 const SECOND: &str = "Sound/Voice/Dialogue.esm/VoiceHuman/Second_00000B00_3.fuz";
 static GODOT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 const GODOT_TIMEOUT: Duration = Duration::from_secs(110);
-const GODOT_TEST_LIMIT: Duration = Duration::from_secs(120);
+const GODOT_TEST_LIMIT: Duration = Duration::from_mins(2);
 
 struct BoundedOutput {
     output: Output,

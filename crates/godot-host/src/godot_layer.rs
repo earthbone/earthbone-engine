@@ -144,7 +144,7 @@ fn shader_particle_offset(form: GlobalFormId, index: u32, box_size: f32) -> [f32
 /// Keeps a square of exterior cells requested around `focus`. Connect
 /// `cell_load_requested` and `cell_unload_requested` to whatever builds
 /// and frees cell scenes. A load that fails must be reported back with
-/// `mark_unloaded` or the node assumes the cell is resident.
+/// generation-checked acknowledgements. Requested cells are not resident.
 #[derive(GodotClass)]
 #[class(base = Node3D)]
 pub struct CellStreamerNode {
@@ -871,6 +871,13 @@ impl INode3D for CellStreamerNode {
         let Some(streamer) = self.streamer.as_mut() else {
             return;
         };
+        let forward = -focus.get_global_transform().basis.col_c();
+        let direction = GodotPos::new(forward.x, forward.y, forward.z).to_skyrim();
+        streamer.set_view([
+            f64::from(direction.x),
+            f64::from(direction.y),
+            f64::from(direction.z),
+        ]);
         let plan = streamer.update(sky);
         for c in plan.load {
             self.signals().cell_load_requested().emit(c.x, c.y);
@@ -2399,6 +2406,45 @@ impl CellStreamerNode {
         }
     }
 
+    /// Token for a request or retirement. Async consumers must retain this generation.
+    #[func]
+    pub fn cell_request_generation(&self, cell_x: i32, cell_y: i32) -> i64 {
+        self.streamer
+            .as_ref()
+            .and_then(|streamer| streamer.request(CellCoord::new(cell_x, cell_y)))
+            .and_then(|request| i64::try_from(request.generation).ok())
+            .unwrap_or(-1)
+    }
+
+    /// Acknowledge loading, completed, drawable, failed or retired for the captured token.
+    #[func]
+    pub fn acknowledge_cell(
+        &mut self,
+        cell_x: i32,
+        cell_y: i32,
+        generation: i64,
+        state: GString,
+    ) -> bool {
+        let (Some(streamer), Ok(generation)) = (self.streamer.as_mut(), u64::try_from(generation))
+        else {
+            return false;
+        };
+        let request = crate::streaming::CellRequest {
+            cell: CellCoord::new(cell_x, cell_y),
+            generation,
+        };
+        let state: String = state.into();
+        match state.as_str() {
+            "loading" => streamer.mark_loading(request),
+            "completed" => streamer.mark_completed(request),
+            "drawable" => streamer.mark_drawable(request),
+            "failed" => streamer.mark_failed(request),
+            "retired" => streamer.mark_retired(request),
+            "retirement_failed" => streamer.mark_retirement_failed(request),
+            _ => false,
+        }
+    }
+
     #[func]
     pub fn mark_unloaded(&mut self, cell_x: i32, cell_y: i32) {
         if let Some(s) = self.streamer.as_mut() {
@@ -3343,6 +3389,25 @@ impl CellStreamerNode {
         result.set("multimeshes", multimeshes);
         result.set("multimesh_members", members);
         result
+    }
+
+    /// Retire only the currently requested generation before freeing any host resources.
+    #[func]
+    pub fn retire_exterior_cell(&mut self, cell_x: i32, cell_y: i32, generation: i64) -> i32 {
+        let coord = CellCoord::new(cell_x, cell_y);
+        let Ok(generation) = u64::try_from(generation) else {
+            return -1;
+        };
+        let current = self.streamer.as_ref().is_some_and(|streamer| {
+            streamer.state(coord) == Some(crate::streaming::CellState::Retiring)
+                && streamer
+                    .request(coord)
+                    .is_some_and(|request| request.generation == generation)
+        });
+        if !current {
+            return -1;
+        }
+        self.release_exterior_cell(cell_x, cell_y)
     }
 
     /// Frees every batch the exterior cell at grid `cell_x`, `cell_y` drew,

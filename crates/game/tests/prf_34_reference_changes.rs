@@ -286,7 +286,7 @@ fn prf_34_budgeted_changes_leave_the_rest_queued_for_the_next_call() {
     world.set_reference_enabled(id(0x900), true);
     let first = changes.changed_within(&world, std::time::Duration::ZERO);
     assert_eq!(first, vec![id(0x900)]);
-    let rest = changes.changed_within(&world, std::time::Duration::from_secs(60));
+    let rest = changes.changed_within(&world, std::time::Duration::from_mins(1));
     assert_eq!(rest, vec![id(0x901), id(0x902)]);
     assert!(changes
         .changed_within(&world, std::time::Duration::ZERO)

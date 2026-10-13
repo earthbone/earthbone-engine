@@ -348,16 +348,25 @@ fn rnd_11_grass_batches_are_released_as_cells_unload() {
     let mut released = Vec::new();
     for x in [-1, 0, 1] {
         let plan = streamer.settle(cell_centre(x));
-        for coord in plan.unload {
-            let batches = resident.remove(&coord).unwrap();
-            released.push((coord.x, batches));
-        }
         for coord in plan.load {
             let block = source
                 .stream_exterior(&format!("Grass{}", coord.x), 0)
                 .unwrap();
             let (groups, _) = instancing_candidates(&block.cells[0].1.surfaces);
             resident.insert(coord, groups.len());
+        }
+        for request in plan.requests {
+            assert!(streamer.mark_loading(request));
+            assert!(streamer.mark_completed(request));
+            assert!(streamer.mark_drawable(request));
+        }
+        let plan = streamer.update(cell_centre(x));
+        for coord in plan.unload {
+            let batches = resident.remove(&coord).unwrap();
+            released.push((coord.x, batches));
+        }
+        for request in plan.retirements {
+            assert!(streamer.mark_retired(request));
         }
         assert_eq!(resident.len(), 1, "only the focus cell stays resident");
         assert_eq!(resident.get(&CellCoord::new(x, 0)), Some(&1));

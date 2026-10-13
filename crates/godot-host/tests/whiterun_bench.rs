@@ -143,8 +143,17 @@ fn whiterun_sized_grid_streams_through_the_rust_pipeline() {
             regions_built += 1;
             cells_loaded += 1;
         }
+        for request in plan.requests {
+            assert!(streamer.mark_loading(request));
+            assert!(streamer.mark_completed(request));
+            assert!(streamer.mark_drawable(request));
+        }
+        let plan = streamer.update(focus);
         for cell in plan.unload {
             regions.remove(cell);
+        }
+        for request in plan.retirements {
+            assert!(streamer.mark_retired(request));
         }
     }
     let elapsed = start.elapsed();

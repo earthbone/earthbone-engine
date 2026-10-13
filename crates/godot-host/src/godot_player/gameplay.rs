@@ -1483,6 +1483,7 @@ impl PlayerNode {
             // Door transitions already attach the destination and defer its old focus.
             // Other cells in an old exterior ring leave with their host resources.
             if let Some(previous) = self.exterior.take() {
+                soe_trace::streaming_coverage(0, 0, 0);
                 let Some(game) = self.game.as_mut() else {
                     return false;
                 };
@@ -1516,11 +1517,16 @@ impl PlayerNode {
                 let Ok(ref mut planner) = planner else {
                     return false;
                 };
-                planner.settle(crate::units::SkyrimPos::new(
+                let requests = planner.settle(crate::units::SkyrimPos::new(
                     position[0],
                     position[1],
                     position[2],
                 ));
+                for request in requests.requests {
+                    planner.mark_loading(request);
+                    planner.mark_completed(request);
+                    planner.mark_drawable(request);
+                }
                 let entered: Vec<_> = location
                     .cells
                     .iter()
