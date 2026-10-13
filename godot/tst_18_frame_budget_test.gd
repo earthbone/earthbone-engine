@@ -114,4 +114,5 @@ func _start() -> void:
 		if report != null:
 			report.store_string(JSON.stringify(results, "\t"))
 	print("prf_37_installed_windowed_tst_18_gate: ", "PASS" if failures == 0 else "FAIL")
+	print("PRF-37 simulation:", JSON.stringify(player.call("simulation_status")))
 	quit(0 if failures == 0 else 1)

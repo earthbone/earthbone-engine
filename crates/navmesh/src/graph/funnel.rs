@@ -163,6 +163,7 @@ fn border_inset(endpoint: Point, other: Point, radius: f32, borders: &[(Point, P
     let dy = f64::from(other[1]) - f64::from(endpoint[1]);
     let portal_length = dx.hypot(dy);
     let mut inset = 0.0_f64;
+    let mut incident = Vec::new();
     for &(a, b) in borders {
         let opposite = if same_xy(endpoint, a) && (endpoint[2] - a[2]).abs() < 0.01 {
             b
@@ -177,6 +178,7 @@ fn border_inset(endpoint: Point, other: Point, radius: f32, borders: &[(Point, P
         if border_length == 0.0 {
             continue;
         }
+        incident.push((ex / border_length, ey / border_length));
         let distance = if dx * ex + dy * ey <= 0.0 {
             f64::from(radius)
         } else {
@@ -184,6 +186,16 @@ fn border_inset(endpoint: Point, other: Point, radius: f32, borders: &[(Point, P
             f64::from(radius) / perpendicular.max(1e-6)
         };
         inset = inset.max(distance);
+    }
+    // CONTEXT: The chord joining two trimmed portals can still cut a corner.
+    // Its miter distance comes from the angle between incident border rays.
+    for (index, &(ex, ey)) in incident.iter().enumerate() {
+        for &(ox, oy) in incident.iter().skip(index + 1) {
+            let cosine = (ex * ox + ey * oy).clamp(-1.0, 1.0);
+            if cosine < 1.0 - 1e-6 {
+                inset = inset.max(f64::from(radius) / ((1.0 - cosine) * 0.5).sqrt());
+            }
+        }
     }
     inset
 }

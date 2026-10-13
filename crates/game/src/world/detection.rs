@@ -121,6 +121,7 @@ impl World {
         }
         let settings = self.detection_settings()?;
         let mut pairs = BTreeSet::new();
+        let mut kinds = std::collections::HashMap::new();
         for o in observations {
             let numbers = [
                 o.distance,
@@ -134,13 +135,25 @@ impl World {
             if o.observer == o.target {
                 return Err(Error::SelfObservation(o.observer));
             }
-            self.check_detection_actor(o.observer)?;
-            if self.tag_of(o.target) == Some(super::T(b"ACHR")) {
-                self.check_detection_actor(o.target)?;
-            } else if !self.is_player(o.observer)
-                || self
-                    .reference(o.target)
-                    .is_none_or(|reference| reference.deleted)
+            if kinds.get(&o.observer) != Some(&true) {
+                self.check_detection_actor(o.observer)?;
+                kinds.insert(o.observer, true);
+            }
+            let actor_target = match kinds.entry(o.target) {
+                std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let actor = self.tag_of(o.target) == Some(super::T(b"ACHR"));
+                    if actor {
+                        self.check_detection_actor(o.target)?;
+                    }
+                    *entry.insert(actor)
+                }
+            };
+            if !actor_target
+                && (!self.is_player(o.observer)
+                    || self
+                        .reference(o.target)
+                        .is_none_or(|reference| reference.deleted))
             {
                 return Err(Error::Actor(o.target));
             }
@@ -164,7 +177,7 @@ impl World {
         let mut observer_senses = BTreeMap::new();
         let mut by_target: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32)>> = BTreeMap::new();
         for o in observations {
-            if self.tag_of(o.target) != Some(super::T(b"ACHR")) {
+            if kinds.get(&o.target) != Some(&true) {
                 continue;
             }
             let target = match target_senses.entry(o.target) {
@@ -480,6 +493,29 @@ mod prf_31_tests {
         }
         world.load_cell(id(1));
         world
+    }
+
+    #[test]
+    fn prf_31_validation_reads_liveness_again_on_the_next_batch() {
+        let mut world = world(Vec::new());
+        let observation = Observation {
+            observer: id(3),
+            target: id(4),
+            distance: 0.0,
+            line_of_sight: true,
+            light_level: 100.0,
+            motion: crate::detection::Motion::Still,
+            action_sound: 0.0,
+            action_sound_distance: None,
+            action_sound_line_of_sight: None,
+        };
+        world.evaluate_detection(&[observation], 0.0).unwrap();
+        let before = world.detection.clone();
+        world.actor(id(4)).unwrap().dead = true;
+        assert!(
+            matches!(world.evaluate_detection(&[observation], 1.0), Err(Error::Actor(actor)) if actor == id(4))
+        );
+        assert_eq!(world.detection, before);
     }
 
     #[test]

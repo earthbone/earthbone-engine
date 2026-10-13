@@ -22,6 +22,19 @@ func _capture(path: String) -> Image:
     _check(image.save_png(path) == OK, "capture saves")
     return image
 
+func _wait_for_collision(player: Node3D, streamer: Node3D, file: int, reference: int, enabled: bool) -> void:
+    # PRF-34 applies resident watches and changed references across bounded frames.
+    var deadline := Time.get_ticks_msec() + 5000
+    while Time.get_ticks_msec() < deadline:
+        player.call("advance", 0.0)
+        await process_frame
+        var bodies: Dictionary = player.call("reference_collision_bodies", file, reference)
+        if (int(bodies.get("movement", -1)) > 0) == enabled \
+                and (int(bodies.get("query", -1)) > 0) == enabled \
+                and (streamer.call("reference_collision_bodies", file, reference) > 0) == enabled:
+            return
+    _check(false, "budgeted collision updates finish within five seconds")
+
 func _run() -> void:
     var data := OS.get_environment("SKYRIM_DATA")
     if data.is_empty():
@@ -92,8 +105,7 @@ func _run() -> void:
     var capture_index := 0
     for enabled in [true, false, true, false]:
         _check(player.call("set_reference_enabled", file, marker, enabled), "marker toggles")
-        player.call("advance", 0.0)
-        await process_frame
+        await _wait_for_collision(player, streamer, file, reference, enabled)
         _check(player.call("gameplay_reference_pose", file, reference).get("visible", not enabled) == enabled, "World derives child enable state")
         _check(streamer.call("rendered_reference_pose", file, reference).get("visible", not enabled) == enabled, "uploaded geometry visibility follows parent")
         var error: float = streamer.call("render_alignment_error", file, reference)

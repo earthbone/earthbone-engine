@@ -467,6 +467,40 @@ impl PlayerNode {
         let Ok(mut rays) = ContactRays::new(space, &owners) else {
             return -1;
         };
+        let capsules = self.actor_bodies.sight_capsules();
+        let occlusion = crate::detection::ActorOcclusion::new(&capsules);
+        let participants: std::collections::HashSet<_> = spaces
+            .candidate_actors(actors.clone(), &[])
+            .iter()
+            .map(|actor| actor.actor)
+            .collect();
+        let symmetric_capsules: Vec<_> = capsules
+            .iter()
+            .copied()
+            .filter(|(actor, _, _)| {
+                participants.contains(actor)
+                    && !self.melee_bodies.values().any(|owner| owner == actor)
+            })
+            .collect();
+        let mut trusted = self
+            .query_collision
+            .sight_exclusions()
+            .map(Array::duplicate_shallow)
+            .unwrap_or_default();
+        if let Some(streamer) = &self.game_streamer {
+            let streamer = streamer.bind();
+            if let Some(exclusions) = streamer.sight_exclusions() {
+                trusted.extend_array(exclusions);
+            }
+        }
+        for &body in self.actor_bodies.owners().keys() {
+            trusted.push(body);
+        }
+        let mut symmetry = rays.sight_symmetry(&symmetric_capsules, &trusted);
+        let verify_occlusion = std::env::var_os("SOE_VERIFY_DETECTION_OCCLUSION").is_some();
+        let mut verified = 0;
+        let mut reciprocal_verified = 0;
+        let mut mismatches = 0;
         let observations = spaces.observations(
             &actors,
             &events,
@@ -482,15 +516,48 @@ impl PlayerNode {
                 } else {
                     position(observer)
                 };
-                match rays.first_contact(observer.actor, from, position(target)) {
-                    Ok(ContactHit::Empty) => true,
-                    Ok(ContactHit::Actor(id)) => id == target.actor,
-                    _ => false,
+                let to = position(target);
+                let skyrim = |point: Vector3| {
+                    let point = crate::units::GodotPos::new(point.x, point.y, point.z).to_skyrim();
+                    [point.x, point.y, point.z]
+                };
+                let reuse = symmetry.lookup(observer.actor, target.actor, from, to);
+                let cached = reuse.cached();
+                let shortcut = cached.or_else(|| {
+                    (!self
+                        .melee_bodies
+                        .values()
+                        .any(|&actor| actor == target.actor)
+                        && occlusion.blocked(
+                            observer.actor,
+                            target.actor,
+                            skyrim(from),
+                            skyrim(to),
+                        ))
+                    .then_some(false)
+                });
+                let visible = shortcut
+                    .unwrap_or_else(|| rays.visible(observer.actor, target.actor, from, to));
+                if verify_occlusion && shortcut.is_some() {
+                    verified += 1;
+                    reciprocal_verified += usize::from(cached.is_some());
+                    if rays.visible(observer.actor, target.actor, from, to) != visible {
+                        mismatches += 1;
+                    }
                 }
+                symmetry.complete(reuse, visible);
+                visible
             },
             |cell, point| lights.level(cell, point),
         );
         self.detection_stage_usec[2] = started.elapsed().as_micros() as i64;
+        if verify_occlusion {
+            godot_print!("PRF31 occlusion checked={verified} mismatches={mismatches}");
+            godot_print!("PRF31 reciprocal checked={reciprocal_verified}");
+            if mismatches != 0 {
+                return -1;
+            }
+        }
         drop(world);
         let observation_count = observations.len() as i64;
         let started = std::time::Instant::now();

@@ -188,6 +188,7 @@ struct MovableEntry {
 #[derive(Default)]
 pub struct CellBodies {
     entries: Vec<StaticEntry>,
+    sight_bodies: Option<SightBodies>,
     placement_changes: soe_game::world::ReferenceChanges,
     placement_index: HashMap<GlobalFormId, (Vec<usize>, Vec<usize>)>,
     indexed_counts: (usize, usize),
@@ -200,12 +201,69 @@ pub struct CellBodies {
     pub stats: GodotCollisionStats,
 }
 
+struct SightBodies {
+    rids: Array<Rid>,
+    indices: HashMap<Rid, usize>,
+}
+
+impl SightBodies {
+    fn new(rids: impl Iterator<Item = Rid>) -> Self {
+        let mut result = Self {
+            rids: Array::new(),
+            indices: HashMap::new(),
+        };
+        for rid in rids {
+            result.insert(rid);
+        }
+        result
+    }
+
+    fn insert(&mut self, rid: Rid) {
+        if rid.is_valid() && !self.indices.contains_key(&rid) {
+            self.indices.insert(rid, self.rids.len());
+            self.rids.push(rid);
+        }
+    }
+
+    fn remove(&mut self, rid: Rid) {
+        let Some(index) = self.indices.remove(&rid) else {
+            return;
+        };
+        let Some(last_index) = self.rids.len().checked_sub(1) else {
+            return;
+        };
+        if let Some(last) = self.rids.get(last_index) {
+            self.rids.set(index, last);
+            self.rids.remove(last_index);
+            if index != last_index {
+                self.indices.insert(last, index);
+            }
+        }
+    }
+
+    fn extend(&mut self, other: Self) {
+        let offset = self.rids.len();
+        self.rids.extend_array(&other.rids);
+        self.indices.extend(
+            other
+                .indices
+                .into_iter()
+                .map(|(rid, index)| (rid, index + offset)),
+        );
+    }
+}
+
 /// Main-thread time one sync may spend indexing newly added placements.
 const PLACEMENT_INDEX_BUDGET: std::time::Duration = std::time::Duration::from_micros(12);
 
 impl CellBodies {
     /// Adopt additional placed bodies, retaining their reference sync metadata.
     pub(crate) fn append(&mut self, mut other: Self) {
+        match (&mut self.sight_bodies, other.sight_bodies.take()) {
+            (Some(current), Some(additional)) => current.extend(additional),
+            (None, Some(additional)) => self.sight_bodies = Some(additional),
+            _ => {}
+        }
         self.stats.bodies += other.stats.bodies;
         self.stats.shapes += other.stats.shapes;
         self.stats.triangles += other.stats.triangles;
@@ -223,6 +281,9 @@ impl CellBodies {
                 return true;
             }
             server.free_rid(entry.body);
+            if let Some(sight) = &mut self.sight_bodies {
+                sight.remove(entry.body);
+            }
             self.applied_collision_state.remove(&entry.body);
             for &shape in &entry.shapes {
                 server.free_rid(shape);
@@ -542,6 +603,11 @@ impl CellBodies {
         )
     }
 
+    /// Prepared handles whose generated collision shapes are two-sided.
+    pub(crate) fn sight_exclusions(&self) -> Option<&Array<Rid>> {
+        self.sight_bodies.as_ref().map(|bodies| &bodies.rids)
+    }
+
     /// Number of this reference's bodies currently attached to a physics space.
     pub(crate) fn active_reference_bodies(&self, reference: GlobalFormId) -> usize {
         let server = PhysicsServer3D::singleton();
@@ -671,6 +737,7 @@ impl CellBodies {
     /// Releases every id back to the server. A cell that unloads must call
     /// this, the server does not reclaim ids on its own.
     pub fn free(&mut self) {
+        self.sight_bodies = None;
         self.placement_changes = soe_game::world::ReferenceChanges::default();
         self.placement_index.clear();
         self.indexed_counts = (usize::MAX, usize::MAX);
@@ -805,6 +872,9 @@ impl CellBodies {
             moved.transform = delta.then(&entry.source.transform);
             server.free_rid(entry.body);
             self.stats.bodies = self.stats.bodies.saturating_sub(1);
+            if let Some(sight) = &mut self.sight_bodies {
+                sight.remove(entry.body);
+            }
             self.stats.shapes = self.stats.shapes.saturating_sub(entry.shapes.len());
             for shape in entry.shapes.drain(..) {
                 server.free_rid(shape);
@@ -819,12 +889,18 @@ impl CellBodies {
                 Some((body, shapes)) => {
                     entry.body = body;
                     entry.shapes = shapes;
+                    if let Some(sight) = &mut self.sight_bodies {
+                        sight.insert(body);
+                    }
                 }
                 None => {
                     // Flattened to nothing, a degenerate scale. Leave an
                     // empty body rather than a dangling freed one.
                     entry.body = server.body_create();
                     entry.shapes = Vec::new();
+                    if let Some(sight) = &mut self.sight_bodies {
+                        sight.insert(entry.body);
+                    }
                 }
             }
         }
@@ -844,6 +920,9 @@ impl CellBodies {
             if visible {
                 if entry.body.is_valid() && entry.shape_scale != iso.scale {
                     server.free_rid(entry.body);
+                    if let Some(sight) = &mut self.sight_bodies {
+                        sight.remove(entry.body);
+                    }
                     for shape in entry.shapes.drain(..) {
                         server.free_rid(shape);
                         self.stats.shapes = self.stats.shapes.saturating_sub(1);
@@ -860,6 +939,9 @@ impl CellBodies {
                         entry.body = body;
                         entry.shapes = shapes;
                         entry.shape_scale = iso.scale;
+                        if let Some(sight) = &mut self.sight_bodies {
+                            sight.insert(body);
+                        }
                     }
                     continue;
                 }
@@ -871,6 +953,9 @@ impl CellBodies {
                 );
             } else if entry.body.is_valid() {
                 server.free_rid(entry.body);
+                if let Some(sight) = &mut self.sight_bodies {
+                    sight.remove(entry.body);
+                }
                 for shape in entry.shapes.drain(..) {
                     server.free_rid(shape);
                     self.stats.shapes = self.stats.shapes.saturating_sub(1);
@@ -954,6 +1039,7 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
             });
         }
     }
+    out.sight_bodies = Some(SightBodies::new(out.body_rids()));
     out
 }
 
@@ -980,6 +1066,7 @@ pub fn add_placed_query_statics(space: Rid, colliders: &[PlacedCollider]) -> Cel
             });
         }
     }
+    out.sight_bodies = Some(SightBodies::new(out.body_rids()));
     out
 }
 
@@ -1053,6 +1140,7 @@ pub fn add_placed_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodie
             });
         }
     }
+    out.sight_bodies = Some(SightBodies::new(out.body_rids()));
     out
 }
 
@@ -1542,6 +1630,22 @@ impl ActorBodies {
     #[must_use]
     pub fn owners(&self) -> &HashMap<Rid, GlobalFormId> {
         &self.owners
+    }
+
+    /// Current static controller capsules, excluding held and thrown bodies.
+    pub(crate) fn sight_capsules(&self) -> Vec<(GlobalFormId, [f32; 3], f32)> {
+        let mut actors: Vec<_> = self
+            .bodies
+            .iter()
+            .filter(|(actor, body)| {
+                self.grabbed_actor != Some(**actor)
+                    && !self.thrown_actors.contains(actor)
+                    && body.shapes.len() == 1
+            })
+            .filter_map(|(&actor, body)| body.position.map(|p| (actor, p, body.scale)))
+            .collect();
+        actors.sort_unstable_by_key(|(actor, _, _)| *actor);
+        actors
     }
 
     /// The body presenting `actor`, if it is resident.

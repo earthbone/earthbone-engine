@@ -1,5 +1,37 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Play path continuation, 2026-10-13
+
+The resumed `50e0c3861` checkout contained the dialogue and distant heads, but
+not integration tip `9c2477617`. The additional merge retains the checkpoint
+scene restore, detection and collision synchronization changes. Its one doc
+conflict keeps both the persistent full-model and enable-collision reports.
+
+The initial affected library run passes 249 game and 446 host cases. Navmesh reports
+54 passes and one failure in
+`portal_inset_retains_endpoints_and_moves_the_corner_inside_the_corridor`.
+The inherited inset clears individual portal endpoints, but their connecting
+segment passes 0.141 units from a right-angle corner against the test's
+unchanged 0.19-unit minimum. Steering now also applies the miter distance from
+the angle between incident boundary rays. All 55 navmesh library cases now pass,
+including the existing whole-segment clearance assertion. Installed acceptance
+is pending. No route budget, collision
+setting or observation threshold changed.
+
+The synthetic AUD-13 ambience scene passes its generated archives through
+`AUD_13_TEST_DATA`. Setting `SKYRIM_DATA` for those tiny fixtures made the
+run wrapper request the same slot as the installed play path. The installed
+AUD-13 transition retains `SKYRIM_DATA`. Audio assertions and deadlines retain
+their existing values.
+
+The full `tools/lint.sh` gate with the Godot runtime enabled exits zero with
+8,607 Rust passes, 52 Python passes and 14 existing ignores. Cargo-deny and
+cargo-audit are absent and skipped. Reported test time totals 444.55 seconds,
+including Godot fixtures and nested builds, exceeding the five-minute budget.
+The earlier run with the Godot input unset fails HST-20's required-runtime
+checks. That input remains enabled in the successful gate. Installed inputs
+and the save corpus remain unset for the gate.
+
 ## Counter-corner steering measurement, AI-95
 
 The instrumented play gate confirms W is held and no menu is open during
@@ -8304,3 +8336,27 @@ and two are disabled. All 251 now produce live full-model RIDs at the gate.
 The world check submits 785 drawable Tamriel references and retains zero on
 return to Whiterun. The count table, complete near-gate list, local sources
 and memory evidence are in [full-lod-residency.md](full-lod-residency.md).
+
+### Enable collision and simulation report corrections, 2026-10-13
+
+PRF-34 spreads resident collision watches and updates across bounded frames.
+Manual fixed-step callers with automatic stepping disabled finish their movement
+and query collision edits before returning, as the PRF-34 adapter documents.
+Automatic presentation retains the existing synchronization budgets.
+A watch now reconciles the current enable state with the authored state used
+to build its cell, including an RND-17 parent enabled before that watch starts.
+The RND-17 scene waits for those updates before checking all three collision
+paths and retains its geometry, placement and pixel assertions. It follows
+PRF-34's later frame contract. The adapter reuses World's authored XESP query
+and ReferenceChanges observer, with no new format reader or saved state.
+
+The PRF-37 timing scene prints its last actual simulation status before quitting.
+Its Rust runner already requires that report and a ready snapshot. The timing
+budgets and NPC package assertions remain unchanged.
+
+Validation passed 429 debug library tests and four debug cases in the three
+selected integration targets. Both installed RND-17 tests and the installed
+PRF-37 timing gate passed individually with one test thread and development
+optimization level 1, using the built release extension on the private display.
+Package Clippy with all targets and warnings denied, and package formatting,
+passed. The full lint gate was excluded from this integration repair.

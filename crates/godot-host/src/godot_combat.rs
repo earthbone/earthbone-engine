@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use std::hash::BuildHasher;
 
 use godot::classes::{
-    PhysicsDirectSpaceState3D, PhysicsRayQueryParameters3D, PhysicsServer3D, Skeleton3D,
+    PhysicsDirectSpaceState3D, PhysicsRayQueryParameters3D, PhysicsServer3D,
+    PhysicsShapeQueryParameters3D, Skeleton3D,
 };
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
@@ -36,9 +37,136 @@ pub struct ContactRays<'a, S: BuildHasher> {
     owners: &'a [&'a HashMap<Rid, GlobalFormId, S>],
     excluded: HashMap<GlobalFormId, Array<Rid>>,
     observer: Option<GlobalFormId>,
+    from: Option<Vector3>,
+    rid_key: Variant,
 }
 
 impl<'a, S: BuildHasher> ContactRays<'a, S> {
+    /// Prove endpoint regions clear of every body except their own capsule.
+    pub(crate) fn sight_symmetry(
+        &mut self,
+        capsules: &[(GlobalFormId, [f32; 3], f32)],
+        trusted: &Array<Rid>,
+    ) -> SightSymmetry {
+        let mut sight = SightSymmetry::default();
+        if !self.query.is_hit_back_faces_enabled() {
+            return sight;
+        }
+        let mut heads = Vec::new();
+        let mut low = Vector3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+        let mut high = -low;
+        for &(actor, position, scale) in capsules {
+            let soe_physics::Shape::Capsule { radius, .. } =
+                soe_physics::generated_controller_shape(scale)
+            else {
+                continue;
+            };
+            if !position
+                .iter()
+                .all(|p| p.is_finite() && p.abs() < radius * 10000.0)
+            {
+                continue;
+            }
+            let eye =
+                SkyrimPos::new(position[0], position[1], position[2] + 100.0 * scale).to_godot();
+            let eye = Vector3::new(eye.x, eye.y, eye.z);
+            let radius = radius * METRES_PER_UNIT * 1.2;
+            if !eye.is_finite() || !radius.is_finite() {
+                continue;
+            }
+            low = Vector3::new(
+                low.x.min(eye.x - radius),
+                low.y.min(eye.y - radius),
+                low.z.min(eye.z - radius),
+            );
+            high = Vector3::new(
+                high.x.max(eye.x + radius),
+                high.y.max(eye.y + radius),
+                high.z.max(eye.z + radius),
+            );
+            heads.push((actor, eye, radius));
+        }
+        if heads.len() < 2 {
+            return sight;
+        }
+        let center = Vector3::new(
+            low.x.midpoint(high.x),
+            low.y.midpoint(high.y),
+            low.z.midpoint(high.z),
+        );
+        let half = (high - low) * 0.5;
+        let coverage = half.length() * 4.1;
+        if !center.is_finite() || !half.is_finite() || !coverage.is_finite() {
+            return sight;
+        }
+        let mut server = PhysicsServer3D::singleton();
+        let shape = server.sphere_shape_create();
+        let mut query = PhysicsShapeQueryParameters3D::new_gd();
+        query.set_shape_rid(shape);
+        query.set_collision_mask(self.query.get_collision_mask());
+        query.set_exclude(trusted);
+        server.shape_set_data(shape, &coverage.to_variant());
+        for sign in [
+            Vector3::new(1.0, 1.0, 1.0),
+            Vector3::new(1.0, -1.0, -1.0),
+            Vector3::new(-1.0, 1.0, -1.0),
+            Vector3::new(-1.0, -1.0, 1.0),
+        ] {
+            let position = center + half * sign * 3.0;
+            if !position.is_finite() {
+                server.free_rid(shape);
+                return sight;
+            }
+            query.set_transform(Transform3D::new(Basis::IDENTITY, position));
+            soe_trace::count(soe_trace::Operation::ShapeCasts, 1);
+            if !self
+                .state
+                .intersect_shape_ex(&query)
+                .max_results(1)
+                .done()
+                .is_empty()
+            {
+                server.free_rid(shape);
+                return sight;
+            }
+        }
+        for (actor, eye, radius) in heads {
+            server.shape_set_data(shape, &radius.to_variant());
+            query.set_transform(Transform3D::new(Basis::IDENTITY, eye));
+            query.set_exclude(self.excluded.get(&actor).unwrap_or(&Array::new()));
+            soe_trace::count(soe_trace::Operation::ShapeCasts, 1);
+            if self
+                .state
+                .intersect_shape_ex(&query)
+                .max_results(1)
+                .done()
+                .is_empty()
+            {
+                let index = sight.eyes.len();
+                sight.eyes.insert(actor, (eye, index));
+            }
+        }
+        server.free_rid(shape);
+        sight
+            .pairs
+            .resize(sight.eyes.len() * sight.eyes.len(), None);
+        sight
+    }
+
+    pub(crate) fn visible(
+        &mut self,
+        observer: GlobalFormId,
+        target: GlobalFormId,
+        from: Vector3,
+        to: Vector3,
+    ) -> bool {
+        match self.first_contact(observer, from, to) {
+            Ok(ContactHit::Empty) => true,
+            Ok(ContactHit::Actor(actor)) => actor == target,
+            _ => false,
+        }
+    }
+
     /// Prepare rays for this physics tick and the currently synchronized bodies.
     ///
     /// # Errors
@@ -61,6 +189,8 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
             owners,
             excluded,
             observer: None,
+            from: None,
+            rid_key: "rid".to_variant(),
         })
     }
 
@@ -77,7 +207,10 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
         if !from.is_finite() || !to.is_finite() || from == to {
             return Err(Error::Number);
         }
-        self.query.set_from(from);
+        if self.from != Some(from) {
+            self.query.set_from(from);
+            self.from = Some(from);
+        }
         self.query.set_to(to);
         if self.observer != Some(observer) {
             self.query
@@ -86,10 +219,7 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
         }
         soe_trace::count(soe_trace::Operation::Raycasts, 1);
         let result = self.state.intersect_ray(&self.query);
-        let Some(rid) = result
-            .get("rid")
-            .and_then(|value| value.try_to::<Rid>().ok())
-        else {
+        let Ok(rid) = result.get_or_nil(&self.rid_key).try_to::<Rid>() else {
             return Ok(ContactHit::Empty);
         };
         Ok(
@@ -98,6 +228,75 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
                 None => ContactHit::Obstruction(rid),
             },
         )
+    }
+}
+
+/// Update-local reciprocal sight for disjoint head regions and shallow rays.
+/// On-axis endpoints and the slope bound keep both capsule intersections
+/// inside the overlap-tested spheres. The remaining segment sees the same
+/// two-sided geometry from either direction, per Godot's ray query reference.
+#[derive(Default)]
+pub(crate) struct SightSymmetry {
+    eyes: HashMap<GlobalFormId, (Vector3, usize)>,
+    pairs: Vec<Option<bool>>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SightReuse {
+    Fresh(Option<usize>),
+    Cached(bool),
+}
+
+impl SightReuse {
+    pub(crate) fn cached(self) -> Option<bool> {
+        match self {
+            Self::Cached(visible) => Some(visible),
+            Self::Fresh(_) => None,
+        }
+    }
+}
+
+impl SightSymmetry {
+    pub(crate) fn lookup(
+        &self,
+        observer: GlobalFormId,
+        target: GlobalFormId,
+        from: Vector3,
+        to: Vector3,
+    ) -> SightReuse {
+        let (Some(&(eye_from, observer_index)), Some(&(eye_to, target_index))) =
+            (self.eyes.get(&observer), self.eyes.get(&target))
+        else {
+            return SightReuse::Fresh(None);
+        };
+        if eye_from != from || eye_to != to {
+            return SightReuse::Fresh(None);
+        }
+        let dx = f64::from(to.x) - f64::from(from.x);
+        let dy = f64::from(to.y) - f64::from(from.y);
+        let dz = f64::from(to.z) - f64::from(from.z);
+        let shallow = dy.powi(2) <= (dx.powi(2) + dz.powi(2)) * 0.25;
+        if !shallow {
+            return SightReuse::Fresh(None);
+        }
+        let width = self.eyes.len();
+        match self
+            .pairs
+            .get(observer_index * width + target_index)
+            .copied()
+            .flatten()
+        {
+            Some(visible) => SightReuse::Cached(visible),
+            None => SightReuse::Fresh(Some(target_index * width + observer_index)),
+        }
+    }
+
+    pub(crate) fn complete(&mut self, reuse: SightReuse, visible: bool) {
+        if let SightReuse::Fresh(Some(index)) = reuse {
+            if let Some(slot) = self.pairs.get_mut(index) {
+                *slot = Some(visible);
+            }
+        }
     }
 }
 
@@ -239,4 +438,42 @@ pub fn pose_segment(pose: Transform3D, reach_units: f32) -> Result<(Vector3, Vec
         Vector3::new(from[0], from[1], from[2]),
         Vector3::new(to[0], to[1], to[2]),
     ))
+}
+
+#[cfg(test)]
+mod sight_symmetry_tests {
+    use super::*;
+
+    #[test]
+    fn prf_31_reciprocal_sight_requires_both_clear_heads_and_exact_endpoints() {
+        let observer = GlobalFormId { file: 0, object: 1 };
+        let target = GlobalFormId { file: 0, object: 2 };
+        let from = Vector3::ZERO;
+        let to = Vector3::new(10.0, 0.0, 0.0);
+        let mut sight = SightSymmetry::default();
+        sight.eyes.insert(observer, (from, 0));
+        sight.pairs.resize(1, None);
+        let reuse = sight.lookup(observer, target, from, to);
+        sight.complete(reuse, true);
+        assert_eq!(sight.lookup(target, observer, to, from).cached(), None);
+        sight.eyes.insert(target, (to, 1));
+        sight.pairs.resize(4, None);
+        let reuse = sight.lookup(observer, target, from, to);
+        sight.complete(reuse, false);
+        assert_eq!(
+            sight.lookup(target, observer, to, from).cached(),
+            Some(false)
+        );
+        assert_eq!(
+            sight
+                .lookup(target, observer, to, from + Vector3::UP)
+                .cached(),
+            None
+        );
+        let raised = to + Vector3::UP * 6.0;
+        sight.eyes.insert(target, (raised, 1));
+        let reuse = sight.lookup(observer, target, from, raised);
+        sight.complete(reuse, true);
+        assert_eq!(sight.lookup(target, observer, raised, from).cached(), None);
+    }
 }

@@ -7,6 +7,9 @@ Two halves, one graph type between them.
 `path_with_portal_inset` resmooths an existing A* corridor with portal endpoints
 inset by the caller's perpendicular boundary clearance. Incident boundary
 angles determine along-edge travel. Interior vertices add no constraint.
+Incident boundary rays also impose their miter distance, so a segment between
+trimmed portals does not cut across their shared corner. A right-angle corner
+requires a radial inset of the clearance times the square root of two.
 Overlapping constraints share a finite point on the edge. Requested endpoints, triangle
 owners, directed links and search cost retain their original meanings.
 Point queries use zero inset. Invalid insets and unknown triangle owners fail.
