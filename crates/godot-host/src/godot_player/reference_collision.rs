@@ -84,6 +84,10 @@ impl PlayerNode {
         let Some(space) = self.base().get_world_3d().map(|world| world.get_space()) else {
             return;
         };
+        let doors = self
+            .game_streamer
+            .as_ref()
+            .map_or_else(Vec::new, |streamer| streamer.bind().door_collision_states());
         let (Some(source), Some(game), Some(physics)) =
             (&self.data_source, &self.game, &mut self.world)
         else {
@@ -104,6 +108,7 @@ impl PlayerNode {
         let reset = std::mem::take(&mut self.collision_reset);
         let budget = SYNC_BUDGET;
         if reset {
+            self.door_collision_revisions.clear();
             self.collision_cells.clear();
             self.collision_residents.clear();
             self.collision_visibility.clear();
@@ -236,6 +241,9 @@ impl PlayerNode {
             {
                 continue;
             }
+            if doors.iter().any(|door| door.reference == id) {
+                continue;
+            }
             let visible =
                 world.reference_enabled(id) && !crate::godot_physics::is_opened_door(&world, id);
             let applied = self
@@ -297,6 +305,55 @@ impl PlayerNode {
                         space, &placed,
                     ));
             }
+        }
+        self.door_collision_revisions.retain(|id, _| {
+            doors
+                .iter()
+                .any(|door| door.reference == *id && self.collision_cells.contains(&door.cell))
+        });
+        for door in &doors {
+            if !self.collision_cells.contains(&door.cell) {
+                continue;
+            }
+            if self.door_collision_revisions.get(&door.reference) == Some(&door.revision) {
+                continue;
+            }
+            self.door_collision_revisions
+                .insert(door.reference, door.revision);
+            let bodies = self
+                .collision_bodies
+                .remove(&door.reference)
+                .unwrap_or_default();
+            for body in &bodies {
+                physics.remove(*body);
+                self.collision_references.remove(body);
+            }
+            if let Some(exterior) = &mut self.exterior {
+                for residents in exterior.cells.values_mut() {
+                    residents.retain(|body| !bodies.contains(body));
+                }
+            }
+            if door.visible {
+                for placed in door
+                    .colliders
+                    .iter()
+                    .filter(|placed| placed.collider.is_static())
+                {
+                    let body = physics.add_static(&placed.collider);
+                    track_collision_body(
+                        &mut self.collision_references,
+                        &mut self.collision_bodies,
+                        body,
+                        door.reference,
+                    );
+                    if let Some(exterior) = &mut self.exterior {
+                        if let Some(cell) = exterior.cells.get_mut(&door.cell) {
+                            cell.push(body);
+                        }
+                    }
+                }
+            }
+            self.query_collision.sync_animated_door(door, space);
         }
         self.query_collision.sync_placements(&world, space);
         self.query_collision

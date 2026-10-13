@@ -188,6 +188,7 @@ struct MovableEntry {
 #[derive(Default)]
 pub struct CellBodies {
     entries: Vec<StaticEntry>,
+    animated_doors: HashMap<GlobalFormId, (u64, usize)>,
     placement_changes: soe_game::world::ReferenceChanges,
     placement_index: HashMap<GlobalFormId, (Vec<usize>, Vec<usize>)>,
     indexed_counts: (usize, usize),
@@ -204,6 +205,64 @@ pub struct CellBodies {
 const PLACEMENT_INDEX_BUDGET: std::time::Duration = std::time::Duration::from_micros(12);
 
 impl CellBodies {
+    /// Submit the animated collision node's delta against the authored shape.
+    /// Static shapes are already flattened in world coordinates, so moving
+    /// their body by this delta preserves every authored shape-local offset.
+    pub(crate) fn sync_animated_door(
+        &mut self,
+        state: &crate::godot_door::DoorCollisionState,
+        space: Rid,
+    ) {
+        let key = (state.revision, self.entries.len());
+        if self.animated_doors.get(&state.reference) == Some(&key) {
+            return;
+        }
+        if state.visible
+            && !self
+                .entries
+                .iter()
+                .any(|entry| entry.reference == Some(state.reference))
+        {
+            let original: Vec<_> = state
+                .colliders
+                .iter()
+                .map(|placed| {
+                    let mut placed = placed.clone();
+                    if let Some((_, delta)) = state
+                        .deltas
+                        .iter()
+                        .find(|(node, _)| *node == placed.collider.node)
+                    {
+                        placed.collider.transform =
+                            delta.inverse().then(&placed.collider.transform);
+                    }
+                    placed
+                })
+                .collect();
+            self.append(add_placed_query_statics(space, &original));
+        }
+        self.animated_doors
+            .insert(state.reference, (state.revision, self.entries.len()));
+        let mut server = PhysicsServer3D::singleton();
+        for entry in &mut self.entries {
+            if entry.reference != Some(state.reference) {
+                continue;
+            }
+            let Some((_, delta)) = state
+                .deltas
+                .iter()
+                .find(|(node, _)| *node == entry.source.node)
+            else {
+                continue;
+            };
+            server.body_set_space(entry.body, if state.visible { space } else { Rid::Invalid });
+            server.body_set_state(
+                entry.body,
+                BodyState::TRANSFORM,
+                &crate::godot_door::pose_transform(*delta).to_variant(),
+            );
+        }
+    }
     /// Adopt additional placed bodies, retaining their reference sync metadata.
     pub(crate) fn append(&mut self, mut other: Self) {
         self.stats.bodies += other.stats.bodies;
@@ -671,6 +730,7 @@ impl CellBodies {
     /// Releases every id back to the server. A cell that unloads must call
     /// this, the server does not reclaim ids on its own.
     pub fn free(&mut self) {
+        self.animated_doors.clear();
         self.placement_changes = soe_game::world::ReferenceChanges::default();
         self.placement_index.clear();
         self.indexed_counts = (usize::MAX, usize::MAX);
@@ -781,6 +841,9 @@ impl CellBodies {
             let (Some(reference), Some(original)) = (entry.reference, entry.original) else {
                 continue;
             };
+            if self.animated_doors.contains_key(&reference) {
+                continue;
+            }
             let Some(target) = world.ref_placement(reference) else {
                 continue;
             };

@@ -62,6 +62,7 @@ pub struct CellCollision {
 }
 
 /// One placed collision shape with the reference identity used by activation.
+#[derive(Clone)]
 pub struct PlacedCollider {
     pub reference: GlobalFormId,
     pub collider: Collider,

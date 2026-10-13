@@ -201,6 +201,8 @@ pub struct PlayerNode {
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
+    door_collision_revisions: std::collections::BTreeMap<GlobalFormId, u64>,
+    pending_load_door: Option<GlobalFormId>,
     title_sequence_player: Option<Gd<AnimationPlayer>>,
     loaded_cell: Option<GlobalFormId>,
     last_work_counts: soe_trace::WorkCounts,
@@ -353,6 +355,8 @@ impl INode3D for PlayerNode {
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
+            door_collision_revisions: std::collections::BTreeMap::new(),
+            pending_load_door: None,
             title_sequence_player: None,
             loaded_cell: None,
             last_work_counts: soe_trace::WorkCounts::default(),
@@ -1194,6 +1198,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn enter_cell(&mut self, editor_id: GString, x: f32, y: f32, z: f32) -> i32 {
+        self.pending_load_door = None;
         let Some(source) = self.data_source.as_ref() else {
             soe_trace::error!(target: "host::player", system = "host::player", "PlayerNode::enter_cell: load_data was not called");
             return -1;
@@ -1902,6 +1907,76 @@ impl PlayerNode {
             "query",
             self.query_collision.active_reference_bodies(reference) as i64,
         );
+        result
+    }
+
+    /// Inspect a ray through both movement and host query collision in metres.
+    #[func]
+    pub fn reference_collision_ray(
+        &self,
+        file: i32,
+        object: i64,
+        from: Vector3,
+        to: Vector3,
+    ) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return result;
+        };
+        let reference = GlobalFormId { file, object };
+        let skyrim = |point: Vector3| {
+            let point = crate::units::GodotPos::new(point.x, point.y, point.z).to_skyrim();
+            Vec3::new(point.x, point.y, point.z)
+        };
+        let movement = self
+            .world
+            .as_ref()
+            .and_then(|world| world.raycast(skyrim(from), skyrim(to)))
+            .is_some_and(|hit| self.collision_references.get(&hit.body) == Some(&reference));
+        result.set("movement", movement);
+        let query = self.base().get_world_3d().is_some_and(|world| {
+            let mut parameters = godot::classes::PhysicsRayQueryParameters3D::new_gd();
+            parameters.set_from(from);
+            parameters.set_to(to);
+            parameters.set_hit_from_inside(true);
+            parameters.set_collision_mask(1);
+            if let Some(streamer) = &self.game_streamer {
+                parameters.set_exclude(&streamer.bind().collision_body_rids());
+            }
+            let Some(mut state) = godot::classes::PhysicsServer3D::singleton()
+                .space_get_direct_state(world.get_space())
+            else {
+                return false;
+            };
+            let hit = state.intersect_ray(&parameters);
+            hit.get("rid")
+                .and_then(|rid| rid.try_to::<Rid>().ok())
+                .is_some_and(|rid| self.query_collision.reference_for_body(rid) == Some(reference))
+        });
+        result.set("query", query);
+        let streamer = self.base().get_world_3d().is_some_and(|world| {
+            let Some(streamer) = &self.game_streamer else {
+                return false;
+            };
+            let mut parameters = godot::classes::PhysicsRayQueryParameters3D::new_gd();
+            parameters.set_from(from);
+            parameters.set_to(to);
+            parameters.set_hit_from_inside(true);
+            parameters.set_collision_mask(1);
+            let excluded: Array<Rid> = self.query_collision.body_rids().collect();
+            parameters.set_exclude(&excluded);
+            let Some(mut state) = godot::classes::PhysicsServer3D::singleton()
+                .space_get_direct_state(world.get_space())
+            else {
+                return false;
+            };
+            state
+                .intersect_ray(&parameters)
+                .get("rid")
+                .and_then(|rid| rid.try_to::<Rid>().ok())
+                .is_some_and(|rid| streamer.bind().reference_for_body(rid) == Some(reference))
+        });
+        result.set("streamer", streamer);
         result
     }
 

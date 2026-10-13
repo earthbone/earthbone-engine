@@ -996,6 +996,10 @@ impl CellStreamerNode {
         self.collision.reference_for_body(body)
     }
 
+    pub(crate) fn collision_body_rids(&self) -> Array<Rid> {
+        self.collision.body_rids().collect()
+    }
+
     pub(crate) fn carry_anchor(&self, reference: GlobalFormId, hit: Vector3) -> Option<Vector3> {
         self.collision.carry_anchor(reference, hit)
     }
@@ -1564,6 +1568,11 @@ impl CellStreamerNode {
                     .is_some_and(|placement| placement.visible)
         });
         if let Some(space) = self.collision_space {
+            for state in self.door_collision_states() {
+                if self.collision_cell == Some(state.cell) {
+                    self.collision.sync_animated_door(&state, space);
+                }
+            }
             self.collision
                 .set_collisions_enabled(world.debug_collisions_enabled);
             self.collision.ensure_references(world);
@@ -3397,6 +3406,36 @@ impl CellStreamerNode {
         for door in self.doors.values_mut() {
             door.advance(delta);
         }
+        self.sync_animated_door_collision();
+    }
+
+    pub(crate) fn door_collision_states(&self) -> Vec<crate::godot_door::DoorCollisionState> {
+        self.doors
+            .iter()
+            .filter_map(|(id, door)| door.collision_state(*id))
+            .collect()
+    }
+
+    pub(crate) fn begin_load_door_animation(&mut self, reference: GlobalFormId) -> bool {
+        self.doors
+            .get_mut(&reference)
+            .is_some_and(crate::godot_door::ResidentDoor::begin_load_opening)
+    }
+
+    pub(crate) fn load_door_animation_finished(&self, reference: GlobalFormId) -> bool {
+        self.doors
+            .get(&reference)
+            .is_none_or(crate::godot_door::ResidentDoor::opening_finished)
+    }
+
+    fn sync_animated_door_collision(&mut self) {
+        if let Some(space) = self.collision_space {
+            for state in self.door_collision_states() {
+                if self.collision_cell == Some(state.cell) {
+                    self.collision.sync_animated_door(&state, space);
+                }
+            }
+        }
     }
 
     /// Number of resident door control nodes.
@@ -4135,6 +4174,19 @@ impl CellStreamerNode {
         node.set_name(&format!("Door_{id}"));
         self.base_mut().add_child(&node);
         let mut door = crate::godot_door::ResidentDoor::new(cell, node, first.placement, false);
+        door.animation = first.animation.as_ref().and_then(|animation| {
+            crate::object_animation::DoorAnimation::new(animation.asset.clone(), false)
+        });
+        if door.animation.is_some() {
+            if let Some(source) = &self.data_source {
+                match source.placed_reference_colliders(id) {
+                    Ok(colliders) => door.colliders = colliders,
+                    Err(error) => {
+                        godot_error!("CellStreamerNode: door collision {id}: {error}");
+                    }
+                }
+            }
+        }
         let mut server = RenderingServer::singleton();
         for surface in surfaces {
             let material = material_for(
@@ -4176,6 +4228,7 @@ impl CellStreamerNode {
                 model_transform,
                 submitted: Transform3D::IDENTITY,
                 triangles: surface.arrays.triangle_count(),
+                animation: surface.animation.clone(),
             });
             self.bounds = Some(self.bounds.map_or(surface.arrays.bounds, |bounds| {
                 crate::batch::merge_bounds(bounds, surface.arrays.bounds)

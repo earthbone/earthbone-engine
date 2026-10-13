@@ -397,6 +397,16 @@ installed mist, window glow and light beam meshes through `SKYRIM_DATA`.
 
 ## Object animation playback, RND-23
 
+The door correction of 2026-10-13 exposes `sequence_duration`, using the
+sequence's start, stop and frequency, and `rest_pose`, using the authored
+hierarchy before controllers run. The host uses these to retain leaf hinges
+and collision-node offsets while playing Open and Close. `has_sequences` retains
+the presence of
+inactive or unbound sequence blocks so the host never substitutes a root swing.
+Name binding follows nif.xml's ControlledBlock Node Name and nifly's
+`NiControllerSequence::Sync` in `src/Animation.cpp`. No new format decoder or
+dependency is needed.
+
 `object_animation::ObjectAnimation::from_file` resolves active
 `NiControllerManager` sequence links, their named geometry or property targets,
 and autonomous transform and shader controllers. The additional animation

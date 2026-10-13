@@ -55,6 +55,7 @@ struct Channel {
 #[derive(Debug, Clone)]
 struct Sequence {
     name: String,
+    time: TimeController,
     channels: Vec<Channel>,
     accumulation_root: Option<usize>,
 }
@@ -62,6 +63,7 @@ struct Sequence {
 /// Immutable controller tracks and the scene hierarchy shared by placements.
 #[derive(Debug, Clone)]
 pub struct ObjectAnimation {
+    authored_sequences: bool,
     local: Vec<Transform>,
     hierarchy: Vec<(usize, Option<usize>)>,
     standalone: Vec<Channel>,
@@ -385,6 +387,7 @@ fn sequence(file: &NifFile, index: usize, cumulative: bool) -> Result<Sequence> 
         .flatten();
     Ok(Sequence {
         name,
+        time,
         channels,
         accumulation_root,
     })
@@ -406,6 +409,10 @@ impl ObjectAnimation {
     /// Invalid counts, strings, links, block lengths and scene cycles are errors.
     pub fn from_file(file: &NifFile) -> Result<Self> {
         let mut out = Self {
+            authored_sequences: file
+                .blocks
+                .iter()
+                .any(|block| matches!(raw(block), Some(("NiControllerSequence", _)))),
             local: file
                 .blocks
                 .iter()
@@ -500,9 +507,47 @@ impl ObjectAnimation {
         !self.standalone.is_empty() || self.sequences.iter().any(|s| !s.channels.is_empty())
     }
 
+    /// Whether the NIF contains sequence blocks, including inactive or unbound ones.
+    /// This distinguishes unavailable playback from an asset without sequences.
+    pub fn has_sequences(&self) -> bool {
+        self.authored_sequences
+    }
+
     /// Names authored by the active controller managers, in file order.
     pub fn sequence_names(&self) -> impl Iterator<Item = &str> {
         self.sequences.iter().map(|s| s.name.as_str())
+    }
+
+    /// Real-time duration of a named sequence, including its frequency.
+    /// Invalid timing holds the start pose and has zero duration.
+    pub fn sequence_duration(&self, name: &str) -> Option<f32> {
+        self.sequences
+            .iter()
+            .find(|s| s.name.eq_ignore_ascii_case(name))
+            .map(|s| {
+                let span = f64::from(s.time.stop_time) - f64::from(s.time.start_time);
+                let frequency = f64::from(s.time.frequency);
+                let duration = span / frequency;
+                if span > 1e-6 && frequency > 1e-6 && duration.is_finite() {
+                    duration.min(f64::from(f32::MAX)) as f32
+                } else {
+                    0.0
+                }
+            })
+    }
+
+    /// Authored model-space transforms before any controller is evaluated.
+    pub fn rest_pose(&self) -> ObjectPose {
+        let mut pose = ObjectPose {
+            transforms: self.local.clone(),
+            properties: Vec::new(),
+        };
+        for (index, parent) in &self.hierarchy {
+            if let Some(parent) = parent {
+                pose.transforms[*index] = pose.transforms[*parent].then(&pose.transforms[*index]);
+            }
+        }
+        pose
     }
 
     /// Sample autonomous controllers and a named sequence, or the default idle.

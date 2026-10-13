@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Resident door geometry uses server RIDs and one stable control node.
-//! OpenMW's worldimp.cpp rotateDoor supplies the reversible quarter-turn fallback.
-//! Collision is disabled while open by the shared World query, rather than
-//! keeping a second closed panel at the original placement.
+//! Nifly Animation.cpp and nif.xml supply named child-node sequences and
+//! collision targets. OpenMW's rotateDoor fallback is only for sequence-less assets.
 
 use godot::classes::{ArrayMesh, Node3D, RenderingServer};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 use soe_physics::Iso;
 
+use crate::collision::PlacedCollider;
 use crate::godot_layer::transform3d_from;
+use crate::object_animation::{AnimatedSurface, DoorAnimation};
 use crate::units::placement_to_godot;
 
 pub(super) struct DoorSurface {
@@ -20,6 +21,7 @@ pub(super) struct DoorSurface {
     pub model_transform: Transform3D,
     pub triangles: usize,
     pub submitted: Transform3D,
+    pub animation: Option<AnimatedSurface>,
 }
 
 pub(super) struct ResidentDoor {
@@ -30,6 +32,20 @@ pub(super) struct ResidentDoor {
     visible: bool,
     opened: bool,
     fraction: f32,
+    pub animation: Option<DoorAnimation>,
+    pub colliders: Vec<PlacedCollider>,
+    placement: Iso,
+    revision: u64,
+    load_opening: bool,
+}
+
+pub(crate) struct DoorCollisionState {
+    pub cell: GlobalFormId,
+    pub reference: GlobalFormId,
+    pub visible: bool,
+    pub revision: u64,
+    pub colliders: Vec<PlacedCollider>,
+    pub deltas: Vec<(soe_nif::BlockRef, Iso)>,
 }
 
 impl ResidentDoor {
@@ -42,21 +58,56 @@ impl ResidentDoor {
             visible: true,
             opened,
             fraction: if opened { 1.0 } else { 0.0 },
+            animation: None,
+            colliders: Vec::new(),
+            placement: iso,
+            revision: 0,
+            load_opening: false,
         }
     }
 
     pub fn sync(&mut self, iso: Iso, visible: bool, opened: bool) {
+        let opened = opened || self.load_opening;
         let pose = pose_transform(iso);
         if self.pose == pose && self.visible == visible && self.opened == opened {
             return;
         }
         self.pose = pose;
+        self.placement = iso;
         self.visible = visible;
         self.opened = opened;
+        if let Some(animation) = &mut self.animation {
+            animation.set_opened(opened);
+        }
         self.apply();
     }
 
+    pub fn begin_load_opening(&mut self) -> bool {
+        let Some(animation) = &mut self.animation else {
+            return false;
+        };
+        if animation.asset.sequence_duration("Open").is_none() {
+            return false;
+        }
+        self.load_opening = true;
+        self.opened = true;
+        animation.set_opened(true);
+        self.apply();
+        true
+    }
+
+    pub fn opening_finished(&self) -> bool {
+        self.fraction == 1.0
+    }
+
     pub fn advance(&mut self, delta: f32) {
+        if let Some(animation) = &mut self.animation {
+            if animation.advance(delta) {
+                self.fraction = animation.fraction();
+                self.apply();
+            }
+            return;
+        }
         let target = if self.opened { 1.0 } else { 0.0 };
         let next = advance_swing(self.fraction, target, delta);
         if self.fraction != next {
@@ -70,16 +121,59 @@ impl ResidentDoor {
             Basis::from_axis_angle(Vector3::UP, self.fraction * std::f32::consts::FRAC_PI_2),
             Vector3::ZERO,
         );
-        let transform = self.pose * swing;
+        let transform = if self.animation.is_some() {
+            self.pose
+        } else {
+            self.pose * swing
+        };
         self.node.set_transform(transform);
         self.node.set_visible(self.visible);
         let mut server = RenderingServer::singleton();
+        let pose = self.animation.as_ref().map(DoorAnimation::pose);
         for surface in &mut self.surfaces {
-            surface.submitted =
-                surface_transform(transform, surface.original) * surface.model_transform;
+            let model = match (&pose, &surface.animation) {
+                (Some(pose), Some(animation)) => {
+                    let shape = pose.transforms[animation.block];
+                    pose_transform(Iso::from(shape))
+                }
+                _ => surface.model_transform,
+            };
+            surface.submitted = surface_transform(transform, surface.original) * model;
             server.instance_set_transform(surface.rid, surface.submitted);
             server.instance_set_visible(surface.rid, self.visible);
         }
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    pub fn collision_state(&self, reference: GlobalFormId) -> Option<DoorCollisionState> {
+        let animation = self.animation.as_ref()?;
+        let rest = animation.asset.rest_pose();
+        let pose = animation.pose();
+        let mut deltas = Vec::new();
+        let colliders = self
+            .colliders
+            .iter()
+            .map(|source| {
+                let mut placed = source.clone();
+                if let Some(node) = placed.collider.node.get() {
+                    let old = source.original.then(&Iso::from(rest.transforms[node]));
+                    let current = self.placement.then(&Iso::from(pose.transforms[node]));
+                    let delta = current.then(&old.inverse());
+                    placed.collider.transform = delta.then(&source.collider.transform);
+                    placed.original = self.placement;
+                    deltas.push((placed.collider.node, delta));
+                }
+                placed
+            })
+            .collect();
+        Some(DoorCollisionState {
+            cell: self.cell,
+            reference,
+            visible: self.visible,
+            revision: self.revision,
+            colliders,
+            deltas,
+        })
     }
 
     pub fn state(&self) -> VarDictionary {
@@ -88,6 +182,26 @@ impl ResidentDoor {
         state.set("visible", self.visible);
         state.set("opened", self.opened);
         state.set("fraction", self.fraction);
+        if let Some(animation) = &self.animation {
+            let (sequence, seconds) = animation.playback();
+            state.set("sequence", sequence);
+            state.set("sequence_seconds", seconds);
+            state.set(
+                "open_duration",
+                animation.asset.sequence_duration("Open").unwrap_or(0.0),
+            );
+            state.set(
+                "close_duration",
+                animation.asset.sequence_duration("Close").unwrap_or(0.0),
+            );
+            let transforms: Array<Transform3D> = animation
+                .pose()
+                .transforms
+                .into_iter()
+                .map(|transform| pose_transform(Iso::from(transform)))
+                .collect();
+            state.set("model_nodes", &transforms);
+        }
         state.set("transform", self.node.get_transform());
         state.set("placement_transform", self.pose);
         let mut bounds: Option<Aabb> = None;
