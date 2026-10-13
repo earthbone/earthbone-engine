@@ -1,5 +1,122 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Free walk interaction corrections, 2026-10-13
+
+Container hover in the vanilla play path shows only ActivationPrompt.
+QuickLoot is opt in through PlayerNode.quick_loot_enabled or the explicit
+force-container mod API. Its former full-viewport Control intercepted mouse
+events, and its selected row synchronously loaded a model preview on hover.
+Normal hover now creates neither that control tree nor the preview. Opt-in
+QuickLoot controls ignore pointer and focus input. E goes through the existing
+activation path to open the full container menu. Close clears its opened
+reference state and restores pointer capture and gameplay input.
+
+Conversation voices use DOBJ DDSC and DOP2 through the existing SNCT and SOPM
+readers. Ambient speech uses DOP3. In the installed data DOP2 points to
+SOMDialogue3DDefault, while DOP3 points to SOMDialogue2D, despite the
+keys' editor labels. The output record controls its actual behavior. The former FUZ path skipped those records
+and used generic inverse-distance attenuation with a one-metre unit size,
+positioned at the speaker's reference origin. Installed DDSC reaches the Voice
+slider through AudioCategoryVOC and AudioCategoryVOCGeneral. The default slider
+is 0.8, its static multiplier is 0.9, and the master multiplier is 0.9.
+Conversation playback therefore starts from 0.648 category gain, about
+-3.77 dB. Its authored curve spans 70 to 3000 Skyrim units with samples
+100, 50, 20, 5 and 0. Voice slots interpolate those percentages across the
+range and bypass Godot's inverse-distance model and additional max-distance
+fade. At two metres the authored curve costs about 0.425 dB, while the
+former inverse-distance model costs about 6 dB. This changes routing and
+authored parameters, not a speech gain adjustment.
+Godot's default distance filter also follows the player's reduced gain. It is
+bypassed for voice curves and non-attenuated output. Voices retain the
+category level inside the authored minimum radius. The local Godot class docs and
+[Godot 4.4 playback source](https://github.com/godotengine/godot/blob/4.4/scene/3d/audio_stream_player_3d.cpp)
+confirm the filter and gain clamp. No separate Voice bus existed, and
+category gain is applied at the player just
+as it is for record-backed descriptors. The host mixer bus retains unity gain. Music formerly faded to unity too,
+bypassing DOBJ MDSC. It now resolves that category and ends its fade at the
+installed 0.7 static multiplier, 0.5 slider and 0.9 master, about -10.03 dB.
+Outgoing fades preserve the current category-scaled level.
+
+Dialogue uses the archived interface/dialoguemenu.swf coordinates. The SWF
+stage is 1280 by 720 with showAll scaling. Combining DialogueMenu_mc,
+TopicListHolder and List_mc translations places the topic list at about
+748 by 304.5 pixels. SpeakerName starts at 546.55 by 435.85 and SubtitleText
+at 248.55 by 576.7. The native topics scroll in the lower right, subtitles
+wrap near the bottom, and the speaker name is a separate label. Resize fits
+the same uniformly scaled stage, including portrait and ultrawide windows.
+The topic panel is translucent and leaves the central actor view visible.
+Full UI-30 art and font comparisons remain a separate row.
+
+Held E retains HST-22's Jolt spring, collision and release momentum. Z toggles
+a carry without ordinary activation. Primary attack throws the carried body
+with a mass-scaled five metre per second impulse instead of starting a weapon
+swing. OnGrab and OnRelease still target the shared reference with no
+arguments. These controls add no saved state, dependency or reference node.
+
+The focused installed checks use freewalk_hover_test.gd, hst_28_dialogue.gd,
+hst_22_carry_test.gd and the real walkthrough startup in HST-26. Thresholds
+are more than ten units of movement during hover and after close, one dB of
+Voice category playback error, dialogue rects inside the viewport below
+40 percent of its height, and twenty centimetres of settled carry-anchor
+error. The decoder survey compares six FemaleEvenToned FUZ lines with FFmpeg
+and requires decoded energy within one dB. Existing assertions are retained.
+
+Local references read: UESP SNCT, xEdit SNCT and DOBJ, CommonLibSSE
+BGSSoundCategory and BGSDefaultObjectManager, CK OnGrab and OnRelease,
+QuickLootIE LootMenu.cpp, godotwind carry_controller.gd, SkyUI
+DialogueMenu.as and its SWF XML, plus the installed vanilla SWF exported
+through the existing VFS and FFDec. The comparison dialogue and characters
+reports supplied adjacent integration limits. Existing record readers,
+asset resolution, decompiler and physics spring were reused. The SWF and
+exported XML stay under ignored target and are not committed.
+
+This scratch checkpoint is detached in lead-play-freewalk, based on
+735176dff. Changed production files are audio/src/wma.rs, game/src/sound.rs,
+and godot-host's dialogue_menu.rs, godot_audio.rs, godot_layer.rs,
+godot_physics.rs, godot_player.rs, input.rs and player carry, menu and
+quick_loot modules. Changed checks are dlg_11_voice.rs, hst_26_activation.rs,
+hst_28_dialogue.rs and its script, the HST-22 and HST-26 scripts, the new
+freewalk_hover_test.gd, and AUD-13's music fixture and script. The walkthrough
+control text, these three crate docs and five new backlog rows accompany them.
+The rows stay wip while installed acceptance and the combined gate are blocked.
+
+Audio's 63 library cases, game's 249 and the host's 435 pass. The six-line
+installed decoder survey passes with maximum absolute level error 0.0558 dB.
+The locked release build exits 0 after seven minutes and eight seconds.
+Project import exits 0 with no script errors. The new and changed acceptance
+scripts pass Godot's syntax checks. AUD-13's fixture lacked MDSC because the
+former music path skipped categories. Adding its missing records preserves
+all assertions and adds a 0.01 dB category check. That scene passes in 8.56 s.
+
+The full gate passes formatting, all four clippy commands, comment lint,
+prose lint, TOML, Markdown, fuzz formatting and 52 Python runner cases.
+cargo-deny and cargo-audit are absent and skipped. Its first test phase
+stopped with 5,233 passes and 16 failures. Four were a clippy toolchain
+override leaking into the WASM fixture's rustup lookup. Limiting that override
+to clippy removes them. The WASM target itself is absent, so its existing
+gated cases return early. An exported, untouched 735176dff tree reproduces
+all 12 AI failures: follow cell transitions, travel and sleep cell transitions,
+and disconnected obstacle routes, including duplicate fixture imports.
+Those checks and their inputs are unchanged here.
+
+The no-fail-fast workspace run completes with 8,567 passes, 13 failures and
+14 existing ignored cases. Twelve failures are the baseline AI cases. The
+other was the corrected AUD-13 fixture, whose focused rerun passes. No ignore
+or lint exemption was added. Summed binary test execution was 457.92 s on the
+contended host, exceeding the five-minute tier 1 budget. This run therefore
+does not certify that budget or a passing combined gate.
+
+The installed hover, voice playback, viewport and carry acceptance group is
+queued through the run's cargo wrapper with one test thread on Xvfb :99.
+It has not started because installed-0.lock remains held outside this agent,
+confirmed after stopping the owned queue. No installed game is launched on :0,
+and Skyrim is never launched. Synthetic Godot checks use a silent launcher
+on :99 so their tiny temporary SKYRIM_DATA fixtures do not wait for that
+installed-game lock. Real installed checks retain the cargo wrapper's lock.
+Physical speaker output and those four installed play checks remain unverified.
+Their scripts and thresholds are committed for the lead to run after the slot
+is released. Logs are under ignored target/freewalk-*.log.
+
 ## Play path fix checkpoint, 2026-10-13
 
 The first live gate on `ee278da20` exited 101 after the 360-second process
@@ -294,6 +411,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +623,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -7972,7 +8091,6 @@ project helper, including RND-36's night shader, and requires an explicit
 Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
-
 
 ### Audio integration corrections, second round, 2026-10-12
 

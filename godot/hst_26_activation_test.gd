@@ -59,18 +59,9 @@ func _start() -> void:
 	await super._start()
 	await hst_26_pickup_book_and_activator()
 
-func hst_26_pickup_book_and_activator() -> void:
-	if not loaded:
-		return
-	item_file = int(OS.get_environment("SOE_HST_26_ITEM_FILE"))
-	item_object = int(OS.get_environment("SOE_HST_26_ITEM_OBJECT"))
-	if not _check(not _pose().is_empty(), "walkthrough startup installs loose rigid bodies"):
-		return
-	if not _check(player.call("debug_watch_activation", item_file, item_object), "pickup Papyrus observer attached"):
-		return
-	var before: Dictionary = player.call("activation_reference_status", item_file, item_object)
-	var aimed := false
+func _acquire_item(z_offset := -10.0) -> bool:
 	for offset: Vector3 in [Vector3(-85, 0, -10), Vector3(85, 0, -10), Vector3(0, -85, -10), Vector3(0, 85, -10)]:
+		offset.z = z_offset
 		_check(player.call("queue_player_input", {"action": "move_to", "file": item_file, "object": item_object, "offset": offset, "match_rotation": false}), "approach queued")
 		_check(player.call("step_player_input"), "approach applied")
 		await _tick(30)
@@ -84,9 +75,20 @@ func hst_26_pickup_book_and_activator() -> void:
 		await _tick()
 		var status: Dictionary = player.call("carry_status")
 		if status.get("crosshair_file", -1) == item_file and status.get("crosshair_object", -1) == item_object:
-			aimed = true
-			break
-	if not _check(aimed, "activation ray hits tankard"):
+			return true
+	return false
+
+func hst_26_pickup_book_and_activator() -> void:
+	if not loaded:
+		return
+	item_file = int(OS.get_environment("SOE_HST_26_ITEM_FILE"))
+	item_object = int(OS.get_environment("SOE_HST_26_ITEM_OBJECT"))
+	if not _check(not _pose().is_empty(), "walkthrough startup installs loose rigid bodies"):
+		return
+	if not _check(player.call("debug_watch_activation", item_file, item_object), "pickup Papyrus observer attached"):
+		return
+	var before: Dictionary = player.call("activation_reference_status", item_file, item_object)
+	if not _check(await _acquire_item(), "activation ray hits tankard"):
 		return
 	var prompt: Dictionary = player.call("activation_prompt")
 	_check(not prompt.get("name", "").is_empty() and prompt.get("action", "") in ["Take", "Steal"], "crosshair name and pickup prompt")
@@ -94,6 +96,19 @@ func hst_26_pickup_book_and_activator() -> void:
 	await process_frame
 	var label := player.find_child("ActivationPrompt", true, false) as Label
 	_check(label != null and label.text.contains(prompt.name) and label.text.contains(prompt.action), "HUD displays prompt")
+	_key(true)
+	await _tick(90)
+	var held: Dictionary = player.call("carry_status")
+	_check(held.get("grabbed_object", -1) == item_object, "live walkthrough hold E grabs the tankard")
+	if held.has("hold_point"):
+		var transform: Transform3D = PhysicsServer3D.body_get_state(_pose().body, PhysicsServer3D.BODY_STATE_TRANSFORM)
+		_check((transform * held.anchor).distance_to(held.hold_point) < 0.20, "live grabbed anchor follows hold point within 20 cm")
+	_key(false)
+	await _tick(30)
+	_check(not player.call("carry_status").has("grabbed_object"), "live release drops without taking")
+	_check(player.call("activation_reference_status", item_file, item_object).enabled, "carry does not take or steal the reference")
+	if not _check(await _acquire_item(5.0), "tap reacquires dropped tankard within reach"):
+		return
 	_key(true)
 	await _tick()
 	_key(false)

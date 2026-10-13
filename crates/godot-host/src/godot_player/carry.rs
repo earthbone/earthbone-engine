@@ -16,6 +16,7 @@ pub(super) struct HeldReference {
     reference: GlobalFormId,
     anchor: Vector3,
     distance: f32,
+    toggled: bool,
 }
 
 impl PlayerNode {
@@ -73,10 +74,34 @@ impl PlayerNode {
             return;
         }
         let held = self.held_actions.contains(&Action::Activate);
-        let gesture = self
-            .activate_hold
-            .step(input.activate_pressed, held, delta, target);
-        if self.grabbed_host.is_some() && !held {
+        if self.grabbed_host.is_some() && input.right_attack_pressed {
+            let direction = self.rig.look_direction();
+            let godot_direction =
+                crate::units::direction_to_godot([direction.x, direction.y, direction.z]);
+            if let (Some(carry), Some(streamer)) = (&self.grabbed_host, &self.game_streamer) {
+                streamer
+                    .bind()
+                    .throw_carried_reference(carry.reference, Vector3::from_array(godot_direction));
+            }
+            self.release_carry();
+            return;
+        }
+        if self.grabbed_host.is_some() && (input.grab_pressed || input.activate_pressed) {
+            self.release_carry();
+            return;
+        }
+        let gesture = if input.grab_pressed {
+            self.activate_hold.cancel();
+            target.map_or(ActivateGesture::None, ActivateGesture::Grab)
+        } else {
+            self.activate_hold
+                .step(input.activate_pressed, held, delta, target)
+        };
+        if self
+            .grabbed_host
+            .as_ref()
+            .is_some_and(|carry| !carry.toggled && !held)
+        {
             self.release_carry();
             return;
         }
@@ -101,12 +126,13 @@ impl PlayerNode {
                         reference,
                         anchor,
                         distance,
+                        toggled: input.grab_pressed,
                     });
                     if let Some(game) = &mut self.game {
                         game.world_mut().set_grabbed_reference(Some(reference));
                     }
                     self.carry_event(reference, "OnGrab");
-                } else {
+                } else if !input.grab_pressed {
                     self.last_activate_hit = true;
                     self.last_activate_reference = Some(reference);
                 }
@@ -215,6 +241,13 @@ impl PlayerNode {
                     row.set(format!("{name}_object"), i64::from(reference.object));
                 }
             }
+        }
+        if let Some(carry) = &self.grabbed_host {
+            let eye = self.rig.head(self.feet(), self.capsule_height());
+            let target = eye + self.rig.look_direction() * carry.distance;
+            let target = SkyrimPos::new(target.x, target.y, target.z).to_godot();
+            row.set("hold_point", Vector3::new(target.x, target.y, target.z));
+            row.set("anchor", carry.anchor);
         }
         row
     }

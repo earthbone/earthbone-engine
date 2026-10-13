@@ -92,6 +92,22 @@ fn fixture(data: &Path) {
         );
     }
     plugin.push_top(Record::new(Tag(*b"SOPM"), 0xB00).sub(Tag(*b"MNAM"), 1_u32.to_le_bytes()));
+    plugin.push_top(
+        Record::new(Tag(*b"SNCT"), 0xB01)
+            .sub(Tag(*b"FNAM"), 2_u32.to_le_bytes())
+            .sub(Tag(*b"VNAM"), 45875_u16.to_le_bytes())
+            .sub(Tag(*b"UNAM"), 32768_u16.to_le_bytes())
+            .sub(Tag(*b"PNAM"), 0xB02_u32.to_le_bytes()),
+    );
+    plugin.push_top(
+        Record::new(Tag(*b"SNCT"), 0xB02)
+            .sub(Tag(*b"FNAM"), 0_u32.to_le_bytes())
+            .sub(Tag(*b"VNAM"), 58982_u16.to_le_bytes()),
+    );
+    plugin.push_top(Record::new(Tag(*b"DOBJ"), 0x31).sub(
+        Tag(*b"DNAM"),
+        [b"MDSC".as_slice(), &0xB01_u32.to_le_bytes()].concat(),
+    ));
     for master in [
         "Skyrim.esm",
         "Update.esm",

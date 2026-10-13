@@ -9701,3 +9701,20 @@ as MGEF flag bit 1. The Grab Actor companion fixture uses both so its immediate
 health assertion exercises the caster target. Existing Rust readers and
 public save profiling supply the fixture encoding, with no reference code
 copied or dependency added.
+
+## Dialogue audio parameters, AUD-15
+
+sound::prepare_dialogue resolves DOBJ DDSC and DOP2 for a conversation or
+DOP3 for ambient speech. The selected SOPM record supplies the output
+mode, rather than assuming its mode from the default key's editor label. It reuses SNCT parent and slider gains,
+SOPM outputs and sparse DOBJ override resolution.
+sound::default_category_gain supplies MDSC to the host music fade as well.
+Attenuation::gain_at_distance interpolates the five SOPM percentage samples
+across the stored minimum and maximum distances. The voice adapter uses this
+curve in place of the host's generic distance model. Sources are xEdit's
+SOPM curve and distance fields and the local UESP SOPM page. Godot supplies
+no five-point attenuation model, so this sampler stays with the record data. A generated voice filename
+does not need an invented SNDR form. The selected file remains resolved
+through the host VFS. Sources are local xEdit DOBJ and SNCT, UESP SNCT and
+CommonLibSSE BGSSoundCategory. The installed host category and scene checks
+verify the playback parameters. No world field or save section is added.

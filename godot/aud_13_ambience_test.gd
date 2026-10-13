@@ -91,6 +91,9 @@ func aud_13_scene_crossfades_acoustic_and_regional_ambience() -> void:
 		await process_frame
 	_check(int(bank.call("music_start_count")) == 3 and int(bank.call("music_playing_count")) == 1, "ended cached music restarts")
 	_check(int(bank.call("decoded_count")) == decoded, "music restart reused decode")
+	var active_music := first if first.playing else second
+	var expected_music_db := 20.0 * log(0.7 * 0.5 * 0.9) / log(10.0)
+	_check(absf(active_music.volume_db - expected_music_db) < 0.01, "music honors MDSC static, slider and parent levels")
 	audio_root.free()
 	print("AUD-13 RESULT: ", "PASS" if failures == 0 else "FAIL", " fixture crossfades")
 	quit(0 if failures == 0 else 1)

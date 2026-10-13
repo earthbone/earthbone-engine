@@ -78,6 +78,12 @@ func _run_hst_28() -> void:
     if not acquired:
         quit(1)
         return
+    var bank := player.get_node("SoundBank")
+    _check(bank.call("play_music_track", OS.get_environment("SOE_HST_28_MUSIC_PATH"), 0.0, 0.5, false), "audible installed music queued for category check")
+    deadline = Time.get_ticks_msec() + 10_000
+    while int(bank.call("music_playing_count")) == 0 and Time.get_ticks_msec() < deadline:
+        await process_frame
+    _check(int(bank.call("music_playing_count")) > 0, "installed music starts before dialogue")
     await process_frame
     await process_frame
     var prompt := player.get_node("HudLayer/Hud/ActivationPrompt") as Label
@@ -95,6 +101,33 @@ func _run_hst_28() -> void:
     _check(not str(state.get("text", "")).is_empty(), "Hulda greeting selected")
     _check(not state.get("topics", []).is_empty(), "greeting opens alongside eligible topics")
     _check(state.get("voice_slot", -1) >= 0, "greeting's installed voice starts")
+    var slots: Array[AudioStreamPlayer3D] = []
+    for child: Node in bank.get_children():
+        if child is AudioStreamPlayer3D: slots.append(child)
+    var voice: AudioStreamPlayer3D
+    var voice_slot := int(state.get("voice_slot", -1))
+    if voice_slot >= 0 and voice_slot < slots.size(): voice = slots[voice_slot]
+    _check(voice != null and voice.playing, "dialogue owns its reported active host voice slot")
+    if voice != null:
+        var expected_db := 20.0 * log(0.9 * 0.8 * 0.9) / log(10.0)
+        var gain_db := voice.volume_db
+        var bus := AudioServer.get_bus_index(voice.bus)
+        while bus >= 0:
+            gain_db += AudioServer.get_bus_volume_db(bus)
+            if bus == 0: break
+            bus = AudioServer.get_bus_index(AudioServer.get_bus_send(bus))
+        _check(absf(gain_db - expected_db) <= 1.0, "voice level within 1 dB of vanilla Voice category")
+        _check(voice.attenuation_model == AudioStreamPlayer3D.ATTENUATION_DISABLED and voice.max_distance == 0.0, "host does not add generic distance loss")
+        _check(voice.attenuation_filter_db == 0.0, "category volume does not enable a distance filter")
+        print("hst_28 voice category_db=", expected_db, " playback_db=", gain_db)
+    var music_checked := false
+    for child: Node in bank.get_children():
+        if child is AudioStreamPlayer and str(child.name).begins_with("MusicPlayer") and child.playing:
+            var expected_music_db := 20.0 * log(0.7 * 0.5 * 0.9) / log(10.0)
+            _check(child.volume_db <= expected_music_db + 1.0, "music fade stays below its authored category level")
+            music_checked = true
+            print("hst_28 music category_db=", expected_music_db, " playback_db=", child.volume_db)
+    _check(music_checked, "music category checked on active walkthrough playback")
     var greeting_info := int(state.get("info_object", -1))
     var weights_seen := false
     deadline = Time.get_ticks_msec() + 5_000
@@ -106,6 +139,7 @@ func _run_hst_28() -> void:
         if weights_seen: break
     _check(weights_seen, "voice clock drives Hulda head mouth morphs")
     print("hst_28 lips: ", actor.call("dialogue_mouth_state"))
+    await _check_dialogue_rects()
     state = player.call("dialogue_state")
     var topics: Array = state.get("topics", [])
     _check(not topics.is_empty(), "conditions offer at least one Hulda topic")
@@ -124,11 +158,8 @@ func _run_hst_28() -> void:
         _check(int(state.get("info_object", -1)) != greeting_info, "topic button selects a response INFO")
         _check(not str(state.get("text", "")).is_empty(), "topic button starts its response")
         _check(state.get("voice_slot", -1) >= 0, "response's installed voice starts")
-        var has_line := false
-        for node: Node in content.find_children("*", "Label", true, false):
-            var label := node as Label
-            if label.text == state.get("text", ""): has_line = true
-        _check(has_line, "menu shows the game-selected response line")
+        var subtitle := player.get_node("MenuLayer/DialogueSubtitle") as Label
+        _check(subtitle.visible and subtitle.text == state.get("text", ""), "menu shows the game-selected response line")
     _check(player.call("close_menu"), "close returns to play")
     _check(not player.call("is_menu_open") and player.call("dialogue_state").is_empty(), "menu and game conversation close together")
     await process_frame
@@ -140,3 +171,24 @@ func _run_hst_28() -> void:
     _check(player.call("gameplay_days") > before, "game clock resumes")
     print("PASS hst_28" if failures == 0 else "FAIL hst_28 checks=" + str(failures))
     quit(0 if failures == 0 else 1)
+
+func _check_dialogue_rects() -> void:
+    var panel := player.get_node("MenuLayer/MenuPanel") as Control
+    var subtitle := player.get_node("MenuLayer/DialogueSubtitle") as Control
+    var speaker := player.get_node("MenuLayer/DialogueSpeaker") as Control
+    var original: Vector2i = get_root().size
+    for size: Vector2i in [Vector2i(320, 180), Vector2i(640, 360), Vector2i(1280, 720), Vector2i(1024, 576), Vector2i(800, 1000), Vector2i(1920, 720)]:
+        get_root().size = size
+        await process_frame
+        await process_frame
+        var actual := get_root().get_visible_rect().size
+        var viewport_rect := Rect2(Vector2.ZERO, actual)
+        for control: Control in [panel, subtitle, speaker]:
+            var rect := control.get_global_rect()
+            _check(viewport_rect.encloses(rect), "dialogue rect fits viewport " + str(size) + ": " + str(rect))
+            _check(rect.position.y >= actual.y * 0.4, "dialogue rect stays in lower viewport " + str(size))
+        var topic_size := panel.get_global_rect().size
+        _check(topic_size.x <= actual.x * 0.4 and topic_size.y <= actual.y * 0.5, "dialogue topics leave speaker view visible")
+        print("hst_28 dialogue viewport=", size, " topics=", panel.get_global_rect(), " subtitle=", subtitle.get_global_rect())
+    get_root().size = original
+    await process_frame

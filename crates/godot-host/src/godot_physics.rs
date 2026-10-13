@@ -437,6 +437,38 @@ impl CellBodies {
         true
     }
 
+    /// Add a five metre per second throw impulse, retaining the body and its momentum.
+    pub(crate) fn throw_carried_reference(
+        &self,
+        reference: GlobalFormId,
+        direction: Vector3,
+    ) -> bool {
+        let Some(entry) = self
+            .movable
+            .iter()
+            .find(|entry| entry.reference == reference && entry.body.is_valid())
+        else {
+            return false;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        if server.body_get_mode(entry.body) != BodyMode::RIGID
+            || !direction.is_finite()
+            || direction.is_zero_approx()
+        {
+            return false;
+        }
+        let mass = server
+            .body_get_param(entry.body, BodyParameter::MASS)
+            .try_to::<f32>()
+            .unwrap_or(0.0);
+        if !mass.is_finite() || mass <= 0.0 {
+            return false;
+        }
+        server.body_set_state(entry.body, BodyState::SLEEPING, &false.to_variant());
+        server.body_apply_central_impulse(entry.body, direction.normalized() * mass * 5.0);
+        true
+    }
+
     /// Apply queued Papyrus motion and impulse operations to resident bodies.
     pub fn apply_reference_physics_requests(
         &mut self,

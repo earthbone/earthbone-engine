@@ -27,6 +27,12 @@ impl PlayerNode {
     }
 
     pub(super) fn update_quick_loot(&mut self) {
+        if !self.quick_loot_enabled && self.quick_loot.api.forced_container().is_none() {
+            if self.quick_loot_view.is_some() || self.quick_loot.holder.is_some() {
+                self.hide_quick_loot();
+            }
+            return;
+        }
         let Some(game) = self.game.as_ref() else {
             self.hide_quick_loot();
             return;
@@ -45,6 +51,13 @@ impl PlayerNode {
         }
         if let (Some(view), Some(game)) = (self.quick_loot_view.as_mut(), self.game.as_ref()) {
             view.update(&self.quick_loot, game);
+            if let Some(root) = view
+                .layer
+                .get_node_or_null("QuickLootRoot")
+                .and_then(|n| n.try_cast::<Control>().ok())
+            {
+                passive_controls(&root);
+            }
         }
         let preview = self
             .quick_loot_view
@@ -229,6 +242,7 @@ impl QuickLootView {
         layer.set_layer(80);
         let mut root = Control::new_alloc();
         root.set_name("QuickLootRoot");
+        root.set_mouse_filter(godot::classes::control::MouseFilter::IGNORE);
         root.set_anchors_preset(LayoutPreset::FULL_RECT);
         layer.add_child(&root);
         let mut panel = PanelContainer::new_alloc();
@@ -262,6 +276,7 @@ impl QuickLootView {
         panel.add_child(&column);
         root.add_child(&panel);
         player.base_mut().add_child(&layer);
+        passive_controls(&root);
         Self {
             layer,
             title: heading,
@@ -326,5 +341,15 @@ impl QuickLootView {
 
     pub(super) fn tick(&mut self, delta: f64) {
         self.card.tick(delta);
+    }
+}
+
+fn passive_controls(root: &Gd<Control>) {
+    for child in root.get_children().iter_shared() {
+        if let Ok(mut control) = child.try_cast::<Control>() {
+            control.set_mouse_filter(godot::classes::control::MouseFilter::IGNORE);
+            control.set_focus_mode(godot::classes::control::FocusMode::NONE);
+            passive_controls(&control);
+        }
     }
 }

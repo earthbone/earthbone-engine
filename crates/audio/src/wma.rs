@@ -230,9 +230,13 @@ fn append_samples(output: &mut Vec<f32>, channels: &[Vec<f64>]) -> Result<()> {
     if output.len().saturating_add(new_samples) > 256 * 1024 * 1024 / 4 {
         return Err(Error::Decode("WMA decoded PCM exceeds 256 MiB".to_string()));
     }
+    // CONTEXT: FFmpeg uses 10^(gain/20) / 32768 with 2/N MDCT normalization.
+    // BlockSynth anchors gain at 64 but uses a calibrated absolute scale.
+    let scale =
+        (10.0_f64.powf(64.0 / 20.0) / 32768.0) / oxideav_wma::vendor_decode::ABS_SCALE.abs();
     for index in 0..frames {
         for channel in channels {
-            output.push(channel[index] as f32);
+            output.push((channel[index] * scale) as f32);
         }
     }
     Ok(())

@@ -36,6 +36,7 @@ fn hst_26_bannered_mare_walkthrough_pickup_book_and_activator() {
                 .is_some_and(|name| name.to_ascii_lowercase().contains("tankard"))
         })
         .expect("Bannered Mare dynamic tankard");
+    let localized = source.localized_game().unwrap();
     let find = |kind: &[u8; 4]| {
         source
             .cell_index()
@@ -56,20 +57,27 @@ fn hst_26_bannered_mare_walkthrough_pickup_book_and_activator() {
                 let Ok(reference) = Refr::from_record(record) else {
                     return false;
                 };
-                order
-                    .winner(order.resolve(winner.file, reference.base))
-                    .is_some_and(|record| {
-                        record.tag.as_bytes() == kind
-                            && (kind != b"BOOK"
-                                || record
-                                    .find(soe_esm::Tag(*b"DATA"))
-                                    .and_then(|data| data.first())
-                                    .is_none_or(|flags| flags & 2 == 0))
-                    })
+                let base = order.resolve(winner.file, reference.base);
+                order.winner(base).is_some_and(|record| {
+                    record.tag.as_bytes() == kind
+                        && (kind != b"BOOK"
+                            || localized
+                                .world()
+                                .description_of(base)
+                                .is_some_and(|text| !text.trim().is_empty()))
+                        && (kind != b"BOOK"
+                            || record
+                                .find(soe_esm::Tag(*b"DATA"))
+                                .and_then(|data| data.first())
+                                .is_none_or(|flags| flags & 2 == 0))
+                })
             })
             .expect("Bannered Mare requested reference type")
     };
     let references = [tankard.reference, find(b"BOOK"), find(b"ACTI")];
+    drop(localized);
+    drop(order);
+    drop(source);
     let mut command = Command::new(
         std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN for installed host check"),
     );
@@ -108,5 +116,46 @@ fn hst_26_bannered_mare_walkthrough_pickup_book_and_activator() {
             && stdout.contains("HST-26 PASS")
             && !stderr.contains("SCRIPT ERROR"),
         "{stdout}\n{stderr}"
+    );
+}
+
+#[test]
+fn freewalk_container_hover_keeps_input_and_activation_restores_control() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new(
+        std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN for installed host check"),
+    )
+    .args([
+        "--display-driver",
+        "x11",
+        "--rendering-method",
+        "gl_compatibility",
+    ])
+    .arg("--path")
+    .arg(root.join("godot"))
+    .args([
+        "--resolution",
+        "640x360",
+        "--script",
+        "freewalk_hover_test.gd",
+    ])
+    .env("SKYRIM_DATA", data)
+    .env("SOE_THREADED_SIMULATION", "0")
+    .output()
+    .unwrap();
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(root.join("target/freewalk-hover.log"), &log).unwrap();
+    assert!(
+        output.status.success()
+            && log.contains("PASS freewalk_hover")
+            && !log.contains("SCRIPT ERROR"),
+        "{log}"
     );
 }

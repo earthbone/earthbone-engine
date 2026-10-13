@@ -26,6 +26,25 @@ pub struct Attenuation {
     pub curve: [u8; 5],
 }
 
+impl Attenuation {
+    /// Interpolate the five percentage samples across the authored distance range.
+    /// Distances use Skyrim units. Invalid distances and positions beyond the range are silent.
+    pub fn gain_at_distance(&self, distance: f32) -> f32 {
+        if !distance.is_finite() || distance > self.max_distance {
+            return 0.0;
+        }
+        if distance <= self.min_distance || self.max_distance <= self.min_distance {
+            return f32::from(self.curve[0]) / 100.0;
+        }
+        let point = (distance - self.min_distance) / (self.max_distance - self.min_distance) * 4.0;
+        let index = (point.floor() as usize).min(3);
+        let fraction = point - index as f32;
+        (f32::from(self.curve[index]) * (1.0 - fraction)
+            + f32::from(self.curve[index + 1]) * fraction)
+            / 100.0
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SoundOutput {
     /// 0 is positional HRTF, 1 is an authored speaker matrix.
@@ -56,6 +75,48 @@ pub struct SoundPlayback {
 pub struct SoundSettings {
     pub category_volumes: BTreeMap<GlobalFormId, f32>,
     pub submerged: bool,
+}
+
+/// Parameters derived for an INFO voice file, retaining its category identity.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DialoguePlayback {
+    pub category: GlobalFormId,
+    pub gain: f32,
+    pub output: SoundOutput,
+}
+
+/// Dialogue files use DOBJ's voice category and conversation or ambient output.
+/// Reuses SNCT ancestor gains and SOPM parsing without inventing a descriptor.
+pub fn prepare_dialogue(
+    order: &LoadOrder,
+    ambient: bool,
+    settings: &SoundSettings,
+) -> Result<DialoguePlayback> {
+    let defaults = crate::footsteps::Footsteps::new(order);
+    let category = defaults
+        .default_object(*b"DDSC")?
+        .ok_or_else(|| Error::Invalid("missing dialogue voice category DDSC".into()))?;
+    let key = if ambient { *b"DOP3" } else { *b"DOP2" };
+    let output = defaults
+        .default_object(key)?
+        .ok_or_else(|| Error::Invalid("missing dialogue output model".into()))?;
+    Ok(DialoguePlayback {
+        category,
+        gain: category_gain(order, Some(category), settings)?,
+        output: read_output(order, output)?,
+    })
+}
+
+/// Gain for a DOBJ-linked sound category, including parent and default sliders.
+pub fn default_category_gain(
+    order: &LoadOrder,
+    key: [u8; 4],
+    settings: &SoundSettings,
+) -> Result<f32> {
+    let category = crate::footsteps::Footsteps::new(order)
+        .default_object(key)?
+        .ok_or_else(|| Error::Invalid("missing default sound category".into()))?;
+    category_gain(order, Some(category), settings)
 }
 
 /// Resolve a descriptor into one playback request. Draws select the file,
@@ -339,4 +400,105 @@ fn link(order: &LoadOrder, record: &Record, file: usize, tag: Tag) -> Result<Opt
     }
     let raw = field(record, tag, 4)?.u32()?;
     Ok((raw != 0).then(|| order.resolve(file, raw)))
+}
+
+#[cfg(test)]
+mod dialogue_parameters {
+    use super::*;
+    use soe_esm::{FileHeader, Plugin};
+
+    fn order() -> LoadOrder {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(
+            Record::new(T(b"SNCT"), 0x800)
+                .sub(b"FNAM", 2_u32.to_le_bytes())
+                .sub(b"VNAM", 65535_u16.to_le_bytes())
+                .sub(b"UNAM", 32768_u16.to_le_bytes()),
+        );
+        plugin.push_top(
+            Record::new(T(b"SNCT"), 0x801)
+                .sub(b"FNAM", 0_u32.to_le_bytes())
+                .sub(b"VNAM", 45875_u16.to_le_bytes())
+                .sub(b"PNAM", 0x800_u32.to_le_bytes()),
+        );
+        plugin.push_top(
+            Record::new(T(b"SOPM"), 0x802)
+                .sub(b"NAM1", [0, 0, 0, 0])
+                .sub(b"MNAM", 1_u32.to_le_bytes())
+                .sub(b"ONAM", [0; 24]),
+        );
+        let mut entries = Vec::new();
+        for (key, value) in [(b"DDSC", 0x801_u32), (b"MDSC", 0x801), (b"DOP2", 0x802)] {
+            entries.extend_from_slice(key);
+            entries.extend_from_slice(&value.to_le_bytes());
+        }
+        plugin.push_top(Record::new(T(b"DOBJ"), 0x31).sub(b"DNAM", entries));
+        let mut order = LoadOrder::new();
+        order.add("Skyrim.esm", plugin).unwrap();
+        order
+    }
+
+    #[test]
+    fn dialogue_and_music_honor_parent_slider_settings_without_a_descriptor() {
+        let order = order();
+        let mut settings = SoundSettings::default();
+        settings.category_volumes.insert(
+            GlobalFormId {
+                file: 0,
+                object: 0x800,
+            },
+            0.25,
+        );
+        let voice = prepare_dialogue(&order, false, &settings).unwrap();
+        assert_eq!(
+            voice.category,
+            GlobalFormId {
+                file: 0,
+                object: 0x801
+            }
+        );
+        assert!((voice.gain - 0.175).abs() < 0.0001);
+        assert_eq!(
+            default_category_gain(&order, *b"MDSC", &settings).unwrap(),
+            voice.gain
+        );
+        assert!(!voice.output.attenuates);
+    }
+
+    #[test]
+    fn dialogue_rejects_missing_ambient_output_and_invalid_sliders() {
+        let order = order();
+        let mut settings = SoundSettings::default();
+        assert!(prepare_dialogue(&order, true, &settings).is_err());
+        settings.category_volumes.insert(
+            GlobalFormId {
+                file: 0,
+                object: 0x800,
+            },
+            2.0,
+        );
+        assert!(prepare_dialogue(&order, false, &settings).is_err());
+    }
+}
+
+#[cfg(test)]
+mod dialogue_curve {
+    use super::Attenuation;
+
+    #[test]
+    fn voice_curve_preserves_near_level_and_authored_quarter_points() {
+        let curve = Attenuation {
+            min_distance: 70.0,
+            max_distance: 3000.0,
+            curve: [100, 50, 20, 5, 0],
+        };
+        assert_eq!(curve.gain_at_distance(0.0), 1.0);
+        assert_eq!(curve.gain_at_distance(70.0), 1.0);
+        assert!((curve.gain_at_distance(140.0) - 0.9522184).abs() < 1e-6);
+        for (distance, gain) in [(802.5, 0.5), (1535.0, 0.2), (2267.5, 0.05), (3000.0, 0.0)] {
+            assert!((curve.gain_at_distance(distance) - gain).abs() < 1e-6);
+        }
+        assert_eq!(curve.gain_at_distance(3001.0), 0.0);
+        assert_eq!(curve.gain_at_distance(f32::NAN), 0.0);
+    }
 }

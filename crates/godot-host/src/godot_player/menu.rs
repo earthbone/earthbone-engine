@@ -45,11 +45,66 @@ pub(super) struct MenuView {
     title: Gd<Label>,
     content: Gd<VBoxContainer>,
     close: Gd<Button>,
+    subtitle: Gd<Label>,
+    speaker: Gd<Label>,
+    normal_theme: Gd<Theme>,
+    dialogue_size: Option<Vector2>,
     previous_mouse: Option<MouseMode>,
     previous_focus: Option<Gd<Control>>,
 }
 
 impl PlayerNode {
+    pub(super) fn update_dialogue_layout(&mut self) {
+        if self.menu.title() != Some("Dialogue") {
+            return;
+        }
+        let size = self
+            .base()
+            .get_viewport()
+            .map(|v| v.get_visible_rect().size);
+        let (Some(size), Some(view)) = (size, self.menu_view.as_mut()) else {
+            return;
+        };
+        if view.dialogue_size == Some(size) {
+            return;
+        }
+        view.dialogue_size = Some(size);
+        let layout = dialogue_menu::layout(size.x, size.y);
+        if layout.scale <= 0.0 {
+            return;
+        }
+        let place = |control: &mut Gd<Control>, rect: [f32; 4]| {
+            control.set_scale(Vector2::splat(layout.scale));
+            control.set_position(Vector2::new(rect[0], rect[1]));
+            control.set_size(Vector2::new(rect[2], rect[3]) / layout.scale);
+        };
+        for label in [&mut view.subtitle, &mut view.speaker] {
+            label.add_theme_font_size_override("font_size", 22);
+        }
+        place(&mut view.panel.clone().upcast(), layout.topics);
+        place(&mut view.subtitle.clone().upcast(), layout.subtitle);
+        place(&mut view.speaker.clone().upcast(), layout.speaker);
+    }
+
+    fn dialogue_rows(&mut self) -> Option<Gd<VBoxContainer>> {
+        let mut content = self.menu_view.as_ref()?.content.clone();
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut scroll = ScrollContainer::new_alloc();
+        scroll.set_name("DialogueScroll");
+        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        scroll.set_h_size_flags(SizeFlags::EXPAND_FILL);
+        scroll.set_horizontal_scroll_mode(godot::classes::scroll_container::ScrollMode::DISABLED);
+        let mut rows = VBoxContainer::new_alloc();
+        rows.set_name("DialogueRows");
+        rows.set_h_size_flags(SizeFlags::EXPAND_FILL);
+        scroll.add_child(&rows);
+        content.add_child(&scroll);
+        Some(rows)
+    }
     pub(super) fn item_panel_layout(&mut self) {
         if let Some(view) = self.menu_view.as_mut() {
             use godot::builtin::Side;
@@ -276,6 +331,7 @@ impl PlayerNode {
         let Some(bank) = self.sound_bank.as_mut() else {
             return;
         };
+        bank.bind_mut().dialogue_ambient = self.menu.title() != Some("Dialogue");
         crate::dialogue_menu::replace_voice(
             &mut *bank.bind_mut(),
             &mut self.dialogue_voice_slot,
@@ -318,6 +374,21 @@ impl PlayerNode {
         layout.add_child(&close);
         panel.add_child(&layout);
         canvas.add_child(&panel);
+        let mut subtitle = Label::new_alloc();
+        subtitle.set_name("DialogueSubtitle");
+        subtitle.set_max_lines_visible(3);
+        subtitle.set_autowrap_mode(godot::classes::text_server::AutowrapMode::WORD_SMART);
+        subtitle.set_horizontal_alignment(godot::global::HorizontalAlignment::CENTER);
+        subtitle.set_mouse_filter(godot::classes::control::MouseFilter::IGNORE);
+        subtitle.hide();
+        canvas.add_child(&subtitle);
+        let mut speaker = Label::new_alloc();
+        speaker.set_name("DialogueSpeaker");
+        speaker.set_clip_text(true);
+        speaker.set_horizontal_alignment(godot::global::HorizontalAlignment::CENTER);
+        speaker.set_mouse_filter(godot::classes::control::MouseFilter::IGNORE);
+        speaker.hide();
+        canvas.add_child(&speaker);
         self.base_mut().add_child(&canvas);
         panel.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
         self.menu_view = Some(MenuView {
@@ -325,6 +396,10 @@ impl PlayerNode {
             title,
             content,
             close,
+            subtitle,
+            speaker,
+            normal_theme: theme,
+            dialogue_size: None,
             previous_mouse: None,
             previous_focus: None,
         });
@@ -473,7 +548,12 @@ impl PlayerNode {
             .as_mut()
             .and_then(|game| dialogue_menu::greeting_entries(game).ok())
             .unwrap_or_default();
-        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+        let Some(mut content) = self
+            .menu_view
+            .as_ref()
+            .and_then(|view| view.content.get_node_or_null("DialogueScroll/DialogueRows"))
+            .and_then(|node| node.try_cast::<VBoxContainer>().ok())
+        else {
             return;
         };
         let base = self.base().clone();
@@ -481,6 +561,7 @@ impl PlayerNode {
         for entry in entries {
             let mut button = Button::new_alloc();
             button.set_text(&entry.label);
+            button.set_autowrap_mode(godot::classes::text_server::AutowrapMode::WORD_SMART);
             button.connect(
                 "pressed",
                 &base.callable("select_dialogue_topic").bindv(&varray![
@@ -515,23 +596,15 @@ impl PlayerNode {
         let Ok(entries) = dialogue_menu::entries(game) else {
             return false;
         };
-        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+        let Some(mut rows) = self.dialogue_rows() else {
             return false;
         };
         let base = self.base().clone();
         let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
-        }
-        let mut scroll = ScrollContainer::new_alloc();
-        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
-        let mut rows = VBoxContainer::new_alloc();
-        scroll.add_child(&rows);
-        content.add_child(&scroll);
         for entry in entries {
             let mut button = Button::new_alloc();
             button.set_text(&entry.label);
+            button.set_autowrap_mode(godot::classes::text_server::AutowrapMode::WORD_SMART);
             let callback = base.callable("select_dialogue_topic").bindv(&varray![
                 i64::from(entry.topic.file),
                 i64::from(entry.topic.object),
@@ -635,6 +708,11 @@ impl PlayerNode {
         if focused {
             self.input_focus_gained();
         }
+        if title != "Dialogue" {
+            if let Some(view) = self.menu_view.as_mut() {
+                view.panel.set_theme(&view.normal_theme);
+            }
+        }
         let quit = (title == "Paused").then(|| self.base().get_tree().callable("quit"));
         let presentation = self.menu_view.as_mut().map(|view| {
             view.previous_mouse = Some(previous_mouse);
@@ -658,9 +736,46 @@ impl PlayerNode {
                 button.connect("pressed", &callback);
                 content.add_child(&button);
             }
+            panel.set_scale(Vector2::ONE);
             panel.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
+            let dialogue = title == "Dialogue";
+            if dialogue {
+                panel.set_anchors_and_offsets_preset(LayoutPreset::TOP_LEFT);
+                let mut theme = Theme::new_gd();
+                theme.set_default_font_size(22);
+                let mut style = StyleBoxFlat::new_gd();
+                style.set_bg_color(Color::from_rgba(0.0, 0.0, 0.0, 0.25));
+                theme.set_stylebox("panel", "PanelContainer", &style);
+                panel.set_theme(&theme);
+                label.hide();
+            } else {
+                if let Some(mut theme) = panel.get_theme() {
+                    theme.set_default_font_size(16);
+                }
+                label.show();
+            }
             panel.show();
             close.grab_focus();
+        }
+        if title == "Dialogue" {
+            let name = self
+                .game
+                .as_ref()
+                .and_then(|game| {
+                    let world = game.world();
+                    world
+                        .dialogue_session()
+                        .and_then(|s| world.name_of(s.speaker))
+                })
+                .unwrap_or_default();
+            if let Some(view) = self.menu_view.as_mut() {
+                view.dialogue_size = None;
+                view.subtitle.set_text("");
+                view.subtitle.show();
+                view.speaker.set_text(&name);
+                view.speaker.show();
+            }
+            self.update_dialogue_layout();
         }
         self.base_mut()
             .emit_signal("menu_opened", &[Variant::from(title)]);
@@ -689,6 +804,15 @@ impl PlayerNode {
             return false;
         }
         self.item_card_view = None;
+        if let Some(view) = self.menu_view.as_mut() {
+            view.subtitle.hide();
+            view.speaker.hide();
+        }
+        if let Some((holder, _)) = self.container_menu.take() {
+            if let Some(game) = self.game.as_mut() {
+                game.world_mut().set_reference_open(holder, false);
+            }
+        }
         self.crafting_bench = None;
         self.lockpick_target = None;
         self.lockpick_status = None;
@@ -851,18 +975,14 @@ impl PlayerNode {
         if self.menu.title() != Some("Dialogue") {
             return false;
         }
-        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+        let Some(mut content) = self.dialogue_rows() else {
             return false;
         };
+        if let Some(view) = self.menu_view.as_mut() {
+            view.subtitle.set_text(text);
+        }
         let base = self.base().clone();
         let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
-        }
-        let mut response = Label::new_alloc();
-        response.set_text(text);
-        content.add_child(&response);
         let mut next = Button::new_alloc();
         next.set_text("Continue");
         next.connect("pressed", &base.callable("advance_dialogue_menu"));
