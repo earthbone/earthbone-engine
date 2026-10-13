@@ -138,6 +138,43 @@ fn hst_14_fast_actor_crossing_emits_enter_then_leave() {
 }
 
 #[test]
+fn hst_14_ai_movement_delivers_npc_trigger_crossings_once() {
+    use soe_game::ai::{AiState, Procedure};
+
+    let mut world = make_world(xprm([10.0, 10.0, 10.0], 1));
+    world.actor(id(ACTOR)).unwrap().ai = AiState {
+        procedure: Procedure::Travel,
+        destination: Some([20.0, 0.0, 0.0]),
+        path: vec![[20.0, 0.0, 0.0]],
+        speed: 100.0,
+        ..AiState::default()
+    };
+    let mut next_object = 0;
+    let mut alloc = |_: &str, _: &str| {
+        next_object += 1;
+        soe_papyrus::ObjectId(next_object)
+    };
+    world.ai_tick(0.1, &mut alloc);
+    assert_eq!(world.trigger_object_count(id(TRIGGER)), Some(1));
+    world.ai_tick(0.1, &mut alloc);
+    assert_eq!(event_names(&world), ["OnTriggerEnter"]);
+    let actor_arg = world
+        .pending
+        .iter()
+        .find_map(|event| match event {
+            Pending::Event { name, args, .. } if name == "OnTriggerEnter" => args.first(),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(world.form_arg(actor_arg), Some(id(ACTOR)));
+    world.ai_tick(0.2, &mut alloc);
+    assert_eq!(event_names(&world), ["OnTriggerEnter", "OnTriggerLeave"]);
+    assert_eq!(world.trigger_object_count(id(TRIGGER)), Some(0));
+    world.ai_tick(0.1, &mut alloc);
+    assert_eq!(event_names(&world), ["OnTriggerEnter", "OnTriggerLeave"]);
+}
+
+#[test]
 fn hst_14_vanilla_xprm_trigger_accepts_an_actor_crossing() {
     let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping the installed trigger survey");
