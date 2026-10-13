@@ -792,6 +792,28 @@ A diagnostic using SAV-19's strict `load_save` for both source saves imports
 their VM state and reproduces the same differences. The full successor
 comparisons and their 600-tick waits remain required.
 
+The next integration repair connects NPC AI movement to HST-14 trigger
+membership updates. Hadvar now fires `dunCGsetStage192REF`, and the first
+route completes its stage waits and VM-error assertion. Its checkpoint still
+differs in 16 earlier completed stages. The source ESS has only stages 5 and
+10 completed on MQ101DragonAttack, so the route must also reproduce the
+tower and scene progression that it currently skips.
+The second route now approaches `dunCGsetstage195REF` in exterior cell
+0x982B before entering the keep. Both stage waits complete. Its checkpoint
+still lacks stage 174, which the installed
+`SF_MQ101DragonAttackSceneDTo_000DEDBB.Fragment_0` sets on scene end.
+World-checkpoint startup omits saved scene execution, and the scene runtime
+does not dispatch SCEN VMAD fragments. The acceptance tests keep their full
+completed-stage comparison. `hst_14_ai_movement_delivers_npc_trigger_crossings_once`
+checks AI-driven enter, occupancy, leave and the NPC event argument without
+installed data. The trigger event contract follows local CK
+`OnTriggerEnter_-_ObjectReference.wikitext`.
+Trigger indexing reads the existing cell-reference index for each queried
+cell and caches empty cells too. A global REFR scan on the first NPC crossing
+cost 207 ms in the installed PRF-11 check, exceeding its eight-millisecond
+AI frame limit. With per-cell indexing, the same 3,600-frame check passed with
+seven NPCs and a worst AI frame of 0.3044 ms.
+
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
 `Quest_Script.wikitext` defines highest completed stage queries. The installed

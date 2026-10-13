@@ -160,7 +160,7 @@ impl World {
         to: [f32; 3],
         alloc: Alloc<'_>,
     ) {
-        self.ensure_trigger_index();
+        self.ensure_trigger_index(cell);
         let mut candidates = cell
             .and_then(|cell| self.trigger_index.as_ref()?.get(&cell).cloned())
             .unwrap_or_default();
@@ -252,13 +252,26 @@ impl World {
             .map(|refr| (rref.file, refr))
     }
 
-    fn ensure_trigger_index(&mut self) {
-        if self.trigger_index.is_some() {
+    fn ensure_trigger_index(&mut self, cell: Option<GlobalFormId>) {
+        let Some(cell) = cell else {
+            return;
+        };
+        if self
+            .trigger_index
+            .as_ref()
+            .is_some_and(|index| index.contains_key(&cell))
+        {
             return;
         }
-        let mut index: std::collections::BTreeMap<GlobalFormId, Vec<GlobalFormId>> =
-            std::collections::BTreeMap::new();
-        for (id, record) in self.order.winners_of(tag::REFR) {
+        let mut triggers = Vec::new();
+        for id in self.cell_reference_ids(cell) {
+            let Some(record) = self
+                .order
+                .winner(id)
+                .filter(|record| record.tag == tag::REFR)
+            else {
+                continue;
+            };
             let Some(rref) = self.order.winner_ref(id) else {
                 continue;
             };
@@ -268,11 +281,14 @@ impl World {
             let Some(volume) = TriggerVolume::from_refr(&refr, rref.file, self) else {
                 continue;
             };
-            if let Some(cell) = volume.cell {
-                index.entry(cell).or_default().push(id);
+            if volume.cell == Some(cell) {
+                triggers.push(id);
             }
         }
-        self.trigger_index = Some(index);
+        triggers.sort_unstable();
+        self.trigger_index
+            .get_or_insert_with(std::collections::BTreeMap::new)
+            .insert(cell, triggers);
     }
 }
 
