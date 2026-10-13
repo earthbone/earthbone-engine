@@ -16,7 +16,7 @@ func _watchdog() -> void:
 
 func _configure_player() -> void:
     player.set("capture_mouse", false)
-    player.set("auto_step", false)
+    player.set("auto_step", OS.get_environment("SOE_HST_28_ACTIVATION") == "play_path")
 
 func _check(ok: bool, message: String) -> void:
     if not ok:
@@ -37,12 +37,19 @@ func _key(pressed: bool) -> void:
     Input.parse_input_event(event)
     Input.flush_buffered_events()
 
+func _current_actor(hulda: Dictionary) -> Node:
+    for visual: Dictionary in player.call("npc_visuals"):
+        if visual.file == hulda.file and visual.object == hulda.object and visual.shapes > 0:
+            return instance_from_id(int(visual.node_id)) as Node
+    return null
+
 func _run_hst_28() -> void:
     system_overlay.queue_free()
     await process_frame
     var speaker_file := int(OS.get_environment("SOE_HST_28_SPEAKER_FILE"))
     var speaker_object := int(OS.get_environment("SOE_HST_28_SPEAKER_OBJECT"))
     var hulda: Dictionary = {}
+    var initial_cell: String = player.call("gameplay_cell")
     var deadline := Time.get_ticks_msec() + 90_000
     while Time.get_ticks_msec() < deadline:
         await process_frame
@@ -57,6 +64,9 @@ func _run_hst_28() -> void:
         quit(1)
         return
     var actor := instance_from_id(int(hulda.node_id)) as Node
+    if OS.get_environment("SOE_HST_28_ACTIVATION") == "play_path":
+        await create_timer(10.0).timeout
+        print("hst_28 live cell before movement: ", player.call("gameplay_cell"))
     var acquired := false
     for angle in range(12):
         var theta := angle * TAU / 12.0
@@ -75,19 +85,33 @@ func _run_hst_28() -> void:
             acquired = true
             break
     _check(acquired, "crosshair ray targets Hulda")
+    print("hst_28 cell at activation: ", player.call("gameplay_cell"))
+    _check(player.call("gameplay_cell") == initial_cell, "Hulda remains in the Bannered Mare after live AI movement")
     if not acquired:
         quit(1)
         return
     await process_frame
     await process_frame
+    actor = _current_actor(hulda)
+    if not is_instance_valid(actor):
+        _check(false, "Hulda has no current rendered actor before activation")
+        quit(1)
+        return
     var prompt := player.get_node("HudLayer/Hud/ActivationPrompt") as Label
     print("hst_28 before E: ", player.call("dialogue_state"), " prompt=", prompt.text, " visible=", prompt.visible)
     _check(prompt.visible and prompt.text == "Talk\nHulda", "crosshair shows Talk and Hulda's name")
-    _key(true)
-    player.call("advance", 1.0 / 60.0)
-    await physics_frame
-    _key(false)
-    player.call("advance", 1.0 / 60.0)
+    var play_path := OS.get_environment("SOE_HST_28_ACTIVATION") == "play_path"
+    var activated := false
+    if play_path:
+        activated = player.call("activate_reference", hulda.file, hulda.object)
+        _check(activated, "play path activates Hulda")
+        await process_frame
+    else:
+        _key(true)
+        player.call("advance", 1.0 / 60.0)
+        await physics_frame
+        _key(false)
+        player.call("advance", 1.0 / 60.0)
     _check(player.call("is_menu_open"), "E opens dialogue")
     var state: Dictionary = player.call("dialogue_state")
     print("hst_28 greeting: ", state)
@@ -100,6 +124,11 @@ func _run_hst_28() -> void:
     deadline = Time.get_ticks_msec() + 5_000
     while Time.get_ticks_msec() < deadline:
         await process_frame
+        actor = _current_actor(hulda)
+        if not is_instance_valid(actor):
+            _check(false, "Hulda has no current rendered actor for mouth sampling")
+            quit(1)
+            return
         var mouth: Dictionary = actor.call("dialogue_mouth_state")
         for weight: float in mouth.values():
             if absf(weight) > 0.001: weights_seen = true
@@ -110,29 +139,58 @@ func _run_hst_28() -> void:
     var topics: Array = state.get("topics", [])
     _check(not topics.is_empty(), "conditions offer at least one Hulda topic")
     var content: Control = player.call("menu_content")
+    var labels: Array[String] = []
+    for node: Node in content.find_children("*", "Button", true, false) if content != null else []:
+        labels.append((node as Button).text)
+    print("hst_28 buttons: ", labels)
     var topic_button: Button
     if not topics.is_empty():
         for node: Node in content.find_children("*", "Button", true, false):
             var button := node as Button
-            if button.text == topics[0].label:
+            if play_path or button.text == topics[0].label:
                 topic_button = button
                 break
     _check(topic_button != null, "offered topic is a menu button")
+    var chosen := topic_button != null
+    var bank := player.get_node("SoundBank")
+    var voice_starts_before: int = bank.call("voice_start_count")
     if topic_button != null:
+        if play_path:
+            _check(topic_button.text == topics[0].label, "first button selects the first offered topic")
         topic_button.emit_signal("pressed")
+        if play_path:
+            await process_frame
         state = player.call("dialogue_state")
+        print("hst_28 response: ", state)
         _check(int(state.get("info_object", -1)) != greeting_info, "topic button selects a response INFO")
         _check(not str(state.get("text", "")).is_empty(), "topic button starts its response")
         _check(state.get("voice_slot", -1) >= 0, "response's installed voice starts")
+        var slot := int(state.get("voice_slot", -1))
+        var voice: AudioStreamPlayer3D = bank.get_child(slot) if slot >= 0 else null
+        var starts: int = bank.call("voice_start_count")
+        _check(starts > voice_starts_before and voice != null and voice.is_playing(), "response starts a playing Godot voice")
+        print("hst_28 response audio: ", {"slot": slot, "starts_before": voice_starts_before, "starts_after": starts, "playing": voice != null and voice.is_playing()})
         var has_line := false
         for node: Node in content.find_children("*", "Label", true, false):
             var label := node as Label
             if label.text == state.get("text", ""): has_line = true
         _check(has_line, "menu shows the game-selected response line")
+    if play_path:
+        content = player.call("menu_content")
+        var response := ""
+        for label: Label in content.find_children("*", "Label", true, false) if content != null else []:
+            if label.is_visible_in_tree() and not label.text.is_empty():
+                response += label.text
+        print("PLAY_PATH ", JSON.stringify({"check": "route.hulda", "pass": activated and chosen and not response.is_empty() and player.call("is_menu_open"), "value": {"topics": labels.size(), "activated": activated, "chosen": chosen, "response": response, "voice_slot": state.get("voice_slot", -1)}}))
     _check(player.call("close_menu"), "close returns to play")
     _check(not player.call("is_menu_open") and player.call("dialogue_state").is_empty(), "menu and game conversation close together")
     await process_frame
     await process_frame
+    actor = _current_actor(hulda)
+    if not is_instance_valid(actor):
+        _check(false, "Hulda has no current rendered actor after closing")
+        quit(1)
+        return
     for weight: float in actor.call("dialogue_mouth_state").values():
         _check(weight == 0.0, "closing resets mouth weights")
     var before: float = player.call("gameplay_days")

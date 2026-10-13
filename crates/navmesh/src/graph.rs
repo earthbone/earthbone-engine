@@ -18,6 +18,7 @@ use std::sync::OnceLock;
 mod funnel;
 #[cfg(test)]
 mod funnel_tests;
+mod mesh_query;
 #[cfg(test)]
 mod prf_11_tests;
 #[cfg(test)]
@@ -660,6 +661,15 @@ impl NavGraph {
     }
 
     fn locate_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> Option<NodeId> {
+        self.locate_meshes_impl(point, &mut tested, |_| true)
+    }
+
+    fn locate_meshes_impl(
+        &self,
+        point: [f32; 3],
+        mut tested: impl FnMut(NodeId),
+        accepts_mesh: impl Fn(u32) -> bool,
+    ) -> Option<NodeId> {
         if !point.iter().all(|p| p.is_finite()) {
             return None;
         }
@@ -668,6 +678,9 @@ impl NavGraph {
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_xy_nearest_height(point, &mut radius, |mi, radius| {
+                if !accepts_mesh(mi as u32) {
+                    return;
+                }
                 let mesh = &self.meshes[mi];
                 if point[0] < mesh.min[0]
                     || point[0] > mesh.max[0]
@@ -705,12 +718,24 @@ impl NavGraph {
     }
 
     fn contains_point_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> bool {
+        self.contains_meshes_impl(point, &mut tested, |_| true)
+    }
+
+    fn contains_meshes_impl(
+        &self,
+        point: [f32; 3],
+        mut tested: impl FnMut(NodeId),
+        accepts_mesh: impl Fn(u32) -> bool,
+    ) -> bool {
         if !point.iter().all(|value| value.is_finite()) {
             return false;
         }
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .any_xy(point, |mi| {
+                if !accepts_mesh(mi as u32) {
+                    return false;
+                }
                 let mesh = &self.meshes[mi];
                 if point[0] < mesh.min[0]
                     || point[0] > mesh.max[0]
@@ -732,6 +757,15 @@ impl NavGraph {
     }
 
     fn nearest_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> Option<NodeId> {
+        self.nearest_meshes_impl(point, &mut tested, |_| true)
+    }
+
+    fn nearest_meshes_impl(
+        &self,
+        point: [f32; 3],
+        mut tested: impl FnMut(NodeId),
+        accepts_mesh: impl Fn(u32) -> bool,
+    ) -> Option<NodeId> {
         if !point.iter().all(|p| p.is_finite()) {
             return None;
         }
@@ -739,6 +773,9 @@ impl NavGraph {
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_nearest(point, |mi, radius| {
+                if !accepts_mesh(mi as u32) {
+                    return;
+                }
                 let mesh = &self.meshes[mi];
                 mesh.spatial
                     .visit_nearest_with_radius(point, radius, |ti, triangle_radius| {

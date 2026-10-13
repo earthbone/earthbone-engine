@@ -2,6 +2,24 @@
 
 Two halves, one graph type between them.
 
+## Coordinate-space endpoint eligibility, AI-92
+
+Point queries accept a caller's mesh eligibility predicate through
+`locate_in_meshes`, `nearest_in_meshes`, `contains_point_in_meshes`,
+`start_path_between_in_meshes` and `find_path_between_in_meshes`.
+Excluded meshes do not update the nearest-height or distance radius.
+Current triangle blocking, requested endpoints, authored adjacency and
+retained search budgets use the existing graph operations.
+
+The game supplies resolved CELL or WRLD membership so overlapping interior
+coordinates cannot select another room's mesh. Geometry stays in one graph.
+The predicate follows the filter before polygon selection in local
+`recastnavigation/Detour/Source/DetourNavMeshQuery.cpp`,
+`findNearestPoly` and `queryPolygonsInTile`. Detour's tile representation
+cannot query the existing native NAVM graph, so this adds eligibility to its
+current bounds-tree traversal. Synthetic checks cover a closer overlapping
+room, excluded meshes and blocked eligible triangles. No dependency is added.
+
 ## AI request expansions, PRF-27
 
 `PathSearch::last_expanded` returns the last slice's non-stale A* expansions,

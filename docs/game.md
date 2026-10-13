@@ -1,5 +1,33 @@
 # soe-game: the runtime form table and the first natives
 
+## Navigation coordinate spaces, AI-92
+
+Navigation's winning NAVM graph contains interior local coordinates and
+exterior world coordinates. Point selection previously compared them without
+the reference's CELL. A Bannered Mare sandbox path could select a triangle
+in another interior and assign that triangle's CELL to Hulda. The installed
+live baseline changed her cell from `0:01605E` to GoldenglowEstate03
+`0:02D3E7` after ten seconds,
+removing her GetInCell-conditioned gossip while her GetIsID magic topic remained.
+
+The graph caches each mesh's resolved coordinate space from CELL records.
+An interior uses its CELL identity, and an exterior uses its parent WRLD.
+Each actor request shares an immutable mesh eligibility mask for that space.
+Endpoint lookup, off-mesh containment and flee searches use it. A target in
+another resolved coordinate space rejects the straight-line fallback.
+Resuming a request retains its scope, and a changed actor space invalidates it.
+The existing graph supplies geometry, walkability, adjacency and waypoint owners.
+The masks are transient query caches and add no saved fields.
+
+`ai::cell_path` exposes the same scoped query to the host's player route probe.
+The synthetic overlapping-room checks verify waypoint cell ownership and
+cross-interior fallback rejection. The installed Hulda library survey checks
+ten seconds of AI, her CELL and the conditional gossip topic.
+The local sources are UESP `CELL.wikitext`, xEdit's CELL and CTDA definitions,
+and DetourNavMeshQuery's `findNearestPoly` and `queryPolygonsInTile` filters.
+The existing CELL reader and NAVM graph are reused, with mesh eligibility
+added to the graph's point query interface.
+
 ## Player NPC conversations, HST-28
 
 Player-input actor activation uses `begin_player_dialogue`. An active Hello

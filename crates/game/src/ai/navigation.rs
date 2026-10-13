@@ -95,9 +95,93 @@ enum Work {
     Finished,
 }
 
+#[derive(Clone)]
+struct QueryScope {
+    space: GlobalFormId,
+    meshes: std::sync::Arc<[bool]>,
+    compatible: bool,
+}
+
+fn accepts_mesh(scope: Option<&QueryScope>, mesh: u32) -> bool {
+    scope.is_none_or(|scope| scope.meshes.get(mesh as usize).copied().unwrap_or(false))
+}
+
+pub(super) fn coordinate_space(world: &World, cell: GlobalFormId) -> Option<GlobalFormId> {
+    let record = world.record(cell)?;
+    if record.tag != soe_esm::Tag(*b"CELL") || record.is_deleted() {
+        return None;
+    }
+    if world.cell_is_interior(cell) {
+        Some(cell)
+    } else {
+        world.resolve_from(cell, record.placement.world?)
+    }
+}
+
+fn query_scope(world: &mut World, actor: GlobalFormId, goal: Goal) -> Option<QueryScope> {
+    let cell = world.reference_ref(actor)?.cell?;
+    let space = coordinate_space(world, cell)?;
+    if world.ai.nav_spaces.is_empty() {
+        return None;
+    }
+    let compatible = match goal {
+        Goal::Point {
+            cell: Some(cell), ..
+        } => coordinate_space(world, cell).is_none_or(|target| target == space),
+        _ => true,
+    };
+    Some(QueryScope {
+        space,
+        meshes: space_mask(world, space),
+        compatible,
+    })
+}
+
+fn space_mask(world: &mut World, space: GlobalFormId) -> std::sync::Arc<[bool]> {
+    std::sync::Arc::clone(world.ai.nav_space_masks.entry(space).or_insert_with(|| {
+        world
+            .ai
+            .nav_spaces
+            .iter()
+            .map(|owner| *owner == Some(space))
+            .collect()
+    }))
+}
+
+/// A cell query cannot borrow geometry from another coordinate space.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CellPathError {
+    #[error("cell {0} has no resolved coordinate space")]
+    Cell(GlobalFormId),
+    #[error("no NAVM path in cell {0}")]
+    NoPath(GlobalFormId),
+}
+
+pub(super) fn cell_path(
+    world: &mut World,
+    cell: GlobalFormId,
+    from: [f32; 3],
+    to: [f32; 3],
+) -> Result<Path, CellPathError> {
+    let space = coordinate_space(world, cell).ok_or(CellPathError::Cell(cell))?;
+    super::ensure_nav_graph(world);
+    let mask = space_mask(world, space);
+    world
+        .ai
+        .nav
+        .as_ref()
+        .and_then(|graph| {
+            graph.find_path_between_in_meshes(from, to, |mesh| {
+                mask.get(mesh as usize).copied().unwrap_or(false)
+            })
+        })
+        .ok_or(CellPathError::NoPath(cell))
+}
+
 struct Request {
     from: [f32; 3],
     goal: Goal,
+    scope: Option<QueryScope>,
     revision: u64,
     work: Work,
     result: Poll<ResultPath>,
@@ -357,6 +441,7 @@ impl Planner {
         }
     }
 
+    #[cfg(test)]
     fn request(
         &mut self,
         graph: &NavGraph,
@@ -365,8 +450,24 @@ impl Planner {
         from: [f32; 3],
         goal: Goal,
     ) -> Poll<ResultPath> {
+        self.request_scoped(graph, cells, actor, from, goal, None)
+    }
+
+    fn request_scoped(
+        &mut self,
+        graph: &NavGraph,
+        cells: &[Option<GlobalFormId>],
+        actor: GlobalFormId,
+        from: [f32; 3],
+        goal: Goal,
+        scope: Option<QueryScope>,
+    ) -> Poll<ResultPath> {
         if self.requests.get(&actor).is_some_and(|r| {
-            r.from != from || r.goal != goal || r.revision != graph.query_revision()
+            r.from != from
+                || r.goal != goal
+                || r.revision != graph.query_revision()
+                || r.scope.as_ref().map(|scope| scope.space)
+                    != scope.as_ref().map(|scope| scope.space)
         }) {
             self.cancel(actor);
         }
@@ -378,9 +479,17 @@ impl Planner {
                 .or_default()
                 .started(setup_started);
             let work = match goal {
-                Goal::Point { to, .. } => Work::Route(graph.start_path_between(from, to)),
+                Goal::Point { to, .. } => {
+                    Work::Route(graph.start_path_between_in_meshes(from, to, |mesh| {
+                        accepts_mesh(scope.as_ref(), mesh)
+                    }))
+                }
                 Goal::Flee { .. } => {
-                    let start = graph.locate(from).or_else(|| graph.nearest(from));
+                    let start = graph
+                        .locate_in_meshes(from, |mesh| accepts_mesh(scope.as_ref(), mesh))
+                        .or_else(|| {
+                            graph.nearest_in_meshes(from, |mesh| accepts_mesh(scope.as_ref(), mesh))
+                        });
                     Work::Flee(Flee {
                         frontier: start.into_iter().collect(),
                         seen: HashSet::new(),
@@ -394,6 +503,7 @@ impl Planner {
             Request {
                 from,
                 goal,
+                scope,
                 revision: graph.query_revision(),
                 work,
                 result: Poll::Pending,
@@ -492,6 +602,13 @@ impl Request {
         if budget == 0 {
             return 0;
         }
+        if self.scope.as_ref().is_some_and(|scope| !scope.compatible) {
+            self.failed = true;
+            self.work = Work::Finished;
+            self.result = Poll::Ready(None);
+            return 1;
+        }
+        let scope = self.scope.clone();
         match &mut self.work {
             Work::Finished => 0,
             Work::Route(search) => {
@@ -514,7 +631,11 @@ impl Request {
                         .map(|path| planned(path, cells, if fallback { None } else { cell }))
                         .or_else(|| {
                             fallback.then(|| {
-                                if graph.contains_point(self.from) && graph.contains_point(to) {
+                                if graph.contains_point_in_meshes(self.from, |mesh| {
+                                    accepts_mesh(scope.as_ref(), mesh)
+                                }) && graph.contains_point_in_meshes(to, |mesh| {
+                                    accepts_mesh(scope.as_ref(), mesh)
+                                }) {
                                     (Vec::new(), Vec::new())
                                 } else {
                                     (vec![to], vec![cell])
@@ -536,7 +657,10 @@ impl Request {
                     if !flee.flooded {
                         if let Some(node) = flee.frontier.pop() {
                             used += 1;
-                            if !flee.seen.insert(node) || !graph.is_walkable(node) {
+                            if !flee.seen.insert(node)
+                                || !graph.is_walkable(node)
+                                || !accepts_mesh(scope.as_ref(), node.mesh)
+                            {
                                 continue;
                             }
                             self.expanded += 1;
@@ -569,7 +693,11 @@ impl Request {
                     } else if let Some(candidate) = flee.candidates.pop() {
                         used += 1;
                         flee.destination = graph.centroid(candidate.node);
-                        flee.search = graph.start_path_between(self.from, flee.destination);
+                        flee.search = graph.start_path_between_in_meshes(
+                            self.from,
+                            flee.destination,
+                            |mesh| accepts_mesh(scope.as_ref(), mesh),
+                        );
                     } else {
                         self.failed = true;
                         self.result = Poll::Ready(None);
@@ -591,19 +719,117 @@ pub(super) fn request(
 ) -> Poll<ResultPath> {
     super::measure_phase(world, Phase::PathRequests, |world| {
         super::ensure_nav_graph(world);
+        let scope = query_scope(world, actor, goal);
         let Some(graph) = &world.ai.nav else {
             return Poll::Ready(None);
         };
         world
             .ai
             .planner
-            .request(graph, &world.ai.nav_cells, actor, from, goal)
+            .request_scoped(graph, &world.ai.nav_cells, actor, from, goal, scope)
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn overlapping_rooms() -> World {
+        use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+        let mut plugin = Plugin::new(FileHeader::default());
+        for cell in [0x800, 0x900] {
+            plugin.push_top(Record::new(Tag(*b"CELL"), cell).sub(Tag(*b"DATA"), [1, 0]));
+        }
+        let mut order = LoadOrder::new();
+        order.add("Rooms.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        let actor = world.player();
+        world.reference(actor).unwrap().cell = Some(GlobalFormId {
+            file: 0,
+            object: 0x800,
+        });
+        let mut graph = NavGraph::new();
+        for height in [10.0, 0.0] {
+            graph.add_mesh_with_adjacency(
+                vec![
+                    [0.0, 0.0, height],
+                    [100.0, 0.0, height],
+                    [0.0, 100.0, height],
+                ],
+                &[[0, 1, 2]],
+            );
+        }
+        world.ai.nav = Some(graph);
+        world.ai.nav_cells = vec![
+            Some(GlobalFormId {
+                file: 0,
+                object: 0x900,
+            }),
+            Some(GlobalFormId {
+                file: 0,
+                object: 0x800,
+            }),
+        ];
+        world.ai.nav_spaces = world.ai.nav_cells.clone();
+        world
+    }
+
+    #[test]
+    fn actor_path_in_overlapping_interiors_keeps_its_cell_ownership() {
+        let mut world = overlapping_rooms();
+        let actor = world.player();
+        let room = GlobalFormId {
+            file: 0,
+            object: 0x800,
+        };
+        let from = [20.0, 20.0, 10.0];
+        let to = [60.0, 20.0, 10.0];
+        let Poll::Ready(Some((_, (points, cells)))) = request(
+            &mut world,
+            actor,
+            from,
+            Goal::Point {
+                to,
+                cell: Some(room),
+                fallback: true,
+            },
+        ) else {
+            panic!("same-room path must complete");
+        };
+        assert!(!points.is_empty());
+        assert!(cells.iter().all(|cell| *cell == Some(room)));
+        let mut ai = super::super::AiState {
+            speed: 100.0,
+            path: points,
+            path_cells: cells,
+            ..super::super::AiState::default()
+        };
+        let (_, cell) = super::super::movement::follow(&mut ai, from, Some(room), 1.0);
+        assert_eq!(cell, Some(room));
+    }
+
+    #[test]
+    fn actor_path_to_another_interior_rejects_the_straight_line_fallback() {
+        let mut world = overlapping_rooms();
+        let actor = world.player();
+        let target = GlobalFormId {
+            file: 0,
+            object: 0x900,
+        };
+        assert!(matches!(
+            request(
+                &mut world,
+                actor,
+                [20.0, 20.0, 10.0],
+                Goal::Point {
+                    to: [60.0, 20.0, 10.0],
+                    cell: Some(target),
+                    fallback: true
+                }
+            ),
+            Poll::Ready(None)
+        ));
+    }
 
     fn profile_child(name: &str) -> bool {
         if std::env::var("SOE_PRF_13_CHILD").is_ok_and(|value| value == "1") {

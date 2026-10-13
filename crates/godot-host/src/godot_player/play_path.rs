@@ -17,22 +17,26 @@ impl PlayerNode {
         let Some(game) = &self.game else {
             return PackedVector3Array::new();
         };
-        let world = game.world();
-        let Some(graph) = world.ai.nav_graph() else {
+        let Some(cell) = self.loaded_cell else {
             return PackedVector3Array::new();
         };
         let feet = self.feet();
-        graph
-            .find_path_between(
-                [feet.x, feet.y, feet.z],
-                [destination.x, destination.y, destination.z],
-            )
-            .map_or_else(PackedVector3Array::new, |path| {
-                path.points
-                    .iter()
-                    .map(|point| Vector3::new(point[0], point[1], point[2]))
-                    .collect()
-            })
+        match soe_game::ai::cell_path(
+            &mut game.world_mut(),
+            cell,
+            [feet.x, feet.y, feet.z],
+            [destination.x, destination.y, destination.z],
+        ) {
+            Ok(path) => path
+                .points
+                .iter()
+                .map(|point| Vector3::new(point[0], point[1], point[2]))
+                .collect(),
+            Err(error) => {
+                godot_warn!("Player navigation: {error}");
+                PackedVector3Array::new()
+            }
+        }
     }
 
     /// Enabled references in the player's resident cells, sorted by FormID.
