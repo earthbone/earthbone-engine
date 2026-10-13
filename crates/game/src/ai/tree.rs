@@ -562,6 +562,12 @@ pub(super) fn activate_target(
     })
 }
 
+pub(super) fn debug_location(world: &World, ai: &AiState) -> Option<(GlobalFormId, LocationData)> {
+    let tree = Tree::load(world, ai.package?)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    tree.location(branch)
+}
+
 type FindTarget = (
     GlobalFormId,
     crate::package::Target,

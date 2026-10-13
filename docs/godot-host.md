@@ -294,6 +294,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -505,6 +506,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
@@ -7973,7 +7975,6 @@ Godot binary. AI-60 and AUD-09 installed scenes skip when their inputs are
 unset. These changes preserve the scene assertions. Debug checks without
 Godot or installed data do not establish mixer or rendered acceptance.
 
-
 ### Audio integration corrections, second round, 2026-10-12
 
 AUD-12's stop-fade and cancellation scenes require the GDScript `stop_music`
@@ -8036,3 +8037,59 @@ regional descriptor list is empty. Its landing grid cell supplies the ambience
 and regional music before the first movement step. This follows the existing
 persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
 CELL and regional selection contract.
+
+## Console diagnostic rendering, TOOL-08
+
+`debug_draw` uploads loaded NAVM and actor-route primitives to one optional
+ImmediateMesh on layer 20. A single Label3D carries route and AI text, so no
+per-reference debug node is introduced. Both nodes and the retained NAVM
+geometry are freed when the last geometry switch is disabled. Disabled frame
+processing checks the session switches without inspecting records, generating
+geometry or allocating nodes. Map camera mode adds one optional Camera3D and
+restores the ordinary camera when disabled.
+
+`debug_geometry_counts` reports uploaded primitive counts, source triangle and
+waypoint totals, node count and update time in microseconds.
+`godot/debug_views_check.gd` extends the installed walkthrough and verifies
+actual mesh vertex arrays and console-output delivery in a RichTextLabel.
+The shared console overlay can call `finish_debug_views` after Console::run
+and connect `debug_view_message` with deferred delivery for Papyrus lines.
+Deferred delivery avoids rebinding PlayerNode while its frame update emits the
+signal. The standalone walkthrough uses `debug_view_command` and a GDScript
+RichTextLabel receiver, which does not rebind the Rust node. Set the transient
+`papyrus_directory` before the first shared-console log toggle to use the Godot
+user directory rather than Game's relative default.
+
+HDR debug uses Viewport scene luminance, available on Forward+ and Mobile.
+Compatibility rendering returns a clear unsupported result. TestLocalMap 0
+shows loaded NAVM through the orthographic camera. Local-map fog of war has
+no runtime state and mode 1 is rejected. Threaded simulation currently rejects
+diagnostic commands because the live Game is owned by its worker.
+
+Scratch validation on 2026-10-13 reports 48 Console command tests and six
+synthetic geometry tests passing. The installed five-master NAVM and same-point
+path survey passes. The first headless walkthrough passes resident actor and
+NAVM upload checks, then finds an actor-path source count mismatch. The source
+count now excludes actors outside attached cells. The rebuilt walkthrough,
+including the live capsule report, remains pending shared build capacity.
+
+The full gate passes every lint range, prose, Markdown and 52 Python runner
+checks. It stops at game integration tests with 5281 Rust passes, 12 failures
+and 11 existing ignored tests across completed binaries. The failures concern
+AI-22 following and the duplicated travel, sleep and obstacle package fixtures.
+Completed Rust tests take 143.75 seconds. A scoped check at `735176dff`
+reproduces nine matching failures with 50 passes. The three other failures are
+copies of the same package fixtures under AI-32. A second scoped check including
+those copies remains blocked on shared capacity and is stopped before compiling.
+All seven modified game files are restored from backups checked byte for byte. No
+assertion or fixture is changed.
+Cargo-deny and cargo-audit are absent and skipped by the gate. TOOL-08 remains
+wip until the outstanding checks and console integration are completed.
+
+The RNG-preservation regression passes with the 48-command suite after the
+checkpoint gate starts. Its production, logging-facade and all-feature clippy
+ranges pass on the updated sources. The no-default-feature range remains queued
+under the shared memory guard and the checkpoint attempt is interrupted with
+exit 1. The preceding complete attempt exits 101 at the AI integration failures
+above. Installed headless validation after the path-count correction remains
+pending. No owned Godot or cargo process is left running by this checkpoint.

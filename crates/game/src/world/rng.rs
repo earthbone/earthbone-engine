@@ -43,6 +43,16 @@ pub(super) fn derive_streams(seed: u64) -> [u64; STREAM_COUNT] {
 }
 
 impl World {
+    /// Preserve the general CTDA random stream while previewing console conditions.
+    pub(crate) fn condition_random_state(&self) -> u64 {
+        self.rng
+    }
+
+    /// Restore a condition preview without resetting the other subsystem streams.
+    pub(crate) fn restore_condition_random_state(&mut self, state: u64) {
+        self.rng = state;
+    }
+
     /// Draw the next value from a subsystem's independent stream.
     pub fn random_u64_for(&mut self, stream: RngStream) -> u64 {
         let state = &mut self.rng_streams[stream as usize];

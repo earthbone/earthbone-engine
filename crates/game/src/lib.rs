@@ -37,6 +37,7 @@ pub mod coverage;
 pub mod crafting;
 pub mod crime;
 pub mod debug;
+pub mod debug_views;
 pub mod detection;
 pub mod determinism;
 pub mod dialogue;
@@ -170,6 +171,8 @@ fn is_placed_reference(tag: Tag) -> bool {
 
 pub struct Game {
     pub vm: Vm,
+    /// Transient console views. These do not enter saves or game hashes.
+    pub debug_views: debug_views::Views,
     world: Rc<RefCell<World>>,
     pub registered: Registered,
     bound: Option<BindReport>,
@@ -283,6 +286,7 @@ impl Game {
             vm.natives.method_bindings().len() + vm.natives.global_bindings().len() - before_mcm;
         Game {
             vm,
+            debug_views: debug_views::Views::default(),
             world,
             registered,
             bound: None,

@@ -46,6 +46,8 @@ use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputSta
 mod activation;
 mod carry;
 mod containers;
+#[path = "debug_draw/player.rs"]
+mod debug_views;
 mod detection;
 mod exterior;
 mod footsteps;
@@ -163,6 +165,10 @@ pub struct PlayerNode {
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    debug_view_console: soe_game::debug::Console,
+    debug_draw: crate::debug_draw::host::Draw,
+    debug_map_camera: Option<Gd<Camera3D>>,
+    debug_hdr_restore: Option<godot::classes::viewport::DebugDraw>,
     simulation: Option<soe_game::simulation::Simulation>,
     simulation_pair: Option<Arc<soe_game::simulation::SnapshotPair>>,
     simulation_error: String,
@@ -318,6 +324,10 @@ impl INode3D for PlayerNode {
             character: None,
             data_source: None,
             game: None,
+            debug_view_console: soe_game::debug::Console::new(),
+            debug_draw: crate::debug_draw::host::Draw::default(),
+            debug_map_camera: None,
+            debug_hdr_restore: None,
             simulation: None,
             simulation_pair: None,
             simulation_error: String::new(),
@@ -595,6 +605,7 @@ impl INode3D for PlayerNode {
         self.present_simulation();
         self.sync_npc_grounding(0.0);
         self.sync_npc_actors(delta as f32);
+        self.refresh_debug_views();
         self.sync_dialogue_mouth();
         self.flush_reference_sync();
         self.last_physics_queries = soe_trace::physics_query_stats();
@@ -679,6 +690,7 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        self.debug_draw.clear();
         if let Err(error) = soe_trace::Trace::wait_for_hitch_exports() {
             godot_error!("hitch export: {error}");
         }
@@ -717,6 +729,10 @@ impl INode3D for PlayerNode {
 
 #[godot_api]
 impl PlayerNode {
+    /// Text reports and new Papyrus lines consumed by a console overlay.
+    #[signal]
+    pub fn debug_view_message(text: GString);
+
     /// Arm the player's right-hand swing from the gathered attack press.
     /// The live node and host tests use this same route into the shared Game.
     pub fn arm_melee_swing_from_input(

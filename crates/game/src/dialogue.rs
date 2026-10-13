@@ -113,10 +113,10 @@ struct Branch {
     category: u32,
 }
 
-struct Candidates {
+pub(crate) struct Candidates {
     topic: DialogueTopic,
     quest_priority: u8,
-    infos: Vec<(GlobalFormId, DialogueInfo)>,
+    pub(crate) infos: Vec<(GlobalFormId, DialogueInfo)>,
 }
 
 // CONTEXT: xEdit DIAL category 7, subtypes 79/94 and their SNAM equivalents.
@@ -1092,7 +1092,7 @@ impl Game {
         Ok(out)
     }
 
-    fn root_dialogue_topics(&self, session: &Session) -> RootTopics {
+    pub(crate) fn root_dialogue_topics(&self, session: &Session) -> RootTopics {
         let active_exclusive = {
             let world = self.world.borrow();
             world
@@ -1192,7 +1192,7 @@ impl Game {
         (topics, rejected)
     }
 
-    fn dialogue_candidates(
+    pub(crate) fn dialogue_candidates(
         &self,
         topic: GlobalFormId,
         session: &Session,

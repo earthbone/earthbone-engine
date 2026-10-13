@@ -141,6 +141,29 @@ impl Default for Planner {
 }
 
 impl Planner {
+    pub(super) fn debug_query(&self, actor: GlobalFormId) -> Option<super::PathQuery> {
+        let request = self.requests.get(&actor)?;
+        let target = match request.goal {
+            Goal::Point { to, .. } => to,
+            Goal::Flee { threat } => threat,
+        };
+        let (state, points) = match &request.result {
+            Poll::Pending => ("pending", 0),
+            Poll::Ready(None) => ("failed", 0),
+            Poll::Ready(Some((_, (path, _)))) => match path.len() {
+                0 => ("failed", 0),
+                1 => ("one point", 1),
+                count => ("found", count),
+            },
+        };
+        Some(super::PathQuery {
+            from: request.from,
+            target,
+            state,
+            points,
+        })
+    }
+
     pub(super) fn follow(
         &mut self,
         ai: &mut super::AiState,

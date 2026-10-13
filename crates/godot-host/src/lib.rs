@@ -31,6 +31,7 @@ pub mod collision;
 pub mod combat;
 pub mod crafting_menu;
 pub mod data_source;
+pub mod debug_draw;
 pub mod detect_life;
 pub mod detection;
 pub mod dialogue_menu;
