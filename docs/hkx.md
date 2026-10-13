@@ -741,7 +741,7 @@ The local Nemesis Havok 2010.2 header
 `external/hkxcmd/havok_2010_2_0/Source/Common/Base/Math/Functions/hkFpuMathFuncs.inl`
 defines the `hkReal` math helpers and the tolerated domain edges for `asin`
 and `acos`. The evaluator follows those edges for radian and degree variants.
-The same header only declares `hkMath_atan2fApproximation`; it does not include
+The same header only declares `hkMath_atan2fApproximation` and does not include
 its implementation. The Havok behavior sources in this corpus preserve the
 compiled expression token names but do not define the `atan2approx` or `clerp`
 behavior-expression formulas. Consequently those two formulas and the scalar

@@ -1998,7 +1998,7 @@ default and explicit-argument calls.
 The CK pages `SetAllowFlying_-_Actor.wikitext` and
 `SetAllowFlyingEx_-_Actor.wikitext` declare a true default for `abAllowed`.
 Both natives now use that default and return `None` for omitted and explicit
-arguments. `SetAllowFlyingEx` currently retains only `abAllowed`; its crash
+arguments. `SetAllowFlyingEx` currently retains only `abAllowed`. Its crash
 landing and search options are not represented by actor state and remain
 assigned to SCR-10 with the other unmodeled flight behavior.
 

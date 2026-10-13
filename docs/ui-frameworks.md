@@ -244,7 +244,7 @@ executes the surrounding script.
 | Focus management | `gfx.managers.FocusHandler.instance.setFocus`, `getFocus` | Maintain focus across lists, cards, dialogs, and menu transitions |
 | Input adaptation | `gfx.managers.InputDelegate.instance.enableControlFixup`, `isGamepad`, `inputToNav` | Translate Godot input events and controller layouts into the navigation events expected by the SWF |
 | Controls and events | `gfx.controls.Button`, `gfx.controls.ButtonGroup`, `gfx.controls.ScrollBar`, `gfx.events.EventDispatcher` | Supply compatible components and event ordering for scripts that construct or extend them |
-| Scaleform text and mouse extensions | `TextField.SetText` is absent from Ruffle AVM1; the source also uses MovieClip and mouse APIs | Implement `SetText` and test MovieClip and mouse behavior against the source menus |
+| Scaleform text and mouse extensions | `TextField.SetText` is absent from Ruffle AVM1, and the source also uses MovieClip and mouse APIs | Implement `SetText` and test MovieClip and mouse behavior against the source menus |
 
 This inventory is a source-level compatibility map, not a claim that stock
 Ruffle lacks every similarly named Adobe Flash feature. The API surface was

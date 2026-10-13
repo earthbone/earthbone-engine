@@ -732,7 +732,10 @@ impl DataSource {
                 }
                 references.entry(persistent).or_default();
                 for &id in index.references(persistent) {
-                    let Some(record) = self.order.winner(id) else {
+                    // Actors and projectiles share the index slice. Only a
+                    // REFR decodes through `Refr`, and only static geometry
+                    // moves to a grid cell here.
+                    let Some(record) = self.order.winner(id).filter(|r| r.tag == tag::REFR) else {
                         continue;
                     };
                     let Some(position) = Refr::from_record(record)
