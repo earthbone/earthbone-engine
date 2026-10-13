@@ -1,0 +1,30 @@
+[package]
+name = "soe-test-history"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+store = ["dep:turso", "dep:tokio"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+sha2 = "0.10"
+glob = "0.3"
+thiserror = "2"
+turso = { version = "=0.8.3", default-features = false, optional = true }
+tokio = { version = "1", features = ["rt", "time"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "soe-test-history"
+path = "src/main.rs"
+required-features = ["store"]
