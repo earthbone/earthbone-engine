@@ -83,6 +83,9 @@ pub(super) struct NpcActors {
 }
 
 impl NpcActors {
+    pub(super) fn debug_actor(&self, actor: GlobalFormId) -> Option<Gd<SkinnedActorNode>> {
+        self.residents.get(&actor)?.node.clone()
+    }
     pub(super) fn wait_for_loads(&self) {
         self.loading.wait();
     }

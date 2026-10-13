@@ -89,10 +89,10 @@ impl fmt::Display for Outcome {
 }
 
 /// One command's name, its arguments and what it does, for [`Console::help`].
-struct Entry {
-    name: &'static str,
-    args: &'static str,
-    what: &'static str,
+pub(crate) struct Entry {
+    pub(crate) name: &'static str,
+    pub(crate) args: &'static str,
+    pub(crate) what: &'static str,
 }
 
 /// Every command, in the order `help` prints them. The dispatch in
@@ -380,6 +380,7 @@ impl Console {
     pub fn help(prefix: &str) -> Vec<String> {
         COMMANDS
             .iter()
+            .chain(crate::debug_views::COMMANDS)
             .filter(|c| c.name.starts_with(prefix))
             .map(|c| {
                 if c.args.is_empty() {
@@ -430,7 +431,11 @@ impl Console {
 
     /// The reference a command works on: an explicit `target.` prefix, else
     /// what `prid` selected.
-    fn target_of(&self, game: &mut Game, target: Option<&str>) -> Result<GlobalFormId, String> {
+    pub(crate) fn target_of(
+        &self,
+        game: &mut Game,
+        target: Option<&str>,
+    ) -> Result<GlobalFormId, String> {
         match target {
             Some(t) => resolve(game, t),
             None => self
@@ -447,6 +452,9 @@ impl Console {
         name: &str,
         args: &[&str],
     ) -> Result<Outcome, String> {
+        if let Some(result) = crate::debug_views::run(self, game, target, name, args) {
+            return result;
+        }
         let arg = |i: usize| -> Result<&str, String> {
             args.get(i)
                 .copied()
@@ -1048,12 +1056,16 @@ mod tests {
     /// and a command exists that nobody can find.
     #[test]
     fn the_help_table_and_the_dispatch_agree() {
-        let mut names: Vec<&str> = COMMANDS.iter().map(|c| c.name).collect();
+        let mut names: Vec<&str> = COMMANDS
+            .iter()
+            .chain(crate::debug_views::COMMANDS)
+            .map(|c| c.name)
+            .collect();
         names.sort_unstable();
         let mut deduped = names.clone();
         deduped.dedup();
         assert_eq!(names, deduped, "a command is listed twice");
-        let source = include_str!("debug.rs");
+        let source = [include_str!("debug.rs"), include_str!("debug_views.rs")].join("\n");
         for name in &names {
             let quoted = format!("\"{name}\"");
             assert!(

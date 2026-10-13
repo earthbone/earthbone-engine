@@ -93,6 +93,15 @@ const DEFAULT_SANDBOX_RADIUS: f32 = 512.0;
 const COMBAT_ARRIVAL_DISTANCE: f32 = 4.0;
 type PlannedPath = (Vec<[f32; 3]>, Vec<Option<GlobalFormId>>);
 
+/// Current planner request, read without starting or advancing a query.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PathQuery {
+    pub from: [f32; 3],
+    pub target: [f32; 3],
+    pub state: &'static str,
+    pub points: usize,
+}
+
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const WKMV: Tag = Tag::new(b"WKMV");
 const RNMV: Tag = Tag::new(b"RNMV");
@@ -240,6 +249,10 @@ struct NavDoor {
 }
 
 impl AiWorld {
+    /// Retained pending or failed request. Consumed successful routes live in AiState.
+    pub fn debug_query(&self, actor: GlobalFormId) -> Option<PathQuery> {
+        self.planner.debug_query(actor)
+    }
     pub(crate) fn mark_nav_door(&mut self, door: GlobalFormId) {
         if self.nav_door_ids.contains(&door) {
             self.dirty_nav_doors.insert(door);
@@ -290,6 +303,11 @@ impl AiWorld {
     pub fn nav_graph(&self) -> Option<&NavGraph> {
         self.nav.as_ref()
     }
+
+    /// Owning cells parallel to the existing navigation graph's meshes.
+    pub fn nav_mesh_cells(&self) -> &[Option<GlobalFormId>] {
+        &self.nav_cells
+    }
 }
 
 /// Where a package's location input points.
@@ -308,6 +326,34 @@ pub struct Candidate {
 }
 
 // ----- views -----
+
+/// Resolve the active procedure's target through the same tree and reference rules
+/// as its driver, without reevaluating packages or advancing the actor.
+pub fn debug_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId> {
+    let state = world.actor_ref(actor)?;
+    if let Some(target) = state
+        .combat_target
+        .or(state.ai.found_reference)
+        .or(state.ai.bed)
+    {
+        return Some(target);
+    }
+    let ai = state.ai.clone();
+    let target = tree::activate_target(world, &ai)?;
+    resolve_follow_target(world, actor, &ai, target)
+}
+
+/// Active procedure location from its winning package inputs, before path projection.
+pub fn debug_destination(world: &mut World, actor: GlobalFormId) -> Option<Place> {
+    let ai = world.actor_ref(actor)?.ai.clone();
+    let (owner, location) = tree::debug_location(world, &ai)?;
+    let alias = ai.alias.or_else(|| {
+        let package_id = ai.package?;
+        let raw = package(world, package_id)?.owner_quest?;
+        Some((world.resolve_from(package_id, raw)?, 0))
+    });
+    resolve_location(world, actor, owner, alias, &ai, &location)
+}
 
 /// The `PACK` view of a winning record.
 pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {

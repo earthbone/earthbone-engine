@@ -9844,3 +9844,142 @@ installed acceptance checks remain blocked by another job's installed slot.
 UI-31 stays wip. This checkpoint does not establish live Belethor buying,
 Hulda or Ysolda's conditional merchant role, themed barter artwork or the
 experimental threaded host mode.
+## Console debug views, TOOL-08
+
+`Console::run` and `Console::help` include the command table from
+`debug_views.rs`. Dispatch uses the existing World, actor driver, dialogue
+selector and VM. Switches and host requests belong to the Game session, never
+to saves or game hashes. `ShowAiList` is an engine convenience for the selected
+actor or the full list. The local UESP console page does not list that name.
+`PrintAiList` and `pai` remain the sourced names.
+
+The Godot console calls `PlayerNode::finish_debug_views` after its ordinary
+Console dispatch. It resolves queued live-resource reports. The host emits new VM lines through
+`debug_view_message` while TPLog is enabled. Standalone debug_view_command
+also emits its completed report through that signal.
+`debug_view_command` is a standalone Console session for tests and hosts that
+have no general console yet. Production overlays retain their own selection
+and connect the same output signal. The commands themselves have one registry.
+The parallel console integration replaces its result-to-string conversion
+with `String::from(self.finish_debug_views(result))`. Its Papyrus sink must
+use a deferred signal connection if the receiver is another PlayerNode Rust
+method, to avoid reentering a live mutable extension borrow.
+
+NAVM rendering reads winning forms from attached cells. Water is blue, door
+is magenta, preferred is green, ledge is orange, blocked is red, and the player
+triangle is yellow. Ledges use cover enum value 2, not a guessed triangle flag.
+Combined flags retain their raw record values. Links to another coordinate
+space are labelled markers rather than lines between unrelated interiors.
+Pending and failed planner requests are inspected without advancing them.
+Dialogue condition reports preserve the general CTDA random stream.
+GetRandomPercent rows are marked as previews, including predicates skipped by
+short circuiting. They describe a fresh evaluation rather than a saved dialogue
+selection. Actor materialization keeps its separate subsystem random stream.
+
+Consumed routes report found, one point, partial or arrived from current
+waypoints. Partial means the route ends short of the package destination, not
+a fabricated A* result. Successful query history beyond the current route is
+not retained by this view.
+
+ShowAnim starts optional sampling on the selected resident actor. The first
+report has no measured rate. Subsequent updates report active clip time,
+authored duration and rate, measured local-time advance per clock step, graph
+frame, host frame, updates in that host frame and total clock advance. Samples
+remain enabled until the actor unloads. No extra graph update is performed.
+ShowScenegraph distinguishes authored NIF transforms and controller/collision
+links from the live reference placement, uploaded actor skin transforms and
+resident actor capsule dimensions and grounded state.
+It does not invent a Godot node for each authored NIF node.
+
+Papyrus output uses the existing rotating FileLogs implementation. The standalone
+host command entry places it under `user://debug-views/Logs/Script/Papyrus.0.log`. A headless Game
+uses `logs/debug-views`, or an explicit `papyrus_directory`. Toggling off stops
+the overlay and the command-enabled file sink. Existing profile logging resumes
+when this diagnostic sink is disabled.
+
+Sources read locally: `uesp-skyrim-console/Console.wikitext`,
+`TES5Edit/Core/wbDefinitionsTES5.pas` (`wbNVNM`) and
+`TES5Edit/Core/wbDefinitionsCommon.pas` (`wbNavmeshTriangleFlags` and
+`wbNavmeshCoverFlags`), CommonLibSSE-NG `include/RE/B/BSNavmesh.h`, the existing
+soe-navmesh Mesh::height_at projection, OpenMW `components/esm4/loadnavm` and
+`components/nif/node.hpp`, and Godot `ImmediateMesh`, `VisualInstance3D` and
+`Viewport` documentation.
+The existing parsers and interpreter supply all format data. The C++ models
+use a different renderer, so the new code only adapts existing Rust views to
+Godot geometry. No dependency or saved state is added.
+
+The complete no-op and unused group in the local UESP page is accounted for
+below. Unavailable entries are not advertised as successful commands. Some
+engine-relevant adapters remain unimplemented, as identified explicitly.
+
+| Command and UESP short form | Engine behavior or reason |
+| --- | --- |
+| AddAchievement | No achievement backend or platform account integration |
+| BeginTrace (bt) | Xbox Xenon trace protocol is absent. Engine captures use soe-trace and the F3 profiler |
+| BetaComment (BC) | No beta-comment INI output contract. Diagnostic reports can be retained by the host overlay |
+| CalcPathToPoint (P2P) | P2P queries the existing scoped NAVM path without moving the reference |
+| CheckMemory (chkmem) | chkmem reports tracked Rust allocations per system, excluding Godot and GPU memory |
+| ClearAchievement | No achievement backend or platform account integration |
+| CreateGrassAt (cga) | LAND and GRAS grass generation exists during cell streaming. A console regeneration operation at an arbitrary point is not implemented |
+| ForceOutOfMemory (FOOM) | No useful diagnostic result from exhausting process memory. CheckMemory supplies tracked allocation data |
+| ForceRSXCrash (fRSX) | The PS3 RSX chip and its crash protocol are absent |
+| GetBroadcastState | The Fallout broadcast subsystem is absent |
+| GetMemCheckPoint (gmcp) | Named vanilla allocator checkpoints are absent. CheckMemory and the F3 memory history expose engine counters |
+| GetPlayerName | Reads the live player name through World |
+| HairTint | Appearance reads authored hair colour forms. A direct numeric RGB runtime override is not implemented |
+| IgnoreCrime | No sourced console override contract. Ordinary crime processing remains on the shared gameplay path |
+| IncMemCheckPoint (imcp) | Named vanilla allocator checkpoints are absent |
+| IsInvulnerable (isinv) | No sourced single invulnerability predicate. Essential, protected, god mode and active-effect immunity are distinct contracts |
+| OutputFixedStringTable (OFST) | No Creation Engine fixed-string pool. VM, records and Godot own different string stores |
+| OutputLocalMapPictures (OLMP) | No local-map texture exporter. TestLocalMap shows loaded NAVM geometry |
+| PipboyRadio (prad) | The Fallout Pip-Boy radio subsystem is absent |
+| PipBoyRadioOff | The Fallout Pip-Boy radio subsystem is absent |
+| PrintAiList (pai) | pai reports loaded actors, packages, procedures, targets, destinations, waypoints and query state |
+| PrintNPCDialog (pdialog) | pdialog reports active-quest candidates, selector eligibility and each INFO and QUST CTDA result |
+| RunCellTest (rct) | Use existing streaming and load timing harnesses. A console-driven multi-cell survey is not implemented |
+| RunMemoryPass (rmp) | No Creation Engine memory cleanup pass. Rust ownership releases resources at their lifetime boundary |
+| SetActionComplete (SAC) | Scene actions exist, but a console force-completion contract is not implemented |
+| SetHudGlowConstants (shgc) | No Skyrim HUD glow shader constant interface in the Godot UI |
+| SetImageSpaceGlow (SISG) | Godot image-space rendering exists, but this console glow override is not implemented |
+| SetLightingPasses (SLP) | Godot owns rendering passes and has no matching four-toggle Creation Engine pass interface |
+| SetMemCheckPoint (smcp) | Named vanilla allocator checkpoints are absent |
+| SetTargetRefractionFire (strf) | No separate selected-reference fire refraction override interface |
+| ShowAnim (SA) | sa samples the resident graph and reports clip time, duration, authored and measured rate, update count and clock step |
+| ShowChargenMenu (scgm) | The old chargen menu is superseded by the engine race menu |
+| ShowChargenMenuParams (scgmp) | The old chargen parameter interface is superseded by the engine race menu |
+| ShowClassMenu | Skyrim has no Oblivion class selection menu |
+| ShowNameMenu | Player naming belongs to the race menu, without a separate name menu |
+| ShowNodes | All reports the selected NIF tree, Off stops requesting reports |
+| ShowPivot (SP) | sp toggles three yellow position axes |
+| ShowRepairMenu (srm) | Skyrim has no equipment degradation or repair menu |
+| ShowScenegraph SFSG | sfsg uses the same selected-reference report as ssg |
+| ShowScenegraph (SSG) | ssg prints the selected NIF hierarchy, accumulated transforms, controllers and collision links, plus live actor skin transforms |
+| ShowSpellMaking | Skyrim has no Oblivion spellmaking menu |
+| ShowWhoDetectsPlayer (SWDP) | swdp reports the current observer-specific detection results |
+| SkipAnim | No sourced skip semantics for clip, transition, synchronized scene and animation-event clocks |
+| StartAIControlledRobotTest (SPTP) | Use the existing play-path and scripted-player harnesses. The original player pathing memory-test protocol is absent |
+| TestAllCells (TAC) | Use the existing installed cell surveys. A console-driven all-cell lifecycle is not implemented |
+| TestFadeNodes (TestFN) | Godot bulk RID rendering has no Creation Engine fade-node diagnostic interface |
+| TestHandleManagerWarnAndKillSDM (THMWAKS) | The Creation Engine handle manager is absent. Destroying live World identities is not a diagnostic query |
+| TestLocalMap (tlm) | tlm 0 enables loaded NAVM and an orthographic camera. Fog of war mode 1 is unavailable |
+| TestSeenData (tsd) | tsd reports current detection and 3D residency. There is no separate saved seen-data cache |
+| Timing (FPS) | F3 already displays measured frame timings. A vanilla FPS alias is not registered here |
+| ToggleActorMover (tam) | AI movement exists. A console movement-disable override is not implemented in this diagnostic module |
+| ToggleCollisionGeometry (TCG) | Host physics exists. Collision shape drawing needs a separate PhysicsServer/SimpleWorld geometry adapter |
+| ToggleDebugText (TDT) | tdt toggles live AI rows on the single debug text panel |
+| ToggleFullScreenMotionBlur (tfsmb) | No full-screen motion blur renderer is present |
+| ToggleGrassUpdate (TGU) | Grass is built with cell geometry. There is no separate per-frame update loop to toggle |
+| ToggleHDRDebug (THD) | thd toggles Godot scene luminance on Forward+ and Mobile, restoring the previous viewport mode |
+| ToggleMapCam (tmc) | tmc toggles a top-down orthographic camera and restores the player camera |
+| ToggleMarkers (TMK) | Editor-marker models are filtered from playable streaming. Reintroducing their rendering needs a separate host path |
+| ToggleMaterialGeometry (TMG) | No Creation Engine material-geometry debug subsystem. Godot material rendering exists without this adapter |
+| ToggleMultiboundCheck (mbc) | mbc returns an explicit error. There is no Skyrim multibound checker and Godot owns visibility culling |
+| ToggleNavMesh (TNM) | tnm draws loaded NAVM flags, blocked triangles, cover edges, links and the player triangle |
+| TogglePapyrusLog (TPLog) | TPLog enables VM file logging and sends new lines to the console signal, disabling stops both |
+| TogglePathLine (TPL) | tpl draws current actor routes, waypoint crosses, targets, destinations and retained query diagnostics |
+| TogglePrimitives (TPR) | XPRM forms are parsed, but a host primitive debug renderer is not implemented |
+| ToggleSafeZone (TSZ) | There is no television safe-zone renderer. Godot UI anchoring governs layout |
+| ToggleStairsGeometry (TSG) | There is no separate stairs geometry class in the current host collision renderer |
+| ToggleVerletDebug (tvd) | tvd returns an explicit error. There is no Verlet cape solver and the host uses Jolt |
+| TrapUpdate | No sourced console trap-update contract independent of ordinary world and Papyrus ticks |
+| VisualRefPosition (VRP) | VRP uses the selected-reference position axes |

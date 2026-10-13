@@ -36,6 +36,8 @@ use crate::godot_ragdoll::LiveRagdoll;
 use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
 use crate::skinned::{skinning_transforms_into, Affine};
 
+#[path = "debug_draw/actor.rs"]
+mod debug_views;
 #[path = "godot_actor_hands.rs"]
 mod hands;
 
@@ -229,6 +231,7 @@ pub struct SkinnedActorNode {
     stats: VarDictionary,
     applied_expression_weights: std::collections::BTreeMap<String, f32>,
     elapsed: f64,
+    debug_clock: Option<debug_views::AnimationClock>,
     invisible: bool,
     geometry_visible: bool,
     hands: hands::Hands,
@@ -268,6 +271,7 @@ impl INode3D for SkinnedActorNode {
             stats: VarDictionary::new(),
             applied_expression_weights: std::collections::BTreeMap::new(),
             elapsed: 0.0,
+            debug_clock: None,
             invisible: false,
             geometry_visible: true,
             hands: hands::Hands::default(),
@@ -904,6 +908,9 @@ impl SkinnedActorNode {
             vm.send_event_named(&request);
         }
         vm.update(delta);
+        if let Some(clock) = self.debug_clock.as_mut() {
+            clock.observe(vm, assets, delta);
+        }
         let mut events: Vec<String> = vm
             .take_events()
             .into_iter()

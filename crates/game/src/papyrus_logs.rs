@@ -9,6 +9,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[derive(Debug)]
 pub(super) struct FileLogs {
     root: PathBuf,
     trace_enabled: bool,
