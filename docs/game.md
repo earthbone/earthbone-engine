@@ -696,6 +696,14 @@ expect-item <holder> <item> <count>
 expect-no-vm-error
 ```
 
+`play::navigation_approach_path` serves object anchors that lie outside a
+walkable footprint, such as a barrel. It uses a containing surface when
+available, otherwise a nearest walkable polygon-boundary query, and
+requires the approach endpoint to stay within the supplied distance bound.
+The host supplies 128 units and follows the returned on-mesh waypoints.
+Strict point navigation retains its off-mesh rejection. Two synthetic tests
+check the bounded approach and rejection beyond its bound.
+
 `play::navigation_path` exposes this scoped query to the host without moving
 references. It projects endpoints onto the existing NAVM surface within 128
 units and returns a failure reason for missing endpoints or routes. The

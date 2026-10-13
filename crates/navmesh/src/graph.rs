@@ -780,6 +780,69 @@ impl NavGraph {
         self.nearest_impl(point, |_| {})
     }
 
+    /// Closest walkable surface, using polygon boundary clamping as in Detour.
+    /// Existing nearest-centroid queries keep their original semantics.
+    pub fn nearest_surface(&self, point: [f32; 3]) -> Option<(NodeId, [f32; 3])> {
+        if !point.into_iter().all(f32::is_finite) {
+            return None;
+        }
+        let mut best: Option<(f32, NodeId, [f32; 3])> = None;
+        self.spatial
+            .get_or_init(|| SpatialIndex::build(&self.meshes))
+            .visit_nearest(point, |mi, radius| {
+                let mesh = &self.meshes[mi];
+                mesh.spatial
+                    .visit_nearest_with_radius(point, radius, |ti, triangle_radius| {
+                        let node = NodeId::new(mi as u32, ti as u32);
+                        if self.node_blocked(node) {
+                            return;
+                        }
+                        let surface = if let Some(z) = mesh.height_at(ti as u32, point[0], point[1])
+                        {
+                            [point[0], point[1], z]
+                        } else {
+                            let vertices = mesh.triangles[ti]
+                                .vertices
+                                .map(|v| mesh.vertices[v as usize]);
+                            let Some(surface) = (0..3)
+                                .map(|edge| {
+                                    let a = vertices[edge];
+                                    let b = vertices[(edge + 1) % 3];
+                                    let dx = f64::from(b[0]) - f64::from(a[0]);
+                                    let dy = f64::from(b[1]) - f64::from(a[1]);
+                                    let length_squared = dx * dx + dy * dy;
+                                    let t = if length_squared > 0.0 {
+                                        (((f64::from(point[0]) - f64::from(a[0])) * dx
+                                            + (f64::from(point[1]) - f64::from(a[1])) * dy)
+                                            / length_squared)
+                                            .clamp(0.0, 1.0)
+                                    } else {
+                                        0.0
+                                    };
+                                    std::array::from_fn(|axis| {
+                                        (f64::from(a[axis])
+                                            + t * (f64::from(b[axis]) - f64::from(a[axis])))
+                                            as f32
+                                    })
+                                })
+                                .min_by(|a, b| distance(*a, point).total_cmp(&distance(*b, point)))
+                            else {
+                                return;
+                            };
+                            surface
+                        };
+                        let candidate = (distance(surface, point), node);
+                        if candidate.0.is_finite()
+                            && best.is_none_or(|old| candidate < (old.0, old.1))
+                        {
+                            *triangle_radius = candidate.0;
+                            best = Some((candidate.0, node, surface));
+                        }
+                    });
+            });
+        best.map(|(_, node, surface)| (node, surface))
+    }
+
     /// Nearest triangle only among meshes in the named coordinate space.
     pub fn nearest_in_scope(&self, point: [f32; 3], scope: u64) -> Option<NodeId> {
         self.nearest_scoped_impl(point, Some(scope), |_| {})

@@ -478,3 +478,12 @@ Path search emits a trace event with source and destination node identities
 and system through `soe-trace`. Release builds remove the event and its
 argument evaluation. Subscribers, filters, counts and output follow
 [trace.md](trace.md). The navmesh crate does not install a subscriber.
+
+`NavGraph::nearest_surface` clamps an off-mesh anchor to walkable polygon
+boundaries using the existing mesh and triangle bounds trees. It follows
+DetourNavMeshQuery.cpp `closestPointOnPolyBoundary`, read locally in
+`engine-refs/recastnavigation/Detour/Source`. This Rust adaptation uses
+authored NAVM triangles, XY edge projection and interpolated surface Z.
+Blocked triangles are excluded and equal distances use NodeId order.
+Nearest-centroid APIs retain their existing semantics. Synthetic tests cover
+a nearby edge of a large triangle and blocked or invalid inputs.

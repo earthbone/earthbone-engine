@@ -141,6 +141,37 @@ pub(super) fn query_path(
         .ok_or_else(|| format!("no walkable NAVM path in {space} from {from:?} to {to:?}"))
 }
 
+pub(super) fn query_approach(
+    game: &Game,
+    cell: GlobalFormId,
+    from: [f32; 3],
+    anchor: [f32; 3],
+    max_distance: f32,
+) -> Result<soe_navmesh::Path, String> {
+    if !max_distance.is_finite() || max_distance < 0.0 || !anchor.into_iter().all(f32::is_finite) {
+        return Err("invalid NAVM approach bounds".into());
+    }
+    let (graph, _) = graph(game, cell)?;
+    let (from, _) = surface(&graph, from)?;
+    let to = match surface(&graph, anchor) {
+        Ok((point, _)) => point,
+        Err(_) => {
+            let (_, point) = graph
+                .nearest_surface(anchor)
+                .ok_or("no walkable NAVM approach")?;
+            point
+        }
+    };
+    if distance(to, anchor) > max_distance {
+        return Err(format!(
+            "no walkable NAVM approach within {max_distance} units of {anchor:?}"
+        ));
+    }
+    graph
+        .find_path_between(from, to)
+        .ok_or_else(|| format!("no NAVM approach path from {from:?} to {to:?}"))
+}
+
 /// Height of the corridor surface under `point`, from the path's own
 /// triangles. A route segment that hugs a boundary edge rounds off the edge by
 /// f32 noise, so containment allows `EDGE_SLACK` in plan view. Steep cliff
@@ -419,5 +450,90 @@ mod tests {
         };
         let error = query_path(&game, cell, [20.0, 40.0, 0.0], [160.0, 40.0, -20.0]).unwrap_err();
         assert!(error.contains("outside walkable NAVM"), "{error}");
+    }
+    #[test]
+    fn off_mesh_anchor_approach_ends_on_the_owned_navmesh() {
+        let game = overlapping_interiors();
+        let cell = GlobalFormId {
+            file: 0,
+            object: 0x801,
+        };
+        let path =
+            query_approach(&game, cell, [20.0, 40.0, -20.0], [210.0, 40.0, 60.0], 160.0).unwrap();
+        let (graph, _) = graph(&game, cell).unwrap();
+        let endpoint = *path.points.last().unwrap();
+        assert!(graph.locate(endpoint).is_some());
+        assert!(distance(endpoint, [210.0, 40.0, 60.0]) <= 160.0);
+        assert_eq!(endpoint[2], -20.0);
+    }
+
+    #[test]
+    fn off_mesh_anchor_outside_the_approach_bound_fails() {
+        let game = overlapping_interiors();
+        let cell = GlobalFormId {
+            file: 0,
+            object: 0x801,
+        };
+        let error = query_approach(
+            &game,
+            cell,
+            [20.0, 40.0, -20.0],
+            [1000.0, 40.0, -20.0],
+            128.0,
+        )
+        .unwrap_err();
+        assert!(error.contains("within 128 units"), "{error}");
+    }
+    #[test]
+    fn installed_barrel_anchor_has_a_bounded_bannered_mare_approach() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let mut order = LoadOrder::new();
+        for name in [
+            "Skyrim.esm",
+            "Update.esm",
+            "Dawnguard.esm",
+            "HearthFires.esm",
+            "Dragonborn.esm",
+        ] {
+            let bytes = std::fs::read(std::path::Path::new(&data).join(name)).unwrap();
+            order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
+        }
+        let game = Game::new(order);
+        let cell = game
+            .world_mut()
+            .cell_by_editor_id("WhiterunBanneredMare")
+            .unwrap();
+        let anchor = game
+            .world_mut()
+            .reference(GlobalFormId {
+                file: 0,
+                object: 0x060359,
+            })
+            .unwrap()
+            .position;
+        let (graph, _) = graph(&game, cell).unwrap();
+        let shifted = [anchor[0], anchor[1] - 160.0, anchor[2]];
+        assert!(
+            query_approach(&game, cell, [150.2594, -591.6012, 68.47896], shifted, 128.0).is_err()
+        );
+        for target in [anchor, shifted] {
+            let (_, goal) = graph.nearest_surface(target).unwrap();
+            println!(
+                "BARREL_SURFACE target={target:?} goal={goal:?} distance={}",
+                distance(goal, target)
+            );
+        }
+        let path =
+            query_approach(&game, cell, [150.2594, -591.6012, 68.47896], anchor, 128.0).unwrap();
+        let goal = *path.points.last().unwrap();
+        assert!(graph.locate(goal).is_some());
+        assert!(distance(goal, anchor) <= 128.0);
+        println!(
+            "BARREL_APPROACH anchor={anchor:?} goal={goal:?} distance={} points={}",
+            distance(goal, anchor),
+            path.points.len()
+        );
     }
 }

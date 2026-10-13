@@ -304,3 +304,27 @@ fn prf_14_path_counts_expanded_nodes_and_rejects_invalid_requests_before_search(
     assert!(graph.find_path(a, c).is_none());
     assert_eq!(frame.counts().get(Operation::PathNodes), 1);
 }
+
+#[test]
+fn nearest_surface_clamps_to_an_edge_instead_of_a_far_centroid() {
+    let mut graph = NavGraph::new();
+    graph.add_mesh_with_adjacency(
+        vec![[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [0.0, 1000.0, 0.0]],
+        &[[0, 1, 2]],
+    );
+    let anchor = [10.0, -20.0, 40.0];
+    let (node, point) = graph.nearest_surface(anchor).unwrap();
+    assert_eq!(point, [10.0, 0.0, 0.0]);
+    assert!(distance(graph.centroid(node), anchor) > 128.0);
+    assert!(distance(point, anchor) < 128.0);
+    assert_eq!(graph.locate(point), Some(node));
+}
+
+#[test]
+fn nearest_surface_rejects_blocked_geometry_and_invalid_anchors() {
+    let mut graph = NavGraph::new();
+    let mesh = add_triangle(&mut graph, 0.0, 0.0, 0.0);
+    graph.set_blocked(NodeId::new(mesh, 0), true);
+    assert!(graph.nearest_surface([0.0, 0.0, 0.0]).is_none());
+    assert!(graph.nearest_surface([f32::NAN, 0.0, 0.0]).is_none());
+}

@@ -24,6 +24,21 @@ pub fn navigation_path(
     navigation::query_path(game, cell, from, to)
 }
 
+/// Query a cell-owned path to a walkable approach near an object anchor.
+/// Off-mesh anchors choose a walkable triangle centroid within the given bound.
+///
+/// # Errors
+/// Returns the reason when no bounded walkable approach or route exists.
+pub fn navigation_approach_path(
+    game: &crate::Game,
+    cell: soe_esm::GlobalFormId,
+    from: [f32; 3],
+    anchor: [f32; 3],
+    max_distance: f32,
+) -> Result<soe_navmesh::Path, String> {
+    navigation::query_approach(game, cell, from, anchor, max_distance)
+}
+
 pub use checkpoint::{Checkpoint, QuestCheckpoint};
 
 use std::fmt::Write as _;
