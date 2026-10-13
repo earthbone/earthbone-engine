@@ -125,6 +125,7 @@ mod entry {
 
         fn on_stage_deinit(level: InitStage) {
             if level == InitStage::Scene {
+                crate::background_audio::wait_for_decoders();
                 crate::godot_profiler::unregister();
                 crate::godot_logging::flush(true);
             }

@@ -212,7 +212,7 @@ pub struct AiWorld {
     markers: markers::Planner,
     /// Time spent in automatic package evaluation during the most recent tick.
     pub evaluation_time: std::time::Duration,
-    /// Wall-clock duration of the most recent AI driver tick, including door refresh and query slices.
+    /// Wall-clock duration of the most recent AI driver tick and automatic greetings.
     pub planning_time: std::time::Duration,
     /// Door refresh duration within the most recent AI driver tick.
     pub door_refresh_time: std::time::Duration,

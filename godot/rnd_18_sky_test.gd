@@ -76,7 +76,7 @@ func _run() -> void:
 		check(sky.material.get_shader_parameter("cloud_count") == sky.last_frame.clouds.size(), "all cloud layers reach shader")
 		var speeds: PackedVector2Array = sky.material.get_shader_parameter("cloud_speeds")
 		for index in sky.last_frame.clouds.size():
-			check(speeds[index] == sky.last_frame.clouds[index].speed, "authored cloud velocity reaches shader")
+			check(speeds[index] == sky.last_frame.clouds[index].speed * (1.0 / 400.0), "authored cloud velocity reaches shader in UV units per second")
 		for key in ["sun_texture", "masser_texture", "secunda_texture"]:
 			check(sky.material.get_shader_parameter(key) != null, key + " resolves through VFS")
 		check(sky.material.get_shader_parameter("stars_enabled"), "CLMT night model texture resolves")

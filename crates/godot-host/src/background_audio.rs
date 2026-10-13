@@ -7,11 +7,25 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::JoinHandle;
 
 use soe_audio::Pcm;
 
 pub(crate) const CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+static RETIRED_WORKERS: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
+
+pub(crate) fn wait_for_decoders() {
+    let workers = std::mem::take(
+        &mut *RETIRED_WORKERS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    for worker in workers {
+        let _ = worker.join();
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Lane {
@@ -57,6 +71,7 @@ pub(crate) struct Decoder {
     requests: mpsc::Sender<Command>,
     ready: mpsc::Receiver<Ready>,
     counters: Arc<Counters>,
+    worker: Option<JoinHandle<()>>,
 }
 
 impl Decoder {
@@ -68,7 +83,7 @@ impl Decoder {
         let (outgoing, ready) = mpsc::channel();
         let counters = Arc::new(Counters::default());
         let worker_counters = Arc::clone(&counters);
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("soe-audio-decode".into())
             .spawn(move || {
                 let mut cache = Cache::new(cap);
@@ -120,6 +135,7 @@ impl Decoder {
             requests,
             ready,
             counters,
+            worker: Some(worker),
         })
     }
 
@@ -168,6 +184,14 @@ impl Drop for Decoder {
             if let Ok(pcm) = ready.pcm {
                 self.retire(pcm);
             }
+        }
+        if let Some(worker) = self.worker.take() {
+            // SAFETY: The decoder must finish before its extension code unloads.
+            let mut retired = RETIRED_WORKERS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            retired.retain(|worker| !worker.is_finished());
+            retired.push(worker);
         }
     }
 }
@@ -245,6 +269,46 @@ mod tests {
 
     fn receive(decoder: &Decoder) -> Ready {
         decoder.ready.recv_timeout(Duration::from_secs(5)).unwrap()
+    }
+
+    #[test]
+    fn aud_12_drop_is_nonblocking_and_extension_shutdown_joins_the_decoder() {
+        use std::sync::atomic::AtomicBool;
+
+        struct Completed(Arc<AtomicBool>);
+        impl Drop for Completed {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let completed = Arc::new(AtomicBool::new(false));
+        let completion = Completed(Arc::clone(&completed));
+        let (started, start) = mpsc::channel();
+        let (finish, finished) = mpsc::channel();
+        let decoder = Decoder::new(
+            move |_| {
+                let _completion = &completion;
+                started.send(()).unwrap();
+                finished.recv().unwrap();
+                Ok(pcm(8))
+            },
+            64,
+        )
+        .unwrap();
+        decoder.request(Lane::Music, "pending").unwrap();
+        start.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (dropped, drop_done) = mpsc::channel();
+        let dropping = std::thread::spawn(move || {
+            drop(decoder);
+            dropped.send(()).unwrap();
+        });
+        drop_done.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(!completed.load(Ordering::Acquire));
+        finish.send(()).unwrap();
+        dropping.join().unwrap();
+        wait_for_decoders();
+        assert!(completed.load(Ordering::Acquire));
     }
 
     #[test]
