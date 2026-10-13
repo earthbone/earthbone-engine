@@ -72,6 +72,13 @@ fn prf_31_installed_actor_occlusion_matches_godot_rays() {
     assert!(reciprocal.parse::<usize>().unwrap() > 0, "{stdout}");
     assert!(stdout.contains("RESULT: PASS PRF31 detection"), "{stdout}");
     assert!(!stderr.contains("SCRIPT ERROR"), "{stderr}");
+    for line in stdout.lines().filter(|line| {
+        line.starts_with("PRF31 sight setup_us=")
+            || line.starts_with("PRF31 exterior cell=")
+            || line.starts_with("PRF31 stages ")
+    }) {
+        println!("{line}");
+    }
     println!("PRF31 occlusion checked={verified}");
     println!("PRF31 reciprocal checked={reciprocal}");
 }

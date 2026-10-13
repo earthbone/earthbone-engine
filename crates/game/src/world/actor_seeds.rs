@@ -70,6 +70,15 @@ impl World {
         base: GlobalFormId,
         group: u16,
     ) -> Result<GlobalFormId, Error> {
+        self.npc_component_part(base, group)
+            .map(|(source, _)| source)
+    }
+
+    fn npc_component_part(
+        &self,
+        base: GlobalFormId,
+        group: u16,
+    ) -> Result<(GlobalFormId, Npc), Error> {
         let mut current = base;
         let mut visited = BTreeSet::new();
         loop {
@@ -83,7 +92,7 @@ impl World {
                 .template
                 .filter(|raw| *raw != 0 && npc.config.template_flags & group != 0)
             else {
-                return Ok(current);
+                return Ok((current, npc));
             };
             current = self
                 .resolve_from(current, raw)
@@ -96,8 +105,8 @@ impl World {
     /// # Errors
     /// Rejects malformed or unresolved template chains and race links.
     pub fn actor_base_race(&self, base: GlobalFormId) -> Result<Option<GlobalFormId>, Error> {
-        let source = self.npc_component_source(base, npc::template::TRAITS)?;
-        self.npc_race(source)
+        let (source, npc) = self.npc_component_part(base, npc::template::TRAITS)?;
+        self.npc_race_link(source, npc.race)
     }
 
     /// Overall linear scale for an actor's runtime-generated controller
@@ -112,10 +121,9 @@ impl World {
     /// Rejects invalid templates, an unresolved race link, or a non-finite
     /// or non-positive resulting scale.
     pub fn actor_controller_scale(&self, base: GlobalFormId) -> Result<f32, Error> {
-        let traits = self.npc_component_source(base, npc::template::TRAITS)?;
-        let npc = self.npc_record(traits)?;
+        let (traits, npc) = self.npc_component_part(base, npc::template::TRAITS)?;
         let race_height = self
-            .npc_race(traits)?
+            .npc_race_link(traits, npc.race)?
             .and_then(|id| self.record(id))
             .map(Attributes::from_record)
             .transpose()?
@@ -138,7 +146,15 @@ impl World {
 
     pub(super) fn npc_race(&self, source: GlobalFormId) -> Result<Option<GlobalFormId>, Error> {
         let npc = self.npc_record(source)?;
-        let Some(raw) = npc.race.filter(|raw| *raw != 0) else {
+        self.npc_race_link(source, npc.race)
+    }
+
+    fn npc_race_link(
+        &self,
+        source: GlobalFormId,
+        race: Option<u32>,
+    ) -> Result<Option<GlobalFormId>, Error> {
+        let Some(raw) = race.filter(|raw| *raw != 0) else {
             return Ok(None);
         };
         let race = self

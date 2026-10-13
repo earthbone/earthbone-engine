@@ -257,7 +257,9 @@ pub fn detection_value(
     };
     let sound = s.sounds_mult * movement * los;
     let event_distance = o.action_sound_distance.unwrap_or(o.distance);
-    let event_attenuation = if event_distance >= s.max_distance {
+    let event_attenuation = if event_distance == o.distance {
+        attenuation
+    } else if event_distance >= s.max_distance {
         0.0
     } else {
         ((s.max_distance - event_distance) / s.max_distance).powf(s.attenuation_exponent)

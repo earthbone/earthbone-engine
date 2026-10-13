@@ -1955,13 +1955,13 @@ and independent sound-source positions on their own query paths.
 
 The host collision builder enables two-sided mesh collision. Its prepared
 body index follows creation, replacement, removal and cell ownership changes.
-Four covering sphere queries check for other geometry before reciprocal reuse.
+Four covering shape queries check for other geometry before reciprocal reuse.
 Their centers surround the endpoint volume, so an intersecting one-sided
 triangle is seen from its front by at least one query. Any unclassified body
 hit returns the batch to independent rays. This guard follows Godot 4.4's
 [Jolt double-sided shape implementation](https://github.com/godotengine/godot/blob/4.4/modules/jolt_physics/shapes/jolt_custom_double_sided_shape.cpp),
-which can override the requested ray back-face mode. One temporary sphere
-shape serves the checks and is freed before observations are evaluated.
+which can override the requested ray back-face mode. Query parameters and
+shapes are reused by the player and freed when it leaves the tree.
 
 Observation construction reuses the exact distance calculated for range
 membership. World validates each actor identity and death state once per
@@ -2000,6 +2000,81 @@ windowed timing attempt also waited without a result and was cancelled with
 status 1. Installed ray equivalence and the full 2,000-microsecond budget
 remain unverified for this patch. The recorded earlier budget failures remain
 failed measurements.
+
+### Integration loop round 1, attempt 2, 2026-10-14
+
+The merged rerun recorded 33 updates above 2,000 microseconds across 374
+walk samples. Its worst update took 3,817 microseconds, including 3,087 in
+observation construction and sight. Whiterun and Tamriel movement both passed.
+A separate installed ray comparison checked 515 shortcut decisions with zero
+mismatches. That baseline used 355 independent rays and spent 270 to 298
+microseconds preparing sight queries.
+
+The follow-up retains PRF-31's whole-update budget, AI-70's camera origin and
+CMB-32's separate sound source and owner. Observation construction reuses a
+sorted target buffer, preserving FormID order and the strongest sound event
+with the existing latest-event tie rule.
+
+Pair validation uses a membership set without iterating it. Combat indexing
+retains a unique target or a marker for several targets. Observation order,
+per-pair Alert and busy modifiers and atomic pool replacement remain the same.
+Matching target and sound distances share the same attenuation result.
+Controller scale reuses the terminal NPC parsed while resolving its Traits
+template group, including its race link. Current records, template-cycle
+checks and CMB-33's race, sex and height sources are retained.
+
+Four covering boxes with tetrahedral centers rule out unknown one-sided
+geometry in the eye volume. Each box contains the whole volume and scales
+its height with the volume's height.
+Godot box overlap queries test clusters of eye positions for scenery. An
+obstructed cluster splits along its widest axis and retries, with at most 16
+box queries per update. Only the synchronized static capsules are excluded.
+Clear regions can prove visibility when their continuous coverage contains
+the whole segment, the target point lies inside its capsule and every third
+capsule's enlarged shape misses the complete segment. Any gap in region coverage
+keeps the original ray query. Other rays keep the existing occlusion witness
+and Godot query paths.
+Each ray's region intervals are calculated once, sorted in a fixed buffer and
+checked for continuous coverage. This avoids repeating slab divisions as the
+coverage frontier advances.
+Capsule witnesses use the finite cylinder and both end spheres, with smaller
+radii for blocked paths and larger radii for clear paths. The old three-sphere
+sampling left cylinder gaps and missed clear paths through box corners.
+Reusable query resources keep the covering exclusion set until its RID list
+changes. All geometry queries and visibility results are rebuilt each update.
+The three query shapes are released by PlayerNode's exit callback.
+All region proofs are rebuilt on each update. No world state is duplicated.
+
+The local Jolt `Jolt/Geometry/RayAABox.h` supplies the slab intersection model,
+alongside `RayCapsule.h`, `RayCylinder.h` and the generated controller capsule.
+CommonLibSSE-NG `src/RE/T/TESNPC.cpp::GetHeight` supplies CMB-33's existing
+race, sex and NPC-height contract. The local Godot
+`godot-docs/classes/class_physicsdirectspacestate3d.rst` documents the overlap
+query. Jolt `Jolt/Physics/Collision/CollideConvexVsTriangles.cpp` and
+`CollideSphereVsTriangles.cpp` explain why the one-sided geometry guard must
+remain before an empty box can prove clear sight. The small conservative
+helpers avoid building a second physics world and leave uncertain geometry
+to Godot.
+
+The final installed comparison checks 764 shortcut decisions with zero
+mismatches, including 402 reciprocal lookups. Clear-region witnesses handle
+248 rays, leaving 106 independent queries, compared with 355 at the merged
+baseline. The separate one-sided obstruction check passes after query reuse.
+The exact windowed walk passes all 378 samples across Whiterun and Tamriel
+with a maximum of 1,925 microseconds and no over-budget updates. The initial
+exterior sample takes 1,901 microseconds for 870 pairs and 32 resident bodies.
+City movement reaches 316.1 game units and Tamriel movement reaches 904.1.
+The earlier follow-up measurements still failed, including one update of
+2,208 microseconds before query reuse. These measurements retain the original
+2,000-microsecond limit.
+
+Debug library checks pass 440 host and 240 game tests. The six PRF-31
+adversarial targets pass 15 tests. The shared-detection, sound-event and
+controller-scale game integration filters pass 11, five and five tests.
+The release build, initial headless project import, formatting and all-targets
+clippy with warnings denied pass. The installed checks set SKYRIM_DATA and
+CARGO_PROFILE_DEV_OPT_LEVEL=1 and run one exact test on one thread.
+The workspace lint gate is excluded by the integration-fixer instructions.
 
 ### Follow-up local verification
 

@@ -3,7 +3,7 @@
 //! Detection steps against the world's actor records, and their SOEW block.
 //! The formula and state rules are documented in `crate::detection`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use soe_esm::GlobalFormId;
 use soe_papyrus::vm::state::Writer;
@@ -120,7 +120,7 @@ impl World {
             return Err(Error::Observation);
         }
         let settings = self.detection_settings()?;
-        let mut pairs = BTreeSet::new();
+        let mut pairs = HashSet::with_capacity(observations.len());
         let mut kinds = std::collections::HashMap::new();
         for o in observations {
             let numbers = [
@@ -165,11 +165,15 @@ impl World {
             }
         }
 
-        let mut combat_targets: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>> = BTreeMap::new();
+        // CONTEXT: The busy modifier needs only a unique combat target or several targets.
+        let mut combat_targets: HashMap<GlobalFormId, Option<GlobalFormId>> = HashMap::new();
         for (target, pool) in &self.detection.pools {
             for (observer, awareness) in &pool.observers {
                 if awareness.level == DetectionLevel::Combat {
-                    combat_targets.entry(*observer).or_default().insert(*target);
+                    let single = combat_targets.entry(*observer).or_insert(Some(*target));
+                    if *single != Some(*target) {
+                        *single = None;
+                    }
                 }
             }
         }
@@ -199,7 +203,7 @@ impl World {
             };
             let busy_elsewhere = combat_targets
                 .get(&o.observer)
-                .is_some_and(|targets| targets.len() > 1 || !targets.contains(&o.target));
+                .is_some_and(|single| *single != Some(o.target));
             let senses = Senses {
                 observer_sneak,
                 blindness,
@@ -516,6 +520,47 @@ mod prf_31_tests {
             matches!(world.evaluate_detection(&[observation], 1.0), Err(Error::Actor(actor)) if actor == id(4))
         );
         assert_eq!(world.detection, before);
+    }
+
+    #[test]
+    fn prf_31_busy_modifier_distinguishes_one_combat_target_from_several() {
+        let mut reference =
+            Record::new(super::super::T(b"ACHR"), 5).sub(b"NAME", 2_u32.to_le_bytes());
+        reference.placement.cell = Some(1);
+        let mut world = world(vec![reference]);
+        world
+            .settings
+            .insert("fsneakperceptionskillmax".into(), Value::Float(100.0));
+        world
+            .settings
+            .insert("fsneakcombatmod".into(), Value::Float(-0.5));
+        world.set_actor_value(id(3), "sneak", 30.0).unwrap();
+        for target in [id(4), id(5)] {
+            world.set_actor_value(target, "sneak", 0.0).unwrap();
+        }
+        let first = Observation {
+            observer: id(3),
+            target: id(4),
+            distance: 0.0,
+            line_of_sight: true,
+            light_level: 100.0,
+            motion: crate::detection::Motion::Still,
+            action_sound: 0.0,
+            action_sound_distance: None,
+            action_sound_line_of_sight: None,
+        };
+        let second = Observation {
+            target: id(5),
+            ..first
+        };
+        world.evaluate_detection(&[first], 0.0).unwrap();
+        world.evaluate_detection(&[first, second], 0.0).unwrap();
+        assert_eq!(world.awareness(id(3), id(4)).unwrap().detection, 100.0);
+        assert_eq!(world.awareness(id(3), id(5)).unwrap().detection, 70.0);
+        world.evaluate_detection(&[second, first], 0.0).unwrap();
+        for target in [id(4), id(5)] {
+            assert_eq!(world.awareness(id(3), target).unwrap().detection, 70.0);
+        }
     }
 
     #[test]
