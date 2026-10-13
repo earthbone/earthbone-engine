@@ -39,8 +39,8 @@ queues a transient `FlightRequest` using the source reference's position and
 rotation. An omitted ammo argument selects the source actor's compatible
 equipped ammunition. Invalid forms and unsupported projectile kinds are logged
 to the VM. The request is host work and is not saved. The local SKSE vanilla
-`Weapon.psc` supplies the signature and says the weapon fires from the source;
-local xEdit and UESP AMMO/PROJ layouts supply the parsed record fields. The
+`Weapon.psc` supplies the signature and says the weapon fires from the source.
+Local xEdit and UESP AMMO/PROJ layouts supply the parsed record fields. The
 existing flight request type is reused so Papyrus does not create a second
 projectile representation. This native does not consume an inventory stack.
 
