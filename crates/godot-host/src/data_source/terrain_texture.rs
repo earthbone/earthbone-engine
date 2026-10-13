@@ -7,6 +7,8 @@
 
 use soe_dds::Image;
 use soe_esm::records::land::{Land, ALPHA_GRID_SIDE};
+#[cfg(test)]
+use std::sync::Arc;
 
 const QUADRANT_PIXELS: usize = 128;
 const IMAGE_SIDE: usize = QUADRANT_PIXELS * 2;
@@ -15,7 +17,10 @@ const FALLBACK: [u8; 4] = [91, 76, 54, 255];
 
 /// Composites four LAND quadrants. Missing texture files use a soil color so
 /// terrain remains distinguishable from the host's default white material.
-pub(super) fn bake(land: &Land, mut image_for: impl FnMut(u32) -> Option<Image>) -> Image {
+pub(super) fn bake<I: std::borrow::Borrow<Image>>(
+    land: &Land,
+    mut image_for: impl FnMut(u32) -> Option<I>,
+) -> Image {
     let mut rgba = vec![0; IMAGE_SIDE * IMAGE_SIDE * 4];
     for (quadrant_index, quadrant) in land.quadrants.iter().enumerate() {
         let qx = quadrant_index % 2;
@@ -35,11 +40,11 @@ pub(super) fn bake(land: &Land, mut image_for: impl FnMut(u32) -> Option<Image>)
             for px in 0..QUADRANT_PIXELS {
                 let mut color = base
                     .as_ref()
-                    .map(|image| sample(image, px, py))
+                    .map(|image| sample(image.borrow(), px, py))
                     .unwrap_or(FALLBACK);
                 for (layer, image) in &layers {
                     let opacity = layer_opacity(layer, px, py);
-                    let top = sample(image, px, py);
+                    let top = sample(image.borrow(), px, py);
                     for channel in 0..3 {
                         color[channel] = (f32::from(color[channel]) * (1.0 - opacity)
                             + f32::from(top[channel]) * opacity)
@@ -101,13 +106,13 @@ mod tests {
     use super::*;
     use soe_esm::records::land::{Alpha, Layer};
 
-    fn image(color: [u8; 4]) -> Image {
-        Image {
+    fn image(color: [u8; 4]) -> Arc<Image> {
+        Arc::new(Image {
             width: 1,
             height: 1,
             depth: 1,
             rgba: color.to_vec(),
-        }
+        })
     }
 
     #[test]

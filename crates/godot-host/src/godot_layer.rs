@@ -282,6 +282,35 @@ struct LodBlockProducts {
     tree: Result<Option<crate::data_source::LoadedLodBlock>, String>,
 }
 
+const LOD_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+impl LodBlockProducts {
+    fn retained_bytes(&self) -> usize {
+        [&self.object, &self.terrain, &self.tree]
+            .into_iter()
+            .filter_map(|product| product.as_ref().ok().and_then(Option::as_ref))
+            .flat_map(|block| &block.surfaces)
+            .map(|surface| {
+                let textures = &surface.textures;
+                surface.arrays.allocation_bytes()
+                    + [
+                        &textures.diffuse,
+                        &textures.normal,
+                        &textures.glow,
+                        &textures.greyscale,
+                        &textures.environment,
+                        &textures.environment_mask,
+                        &textures.terrain_noise,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .map(|texture| texture.retained_bytes())
+                    .sum::<usize>()
+            })
+            .sum()
+    }
+}
+
 /// One drawn LOD surface. The mesh is held so the instance's mesh RID stays
 /// valid while it draws.
 struct LodInstance {
@@ -2863,6 +2892,93 @@ impl CellStreamerNode {
         cells
     }
 
+    /// Current retained render payloads, without allocating GPU readback copies.
+    #[func]
+    pub fn memory_attribution(&self) -> VarDictionary {
+        let mut report = crate::memory::AssetMemory::default();
+        let allocation = soe_trace::MemorySnapshot::now();
+        for system in soe_trace::System::ALL {
+            report.add(
+                &format!("rust_{}_live_bytes", system.name()),
+                allocation.live_bytes[system as usize] as usize,
+            );
+        }
+        if let Some(source) = &self.data_source {
+            source.asset_memory(&mut report);
+        }
+        for instance in &self.instances {
+            report.mesh(&instance.arrays);
+            report.add("mesh_count", 1);
+            report.add("mesh_upload_bytes", instance.arrays.mesh_byte_count());
+        }
+        for lod in [&self.terrain_lod, &self.object_lod, &self.tree_lod]
+            .into_iter()
+            .flatten()
+        {
+            for instance in lod.blocks.values().flatten() {
+                report.add("mesh_count", 1);
+                report.add("mesh_upload_bytes", instance.bytes as usize);
+            }
+            for surface in lod.source_surfaces.values().flatten() {
+                report.mesh(&surface.arrays);
+                report.textures(&surface.textures);
+            }
+        }
+        for products in self.lod_build_cache.values() {
+            report.add("lod_cache_entries", 1);
+            report.add("lod_cache_bytes", products.retained_bytes());
+            for block in [&products.object, &products.terrain, &products.tree]
+                .into_iter()
+                .filter_map(|product| product.as_ref().ok().and_then(Option::as_ref))
+            {
+                for surface in &block.surfaces {
+                    report.add("lod_cache_mesh_bytes", surface.arrays.mesh_byte_count());
+                    report.mesh(&surface.arrays);
+                    report.textures(&surface.textures);
+                }
+            }
+        }
+        report.add("material_count", self.materials.materials.len());
+        report.add("shader_count", self.materials.shaders.borrow().len());
+        report.add(
+            "shader_source_bytes",
+            self.materials
+                .shaders
+                .borrow()
+                .keys()
+                .map(String::len)
+                .sum(),
+        );
+        for texture in self.materials.textures.values() {
+            report_texture(
+                &mut report,
+                &texture
+                    .get_meta("soe_memory_format")
+                    .to::<GString>()
+                    .to_string(),
+                texture.get_meta("soe_memory_bytes").to::<i64>(),
+            );
+        }
+        for texture in self.materials.cubemaps.values() {
+            report_texture(
+                &mut report,
+                &texture
+                    .get_meta("soe_memory_format")
+                    .to::<GString>()
+                    .to_string(),
+                texture.get_meta("soe_memory_bytes").to::<i64>(),
+            );
+        }
+        report.add("collision_body_count", self.collision.stats.bodies);
+        report.add("collision_shape_count", self.collision.stats.shapes);
+        report.add("collision_source_bytes", self.collision.source_bytes());
+        let mut result = VarDictionary::new();
+        for (name, value) in report.values {
+            result.set(name.as_str(), value as i64);
+        }
+        result
+    }
+
     /// Requested retained record body bytes, including losing plugin overrides.
     #[func]
     pub fn plugin_record_memory(&self) -> VarDictionary {
@@ -3948,6 +4064,10 @@ impl CellStreamerNode {
         self.clear_tree_lod();
         self.bounds = None;
         self.materials.prune_unused();
+        self.lod_build_cache.clear_completed();
+        if let Some(source) = &self.data_source {
+            source.clear_prepared_textures();
+        }
     }
 
     /// The form that owns `triangle` of the `instance`th instance this node
@@ -4638,18 +4758,22 @@ impl CellStreamerNode {
             source.lod_load_order_fingerprint(),
         );
         let step = lod.streamer.step(focus, settle, |block| {
-            let key = load_order_hash.with_block(
-                (u32::from(world.file) << 24) | world.object,
-                block.level.cells(),
-                block.x,
-                block.y,
-            );
+            let key = load_order_hash
+                .with_block(
+                    (u32::from(world.file) << 24) | world.object,
+                    block.level.cells(),
+                    block.x,
+                    block.y,
+                )
+                .with_block(kind as u32, 0, 0, 0);
             let worker_source = Arc::clone(&source);
             let worker_world_editor_id = world_editor_id.clone();
             let rebuild_for_overrides = source.order().files().len() > 5;
             let product = cache
                 .request(key, move || {
-                    let object = if rebuild_for_overrides {
+                    let object = if !matches!(kind, LodStream::Object) {
+                        Ok(None)
+                    } else if rebuild_for_overrides {
                         worker_source.generate_object_lod_block(
                             world,
                             &worker_world_editor_id,
@@ -4659,7 +4783,9 @@ impl CellStreamerNode {
                         worker_source.load_object_lod_block(world, &worker_world_editor_id, block)
                     }
                     .map_err(|error| error.to_string());
-                    let terrain = if rebuild_for_overrides {
+                    let terrain = if !matches!(kind, LodStream::Terrain) {
+                        Ok(None)
+                    } else if rebuild_for_overrides {
                         worker_source
                             .generate_terrain_lod_block(world, block)
                             .and_then(|generated| {
@@ -4673,9 +4799,13 @@ impl CellStreamerNode {
                         worker_source.load_lod_block(world, &worker_world_editor_id, block)
                     }
                     .map_err(|error| error.to_string());
-                    let tree = worker_source
-                        .load_tree_lod_block(world, &worker_world_editor_id, block)
-                        .map_err(|error| error.to_string());
+                    let tree = if matches!(kind, LodStream::Tree) {
+                        worker_source
+                            .load_tree_lod_block(world, &worker_world_editor_id, block)
+                            .map_err(|error| error.to_string())
+                    } else {
+                        Ok(None)
+                    };
                     LodBlockProducts {
                         object,
                         terrain,
@@ -4684,6 +4814,7 @@ impl CellStreamerNode {
                 })
                 .finish(&mut cache)
                 .map_err(|error| error.to_string())?;
+            cache.trim_to_bytes(LOD_CACHE_BYTES, LodBlockProducts::retained_bytes);
             let found = match kind {
                 LodStream::Object => product.object.clone(),
                 LodStream::Terrain => product.terrain.clone(),
@@ -4901,6 +5032,9 @@ fn enforce_terrain_lod_budget(lod: &mut TerrainLodState) -> usize {
     evicted.len()
 }
 
+pub(crate) type SharedTextures =
+    std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, Gd<ImageTexture>>>>;
+
 pub(crate) type ShaderCache =
     std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, Gd<Shader>>>>;
 
@@ -4913,6 +5047,13 @@ struct MaterialMap {
     /// share one `Shader`, so the renderer builds one pipeline per variant
     /// instead of one per material.
     shaders: ShaderCache,
+}
+
+fn report_texture(report: &mut crate::memory::AssetMemory, format: &str, bytes: i64) {
+    report.add("texture_count", 1);
+    report.add("texture_upload_bytes", bytes.max(0) as usize);
+    report.add(&format!("texture_{format}_count"), 1);
+    report.add(&format!("texture_{format}_bytes"), bytes.max(0) as usize);
 }
 
 /// One shared `Shader` per distinct source text.
@@ -5566,7 +5707,14 @@ fn material_with_textures(
 /// every minified sample of a 2048 square texture misses the texture cache.
 /// `None` only if `Image::create_from_data` refuses the base level too.
 pub(crate) fn image_texture_from(texture: &TextureData) -> Option<Gd<ImageTexture>> {
-    ImageTexture::create_from_image(&image_from_texture(texture)?)
+    let image = image_from_texture(texture)?;
+    let mut uploaded = ImageTexture::create_from_image(&image)?;
+    uploaded.set_meta("soe_memory_bytes", &(image.get_data_size()).to_variant());
+    uploaded.set_meta(
+        "soe_memory_format",
+        &format!("{:?}", image.get_format()).to_variant(),
+    );
+    Some(uploaded)
 }
 
 fn cubemap_from(texture: &TextureData) -> Option<Gd<Cubemap>> {
@@ -5578,6 +5726,15 @@ fn cubemap_from(texture: &TextureData) -> Option<Gd<Cubemap>> {
         images.push(&image_from_texture(face)?);
     }
     let mut cube = Cubemap::new_gd();
+    let bytes: i64 = images
+        .iter_shared()
+        .map(|image| image.get_data_size())
+        .sum();
+    cube.set_meta("soe_memory_bytes", &bytes.to_variant());
+    cube.set_meta(
+        "soe_memory_format",
+        &format!("{:?}", images.at(0).get_format()).to_variant(),
+    );
     (cube.create_from_images(&images) == godot::global::Error::OK).then_some(cube)
 }
 

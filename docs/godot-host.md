@@ -133,6 +133,12 @@ HST-31, AI-94 and HST-32 remain wip until their final checks run. Installed
 threaded play is also untested. Changes are confined to physics, game,
 godot-host and their docs, plus the backlog and third-party notice.
 
+## Installed memory attribution, PRF-39
+
+[Memory residency](memory-residency.md) records the installed inn and gate
+capture, retained payload accounting, image and LOD cache budgets, actor
+texture sharing, before and after RSS, and the limits of Godot byte counters.
+
 ## Play path fix checkpoint, 2026-10-13
 
 The first live gate on `ee278da20` exited 101 after the 360-second process

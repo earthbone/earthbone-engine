@@ -939,6 +939,9 @@ impl PlayerNode {
                 .bind_mut()
                 .use_material_shaders(streamer.bind().shared_material_shaders());
         }
+        visual
+            .bind_mut()
+            .use_material_textures(std::rc::Rc::clone(&self.npc_actors.textures));
         let appearance =
             visual
                 .bind_mut()
@@ -1275,6 +1278,46 @@ impl PlayerNode {
         self.advance_measured(delta);
         self.last_physics_queries = soe_trace::physics_query_stats();
         self.last_work_counts = frame.counts();
+    }
+
+    /// Loaded Papyrus source payload sizes, excluding the opaque parsed VM heap.
+    #[func]
+    pub fn script_memory_attribution(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let (Some(game), Some(source)) = (&self.game, &self.data_source) else {
+            return result;
+        };
+        let scripts = game.vm.loaded_script_fingerprints();
+        let mut bytes = 0;
+        let mut unknown = 0;
+        for (name, fingerprint) in &scripts {
+            let payload =
+                fingerprint.and_then(|_| source.vfs().read(&format!("scripts/{name}.pex")).ok());
+            if let Some(payload) = payload {
+                bytes += payload.len();
+            } else {
+                unknown += 1;
+            }
+        }
+        result.set("papyrus_script_count", scripts.len() as i64);
+        result.set("papyrus_pex_source_bytes", bytes as i64);
+        result.set("papyrus_source_unknown_count", unknown as i64);
+        result
+    }
+
+    /// Query collision retained by the player after an exterior transition.
+    #[func]
+    pub fn collision_memory_attribution(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        result.set("body_count", self.query_collision.stats.bodies as i64);
+        result.set("shape_count", self.query_collision.stats.shapes as i64);
+        result.set("source_bytes", self.query_collision.source_bytes() as i64);
+        result.set(
+            "movement_body_count",
+            self.collision_references.len() as i64,
+        );
+        result.set("movement_heap_bytes", &Variant::nil());
+        result
     }
 
     /// Operation counts from the last advance, including game and host queries.

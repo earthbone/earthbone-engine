@@ -469,6 +469,18 @@ impl SurfaceArrays {
             + self.weights.len() * std::mem::size_of::<f32>()
     }
 
+    #[cfg(feature = "godot")]
+    pub(crate) fn allocation_bytes(&self) -> usize {
+        self.positions.capacity() * std::mem::size_of::<[f32; 3]>()
+            + self.normals.capacity() * std::mem::size_of::<[f32; 3]>()
+            + self.tangents.capacity() * std::mem::size_of::<f32>()
+            + self.uvs.capacity() * std::mem::size_of::<[f32; 2]>()
+            + self.colors.capacity() * std::mem::size_of::<[f32; 4]>()
+            + self.indices.capacity() * std::mem::size_of::<i32>()
+            + self.bones.capacity() * std::mem::size_of::<i32>()
+            + self.weights.capacity() * std::mem::size_of::<f32>()
+    }
+
     pub fn is_skinned(&self) -> bool {
         !self.bones.is_empty()
     }

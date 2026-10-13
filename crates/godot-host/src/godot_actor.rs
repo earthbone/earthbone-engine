@@ -30,6 +30,7 @@ use soe_hkx::QsTransform;
 use crate::actor::{ActorAssets, ActorSurface};
 use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
 use crate::data_source::DataSource;
+use crate::data_source::SurfaceTextures;
 use crate::godot_layer::actor_array_mesh_from;
 use crate::godot_ragdoll::LiveRagdoll;
 use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
@@ -220,6 +221,7 @@ pub struct SkinnedActorNode {
     meshes: Vec<Gd<ArrayMesh>>,
     materials: Vec<Gd<Material>>,
     material_shaders: crate::godot_layer::ShaderCache,
+    material_textures: crate::godot_layer::SharedTextures,
     /// Reused every frame so a tick allocates nothing.
     model: Vec<QsTransform>,
     skins: Vec<Affine>,
@@ -258,6 +260,7 @@ impl INode3D for SkinnedActorNode {
             shapes: Vec::new(),
             meshes: Vec::new(),
             materials: Vec::new(),
+            material_textures: crate::godot_layer::SharedTextures::default(),
             material_shaders: crate::godot_layer::ShaderCache::default(),
             model: Vec::new(),
             skins: Vec::new(),
@@ -589,7 +592,7 @@ impl SkinnedActorNode {
 
     fn upload_surfaces(&mut self, scenario: Rid) {
         let mut server = RenderingServer::singleton();
-        let mut textures = std::collections::HashMap::new();
+        let mut textures = self.material_textures.borrow_mut();
         for surface in &self.surfaces {
             let bones = surface.map.len();
             let skeleton = server.skeleton_create();
@@ -634,6 +637,70 @@ impl SkinnedActorNode {
             self.meshes.push(mesh);
             self.materials.push(material);
         }
+        drop(textures);
+        // CONTEXT: Materials own the uploaded textures. Morph and pose updates use geometry only.
+        for surface in &mut self.surfaces {
+            surface.textures = SurfaceTextures::default();
+            surface.face_tint = None;
+        }
+    }
+
+    /// Non-owning texture RIDs for checking sharing across resident actors.
+    #[func]
+    fn uploaded_texture_bindings(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let textures = self.material_textures.borrow();
+        for surface in &self.surfaces {
+            for path in [
+                &surface.arrays.material.diffuse,
+                &surface.arrays.material.normal,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if let Some(texture) = textures.get(&path.to_ascii_lowercase()) {
+                    result.set(path.as_str(), texture.get_rid());
+                }
+            }
+        }
+        result
+    }
+
+    /// CPU geometry and texture payloads retained by this actor's render owners.
+    #[func]
+    fn memory_attribution(&self) -> VarDictionary {
+        let mut report = crate::memory::AssetMemory::default();
+        for surface in self
+            .surfaces
+            .iter()
+            .chain(self.assets.iter().flat_map(|assets| &assets.surfaces))
+        {
+            report.mesh(&surface.arrays);
+            for shape in &surface.expression_shapes {
+                report.add("cpu_expression_count", 1);
+                report.add(
+                    "cpu_expression_bytes",
+                    std::mem::size_of_val(shape.positions.as_slice())
+                        + std::mem::size_of_val(shape.normals.as_slice()),
+                );
+            }
+            report.textures(&surface.textures);
+            if let Some((_, tint)) = &surface.face_tint {
+                report.image(tint);
+            }
+        }
+        report.add("mesh_count", self.meshes.len());
+        report.add("material_count", self.materials.len());
+        report.add("shader_count", self.material_shaders.borrow().len());
+        report.add(
+            "shader_source_bytes",
+            self.material_shaders.borrow().keys().map(String::len).sum(),
+        );
+        let mut result = VarDictionary::new();
+        for (name, value) in report.values {
+            result.set(name.as_str(), value as i64);
+        }
+        result
     }
 
     fn update_surface_stats(&mut self) {
@@ -1202,6 +1269,10 @@ fn clear_magic_animation_state(binding: &AppearanceBinding) {
 }
 
 impl SkinnedActorNode {
+    pub(crate) fn use_material_textures(&mut self, textures: crate::godot_layer::SharedTextures) {
+        self.material_textures = textures;
+    }
+
     pub(crate) fn use_material_shaders(&mut self, shaders: crate::godot_layer::ShaderCache) {
         self.material_shaders = shaders;
     }

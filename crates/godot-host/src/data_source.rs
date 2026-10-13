@@ -899,6 +899,11 @@ impl DataSource {
         }
     }
 
+    #[cfg(feature = "godot")]
+    pub(crate) fn asset_memory(&self, report: &mut crate::memory::AssetMemory) {
+        self.textures.memory(report);
+    }
+
     /// Drop prepared texture entries so the next stream measures cold cache work.
     /// Existing returned textures remain valid through their shared ownership.
     pub fn clear_prepared_textures(&self) {

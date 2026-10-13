@@ -7,7 +7,7 @@
 //! the ordered profile entries and the ESM load-order fingerprint, so profile
 //! changes and plugin content changes cannot reuse stale products.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 
@@ -91,6 +91,7 @@ pub struct GeneratedLod<TObject, TTerrain> {
 #[derive(Debug)]
 pub struct LodBuildCache<T> {
     entries: HashMap<LoadOrderHash, Arc<T>>,
+    recency: VecDeque<LoadOrderHash>,
     running: HashMap<LoadOrderHash, Arc<LodBuildWorker<T>>>,
 }
 
@@ -98,12 +99,18 @@ impl<T> Default for LodBuildCache<T> {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
+            recency: VecDeque::new(),
             running: HashMap::new(),
         }
     }
 }
 
 impl<T> LodBuildCache<T> {
+    #[cfg(feature = "godot")]
+    pub(crate) fn values(&self) -> impl Iterator<Item = &T> {
+        self.entries.values().map(AsRef::as_ref)
+    }
+
     #[must_use]
     pub fn get(&self, key: LoadOrderHash) -> Option<Arc<T>> {
         self.entries.get(&key).cloned()
@@ -116,6 +123,7 @@ impl<T> LodBuildCache<T> {
         F: FnOnce() -> T + Send + 'static,
     {
         if let Some(value) = self.get(key) {
+            self.touch(key);
             return LodBuildRequest::Ready(value);
         }
         let worker = self.running.entry(key).or_insert_with(|| {
@@ -130,8 +138,34 @@ impl<T> LodBuildCache<T> {
         }
     }
 
+    fn touch(&mut self, key: LoadOrderHash) {
+        self.recency.retain(|old| *old != key);
+        self.recency.push_back(key);
+    }
+
+    /// Evict least recently requested completed payloads to a caller's byte budget.
+    /// Returned Arc owners remain valid after eviction.
+    pub fn trim_to_bytes(&mut self, budget: usize, size: impl Fn(&T) -> usize) {
+        let mut bytes: usize = self.entries.values().map(|value| size(value)).sum();
+        while bytes > budget || self.entries.len() > 512 {
+            let Some(key) = self.recency.pop_front() else {
+                break;
+            };
+            if let Some(value) = self.entries.remove(&key) {
+                bytes -= size(&value);
+            }
+        }
+    }
+
+    /// Release completed cache ownership while preserving in-flight worker ownership.
+    pub fn clear_completed(&mut self) {
+        self.entries.clear();
+        self.recency.clear();
+    }
+
     fn publish(&mut self, key: LoadOrderHash, value: Arc<T>) -> Arc<T> {
         self.entries.insert(key, Arc::clone(&value));
+        self.touch(key);
         value
     }
 }
@@ -226,4 +260,62 @@ pub fn silhouette_error_pixels(reference: [f32; 4], candidate: [f32; 4]) -> f32 
         .zip(candidate)
         .map(|(a, b)| (a - b).abs())
         .fold(0.0_f32, f32::max)
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+
+    #[test]
+    fn completed_lod_cache_evicts_lru_and_reuses_a_live_arc_after_eviction() {
+        let base = LoadOrderHash::from_content_fingerprint([0; 32]);
+        let first = base.with_block(0, 4, 0, 0);
+        let second = base.with_block(0, 4, 4, 0);
+        let third = base.with_block(0, 4, 8, 0);
+        let mut cache = LodBuildCache::default();
+        let live = cache
+            .request(first, || vec![1_u8; 8])
+            .finish(&mut cache)
+            .unwrap();
+        cache
+            .request(second, || vec![2_u8; 4])
+            .finish(&mut cache)
+            .unwrap();
+        cache.request(first, Vec::new).finish(&mut cache).unwrap();
+        cache
+            .request(third, || vec![3_u8; 4])
+            .finish(&mut cache)
+            .unwrap();
+        cache.trim_to_bytes(12, Vec::len);
+        assert!(cache.get(second).is_none());
+        assert!(Arc::ptr_eq(&live, &cache.get(first).unwrap()));
+        cache.clear_completed();
+        assert!(cache.get(first).is_none());
+        assert_eq!(live.as_slice(), &[1; 8]);
+    }
+
+    #[test]
+    fn absent_lod_products_do_not_grow_the_content_hash_cache_without_bound() {
+        let mut cache = LodBuildCache::default();
+        let base = LoadOrderHash::from_content_fingerprint([0; 32]);
+        for x in 0..600 {
+            cache.publish(base.with_block(0, 4, x, 0), Arc::new(Vec::<u8>::new()));
+            cache.trim_to_bytes(12, Vec::len);
+        }
+        assert_eq!(cache.entries.len(), 512);
+        assert!(cache.get(base.with_block(0, 4, 0, 0)).is_none());
+    }
+
+    #[test]
+    fn oversized_lod_is_returned_without_retaining_cache_ownership() {
+        let key = LoadOrderHash::from_content_fingerprint([1; 32]);
+        let mut cache = LodBuildCache::default();
+        let live = cache
+            .request(key, || vec![0_u8; 13])
+            .finish(&mut cache)
+            .unwrap();
+        cache.trim_to_bytes(12, Vec::len);
+        assert!(cache.get(key).is_none());
+        assert_eq!(live.len(), 13);
+    }
 }

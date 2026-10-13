@@ -5,7 +5,7 @@
 //! Nifly NifFile::TrimTexturePaths and OpenMW resourcehelpers.cpp/findDirectory
 //! strip export prefixes at a textures directory component before VFS lookup.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -13,6 +13,7 @@ use soe_bsa::Vfs;
 use soe_dds::{Dds, Image as DdsImage};
 
 use super::{DataSourceError, SurfaceTextures};
+use crate::byte_cache::ByteCache;
 use crate::mesh::MaterialDesc;
 
 /// A block compression Godot uploads as is.
@@ -49,6 +50,14 @@ pub enum TextureData {
 }
 
 impl TextureData {
+    pub(crate) fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Cubemap(faces) => faces.iter().map(Self::retained_bytes).sum(),
+            Self::Compressed { bytes, .. } => bytes.capacity(),
+            Self::Rgba8(image) => image.rgba.capacity(),
+        }
+    }
+
     /// Bytes supplied for upload, including padded mip tails and all cube faces.
     pub fn payload_bytes(&self) -> usize {
         match self {
@@ -120,10 +129,6 @@ fn texture_layer(dds: &Dds<'_>, layer: u32) -> Result<TextureData, DataSourceErr
         return Ok(TextureData::Rgba8(dds.decode(layer, 0)?));
     };
     let stored = dds.mip_count().max(1);
-    let mut payload = Vec::new();
-    for mip in 0..stored {
-        payload.extend_from_slice(dds.level_bytes(layer, mip)?);
-    }
     // Godot wants the chain to reach 1 by 1 and refuses a shorter one. The
     // vanilla files stop at 2 by 2 or 4 by 4, so the missing levels, each
     // a block or two of at most four pixels a side, repeat the last block
@@ -134,6 +139,21 @@ fn texture_layer(dds: &Dds<'_>, layer: u32) -> Result<TextureData, DataSourceErr
         BlockFormat::Bc1 | BlockFormat::Bc4 => 8,
         _ => 16,
     };
+    let stored_bytes = (0..stored)
+        .map(|mip| dds.level(layer, mip).map(|level| level.len))
+        .sum::<Result<usize, _>>()?;
+    let tail_bytes: usize = (stored..full)
+        .map(|mip| {
+            (width >> mip).max(1).div_ceil(4) as usize
+                * (height >> mip).max(1).div_ceil(4) as usize
+                * block
+        })
+        .sum();
+    // CONTEXT: Geometric Vec growth retains excess capacity for large BC mip chains.
+    let mut payload = Vec::with_capacity(stored_bytes + tail_bytes);
+    for mip in 0..stored {
+        payload.extend_from_slice(dds.level_bytes(layer, mip)?);
+    }
     let last_block: Vec<u8> = payload[payload.len().saturating_sub(block)..].to_vec();
     for mip in stored..full {
         let blocks_wide = (width >> mip).max(1).div_ceil(4) as usize;
@@ -154,19 +174,18 @@ fn texture_layer(dds: &Dds<'_>, layer: u32) -> Result<TextureData, DataSourceErr
 
 /// Decoded textures keyed by canonical VFS path, owned by the `DataSource` and
 /// shared by every stream call and every worker thread, so a texture used by
-/// forty statics across nine cells decodes once for the source's lifetime.
+/// forty statics across nine cells shares its load while the entry is resident.
 /// The counters run since open. A stream call reads them before and after
 /// to fill its own `CellStats`, which is exact as long as stream calls on
 /// one source do not overlap. Concurrent cell calls share these totals.
-#[derive(Default)]
 pub(super) struct TextureCache {
     /// One slot per canonical path. The map lock is held only to find or
     /// create the slot, the read itself runs under the slot's `OnceLock`, so
     /// two workers reaching one texture at once share a single read instead
     /// of both doing it (the first version raced and read 132 files for 88
     /// textures).
-    textures: Mutex<HashMap<String, TextureSlot>>,
-    decoded_rgba: Mutex<HashMap<String, Option<Arc<DdsImage>>>>,
+    textures: Mutex<ByteCache<TextureSlot>>,
+    decoded_rgba: Mutex<ByteCache<Option<Arc<DdsImage>>>>,
     decoded: AtomicUsize,
     failures: AtomicUsize,
     decode_ns: AtomicU64,
@@ -174,7 +193,23 @@ pub(super) struct TextureCache {
     warned: Mutex<HashSet<String>>,
 }
 
-/// A texture read at most once, `None` after a miss or a failed read.
+const IMAGE_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+impl Default for TextureCache {
+    fn default() -> Self {
+        Self {
+            textures: Mutex::new(ByteCache::new(IMAGE_CACHE_BYTES)),
+            decoded_rgba: Mutex::new(ByteCache::new(IMAGE_CACHE_BYTES)),
+            decoded: AtomicUsize::new(0),
+            failures: AtomicUsize::new(0),
+            decode_ns: AtomicU64::new(0),
+            missing: Mutex::default(),
+            warned: Mutex::default(),
+        }
+    }
+}
+
+/// A texture read at most once while resident, `None` after a failed read.
 type TextureSlot = Arc<OnceLock<Option<Arc<TextureData>>>>;
 
 fn texture_path(path: &str) -> String {
@@ -223,28 +258,54 @@ pub(super) struct TextureCounters {
 }
 
 impl TextureCache {
+    #[cfg(feature = "godot")]
+    pub(super) fn memory(&self, report: &mut crate::memory::AssetMemory) {
+        let textures = self.textures.lock().unwrap_or_else(PoisonError::into_inner);
+        report.add("texture_cache_slots", textures.entries.len());
+        for image in textures
+            .entries
+            .values()
+            .filter_map(|entry| entry.value.get().and_then(Option::as_ref))
+        {
+            report.image(image);
+            report.add("texture_cache_payload_bytes", image.payload_bytes());
+        }
+        report.add("texture_cache_bytes", textures.bytes);
+        let rgba = self
+            .decoded_rgba
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        report.add("decoded_cache_slots", rgba.entries.len());
+        report.add("decoded_cache_bytes", rgba.bytes);
+    }
+
     pub(super) fn decode_rgba(&self, vfs: &Vfs, path: &str) -> Option<Arc<DdsImage>> {
         let path = texture_path(path);
         let mut cache = self
             .decoded_rgba
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        cache
-            .entry(path.clone())
-            .or_insert_with(|| {
-                let bytes = vfs.read(&path).ok()?;
-                let _decode =
-                    soe_trace::LoadMeasure::new(soe_trace::LoadStage::TextureDecode, &path);
-                Dds::parse(&bytes)
-                    .and_then(|dds| dds.decode(0, 0))
-                    .ok()
-                    .map(Arc::new)
-            })
-            .clone()
+        if let Some(image) = cache.get(&path) {
+            return image.clone();
+        }
+        let image = vfs.read(&path).ok().and_then(|bytes| {
+            let _decode = soe_trace::LoadMeasure::new(soe_trace::LoadStage::TextureDecode, &path);
+            Dds::parse(&bytes)
+                .and_then(|dds| dds.decode(0, 0))
+                .ok()
+                .map(Arc::new)
+        });
+        let bytes = image.as_ref().map_or(0, |image| image.rgba.capacity());
+        cache.insert(path, image.clone(), bytes);
+        image
     }
 
     pub(super) fn clear_prepared(&self) {
         self.textures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.decoded_rgba
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
@@ -296,14 +357,30 @@ impl TextureCache {
         load: impl FnOnce(&str) -> Option<Arc<TextureData>>,
     ) -> Option<Arc<TextureData>> {
         let path = texture_path(path);
-        let slot = self
-            .textures
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(path.clone())
-            .or_default()
-            .clone();
-        slot.get_or_init(|| load(&path)).clone()
+        let slot = {
+            let mut cache = self.textures.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(slot) = cache.get(&path) {
+                Arc::clone(slot)
+            } else {
+                let slot = TextureSlot::default();
+                cache.insert(path.clone(), Arc::clone(&slot), 0);
+                slot
+            }
+        };
+        let image = slot.get_or_init(|| load(&path)).clone();
+        let mut cache = self.textures.lock().unwrap_or_else(PoisonError::into_inner);
+        // CONTEXT: An evicted in-flight slot must not charge a newer load of this path.
+        if cache
+            .entries
+            .get(&path)
+            .is_some_and(|entry| Arc::ptr_eq(&entry.value, &slot))
+        {
+            cache.set_bytes(
+                &path,
+                image.as_ref().map_or(0, |image| image.retained_bytes()),
+            );
+        }
+        image
     }
 
     fn read(&self, vfs: &Vfs, path: &str) -> Option<Arc<TextureData>> {

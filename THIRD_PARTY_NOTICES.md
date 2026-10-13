@@ -7,6 +7,11 @@ Ported from Mudcrab, github.com/Mudcrab-Team/mudcrab,
 Used in the GPL-3.0-or-later physics crate.
 
 ```text
+
+# Third party notices
+
+## Mudcrab
+
 MIT License
 
 Copyright (c) 2026 Mudcrab Contributors
@@ -30,3 +35,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+
+- `crates/godot-host/src/memory.rs`: CPU mesh attribute, index and image payload accounting adapted from `crates/engine/src/profiling.rs`, PR 224.
