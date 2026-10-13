@@ -360,9 +360,39 @@ fn ply_03_inventory_comparison_treats_missing_quantities_as_zero_and_lists_items
 }
 
 #[test]
+fn ply_03_installed_route_stages_belong_to_the_named_quest() {
+    use soe_game::play::Step;
+
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA unset, skipping PLY-03 route stage definitions");
+        return;
+    };
+    let plugin = soe_esm::read_plugin(PathBuf::from(data).join("Skyrim.esm"))
+        .unwrap()
+        .unwrap();
+    let mut order = soe_esm::LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    let game = soe_game::Game::new(order);
+    for text in ROUTES {
+        for (line, step) in Route::parse(text).unwrap().steps {
+            let (Step::WaitStage { quest, stage, .. } | Step::ExpectStage { quest, stage }) = step
+            else {
+                continue;
+            };
+            let mut world = game.world_mut();
+            let id = world.form(&quest).unwrap();
+            assert!(
+                world.quest_state(id).unwrap().def.stage(stage).is_some(),
+                "route line {line}: {quest} has no stage {stage}"
+            );
+        }
+    }
+}
+
+#[test]
 fn ply_03_authored_routes_contain_gameplay_and_wait_for_successor_stages() {
     use soe_game::play::Step;
-    for (text, successor) in ROUTES.into_iter().zip([192, 250]) {
+    for ((text, successor), dragon_stage) in ROUTES.into_iter().zip([180, 250]).zip([192, 195]) {
         let route = Route::parse(text).unwrap();
         assert!(route.steps.iter().any(|(_, step)| matches!(
             step,
@@ -373,15 +403,12 @@ fn ply_03_authored_routes_contain_gameplay_and_wait_for_successor_stages() {
             Step::WaitStage { quest, stage, .. }
                 if (*stage == successor && quest == "MQ101")
         )));
-    }
-    assert!(Route::parse(ROUTES[1])
-        .unwrap()
-        .steps
-        .iter()
-        .any(|(_, step)| matches!(
+        assert!(route.steps.iter().any(|(_, step)| matches!(
             step,
-            Step::WaitStage { quest, stage: 195, .. } if quest == "MQ101DragonAttack"
+            Step::WaitStage { quest, stage, .. }
+                if (*stage == dragon_stage && quest == "MQ101DragonAttack")
         )));
+    }
 }
 
 #[test]

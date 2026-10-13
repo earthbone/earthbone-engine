@@ -733,8 +733,7 @@ suspended call tables. It does not claim complete vanilla-save resumption.
 An explicit fourth argument, `--world-checkpoint`, imports the supported world
 passes without saved VM variables or execution and binds fresh scripts. It
 prints that choice on stderr and never falls back from strict import. This
-allows world assertions and authored input from corpus checkpoints while the
-existing importer rejects their unresolved ReferenceAlias identities. Checkpoint
+allows world assertions and authored input from corpus checkpoints. Checkpoint
 startup omits saved timers and queued calls. It does not reproduce a resumed
 quest's script variables. Both modes reject failed world passes. Neither mode
 changes the external save. `load_world_checkpoint` exposes this startup choice
@@ -767,15 +766,31 @@ import saved VM variables, scene execution or timers.
 
 Installed-data validation on 2026-10-11 reaches the first route's final marker
 after resolving its start point on the overlapping adjacent-cell navmesh. It
-still stops at MQ101 stage 190 while the successor save records stage 192 and
-additional completed stages. The second pair's earlier run lacked stages 174
-and 195 in MQ101DragonAttack (0xD0593). A later route edit waits for stage 195,
+reaches MQ101 stage 180 and MQ101DragonAttack (0xD0593) stage 190. The successor
+records stage 192 and additional completed stages for MQ101DragonAttack.
+PLY-03 round 8, commit `915d66cb8`, added a wait for stage 192 on MQ101
+(0x3372B), which has no such stage. The corrected fixture waits for
+MQ101DragonAttack stage 192 and asserts both quest stages separately. The
+installed `ply_03_installed_route_stages_belong_to_the_named_quest` check reads
+the quest definitions and validates every authored stage operand.
+The first route's trace shows `defaultSetStageTRIGSpecificActor` on
+`dunCGsetStage192REF` rejecting the player because its required base is Hadvar.
+The second pair's earlier run lacked stages 174 and 195 in MQ101DragonAttack.
+A later route edit waits for stage 195,
 but has not passed the installed-data acceptance check. The `Activate` step on
 `Skyrim.esm:25fae` logs `Error: GetTriggerObjectCount called on a non-trigger`
 from the lever script on REFR 0x945B9 (MQ101CollapsingBridgeLever, base script
 TrapLever on TrapTriggerBase). The local CK page says the call errors on a
 non-trigger. This route does not apply `expect-no-vm-error` after that known
 call. The assertion now catches the same error prefix regardless of case.
+
+Integration revalidation on 2026-10-13 with the corrected quest operand still
+finds three first-pair differences in MQ101DragonAttack: current stage,
+highest stage and completed stages. The second pair differs in completed
+stages 174 and 195. These gaps were documented in PLY-03 before integration.
+A diagnostic using SAV-19's strict `load_save` for both source saves imports
+their VM state and reproduces the same differences. The full successor
+comparisons and their 600-tick waits remain required.
 
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
