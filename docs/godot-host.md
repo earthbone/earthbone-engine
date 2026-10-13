@@ -7785,3 +7785,27 @@ regional descriptor list is empty. Its landing grid cell supplies the ambience
 and regional music before the first movement step. This follows the existing
 persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
 CELL and regional selection contract.
+
+### Enable collision and simulation report corrections, 2026-10-13
+
+PRF-34 spreads resident collision watches and updates across bounded frames.
+Manual fixed-step callers with automatic stepping disabled finish their movement
+and query collision edits before returning, as the PRF-34 adapter documents.
+Automatic presentation retains the existing synchronization budgets.
+A watch now reconciles the current enable state with the authored state used
+to build its cell, including an RND-17 parent enabled before that watch starts.
+The RND-17 scene waits for those updates before checking all three collision
+paths and retains its geometry, placement and pixel assertions. It follows
+PRF-34's later frame contract. The adapter reuses World's authored XESP query
+and ReferenceChanges observer, with no new format reader or saved state.
+
+The PRF-37 timing scene prints its last actual simulation status before quitting.
+Its Rust runner already requires that report and a ready snapshot. The timing
+budgets and NPC package assertions remain unchanged.
+
+Validation passed 429 debug library tests and four debug cases in the three
+selected integration targets. Both installed RND-17 tests and the installed
+PRF-37 timing gate passed individually with one test thread and development
+optimization level 1, using the built release extension on the private display.
+Package Clippy with all targets and warnings denied, and package formatting,
+passed. The full lint gate was excluded from this integration repair.

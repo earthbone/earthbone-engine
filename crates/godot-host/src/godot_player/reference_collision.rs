@@ -13,7 +13,7 @@ use soe_physics::PhysicsWorld;
 use super::{BodyId, GlobalFormId, PlayerNode};
 use std::collections::HashMap;
 
-/// Main-thread time one frame may spend on watching newly resident references.
+/// Main-thread time one automatic frame may spend on watching resident references.
 /// Applying enable-state changes may use the same amount again. The backlog
 /// carries the rest to the next frame.
 const SYNC_BUDGET: std::time::Duration = std::time::Duration::from_micros(12);
@@ -102,7 +102,13 @@ impl PlayerNode {
         let world = game.world();
         let started = std::time::Instant::now();
         let reset = std::mem::take(&mut self.collision_reset);
-        let budget = SYNC_BUDGET;
+        // CONTEXT: Manual fixed-step callers expect the step's reference edits
+        // applied before returning. Only automatic presentation slices the work.
+        let budget = if self.auto_step {
+            SYNC_BUDGET
+        } else {
+            std::time::Duration::MAX
+        };
         if reset {
             self.collision_cells.clear();
             self.collision_residents.clear();
@@ -198,10 +204,8 @@ impl PlayerNode {
                 self.collision_expand_offset = end;
             }
         }
-        // CONTEXT: The streamer built each cell's bodies from authored data, so a
-        // newly watched reference only needs work when it is disabled and still
-        // holds bodies. Watching resolves its enable state, which is the cost
-        // this loop spreads over frames.
+        // CONTEXT: A runtime edit can precede the budgeted watch. Compare with
+        // the authored state used to build the cell so that edit still applies.
         while started.elapsed() < budget {
             let Some(id) = self.collision_pending_watch.pop_front() else {
                 break;
@@ -209,16 +213,19 @@ impl PlayerNode {
             if !self.collision_residents.contains_key(&id) {
                 continue;
             }
-            if self.collision_changes.watch_quiet(&world, id) == Some(false)
-                && self.collision_bodies.contains_key(&id)
-            {
-                self.collision_backlog.insert(id);
+            if let Some(enabled) = self.collision_changes.watch_quiet(&world, id) {
+                let applied = self.collision_bodies.contains_key(&id)
+                    || (enabled && soe_game::World::authored_reference_enabled(source.order(), id));
+                self.collision_visibility.insert(id, applied);
+                if enabled != applied {
+                    self.collision_backlog.insert(id);
+                }
             }
         }
         self.collision_backlog
-            .extend(self.collision_changes.changed_within(&world, SYNC_BUDGET));
+            .extend(self.collision_changes.changed_within(&world, budget));
         let mut handled = false;
-        while !handled || started.elapsed() < budget + SYNC_BUDGET {
+        while !handled || started.elapsed() < budget.saturating_add(SYNC_BUDGET) {
             let Some(id) = self.collision_backlog.pop_first() else {
                 break;
             };
@@ -242,11 +249,7 @@ impl PlayerNode {
                 .collision_visibility
                 .get(&id)
                 .copied()
-                // CONTEXT: The streamer builds bodies for every reference with a
-                // static collider, enabled or not. With no recorded state, a
-                // reference holding bodies is applied, and one without bodies
-                // has nothing to build or remove, so it counts as unchanged.
-                .unwrap_or_else(|| visible || self.collision_bodies.contains_key(&id));
+                .unwrap_or_else(|| self.collision_bodies.contains_key(&id));
             self.collision_visibility.insert(id, visible);
             if applied == visible {
                 continue;
