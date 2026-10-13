@@ -240,6 +240,7 @@ pub struct CellStreamerNode {
     /// Distant-terrain LOD blocks standing in for full resolution terrain
     /// beyond the streamed cells. `None` until `stream_terrain_lod`.
     terrain_lod: Option<TerrainLodState>,
+    distant: DistantState,
     /// Distant-object LOD blocks. Kept separately so terrain and object LOD
     /// can remain resident and visible at the same time.
     object_lod: Option<TerrainLodState>,
@@ -260,6 +261,16 @@ enum LodStream {
     Tree,
 }
 
+#[derive(Default)]
+struct DistantState {
+    world: Option<GlobalFormId>,
+    selector: crate::distant_visibility::Selector,
+    surfaces: std::collections::BTreeMap<GlobalFormId, Vec<LoadedSurface>>,
+    heights: crate::distant_visibility::TerrainHeights,
+    terrain_revision: u64,
+    revision: u64,
+}
+
 struct TerrainLodState {
     streamer: TerrainLodStreamer,
     world: GlobalFormId,
@@ -271,6 +282,7 @@ struct TerrainLodState {
     last_step: LodStepCounts,
     source_surfaces: std::collections::HashMap<LodBlockCoord, Vec<LoadedSurface>>,
     near_heights: std::collections::HashMap<CellCoord, Vec<f32>>,
+    revision: u64,
     debug_material: Option<Gd<StandardMaterial3D>>,
     focus: CellCoord,
 }
@@ -289,6 +301,8 @@ struct LodInstance {
     mesh: Gd<ArrayMesh>,
     triangles: usize,
     bytes: u64,
+    occluder: Option<OccluderRids>,
+    heights: Option<crate::distant_visibility::TerrainHeights>,
 }
 
 /// Stage-specific meshes drawn in place of a reference's base geometry.
@@ -394,8 +408,21 @@ struct Instance {
 
 struct CellOccluder {
     cell: GlobalFormId,
+    _rids: OccluderRids,
+    sources: std::collections::BTreeMap<GlobalFormId, Iso>,
+}
+
+struct OccluderRids {
     instance: Rid,
     mesh: Rid,
+}
+
+impl Drop for OccluderRids {
+    fn drop(&mut self) {
+        let mut server = RenderingServer::singleton();
+        server.free_rid(self.instance);
+        server.free_rid(self.mesh);
+    }
 }
 
 /// The mesh resource an [`Instance`] drew: a merged or unbatched `ArrayMesh`
@@ -755,7 +782,7 @@ impl INode3D for CellStreamerNode {
             max_unloads_per_tick: d.max_unloads_per_tick as i32,
             focus: None,
             batch_surfaces: true,
-            cell_occluders: false,
+            cell_occluders: true,
             streamer: None,
             data_source: None,
             chargen_cache: crate::data_source::ChargenCache::default(),
@@ -790,6 +817,7 @@ impl INode3D for CellStreamerNode {
             doors: std::collections::BTreeMap::new(),
             destruction_models: std::collections::HashMap::new(),
             terrain_lod: None,
+            distant: DistantState::default(),
             object_lod: None,
             tree_lod: None,
             lod_build_cache: crate::lod_rebuild::LodBuildCache::default(),
@@ -803,6 +831,7 @@ impl INode3D for CellStreamerNode {
     fn exit_tree(&mut self) {
         self.free_doors(&[]);
         self.free_instances();
+        self.distant = DistantState::default();
         self.free_destruction_models();
         self.free_occluders();
         #[cfg(feature = "scr-24-test")]
@@ -972,6 +1001,8 @@ impl CellStreamerNode {
                     mesh,
                     triangles: surface.arrays.triangle_count(),
                     bytes: surface.arrays.mesh_byte_count() as u64,
+                    occluder: None,
+                    heights: None,
                 });
             }
             self.destruction_models.insert(
@@ -1446,6 +1477,17 @@ impl CellStreamerNode {
         let Some(scenario) = self.scenario() else {
             return false;
         };
+        if entered.iter().any(|cell| {
+            self.data_source
+                .as_ref()
+                .is_some_and(|source| source.cell_index().grid_of(cell.id).is_some())
+        }) || departed.iter().any(|id| {
+            self.data_source
+                .as_ref()
+                .is_some_and(|source| source.cell_index().grid_of(*id).is_some())
+        }) {
+            self.distant.revision = self.distant.revision.wrapping_add(1);
+        }
         let before = self.materials.len();
         let mut totals = StreamTotals::default();
         for cell in entered {
@@ -1628,6 +1670,21 @@ impl CellStreamerNode {
                 .collect();
             self.sync_destruction_models(world, &resident_refs, &changed);
         }
+        // SAFETY: A moved, hidden or replaced source cannot keep its old blocker.
+        self.occluders.retain(|occluder| {
+            !occluder.sources.iter().any(|(id, source)| {
+                changed.contains(id)
+                    && world.ref_placement(*id).is_none_or(|placement| {
+                        !placement.visible
+                            || world.destruction_model(*id).is_some()
+                            || Iso::placement(
+                                placement.position,
+                                placement.rotation,
+                                placement.scale,
+                            ) != *source
+                    })
+            })
+        });
         let mut server = RenderingServer::singleton();
         self.sync_runtime_lights(world, &mut server);
         let mut touched_instances = std::collections::BTreeSet::new();
@@ -2436,6 +2493,26 @@ impl CellStreamerNode {
         self.chargen_cache.resident_bytes() as i64
     }
 
+    /// CPU products retained after LOD upload, including products outside residency.
+    #[func]
+    pub fn lod_cache_memory(&self) -> VarDictionary {
+        let mut entries = 0i64;
+        let mut geometry = 0usize;
+        let mut payload = 0u64;
+        for products in self.lod_build_cache.values() {
+            entries += 1;
+            for result in [&products.object, &products.terrain, &products.tree] {
+                if let Ok(Some(loaded)) = result {
+                    payload = payload.saturating_add(loaded.approx_bytes);
+                    for surface in &loaded.surfaces {
+                        geometry = geometry.saturating_add(surface.arrays.mesh_byte_count());
+                    }
+                }
+            }
+        }
+        vdict! { "entries" => entries, "geometry_bytes" => geometry as i64, "payload_bytes" => payload as i64 }
+    }
+
     /// Completed load phases and budget diagnostics, also included in Trace exports.
     #[func]
     pub fn load_timing_dump(&self) -> GString {
@@ -2704,12 +2781,19 @@ impl CellStreamerNode {
         let Some(scenario) = self.scenario() else {
             return -1;
         };
+        let source = Arc::clone(source);
+        if self.rendered_cells.iter().any(|cell| {
+            source
+                .exterior_world(*cell)
+                .is_some_and(|world| world != block.world)
+        }) {
+            self.clear();
+        }
         let materials_before = self.materials.len();
         let mut totals = StreamTotals {
             world: block.world_editor_id.clone().unwrap_or_default(),
             ..StreamTotals::default()
         };
-        let source = Arc::clone(source);
         let result = source.stream_exterior_each(&block, |cell, loaded_cell, has_land| {
             if has_land {
                 totals.land_cells += 1;
@@ -2722,6 +2806,18 @@ impl CellStreamerNode {
         if let Err(e) = result {
             soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_exterior: {e}");
             return -1;
+        }
+        if let Some(persistent) = source.cell_index().world_persistent_cell(block.world) {
+            if !self.rendered_cells.contains(&persistent) {
+                let loaded = match source.stream_cell_id(persistent) {
+                    Ok(loaded) => loaded,
+                    Err(error) => {
+                        soe_trace::error!(target: "host::layer", system = "host::layer", "worldspace full models: {error}");
+                        return -1;
+                    }
+                };
+                self.install_cell(persistent, &loaded, scenario, &mut totals, None);
+            }
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         self.last_stats.set("origin_x", block.origin.0);
@@ -3849,6 +3945,7 @@ impl CellStreamerNode {
         self.collision_cell = None;
         self.free_doors(&[]);
         self.free_instances();
+        self.distant = DistantState::default();
         self.free_destruction_models();
         self.free_occluders();
         self.free_effect_shaders();
@@ -3864,8 +3961,12 @@ impl CellStreamerNode {
         self.clear_terrain_lod();
         self.clear_object_lod();
         self.clear_tree_lod();
+        self.lod_build_cache = crate::lod_rebuild::LodBuildCache::default();
         self.bounds = None;
         self.materials.prune_unused();
+        if let Some(source) = &self.data_source {
+            source.clear_prepared_textures();
+        }
     }
 
     /// The form that owns `triangle` of the `instance`th instance this node
@@ -3932,7 +4033,16 @@ impl CellStreamerNode {
                 .iter()
                 .map(|surface| surface.reference)
                 .collect();
-            for &id in source.presentation_references(cell) {
+            let references = if source
+                .cell_index()
+                .persistent_cell_world(cell)
+                .is_some_and(|world| !source.is_small_world(world))
+            {
+                &[][..]
+            } else {
+                source.presentation_references(cell)
+            };
+            for &id in references {
                 if drawn.contains(&id) {
                     continue;
                 }
@@ -4050,7 +4160,15 @@ impl CellStreamerNode {
                 totals.instances += 1;
             }
         }
-        let (groups, remainder) = instancing_candidates(&ordinary);
+        let (groups, remainder) = if self
+            .data_source
+            .as_ref()
+            .is_some_and(|source| source.cell_index().persistent_cell_world(cell).is_some())
+        {
+            crate::batch::worldspace_instancing_candidates(&ordinary)
+        } else {
+            instancing_candidates(&ordinary)
+        };
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
             totals.instances += 1;
@@ -4318,16 +4436,34 @@ impl CellStreamerNode {
     }
 
     fn add_cell_occluder(&mut self, cell: GlobalFormId, surfaces: &[LoadedSurface], scenario: Rid) {
-        let mut server = RenderingServer::singleton();
+        let server = RenderingServer::singleton();
         if !crate::scene_timing::rendering_server(|| server.has_method("occluder_create"))
             || !crate::scene_timing::rendering_server(|| server.has_method("occluder_set_mesh"))
         {
             return;
         }
         let (vertices, indices) = cell_occluder_mesh(surfaces);
-        if vertices.is_empty() || indices.is_empty() {
-            return;
+        if let Some(rids) = Self::create_occluder(vertices, indices, scenario) {
+            self.occluders.push(CellOccluder {
+                cell,
+                _rids: rids,
+                sources: surfaces
+                    .iter()
+                    .map(|surface| (surface.reference, surface.placement))
+                    .collect(),
+            });
         }
+    }
+
+    fn create_occluder(
+        vertices: Vec<[f32; 3]>,
+        indices: Vec<i32>,
+        scenario: Rid,
+    ) -> Option<OccluderRids> {
+        if vertices.is_empty() || indices.is_empty() {
+            return None;
+        }
+        let mut server = RenderingServer::singleton();
         let packed_vertices: PackedVector3Array = vertices
             .into_iter()
             .map(|p| Vector3::new(p[0], p[1], p[2]))
@@ -4351,32 +4487,16 @@ impl CellStreamerNode {
         crate::scene_timing::rendering_server(|| {
             server.instance_set_transform(instance, Transform3D::IDENTITY);
         });
-        self.occluders.push(CellOccluder {
-            cell,
-            instance,
-            mesh,
-        });
+        Some(OccluderRids { instance, mesh })
     }
 
     fn free_departed_occluders(&mut self, departed: &[GlobalFormId]) {
-        let mut server = RenderingServer::singleton();
-        self.occluders.retain(|occluder| {
-            if departed.contains(&occluder.cell) {
-                crate::scene_timing::rendering_server(|| server.free_rid(occluder.instance));
-                crate::scene_timing::rendering_server(|| server.free_rid(occluder.mesh));
-                false
-            } else {
-                true
-            }
-        });
+        self.occluders
+            .retain(|occluder| !departed.contains(&occluder.cell));
     }
 
     fn free_occluders(&mut self) {
-        let mut server = RenderingServer::singleton();
-        for occluder in self.occluders.drain(..) {
-            crate::scene_timing::rendering_server(|| server.free_rid(occluder.instance));
-            crate::scene_timing::rendering_server(|| server.free_rid(occluder.mesh));
-        }
+        self.occluders.clear();
     }
 
     fn start_lod(
@@ -4451,6 +4571,7 @@ impl CellStreamerNode {
             last_step: LodStepCounts::default(),
             source_surfaces: std::collections::HashMap::new(),
             near_heights: std::collections::HashMap::new(),
+            revision: 1,
             debug_material: None,
             focus,
         };
@@ -4617,6 +4738,9 @@ impl CellStreamerNode {
             );
         }
         let drawn = built.len();
+        if drawn > 0 || step.released().next().is_some() {
+            lod.revision = lod.revision.wrapping_add(1);
+        }
         for (block, loaded) in built {
             let instances = if matches!(kind, LodStream::Terrain) {
                 self.joined_lod_instances(block, &loaded.surfaces, &lod.near_heights, scenario)
@@ -4655,6 +4779,188 @@ impl CellStreamerNode {
             LodStream::Tree => self.tree_lod = Some(lod),
         }
         Some(drawn)
+    }
+
+    /// Update record-only distant demand after resident terrain is ready.
+    pub(crate) fn update_distant(
+        &mut self,
+        world_id: GlobalFormId,
+        eye: [f32; 3],
+        world: &soe_game::World,
+    ) -> bool {
+        let Some(source) = self.data_source.clone() else {
+            return false;
+        };
+        let Some(owner) = source.cell_index().world_persistent_cell(world_id) else {
+            return true;
+        };
+        if source.is_small_world(world_id) {
+            return true;
+        }
+        if self.distant.world != Some(world_id) {
+            self.distant = DistantState {
+                world: Some(world_id),
+                ..DistantState::default()
+            };
+        }
+        let terrain_revision = self.terrain_lod.as_ref().map_or(0, |lod| lod.revision);
+        if self.distant.terrain_revision != terrain_revision {
+            let mut heights = crate::distant_visibility::TerrainHeights::default();
+            if let Some(lod) = &self.terrain_lod {
+                heights.set_near(&lod.near_heights);
+            }
+            self.distant.heights = heights;
+            self.distant.terrain_revision = terrain_revision;
+            self.distant.revision = self.distant.revision.wrapping_add(1);
+        }
+        if !self
+            .distant
+            .selector
+            .needs_evaluation(eye, self.distant.revision)
+        {
+            self.distant
+                .selector
+                .update(&[], eye, self.distant.revision, |_, _| None);
+            return true;
+        }
+        let candidates: Vec<_> = source
+            .distant_candidates(world_id)
+            .into_iter()
+            .filter(|candidate| {
+                if !world.reference_enabled(candidate.id) {
+                    return false;
+                }
+                let Some(record) = source.order().winner(candidate.id) else {
+                    return false;
+                };
+                let Ok(reference) = soe_esm::records::refr::Refr::from_record(record) else {
+                    return false;
+                };
+                let Some(transform) = reference.transform else {
+                    return false;
+                };
+                let grid = CellCoord::new(
+                    (transform.position[0] / crate::units::CELL_UNITS).floor() as i32,
+                    (transform.position[1] / crate::units::CELL_UNITS).floor() as i32,
+                );
+                !self.exterior_cells.contains_key(&grid)
+            })
+            .collect();
+        let selected =
+            self.distant
+                .selector
+                .update(&candidates, eye, self.distant.revision, |x, y| {
+                    self.distant
+                        .heights
+                        .sample(x, y)
+                        .or_else(|| terrain_height(self.terrain_lod.as_ref(), x, y))
+                });
+        let additions: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|id| !self.distant.surfaces.contains_key(id))
+            .collect();
+        let releases = self
+            .distant
+            .surfaces
+            .keys()
+            .any(|id| !selected.contains(id));
+        if additions.is_empty() && !releases {
+            return true;
+        }
+        let loaded = match source.stream_selected_references(owner, &additions) {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                godot_error!("distant demand: {error}");
+                return false;
+            }
+        };
+        self.distant.surfaces.retain(|id, _| selected.contains(id));
+        for id in &additions {
+            self.distant.surfaces.entry(*id).or_default();
+        }
+        for surface in loaded.surfaces {
+            self.distant
+                .surfaces
+                .entry(surface.reference)
+                .or_default()
+                .push(surface);
+        }
+        if additions.len() == 8 {
+            self.distant.selector.continue_admission();
+        }
+        if !self.apply_cell_delta(&[], &[owner], world) {
+            return false;
+        }
+        let Some(scenario) = self.scenario() else {
+            return false;
+        };
+        let surfaces: Vec<_> = self.distant.surfaces.values().flatten().cloned().collect();
+        let stats = crate::data_source::CellStats {
+            references: selected.len(),
+            triangles: surfaces
+                .iter()
+                .map(|surface| surface.arrays.triangle_count())
+                .sum(),
+            ..crate::data_source::CellStats::default()
+        };
+        self.add_cell(
+            owner,
+            &LoadedCell { stats, surfaces },
+            scenario,
+            &mut StreamTotals::default(),
+        );
+        self.reference_index_dirty = true;
+        self.materials.prune_unused();
+        true
+    }
+
+    /// Live cell and terrain blocker counts, without changing instance bounds.
+    #[func]
+    pub fn occluder_counts(&self) -> VarDictionary {
+        let mut counts = VarDictionary::new();
+        counts.set("cells", self.occluders.len() as i64);
+        let height_bytes = self.distant.heights.memory_bytes()
+            + self.terrain_lod.as_ref().map_or(0, |lod| {
+                lod.blocks
+                    .values()
+                    .flatten()
+                    .filter_map(|instance| instance.heights.as_ref())
+                    .map(crate::distant_visibility::TerrainHeights::memory_bytes)
+                    .sum::<usize>()
+            });
+        counts.set("height_bytes", height_bytes as i64);
+        counts.set(
+            "distant_geometry_bytes",
+            self.distant
+                .surfaces
+                .values()
+                .flatten()
+                .map(|surface| surface.arrays.mesh_byte_count())
+                .sum::<usize>() as i64,
+        );
+        counts.set(
+            "terrain",
+            self.terrain_lod.as_ref().map_or(0, |lod| {
+                lod.blocks
+                    .values()
+                    .flatten()
+                    .filter(|instance| instance.occluder.is_some())
+                    .count()
+            }) as i64,
+        );
+        counts
+    }
+
+    /// Selected distant full-model IDs, excluding loaded grid ownership.
+    #[func]
+    pub fn distant_references(&self) -> PackedStringArray {
+        self.distant
+            .surfaces
+            .iter()
+            .filter(|(_, surfaces)| !surfaces.is_empty())
+            .map(|(id, _)| GString::from(id.to_string().as_str()))
+            .collect()
     }
 
     fn loaded_terrain_heights(&self) -> std::collections::HashMap<CellCoord, Vec<f32>> {
@@ -4696,7 +5002,34 @@ impl CellStreamerNode {
                             arrays,
                             ..surface.clone()
                         };
-                        Some(self.lod_instance(&joined, scenario))
+                        let mut instance = self.lod_instance(&joined, scenario);
+                        let land = joined.arrays.material.water.is_none()
+                            && (joined.arrays.material.landscape_lod_noise
+                                || joined.arrays.material.shader_flags_2
+                                    & soe_nif::blocks::flags2::LOD_LANDSCAPE
+                                    != 0)
+                            && joined.arrays.material.alpha == AlphaMode::Opaque;
+                        if land {
+                            let mut heights = crate::distant_visibility::TerrainHeights::default();
+                            heights.insert(&joined.arrays.positions, &joined.arrays.indices);
+                            instance.heights = Some(heights);
+                        }
+                        if self.cell_occluders && land {
+                            // SAFETY: Identical joined triangles, lowered two metres,
+                            // retain terrain holes and never bridge loaded LAND cells.
+                            let vertices = joined
+                                .arrays
+                                .positions
+                                .iter()
+                                .map(|p| [p[0], p[1] - 2.0, p[2]])
+                                .collect();
+                            instance.occluder = Self::create_occluder(
+                                vertices,
+                                joined.arrays.indices.clone(),
+                                scenario,
+                            );
+                        }
+                        Some(instance)
                     }
                     Ok(_) => None,
                     Err(error) => {
@@ -4744,6 +5077,9 @@ impl CellStreamerNode {
             }
             lod.blocks.insert(block, instances);
         }
+        if !changed.is_empty() {
+            lod.revision = lod.revision.wrapping_add(1);
+        }
         lod.near_heights = near;
         lod.last_step.released += enforce_terrain_lod_budget(&mut lod);
         self.terrain_lod = Some(lod);
@@ -4774,8 +5110,33 @@ impl CellStreamerNode {
             mesh,
             triangles: surface.arrays.triangle_count(),
             bytes: surface.arrays.mesh_byte_count() as u64,
+            occluder: None,
+            heights: None,
         }
     }
+}
+
+fn terrain_height(lod: Option<&TerrainLodState>, x: f32, y: f32) -> Option<f32> {
+    let lod = lod?;
+    let cell = CellCoord::new(
+        (x / crate::units::CELL_UNITS).floor() as i32,
+        (y / crate::units::CELL_UNITS).floor() as i32,
+    );
+    for level in [LodLevel::L4, LodLevel::L8, LodLevel::L16, LodLevel::L32] {
+        let block = LodBlockCoord::containing_from(cell, level, lod.anchor);
+        if let Some(instances) = lod.blocks.get(&block) {
+            for instance in instances {
+                if let Some(height) = instance
+                    .heights
+                    .as_ref()
+                    .and_then(|heights| heights.sample(x, y))
+                {
+                    return Some(height);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn enforce_terrain_lod_budget(lod: &mut TerrainLodState) -> usize {

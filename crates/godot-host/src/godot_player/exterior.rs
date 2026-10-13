@@ -88,6 +88,23 @@ impl PlayerNode {
     pub(super) fn advance_exterior(&mut self) -> bool {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let feet = self.feet();
+        let height = self.capsule_height();
+        let head = self.rig.head(feet, height);
+        let target = self.rig.boom_target(feet, height);
+        let clear = if self.rig.mode == crate::camera::CameraMode::Third {
+            self.world
+                .as_ref()
+                .and_then(|world| world.raycast(head, target))
+                .map(|hit| {
+                    ((hit.point.x - head.x).powi(2)
+                        + (hit.point.y - head.y).powi(2)
+                        + (hit.point.z - head.z).powi(2))
+                    .sqrt()
+                })
+        } else {
+            None
+        };
+        let eye = self.rig.eye(feet, height, clear).position;
         let focus = SkyrimPos::new(feet.x, feet.y, feet.z);
         let (Some(exterior), Some(source), Some(streamer), Some(physics), Some(game)) = (
             self.exterior.as_mut(),
@@ -163,7 +180,11 @@ impl PlayerNode {
             costs.get(&coord).copied().unwrap_or_default()
         });
         if plan.is_empty() && self.loaded_cell == Some(cell) {
-            return true;
+            return streamer.bind_mut().update_distant(
+                exterior.world,
+                [eye.x, eye.y, eye.z],
+                &game.world(),
+            );
         }
         let selected: HashSet<GlobalFormId> = plan
             .load
@@ -227,6 +248,12 @@ impl PlayerNode {
             return false;
         }
         game.record_exterior_cell_loads(entered.len());
+        if !streamer
+            .bind_mut()
+            .update_distant(exterior.world, [eye.x, eye.y, eye.z], &game.world())
+        {
+            return false;
+        }
         exterior.planner = planner;
         let audio_changed = self.loaded_cell != Some(cell);
         self.loaded_cell = Some(cell);

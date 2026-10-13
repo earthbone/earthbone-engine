@@ -157,6 +157,29 @@ pub struct BatchStats {
 /// occluder. Sorting uses triangle count and preserves source order on ties.
 pub const CELL_OCCLUDER_SURFACES: usize = 4;
 
+fn opaque_from_both_sides(surface: &SurfaceArrays) -> bool {
+    if surface.material.double_sided {
+        return true;
+    }
+    // SAFETY: Godot occluder triangles are two-sided. An open one-sided
+    // sheet is invisible from its back, so it cannot be a blocker there.
+    let mut edges = std::collections::HashMap::new();
+    for triangle in surface.indices.as_chunks::<3>().0 {
+        for edge in 0..3 {
+            let a = surface.positions[triangle[edge] as usize].map(f32::to_bits);
+            let b = surface.positions[triangle[(edge + 1) % 3] as usize].map(f32::to_bits);
+            let key = if a < b { (a, b) } else { (b, a) };
+            let count = edges.entry(key).or_insert((0u32, 0i32));
+            count.0 += 1;
+            count.1 += if a < b { 1 } else { -1 };
+        }
+    }
+    !edges.is_empty()
+        && edges
+            .values()
+            .all(|&(count, winding)| count == 2 && winding == 0)
+}
+
 /// Flatten the largest opaque source surfaces into one cell-local occluder
 /// mesh. MultiMesh candidates are transformed into the same Godot space as
 /// their rendered placement. Skinned and animated surfaces move and
@@ -169,9 +192,13 @@ pub fn cell_occluder_mesh(surfaces: &[LoadedSurface]) -> (Vec<[f32; 3]>, Vec<i32
         .enumerate()
         .filter(|(_, surface)| {
             surface.arrays.material.alpha == AlphaMode::Opaque
+                && surface.arrays.material.water.is_none()
+                && surface.arrays.material.effect.is_none()
+                && surface.arrays.material.refraction.is_none()
                 && !surface.arrays.is_skinned()
                 && surface.animation.is_none()
                 && surface.arrays.triangle_count() > 0
+                && opaque_from_both_sides(&surface.arrays)
         })
         .map(|(index, surface)| (index, surface.arrays.triangle_count()))
         .collect();
@@ -366,6 +393,21 @@ struct InstanceKey {
 /// falls back to the remainder, since a `MultiMesh` of one or two instances
 /// has no case for its own draw call.
 pub fn instancing_candidates(surfaces: &[LoadedSurface]) -> (Vec<InstanceGroup>, Vec<usize>) {
+    group_instancing_candidates(surfaces, INSTANCE_MIN_PLACEMENTS)
+}
+
+/// World-resident full models share geometry even with few placements.
+#[cfg(any(feature = "godot", test))]
+pub(crate) fn worldspace_instancing_candidates(
+    surfaces: &[LoadedSurface],
+) -> (Vec<InstanceGroup>, Vec<usize>) {
+    group_instancing_candidates(surfaces, 1)
+}
+
+fn group_instancing_candidates(
+    surfaces: &[LoadedSurface],
+    minimum: usize,
+) -> (Vec<InstanceGroup>, Vec<usize>) {
     let mut by_key: HashMap<InstanceKey, usize> = HashMap::new();
     let mut groups: Vec<InstanceGroup> = Vec::new();
     let mut remainder: Vec<usize> = Vec::new();
@@ -402,9 +444,8 @@ pub fn instancing_candidates(surfaces: &[LoadedSurface]) -> (Vec<InstanceGroup>,
             }
         }
     }
-    let (groups, short): (Vec<_>, Vec<_>) = groups
-        .into_iter()
-        .partition(|g| g.members.len() >= INSTANCE_MIN_PLACEMENTS);
+    let (groups, short): (Vec<_>, Vec<_>) =
+        groups.into_iter().partition(|g| g.members.len() >= minimum);
     remainder.extend(
         short
             .iter()
@@ -465,12 +506,23 @@ mod tests {
                 file: 0,
                 object: offset as u32,
             },
-            arrays: build_surface(&data, MeshOptions::default()).unwrap(),
+            arrays: {
+                let mut arrays = build_surface(&data, MeshOptions::default()).unwrap();
+                arrays.material.double_sided = true;
+                arrays
+            },
             textures: SurfaceTextures::default(),
             placement: soe_physics::Iso::IDENTITY,
             instance_transform: None,
             mesh_identity: None,
         }
+    }
+
+    #[test]
+    fn distant_occluder_rejects_open_single_sided_geometry() {
+        let mut surface = repeated_triangle(0.0, 1);
+        surface.arrays.material.double_sided = false;
+        assert!(cell_occluder_mesh(&[surface]).0.is_empty());
     }
 
     #[test]
@@ -510,6 +562,28 @@ mod tests {
                 assert!((actual - expected).abs() < 1e-6);
             }
         }
+    }
+
+    #[test]
+    fn persistent_full_models_share_geometry_below_the_grid_instancing_threshold() {
+        let mut surfaces = vec![quad(0.0, "shared.dds"), quad(0.0, "shared.dds")];
+        for (i, surface) in surfaces.iter_mut().enumerate() {
+            surface.reference.object = i as u32;
+            surface.mesh_identity = Some(Arc::from("full-model#0"));
+            surface.instance_transform = Some(GodotTransform {
+                basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                origin: crate::units::GodotPos::new(i as f32 * 1000.0, 0.0, 0.0),
+            });
+        }
+        let (groups, remaining) = worldspace_instancing_candidates(&surfaces);
+        assert!(remaining.is_empty());
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].arrays.positions.len(), 4);
+        assert_eq!(groups[0].members.len(), 2);
+        assert_eq!(groups[0].members[1].transform.origin.x, 1000.0);
+        let (groups, remaining) = worldspace_instancing_candidates(&surfaces[..1]);
+        assert!(remaining.is_empty());
+        assert_eq!(groups[0].members.len(), 1);
     }
 
     #[test]

@@ -13,6 +13,7 @@ fn surface(id: u32, triangles: usize, alpha: AlphaMode) -> LoadedSurface {
         indices: (0..triangles).flat_map(|_| [0, 1, 2]).collect(),
         material: MaterialDesc {
             alpha,
+            double_sided: true,
             ..MaterialDesc::default()
         },
         ..MeshData::default()
