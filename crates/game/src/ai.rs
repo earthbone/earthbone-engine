@@ -226,6 +226,8 @@ pub struct AiWorld {
     collecting_phases: bool,
     /// The cell each navmesh of `nav` sits in, by mesh index.
     nav_cells: Vec<Option<GlobalFormId>>,
+    nav_spaces: Vec<Option<GlobalFormId>>,
+    nav_space_masks: BTreeMap<GlobalFormId, std::sync::Arc<[bool]>>,
     /// Condition functions met during evaluation that have no
     /// implementation, with how often.
     pub unsupported_functions: BTreeMap<u16, usize>,
@@ -2075,6 +2077,21 @@ pub fn nav_graph(world: &mut World) -> &NavGraph {
     world.ai.nav.get_or_insert_with(NavGraph::default)
 }
 
+pub use navigation::CellPathError;
+
+/// Query winning NAVM geometry in an interior CELL or exterior WRLD space.
+///
+/// # Errors
+/// Reports an unresolved cell space or a missing navigation route.
+pub fn cell_path(
+    world: &mut World,
+    cell: GlobalFormId,
+    from: [f32; 3],
+    to: [f32; 3],
+) -> Result<soe_navmesh::Path, CellPathError> {
+    navigation::cell_path(world, cell, from, to)
+}
+
 /// Register an explicit obstacle in the world's cached navigation graph.
 ///
 /// Loaded actor routes are cleared so their next movement step replans.
@@ -2154,6 +2171,10 @@ fn ensure_nav_graph(world: &mut World) {
             });
             cells.push(rec.placement.cell.map(|c| order.resolve(file, c)));
         }
+        let spaces = cells
+            .iter()
+            .map(|cell| cell.and_then(|cell| navigation::coordinate_space(world, cell)))
+            .collect();
         let (graph, _) = b.build();
         let mut graph = graph;
         for (index, cell) in cells.iter().enumerate() {
@@ -2196,6 +2217,8 @@ fn ensure_nav_graph(world: &mut World) {
         world.ai.dirty_nav_doors.clear();
         world.ai.nav_doors = doors;
         world.ai.nav_cells = cells;
+        world.ai.nav_spaces = spaces;
+        world.ai.nav_space_masks.clear();
     }
 }
 

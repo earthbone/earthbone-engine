@@ -217,6 +217,10 @@ pub fn voice_asset(game: &mut Game, line: &Line) -> Option<VoiceAsset> {
 use soe_game::dialogue::{Error, Line};
 use soe_game::Game;
 
+#[cfg(test)]
+#[path = "dialogue_menu/hulda_tests.rs"]
+mod hulda_tests;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub topic: GlobalFormId,

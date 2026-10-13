@@ -227,6 +227,111 @@ optional converted menu themes and the ten-minute GPU mode remain unverified.
 
 ## NPC activation dialogue, HST-28
 
+### Installed greeting action regression, 2026-10-13
+
+The detached integration baseline `0569b3be` starts 421 quests. Activating
+Hulda offers MG01's magic question and DialogueWhiterun's gossip question.
+The selected Hello belongs to FavorJobsChopWood. Its text, both questions
+and the magic response resolve from the installed English string tables.
+The magic response resolves to
+`Sound/Voice/Skyrim.esm/FemaleNord/MG01_MG01InitialBranchTopi_0008EC38_1.fuz`.
+The E-key baseline starts that response in voice slot 0, increases the voice
+start counter from 2 to 3 and reports the Godot player playing.
+
+| Kind | DIAL | INFO | Owning QUST |
+|---|---|---|---|
+| Hello | `0:0BF20C` | `0:01A0ED` | FavorJobsChopWood `0:0BF20F` |
+| Magic | MG01InitialBranchTopic `0:01F80E` | `0:08EC38` | MG01 `0:01F251` |
+| Gossip | WhiterunInnkeeperRumorsBranchTopic `0:02BDDE` | `0:02BDE0` | DialogueWhiterun `0:0270A4` |
+
+GetIsID is true for all three selected INFO records. The greeting's time
+conditions and the magic topic's stage checks are also true. Gossip's GetInCell
+is true at startup. MG01 and DialogueWhiterun have both filled and empty aliases.
+The selected INFO records do not depend on an alias, so those empty fills do not
+explain the missing response.
+
+The innkeeper service survey also finds DialogueGeneric `0:013EB3` running.
+Its quest condition GetIsVoiceType rejects `DefaultNPCVoiceTypes` `0:03B4A5`
+because that record is FLST. The current evaluator accepts only VTYP, while
+xEdit's `ptVoiceType` permits both. AI-94 tracks that separate contract defect.
+RentRoomTopic `0:09CC92` has INFO records `0:09CC93`, `0:09CC94`, `0:079B1A`
+and `0:09CC95`. Their predicates do not match Hulda at this startup, including
+GetInFaction for JobRentRoomFaction `0:09CC97`. These service exclusions remain
+unfixed. They do not exclude the two offered topics or their selected response.
+
+The greeting presenter inserted Continue before the eligible topic buttons
+and gave it keyboard focus. The play path selected that action, completed
+the greeting and returned to topic selection with no response. The focused
+live baseline reports an empty response, slot -1 and no increase from its
+two voice starts. Greeting controls now bind the offered Game topic IDs
+and focus the first topic. A greeting without eligible choices retains
+Continue, including Goodbye.
+
+Ten seconds of live AI also moved Hulda's logical cell from the Bannered
+Mare `0:01605E` to `0:02D3E7`. Her gossip INFO's GetIsID remained true,
+but GetInCell could no longer admit it. AI-92 constrains navigation endpoint
+selection to the reference's interior CELL or exterior WRLD. The player
+path probe uses the same Game query. Conditions and aliases remain form
+queries rather than being replaced with menu-specific answers.
+
+`hst_28_greeting_controls` uses generated records to verify topic focus,
+response selection and a Goodbye without topics. `hst_28_dialogue` keeps
+the original E-key check and adds the play path activation and first-button
+sequence after ten seconds of live gameplay. Both inspect the selected
+response voice's start counter and playing state. The play path itself
+does not observe response audio, so this focused check supplies that evidence.
+The library survey prints the eligible INFO predicates and sorted alias fills,
+checks localized text and the voice asset, then checks Hulda's cell and gossip
+after ten seconds of AI.
+
+The focused play path activation reports `route.hulda` passing with
+`activated=true`, `chosen=true`, two topics and the response
+"Magic is for the weak. Elves, I mean. They keep to that College in Winterhold.
+They know their place." Voice slot 0 starts, its counter increases from 2 to 3,
+and its AudioStreamPlayer3D reports playing. Both installed activation cases
+pass, including the original E-key case. The synthetic greeting check passes.
+Library checks report 240 game, 430 host and 49 navmesh passes, including
+installed checks that return early without their data variables.
+All three crates pass the requested formatting and all-target clippy checks.
+
+The full default TST-19 gate fails before activation. Its six harness checks
+pass and its installed route fails. The observed checks are:
+
+| Check | Result | Observed data |
+|---|---|---|
+| window | Pass | X11, `:99`, gate mode, 640 by 360 |
+| gate_display | Pass | `DISPLAY=:99` |
+| capture | Pass | `startup.png` |
+| route.walk | Fail | 12 path points, 212.0416 units moved in 19.795 seconds |
+| npc.drawn | Fail | Last sample has one drawn actor of three in view |
+| npc.head_hair | Fail | Last sample has one head and zero hair meshes of three in view |
+| npc.pose | Pass | Three changed poses of three pairs, one second apart |
+| doors.drawn | Pass | Six doors, zero missing |
+| frame.max_ms | Fail | 167 of 191 measured frames exceed 50 ms, worst 61.129 ms |
+| watchdog.max_ms | Fail | Shutdown heartbeat stale for 2008 ms, limit 2000 ms |
+
+The first destination is `(176.0, -566.0, 69.2457)` and the final player
+position is `(50.83085, -681.4944, 67.9895)`. The route fails at that stop
+rather than skipping it. The parent watchdog kills and reaps the tracked
+Godot process during shutdown. The installed test exits 101. Its logs,
+heartbeat and startup capture are under `target/tst_19/gate`.
+
+The full route does not reach `route.hulda`, `route.container`, `route.loose`,
+`route.hearth`, `route.exit`, `route.market`, `route.gate`, `route.return`,
+`route.repeat`, `route.grass_return` or `duration`. It also does not reach
+`fire.additive`, `fire.hull`, `terrain.textures`, `object.white`, `object.height`,
+`doors.states`, `compass.offset`, `menu.inventory_theme`, `menu.container_theme`,
+`menu.dialogue_theme`, `audio.stone` or `audio.grass`. HST-28 therefore retains
+its unfinished status despite the focused dialogue and response audio evidence.
+The GPU mode and converted theme comparison are outside this run.
+
+Local sources are SkyUI-Community's `source/actionscript/Vanilla/DialogueMenu.as`
+for its topic list and input focus, Godot's `classes/class_control.rst`,
+xEdit's CTDA function table in `Core/wbDefinitionsTES5.pas`, UESP's
+`DIAL.wikitext`, `INFO.wikitext` and `CELL.wikitext`, and the CK alias script
+pages. Existing record, condition, alias, localization and DLG-11 voice
+implementations supply the runtime operations. No dependency is added.
+
 An E-key tap on a resident actor uses the existing collision ray and game
 activation path, including OnActivate and activation blocking. Successful
 actor activation opens the modal dialogue presenter through
@@ -294,6 +399,7 @@ with all targets and the release extension build exit successfully. The final
 zero budget violations. An earlier run exceeded the same budget on four
 frames, with worst 46.948 ms. These corrections do not change performance
 code or thresholds. The two installed HST-25 player checks remain failing.
+
 ## NPC grounding, HST-30
 
 Living NPCs use transient `SimpleWorld` capsules over the same installed static
@@ -509,6 +615,7 @@ and it does not support threaded gameplay.
 `godot/mod_01_vanilla_save_seed_test.gd` uses a clean installed save when
 `SKYRIM_DATA` and `SOE_TEST_SAVES` are set. It checks that the host restores the
 save and returns the filename character ID used by deterministic SPID rules.
+
 ## NPC package presentation, HST-29
 
 The motion sampler separates horizontal `speed`, which drives walk and run,
