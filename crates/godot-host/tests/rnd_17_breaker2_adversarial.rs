@@ -124,6 +124,10 @@ fn rnd_17_all_whiterun_barricades_build_geometry_and_collision_when_enabled() {
         f32::from_bits(read_u32(placement, 8)),
     );
     std::fs::write(target.join("rnd_17_whiterun.json"), manifest).unwrap();
+    // CONTEXT: The live scene loads its own runtime and assets.
+    drop(world);
+    drop(order);
+    drop(source);
     let project = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../godot");
     let output = Command::new(godot)
         .arg("--path")
@@ -142,6 +146,7 @@ fn rnd_17_all_whiterun_barricades_build_geometry_and_collision_when_enabled() {
     assert!(
         output.status.success()
             && stdout.contains("RESULT: PASS rnd_17_whiterun_runtime_enable_without_reload"),
-        "live enable-parent check failed\n{stdout}\n{stderr}"
+        "live enable-parent check failed ({})\n{stdout}\n{stderr}",
+        output.status
     );
 }
