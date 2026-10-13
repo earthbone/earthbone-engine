@@ -432,3 +432,51 @@ fn ply_03_difference_order_is_stable_and_missing_quests_name_the_presence_field(
         vec![format!("quest {id:?}.present: false -> true")]
     );
 }
+
+#[test]
+fn ply_03_saved_keep_scene_phase_start_runs_stage_174_fragment() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 keep scene fragment");
+        return;
+    };
+    let source = save_path(&PathBuf::from(corpus), CHECKPOINTS[1]);
+    let saved = soe_save::Save::open(&source).unwrap();
+    let mut game = play::load_world_checkpoint(&PathBuf::from(data), &source).unwrap();
+    game.world_mut()
+        .restore_vanilla_dialogue_scene_changes(&saved)
+        .unwrap();
+    let scene = GlobalFormId {
+        file: 0,
+        object: 0xdedbb,
+    };
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    assert_eq!(game.world().scene_phase(scene), Some(5));
+    assert!(!game.world().quest(quest).unwrap().done.contains(&174));
+    let record = game.world().record(scene).unwrap().clone();
+    let definition = soe_esm::records::gameplay::Scene::from_record(&record).unwrap();
+    {
+        let world = game.shared_world();
+        let mut allocate = |name: &str, class: &str| game.vm.create_object_of(name, class);
+        for phase in [5, 6] {
+            for (slot, action) in definition.actions.iter().enumerate() {
+                if action.end_phase == Some(phase) {
+                    assert!(world.borrow_mut().complete_scene_action(scene, slot as u32));
+                }
+            }
+            assert!(world.borrow_mut().advance_scene_phase(scene, &mut allocate));
+        }
+    }
+    assert_eq!(game.world().scene_phase(scene), Some(7));
+    game.tick(0.0);
+    assert!(
+        game.world().quest(quest).unwrap().done.contains(&174),
+        "{:?}",
+        game.vm.log.entries
+    );
+}

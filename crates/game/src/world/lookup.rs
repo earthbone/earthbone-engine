@@ -277,14 +277,17 @@ impl World {
                 .dialogue_topic_of(id)
                 .and_then(|topic| self.owning_quest(topic));
         }
-        let tag = match *rec.tag.as_bytes() {
-            [b'S', b'C', b'E', b'N'] => T(b"PNAM"),
+        let raw = match *rec.tag.as_bytes() {
+            [b'S', b'C', b'E', b'N'] => {
+                soe_esm::records::gameplay::Scene::from_record(rec)
+                    .ok()?
+                    .quest?
+            }
             [b'P', b'A', b'C', b'K'] | [b'D', b'I', b'A', b'L'] | [b'D', b'L', b'B', b'R'] => {
-                T(b"QNAM")
+                rec.find(T(b"QNAM")).and_then(le_u32)?
             }
             _ => return None,
         };
-        let raw = rec.find(tag).and_then(le_u32)?;
         (raw != 0).then(|| self.order.resolve(rref.file, raw))
     }
 

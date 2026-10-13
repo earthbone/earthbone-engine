@@ -95,3 +95,168 @@ fn dlg_09_scene_rejects_an_action_without_required_phase_bounds() {
         );
     }
 }
+
+fn fragment_game() -> Game {
+    use soe_game::vmad::{InfoFragment, SceneFragments, ScenePhaseFragment, ScriptEntry, Vmad};
+    use soe_papyrus::asm::{i, ident, none, s, FunctionBuilder, ScriptBuilder};
+    use soe_papyrus::Opcode::{CallStatic, Return};
+
+    let callback = |function: &str| InfoFragment {
+        marker: 1,
+        script: "SceneCallbacks".into(),
+        function: function.into(),
+    };
+    let vmad = Vmad {
+        scripts: vec![
+            ScriptEntry::new("SceneDecoy"),
+            ScriptEntry::new("SceneCallbacks"),
+        ],
+        scene_fragments: Some(SceneFragments {
+            version: 2,
+            file: "SceneCallbacks".into(),
+            begin: Some(callback("Begin")),
+            end: Some(callback("End")),
+            phases: [
+                (1, 0, "Start0"),
+                (2, 0, "End0"),
+                (1, 1, "Start1"),
+                (2, 1, "End1"),
+            ]
+            .into_iter()
+            .map(|(flag, phase_index, function)| ScenePhaseFragment {
+                flag,
+                phase_index,
+                marker: 1,
+                script: "SceneCallbacks".into(),
+                function: function.into(),
+            })
+            .collect(),
+        }),
+        ..Vmad::default()
+    };
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(scene().sub(Tag(*b"VMAD"), vmad.write(Tag(*b"SCEN"))));
+    plugin.push_top(soe_game::quest::build_record(0x810, "SceneQuest", 0));
+    let mut order = LoadOrder::new();
+    order.add("Scene.esp", plugin).unwrap();
+    let mut game = Game::new(order);
+    for script in ["SceneDecoy", "SceneCallbacks"] {
+        let mut builder = ScriptBuilder::new(script, "Scene");
+        for function in ["Begin", "End", "Start0", "End0", "Start1", "End1"] {
+            builder = builder.function(
+                FunctionBuilder::new(function, "None")
+                    .local("unused", "None")
+                    .ins(
+                        CallStatic,
+                        vec![
+                            s("Debug"),
+                            s("Trace"),
+                            ident("unused"),
+                            s(&format!("{script}.{function}")),
+                            i(0),
+                        ],
+                    )
+                    .ins(Return, vec![none()])
+                    .build(),
+            );
+        }
+        game.load_script(&builder.bytes()).unwrap();
+    }
+    game.bind();
+    game
+}
+
+fn callbacks(game: &Game) -> Vec<&str> {
+    game.vm
+        .log
+        .entries
+        .iter()
+        .map(|entry| entry.message.as_str())
+        .filter(|message| {
+            message.starts_with("SceneCallbacks.") || message.starts_with("SceneDecoy.")
+        })
+        .collect()
+}
+
+#[test]
+fn dlg_09_scene_boundaries_call_named_fragments_once_in_phase_order() {
+    let mut game = fragment_game();
+    let mut allocate = |_: &str, _: &str| ObjectId(1);
+    assert!(game.world_mut().start_scene(id(0x800), &mut allocate));
+    assert!(!game.world_mut().start_scene(id(0x800), &mut allocate));
+    game.tick(0.0);
+    assert_eq!(
+        callbacks(&game),
+        ["SceneCallbacks.Begin", "SceneCallbacks.Start0"]
+    );
+    assert!(!game
+        .world_mut()
+        .advance_scene_phase(id(0x800), &mut allocate));
+    game.tick(0.0);
+    assert_eq!(
+        callbacks(&game),
+        ["SceneCallbacks.Begin", "SceneCallbacks.Start0"]
+    );
+    assert!(game.world_mut().complete_scene_action(id(0x800), 0));
+    assert!(game.world_mut().complete_scene_action(id(0x800), 1));
+    assert!(game
+        .world_mut()
+        .advance_scene_phase(id(0x800), &mut allocate));
+    game.tick(0.0);
+    assert_eq!(
+        callbacks(&game),
+        [
+            "SceneCallbacks.Begin",
+            "SceneCallbacks.Start0",
+            "SceneCallbacks.End0",
+            "SceneCallbacks.Start1"
+        ]
+    );
+    assert!(game
+        .world_mut()
+        .advance_scene_phase(id(0x800), &mut allocate));
+    assert!(!game.world_mut().stop_scene(id(0x800), &mut allocate));
+    game.tick(0.0);
+    assert_eq!(
+        callbacks(&game),
+        [
+            "SceneCallbacks.Begin",
+            "SceneCallbacks.Start0",
+            "SceneCallbacks.End0",
+            "SceneCallbacks.Start1",
+            "SceneCallbacks.End1",
+            "SceneCallbacks.End"
+        ]
+    );
+}
+
+#[test]
+fn dlg_09_scene_restore_does_not_replay_begin_or_phase_start_fragments() {
+    let mut game = fragment_game();
+    let mut allocate = |_: &str, _: &str| ObjectId(1);
+    assert!(game.world_mut().start_scene(id(0x800), &mut allocate));
+    game.tick(0.0);
+    assert!(game.world_mut().complete_scene_action(id(0x800), 0));
+    assert!(game.world_mut().complete_scene_action(id(0x800), 1));
+    assert!(game
+        .world_mut()
+        .advance_scene_phase(id(0x800), &mut allocate));
+    game.tick(0.0);
+    let save = game.save_state().unwrap();
+    let mut restored = fragment_game();
+    restored.load_state(&save).unwrap();
+    restored.tick(0.0);
+    assert_eq!(callbacks(&restored), callbacks(&game));
+    assert!(restored.world_mut().stop_scene(id(0x800), &mut allocate));
+    restored.tick(0.0);
+    assert_eq!(
+        callbacks(&restored),
+        [
+            "SceneCallbacks.Begin",
+            "SceneCallbacks.Start0",
+            "SceneCallbacks.End0",
+            "SceneCallbacks.Start1",
+            "SceneCallbacks.End",
+        ]
+    );
+}

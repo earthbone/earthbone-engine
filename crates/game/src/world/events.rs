@@ -15,6 +15,15 @@ use soe_papyrus::{ObjectId, Value};
 use super::{
     Alloc, AnimationCompletion, AnimationHostNotice, AnimationRequest, Handle, Pending, World,
 };
+use crate::vmad::Vmad;
+
+#[derive(Clone, Copy)]
+enum SceneBoundary {
+    Begin,
+    End,
+    PhaseStart(u32),
+    PhaseEnd(u32),
+}
 
 pub(super) fn write_animation_waits(world: &World, writer: &mut Writer) {
     world.write_animation_waits(writer);
@@ -546,6 +555,8 @@ impl World {
             name: "OnBegin".into(),
             args: Vec::new(),
         });
+        self.scene_fragment(id, SceneBoundary::Begin, alloc);
+        self.scene_fragment(id, SceneBoundary::PhaseStart(0), alloc);
         true
     }
 
@@ -637,7 +648,56 @@ impl World {
             name: "OnEnd".into(),
             args: Vec::new(),
         });
+        self.scene_fragment(id, SceneBoundary::End, alloc);
         true
+    }
+
+    fn scene_fragment(&mut self, id: GlobalFormId, boundary: SceneBoundary, alloc: Alloc<'_>) {
+        let Some(fragments) = self
+            .record(id)
+            .and_then(|record| record.find(super::T(b"VMAD")))
+            .and_then(|raw| Vmad::parse(raw, super::T(b"SCEN")).ok())
+            .and_then(|vmad| vmad.scene_fragments)
+        else {
+            return;
+        };
+        let callbacks: Vec<_> = match boundary {
+            SceneBoundary::Begin => fragments
+                .begin
+                .into_iter()
+                .map(|f| (f.script, f.function))
+                .collect(),
+            SceneBoundary::End => fragments
+                .end
+                .into_iter()
+                .map(|f| (f.script, f.function))
+                .collect(),
+            SceneBoundary::PhaseStart(phase) | SceneBoundary::PhaseEnd(phase) => {
+                let flag = if matches!(boundary, SceneBoundary::PhaseStart(_)) {
+                    1
+                } else {
+                    2
+                };
+                fragments
+                    .phases
+                    .into_iter()
+                    .filter(|f| f.phase_index == phase && f.flag & flag != 0)
+                    .map(|f| (f.script, f.function))
+                    .collect()
+            }
+        };
+        if callbacks.is_empty() {
+            return;
+        }
+        let object = self.object_of(Handle::Form(id), alloc);
+        for (script, function) in callbacks {
+            self.pending.push(Pending::CallScript {
+                object,
+                script,
+                function,
+                args: Vec::new(),
+            });
+        }
     }
 
     /// Current zero-based phase for a playing scene.
@@ -796,6 +856,7 @@ impl World {
                 run.started_actions.remove(&slot);
             }
         }
+        self.scene_fragment(id, SceneBoundary::PhaseEnd(phase), alloc);
         let next = phase + 1;
         if next as usize >= scene.phases.len() {
             return self.stop_scene(id, alloc);
@@ -814,6 +875,7 @@ impl World {
                     .get(*slot as usize)
                     .is_some_and(|action| action.end_phase.is_some_and(|end| end > next))
             });
+            self.scene_fragment(id, SceneBoundary::PhaseStart(next), alloc);
             true
         } else {
             false
