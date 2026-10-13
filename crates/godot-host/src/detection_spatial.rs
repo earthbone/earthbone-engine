@@ -4,7 +4,7 @@
 //! Sound sources are indexed separately from their owning actor, following
 //! CK CreateDetectionEvent. Grid entries are rebuilt from current placements.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use soe_esm::GlobalFormId;
 use soe_game::detection::{DetectionEvent, Motion, Observation};
@@ -88,9 +88,18 @@ impl DetectionSpaces {
         actors: Vec<ContactActor>,
         events: &[DetectionEvent],
     ) -> Vec<ContactActor> {
+        self.candidate_actors_with_neighbors(actors, events).0
+    }
+
+    /// Retain nearby pair participants separately from actors kept for sounds.
+    pub(crate) fn candidate_actors_with_neighbors(
+        &self,
+        actors: Vec<ContactActor>,
+        events: &[DetectionEvent],
+    ) -> (Vec<ContactActor>, HashSet<GlobalFormId>) {
         let range = self.range;
         if !range.is_finite() || range <= 0.0 {
-            return Vec::new();
+            return (Vec::new(), HashSet::new());
         }
         let mut grid: HashMap<Bucket, Vec<usize>> = HashMap::new();
         for (i, actor) in actors.iter().enumerate() {
@@ -110,6 +119,11 @@ impl DetectionSpaces {
                     })
             });
         }
+        let nearby = actors
+            .iter()
+            .zip(&keep)
+            .filter_map(|(actor, &keep)| keep.then_some(actor.actor))
+            .collect();
         for event in events {
             if let Some(i) = actors.iter().position(|actor| actor.actor == event.owner) {
                 keep[i] = true;
@@ -126,11 +140,12 @@ impl DetectionSpaces {
                 }
             }
         }
-        actors
+        let candidates = actors
             .into_iter()
             .zip(keep)
             .filter_map(|(actor, keep)| keep.then_some(actor))
-            .collect()
+            .collect();
+        (candidates, nearby)
     }
 
     /// Ordered nearby actor pairs and sounds within detection range. Sight and

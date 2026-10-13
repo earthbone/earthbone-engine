@@ -87,9 +87,13 @@ impl ActorOcclusion {
         if entry <= 0.0 || entry >= exit {
             return false;
         }
+        let end: [f64; 3] = std::array::from_fn(|i| from[i] + direction[i] * entry);
+        let low: [f64; 3] = std::array::from_fn(|i| from[i].min(end[i]));
+        let high: [f64; 3] = std::array::from_fn(|i| from[i].max(end[i]));
         self.0.iter().any(|capsule| {
             capsule.actor != observer
                 && capsule.actor != target.actor
+                && (0..3).all(|i| capsule.low[i] <= high[i] && capsule.high[i] >= low[i])
                 && capsule.centers.iter().any(|center| {
                     let fraction = (0..3)
                         .map(|i| (center[i] - from[i]) * direction[i])

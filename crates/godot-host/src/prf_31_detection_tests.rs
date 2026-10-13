@@ -206,6 +206,32 @@ fn prf_31_sparse_population_avoids_distant_pair_queries() {
 }
 
 #[test]
+fn prf_31_sight_participants_exclude_actors_retained_only_for_sound() {
+    let actors = vec![
+        actor(10, 1, [0.0; 3]),
+        actor(11, 1, [1000.0, 0.0, 0.0]),
+        actor(20, 1, [2000.0, 0.0, 0.0]),
+        actor(21, 1, [2010.0, 0.0, 0.0]),
+    ];
+    let events = [DetectionEvent {
+        owner: id(11),
+        cell: id(1),
+        position: [1.0, 0.0, 0.0],
+        sound_level: 125.0,
+    }];
+    let spaces = DetectionSpaces::new(&fixture(), &actors, &events, 100.0);
+    let (candidates, participants) = spaces.candidate_actors_with_neighbors(actors, &events);
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|actor| actor.actor)
+            .collect::<Vec<_>>(),
+        [id(10), id(11), id(20), id(21)]
+    );
+    assert_eq!(participants, [id(20), id(21)].into_iter().collect());
+}
+
+#[test]
 fn prf_31_vanilla_light_results_match_full_scan() {
     let Some(data) = std::env::var_os("SKYRIM_DATA") else {
         return;

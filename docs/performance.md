@@ -1969,6 +1969,38 @@ batch, retaining observation order, reference-target validation and atomic
 pool updates. A separate unit check changes death state between batches and
 requires the next batch to reject it without changing detection state.
 
+### Integration loop round 1, 2026-10-13
+
+The PRF-31 sight setup reuses the already selected actor identities rather
+than cloning the placements and rebuilding their neighborhood a second time.
+Capsule occlusion first rejects bodies whose bounds miss the segment before
+the target's outer bounds. The existing interior-sphere witness remains the
+final rejection test, following local Jolt `Jolt/Geometry/RaySphere.h`.
+Verification mode reports setup time and independent ray count alongside its
+comparison with Godot's original queries. AI-70's camera origin and CMB-32's
+separate sound source and owner remain part of the observation contract.
+The manual walk hook updates the camera after moving its capsule. Its walking
+check requires matching horizontal camera and capsule displacement within
+one centimetre on every sample, retaining the 2,000-microsecond detection limit.
+
+An optimized standalone comparison uses the 36-actor fixture from
+`prf_31_occlusion_rejections_match_nearest_capsule_raycasts`. All 1,260 ordered
+pairs return the same answers before and after the bounds check. Five runs of
+1,000 sweeps take 149,727 to 150,607 microseconds before and 56,609 to 57,747
+after. Both versions reject 816 pairs per sweep. These are capsule-helper
+measurements, separate from the complete Godot detection budget.
+
+The focused debug library checks report 20 passes. The walk target reports
+four passes, including three installed cases that return early with game data
+unset. The release build, headless project import, package formatting and
+all-targets clippy with warnings denied pass. The installed ray comparison
+was cancelled with exit status 130 after more than 40 minutes without a
+result while the shared installed slot remained occupied. A separate exact
+windowed timing attempt also waited without a result and was cancelled with
+status 1. Installed ray equivalence and the full 2,000-microsecond budget
+remain unverified for this patch. The recorded earlier budget failures remain
+failed measurements.
+
 ### Follow-up local verification
 
 The 2026-10-11 follow-up retains draft commits `836a0228b` and `ab27b7705`
