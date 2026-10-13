@@ -7785,3 +7785,22 @@ regional descriptor list is empty. Its landing grid cell supplies the ambience
 and regional music before the first movement step. This follows the existing
 persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
 CELL and regional selection contract.
+
+## Persistent full-model residency, RND-40
+
+Large-world persistent references with REFR Full LOD or a STAT Never Fades
+base retain their full models on the persistent cell, independent of the
+loaded grid. Other persistent geometry keeps its physical grid ownership.
+Collision remains on the physical grid. Static world-resident models share
+local geometry through MultiMesh, with the existing shared texture and
+material caches. Location replacement releases their rendering resources
+and prepared CPU textures. Exterior previews install the same persistent
+selection and clear it on worldspace changes.
+
+The vanilla survey covers all 47 worldspaces in the five masters. Tamriel
+has 951 flagged persistent references. Within 20 cells of the Whiterun gate,
+251 have drawable enabled models, 110 are invisible editor-marker furniture
+and two are disabled. All 251 now produce live full-model RIDs at the gate.
+The world check submits 785 drawable Tamriel references and retains zero on
+return to Whiterun. The count table, complete near-gate list, local sources
+and memory evidence are in [full-lod-residency.md](full-lod-residency.md).
