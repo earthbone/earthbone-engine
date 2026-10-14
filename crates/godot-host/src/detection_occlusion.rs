@@ -133,8 +133,14 @@ impl ActorOcclusion {
         }
         let direction: [f64; 3] = std::array::from_fn(|i| to[i] - from[i]);
         let inverse_squared = 1.0 / direction.iter().map(|d| d * d).sum::<f64>();
+        let inverse_direction = direction.map(|value| if value == 0.0 { 0.0 } else { 1.0 / value });
+        let low: [f64; 3] = std::array::from_fn(|i| from[i].min(to[i]));
+        let high: [f64; 3] = std::array::from_fn(|i| from[i].max(to[i]));
         !self.0.iter().any(|capsule| {
-            if capsule.actor == observer || capsule.actor == target.actor {
+            if capsule.actor == observer
+                || capsule.actor == target.actor
+                || (0..3).any(|i| capsule.low[i] > high[i] || capsule.high[i] < low[i])
+            {
                 return false;
             }
             let mut entry = 0.0_f64;
@@ -145,8 +151,8 @@ impl ActorOcclusion {
                         return false;
                     }
                 } else {
-                    let low = (capsule.low[i] - from[i]) / direction[i];
-                    let high = (capsule.high[i] - from[i]) / direction[i];
+                    let low = (capsule.low[i] - from[i]) * inverse_direction[i];
+                    let high = (capsule.high[i] - from[i]) * inverse_direction[i];
                     entry = entry.max(low.min(high));
                     exit = exit.min(low.max(high));
                     if entry > exit {
@@ -168,6 +174,23 @@ impl Capsule {
         end: f64,
         radius_squared: f64,
     ) -> bool {
+        let [a, b] = self.ends;
+        let horizontal = direction[0].powi(2) + direction[1].powi(2);
+        let fraction = if horizontal > 0.0 {
+            ((a[0] - from[0]) * direction[0] + (a[1] - from[1]) * direction[1]) / horizontal
+        } else {
+            0.0
+        }
+        .clamp(0.0, end);
+        let radial_squared = (from[0] + direction[0] * fraction - a[0]).powi(2)
+            + (from[1] + direction[1] * fraction - a[1]).powi(2);
+        if radial_squared >= radius_squared {
+            return false;
+        }
+        let height = from[2] + direction[2] * fraction;
+        if height >= a[2] && height <= b[2] {
+            return true;
+        }
         if self.ends.iter().any(|center| {
             let fraction = (0..3)
                 .map(|i| (center[i] - from[i]) * direction[i])
@@ -181,7 +204,6 @@ impl Capsule {
         }) {
             return true;
         }
-        let [a, b] = self.ends;
         let mut entry = 0.0_f64;
         let mut exit = end;
         if direction[2] == 0.0 {
@@ -197,7 +219,6 @@ impl Capsule {
                 return false;
             }
         }
-        let horizontal = direction[0].powi(2) + direction[1].powi(2);
         let fraction = if horizontal > 0.0 {
             ((a[0] - from[0]) * direction[0] + (a[1] - from[1]) * direction[1]) / horizontal
         } else {
