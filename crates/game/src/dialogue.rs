@@ -922,6 +922,10 @@ impl Game {
     /// Invalid settings or positions and failed fragment dispatch leave the cursor
     /// available for retry. Script execution errors use the normal VM log.
     pub fn update_dialogue_range(&mut self) -> Result<bool, Error> {
+        let session = self.world.borrow().dialogue.session.clone();
+        if session.is_some_and(|session| self.playing_scene_dialogue(&session)) {
+            return Ok(false);
+        }
         let active_info = {
             let mut world = self.world.borrow_mut();
             let Some(session) = world.dialogue.session.clone() else {
@@ -1596,6 +1600,46 @@ impl Game {
             .resolve_from(scene_id, *raw_topic)
             .ok_or(Error::State("scene dialogue topic is unresolved"))?;
         Ok((speaker, topic))
+    }
+
+    fn playing_scene_dialogue(&self, session: &Session) -> bool {
+        let actions: Vec<_> = {
+            let world = self.world.borrow();
+            world
+                .scenes
+                .iter()
+                .filter_map(|id| {
+                    let scene = Scene::from_record(world.record(*id)?).ok()?;
+                    Some(
+                        scene
+                            .actions
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(slot, action)| match action.data {
+                                SceneActionData::Dialogue { topic: Some(raw) }
+                                    if world.resolve_from(*id, raw) == session.topic =>
+                                {
+                                    Some((*id, slot as u32))
+                                }
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .flatten()
+                .collect()
+        };
+        // CONTEXT: Scene lines use a player listener placeholder and end with their action.
+        actions.into_iter().any(|(id, slot)| {
+            let unfinished =
+                self.world.borrow().scene_action_slot_complete(id, slot) == Some(false);
+            unfinished
+                && self
+                    .scene_dialogue_action(id, slot)
+                    .is_ok_and(|(speaker, topic)| {
+                        session.speaker == speaker && session.topic == Some(topic)
+                    })
+        })
     }
 
     /// Current authored response. Reading it has no playback or script side effects.

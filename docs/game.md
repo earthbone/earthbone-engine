@@ -886,6 +886,33 @@ second pair is not verified here. The first pair still requires the tower
 progression that its route bypasses. All six full checkpoint assertions
 remain in place.
 
+The 2026-10-14 integration repair separates DLG-18's assigned scene lines from
+DLG-06's player walk-away check. Scene dialogue uses the player as a listener
+placeholder. A tick used the player distance to finish Hadvar's line and close
+its session before the headless presenter acknowledged it. The range check now
+retains a session matching an unfinished dialogue action in its active phase.
+Stopped scenes and other conversations still use the distance check. Synthetic
+tests use an explicit 500-unit GMST and verify distant scene playback and
+closure after stopping the scene. No saved field or dependency is added.
+
+The installed `ply_03_second_route_reaches_its_successor_checkpoint` now passes
+the full quest and inventory comparison. All six acceptance tests that include
+the first pair still fail on its 16 earlier completed stages. PLY-03's original
+`ce2addfd5` was a partial implementation, and `915d66cb8` retained that gap.
+The source saves MQ101DragonAttackScene1 at phase 2. A diagnostic presenting it
+through DLG-18 fails on the topic-zero headtracking action named Look at Ralof.
+Local xEdit's SCEN definition permits NULL dialogue topics and declares HTID
+as the headtracking actor. This action needs its own presentation path, and the
+tower sequence also waits for package actions and the End_Tower_Smash animation
+event. The diagnostic only read the external save. The existing route fixtures,
+complete stage-history assertions and tick bounds remain unchanged.
+
+Validation passes 4,267 debug integration tests and 240 library tests, with
+four existing integration ignores. Game-only all-target clippy and formatting
+pass. Each of the six installed acceptance tests was rerun alone on one thread
+and still reports only the first pair's completed-stage mismatch. The separate
+second-pair installed acceptance test passes.
+
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
 `Quest_Script.wikitext` defines highest completed stage queries. The installed

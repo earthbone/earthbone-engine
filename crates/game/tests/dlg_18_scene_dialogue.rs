@@ -31,6 +31,11 @@ fn fixture(alias_filled: bool, responses: &[&str]) -> Game {
 fn fixture_with_phase_gate(alias_filled: bool, responses: &[&str], gated: bool) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
+        Record::new(tag(b"GMST"), 0xC00)
+            .zsub(tag(b"EDID"), "fAIInDialogueModeWithPlayerDistance")
+            .sub(tag(b"DATA"), 500.0f32.to_le_bytes()),
+    );
+    plugin.push_top(
         Record::new(tag(b"NPC_"), 7)
             .zsub(tag(b"EDID"), "Player")
             .sub(tag(b"ACBS"), vec![0; 24]),
@@ -183,6 +188,40 @@ fn ply_03_scene_playback_presents_every_response_before_advancing() {
         Some(true)
     );
     assert!(game.dialogue_line().unwrap().is_none());
+}
+
+#[test]
+fn dlg_18_scene_line_survives_a_tick_outside_player_dialogue_range() {
+    let mut game = fixture(true, &["First", "Second"]);
+    start_scene(&mut game);
+    let player = game.player();
+    game.world_mut().reference(player).unwrap().position = [10_000.0, 0.0, 0.0];
+    let route = soe_game::play::Route::parse("play-scene SceneDialogue.esp:b00 1 3").unwrap();
+    let report = soe_game::play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    assert_eq!(report.ticks, 3);
+    assert_eq!(game.world().scene_phase(id(SCENE)), Some(1));
+    assert_eq!(
+        game.world().scene_action_slot_complete(id(SCENE), 0),
+        Some(true)
+    );
+    assert!(game.world().dialogue_session().is_none());
+}
+
+#[test]
+fn dlg_18_stopped_scene_does_not_keep_an_out_of_range_conversation_open() {
+    let mut game = fixture(true, &["Assigned line"]);
+    start_scene(&mut game);
+    game.start_scene_dialogue_action(id(SCENE), 0)
+        .unwrap()
+        .unwrap();
+    let player = game.player();
+    game.world_mut().reference(player).unwrap().position = [10_000.0, 0.0, 0.0];
+    assert!(!game.update_dialogue_range().unwrap());
+    let mut allocate = |_: &str, _: &str| ObjectId(1);
+    assert!(game.world_mut().stop_scene(id(SCENE), &mut allocate));
+    assert!(game.update_dialogue_range().unwrap());
+    assert!(game.world().dialogue_session().is_none());
 }
 
 #[test]
