@@ -27,6 +27,42 @@ struct TriggerVolume {
 }
 
 impl TriggerVolume {
+    fn matches_cell(self, cell: GlobalFormId, world: &World) -> bool {
+        if self.cell == Some(cell) {
+            return true;
+        }
+        let Some(index) = world.order.cell_index() else {
+            return false;
+        };
+        let Some(grid) = index.grid_of(cell) else {
+            return false;
+        };
+        if self.cell.and_then(|cell| index.persistent_cell_world(cell)) != Some(grid.world) {
+            return false;
+        }
+        let extent = |axis| match self.shape {
+            VolumeShape::Sphere(radius) => radius * self.scale,
+            VolumeShape::Box(bounds) => {
+                let unit = std::array::from_fn(|i| if i == axis { 1.0 } else { 0.0 });
+                inverse_rotate(unit, self.rotation)
+                    .into_iter()
+                    .zip(bounds)
+                    .map(|(axis, bound)| axis.abs() * bound * self.scale)
+                    .sum()
+            }
+        };
+        [grid.x, grid.y]
+            .into_iter()
+            .enumerate()
+            .all(|(axis, coordinate)| {
+                let low = f64::from(coordinate) * 4096.0;
+                let high = low + 4096.0;
+                let center = f64::from(self.center[axis]);
+                let extent = f64::from(extent(axis));
+                center + extent >= low && center - extent <= high
+            })
+    }
+
     fn from_refr(refr: &Refr, file: usize, world: &World) -> Option<Self> {
         let primitive = refr.primitive?;
         let bounds = primitive.bounds;
@@ -135,6 +171,72 @@ impl TriggerVolume {
 }
 
 impl World {
+    pub(super) fn load_persistent_trigger_volumes(&mut self, cell: GlobalFormId) {
+        self.ensure_trigger_index(Some(cell));
+        let ids = self
+            .trigger_index
+            .as_ref()
+            .and_then(|index| index.get(&cell))
+            .cloned()
+            .unwrap_or_default();
+        for id in ids {
+            let persistent = self
+                .order
+                .winner(id)
+                .and_then(|record| record.placement.cell)
+                .and_then(|raw| self.resolve_from(id, raw))
+                != Some(cell);
+            if !persistent {
+                continue;
+            }
+            let enabled = self.reference_enabled(id);
+            if enabled && self.loaded_3d_references.insert(id) {
+                self.reference(id);
+                self.commonlib_object_loaded(id, true);
+                self.pending.push(Pending::ReferenceEvent {
+                    reference: id,
+                    name: "OnLoad".into(),
+                });
+            } else if !enabled && self.loaded_3d_references.remove(&id) {
+                self.commonlib_object_loaded(id, false);
+                self.pending.push(Pending::ReferenceEvent {
+                    reference: id,
+                    name: "OnUnload".into(),
+                });
+            }
+        }
+    }
+
+    pub(super) fn unload_persistent_trigger_volumes(&mut self, cell: GlobalFormId) {
+        let ids = self
+            .trigger_index
+            .as_ref()
+            .and_then(|index| index.get(&cell))
+            .cloned()
+            .unwrap_or_default();
+        for id in ids {
+            let persistent = self
+                .order
+                .winner(id)
+                .and_then(|record| record.placement.cell)
+                .and_then(|raw| self.resolve_from(id, raw))
+                != Some(cell);
+            let retained = self.attached_cells.iter().any(|cell| {
+                self.trigger_index
+                    .as_ref()
+                    .and_then(|index| index.get(cell))
+                    .is_some_and(|ids| ids.contains(&id))
+            });
+            if persistent && !retained && self.loaded_3d_references.remove(&id) {
+                self.commonlib_object_loaded(id, false);
+                self.pending.push(Pending::ReferenceEvent {
+                    reference: id,
+                    name: "OnUnload".into(),
+                });
+            }
+        }
+    }
+
     /// Returns the current actor count for an XPRM box or sphere reference.
     ///
     /// `None` means the reference has no supported trigger primitive.
@@ -160,7 +262,23 @@ impl World {
         to: [f32; 3],
         alloc: Alloc<'_>,
     ) {
+        let cell = cell.map(|cell| {
+            let index = self.order.build_cell_index();
+            index
+                .persistent_cell_world(cell)
+                .and_then(|world| {
+                    index.exterior_cell(
+                        world,
+                        (to[0] / 4096.0).floor() as i32,
+                        (to[1] / 4096.0).floor() as i32,
+                    )
+                })
+                .unwrap_or(cell)
+        });
         self.ensure_trigger_index(cell);
+        if let Some(cell) = cell.filter(|cell| self.attached_cells.contains(cell)) {
+            self.load_persistent_trigger_volumes(cell);
+        }
         let mut candidates = cell
             .and_then(|cell| self.trigger_index.as_ref()?.get(&cell).cloned())
             .unwrap_or_default();
@@ -193,10 +311,8 @@ impl World {
                 .trigger_occupants
                 .get(&id)
                 .is_some_and(|occupants| occupants.contains(&actor));
-            let same_cell = cell.is_some() && volume.cell == cell;
-            let enabled = self
-                .reference_ref(id)
-                .map_or(!refr.is_initially_disabled(), |reference| reference.enabled);
+            let same_cell = cell.is_some_and(|cell| volume.matches_cell(cell, self));
+            let enabled = self.reference_enabled(id);
             let dead = self.actors.get(&actor).is_some_and(|state| state.dead);
             let should_be_inside = same_cell && enabled && !dead && volume.contains(to);
             if was_inside != should_be_inside {
@@ -264,12 +380,18 @@ impl World {
             return;
         }
         let mut triggers = Vec::new();
-        for id in self.cell_reference_ids(cell) {
-            let Some(record) = self
-                .order
-                .winner(id)
-                .filter(|record| record.tag == tag::REFR)
-            else {
+        let mut references = self.cell_reference_ids(cell);
+        if let Some(persistent) = self.order.cell_index().and_then(|index| {
+            index
+                .grid_of(cell)
+                .and_then(|grid| index.world_persistent_cell(grid.world))
+        }) {
+            references.extend(self.cell_reference_ids(persistent));
+        }
+        for id in references {
+            let Some(record) = self.order.winner(id).filter(|record| {
+                record.tag == tag::REFR && record.find(Tag::new(b"XPRM")).is_some()
+            }) else {
                 continue;
             };
             let Some(rref) = self.order.winner_ref(id) else {
@@ -281,7 +403,7 @@ impl World {
             let Some(volume) = TriggerVolume::from_refr(&refr, rref.file, self) else {
                 continue;
             };
-            if volume.cell == Some(cell) {
+            if volume.matches_cell(cell, self) {
                 triggers.push(id);
             }
         }

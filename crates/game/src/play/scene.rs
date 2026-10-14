@@ -13,7 +13,7 @@ use crate::Game;
 pub(super) fn play(
     game: &mut Game,
     id: GlobalFormId,
-    goal: u32,
+    goal: Option<u32>,
     max_ticks: u32,
     report: &mut Report,
 ) -> Result<(), String> {
@@ -25,17 +25,28 @@ pub(super) fn play(
         let record = world.record(id).ok_or("scene record unavailable")?;
         Scene::from_record(record).map_err(|error| error.to_string())?
     };
-    if goal as usize >= scene.phases.len() {
+    if goal.is_some_and(|phase| phase as usize >= scene.phases.len()) {
         return Err("scene playback phase is out of range".into());
+    }
+    if game.world().scene_phase(id).is_none() {
+        return Err("scene is not playing".into());
     }
     let mut presenting = None;
     for elapsed in 0..=max_ticks {
-        let phase = game.world().scene_phase(id).ok_or("scene is not playing")?;
-        if phase == goal {
-            return Ok(());
-        }
-        if phase > goal {
-            return Err("scene has passed the requested phase".into());
+        let Some(phase) = game.world().scene_phase(id) else {
+            return if goal.is_none() {
+                Ok(())
+            } else {
+                Err("scene ended before the requested phase".into())
+            };
+        };
+        if let Some(goal) = goal {
+            if phase == goal {
+                return Ok(());
+            }
+            if phase > goal {
+                return Err("scene has passed the requested phase".into());
+            }
         }
         if elapsed == max_ticks {
             break;
@@ -98,8 +109,10 @@ pub(super) fn play(
         super::append_log(game, report, log_start);
         super::tick(game, report);
     }
+    let destination =
+        goal.map_or_else(|| "completion".to_owned(), |phase| format!("phase {phase}"));
     Err(format!(
-        "timeout playing {id} to phase {goal} after {max_ticks} ticks"
+        "timeout playing {id} to {destination} after {max_ticks} ticks"
     ))
 }
 

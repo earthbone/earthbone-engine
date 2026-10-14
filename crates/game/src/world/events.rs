@@ -459,9 +459,17 @@ impl World {
             });
             if cell_is_loaded && self.loaded_3d_references.insert(source) {
                 self.commonlib_object_loaded(source, true);
+                self.pending.push(Pending::ReferenceEvent {
+                    reference: source,
+                    name: "OnLoad".into(),
+                });
             }
         } else if self.loaded_3d_references.remove(&source) {
             self.commonlib_object_loaded(source, false);
+            self.pending.push(Pending::ReferenceEvent {
+                reference: source,
+                name: "OnUnload".into(),
+            });
         }
         if !enabled {
             self.finish_animation_waits(source, None);

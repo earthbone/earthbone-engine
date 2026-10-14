@@ -462,6 +462,7 @@ impl World {
     }
 
     fn mark_cell_3d_loaded(&mut self, cell: GlobalFormId) {
+        self.load_persistent_trigger_volumes(cell);
         for id in self.cell_reference_ids(cell) {
             if self
                 .refs
@@ -510,6 +511,7 @@ impl World {
     pub fn unload_cell(&mut self, cell: GlobalFormId) -> (usize, usize) {
         let player = self.player();
         self.attached_cells.remove(&cell);
+        self.unload_persistent_trigger_volumes(cell);
         // The 3D goes here, so the next entry owes `OnCellLoad` again.
         self.streamed_cells.remove(&cell);
         for id in self.cell_reference_ids(cell) {
