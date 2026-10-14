@@ -860,7 +860,13 @@ impl Game {
                 Pending::Event { object, name, args } => {
                     if matches!(
                         name.as_str(),
-                        "OnCellAttach" | "OnCellLoad" | "OnLoad" | "OnCellDetach" | "OnUnload"
+                        "OnCellAttach"
+                            | "OnCellLoad"
+                            | "OnLoad"
+                            | "OnCellDetach"
+                            | "OnUnload"
+                            | "OnTriggerEnter"
+                            | "OnTriggerLeave"
                     ) {
                         let reference = self.world.borrow().form_of(object);
                         if let Some(reference) = reference {

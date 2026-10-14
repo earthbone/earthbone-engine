@@ -63,6 +63,10 @@ pub enum Step {
         phase: u32,
         max_ticks: u32,
     },
+    FinishScene {
+        scene: String,
+        max_ticks: u32,
+    },
     WaitStage {
         quest: String,
         stage: u16,
@@ -251,7 +255,14 @@ fn load(data: &Path, save_path: &Path, mode: SaveMode) -> Result<Game, Error> {
     game.bind();
     let cell = game.world().loaded_cell();
     if let Some(cell) = cell {
-        game.bind_cell(cell);
+        match mode {
+            SaveMode::Resume => {
+                game.bind_cell(cell);
+            }
+            SaveMode::WorldCheckpoint => {
+                game.load_cell(cell);
+            }
+        }
     }
     Ok(game)
 }
@@ -354,7 +365,11 @@ fn execute(game: &mut Game, step: &Step, report: &mut Report) -> Result<(), Stri
             max_ticks,
         } => {
             let scene = resolve(game, scene)?;
-            scene::play(game, scene, *phase, *max_ticks, report)
+            scene::play(game, scene, Some(*phase), *max_ticks, report)
+        }
+        Step::FinishScene { scene, max_ticks } => {
+            let scene = resolve(game, scene)?;
+            scene::play(game, scene, None, *max_ticks, report)
         }
         Step::WaitStage {
             quest,
