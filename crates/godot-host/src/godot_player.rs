@@ -1391,6 +1391,17 @@ impl PlayerNode {
         crate::godot_layer::work_dictionary(&self.last_work_counts)
     }
 
+    /// The shared player stands in a cell the host has not installed yet.
+    fn location_change_pending(&mut self) -> bool {
+        let loaded = self.loaded_cell;
+        self.game.as_mut().is_some_and(|game| {
+            let player = game.player();
+            game.world()
+                .reference_ref(player)
+                .is_some_and(|reference| reference.cell != loaded)
+        })
+    }
+
     fn advance_measured(&mut self, delta: f64) {
         if self.console.open {
             return;
@@ -1422,13 +1433,7 @@ impl PlayerNode {
             self.present_game_menu_requests();
             return;
         }
-        let pending_location = self.game.as_mut().is_some_and(|game| {
-            let player = game.player();
-            game.world()
-                .reference_ref(player)
-                .is_some_and(|r| r.cell != self.loaded_cell)
-        });
-        if pending_location && !self.sync_game_pose() {
+        if self.location_change_pending() && !self.sync_game_pose() {
             if !self.location_preparing {
                 self.auto_step = false;
             }
@@ -2524,6 +2529,13 @@ impl PlayerNode {
     #[func]
     pub fn is_location_preparing(&self) -> bool {
         self.location_preparing
+    }
+
+    /// An activated load door is still playing its open animation, and the
+    /// travel through it starts when the animation ends.
+    #[func]
+    pub fn is_load_door_pending(&self) -> bool {
+        self.pending_load_door.is_some()
     }
 
     /// The loaded collision and rendering cell agree with the shared player.

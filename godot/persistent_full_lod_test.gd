@@ -20,6 +20,17 @@ func _check(ok: bool, message: String) -> void:
 		printerr("FULL_LOD_FAIL ", message)
 
 
+## A load door plays its open animation and then prepares its destination across
+## host frames, so a check of the new location waits until both end.
+func _settle_location(label: String) -> void:
+	var frames := 0
+	while (player.call("is_load_door_pending") or player.call("is_location_preparing")) and frames < 1800:
+		player.call("advance", 1.0 / 60.0)
+		await process_frame
+		frames += 1
+	_check(player.call("gameplay_location_ready"), label + " location ready after " + str(frames) + " frames")
+
+
 func _drawn() -> Dictionary:
 	var drawn := {}
 	for surface: Dictionary in streamer.call("play_path_surfaces"):
@@ -44,6 +55,7 @@ func _start() -> void:
 			break
 	_check(exited, "authored Bannered Mare exit")
 	player.call("advance", 0.0)
+	await _settle_location("inn exit")
 	for _frame in range(90):
 		player.call("advance", 1.0 / 60.0)
 		await process_frame
@@ -57,7 +69,8 @@ func _start() -> void:
 	_check(player.call("step_player_input"), "gate approach applied")
 	_check(player.call("activate_reference", gate.file, gate.object), "authored gate crossing")
 	player.call("advance", 0.0)
-	_check(player.call("detection_worldspace") == "Tamriel", "Tamriel at gate")
+	await _settle_location("gate crossing")
+	_check(player.call("detection_worldspace") == "Tamriel", "Tamriel at gate, saw \"" + str(player.call("detection_worldspace")) + "\" in cell " + str(player.call("gameplay_cell")))
 	for _frame in range(90):
 		player.call("advance", 1.0 / 60.0)
 		await process_frame
@@ -88,7 +101,8 @@ func _start() -> void:
 	print("FULL_LOD_MEMORY ", JSON.stringify({"rust": memory, "godot_static": Performance.get_monitor(Performance.MEMORY_STATIC), "plugin_records": streamer.call("plugin_record_memory"), "chargen": streamer.call("chargen_resident_bytes"), "lod_cache": streamer.call("lod_cache_memory")}))
 	_check(player.call("activate_reference", gate.far_file, gate.far_object), "return to Whiterun")
 	player.call("advance", 0.0)
-	_check(player.call("detection_worldspace") == "WhiterunWorld", "worldspace changed")
+	await _settle_location("return to Whiterun")
+	_check(player.call("detection_worldspace") == "WhiterunWorld", "worldspace changed, saw \"" + str(player.call("detection_worldspace")) + "\" in cell " + str(player.call("gameplay_cell")))
 	for _frame in range(90):
 		player.call("advance", 1.0 / 60.0)
 		await process_frame

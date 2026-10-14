@@ -800,6 +800,17 @@ impl PlayerNode {
             {
                 self.pending_load_door = None;
                 self.activate_game_reference_immediate(door);
+                // The travel moved the player and left the old cell waiting to
+                // unload, so the exterior focus below would still name the old
+                // cell and the game rejects it. Install the destination now and
+                // end the tick, the way the head of the advance does for any
+                // other pending location.
+                if self.location_change_pending() {
+                    if !self.sync_game_pose() && !self.location_preparing {
+                        self.auto_step = false;
+                    }
+                    return;
+                }
             }
         }
         self.sync_references_for_tick();
