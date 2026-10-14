@@ -232,7 +232,6 @@ impl DataSource {
     }
 
     /// Worldspace ownership comes from the winning CELL's own file namespace.
-    #[cfg(any(feature = "godot", test))]
     pub(crate) fn exterior_world(&self, cell: GlobalFormId) -> Option<GlobalFormId> {
         if self.cell_index().is_interior(cell) {
             return None;
@@ -246,6 +245,35 @@ impl DataSource {
             .placement
             .world
             .map(|raw| self.order.resolve(owner.file, raw))
+    }
+
+    /// Admission uses the ordinary grid and small-world location selection.
+    pub(crate) fn prefetch_cells(
+        &self,
+        cell: GlobalFormId,
+        position: [f32; 3],
+        radius: i32,
+    ) -> Option<Vec<GlobalFormId>> {
+        if !(0..=4).contains(&radius) || position.iter().any(|v| !v.is_finite()) {
+            return None;
+        }
+        if self.cell_index().is_interior(cell) {
+            return Some(vec![cell]);
+        }
+        let world = self.exterior_world(cell)?;
+        let origin = (
+            (position[0] / CELL_UNITS).floor() as i32,
+            (position[1] / CELL_UNITS).floor() as i32,
+        );
+        let mut cells: Vec<_> = self
+            .exterior_cells_at(world, origin, radius)
+            .into_iter()
+            .map(|cell| cell.id)
+            .collect();
+        cells.extend(self.cell_index().world_persistent_cell(world));
+        cells.sort_unstable();
+        cells.dedup();
+        Some(cells)
     }
 
     /// Prepare only the requested grid cells. Missing border cells have no resources.

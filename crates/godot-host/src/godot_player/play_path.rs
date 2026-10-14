@@ -178,12 +178,17 @@ impl PlayerNode {
             .ok_or("player has no inline gameplay world")?;
         let cell = self.loaded_cell.ok_or("player has no collision cell")?;
         let feet = self.feet();
-        soe_game::play::navigation_approach_path(
+        let inset = self.character().map_or(
+            soe_physics::CharacterSettings::default().radius,
+            |character| character.settings.radius,
+        );
+        soe_game::play::navigation_approach_path_with_portal_inset(
             game,
             cell,
             [feet.x, feet.y, feet.z],
             [destination.x, destination.y, destination.z],
             128.0,
+            inset,
         )
         .map(|path| {
             path.points

@@ -152,7 +152,7 @@ impl DataSource {
         let mut stats = CollisionStats::default();
         let mut out: Vec<PlacedCollider> = Vec::new();
 
-        for id in self.presentation_references(cell_id).iter().copied() {
+        for id in self.physical_references(cell_id).iter().copied() {
             if !soe_game::World::authored_reference_enabled(self.order(), id) {
                 continue;
             }

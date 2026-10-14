@@ -5,6 +5,15 @@
 
 #[test]
 fn hst_28_bannered_mare_hulda_activation_greeting_topics_voice_and_close() {
+    run_hulda("input");
+}
+
+#[test]
+fn hst_28_play_path_activation_selects_topic_response_and_starts_voice() {
+    run_hulda("play_path");
+}
+
+fn run_hulda(activation: &str) {
     let Some(data) = std::env::var_os("SKYRIM_DATA") else {
         return;
     };
@@ -31,6 +40,7 @@ fn hst_28_bannered_mare_hulda_activation_greeting_topics_voice_and_close() {
         .env("SOE_THREADED_SIMULATION", "0")
         .env("SOE_HST_28_SPEAKER_FILE", hulda.file.to_string())
         .env("SOE_HST_28_SPEAKER_OBJECT", hulda.object.to_string())
+        .env("SOE_HST_28_ACTIVATION", activation)
         .env_remove("SOE_CAPTURE_PATH")
         .env_remove("SOE_AUD_11_TEST")
         .output()
@@ -40,10 +50,9 @@ fn hst_28_bannered_mare_hulda_activation_greeting_topics_voice_and_close() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    for line in log
-        .lines()
-        .filter(|line| line.contains("hst_28") || line.contains("SCRIPT ERROR:"))
-    {
+    for line in log.lines().filter(|line| {
+        line.contains("hst_28") || line.contains("SCRIPT ERROR:") || line.starts_with("PLAY_PATH ")
+    }) {
         println!("{line}");
     }
     assert!(

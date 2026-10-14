@@ -9,6 +9,21 @@ use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub(super) struct LocationInstall {
+    destination: GlobalFormId,
+    location: Option<crate::data_source::LoadedLocation>,
+    query: crate::godot_physics::CellBodies,
+    placed: usize,
+    cells: usize,
+    frame: Option<u64>,
+}
+
+impl Drop for LocationInstall {
+    fn drop(&mut self) {
+        self.query.free();
+    }
+}
+
 fn should_stand_from_furniture(world: &mut soe_game::World, player: GlobalFormId) -> bool {
     world
         .furniture_seat(player)
@@ -904,7 +919,7 @@ impl PlayerNode {
                 }
             }
             self.prefetch_nearby_interior(delta);
-        } else {
+        } else if !self.location_preparing {
             if let Some(game) = &mut self.game {
                 for latent in self.pending_debug_latents.drain(..) {
                     game.vm
@@ -1232,14 +1247,16 @@ impl PlayerNode {
             return;
         };
         let feet = self.feet();
-        let destination = game.world().nearby_interior_destination(
-            cell,
-            [feet.x, feet.y, feet.z],
-            APPROACH_RADIUS,
-        );
+        let destination =
+            game.world()
+                .nearby_load_destination(cell, [feet.x, feet.y, feet.z], APPROACH_RADIUS);
         if let Some(destination) = destination {
-            self.interior_prefetch
-                .request(std::sync::Arc::clone(source), destination.cell);
+            self.interior_prefetch.request_location(
+                std::sync::Arc::clone(source),
+                destination.cell,
+                destination.landing.position,
+                super::exterior::config().load_radius,
+            );
         } else {
             self.interior_prefetch.invalidate();
         }
@@ -1398,6 +1415,7 @@ impl PlayerNode {
 
     pub(super) fn sync_game_pose(&mut self) -> bool {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
+        self.location_preparing = false;
         let destination = {
             let Some(game) = &mut self.game else {
                 return true;
@@ -1430,21 +1448,126 @@ impl PlayerNode {
                 return false;
             };
             let worldspace = source.exterior_world(cell);
-            let prepared = self.interior_prefetch.take(cell);
+            let pending = self
+                .location_install
+                .take()
+                .filter(|pending| pending.destination == cell);
+            let prepared = self.interior_prefetch.take_location(
+                source,
+                cell,
+                position,
+                super::exterior::config().load_radius,
+            );
+            if pending.is_none() && prepared.is_none() && self.auto_step {
+                self.interior_prefetch.prepare_transition(
+                    std::sync::Arc::clone(source),
+                    cell,
+                    position,
+                    super::exterior::config().load_radius,
+                );
+                self.location_preparing = self.interior_prefetch.pending();
+                return false;
+            }
             self.interior_prefetch.invalidate();
-            let location = match prepared.map_or_else(
-                || source.load_location(cell, position, super::exterior::config().load_radius),
-                Ok,
-            ) {
-                Ok(location) => location,
-                Err(error) => {
-                    soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+            let (location, mut query_collision) = if self.auto_step {
+                let mut pending = match pending {
+                    Some(pending) => pending,
+                    None => {
+                        let Some(location) = prepared else {
+                            return false;
+                        };
+                        LocationInstall {
+                            destination: cell,
+                            location: Some(location),
+                            query: crate::godot_physics::CellBodies::default(),
+                            placed: 0,
+                            cells: 0,
+                            frame: None,
+                        }
+                    }
+                };
+                let frame = godot::classes::Engine::singleton().get_process_frames();
+                if pending.frame == Some(frame) {
+                    self.location_install = Some(pending);
+                    self.location_preparing = true;
                     return false;
                 }
-            };
-            let Some(mut query_collision) = self.prepare_query_collision(&location.collision)
-            else {
-                return false;
+                pending.frame = Some(frame);
+                let Some(location) = pending.location.as_ref() else {
+                    return false;
+                };
+                if pending.placed < location.collision.placed.len() {
+                    let Some(space) = self.base().get_world_3d().map(|world| world.get_space())
+                    else {
+                        return false;
+                    };
+                    let end = (pending.placed + 32).min(location.collision.placed.len());
+                    pending
+                        .query
+                        .append(crate::godot_physics::add_placed_query_statics(
+                            space,
+                            &location.collision.placed[pending.placed..end],
+                        ));
+                    pending.placed = end;
+                    self.location_install = Some(pending);
+                    self.location_preparing = true;
+                    return false;
+                }
+                let (Some(streamer), Some(game)) =
+                    (self.game_streamer.as_mut(), self.game.as_mut())
+                else {
+                    return false;
+                };
+                let mut node = streamer.bind_mut();
+                if pending.cells == 0 && !node.begin_location_replace() {
+                    return false;
+                }
+                let Some((id, loaded)) = location.cells.get(pending.cells) else {
+                    return false;
+                };
+                let last = pending.cells + 1 == location.cells.len();
+                if *id != cell && worldspace.is_some() && source.exterior_world(*id) == worldspace {
+                    soe_trace::info!(target: "host::gameplay", system = "host::gameplay", "LOCATION_INSTALL phase=runtime cell={id}");
+                    if let Err(error) = game.attach_streaming_cells(&[*id]) {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+                        return false;
+                    }
+                }
+                if !node.install_location_cell(
+                    *id,
+                    loaded,
+                    &location.collision.placed,
+                    &game.world(),
+                    last,
+                ) {
+                    return false;
+                }
+                drop(node);
+                pending.cells += 1;
+                if !last {
+                    self.location_install = Some(pending);
+                    self.location_preparing = true;
+                    return false;
+                }
+                let Some(location) = pending.location.take() else {
+                    return false;
+                };
+                (location, std::mem::take(&mut pending.query))
+            } else {
+                let location = match prepared.map_or_else(
+                    || source.load_location(cell, position, super::exterior::config().load_radius),
+                    Ok,
+                ) {
+                    Ok(location) => location,
+                    Err(error) => {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+                        return false;
+                    }
+                };
+                let Some(query) = self.prepare_query_collision(&location.collision) else {
+                    return false;
+                };
+                (location, query)
             };
 
             if let Some(game) = &self.game {
@@ -1471,9 +1594,10 @@ impl PlayerNode {
                 return false;
             };
             if !streamer.is_instance_valid()
-                || !streamer
-                    .bind_mut()
-                    .replace_location(&location, &game.world())
+                || (!self.auto_step
+                    && !streamer
+                        .bind_mut()
+                        .replace_location(&location, &game.world()))
             {
                 query_collision.free();
                 return false;
@@ -1493,7 +1617,11 @@ impl PlayerNode {
                     .cells
                     .keys()
                     .copied()
-                    .filter(|id| Some(*id) != pending && *id != cell)
+                    .filter(|id| {
+                        Some(*id) != pending
+                            && *id != cell
+                            && source.exterior_world(*id) == Some(previous.world)
+                    })
                     .collect();
                 if !departing.is_empty() {
                     if let Err(error) = runtime.detach_streaming_cells(&departing) {
@@ -1531,14 +1659,16 @@ impl PlayerNode {
                     .cells
                     .iter()
                     .map(|(id, _)| *id)
-                    .filter(|id| *id != cell)
+                    .filter(|id| *id != cell && source.exterior_world(*id) == Some(worldspace))
                     .collect();
                 let Some(game) = self.game.as_mut() else {
                     return false;
                 };
-                if let Err(error) = game.attach_streaming_cells(&entered) {
-                    soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
-                    return false;
+                if !self.auto_step {
+                    if let Err(error) = game.attach_streaming_cells(&entered) {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+                        return false;
+                    }
                 }
                 self.exterior = Some(super::exterior::ExteriorRuntime {
                     world: worldspace,

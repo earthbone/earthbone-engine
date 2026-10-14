@@ -44,7 +44,11 @@ func _initialize() -> void:
 
 func _walk_fixture() -> void:
     walked = await _walk_to(Vector3(0, 100, 0), 5.0)
+    if walked:
+        completed_loops = 1
+        walked = await _walk_to(Vector3(0, 300, 0), 5.0)
     returned = true
+    await _stop("fixture")
 
 func _npcs(_camera: Camera3D) -> void:
     samples += 1

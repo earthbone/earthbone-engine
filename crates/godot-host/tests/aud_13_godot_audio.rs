@@ -129,14 +129,18 @@ fn run_scene(script: &str, data: &Path) {
     let project = debug_project::project(&[script.trim_start_matches("res://")]).unwrap();
     let mut command = Command::new(godot);
     if script == "res://aud_13_transition_test.gd" {
-        command.arg("--headless");
+        command.arg("--headless").env("SKYRIM_DATA", data);
+    } else {
+        // CONTEXT: The wrapper reserves installed slots for corpus runs.
+        command
+            .env_remove("SKYRIM_DATA")
+            .env("AUD_13_TEST_DATA", data);
     }
     let output = command
         .arg("--path")
         .arg(project.path())
         .args(["--resolution", "640x360", "--script"])
         .arg(script)
-        .env("SKYRIM_DATA", data)
         .output()
         .expect("Godot scene starts");
     let stdout = String::from_utf8_lossy(&output.stdout);

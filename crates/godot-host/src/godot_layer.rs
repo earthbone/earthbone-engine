@@ -212,6 +212,7 @@ pub struct CellStreamerNode {
     /// camera to frame the scene without walking mesh nodes.
     bounds: Option<crate::mesh::Aabb>,
     last_stats: VarDictionary,
+    location_totals: Option<(usize, StreamTotals)>,
     load_profiles: std::collections::BTreeMap<GlobalFormId, soe_trace::LoadRecorder>,
     work_frame: Option<soe_trace::WorkFrame>,
     /// Static bodies this node put into the physics space, freed with the
@@ -802,6 +803,7 @@ impl INode3D for CellStreamerNode {
             materials: MaterialMap::new(),
             bounds: None,
             last_stats: VarDictionary::new(),
+            location_totals: None,
             load_profiles: std::collections::BTreeMap::new(),
             work_frame: None,
             collision: crate::godot_physics::CellBodies::default(),
@@ -1565,6 +1567,56 @@ impl CellStreamerNode {
         self.collision
             .append(crate::godot_physics::add_placed_statics(space, &movable));
         self.collision_space = Some(space);
+    }
+
+    /// Begin a required location replacement whose cells arrive over host frames.
+    pub(crate) fn begin_location_replace(&mut self) -> bool {
+        if self.scenario().is_none() {
+            return false;
+        }
+        self.clear();
+        self.location_totals = Some((self.materials.len(), StreamTotals::default()));
+        true
+    }
+
+    /// Install one prepared cell through the ordinary server-resource path.
+    pub(crate) fn install_location_cell(
+        &mut self,
+        id: GlobalFormId,
+        cell: &LoadedCell,
+        placed: &[crate::collision::PlacedCollider],
+        world: &soe_game::World,
+        last: bool,
+    ) -> bool {
+        let Some(scenario) = self.scenario() else {
+            return false;
+        };
+        let Some((before, mut totals)) = self.location_totals.take() else {
+            return false;
+        };
+        totals.cell_list.push(id.to_string());
+        self.install_cell(id, cell, scenario, &mut totals, Some(world));
+        if let (Some(source), Some(space)) = (
+            self.data_source.as_ref(),
+            self.base().get_world_3d().map(|world| world.get_space()),
+        ) {
+            let references: std::collections::HashSet<_> =
+                source.presentation_references(id).iter().copied().collect();
+            let movable: Vec<_> = placed
+                .iter()
+                .filter(|placed| {
+                    !placed.collider.is_static() && references.contains(&placed.reference)
+                })
+                .cloned()
+                .collect();
+            self.install_movable_collision(space, &movable);
+        }
+        if last {
+            self.last_stats = totals.to_dictionary(self.materials.len() - before);
+        } else {
+            self.location_totals = Some((before, totals));
+        }
+        true
     }
 
     /// Replace drawn resources after CPU preparation succeeds, including resident door controls.
@@ -2560,6 +2612,26 @@ impl CellStreamerNode {
         self.chargen_cache.resident_bytes() as i64
     }
 
+    /// CPU products retained after LOD upload, including products outside residency.
+    #[func]
+    pub fn lod_cache_memory(&self) -> VarDictionary {
+        let mut entries = 0i64;
+        let mut geometry = 0usize;
+        let mut payload = 0u64;
+        for products in self.lod_build_cache.values() {
+            entries += 1;
+            for result in [&products.object, &products.terrain, &products.tree] {
+                if let Ok(Some(loaded)) = result {
+                    payload = payload.saturating_add(loaded.approx_bytes);
+                    for surface in &loaded.surfaces {
+                        geometry = geometry.saturating_add(surface.arrays.mesh_byte_count());
+                    }
+                }
+            }
+        }
+        vdict! { "entries" => entries, "geometry_bytes" => geometry as i64, "payload_bytes" => payload as i64 }
+    }
+
     /// Completed load phases and budget diagnostics, also included in Trace exports.
     #[func]
     pub fn load_timing_dump(&self) -> GString {
@@ -2828,12 +2900,19 @@ impl CellStreamerNode {
         let Some(scenario) = self.scenario() else {
             return -1;
         };
+        let source = Arc::clone(source);
+        if self.rendered_cells.iter().any(|cell| {
+            source
+                .exterior_world(*cell)
+                .is_some_and(|world| world != block.world)
+        }) {
+            self.clear();
+        }
         let materials_before = self.materials.len();
         let mut totals = StreamTotals {
             world: block.world_editor_id.clone().unwrap_or_default(),
             ..StreamTotals::default()
         };
-        let source = Arc::clone(source);
         let result = source.stream_exterior_each(&block, |cell, loaded_cell, has_land| {
             if has_land {
                 totals.land_cells += 1;
@@ -2846,6 +2925,18 @@ impl CellStreamerNode {
         if let Err(e) = result {
             soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_exterior: {e}");
             return -1;
+        }
+        if let Some(persistent) = source.cell_index().world_persistent_cell(block.world) {
+            if !self.rendered_cells.contains(&persistent) {
+                let loaded = match source.stream_cell_id(persistent) {
+                    Ok(loaded) => loaded,
+                    Err(error) => {
+                        soe_trace::error!(target: "host::layer", system = "host::layer", "worldspace full models: {error}");
+                        return -1;
+                    }
+                };
+                self.install_cell(persistent, &loaded, scenario, &mut totals, None);
+            }
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         self.last_stats.set("origin_x", block.origin.0);
@@ -4118,6 +4209,7 @@ impl CellStreamerNode {
     /// included, and forgets the bounds. Releases unused material cache entries.
     #[func]
     pub fn clear(&mut self) {
+        self.location_totals = None;
         self.load_profiles.clear();
         self.collision.free();
         self.tethers.free();
@@ -4332,7 +4424,15 @@ impl CellStreamerNode {
                 totals.instances += 1;
             }
         }
-        let (groups, remainder) = instancing_candidates(&ordinary);
+        let (groups, remainder) = if self
+            .data_source
+            .as_ref()
+            .is_some_and(|source| source.cell_index().persistent_cell_world(cell).is_some())
+        {
+            crate::batch::worldspace_instancing_candidates(&ordinary)
+        } else {
+            instancing_candidates(&ordinary)
+        };
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
             totals.instances += 1;

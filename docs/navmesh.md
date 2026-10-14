@@ -2,6 +2,50 @@
 
 Two halves, one graph type between them.
 
+## Portal steering inset, AI-95
+
+`path_with_portal_inset` resmooths an existing A* corridor with portal endpoints
+inset by the caller's perpendicular boundary clearance. Incident boundary
+angles determine along-edge travel. Interior vertices add no constraint.
+Incident boundary rays also impose their miter distance, so a segment between
+trimmed portals does not cut across their shared corner. A right-angle corner
+requires a radial inset of the clearance times the square root of two.
+Overlapping constraints share a finite point on the edge. Requested endpoints, triangle
+owners, directed links and search cost retain their original meanings.
+Point queries use zero inset. Invalid insets and unknown triangle owners fail.
+
+Local `recastnavigation/RecastDemo/Source/Sample_SoloMesh.cpp` erodes generated
+walkable areas by agent radius before using Detour's point funnel. Native NAVM
+geometry is retained here. This optional steering inset moves the pulled
+centreline away from portal vertices without rebuilding record geometry.
+It does not certify capsule passability. The character controller still
+resolves collision, and an unreachable scripted walk still fails its budget.
+The existing Detour adaptation and license notice remain in place.
+
+`portal_inset_retains_endpoints_and_moves_the_corner_inside_the_corridor`
+checks both windings, samples each segment against the original corridor and
+measures whole-segment clearance from the inner corner.
+The companion test checks invalid distances, short portals and zero-inset
+equivalence. No dependency or saved state is added.
+
+## Coordinate-space endpoint eligibility, AI-92
+
+Point queries accept a caller's mesh eligibility predicate through
+`locate_in_meshes`, `nearest_in_meshes`, `contains_point_in_meshes`,
+`start_path_between_in_meshes` and `find_path_between_in_meshes`.
+Excluded meshes do not update the nearest-height or distance radius.
+Current triangle blocking, requested endpoints, authored adjacency and
+retained search budgets use the existing graph operations.
+
+The game supplies resolved CELL or WRLD membership so overlapping interior
+coordinates cannot select another room's mesh. Geometry stays in one graph.
+The predicate follows the filter before polygon selection in local
+`recastnavigation/Detour/Source/DetourNavMeshQuery.cpp`,
+`findNearestPoly` and `queryPolygonsInTile`. Detour's tile representation
+cannot query the existing native NAVM graph, so this adds eligibility to its
+current bounds-tree traversal. Synthetic checks cover a closer overlapping
+room, excluded meshes and blocked eligible triangles. No dependency is added.
+
 ## AI request expansions, PRF-27
 
 `PathSearch::last_expanded` returns the last slice's non-stale A* expansions,
@@ -512,3 +556,31 @@ authored NAVM triangles, XY edge projection and interpolated surface Z.
 Blocked triangles are excluded and equal distances use NodeId order.
 Nearest-centroid APIs retain their existing semantics. Synthetic tests cover
 a nearby edge of a large triangle and blocked or invalid inputs.
+
+## Preview merge endpoint reconciliation, 2026-10-14
+
+`start_walk_path_between_mesh_sets` combines supported walking endpoints with
+independent source and destination mesh masks. It retains authored adjacency
+between cells, projects supported endpoint Z, and rejects an unsupported
+endpoint instead of retaining a nearest-centroid approach outside NAVM. Game
+requests keep the missing-NAVM headless fallback and cache disconnected routes
+without walking through them. Cross-space fallback remains rejected.
+
+The local sources read for this merge are
+`../engine-refs/recastnavigation/Detour/Source/DetourNavMeshQuery.cpp`,
+`closestPointOnPolyBoundary`, and xEdit's NVNM edge-link definitions. Detour
+clamps off-polygon endpoints rather than promising an unsupported approach.
+The existing supported-walk contract keeps endpoint XY and rejects such an
+approach. Independent endpoint masks preserve authored links without borrowing
+an overlapping interior's endpoint geometry.
+
+When a NAVM has no stamped group placement, the game uses its parsed NVNM
+interior parent CELL for endpoint masks and waypoint ownership. The parent
+comes from the existing record reader, following xEdit `wbNVNM`, Pathing Cell.
+This retains synthetic and override records without borrowing other rooms.
+
+Walking preparation retains endpoint support even when the connected search
+is absent. Game fallback and cached failures reuse that result. Surface
+lookup carries its computed Z into endpoint projection, so neither projection
+nor fallback repeats triangle tests. The unchanged thousand-actor work guard
+limits point lookup to 4,000 tested triangles per tick.

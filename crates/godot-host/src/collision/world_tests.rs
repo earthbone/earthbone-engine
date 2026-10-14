@@ -208,7 +208,7 @@ fn installed_whiterun_market_records_have_activation_shapes() {
         })
         .expect("world");
     let mut checked = 0;
-    let mut owned = 0;
+    let mut owned_items = 0;
     for (cell, _) in source.cell_index().cells() {
         if source.exterior_world(cell) != Some(city) {
             continue;
@@ -252,12 +252,12 @@ fn installed_whiterun_market_records_have_activation_shapes() {
                 base.editor_id()
             );
             checked += 1;
-            owned += usize::from(refr.owner.is_some());
+            owned_items += usize::from(refr.owner.is_some());
         }
     }
-    eprintln!("STALL_SHAPES checked={checked} owned={owned}");
+    eprintln!("STALL_SHAPES checked={checked} owned={owned_items}");
     assert!(
-        checked >= 30 && owned >= 25,
+        checked >= 30 && owned_items >= 25,
         "stall inventory survey must include owned food and clutter"
     );
 }

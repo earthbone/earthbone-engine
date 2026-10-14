@@ -502,7 +502,15 @@ impl PlayerNode {
         };
         let base = self.base().clone();
         let _guard = self.base_mut();
-        for entry in entries {
+        if !entries.is_empty() {
+            for mut child in content.get_children().iter_shared() {
+                if child.is_class("Button") {
+                    content.remove_child(&child);
+                    child.queue_free();
+                }
+            }
+        }
+        for (index, entry) in entries.into_iter().enumerate() {
             let mut button = Button::new_alloc();
             button.set_text(&entry.label);
             button.connect(
@@ -513,6 +521,9 @@ impl PlayerNode {
                 ]),
             );
             content.add_child(&button);
+            if index == 0 {
+                button.grab_focus();
+            }
         }
     }
 

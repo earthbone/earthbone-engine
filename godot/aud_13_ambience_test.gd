@@ -30,7 +30,7 @@ func _voices(bank: Node) -> Array[AudioStreamPlayer]:
 func aud_13_scene_crossfades_acoustic_and_regional_ambience() -> void:
 	var streamer: Node = ClassDB.instantiate("CellStreamerNode")
 	root.add_child(streamer)
-	_check(streamer.call("load_data", OS.get_environment("SKYRIM_DATA")), "fixture load")
+	_check(streamer.call("load_data", OS.get_environment("AUD_13_TEST_DATA")), "fixture load")
 	var audio_root := Node3D.new()
 	root.add_child(audio_root)
 	var bank: Node = ClassDB.instantiate("SoundBank")

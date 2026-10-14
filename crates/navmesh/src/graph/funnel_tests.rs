@@ -105,6 +105,65 @@ fn bent_corridor_rounds_the_inner_corner_in_both_windings() {
 }
 
 #[test]
+fn portal_inset_retains_endpoints_and_moves_the_corner_inside_the_corridor() {
+    for reverse in [false, true] {
+        let graph = tiles(&[(0, 0), (1, 0), (2, 0), (2, 1), (2, 2)], reverse, |_| 0.0);
+        let path = graph
+            .find_path_between([0.1, 0.9, 0.0], [2.1, 2.9, 0.0])
+            .unwrap();
+        assert!(path
+            .points
+            .iter()
+            .any(|p| distance(*p, [2.0, 1.0, 0.0]) < 1e-5));
+        let inset = graph.path_with_portal_inset(&path, 0.2).unwrap();
+        assert_eq!(inset.points.first(), path.points.first());
+        assert_eq!(inset.points.last(), path.points.last());
+        assert_eq!(inset.nodes, path.nodes);
+        assert_eq!(inset.cost, path.cost);
+        on_corridor(&graph, &inset);
+        assert!(inset
+            .points
+            .iter()
+            .all(|p| distance(*p, [2.0, 1.0, 0.0]) >= 0.19));
+        for pair in inset.points.windows(2) {
+            let dx = pair[1][0] - pair[0][0];
+            let dy = pair[1][1] - pair[0][1];
+            let length2 = dx * dx + dy * dy;
+            if length2 > 0.0 {
+                let t =
+                    (((2.0 - pair[0][0]) * dx + (1.0 - pair[0][1]) * dy) / length2).clamp(0.0, 1.0);
+                let closest = [pair[0][0] + dx * t, pair[0][1] + dy * t, 0.0];
+                assert!(
+                    distance(closest, [2.0, 1.0, 0.0]) >= 0.19,
+                    "corner clearance {closest:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn portal_inset_rejects_invalid_bounds_and_keeps_short_portals_on_surface() {
+    let graph = tiles(&[(0, 0), (1, 0), (2, 0)], false, |_| 0.0);
+    let path = graph
+        .find_path_between([0.1, 0.1, 0.0], [2.9, 0.1, 0.0])
+        .unwrap();
+    for inset in [-1.0, f32::NAN, f32::INFINITY] {
+        assert!(graph.path_with_portal_inset(&path, inset).is_none());
+    }
+    let inset = graph.path_with_portal_inset(&path, 100.0).unwrap();
+    on_corridor(&graph, &inset);
+    assert!(inset
+        .points
+        .iter()
+        .flatten()
+        .all(|coordinate| coordinate.is_finite()));
+    let original = graph.path_with_portal_inset(&path, 0.0).unwrap();
+    assert_eq!(original.points, path.points);
+    assert_eq!(original.point_nodes, path.point_nodes);
+}
+
+#[test]
 fn portal_intersections_keep_the_ridge_height() {
     let graph = tiles(&[(0, 0), (1, 0), (2, 0)], false, |x| {
         if x == 1 {

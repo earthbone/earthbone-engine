@@ -131,13 +131,16 @@ pub struct Doorway {
     pub threshold: Threshold,
 }
 
-/// A nearby source door and its authored interior destination.
+/// A nearby source door and its authored destination.
 #[derive(Debug, Clone, Copy)]
-pub struct InteriorDestination {
+pub struct DoorDestination {
     pub door: GlobalFormId,
     pub cell: GlobalFormId,
     pub landing: Transform,
 }
+
+/// The interior-only query retains its existing destination type name.
+pub type InteriorDestination = DoorDestination;
 
 impl World {
     /// Select the nearest enabled load door that shares the player's
@@ -154,6 +157,28 @@ impl World {
         position: [f32; 3],
         radius: f32,
     ) -> Option<InteriorDestination> {
+        let index = self.order.cell_index()?;
+        self.nearby_destination(cell, position, radius, |to| index.is_interior(to))
+    }
+
+    /// Select a nearby authored load door, including exterior destinations.
+    /// Uses the same source coordinate-frame and deterministic distance rules.
+    pub fn nearby_load_destination(
+        &self,
+        cell: GlobalFormId,
+        position: [f32; 3],
+        radius: f32,
+    ) -> Option<DoorDestination> {
+        self.nearby_destination(cell, position, radius, |_| true)
+    }
+
+    fn nearby_destination(
+        &self,
+        cell: GlobalFormId,
+        position: [f32; 3],
+        radius: f32,
+        accepts: impl Fn(GlobalFormId) -> bool,
+    ) -> Option<DoorDestination> {
         if !radius.is_finite() || radius < 0.0 || position.iter().any(|v| !v.is_finite()) {
             return None;
         }
@@ -193,13 +218,13 @@ impl World {
                     Some(destination) => destination.cell,
                     None => self.load_ref_record(far)?.cell,
                 }?;
-                if to == cell || !index.is_interior(to) {
+                if to == cell || !accepts(to) {
                     return None;
                 }
                 Some((
                     distance,
                     id,
-                    InteriorDestination {
+                    DoorDestination {
                         door: id,
                         cell: to,
                         landing,

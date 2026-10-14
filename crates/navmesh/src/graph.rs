@@ -18,12 +18,14 @@ use std::sync::OnceLock;
 mod funnel;
 #[cfg(test)]
 mod funnel_tests;
+mod mesh_query;
 #[cfg(test)]
 mod prf_11_tests;
 #[cfg(test)]
 mod query_tests;
 mod search;
 mod spatial;
+pub use mesh_query::WalkingRequest;
 pub use search::PathSearch;
 use spatial::SpatialIndex;
 
@@ -704,17 +706,36 @@ impl NavGraph {
         &self,
         point: [f32; 3],
         scope: Option<u64>,
-        mut tested: impl FnMut(NodeId),
+        tested: impl FnMut(NodeId),
     ) -> Option<NodeId> {
+        self.locate_meshes_impl(point, tested, |mesh| self.matches_scope(mesh, scope))
+    }
+
+    fn locate_meshes_impl(
+        &self,
+        point: [f32; 3],
+        tested: impl FnMut(NodeId),
+        accepts_mesh: impl Fn(u32) -> bool,
+    ) -> Option<NodeId> {
+        self.locate_surface_meshes_impl(point, tested, accepts_mesh)
+            .map(|(node, _)| node)
+    }
+
+    fn locate_surface_meshes_impl(
+        &self,
+        point: [f32; 3],
+        mut tested: impl FnMut(NodeId),
+        accepts_mesh: impl Fn(u32) -> bool,
+    ) -> Option<(NodeId, f32)> {
         if !point.iter().all(|p| p.is_finite()) {
             return None;
         }
-        let mut best: Option<(f32, NodeId)> = None;
+        let mut best: Option<(f32, NodeId, f32)> = None;
         let mut radius = f32::INFINITY;
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_xy_nearest_height(point, &mut radius, |mi, radius| {
-                if !self.matches_scope(mi as u32, scope) {
+                if !accepts_mesh(mi as u32) {
                     return;
                 }
                 let mesh = &self.meshes[mi];
@@ -730,7 +751,7 @@ impl NavGraph {
                         let node = NodeId::new(mi as u32, ti as u32);
                         tested(node);
                         if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
-                            let candidate = ((z - point[2]).abs(), node);
+                            let candidate = ((z - point[2]).abs(), node, z);
                             if !self.is_blocked(node) && best.is_none_or(|old| candidate < old) {
                                 *radius = candidate.0;
                                 best = Some(candidate);
@@ -738,7 +759,7 @@ impl NavGraph {
                         }
                     });
             });
-        best.map(|(_, n)| n)
+        best.map(|(_, node, z)| (node, z))
     }
 
     /// Whether a point lies on any triangle, including dynamically blocked ones.
@@ -754,12 +775,24 @@ impl NavGraph {
     }
 
     fn contains_point_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> bool {
+        self.contains_meshes_impl(point, &mut tested, |_| true)
+    }
+
+    fn contains_meshes_impl(
+        &self,
+        point: [f32; 3],
+        mut tested: impl FnMut(NodeId),
+        accepts_mesh: impl Fn(u32) -> bool,
+    ) -> bool {
         if !point.iter().all(|value| value.is_finite()) {
             return false;
         }
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .any_xy(point, |mi| {
+                if !accepts_mesh(mi as u32) {
+                    return false;
+                }
                 let mesh = &self.meshes[mi];
                 if point[0] < mesh.min[0]
                     || point[0] > mesh.max[0]
@@ -856,7 +889,16 @@ impl NavGraph {
         &self,
         point: [f32; 3],
         scope: Option<u64>,
+        tested: impl FnMut(NodeId),
+    ) -> Option<NodeId> {
+        self.nearest_meshes_impl(point, tested, |mesh| self.matches_scope(mesh, scope))
+    }
+
+    fn nearest_meshes_impl(
+        &self,
+        point: [f32; 3],
         mut tested: impl FnMut(NodeId),
+        accepts_mesh: impl Fn(u32) -> bool,
     ) -> Option<NodeId> {
         if !point.iter().all(|p| p.is_finite()) {
             return None;
@@ -865,7 +907,7 @@ impl NavGraph {
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_nearest(point, |mi, radius| {
-                if !self.matches_scope(mi as u32, scope) {
+                if !accepts_mesh(mi as u32) {
                     return;
                 }
                 let mesh = &self.meshes[mi];
@@ -1100,6 +1142,30 @@ impl NavGraph {
         let a = self.locate(from).or_else(|| self.nearest(from))?;
         let b = self.locate(to).or_else(|| self.nearest(to))?;
         self.find_path_impl(a, b, Some((from, to)), PathCosts::default())
+    }
+
+    /// Resmooth a corridor with steering points inset from portal endpoints.
+    /// Boundary angles determine along-edge travel. Overlapping constraints
+    /// share a finite point. Physics decides whether a capsule fits the route.
+    /// Returns None for invalid bounds, empty paths or unknown triangle owners.
+    pub fn path_with_portal_inset(&self, path: &Path, inset: f32) -> Option<Path> {
+        if !inset.is_finite() || inset < 0.0 || path.nodes.is_empty() {
+            return None;
+        }
+        for node in &path.nodes {
+            self.meshes
+                .get(node.mesh as usize)?
+                .triangles
+                .get(node.triangle as usize)?;
+        }
+        let (from, to) = (*path.points.first()?, *path.points.last()?);
+        let (points, point_nodes) = self.pull_path_inset(&path.nodes, from, to, inset);
+        Some(Path {
+            nodes: path.nodes.clone(),
+            points,
+            point_nodes,
+            cost: path.cost,
+        })
     }
 
     fn assemble(

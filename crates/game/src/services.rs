@@ -187,7 +187,7 @@ impl crate::Game {
     /// If all services are unavailable, retain the first for an empty menu.
     ///
     /// # Errors
-    /// Reports invalid vendor data rather than silently discarding a service.
+    /// Reports invalid vendor data when resolving a service.
     pub fn merchant_vendor_service(
         &mut self,
         merchant: GlobalFormId,

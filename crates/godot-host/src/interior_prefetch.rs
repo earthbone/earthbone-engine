@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! One speculative interior preparation, following OpenMW's nearby teleport
+//! One speculative destination preparation, following OpenMW's nearby teleport
 //! door preload policy. Only immutable host inputs cross the worker boundary.
 
 use std::collections::HashSet;
@@ -9,12 +9,15 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use soe_esm::GlobalFormId;
+use soe_physics::PhysicsWorld;
 
 use crate::data_source::{DataSource, DataSourceError, LoadedLocation, TextureData};
 
 pub const APPROACH_RADIUS: f32 = 500.0;
 pub const SELECTION_INTERVAL: f64 = 0.25;
 pub const MAX_REFERENCES: usize = 4096;
+/// Limits physical cells and inherited terrain products in a prepared location.
+pub const MAX_LOCATION_CELLS: usize = 128;
 // Measured against installed Special Edition data on 2026-09-24 (HST-07
 // regression), decoded texture and mesh payload per interior:
 // WhiterunBanneredMare 186.7 MiB, RiftenBeeandBarb 195.6 MiB,
@@ -29,6 +32,13 @@ pub const MAX_COLLISION_PRIMITIVES: usize = 100_000;
 type Prepared = Result<Option<LoadedLocation>, DataSourceError>;
 type Loader = Box<dyn FnOnce() -> Prepared + Send + 'static>;
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Preparation {
+    #[default]
+    Speculative,
+    Required,
+}
+
 /// What a finished worker hands back, so a cancelled job is never counted
 /// as a budget rejection.
 enum Outcome {
@@ -39,6 +49,8 @@ enum Outcome {
 
 struct Job {
     destination: GlobalFormId,
+    grid: Option<(i32, i32, i32)>,
+    preparation: Preparation,
     cancel: Arc<AtomicBool>,
     worker: JoinHandle<Result<Outcome, DataSourceError>>,
 }
@@ -47,6 +59,8 @@ struct Job {
 #[derive(Default)]
 pub struct InteriorPrefetch {
     wanted: Option<GlobalFormId>,
+    wanted_grid: Option<(i32, i32, i32)>,
+    preparation: Preparation,
     job: Option<Job>,
     // The newest selection made while a job was still running. At most one is
     // held, it replaces any earlier one, and it starts once that job is
@@ -63,6 +77,8 @@ impl InteriorPrefetch {
     /// Forget a stale destination without joining an unfinished worker.
     pub fn invalidate(&mut self) {
         self.wanted = None;
+        self.wanted_grid = None;
+        self.preparation = Preparation::Speculative;
         self.queued = None;
         self.ready = None;
         self.payload_bytes = 0;
@@ -83,7 +99,11 @@ impl InteriorPrefetch {
         }
         let Some(job) = self.job.take() else { return };
         match job.worker.join() {
-            Ok(Ok(Outcome::Ready(location))) if self.wanted == Some(job.destination) => {
+            Ok(Ok(Outcome::Ready(location)))
+                if self.wanted == Some(job.destination)
+                    && self.wanted_grid == job.grid
+                    && self.preparation == job.preparation =>
+            {
                 self.payload_bytes = payload_bytes(&location);
                 self.ready = Some((job.destination, *location));
                 self.queued = None;
@@ -93,11 +113,11 @@ impl InteriorPrefetch {
                 self.rejected += 1;
                 // A destination that just failed is not retried until the
                 // selection changes.
-                if self
-                    .queued
-                    .as_ref()
-                    .is_some_and(|(queued, _)| *queued == job.destination)
-                {
+                if self.queued.as_ref().is_some_and(|(queued, _)| {
+                    *queued == job.destination
+                        && self.wanted_grid == job.grid
+                        && self.preparation == job.preparation
+                }) {
                     self.queued = None;
                 }
             }
@@ -113,13 +133,82 @@ impl InteriorPrefetch {
     /// While a job runs, the newest selection waits for it instead of spawning
     /// a second worker.
     pub fn request(&mut self, source: Arc<DataSource>, destination: GlobalFormId) {
-        if self.wanted == Some(destination) {
+        if !source.cell_index().is_interior(destination) {
+            if self.wanted == Some(destination) && self.wanted_grid.is_none() {
+                return;
+            }
+            self.invalidate();
+            self.wanted = Some(destination);
+            self.rejected += 1;
+            return;
+        }
+        self.request_location(source, destination, [0.0; 3], 0);
+    }
+
+    /// Prepare a door landing with the ordinary exterior grid selection.
+    /// Cell, landing grid and radius identify the one retained request.
+    pub fn request_location(
+        &mut self,
+        source: Arc<DataSource>,
+        destination: GlobalFormId,
+        position: [f32; 3],
+        radius: i32,
+    ) {
+        self.request_preparation(
+            source,
+            destination,
+            position,
+            radius,
+            Preparation::Speculative,
+        );
+    }
+
+    /// Prepare the required transition's full location on the same worker.
+    /// Speculation budgets remain separate from the normal location's products.
+    pub fn prepare_transition(
+        &mut self,
+        source: Arc<DataSource>,
+        destination: GlobalFormId,
+        position: [f32; 3],
+        radius: i32,
+    ) {
+        self.request_preparation(source, destination, position, radius, Preparation::Required);
+    }
+
+    fn request_preparation(
+        &mut self,
+        source: Arc<DataSource>,
+        destination: GlobalFormId,
+        position: [f32; 3],
+        radius: i32,
+        preparation: Preparation,
+    ) {
+        if !(0..=4).contains(&radius) || position.iter().any(|value| !value.is_finite()) {
+            self.invalidate();
+            self.rejected += 1;
+            return;
+        }
+        let grid = location_grid(&source, destination, position, radius);
+        if self.wanted == Some(destination)
+            && self.wanted_grid == grid
+            && self.preparation == preparation
+        {
             return;
         }
         self.invalidate();
         self.wanted = Some(destination);
-        if !source.cell_index().is_interior(destination)
-            || source.cell_index().references(destination).len() > MAX_REFERENCES
+        self.wanted_grid = grid;
+        self.preparation = preparation;
+        let Some(cells) = source.prefetch_cells(destination, position, radius) else {
+            self.rejected += 1;
+            return;
+        };
+        let references: usize = cells
+            .iter()
+            .map(|&cell| source.cell_index().references(cell).len())
+            .sum();
+        if preparation == Preparation::Speculative
+            && (cells.len() > MAX_LOCATION_CELLS || references > MAX_REFERENCES)
         {
             self.rejected += 1;
             return;
@@ -128,8 +217,8 @@ impl InteriorPrefetch {
             destination,
             Box::new(move || {
                 let source = source.speculative_view();
-                let location = source.load_location(destination, [0.0; 3], 0)?;
-                if !admitted(&location) {
+                let mut location = source.load_location(destination, position, radius)?;
+                if preparation == Preparation::Speculative && !admitted(&location) {
                     soe_trace::warn!(target: "host::interior_prefetch", system = "host::interior_prefetch",
                         "interior_prefetch: rejected {destination} payload={} primitives={}",
                         payload_bytes(&location),
@@ -137,6 +226,10 @@ impl InteriorPrefetch {
                     );
                     return Ok(None);
                 }
+                // Retain the batch attachment's resolved FormID event order.
+                location.cells.sort_unstable_by_key(|(cell, _)| *cell);
+                // Build the immutable static broad phase before any host movement.
+                location.collision.world.step(0.0);
                 Ok(Some(location))
             }),
         );
@@ -148,7 +241,10 @@ impl InteriorPrefetch {
         if let Some(job) = &self.job {
             // Returning to the door whose job is still running keeps that
             // job. If the worker already saw the cancel, the queue restarts it.
-            if job.destination == destination {
+            if job.destination == destination
+                && job.grid == self.wanted_grid
+                && job.preparation == self.preparation
+            {
                 job.cancel.store(false, Ordering::Relaxed);
             }
             self.queued = Some((destination, load));
@@ -180,6 +276,8 @@ impl InteriorPrefetch {
                 self.started += 1;
                 self.job = Some(Job {
                     destination,
+                    grid: self.wanted_grid,
+                    preparation: self.preparation,
                     cancel,
                     worker,
                 });
@@ -204,6 +302,23 @@ impl InteriorPrefetch {
         }
     }
 
+    /// Consume only a location prepared for this door's landing grid and radius.
+    pub fn take_location(
+        &mut self,
+        source: &DataSource,
+        destination: GlobalFormId,
+        position: [f32; 3],
+        radius: i32,
+    ) -> Option<LoadedLocation> {
+        if !(0..=4).contains(&radius) || position.iter().any(|value| !value.is_finite()) {
+            return None;
+        }
+        if self.wanted_grid != location_grid(source, destination, position, radius) {
+            return None;
+        }
+        self.take(destination)
+    }
+
     pub fn ready_cell(&self) -> Option<GlobalFormId> {
         self.ready.as_ref().map(|(cell, _)| *cell)
     }
@@ -224,9 +339,25 @@ impl Drop for InteriorPrefetch {
 }
 
 fn admitted(location: &LoadedLocation) -> bool {
-    location.cells.len() == 1
+    !location.cells.is_empty()
+        && location.cells.len() <= MAX_LOCATION_CELLS
         && location.collision.stats.primitives <= MAX_COLLISION_PRIMITIVES
         && payload_bytes(location) <= MAX_PAYLOAD_BYTES
+}
+
+fn location_grid(
+    source: &DataSource,
+    destination: GlobalFormId,
+    position: [f32; 3],
+    radius: i32,
+) -> Option<(i32, i32, i32)> {
+    (!source.cell_index().is_interior(destination)).then(|| {
+        (
+            (position[0] / 4096.0).floor() as i32,
+            (position[1] / 4096.0).floor() as i32,
+            radius,
+        )
+    })
 }
 
 fn payload_bytes(location: &LoadedLocation) -> usize {
@@ -521,6 +652,147 @@ mod tests {
         select(&mut prefetch, CELL, Box::new(|| panic!("retried")));
         assert_eq!((prefetch.started, prefetch.rejected), (1, 1));
         assert!(!prefetch.pending());
+    }
+
+    #[test]
+    fn changed_landing_grid_cancels_the_old_job_even_when_the_cell_is_shared() {
+        for reject in [false, true] {
+            let (release, wait) = std::sync::mpsc::channel();
+            let mut prefetch = InteriorPrefetch::default();
+            let _ = prefetch.wanted_grid.replace((0, 0, 1));
+            prefetch.start(
+                CELL,
+                Box::new(move || {
+                    wait.recv().unwrap();
+                    Ok((!reject).then(location))
+                }),
+            );
+            prefetch.invalidate();
+            prefetch.wanted = Some(CELL);
+            prefetch.wanted_grid = Some((1, 0, 1));
+            prefetch.schedule(CELL, Box::new(|| Ok(Some(location()))));
+            release.send(()).unwrap();
+            finish(&mut prefetch);
+            assert_eq!(prefetch.started, 2, "stale landing reused its preparation");
+            assert_eq!(prefetch.wanted_grid, Some((1, 0, 1)));
+            assert!(prefetch.take(CELL).is_some(), "new landing was dropped");
+        }
+    }
+
+    #[test]
+    fn installed_whiterun_speculation_rejects_oversize_and_required_preparation_completes() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source =
+            Arc::new(DataSource::open_with_threads(std::path::Path::new(&data), 1).unwrap());
+        let cell = source.resolve_cell("WhiterunBanneredMare").unwrap();
+        let game = soe_game::Game::from_shared_order(source.shared_order());
+        for &reference in source.cell_index().references(cell) {
+            game.world_mut().reference(reference);
+        }
+        let destination = game
+            .world()
+            .nearby_load_destination(cell, [-128.0, -1152.0, 120.1999], 16.0)
+            .unwrap();
+        assert!(!source.cell_index().is_interior(destination.cell));
+        let cells = source
+            .prefetch_cells(destination.cell, destination.landing.position, 1)
+            .unwrap();
+        let references: usize = cells
+            .iter()
+            .map(|&cell| source.cell_index().references(cell).len())
+            .sum();
+        let prepared = source
+            .load_location(destination.cell, destination.landing.position, 1)
+            .unwrap();
+        eprintln!(
+            "DOOR_PREFETCH cells={} references={references} payload={} primitives={}",
+            prepared.cells.len(),
+            payload_bytes(&prepared),
+            prepared.collision.stats.primitives
+        );
+        assert!(cells.len() <= MAX_LOCATION_CELLS);
+        assert!(references <= MAX_REFERENCES);
+        assert!(payload_bytes(&prepared) > MAX_PAYLOAD_BYTES);
+        assert!(prepared.collision.stats.primitives > MAX_COLLISION_PRIMITIVES);
+        assert!(!admitted(&prepared));
+        drop(prepared);
+        let mut prefetch = InteriorPrefetch::default();
+        prefetch.prepare_transition(
+            Arc::clone(&source),
+            destination.cell,
+            destination.landing.position,
+            1,
+        );
+        assert_eq!(prefetch.started, 1);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while prefetch.pending() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "required preparation stalled"
+            );
+            prefetch.poll();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let mut ready = prefetch
+            .take_location(&source, destination.cell, destination.landing.position, 1)
+            .expect("required location");
+        let worldspace = source.exterior_world(destination.cell).unwrap();
+        let runtime_cells: Vec<_> = ready
+            .cells
+            .iter()
+            .filter(|(id, _)| source.exterior_world(*id) == Some(worldspace))
+            .map(|(id, _)| *id)
+            .collect();
+        let inherited_land = ready
+            .cells
+            .iter()
+            .flat_map(|(_, loaded)| &loaded.surfaces)
+            .any(|surface| {
+                let Some(owner) = source.order().winner_ref(surface.reference) else {
+                    return false;
+                };
+                let record = source.order().record(owner);
+                record.tag == soe_esm::tag::LAND
+                    && record
+                        .placement
+                        .cell
+                        .map(|raw| source.order().resolve(owner.file, raw))
+                        .is_some_and(|cell| {
+                            source
+                                .exterior_world(cell)
+                                .is_some_and(|parent| parent != worldspace)
+                        })
+            });
+        assert!(
+            inherited_land,
+            "parent terrain must remain a separate runtime scope"
+        );
+        assert_eq!(
+            runtime_cells.len(),
+            ready.cells.len(),
+            "inherited LAND remains on local cells"
+        );
+        assert_eq!(
+            runtime_cells
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>(),
+            cells.into_iter().collect()
+        );
+        let position = destination.landing.position;
+        let id = ready.collision.world.create_character(
+            soe_physics::CharacterSettings::default(),
+            soe_physics::Vec3::new(position[0], position[1], position[2]),
+        );
+        let started = std::time::Instant::now();
+        ready.collision.world.step_character(id, 1.0 / 60.0);
+        let first_step = started.elapsed();
+        eprintln!("DOOR_PREFETCH first_step={first_step:?}");
+        assert!(
+            first_step < std::time::Duration::from_millis(50),
+            "prepared first step takes {first_step:?}"
+        );
     }
     #[test]
     fn installed_bannered_mare_prefetch_admission() {

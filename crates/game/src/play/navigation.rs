@@ -148,6 +148,20 @@ pub(super) fn query_approach(
     anchor: [f32; 3],
     max_distance: f32,
 ) -> Result<soe_navmesh::Path, String> {
+    query_approach_inset(game, cell, from, anchor, max_distance, 0.0)
+}
+
+pub(super) fn query_approach_inset(
+    game: &Game,
+    cell: GlobalFormId,
+    from: [f32; 3],
+    anchor: [f32; 3],
+    max_distance: f32,
+    inset: f32,
+) -> Result<soe_navmesh::Path, String> {
+    if !inset.is_finite() || inset < 0.0 {
+        return Err("invalid NAVM portal inset".into());
+    }
     if !max_distance.is_finite() || max_distance < 0.0 || !anchor.into_iter().all(f32::is_finite) {
         return Err("invalid NAVM approach bounds".into());
     }
@@ -167,9 +181,12 @@ pub(super) fn query_approach(
             "no walkable NAVM approach within {max_distance} units of {anchor:?}"
         ));
     }
-    graph
+    let path = graph
         .find_path_between(from, to)
-        .ok_or_else(|| format!("no NAVM approach path from {from:?} to {to:?}"))
+        .ok_or_else(|| format!("no NAVM approach path from {from:?} to {to:?}"))?;
+    graph
+        .path_with_portal_inset(&path, inset)
+        .ok_or("invalid NAVM approach corridor".into())
 }
 
 /// Height of the corridor surface under `point`, from the path's own

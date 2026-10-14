@@ -1,5 +1,59 @@
 # soe-game: the runtime form table and the first natives
 
+## Nearby load-door destinations, HST-31
+
+`nearby_load_destination` selects both interior and exterior XTEL destinations
+through the existing source-coordinate-frame query. The interior-only API
+keeps its destination filter. Source enabled/deleted state, distance bounds
+and FormID tie order retain their existing rules. Selection reads forms and
+does not move references, change residency or send cell events.
+
+The host uses the authored landing to prepare exterior surroundings on its
+existing worker, following local OpenMW `scene.cpp`
+`preloadTeleportDoorDestinations` and `preloadCellWithSurroundings`.
+`InteriorDestination` remains an alias of `DoorDestination` for existing callers.
+No saved field is added.
+
+## Bounded capsule approach steering, AI-95
+
+`navigation_approach_path_with_portal_inset` uses the same record-backed CELL
+or WRLD graph and object-anchor bound as `navigation_approach_path`. It passes
+the caller's steering inset to the graph after A* selects the corridor.
+The bounded endpoint and its ownership remain intact. Invalid insets fail
+before graph construction. The host supplies its actual capsule radius.
+The existing point query supplies zero inset, and no World pose is changed.
+The local Recast agent-radius contract and geometric checks are documented
+in [navmesh.md](navmesh.md). No saved field or dependency is added.
+
+## Navigation coordinate spaces, AI-92
+
+Navigation's winning NAVM graph contains interior local coordinates and
+exterior world coordinates. Point selection previously compared them without
+the reference's CELL. A Bannered Mare sandbox path could select a triangle
+in another interior and assign that triangle's CELL to Hulda. The installed
+live baseline changed her cell from `0:01605E` to GoldenglowEstate03
+`0:02D3E7` after ten seconds,
+removing her GetInCell-conditioned gossip while her GetIsID magic topic remained.
+
+The graph caches each mesh's resolved coordinate space from CELL records.
+An interior uses its CELL identity, and an exterior uses its parent WRLD.
+Each actor request shares an immutable mesh eligibility mask for that space.
+Endpoint lookup, off-mesh containment and flee searches use it. Point requests
+scope their destination separately, allowing authored NAVM links between cells.
+A target in another resolved coordinate space rejects the straight-line fallback.
+Resuming a request retains its scope, and a changed actor space invalidates it.
+The existing graph supplies geometry, walkability, adjacency and waypoint owners.
+The masks are transient query caches and add no saved fields.
+
+`ai::cell_path` exposes the same scoped query to the host's player route probe.
+The synthetic overlapping-room checks verify waypoint cell ownership and
+cross-interior fallback rejection. The installed Hulda library survey checks
+ten seconds of AI, her CELL and the conditional gossip topic.
+The local sources are UESP `CELL.wikitext`, xEdit's CELL and CTDA definitions,
+and DetourNavMeshQuery's `findNearestPoly` and `queryPolygonsInTile` filters.
+The existing CELL reader and NAVM graph are reused, with mesh eligibility
+added to the graph's point query interface.
+
 ## Player NPC conversations, HST-28
 
 Player-input actor activation uses `begin_player_dialogue`. An active Hello
@@ -752,7 +806,8 @@ An explicit fourth argument, `--world-checkpoint`, imports the supported world
 passes without saved VM variables or execution and binds fresh scripts. It
 prints that choice on stderr and never falls back from strict import. This
 allows world assertions and authored input from corpus checkpoints. Checkpoint
-startup omits saved timers and queued calls. It does not reproduce a resumed
+startup restores INFO history, SMQN markers and active SCEN phases through
+SAV-30. It omits saved timers and queued calls and does not reproduce a resumed
 quest's script variables. Both modes reject failed world passes. Neither mode
 changes the external save. `load_world_checkpoint` exposes this startup choice
 to callers without a command-line process.
@@ -779,8 +834,9 @@ inventory pickup route matching an independently constructed successor. The
 gated acceptance tests execute two authored Helgen routes against the first
 three numbered main quest saves and require zero differences for both pairs.
 They require `SKYRIM_DATA` and `SOE_TEST_SAVES`, read saves in place and list all
-fields even when a route fails. They use world-checkpoint startup and do not
-import saved VM variables, scene execution or timers.
+fields even when a route fails. They use world-checkpoint startup, including
+saved scene phases, and do not import saved VM variables, scene action
+execution or timers.
 
 Installed-data validation on 2026-10-11 reaches the first route's final marker
 after resolving its start point on the overlapping adjacent-cell navmesh. It
@@ -820,7 +876,7 @@ The second route now approaches `dunCGsetstage195REF` in exterior cell
 0x982B before entering the keep. Both stage waits complete. Its checkpoint
 still lacks stage 174, which the installed
 `SF_MQ101DragonAttackSceneDTo_000DEDBB.Fragment_0` sets at phase 7 start.
-World-checkpoint startup omits saved scene execution. At that checkpoint the
+That repair's world-checkpoint startup omitted saved scene execution. The
 saved keep scene is in phase 5. The acceptance tests keep their full
 completed-stage comparison. `hst_14_ai_movement_delivers_npc_trigger_crossings_once`
 checks AI-driven enter, occupancy, leave and the NPC event argument without
@@ -848,8 +904,9 @@ declare. The earlier native used the first PNAM and returned a package for
 the installed keep scene. SCR-62's ownership audit did not cover that shape.
 `scr_62_scene_owner_uses_parent_quest_after_action_packages` checks it without
 installed data.
-`ply_03_saved_keep_scene_phase_start_runs_stage_174_fragment` restores the
-installed keep scene at phase 5, explicitly completes the actions ending in
+`ply_03_saved_keep_scene_phase_start_runs_stage_174_fragment` loads the
+installed keep scene at phase 5 through world-checkpoint startup, verifies
+that a zero-time tick retains that phase, completes the actions ending in
 phases 5 and 6, then verifies that entering phase 7 runs the installed fragment
 and records stage 174. It does not establish automatic action completion.
 PLY-03's six full checkpoint acceptance tests still require tower progression
@@ -859,6 +916,15 @@ Validation on 2026-10-13 passes 4,259 debug integration tests and 238 library
 tests, with four existing integration ignores. The installed stage-174
 fragment check passes. Each of the six installed checkpoint tests still
 fails on the stage-history gaps above when run alone on one thread.
+
+The following loader repair applies SAV-30's INFO, SMQN and SCEN restore pass
+before binding fresh scripts. SAV-30's `8d7e1fc68` retains an active scene's
+saved phase. PLY-02's checkpoint loader had omitted that pass. The installed
+keep-scene fragment check now exercises the loader without a manual restore.
+Scene playback still requires callers of DLG-18's dialogue action APIs and
+DLG-09's phase advancement API. The game tick does not call either API.
+The first route also bypasses the tower progression. The six PLY-03 successor
+comparisons retain their complete stage histories and remain required.
 
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
@@ -4904,7 +4970,12 @@ batch.
 `IsInList` tests whether the subject reference's base form is a member of the
 resolved FLST. `Exists` accepts a placed ACHR or REFR and returns false for a
 deleted reference. `GetIsVoiceType` compares the actor's traits-source NPC_ VTCK
-with a resolved VTYP. `GetIsObjectType` compares the subject base record's
+with a resolved VTYP or tests membership in a resolved FLST. AI-94 follows
+local xEdit `wbDefinitionsTES5.pas`, whose `ptVoiceType` accepts both tags.
+The list is read from World, including runtime additions and removals.
+`ai_94_voice_lists_match_members_and_follow_runtime_list_changes` checks empty
+lists, matching and nonmatching voices, additions and clearing. Wrong record
+types still fail. `GetIsObjectType` compares the subject base record's
 CommonLib form-type code. `IsPC1stPerson` reads the host POV state, while
 `IsPlayerGrabbedRef` compares its resolved REFR parameter with the grabbed
 reference. Group member and target counts walk live actor combat-target links:
@@ -9912,6 +9983,7 @@ installed acceptance checks remain blocked by another job's installed slot.
 UI-31 stays wip. This checkpoint does not establish live Belethor buying,
 Hulda or Ysolda's conditional merchant role, themed barter artwork or the
 experimental threaded host mode.
+
 ## Console debug views, TOOL-08
 
 `Console::run` and `Console::help` include the command table from
@@ -10051,6 +10123,7 @@ engine-relevant adapters remain unimplemented, as identified explicitly.
 | ToggleVerletDebug (tvd) | tvd returns an explicit error. There is no Verlet cape solver and the host uses Jolt |
 | TrapUpdate | No sourced console trap-update contract independent of ordinary world and Papyrus ticks |
 | VisualRefPosition (VRP) | VRP uses the selected-reference position axes |
+
 PRF-27 adds automatic greeting and force-greet phases after the actor driver.
 Their enclosing durations now contribute to PRF-11's AI total, so every
 inclusive phase remains bounded by the total. Nested idle-chatter and

@@ -139,6 +139,198 @@ godot-host and their docs, plus the backlog and third-party notice.
 capture, retained payload accounting, image and LOD cache budgets, actor
 texture sharing, before and after RSS, and the limits of Godot byte counters.
 
+## Exterior door preparation, HST-31
+
+The first installed run of `78981e93` reaches every inn approach. Hulda offers
+two topics, selecting magic displays its localized response and starts voice
+slot zero. Container travel completes all 16 waypoints in 4.433 physics seconds
+against the existing five-second budget. Taking an item and loose pickup pass.
+The installed headless controller independently reaches the barrel in 4.45
+physics seconds. The 27-point exit approach passes in 7.167 physics seconds.
+
+The load-door crossing then fails the unchanged two-second watchdog. Location
+CPU preparation and host installation run synchronously in `sync_game_pose`.
+The trace spans about 1.3 seconds before upload and another 0.8 seconds of
+upload before termination. The old nearby-door selector excludes exterior
+destinations, so the existing background worker never prepares Whiterun.
+Logs and captures are retained under `target/tst_19/78981-first-live`.
+
+The host now schedules ordinary load-door destinations through that worker.
+Selection still reads the source reference's coordinate frame and authored
+XTEL landing. Interior-only callers retain their existing API. Exterior
+requests use the ordinary grid and small-world cell selection and identify
+their cache by destination cell, landing grid and radius. Changing a grid
+cancels stale work even when both doors name one persistent cell.
+
+Speculative admission retains 4,096 authored references, 384 MiB of mesh and unique texture
+payload and 100,000 collision primitives. Prepared locations also have a
+128-cell bound covering physical cells and inherited terrain. There remains
+one worker or retained result. GPU and physics installation stay on the host
+thread, with query statics and cell uploads spread across process frames. No additional host node or saved field is added.
+
+The installed Whiterun location contains 114 cells, 2,589 authored references,
+839,651,176 bytes of payload and 371,734 collision primitives. It exceeds both
+speculative payload and primitive limits. Those limits retain their existing
+values, and the admission regression requires this rejection. Required
+transitions prepare the normal full location on the worker, using the
+ordinary validated radius and cell selection, before main-thread GPU and
+physics installation. Speculative admission caps remain on speculative work.
+A large-world persistent cell owns references from the whole world and
+cannot supply a required landing admission count. Automatic
+movement and detection wait for preparation. Manual fixed-step callers retain
+their synchronous contract. Preparing a location does not remove distant
+geometry or terrain products.
+
+The route awaits actual location readiness after an accepted load-door request.
+Failed preparation or installation remains a required failure. Host heartbeats
+continue while the CPU worker runs, with the same two-second stall limit and
+whole-run deadline. This host preparation state adds no saved game field.
+
+Local OpenMW `apps/openmw/mwworld/scene.cpp`,
+`preloadTeleportDoorDestinations` and `preloadCellWithSurroundings`, prepares
+exterior surroundings as well as interiors. Its renderer is separate from
+this engine's record-backed Godot resources, so the existing `load_location`
+builder supplies the products here. The installed required-preparation test
+passes. A second live attempt reaches the exit but the unsliced installation
+still exceeds the watchdog. Query static chunks and individual cell uploads
+now yield to host frames. The sliced upload run passes every inn approach and the hearth control pair,
+with 9,227 bright pixels and zero dark pixels. It still stalls after uploads.
+Runtime cell attachment now follows each upload frame in resolved FormID order,
+retaining the previous batch event order, and accepts cells from
+the destination world. The installed survey disproves a separate-parent-cell
+assumption: all 114 prepared cells belong to Whiterun. Their inherited LAND
+references belong to Tamriel and remain on the local cells. The acceptance
+check requires that scope relationship and preserves every terrain product. The worker also builds the
+static physics broad phase before publishing its location. The installed
+acceptance test fixes a 50 ms first-movement limit before its first run.
+Final crossing acceptance is pending.
+
+Surface observations now use the player's loaded worldspace. The exit approach
+is still inside the inn, where it previously reported missing exterior terrain
+and terrain support. The surface fixture requires those observations after
+the worldspace changes and requires missing exterior surfaces to fail. Image,
+height, movement and watchdog thresholds retain their original values.
+The walker also rejects a position outside its 128-unit NAVM height band,
+so horizontal waypoint progress cannot turn a floor fall into a passed stop.
+Hearth shown and control images pause node processing and shader time for
+the capture pair. The local Godot SceneTree and spatial shader references
+supply that contract. The zero-dark-pixel assertion remains unchanged.
+
+## Play path continuation, 2026-10-13
+
+The resumed `50e0c3861` checkout contained the dialogue and distant heads, but
+not integration tip `9c2477617`. The additional merge retains the checkpoint
+scene restore, detection and collision synchronization changes. Its one doc
+conflict keeps both the persistent full-model and enable-collision reports.
+
+The initial affected library run passes 249 game and 446 host cases. Navmesh reports
+54 passes and one failure in
+`portal_inset_retains_endpoints_and_moves_the_corner_inside_the_corridor`.
+The inherited inset clears individual portal endpoints, but their connecting
+segment passes 0.141 units from a right-angle corner against the test's
+unchanged 0.19-unit minimum. Steering now also applies the miter distance from
+the angle between incident boundary rays. All 55 navmesh library cases now pass,
+including the existing whole-segment clearance assertion. Installed acceptance
+is pending. No route budget, collision
+setting or observation threshold changed.
+
+The synthetic AUD-13 ambience scene passes its generated archives through
+`AUD_13_TEST_DATA`. Setting `SKYRIM_DATA` for those tiny fixtures made the
+run wrapper request the same slot as the installed play path. The installed
+AUD-13 transition retains `SKYRIM_DATA`. Audio assertions and deadlines retain
+their existing values.
+
+The full `tools/lint.sh` gate with the Godot runtime enabled exits zero with
+8,607 Rust passes, 52 Python passes and 14 existing ignores. Cargo-deny and
+cargo-audit are absent and skipped. Reported test time totals 444.55 seconds,
+including Godot fixtures and nested builds, exceeding the five-minute budget.
+The earlier run with the Godot input unset fails HST-20's required-runtime
+checks. That input remains enabled in the successful gate. Installed inputs
+and the save corpus remain unset for the gate.
+
+## Counter-corner steering measurement, AI-95
+
+The instrumented play gate confirms W is held and no menu is open during
+container travel. At 2.667 movement physics seconds, feet are
+`(192.0668, -292.0176, 69.0718)`. At 3.200 seconds they are
+`(192.0922, -287.2119, 68.7943)`, only 4.808 more units travelled.
+The point-agent funnel touches the counter corner while the player controller
+has a 32-unit capsule radius. The movement clock correction alone therefore
+does not resolve this collision loss.
+
+The host now supplies that radius to AI-95's optional portal steering inset.
+Intermediate waypoint arrival uses 16 units, half the capsule radius, retaining
+36 for the final bounded object approach. An eight-unit trial stalled 8.4 units
+from a waypoint where record geometry and collision differ. Capsule settings,
+movement speed, five-second
+container budget, 128-unit approach bound and physical collision remain intact.
+Geometric tests pass for both windings, corridor containment, endpoints,
+ownership, invalid bounds and short portals. Installed acceptance is pending.
+
+The first along-edge inset still stalls at `(193, -280)` while steering east.
+The installed headless controller reproduces waypoint 7 of 16 and reports
+nearby reference `0:0C8FA7`, `Clutter/BarSet/BarStraight01.nif`. Moving a portal
+endpoint along a diagonal does not supply that distance perpendicular to the
+boundary. The revised inset accounts for incident boundary angles, leaves
+interior vertices unconstrained and measures whole-segment corner clearance.
+The five-physics-second headless regression uses the actual barrel, NAVM and
+collision. The revised inset passes that installed regression, with all
+waypoints reached before the unchanged budget. Godot play acceptance is pending.
+
+## Combined play fixer checkpoint, 2026-10-13
+
+Detached checkpoint `a64a3e0e7510100842815a33ccb98b02e260026e` includes
+integration `7fda42af7`, dialogue `3e9866b5e` and distant rendering `c4b8adce6`.
+The prior dialogue merge `19bc7b662` retains coordinate-space queries and
+authored navigation links. Backlog and host documentation keep both reports.
+The full lint gate exits zero with 8,597 reported passes and 14 existing ignores.
+Library counts are game 248, host 441 and navmesh 53. Cargo-deny and cargo-audit
+are absent and skipped. The run with optional Godot fixtures enabled reports
+741.13 seconds across test binaries, including nested release builds and
+wrapper lock waits. This exceeds the five-minute tier 1 budget. Timing with
+warm artifacts remains unverified.
+
+The installed Hulda library survey passes one case in 40.38 seconds. AI-94
+admits her traits voice through DefaultNPCVoiceTypes. Her two offered topics
+remain magic and gossip. The selected magic response resolves its FemaleNord
+FUZ asset, and her CELL remains `0:01605E` after ten seconds of AI. Room rental
+is still excluded. JobRentRoomFaction, JobInnkeeperFaction and
+JobMerchantFaction each have rank -1 in this startup state.
+
+The first combined play gate fails one case in 29.28 seconds. Hulda's walk
+passes with 12 points, 347.004 units of displacement and two movement physics
+seconds. Topic selection displays the localized magic response and starts
+voice slot zero, with the voice-start counter increasing from three to four
+and the player still playing. The container walk fails at waypoint 11 of 16
+after 5.017 movement physics seconds and 8.810 wall seconds. Its NAVM path is
+716.177 units long and its endpoint remains within 84.790 units of the barrel
+anchor. Final feet are `(341.9341, -324.0834, 67.9895)`. The run fails instead
+of skipping the container. Load-door crossing, exterior walking and inn return
+remain unmeasured on this checkpoint. Progress logging now records travelled
+distance and waypoint position at half-second physics intervals to locate
+the remaining movement loss.
+
+## Walker physics budget, 2026-10-13
+
+TST-19 charges its movement budget in physics seconds while walking input is
+active. Observation captures release that input and do not consume the budget.
+Normal duration completion waits for the current leg and first full loop.
+The Rust parent's whole-process cap still rejects a run that cannot finish.
+The interim inline-game cap runs at most two physics ticks per rendered frame.
+Local Godot `class_engine.rst`, `max_physics_steps_per_frame`, documents the
+resulting slowdown under low rendering FPS. Wall-clock route duration and the
+watchdog keep their existing limits. Increasing catch-up would repeat inline
+game work and aggravate stalls, so the walker uses the controller's clock.
+
+`tst_19_physics_time_budget_survives_slow_rendering_and_fails_a_blocked_walk`
+runs a ten-FPS fixture with that two-tick cap and a 1.1-second observation pause.
+The reachable walk takes 5.223 wall seconds and 0.650 physics seconds against
+its unchanged one-second budget. A blocked walk fails at 0.267 physics seconds
+against a 0.250-second budget. Interruption before the last waypoint also fails.
+The installed container retains its five-second movement budget and 128-unit
+NAVM approach bound. The script adds a required response.audio check for the
+chosen topic and repeats Hulda activation after returning to the inn.
+
 ## Play path fix checkpoint, 2026-10-13
 
 The first live gate on `ee278da20` exited 101 after the 360-second process
@@ -365,6 +557,111 @@ measurement. Full market and gate views, the repeating route, grass audio,
 optional converted menu themes and the ten-minute GPU mode remain unverified.
 
 ## NPC activation dialogue, HST-28
+
+### Installed greeting action regression, 2026-10-13
+
+The detached integration baseline `0569b3be` starts 421 quests. Activating
+Hulda offers MG01's magic question and DialogueWhiterun's gossip question.
+The selected Hello belongs to FavorJobsChopWood. Its text, both questions
+and the magic response resolve from the installed English string tables.
+The magic response resolves to
+`Sound/Voice/Skyrim.esm/FemaleNord/MG01_MG01InitialBranchTopi_0008EC38_1.fuz`.
+The E-key baseline starts that response in voice slot 0, increases the voice
+start counter from 2 to 3 and reports the Godot player playing.
+
+| Kind | DIAL | INFO | Owning QUST |
+|---|---|---|---|
+| Hello | `0:0BF20C` | `0:01A0ED` | FavorJobsChopWood `0:0BF20F` |
+| Magic | MG01InitialBranchTopic `0:01F80E` | `0:08EC38` | MG01 `0:01F251` |
+| Gossip | WhiterunInnkeeperRumorsBranchTopic `0:02BDDE` | `0:02BDE0` | DialogueWhiterun `0:0270A4` |
+
+GetIsID is true for all three selected INFO records. The greeting's time
+conditions and the magic topic's stage checks are also true. Gossip's GetInCell
+is true at startup. MG01 and DialogueWhiterun have both filled and empty aliases.
+The selected INFO records do not depend on an alias, so those empty fills do not
+explain the missing response.
+
+The earlier innkeeper service survey finds DialogueGeneric `0:013EB3` running.
+Its quest condition GetIsVoiceType rejected `DefaultNPCVoiceTypes` `0:03B4A5`
+because that record is FLST. AI-94 now accepts both VTYP and FLST, following
+xEdit's `ptVoiceType`. The installed survey admits Hulda through that list.
+RentRoomTopic `0:09CC92` has INFO records `0:09CC93`, `0:09CC94`, `0:079B1A`
+and `0:09CC95`. Their predicates do not match Hulda at this startup, including
+GetInFaction for JobRentRoomFaction `0:09CC97`. These service exclusions remain
+unfixed. They do not exclude the two offered topics or their selected response.
+
+The greeting presenter inserted Continue before the eligible topic buttons
+and gave it keyboard focus. The play path selected that action, completed
+the greeting and returned to topic selection with no response. The focused
+live baseline reports an empty response, slot -1 and no increase from its
+two voice starts. Greeting controls now bind the offered Game topic IDs
+and focus the first topic. A greeting without eligible choices retains
+Continue, including Goodbye.
+
+Ten seconds of live AI also moved Hulda's logical cell from the Bannered
+Mare `0:01605E` to `0:02D3E7`. Her gossip INFO's GetIsID remained true,
+but GetInCell could no longer admit it. AI-92 constrains navigation endpoint
+selection to the reference's interior CELL or exterior WRLD. The player
+path probe uses the same Game query. Conditions and aliases remain form
+queries rather than being replaced with menu-specific answers.
+
+`hst_28_greeting_controls` uses generated records to verify topic focus,
+response selection and a Goodbye without topics. `hst_28_dialogue` keeps
+the original E-key check and adds the play path activation and first-button
+sequence after ten seconds of live gameplay. Both inspect the selected
+response voice's start counter and playing state. The play path itself
+does not observe response audio, so this focused check supplies that evidence.
+The library survey prints the eligible INFO predicates and sorted alias fills,
+checks localized text and the voice asset, then checks Hulda's cell and gossip
+after ten seconds of AI.
+
+The focused play path activation reports `route.hulda` passing with
+`activated=true`, `chosen=true`, two topics and the response
+"Magic is for the weak. Elves, I mean. They keep to that College in Winterhold.
+They know their place." Voice slot 0 starts, its counter increases from 2 to 3,
+and its AudioStreamPlayer3D reports playing. Both installed activation cases
+pass, including the original E-key case. The synthetic greeting check passes.
+Library checks report 240 game, 430 host and 49 navmesh passes, including
+installed checks that return early without their data variables.
+All three crates pass the requested formatting and all-target clippy checks.
+
+The full default TST-19 gate fails before activation. Its six harness checks
+pass and its installed route fails. The observed checks are:
+
+| Check | Result | Observed data |
+|---|---|---|
+| window | Pass | X11, `:99`, gate mode, 640 by 360 |
+| gate_display | Pass | `DISPLAY=:99` |
+| capture | Pass | `startup.png` |
+| route.walk | Fail | 12 path points, 212.0416 units moved in 19.795 seconds |
+| npc.drawn | Fail | Last sample has one drawn actor of three in view |
+| npc.head_hair | Fail | Last sample has one head and zero hair meshes of three in view |
+| npc.pose | Pass | Three changed poses of three pairs, one second apart |
+| doors.drawn | Pass | Six doors, zero missing |
+| frame.max_ms | Fail | 167 of 191 measured frames exceed 50 ms, worst 61.129 ms |
+| watchdog.max_ms | Fail | Shutdown heartbeat stale for 2008 ms, limit 2000 ms |
+
+The first destination is `(176.0, -566.0, 69.2457)` and the final player
+position is `(50.83085, -681.4944, 67.9895)`. The route fails at that stop
+rather than skipping it. The parent watchdog kills and reaps the tracked
+Godot process during shutdown. The installed test exits 101. Its logs,
+heartbeat and startup capture are under `target/tst_19/gate`.
+
+The full route does not reach `route.hulda`, `route.container`, `route.loose`,
+`route.hearth`, `route.exit`, `route.market`, `route.gate`, `route.return`,
+`route.repeat`, `route.grass_return` or `duration`. It also does not reach
+`fire.additive`, `fire.hull`, `terrain.textures`, `object.white`, `object.height`,
+`doors.states`, `compass.offset`, `menu.inventory_theme`, `menu.container_theme`,
+`menu.dialogue_theme`, `audio.stone` or `audio.grass`. HST-28 therefore retains
+its unfinished status despite the focused dialogue and response audio evidence.
+The GPU mode and converted theme comparison are outside this run.
+
+Local sources are SkyUI-Community's `source/actionscript/Vanilla/DialogueMenu.as`
+for its topic list and input focus, Godot's `classes/class_control.rst`,
+xEdit's CTDA function table in `Core/wbDefinitionsTES5.pas`, UESP's
+`DIAL.wikitext`, `INFO.wikitext` and `CELL.wikitext`, and the CK alias script
+pages. Existing record, condition, alias, localization and DLG-11 voice
+implementations supply the runtime operations. No dependency is added.
 
 An E-key tap on a resident actor uses the existing collision ray and game
 activation path, including OnActivate and activation blocking. Successful
@@ -8435,6 +8732,7 @@ exits zero. The installed merchant scene has not run because the shared
 installed slot remains occupied. Its acceptance is pending, and UI-31 remains
 wip. The Game conditions, quote and transaction fixtures pass, as reported
 in game.md. The full gate's unrelated AI route failures are retained.
+
 ## Mudcrab streaming port, HST-31
 
 The exterior planner follows Mudcrab main `268f988` cell response generation
@@ -8579,6 +8877,7 @@ was replaced while an owned route process was running.
 
 This report belongs to the scratch `lead-play-stream-port` checkout,
 detached from integration commit `735176dff`. No master branch was changed.
+
 ## Console diagnostic rendering, TOOL-08
 
 `debug_draw` uploads loaded NAVM and actor-route primitives to one optional
@@ -8648,6 +8947,25 @@ handles are pruned when another decoder retires. The local gdext
 The synthetic AUD-12 shutdown test checks nonblocking drop and completed
 worker teardown. PRF-14 retains both release and isolated debug checks and
 requires successful process exit after its count assertions.
+
+## Persistent full-model residency, RND-40
+
+Large-world persistent references with REFR Full LOD or a STAT Never Fades
+base retain their full models on the persistent cell, independent of the
+loaded grid. Other persistent geometry keeps its physical grid ownership.
+Collision remains on the physical grid. Static world-resident models share
+local geometry through MultiMesh, with the existing shared texture and
+material caches. Location replacement releases their rendering resources
+and prepared CPU textures. Exterior previews install the same persistent
+selection and clear it on worldspace changes.
+
+The vanilla survey covers all 47 worldspaces in the five masters. Tamriel
+has 951 flagged persistent references. Within 20 cells of the Whiterun gate,
+251 have drawable enabled models, 110 are invisible editor-marker furniture
+and two are disabled. All 251 now produce live full-model RIDs at the gate.
+The world check submits 785 drawable Tamriel references and retains zero on
+return to Whiterun. The count table, complete near-gate list, local sources
+and memory evidence are in [full-lod-residency.md](full-lod-residency.md).
 
 ### Enable collision and simulation report corrections, 2026-10-13
 

@@ -575,11 +575,7 @@ impl DataSource {
                 continue;
             }
             let base = Static::from_record(base_record)?;
-            if !base.has_distant_lod()
-                || (reference.is_persistent()
-                    && (base_record.flags & soe_esm::records::stat::flags::NEVER_FADES != 0
-                        || record.flags & 0x0001_0000 != 0))
-            {
+            if !base.has_distant_lod() || super::persistent_full_model(&reference, base_record) {
                 continue;
             }
             let lod_path = base
