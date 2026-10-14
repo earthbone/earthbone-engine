@@ -47,6 +47,7 @@ use soe_physics::{Iso, Vec3};
 
 mod object_animation;
 
+mod console_render;
 mod play_path;
 
 fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
@@ -246,6 +247,10 @@ pub struct CellStreamerNode {
     /// can remain resident and visible at the same time.
     object_lod: Option<TerrainLodState>,
     tree_lod: Option<TerrainLodState>,
+    console_visibility: [bool; 4],
+    lod_visibility: [bool; 3],
+    console_borders_visible: bool,
+    console_borders: Option<(Rid, Gd<ArrayMesh>)>,
     /// CPU generated LOD retained for each resolved load-order and block.
     lod_build_cache: crate::lod_rebuild::LodBuildCache<LodBlockProducts>,
 }
@@ -422,6 +427,7 @@ fn lod_stats(lod: Option<&TerrainLodState>) -> VarDictionary {
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
 /// a triangle back to the form that placed it.
 struct Instance {
+    render_kind: usize,
     animation: Option<object_animation::RuntimeSurface>,
     cell: GlobalFormId,
     bounds: crate::mesh::Aabb,
@@ -851,6 +857,10 @@ impl INode3D for CellStreamerNode {
             distant: DistantState::default(),
             object_lod: None,
             tree_lod: None,
+            console_visibility: [true; 4],
+            lod_visibility: [true; 3],
+            console_borders_visible: false,
+            console_borders: None,
             lod_build_cache: crate::lod_rebuild::LodBuildCache::default(),
         }
     }
@@ -1862,6 +1872,7 @@ impl CellStreamerNode {
                             server.instance_set_visible(
                                 instance.rid,
                                 placement.visible
+                                    && self.console_visibility[instance.render_kind]
                                     && world.destruction_model(member.reference).is_none(),
                             );
                             for name in animation
@@ -3629,6 +3640,7 @@ impl CellStreamerNode {
             .map(|i| i.bounds)
             .reduce(crate::batch::merge_bounds);
         self.materials.prune_unused();
+        self.refresh_console_borders();
         count as i32
     }
 
@@ -4113,6 +4125,7 @@ impl CellStreamerNode {
     /// Toggle only distant terrain instances, retaining residency and nearby cells.
     #[func]
     pub fn set_terrain_lod_visible(&mut self, visible: bool) {
+        self.lod_visibility[0] = visible;
         let mut server = RenderingServer::singleton();
         if let Some(lod) = &self.terrain_lod {
             for instance in lod.blocks.values().flatten() {
@@ -4163,6 +4176,7 @@ impl CellStreamerNode {
     /// Toggle distant object instances while retaining their residency.
     #[func]
     pub fn set_object_lod_visible(&mut self, visible: bool) {
+        self.lod_visibility[1] = visible;
         let mut server = RenderingServer::singleton();
         if let Some(lod) = &self.object_lod {
             for instance in lod.blocks.values().flatten() {
@@ -4174,6 +4188,8 @@ impl CellStreamerNode {
     /// Toggle distant tree instances while retaining their residency.
     #[func]
     pub fn set_tree_lod_visible(&mut self, visible: bool) {
+        self.lod_visibility[2] = visible;
+        let visible = visible && self.console_visibility[2];
         let mut server = RenderingServer::singleton();
         if let Some(lod) = &self.tree_lod {
             for instance in lod.blocks.values().flatten() {
@@ -4493,7 +4509,26 @@ impl CellStreamerNode {
         if self.cell_occluders {
             self.add_cell_occluder(cell, &ordinary, scenario);
         }
-        for surface in &ordinary {
+        let mut groups = std::collections::BTreeMap::<usize, Vec<LoadedSurface>>::new();
+        for surface in ordinary {
+            let table = BatchTable::Instances(vec![surface.reference]);
+            let kind = self.console_render_kind(&table, &surface.arrays.material);
+            groups.entry(kind).or_default().push(surface);
+        }
+        for surfaces in groups.values() {
+            self.add_ordinary_cell_surfaces(cell, surfaces, scenario, totals);
+        }
+        self.refresh_console_borders();
+    }
+
+    fn add_ordinary_cell_surfaces(
+        &mut self,
+        cell: GlobalFormId,
+        ordinary: &[LoadedSurface],
+        scenario: Rid,
+        totals: &mut StreamTotals,
+    ) {
+        for surface in ordinary {
             if surface.animation.is_some() {
                 self.add_animated_surface(cell, surface, scenario);
                 totals.instances += 1;
@@ -4504,9 +4539,9 @@ impl CellStreamerNode {
             .as_ref()
             .is_some_and(|source| source.cell_index().persistent_cell_world(cell).is_some())
         {
-            crate::batch::worldspace_instancing_candidates(&ordinary)
+            crate::batch::worldspace_instancing_candidates(ordinary)
         } else {
-            instancing_candidates(&ordinary)
+            instancing_candidates(ordinary)
         };
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
@@ -4720,7 +4755,10 @@ impl CellStreamerNode {
             None => arrays.bounds,
         });
         self.reference_index_dirty = true;
+        let render_kind = self.console_render_kind(&table, &arrays.material);
+        server.instance_set_visible(rid, self.console_visibility[render_kind]);
         self.instances.push(Instance {
+            render_kind,
             animation: None,
             cell,
             bounds: arrays.bounds,
@@ -4767,7 +4805,10 @@ impl CellStreamerNode {
         });
         let table = BatchTable::Instances(group.members.iter().map(|m| m.reference).collect());
         self.reference_index_dirty = true;
+        let render_kind = self.console_render_kind(&table, &group.arrays.material);
+        server.instance_set_visible(rid, self.console_visibility[render_kind]);
         self.instances.push(Instance {
+            render_kind,
             animation: None,
             cell,
             bounds,
@@ -4779,6 +4820,7 @@ impl CellStreamerNode {
     }
 
     fn free_instances(&mut self) {
+        self.free_console_borders();
         self.rendered_cells.clear();
         self.reference_index_dirty = true;
         let mut server = RenderingServer::singleton();
@@ -5124,6 +5166,10 @@ impl CellStreamerNode {
                         .instance_geometry_set_material_override(instance.rid, material.get_rid());
                 }
             }
+            let visible = self.console_lod_visible(kind);
+            for instance in &instances {
+                server.instance_set_visible(instance.rid, visible);
+            }
             lod.blocks.insert(block, instances);
         }
         let joined_evictions = if matches!(kind, LodStream::Terrain) {
@@ -5427,6 +5473,9 @@ impl CellStreamerNode {
         for block in blocks {
             let instances =
                 self.joined_lod_instances(block, &lod.source_surfaces[&block], &near, scenario);
+            for instance in &instances {
+                server.instance_set_visible(instance.rid, self.lod_visibility[0]);
+            }
             for instance in lod.blocks.remove(&block).into_iter().flatten() {
                 server.free_rid(instance.rid);
             }

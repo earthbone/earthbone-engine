@@ -45,6 +45,7 @@ use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputSta
 
 mod activation;
 mod carry;
+mod console;
 mod containers;
 #[path = "debug_draw/player.rs"]
 mod debug_views;
@@ -251,6 +252,7 @@ pub struct PlayerNode {
     devices: Devices,
     input_focused: bool,
     menu: crate::ui::MenuState,
+    console: console::Session,
     training_trainer: Option<GlobalFormId>,
     main_menu: crate::ui::MainMenuState,
     inventory_category: crate::inventory_menu::Category,
@@ -403,6 +405,7 @@ impl INode3D for PlayerNode {
             devices: Devices::default(),
             input_focused: true,
             menu: crate::ui::MenuState::default(),
+            console: console::Session::default(),
             training_trainer: None,
             main_menu: crate::ui::MainMenuState::default(),
             inventory_category: crate::inventory_menu::Category::All,
@@ -455,6 +458,7 @@ impl INode3D for PlayerNode {
         self.create_hud();
 
         self.create_menu();
+        self.create_console();
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::CAPTURED);
         }
@@ -462,7 +466,11 @@ impl INode3D for PlayerNode {
 
     fn unhandled_input(&mut self, event: Gd<godot::classes::InputEvent>) {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
-        if !self.input_focused || self.menu.is_open() {
+        if !self.input_focused
+            || self.menu.is_open()
+            || self.console.open
+            || !self.player_control_enabled(3)
+        {
             return;
         }
         if let Ok(motion) = event.try_cast::<InputEventMouseMotion>() {
@@ -495,6 +503,15 @@ impl INode3D for PlayerNode {
         if !self.input_focused {
             return;
         }
+        if self.console_input(&event) {
+            if let Some(mut viewport) = self.base().get_viewport() {
+                viewport.set_input_as_handled();
+            }
+            return;
+        }
+        if self.console.open {
+            return;
+        }
         if self.quick_loot_input(&event) {
             if let Some(mut viewport) = self.base().get_viewport() {
                 viewport.set_input_as_handled();
@@ -506,6 +523,7 @@ impl INode3D for PlayerNode {
                 && key.is_pressed()
                 && !key.is_echo()
                 && !self.menu.is_open()
+                && self.player_control_enabled(5)
                 && self.open_inventory_menu()
             {
                 if let Some(mut viewport) = self.base().get_viewport() {
@@ -520,6 +538,7 @@ impl INode3D for PlayerNode {
                 && key.is_pressed()
                 && !key.is_echo()
                 && !self.menu.is_open()
+                && self.player_control_enabled(5)
                 && self.open_magic_menu()
             {
                 if let Some(mut viewport) = self.base().get_viewport() {
@@ -534,6 +553,8 @@ impl INode3D for PlayerNode {
                 && key.is_pressed()
                 && !key.is_echo()
                 && !self.menu.is_open()
+                && self.player_control_enabled(5)
+                && self.player_control_enabled(7)
                 && self.open_quest_journal()
             {
                 if let Some(mut viewport) = self.base().get_viewport() {
@@ -674,7 +695,11 @@ impl INode3D for PlayerNode {
         }
         self.refresh_mcm_options();
         self.update_dialogue_layout();
-        if self.auto_step && !self.menu.is_open() {
+        if self.auto_step
+            && !self.menu.is_open()
+            && !self.console.open
+            && self.console.free_camera.is_none()
+        {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
             self.rig.look(dx, dy);
@@ -1367,6 +1392,12 @@ impl PlayerNode {
     }
 
     fn advance_measured(&mut self, delta: f64) {
+        if self.console.open {
+            return;
+        }
+        if self.console_free_camera_step(delta) {
+            return;
+        }
         if self.simulation.is_some() {
             self.advance_simulation_controller(delta);
             return;
@@ -1452,7 +1483,8 @@ impl PlayerNode {
         });
 
         let physics_scope = soe_trace::SystemScope::new(soe_trace::System::Physics);
-        if let (Some(world), Some(id)) = (self.world.as_mut(), self.character) {
+        let noclip = self.console_noclip_step(delta, &input);
+        if let (Some(world), Some(id)) = (self.world.as_mut().filter(|_| !noclip), self.character) {
             world.set_crouch(id, intent.crouch);
             let (direction, speed, jump) = player_locomotion(intent, paralyzed);
             world.walk(id, direction, speed);
@@ -2625,6 +2657,9 @@ fn player_locomotion(intent: crate::input::Intent, paralyzed: bool) -> (Vec3, f3
 
 impl PlayerNode {
     fn look_stick(&mut self, delta: f64) {
+        if self.console.open || !self.player_control_enabled(3) {
+            return;
+        }
         let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         let (x, y) = self.devices.look(&self.bindings);
         let scale = self.gamepad_look_speed * delta as f32;
@@ -2745,7 +2780,7 @@ impl PlayerNode {
     /// Read full chords from device state and consume each press once.
     fn gather(&mut self) -> InputState {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
-        if !self.input_focused {
+        if !self.input_focused || self.console.open {
             return InputState::default();
         }
         let input = Input::singleton();
@@ -2786,7 +2821,7 @@ impl PlayerNode {
             f32::from(u8::from(held(pos))) - f32::from(u8::from(held(neg)))
         };
         let stick = self.devices.movement(&self.bindings);
-        let state = InputState {
+        let mut state = InputState {
             move_x: axis(Action::StrafeLeft, Action::StrafeRight) + stick.0,
             move_y: axis(Action::Back, Action::Forward) + stick.1,
             look_dx: 0.0,
@@ -2806,6 +2841,29 @@ impl PlayerNode {
             right_attack_held: held(Action::RightAttackBlock),
             left_attack_pressed: pressed(Action::LeftAttackBlock),
         };
+        if !self.player_control_enabled(0) {
+            state.move_x = 0.0;
+            state.move_y = 0.0;
+            state.jump_pressed = false;
+            state.sprint = false;
+        }
+        if !self.player_control_enabled(1) {
+            state.ready_weapon_pressed = false;
+            state.right_attack_pressed = false;
+            state.right_attack_held = false;
+            state.left_attack_pressed = false;
+            state.left_attack_held = false;
+        }
+        if !self.player_control_enabled(2) {
+            state.toggle_pov_pressed = false;
+        }
+        if !self.player_control_enabled(4) {
+            state.sneak_pressed = false;
+            state.sneak_held = false;
+        }
+        if !self.player_control_enabled(6) {
+            state.activate_pressed = false;
+        }
         self.held_actions = held_now;
         state
     }
@@ -2845,10 +2903,12 @@ impl PlayerNode {
         let rendered = self
             .image_space
             .base()
+            .filter(|_| !self.console.imagespace_disabled)
             .map(crate::image_space::RenderedBase::from);
         let modifiers = self
             .game
             .as_ref()
+            .filter(|_| !self.console.imagespace_disabled)
             .and_then(|game| {
                 self.image_space
                     .render_layers(&game.world())
@@ -2896,7 +2956,8 @@ impl PlayerNode {
             let [red, green, blue, alpha] = presentation.rgba;
             view.overlay
                 .set_color(Color::from_rgba(red, green, blue, alpha));
-            view.overlay.set_visible(presentation.visible);
+            view.overlay
+                .set_visible(presentation.visible && !self.console.imagespace_disabled);
         }
     }
 

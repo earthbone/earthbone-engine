@@ -1975,6 +1975,9 @@ impl Game {
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
     /// queued, or `max_rounds` passes. Returns true when settled.
     pub fn run_until_idle(&mut self, max_rounds: usize) -> bool {
+        if !self.world.borrow().debug_scripts_enabled {
+            return false;
+        }
         let previous = self.papyrus_deadline;
         let started = std::time::Instant::now();
         if previous.is_none() {

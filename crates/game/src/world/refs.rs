@@ -1049,6 +1049,86 @@ impl World {
         true
     }
 
+    /// Restore only authored inventory, leaving placement and reference identity intact.
+    /// Console ResetInventory follows UESP Skyrim Console and the existing record loader.
+    pub fn reset_inventory(&mut self, id: GlobalFormId) -> bool {
+        let Some(fresh) = self.load_ref(id) else {
+            return false;
+        };
+        let Some(reference) = self.reference(id) else {
+            return false;
+        };
+        reference.inventory = fresh.inventory;
+        let worn = reference
+            .inventory
+            .iter()
+            .filter_map(|(item, _)| {
+                reference
+                    .inventory
+                    .stacks(*item)
+                    .iter()
+                    .any(crate::inventory::Stack::worn)
+                    .then_some(*item)
+            })
+            .collect();
+        if let Some(actor) = self.actor(id) {
+            actor.equipped = worn;
+            actor.left_weapon = None;
+            actor.right_weapon = None;
+            actor.prevent_equipment_removal.clear();
+        }
+        true
+    }
+
+    /// Drop an inventory bundle as a dynamic reference with its stack extras.
+    /// Console Drop follows UESP Skyrim Console, including forced quest-item removal.
+    pub fn console_drop(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        alloc: super::Alloc<'_>,
+    ) -> Vec<GlobalFormId> {
+        if count <= 0 || self.item_count(holder, item) <= 0 {
+            return Vec::new();
+        }
+        let mut bundle = self.remove_item_bundle(holder, item, count, None);
+        self.notify_item_bundle(holder, item, None, &bundle, alloc);
+        bundle.unequip();
+        let represented: i32 = bundle
+            .stacks()
+            .iter()
+            .map(crate::inventory::Stack::count)
+            .sum();
+        let mut stacks = bundle.stacks().to_vec();
+        if bundle.count() > represented {
+            if let Ok(stack) =
+                crate::inventory::Stack::new(bundle.count() - represented, Vec::new())
+            {
+                stacks.push(stack);
+            }
+        }
+        let mut placed = Vec::new();
+        for stack in stacks {
+            let original = stack.reference().filter(|reference| {
+                self.reference(*reference)
+                    .is_some_and(|state| state.base == Some(item) && !state.is_actor)
+            });
+            let id = original.unwrap_or_else(|| self.place_at(item, holder, false));
+            if original.is_some() {
+                self.move_to(id, holder, [0.0; 3]);
+            }
+            if let Some(reference) = self.reference(id) {
+                reference.enabled = true;
+                reference.deleted = false;
+                reference.destroyed = false;
+                reference.item = Some(stack.with_reference(id));
+                placed.push(id);
+            }
+        }
+        placed
+    }
+
     pub fn distance(&mut self, a: GlobalFormId, b: GlobalFormId) -> f32 {
         let (Some(pa), Some(pb)) = (
             self.reference(a).map(|r| r.position),
@@ -1173,4 +1253,23 @@ impl World {
         }
         process
     }
+}
+
+/// Save deferred console deletion without changing the frozen save body.
+pub(super) fn write_console_reference(
+    reference: &RefState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.bool(reference.console_delete_pending);
+}
+
+/// Restore deferred console deletion from UI-31.
+pub(super) fn read_console_reference(
+    reference: &mut RefState,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    reference.console_delete_pending = reader.bool()?;
+    Ok(())
 }

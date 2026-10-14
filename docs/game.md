@@ -10147,3 +10147,1273 @@ does not need an invented SNDR form. The selected file remains resolved
 through the host VFS. Sources are local xEdit DOBJ and SNCT, UESP SNCT and
 CommonLibSSE BGSSoundCategory. The installed host category and scene checks
 verify the playback parameters. No world field or save section is added.
+
+## In-game console, UI-31
+
+PlayerNode owns a fixed native console control tree, so the walkthrough and
+play path share selection, history and command execution. Grave, tilde and the
+physical grave key open it. Escape or the same key closes it. Opening releases
+held game inputs and the captured mouse. Closing restores the previous mouse
+mode. Up and Down recall history and restore an unfinished draft. Page Up and
+Page Down scroll output. Clicking a world reference above the panel selects its
+runtime FormID through the existing Godot body mapping. Clicking the selected
+reference again or empty space clears selection. An explicit `player.` or
+quoted reference prefix overrides selection for that command only.
+
+Lines reach `debug::Console::run`. Quoted multiword arguments, case-insensitive
+command aliases, hex IDs, comma-separated arguments and semicolon batch comments
+follow the local `engine-refs/uesp-skyrim-console/Console.wikitext`, saved on
+2026-10-13. The entire snapshot was read, including its three practical command
+tables, All Known Commands and batch guidelines. The existing World, VM,
+inventory notifications, actor-value components, quest fragments, conditional
+objective targets, weather requests and verified save generations provide the
+operations. The Mudcrab comparison report had no console-specific implementation
+advice. A literal search located its `crates/engine/src/console.rs`, but no code
+was copied or ported from Mudcrab. Bevy and Rapier behavior is not introduced.
+
+This increment is partial coverage of the user's requested command set. The
+catalog below distinguishes implemented operations, partial semantics, pending
+play or testing bridges, and skipped tools that depend on Creation Engine
+internals or unused release commands. Pending commands are not counted as
+implemented or skipped. They return their recorded reason through the overlay.
+`commands.tsv` is the runtime catalog. Every listed skipped command is named
+below with its reason. The UESP table itself does not state argument syntax for
+many All Known Commands entries. Those rows say so instead of guessing.
+
+Runtime switches remain transient, like the existing Papyrus debug switches.
+MarkForDelete waits for the reference's cell to load again and is retained in the
+UI-31 reference save section. SAVE_VERSION remains 37. Dropped stacks retain
+metadata. Full concrete stacks reuse their original reference. Partial drops
+leave that identity on the inventory remainder. The shared removal helper
+clears equipment when its last item leaves inventory. Copied inventory bundles clear worn flags and original-reference
+and container identities while retaining item condition and ownership. The host
+noclip path bypasses player capsule collision and gravity. Free-camera movement
+has its own presentation position and can pause simulation without moving the
+player reference. Normal host input observes the eight player-control flags.
+
+Named `save` and `load` use native verified generations beneath
+`user://saves/console/<name>`. They do not write vanilla ESS files. BAT searches
+the configured Data directory and its parent game directory, continues after a
+failed line and bounds nested batches to 16. A batch can still use the existing
+engine-only debug commands. No per-reference node path is added. The console's
+fixed control nodes do not scale with the number of references.
+
+The opt-in threaded simulation draft accepts console pause requests but does
+not yet accept command execution. The ordinary walkthrough and play path retain
+one shared Game and execute commands against it. Partial camera, renderer,
+progression, save and ownership behaviors are identified in individual rows.
+Those gaps belong to UI-32, UI-33 and UI-34 in BACKLOG.csv. The supplied
+UESP snapshot and local CK corpus do not document `setpccanusepowers` or
+`rewardplayer`. Their rows retain that missing contract instead of guessing.
+
+### Console command coverage
+
+The Name and Short form columns retain UESP spellings where supplied. Syntax is
+written using the runtime canonical spelling. Target is Yes, No, Optional or
+context dependent where the source does not specify a uniform target contract.
+Implemented means the operation has a bridge, subject to the runtime's existing
+unsupported-input errors. Partial names the narrower behavior. Pending means no
+bridge. Skipped gives the reason the command has no useful engine equivalent.
+
+| Name | Short form | Syntax | Target | Status and reason |
+|---|---|---|---|---|
+| Abs | - | `abs Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Actor | Actor | `actor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddAchievement | - | `addachievement Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| AddDecal | - | `adddecal Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddFaceAnimNote | AFAN | `addfaceanimnote Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddFlames | - | `addflames Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddFormToFormList | - | `addformtoformlist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddFormToLeveledList | - | `addformtoleveledlist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddItem | - | `additem <item> [count]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| AddMusic | - | `addmusic Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddNote | AN | `addnote Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddOcclusionPlane | AOP | `addocclusionplane Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| AddPerk | - | `addperk <perk>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| AddShout | - | `addshout <shout>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| AddSpell | - | `addspell <spell>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| AddToContainer | - | `addtocontainer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddToFaction | Addfac | `addtofaction <faction> <rank>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| AddToMap | - | `addtomap Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddTopic | - | `addtopic Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AddWatchAddress | awa | `addwatchaddress Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| advancegametime | - | `advancegametime <hours>` | No | Implemented: Shared World or ordered host operation |
+| AdvancePCLevel | AdvLevel | `advlevel` | No | Implemented: Shared World or ordered host operation |
+| AdvancePCSkill | AdvSkill | `advskill <skill> <experience>` | No | Implemented: Shared World or ordered host operation |
+| ToggleAnimatorCam | animcam | `animcam` | No | Implemented: Orbits and zooms the third-person camera while retaining the actor facing |
+| ApplyHavokImpulse | - | `applyhavokimpulse Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| ApplyImageSpaceModifier | imod | `applyimagespacemodifier Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ApplyImageSpaceModifierCrossFade | imodcf | `applyimagespacemodifiercrossfade Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AttachAshPile | - | `attachashpile Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AttachPapyrusScript | APS | `attachpapyrusscript Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| AutoDisplayObjectives | - | `autodisplayobjectives Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Autosave | - | `autosave Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RunConsoleBatch | bat | `bat <filename>` | No | Partial: Game commands execute in file order, host actions are deferred until the batch finishes and mixed host or game ordering remains pending |
+| BeginTrace | bt | `begintrace Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| BetaComment | BC | `betacomment Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| CalcLowPathToPoint | LP2P | `calclowpathtopoint Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CalcPathToPoint | P2P | `calcpathtopoint Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| callfunc | - | `callfunc <Function> [argument ...]` | Yes | Implemented: Shared World or ordered host operation |
+| CameraShake | - | `camerashake Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CanHaveFlames | - | `canhaveflames Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CanPayCrimeGold | - | `canpaycrimegold Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CompleteAllQuestStages | caqs | `caqs` | No | Implemented: Shared World or ordered host operation |
+| Cast | - | `cast <spell> <target ref> <left\|right\|voice\|power>` | Yes or context dependent | Partial: Direct supported spell effects and source equip work, projectile and charged delivery need their host bridge |
+| CastImmediateOnSelf | cios | `castimmediateonself Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CellInfo | - | `cellinfo Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CheckMemory | chkmem | `checkmemory Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| CheckPlayerDoors | CheckPD | `checkplayerdoors Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearAchievement | - | `clearachievement Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ClearActorsFactionsPlayerEnemyFlag | - | `clearactorsfactionsplayerenemyflag Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearAdaptedLight | cal | `clearadaptedlight Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearArrestState | - | `cleararreststate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearConsole | - | `clearconsole Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearDestruction | - | `cleardestruction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearFactionPlayerEnemyFlag | - | `clearfactionplayerenemyflag Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearLocationMarkers | clm | `clearlocationmarkers Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearNoActivationSound | - | `clearnoactivationsound Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearOwnership | - | `clearownership` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ClearQuestAliases | - | `clearquestaliases Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CloseFile | - | `closefile Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CenterOnCell | COC | `coc <cell editor ID>` | No | Implemented: Shared World or ordered host operation |
+| CenterOnExterior | COE | `coe <x>,<y>` | No | Implemented: Shared World or ordered host operation |
+| CollisionMesh | colmesh | `collisionmesh Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CompleteAllObjectives | - | `completeallobjectives <quest>` | No | Implemented: Shared World or ordered host operation |
+| CompleteQuest | - | `completequest <quest>` | No | Implemented: Shared World or ordered host operation |
+| CopySaves | - | `copysaves Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| Cos | - | `cos Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CenterOnWorld | COW | `cow <worldspace> <x>,<y>` | No | Implemented: Shared World or ordered host operation |
+| CreateDetectionEvent | - | `createdetectionevent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CreateEvent | - | `createevent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CreateGameData | - | `creategamedata Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| CreateGrassAt | cga | `creategrassat Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| CreateSaveData | createsaves | `createsavedata Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ClearScreenBlood | csb | `csb` | No | Implemented: Clear timed blood presentation through the existing HUD setter |
+| CSize | - | `csize Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DamageActorValue | DamageAV | `damageactorvalue <actor value> <amount>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| DamageObject | do | `damageobject Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DebugCombatBehavior | dcb | `debugcombatbehavior Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Disable | - | `disable` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| DisableAllActors | DisAA | `disableallactors Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DisableAllMines | - | `disableallmines Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DisableLinkedPathPoints | - | `disablelinkedpathpoints Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DisablePlayerControls | dpc | `disableplayercontrols [movement fighting POV looking sneak menu activate journal POVtype]` | No | Implemented: Shared World or ordered host operation |
+| DispelAllSpells | - | `dispelallspells` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| DisplayGraphVariable | dgv | `displaygraphvariable Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DisplayLookIKDebug | dlik | `displaylookikdebug Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DoesNotExist | - | `doesnotexist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DoTrap | - | `dotrap Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DrawSkeleton | das | `drawskeleton Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Drop | - | `drop <item> [count]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| DropMe | - | `dropme Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DualCast | - | `dualcast Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DumpMasterFileSeekData | - | `dumpmasterfileseekdata Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DumpModelMap | DMM | `dumpmodelmap Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DumpNiUpdates | dnu | `dumpniupdates Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DumpPapyrusStacks | dps | `dumppapyrusstacks Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DumpPapyrusUpdates | dpu | `dumppapyrusupdates Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| DumpTexturePalette | DTP | `dumptexturepalette Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| DuplicateAllItems | - | `duplicateallitems <destination ref>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| DuplicateNPCStats | - | `duplicatenpcstats Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EffectWasDualCast | - | `effectwasdualcast Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EmptyRefAlias | - | `emptyrefalias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Enable | - | `enable` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| EnableFast | - | `enablefast Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EnableFastTravel | - | `enablefasttravel Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EnableLinkedPathPoints | - | `enablelinkedpathpoints Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EnablePlayerControls | epc | `enableplayercontrols [movement fighting POV looking sneak menu activate journal POVtype]` | No | Implemented: Shared World or ordered host operation |
+| EnableRumble | - | `enablerumble Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EnableStoryManagerLogging | esml | `enablestorymanagerlogging Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EnterTrigger | - | `entertrigger Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EPAlchemyEffectHasKeyword | - | `epalchemyeffecthaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EPAlchemyGetMakingPoison | - | `epalchemygetmakingpoison Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EPMagic_SpellHasKeyword | - | `epmagic_spellhaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EPMagic_SpellHasSkill | - | `epmagic_spellhasskill Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EPModSkillUsage_AdvanceObjectHasKeyword | - | `epmodskillusage_advanceobjecthaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EPModSkillUsage_IsAdvanceAction | - | `epmodskillusage_isadvanceaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EPModSkillUsage_IsAdvanceSkill | - | `epmodskillusage_isadvanceskill Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EPTemperingItemHasKeyword | - | `eptemperingitemhaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EPTemperingItemIsEnchanted | - | `eptemperingitemisenchanted Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EquipItem | - | `equipitem <item> [0\|1] [left\|right]` | Yes or context dependent | Partial: Shared item and hand equip paths work, some ranged weapons and enchantments remain unsupported |
+| EquipObject | - | `equipobject Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EquipShout | - | `equipshout <shout>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| EquipSpell | - | `equipspell <spell> <left\|right\|voice\|instant>` | Yes | Implemented: Equips a spell source without adding it to the learned spell book |
+| EssentialDeathReload | - | `essentialdeathreload Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EvalActorTextures | EAT | `evalactortextures Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EvaluateSpellConditions | esc | `evaluatespellconditions Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| EvaluatePackage | evp | `evp` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| Exists | - | `exists Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ExportInventoryItemInfo | eiii | `exportinventoryiteminfo Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ExportPerfTrackingData | EPTD | `exportperftrackingdata Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| FadeSFX | FSFX | `fadesfx Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| FailAllObjectives | - | `failallobjectives <quest>` | No | Implemented: Shared World or ordered host operation |
+| Family | - | `family Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| FastTravel | - | `fasttravel Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| FindForm | find | `findform Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| findref | - | `findref <base> [count]` | No | Implemented: Shared World or ordered host operation |
+| FireWeapon | - | `fireweapon Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| forcealias | - | `forcealias <quest> <alias> <ref>` | Yes | Implemented: Shared World or ordered host operation |
+| ForceActorValue | ForceAV | `forceav <actor value> <value>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ForceFileCache | ffc | `forcefilecache Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ForceFlee | Flee | `forceflee Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ForceLocIntoAlias | - | `forcelocintoalias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ForceOutOfMemory | FOOM | `forceoutofmemory Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ForceRadioStationUpdate | FRSU | `forceradiostationupdate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ForceRefIntoAlias | - | `forcerefintoalias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ForceRSXCrash | fRSX | `forcersxcrash Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ForceSave | - | `forcesave Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetCameraFOV | FOV | `fov [degrees]` | No | Implemented: Shared World or ordered host operation |
+| FreezeRenderAccumulation | fra | `freezerenderaccumulation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ForceWeather | fw | `fw <weather> [0\|1]` | No | Implemented: Sets current sky weather without interpolation and retains the optional override |
+| GameComment | GC | `gamecomment Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetActionRef | getAR | `getactionref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetActivationHeight | - | `getactivationheight Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetActorAggroRadiusViolated | - | `getactoraggroradiusviolated Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetActorCrimePlayerEnemy | - | `getactorcrimeplayerenemy Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetActorsInHigh | - | `getactorsinhigh Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetActorValuePercent | - | `getactorvaluepercent <actor value>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetAlarmed | - | `getalarmed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetAliasedRef | - | `getaliasedref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetAllowWorldInteractions | - | `getallowworldinteractions Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetAmountSoldStolen | - | `getamountsoldstolen Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetAngle | - | `getangle <x\|y\|z>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetAnimAction | - | `getanimaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetArrestedState | - | `getarrestedstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetArrestingActor | - | `getarrestingactor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetAttacked | - | `getattacked Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetAttackState | - | `getattackstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetActorValue | GetAV | `getav <name>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetActorValueInfo | GetAVInfo | `getavinfo <actor value>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetBaseActorValue | GetBaseAV | `getbaseav <actor value>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetBribeAmount | - | `getbribeamount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetBribeSuccess | - | `getbribesuccess Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetBroadcastState | - | `getbroadcaststate Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| GetButtonPressed | - | `getbuttonpressed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCannibal | - | `getcannibal Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCauseofDeath | - | `getcauseofdeath Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| getcell | - | `getcell` | Yes | Implemented: Shared World or ordered host operation |
+| GetClassDefaultMatch | - | `getclassdefaultmatch Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetClothingValue | - | `getclothingvalue Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCombatGroupMemberCount | gcgmc | `getcombatgroupmembercount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCombatState | - | `getcombatstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCombatTarget | - | `getcombattarget Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCombatTargetHasKeyword | gcthk | `getcombattargethaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetConcussed | - | `getconcussed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetContainer | - | `getcontainer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCrime | - | `getcrime Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCrimeGold | - | `getcrimegold [faction]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetCrimeGoldNonviolent | getnonviolent | `getcrimegoldnonviolent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCrimeGoldViolent | getviolent | `getcrimegoldviolent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCrimeKnown | - | `getcrimeknown Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCurrentAIPackage | - | `getcurrentaipackage Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCurrentAIProcedure | - | `getcurrentaiprocedure Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCurrentCastingType | getcasting | `getcurrentcastingtype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCurrentDeliveryType | getdelivery | `getcurrentdeliverytype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| getcurrentpackage | - | `getcurrentpackage` | Yes | Implemented: Shared World or ordered host operation |
+| GetCurrentShoutVariation | - | `getcurrentshoutvariation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCurrentTime | - | `getcurrenttime Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetCurrentWeatherPercent | getweatherpct | `getcurrentweatherpercent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDayOfWeek | - | `getdayofweek Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDaysInJail | - | `getdaysinjail Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDead | - | `getdead` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetDeadCount | - | `getdeadcount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDefaultOpen | - | `getdefaultopen Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDestroyed | - | `getdestroyed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDestructionStage | - | `getdestructionstage Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDetected | - | `getdetected Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDialogueEmotion | - | `getdialogueemotion Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDialogueEmotionValue | - | `getdialogueemotionvalue Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDisabled | - | `getdisabled` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetDisease | - | `getdisease Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetDistance | - | `getdistance <ref>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetDistanceFromActorsPath | GDFAP | `getdistancefromactorspath Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetEquipped | - | `getequipped Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetEquippedItemType | - | `getequippeditemtype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetEquippedShout | - | `getequippedshout Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetEventData | - | `geteventdata Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetFactionCombatReaction | - | `getfactioncombatreaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetFactionRank | - | `getfactionrank <faction>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetFactionRankDifference | - | `getfactionrankdifference Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetFactionReaction | - | `getfactionreaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetFactionRelation | - | `getfactionrelation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetFlyingState | - | `getflyingstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetForceRun | - | `getforcerun Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetForceSneak | - | `getforcesneak Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetFriendHit | - | `getfriendhit Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetFurnitureMarkerID | - | `getfurnituremarkerid Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| getgametime | - | `getgametime` | No | Implemented: Shared World or ordered host operation |
+| GetGiftGivenValue | - | `getgiftgivenvalue Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetGlobalValue | - | `getglobalvalue <global>` | No | Implemented: Shared World or ordered host operation |
+| GetGold | - | `getgold Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetGraphVariableFloat | - | `getgraphvariablefloat Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetGraphVariableInt | - | `getgraphvariableint Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetGroupMemberCount | - | `getgroupmembercount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetGroupTargetCount | - | `getgrouptargetcount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetGameSetting | - | `getgs <setting>` | No | Implemented: Shared World or ordered host operation |
+| GetHasNote | GetN | `gethasnote Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetHeadingAngle | - | `getheadingangle Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetHealthPercentage | - | `gethealthpercentage Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetHighestRelationshipRank | - | `gethighestrelationshiprank Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetHitLocation | - | `gethitlocation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIdleDoneOnce | - | `getidledoneonce Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIgnoreCrime | - | `getignorecrime Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIgnoreFriendlyHits | gifh | `getignorefriendlyhits Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInCell | - | `getincell Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInCellParam | - | `getincellparam Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInContainer | - | `getincontainer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInCurrentLoc | - | `getincurrentloc Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInCurrentLocAlias | - | `getincurrentlocalias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInCurrentLocFormList | - | `getincurrentlocformlist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInFaction | - | `getinfaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInfamy | - | `getinfamy Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInfamyNonViolent | - | `getinfamynonviolent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInfamyViolent | - | `getinfamyviolent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetINISetting | GetINI | `getinisetting <setting:category>` | No | Implemented: Shared World or ordered host operation |
+| GetInSameCell | - | `getinsamecell Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInSharedCrimeFaction | - | `getinsharedcrimefaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIntimidateSuccess | - | `getintimidatesuccess Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInWorldspace | - | `getinworldspace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetInZone | - | `getinzone Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsAlerted | - | `getisalerted Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsAliasRef | - | `getisaliasref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsAlignment | - | `getisalignment Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsClass | - | `getisclass Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsClassDefault | - | `getisclassdefault Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsCrashLandRequest | - | `getiscrashlandrequest Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsCreature | - | `getiscreature Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsCreatureType | - | `getiscreaturetype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsCrimeFaction | - | `getiscrimefaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsCurrentPackage | - | `getiscurrentpackage Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsCurrentWeather | getweather | `getiscurrentweather Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsEditorLocAlias | - | `getiseditorlocalias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsEditorLocation | - | `getiseditorlocation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsFlying | - | `getisflying Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsFormType | - | `getisformtype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsGhost | - | `getisghost` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetIsHastyLandRequest | - | `getishastylandrequest Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsID | - | `getisid Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsInjured | - | `getisinjured Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsLockBroken | - | `getislockbroken Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsObjectType | - | `getisobjecttype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsPlayableRace | - | `getisplayablerace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsRace | - | `getisrace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsReference | - | `getisreference Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsSex | - | `getissex Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsUsedItem | - | `getisuseditem Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsUsedItemEquipType | - | `getisuseditemequiptype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsUsedItemType | - | `getisuseditemtype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetIsVoiceType | - | `getisvoicetype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetItemCount | - | `getitemcount <item>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetItemHealthPercent | - | `getitemhealthpercent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetKeywordDataForAlias | - | `getkeyworddataforalias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetKeywordDataForCurrentLocation | - | `getkeyworddataforcurrentlocation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetKeywordDataForLocation | - | `getkeyworddataforlocation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetKeywordItemCount | - | `getkeyworditemcount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetKillingBlowLimb | - | `getkillingblowlimb Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetKnockedState | - | `getknockedstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetKnockStateEnum | - | `getknockstateenum Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLastBumpDirection | - | `getlastbumpdirection Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLastHitCritical | - | `getlasthitcritical Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLastPlayerAction | - | `getlastplayeraction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLevel | - | `getlevel` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetLeveledEncounterValue | - | `getleveledencountervalue Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLightLevel | gll | `getlightlevel Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLineOfSight | - | `getlineofsight Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLinkedRef | - | `getlinkedref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLocAliasRefTypeAliveCount | - | `getlocaliasreftypealivecount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLocAliasRefTypeDeadCount | - | `getlocaliasreftypedeadcount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLocationAliasCleared | - | `getlocationaliascleared Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLocationCleared | - | `getlocationcleared <location>` | No | Implemented: Shared World or ordered host operation |
+| GetLocked | - | `getlocked` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetLockLevel | - | `getlocklevel` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetLOS | - | `getlos Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetLowestRelationshipRank | - | `getlowestrelationshiprank Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetMapMarkerVisible | - | `getmapmarkervisible Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetMemCheckPoint | gmcp | `getmemcheckpoint Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| GetMovementDirection | - | `getmovementdirection Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetMovementSpeed | - | `getmovementspeed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetNoBleedoutRecovery | - | `getnobleedoutrecovery Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetNoRumors | - | `getnorumors Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetNumericPackageData | - | `getnumericpackagedata Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetObjectiveCompleted | - | `getobjectivecompleted <quest> <index>` | No | Implemented: Shared World or ordered host operation |
+| GetObjectiveDisplayed | - | `getobjectivedisplayed <quest> <index>` | No | Implemented: Shared World or ordered host operation |
+| GetObjectiveFailed | - | `getobjectivefailed <quest> <index>` | No | Implemented: Shared World or ordered host operation |
+| GetOffersServicesNow | - | `getoffersservicesnow Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetOpenState | - | `getopenstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPackageTarget | - | `getpackagetarget Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPairedAnimation | GPA | `getpairedanimation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetParentRef | - | `getparentref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPathingCurrentSpeed | - | `getpathingcurrentspeed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPathingCurrentSpeedAngle | - | `getpathingcurrentspeedangle Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPathingTargetAngleOffset | - | `getpathingtargetangleoffset Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPathingTargetOffset | - | `getpathingtargetoffset Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPathingTargetSpeed | - | `getpathingtargetspeed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPathingTargetSpeedAngle | - | `getpathingtargetspeedangle Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPCEnemyofFaction | - | `getpcenemyoffaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPCExpelled | - | `getpcexpelled Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPCFactionAttack | - | `getpcfactionattack Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPCFactionMurder | - | `getpcfactionmurder Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPCInFaction | - | `getpcinfaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPCIsClass | - | `getpcisclass Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPCIsRace | - | `getpcisrace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPCIsSex | - | `getpcissex Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPCMiscStat | - | `getpcmiscstat <stat>` | No | Implemented: Shared World or ordered host operation |
+| GetPCSleepHours | - | `getpcsleephours Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPermanentActorValue | - | `getpermanentactorvalue <actor value>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetPersuasionNumber | - | `getpersuasionnumber Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPlantedExplosive | - | `getplantedexplosive Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPlayerAction | - | `getplayeraction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPlayerControlsDisabled | gpc | `getplayercontrolsdisabled Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPlayerGrabbedRef | - | `getplayergrabbedref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPlayerName | - | `getplayername Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| GetPlayerTeammate | - | `getplayerteammate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPlayerTeammateCount | - | `getplayerteammatecount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetPos | - | `getpos <x\|y\|z>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetQuestCompleted | GetQC | `getquestcompleted <quest>` | No | Implemented: Shared World or ordered host operation |
+| GetQuestRunning | GetQR | `getquestrunning <quest>` | No | Implemented: Shared World or ordered host operation |
+| GetQuestVariable | - | `getquestvariable Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetRandomPercent | - | `getrandompercent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetRealHoursPassed | - | `getrealhourspassed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetReceivedGiftValue | - | `getreceivedgiftvalue Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetRefTypeAliveCount | - | `getreftypealivecount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetRefTypeDeadCount | - | `getreftypedeadcount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetRelationshipRank | - | `getrelationshiprank <actor ref>` | Yes | Implemented: Reads runtime overrides and authored RELA ranks in either direction |
+| GetRelativeAngle | - | `getrelativeangle Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetReplacedItemType | - | `getreplaceditemtype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetRestrained | - | `getrestrained Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Gets Velocity on a reference | - | `gets velocity on a reference Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetScale | - | `getscale` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetScriptVariable | - | `getscriptvariable Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetSecondsPassed | - | `getsecondspassed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| getselected | - | `getselected` | No | Implemented: Shared World or ordered host operation |
+| GetSelf | this | `getself` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| GetShouldAttack | - | `getshouldattack Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetShouldHelp | - | `getshouldhelp Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetSitting | - | `getsitting Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetSleeping | - | `getsleeping Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetSpellUsageNum | - | `getspellusagenum Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetStage | - | `getstage <quest>` | No | Implemented: Shared World or ordered host operation |
+| GetStageDone | - | `getstagedone <quest> <n>` | No | Implemented: Shared World or ordered host operation |
+| GetStamina | - | `getstamina Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetStaminaPercentage | - | `getstaminapercentage Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetStartingAngle | - | `getstartingangle Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetStartingPos | - | `getstartingpos Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetStolenItemValue | - | `getstolenitemvalue Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetStolenItemValueNoCrime | - | `getstolenitemvaluenocrime Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetTalkedToPC | - | `gettalkedtopc Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetTalkedToPCParam | - | `gettalkedtopcparam Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetTargetHeight | - | `gettargetheight Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetThreatRatio | - | `getthreatratio Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetTimeDead | - | `gettimedead Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetTotalPersuasionNumber | - | `gettotalpersuasionnumber Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetTrespassWarningLevel | - | `gettrespasswarninglevel Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetUnconscious | - | `getunconscious Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetVampireFeed | - | `getvampirefeed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetVATSBackAreaFree | - | `getvatsbackareafree Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVATSBackTargetVisible | - | `getvatsbacktargetvisible Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVATSFrontAreaFree | - | `getvatsfrontareafree Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVATSFrontTargetVisible | - | `getvatsfronttargetvisible Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVATSLeftAreaFree | - | `getvatsleftareafree Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVATSLeftTargetVisible | - | `getvatslefttargetvisible Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVATSMode | - | `getvatsmode Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVATSRightAreaFree | - | `getvatsrightareafree Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVATSRightTargetVisible | - | `getvatsrighttargetvisible Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVatsTargetHeight | - | `getvatstargetheight Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVATSValue | - | `getvatsvalue Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| GetVelocity | - | `getvelocity Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetVMQuestVariable | - | `getvmquestvariable Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetVMScriptVariable | - | `getvmscriptvariable Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetWalk | - | `getwalk Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetWalkSpeed | - | `getwalkspeed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetWantBlocking | - | `getwantblocking Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetWeaponAnimType | - | `getweaponanimtype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetWindSpeed | - | `getwindspeed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetWithinDistance | - | `getwithindistance Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetWithinPackageLocation | - | `getwithinpackagelocation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GetXPForNextLevel | - | `getxpfornextlevel Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| GoToJail | - | `gotojail Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HairTint | - | `hairtint Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| HasAssociationType | - | `hasassociationtype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasAssociationTypeAny | - | `hasassociationtypeany Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasBeenEaten | - | `hasbeeneaten Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasBoundWeaponEquipped | - | `hasboundweaponequipped Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasEquippedSpell | hasspell | `hasequippedspell Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasFamilyRelationship | - | `hasfamilyrelationship Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasFamilyRelationshipAny | - | `hasfamilyrelationshipany Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasFlames | - | `hasflames Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasKeyword | - | `haskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasLinkedRef | - | `haslinkedref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasLoaded3D | - | `hasloaded3d Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasMagicEffect | - | `hasmagiceffect Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasMagicEffectKeyword | - | `hasmagiceffectkeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasParentRelationship | - | `hasparentrelationship Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasPerk | - | `hasperk <perk>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| HasRefType | - | `hasreftype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasSameEditorLocAsRef | - | `hassameeditorlocasref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasSameEditorLocAsRefAlias | - | `hassameeditorlocasrefalias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HasShout | - | `hasshout <shout>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| HasSpell | - | `hasspell <spell>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| HasTwoHandedWeaponEquipped | - | `hastwohandedweaponequipped Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| HavokVDBCapture | vdbcapture | `havokvdbcapture Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| Help | - | `help [text] [0\|1\|2\|3\|4] [form type]` | No | Implemented: Shared World or ordered host operation |
+| HideMenu | - | `hidemenu Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IgnoreCrime | - | `ignorecrime Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| IgnoreRenderPass | irp | `ignorerenderpass Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| IncMemCheckPoint | imcp | `incmemcheckpoint Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| IncrementPCSkill | IncPCS | `incpcs <skill>` | No | Implemented: Shared World or ordered host operation |
+| InstallMemoryTracker | IMT | `installmemorytracker Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| InterruptCast | - | `interruptcast Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsActionRef | - | `isactionref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsActor | - | `isactor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsActorAVictim | - | `isactoravictim Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsActorsAIOff | - | `isactorsaioff Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsActorUsingATorch | - | `isactorusingatorch Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsAllowedToFly | - | `isallowedtofly Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsAnimPlaying | - | `isanimplaying Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsAttacking | - | `isattacking Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsAttackType | - | `isattacktype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsBeingRidden | - | `isbeingridden Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsBleedingOut | - | `isbleedingout Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsBribedbyPlayer | - | `isbribedbyplayer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCarryable | - | `iscarryable Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCasting | - | `iscasting Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCellOwner | - | `iscellowner Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsChild | - | `ischild Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCloserToAThanB | - | `isclosertoathanb Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCloudy | - | `iscloudy Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCombatTarget | - | `iscombattarget Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCommandedActor | - | `iscommandedactor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsContinuingPackagePCNear | - | `iscontinuingpackagepcnear Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCurrentFurnitureObj | - | `iscurrentfurnitureobj Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCurrentFurnitureRef | - | `iscurrentfurnitureref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsCurrentSpell | - | `iscurrentspell Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsDualCasting | - | `isdualcasting Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsEnteringInteractionQuick | - | `isenteringinteractionquick Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsEssential | - | `isessential` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| IsExitingInstant | - | `isexitinginstant Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsExitingInteractionQuick | - | `isexitinginteractionquick Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsFacingUp | - | `isfacingup Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsFleeing | - | `isfleeing Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsFurnitureAnimType | - | `isfurnitureanimtype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsFurnitureEntryType | - | `isfurnitureentrytype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsGoreDisabled | - | `isgoredisabled Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsGreetingPlayer | - | `isgreetingplayer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsGuard | - | `isguard Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsHorseStolen | - | `ishorsestolen Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsHostileToActor | - | `ishostiletoactor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsIdlePlaying | - | `isidleplaying Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsIgnoringCombat | - | `isignoringcombat Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsImageSpaceActive | - | `isimagespaceactive Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInCombat | - | `isincombat` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| IsInCriticalStage | - | `isincriticalstage Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInDangerousWater | - | `isindangerouswater Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInDialogueWithPlayer | - | `isindialoguewithplayer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInFavorState | - | `isinfavorstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInFriendStatewithPlayer | - | `isinfriendstatewithplayer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInFurnitureState | - | `isinfurniturestate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInInterior | - | `isininterior Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInList | - | `isinlist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInMyOwnedCell | - | `isinmyownedcell Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInSameCurrentLocAsRef | - | `isinsamecurrentlocasref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInSameCurrentLocAsRefAlias | - | `isinsamecurrentlocasrefalias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInScene | - | `isinscene Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsIntimidatedbyPlayer | - | `isintimidatedbyplayer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsInvulnerable | isinv | `isinvulnerable Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| IsKiller | - | `iskiller Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsKillerObject | - | `iskillerobject Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsLastHostileActor | - | `islasthostileactor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsLastIdlePlayed | - | `islastidleplayed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsLeftUp | - | `isleftup Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsLimbGone | - | `islimbgone Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsLinkedTo | - | `islinkedto Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsLocAliasLoaded | - | `islocaliasloaded Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsLocationLoaded | - | `islocationloaded Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsMoving | - | `ismoving Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsNullPackageData | - | `isnullpackagedata Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsolateRendering | ir | `isolaterendering Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsOwner | - | `isowner Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsParent | - | `isparent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPathing | - | `ispathing Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPC1stPerson | pc1st | `ispc1stperson Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPCAMurderer | - | `ispcamurderer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPCSleeping | - | `ispcsleeping Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPlayerActionActive | - | `isplayeractionactive Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPlayerGrabbedRef | - | `isplayergrabbedref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPlayerInRegion | - | `isplayerinregion Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPlayerMovingIntoNewSpace | - | `isplayermovingintonewspace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPlayersLastRiddenHorse | - | `isplayerslastriddenhorse Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPleasant | - | `ispleasant Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPoison | - | `ispoison Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsPowerAttacking | - | `ispowerattacking Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsProtected | - | `isprotected` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| IsPS3 | - | `isps3 Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsRaining | - | `israining Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsRecoiling | - | `isrecoiling Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsRidingHorse | - | `isridinghorse Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsRotating | - | `isrotating Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsRunning | - | `isrunning Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsSceneActionComplete | - | `issceneactioncomplete Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsScenePackageRunning | - | `isscenepackagerunning Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsScenePlaying | - | `issceneplaying Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsShieldOut | - | `isshieldout Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsSmallBump | - | `issmallbump Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsSneaking | - | `issneaking Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsSnowing | - | `issnowing Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsSpellTarget | - | `isspelltarget Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsStaggered | - | `isstaggered Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsSwimming | - | `isswimming Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsTalking | - | `istalking Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsTalkingActivatorActor | - | `istalkingactivatoractor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsTimePassing | - | `istimepassing Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsTorchOut | - | `istorchout Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsTrespassing | - | `istrespassing Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsTurning | - | `isturning Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsUndead | - | `isundead Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsUnique | - | `isunique Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsUnlockedDoor | - | `isunlockeddoor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsWaiting | - | `iswaiting Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsWardState | - | `iswardstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsWarningAbout | - | `iswarningabout Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsWaterObject | - | `iswaterobject Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsWeaponInList | - | `isweaponinlist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsWeaponMagicOut | - | `isweaponmagicout Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsWeaponOut | - | `isweaponout Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsWeaponSkillType | - | `isweaponskilltype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsWin32 | - | `iswin32 Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| IsXBox | - | `isxbox Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| kah | - | `kah` | No | Partial: Kills loaded actors whose combat target is the player, faction-only hostility is pending |
+| KillActor | kill | `kill [killer]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| KillAllActors | killall | `killallactors` | No | Implemented: Shared World or ordered host operation |
+| KillAllProjectiles | kap | `killallprojectiles Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| KillQuestUpdates | KQU | `killquestupdates Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| KnockAreaEffect | kae | `knockareaeffect Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| listrefs | - | `listrefs <cell>` | No | Implemented: Shared World or ordered host operation |
+| LoadGame | load | `load <name>` | No | Partial: Loads verified engine generations, named vanilla ESS loads are not bridged |
+| LoadFlashMovie | - | `loadflashmovie Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| LocAliasHasKeyword | - | `localiashaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| LocAliasIsLocation | - | `localiasislocation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| LocationHasKeyword | - | `locationhaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| LocationHasRefType | - | `locationhasreftype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Lock | - | `lock <level>` | Yes | Implemented: Locks the selected reference at the requested difficulty |
+| Log | - | `log [SOE_LOG directives]` | No | Implemented: Shared World or ordered host operation |
+| Look | - | `look Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| lookup | - | `lookup <name or id>` | No | Implemented: Shared World or ordered host operation |
+| LoopGroup | - | `loopgroup Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| LTGraph | - | `ltgraph Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| MarkForDelete | - | `markfordelete` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| MatchFaceGeometry | - | `matchfacegeometry Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| MatchRace | - | `matchrace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Memory | Memory | `memory Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| ModAmountSoldStolen | - | `modamountsoldstolen Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ModActorValue | ModAV | `modav <name> <delta>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ModCrimeGold | - | `modcrimegold <amount> [faction]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ModFactionRank | - | `modfactionrank Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ModFactionReaction | - | `modfactionreaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ModifyFaceGen | mfg | `modifyfacegen Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ModifyGUIOverlay | MGO | `modifyguioverlay Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ModPCMiscStat | - | `modpcmiscstat <stat> <delta>` | No | Implemented: Shared World or ordered host operation |
+| ModScale | - | `modscale <delta>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ModWaterShader | mws | `modwatershader Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| MoveTo | - | `moveto <ref>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| movetocell | - | `movetocell <cell>` | Yes | Implemented: Shared World or ordered host operation |
+| MoveToMarker | - | `movetomarker Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| MoveToQuestTarget | movetoqt | `movetoqt <quest>` | No | Implemented: Shared World or ordered host operation |
+| objective | - | `objective <quest> <n> displayed\|completed\|failed [true\|false]` | Yes | Implemented: Shared World or ordered host operation |
+| OpenActorContainer | - | `openactorcontainer 1` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| OutputAllocations | outalloc | `outputallocations Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| OutputArchiveProfile | oap | `outputarchiveprofile Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| OutputFixedStringTable | OFST | `outputfixedstringtable Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| OutputLocalMapPictures | OLMP | `outputlocalmappictures Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| OutputMemContexts | omc | `outputmemcontexts Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| OutputMemStats | oms | `outputmemstats Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| OutputTextureUseMap | OTUM | `outputtextureusemap Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| Particles | Particles | `particles Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PathToRef | PTR | `pathtoref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PayCrimeGold | - | `paycrimegold [jail] [confiscate] [faction]` | Yes or context dependent | Partial: Payment and jail or confiscation flags work with authored markers, ownership and notification fidelity need tests |
+| PurgeCellBuffers | pcb | `pcb` | No | Partial: Drops prepared texture and interior-prefetch caches, full unattached cell buffer purge is pending |
+| PerformAction | pa | `performaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PickIdle | - | `pickidle Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PipboyRadio | prad | `pipboyradio Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| PipBoyRadioOff | - | `pipboyradiooff Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| PlaceAtMe | - | `placeatme <base> [count]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| PlaceLeveledActorAtMe | - | `placeleveledactoratme Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlaceLocationMarker | plm | `placelocationmarker Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayBink | - | `playbink Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayerCreatePotion | - | `playercreatepotion Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayerEnchantObject | - | `playerenchantobject Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayerKnows | - | `playerknows Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayExplosion | - | `playexplosion Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayGroup | - | `playgroup Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayIdle | - | `playidle <idle>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| PlayImpactEffect | pie | `playimpacteffect Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayMagicEffectVisuals | PME | `playmagiceffectvisuals Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayMagicShaderVisuals | PMS | `playmagicshadervisuals Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayReferenceEffect | pre | `playreferenceeffect Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayShaderParticleGeometry | pspg | `playshaderparticlegeometry Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlaySound | - | `playsound Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlaySound3D | - | `playsound3d Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlaySyncAnim | syncanim | `playsyncanim Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayTerrainEffect | PTFX | `playterraineffect Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayVATSCameras | pvc | `playvatscameras Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| Polygons | Polys | `polygons Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PrecomputedLOSDebug | pld | `precomputedlosdebug Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PrecomputedLOSGeneration | plg | `precomputedlosgeneration Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PreloadMagicEffect | - | `preloadmagiceffect Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PickRefByID | PRID | `prid <ref>` | No | Implemented: Shared World or ordered host operation |
+| pridbase | - | `pridbase <base>` | No | Implemented: Shared World or ordered host operation |
+| PrintAiList | pai | `printailist Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| PrintHDRParam | PHP | `printhdrparam Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PrintNPCDialog | pdialog | `printnpcdialog Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| PrintQuestSceneInfo | PrintS | `printquestsceneinfo Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Prints NPC dialog | ShowSubtitle | `prints npc dialog Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PrintShaderMacros | PSM | `printshadermacros Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| PlayerSpellBook | psb | `psb` | No | Partial: Learns all spells and shouts and teaches words, shared ability activation works, unsupported bestial effects remain bounded by the magic interpreter |
+| PushActorAway | - | `pushactoraway <actor ref> <force>` | Yes or context dependent | Implemented: Queue the shared signed radial actor impulse |
+| Quest | Quest | `quest Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ExitGame | exit | `quitgame` | No | Implemented: Shared World or ordered host operation |
+| RecvAnimEvent | rae | `recvanimevent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RecycleActor | - | `recycleactor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RefreshINI | REFINI | `refini` | No | Partial: Reloads resolved INI layers and reapplies camera and runtime settings, startup resources keep their active configuration |
+| RefreshShaders | RS | `refreshshaders Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| RegisterPrefix | RPRFX | `registerprefix Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ReleaseWeatherOverride | rwo | `releaseweatheroverride` | No | Implemented: Shared World or ordered host operation |
+| ReloadCurrentClimate | rcc | `reloadcurrentclimate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ReloadCurrentWeather | rcw | `reloadcurrentweather Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RemoveAllItems | - | `removeallitems [destination ref]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| RemoveFlames | - | `removeflames Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RemoveFromAllFactions | - | `removefromallfactions` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| RemoveFromFaction | Removefac | `removefromfaction <faction>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| RemoveImageSpaceModifier | rimod | `removeimagespacemodifier Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RemoveImageSpaceModifierCrossFade | rimodcf | `removeimagespacemodifiercrossfade Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RemoveItem | - | `removeitem <item> [count]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| RemoveMe | - | `removeme Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RemoveMusic | - | `removemusic Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RemoveNote | RN | `removenote Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RemovePerk | - | `removeperk <perk>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| RemoveShout | - | `removeshout <shout>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| RemoveSpell | - | `removespell <spell>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| RemoveWatchAddress | rwa | `removewatchaddress Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RenderTestCell | rtc | `rendertestcell Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| RenderTestHere | rth | `rendertesthere Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| Reset3DState | - | `reset3dstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ResetAI | - | `resetai` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ResetDialogueFlags | rdf | `resetdialogueflags Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ResetFallDamageTimer | - | `resetfalldamagetimer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ResetHealth | - | `resethealth` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ResetInterior | - | `resetinterior <cell>` | No | Implemented: Shared World or ordered host operation |
+| ResetInventory | - | `resetinventory` | Yes | Implemented: Restores authored inventory and default outfit with equipped instance state |
+| ResetMemContexts | rmc | `resetmemcontexts Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| ResetPerformanceTimers | rpt | `resetperformancetimers Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ResetQuest | - | `resetquest <quest>` | No | Implemented: Shared World or ordered host operation |
+| ResetReference | - | `resetreference` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| RestoreActorValue | RestoreAV | `restoreactorvalue <actor value> <amount>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ResurrectActor | resurrect | `resurrect` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| RevertFormList | - | `revertformlist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RevertLeveledList | - | `revertleveledlist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RevertWorld | rw | `revertworld Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| rewardplayer | - | `rewardplayer Not present in the UESP snapshot` | Unknown | Pending: No Skyrim syntax or behavior is documented in the supplied UESP or local CK sources |
+| Rotate | - | `rotate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RTGraph | - | `rtgraph Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RumbleManager | RM | `rumblemanager Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RunCellTest | rct | `runcelltest Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| RunCompaction | rcmpct | `runcompaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| RunMemoryPass | rmp | `runmemorypass Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| Show1stPerson | S1ST | `s1st` | No | Implemented: Shows the first-person rig alongside the third-person player model |
+| SameFaction | - | `samefaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SameFactionAsPC | - | `samefactionaspc Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SameRace | - | `samerace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SameRaceAsPC | - | `sameraceaspc Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SameSex | - | `samesex Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SameSexAsPC | - | `samesexaspc Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartAllQuests | saq | `saq` | No | Implemented: Shared World or ordered host operation |
+| SaveGame | save | `save <name>` | No | Partial: Writes verified engine generations, vanilla ESS output and text dumps are unsupported |
+| SaveDebugTextPages | SaveDTP | `savedebugtextpages Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SaveHavokSnapshot | SHS | `savehavoksnapshot Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| SaveIniFiles | saveini | `saveini` | No | Implemented: Writes all runtime INI settings to the last active plugin INI in the profile Data root |
+| SavePCFace | spf | `savepcface Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SaveWorld | - | `saveworld Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| Say | - | `say Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SayTo | - | `sayto Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SCAOnActor | - | `scaonactor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ScriptEffectElapsedSeconds | - | `scripteffectelapsedseconds Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| scriptshandling | - | `scriptshandling <Event>` | Yes | Implemented: Shared World or ordered host operation |
+| SelectPlayerSpell | spspell | `selectplayerspell Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SendAnimEvent | sae | `sendanimevent <event>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SendAssaultAlarm | - | `sendassaultalarm Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| sendevent | - | `sendevent <Event> [argument ...]` | Yes | Implemented: Shared World or ordered host operation |
+| SendSherlockDebugText | ssdt | `sendsherlockdebugtext Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SendStealAlarm | steal | `sendstealalarm Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SendTrespassAlarm | - | `sendtrespassalarm Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ServeTime | - | `servetime Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| set | - | `set <global> [to] <value>` | No | Implemented: Shared World or ordered host operation |
+| SetActionComplete | SAC | `setactioncomplete Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| SetActorAlpha | SAA | `setactoralpha <0 to 100>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetActorFullName | - | `setactorfullname Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetActorRefraction | sar | `setactorrefraction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetActorsAI | - | `setactorsai <0\|1>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetAlert | - | `setalert <0\|1>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetAllowFlying | - | `setallowflying Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetAllReachable | - | `setallreachable Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetAllVisible | - | `setallvisible Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetAlly | - | `setally Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetAngle | - | `setangle <x\|y\|z> <degrees>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetAnimGraphVar | sgv | `setanimgraphvar Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetAtStart | - | `setatstart Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetAudioMultithreading | SAM | `setaudiomultithreading Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetActorValue | SetAV | `setav <name> <value>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetBloodParam | SBP | `setbloodparam Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetBroadcastState | - | `setbroadcaststate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetCellFullName | - | `setcellfullname Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetCellImageSpace | - | `setcellimagespace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetCellOwnership | - | `setcellownership Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetCellPublicFlag | setpublic | `setcellpublicflag Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetCinematicParam | SCP | `setcinematicparam Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetClass | - | `setclass Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetClipDist | - | `setclipdist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetCombatStyle | setcs | `setcombatstyle Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetConsoleOuputFile | scof | `setconsoleouputfile Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetConsoleScopeQuest | SSQ | `setconsolescopequest Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetCrimeFaction | - | `setcrimefaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetCrimeGold | - | `setcrimegold <amount> [faction]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetCriticalStage | - | `setcriticalstage Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetDebugQuest | - | `setdebugquest Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetDebugText | sdt | `setdebugtext Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetDefaultOpen | - | `setdefaultopen Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetDestroyed | - | `setdestroyed Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetEmitterParticleMax | - | `setemitterparticlemax Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetEnemy | - | `setenemy Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetEssential | - | `setessential <NPC base> <0\|1>` | No | Implemented: Shared World or ordered host operation |
+| SetFaceTarget | SFT | `setfacetarget Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetFactionRank | - | `setfactionrank <faction> <rank>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetFactionReaction | - | `setfactionreaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetFavorState | - | `setfavorstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetFog | - | `setfog Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetForceRun | - | `setforcerun Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetForceSneak | - | `setforcesneak Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetFormKnown | - | `setformknown Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetFramebufferRange | sfbr | `setframebufferrange Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetGamma | sg | `setgamma Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetGhost | - | `setghost <0\|1>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetGlobalRadialBlur | sgrb | `setglobalradialblur Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetGameSetting | SetGS | `setgs <setting> <value>` | No | Implemented: Shared World or ordered host operation |
+| SetHDRParam | SHP | `sethdrparam Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetHorseActor | - | `sethorseactor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetHudGlowConstants | shgc | `sethudglowconstants Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| SetIgnoreFriendlyHits | sifh | `setignorefriendlyhits <0\|1>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetImageSpace | - | `setimagespace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetImageSpaceGlow | SISG | `setimagespaceglow Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| SetImageSpaceModifiersEnable | sisme | `setimagespacemodifiersenable Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetInChargen | - | `setinchargen Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetINISetting | SetINI | `setinisetting <setting:category> <value>` | No | Implemented: Shared World or ordered host operation |
+| SetItemValue | - | `setitemvalue Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetKeywordDataForAlias | - | `setkeyworddataforalias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetKeywordDataForLocation | - | `setkeyworddataforlocation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetLastExtDoorActivated | - | `setlastextdooractivated Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetLevel | - | `setlevel <level> or <multiplier> <modifier> <min> <max>` | Yes or context dependent | Partial: Sets current level, the four-argument NPC scaling rule is not retained for future level changes |
+| SetLightingPasses | SLP | `setlightingpasses Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| SetLocationAliasCleared | - | `setlocationaliascleared Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetLocationCleared | - | `setlocationcleared <location> <0\|1>` | No | Implemented: Shared World or ordered host operation |
+| SetLODObjectDistance | SLOD | `setlodobjectdistance Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetMaxAniso | sma | `setmaxaniso Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetMemCheckPoint | smcp | `setmemcheckpoint Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| SetMeshLODLevel | smll | `setmeshlodlevel Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetMinimalUse | - | `setminimaluse Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetMPSParticleMax | - | `setmpsparticlemax Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetNoActivationSound | - | `setnoactivationsound Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetNoAvoidance | - | `setnoavoidance Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetNoBleedoutRecovery | - | `setnobleedoutrecovery Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetNoRumors | - | `setnorumors Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetNPCRadio | snr | `setnpcradio Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetNPCWeight | SNPCW | `setnpcweight Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetObjectiveCompleted | - | `setobjectivecompleted <quest> <index> <0\|1>` | No | Implemented: Shared World or ordered host operation |
+| SetObjectiveDisplayed | - | `setobjectivedisplayed <quest> <index> <0\|1>` | No | Implemented: Shared World or ordered host operation |
+| SetObjectiveFailed | - | `setobjectivefailed <quest> <index> <0\|1>` | No | Implemented: Shared World or ordered host operation |
+| SetOpenState | - | `setopenstate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetOwnership | - | `setownership [NPC base or faction]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetPackDuration | SPDur | `setpackduration Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPapyrusQuestVar | SETPQV | `setpapyrusquestvar Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPapyrusVar | SETPV | `setpapyrusvar Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPathSprinting | SPS | `setpathsprinting Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| setpccanusepowers | - | `setpccanusepowers Not present in the UESP snapshot` | Unknown | Pending: No Skyrim syntax or behavior is documented in the supplied UESP or local CK sources |
+| SetPCEnemyofFaction | - | `setpcenemyoffaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPCExpelled | - | `setpcexpelled Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPCFactionAttack | - | `setpcfactionattack Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPCFactionMurder | - | `setpcfactionmurder Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPCSleepHours | - | `setpcsleephours Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPCToddler | - | `setpctoddler Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPCYoung | - | `setpcyoung Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPlayerAIDriven | - | `setplayeraidriven Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPlayerRace | - | `setplayerrace [race]` | No | Partial: Sets actor race or opens the menu, race powers and stat reset need the trait bridge |
+| SetPlayerResistingArrest | - | `setplayerresistingarrest Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetPlayerTeammate | - | `setplayerteammate <0\|1>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetPos | - | `setpos <x\|y\|z> <value>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| setprotected | - | `setprotected <NPC base> <0\|1>` | No | Implemented: Shared World or ordered host operation |
+| SetQuestAliases | - | `setquestaliases Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetQuestAliasLogging | sqal | `setquestaliaslogging Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetQuestDelay | - | `setquestdelay Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetRace | - | `setrace <race>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetRelationshipRank | - | `setrelationshiprank <actor ref> <rank>` | Yes | Implemented: Updates the shared relationship override in both directions |
+| SetRestrained | - | `setrestrained <0\|1>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetRigidBodyMass | - | `setrigidbodymass Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetRumble | - | `setrumble Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetScale | - | `setscale <0.1 to 10>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetSceneIsComplex | - | `setsceneiscomplex Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetShowQuestItems | - | `setshowquestitems Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetSize | - | `setsize Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetStackDepth | SSD | `setstackdepth Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetStage | - | `setstage <quest> <n>` | No | Implemented: Shared World or ordered host operation |
+| SetSubgraphToDebug | sgd | `setsubgraphtodebug Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTalkingActivatorActor | - | `settalkingactivatoractor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTargetDOF | stdof | `settargetdof Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTargetFalloff | stfo | `settargetfalloff Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTargetRefraction | str | `settargetrefraction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTargetRefractionFire | strf | `settargetrefractionfire Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| SetTaskThreadSleep | - | `settaskthreadsleep Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTaskThreadUpdateSleep | - | `settaskthreadupdatesleep Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTintParam | STP | `settintparam Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTreeBranchAnimationRange | STSBR | `settreebranchanimationrange Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTreeBranchFlexibility | STSBF | `settreebranchflexibility Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTreeLeafAmplitude | STSLAMP | `settreeleafamplitude Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTreeLeafFlexibility | STSLF | `settreeleafflexibility Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTreeLeafFrequency | STSLFRQ | `settreeleaffrequency Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTreeMipmapBias | stmb | `settreemipmapbias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTreeTrunkFlexibility | STSTF | `settreetrunkflexibility Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTreeWindDirection | STSWD | `settreewinddirection Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTreeWindMagnitude | STSWM | `settreewindmagnitude Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetTriLinearThreshold | stlt | `settrilinearthreshold Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetUnconscious | - | `setunconscious <0\|1>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| setvampire | - | `setvampire [true\|false]` | Yes | Implemented: Shared World or ordered host operation |
+| SetVATSTarget | - | `setvatstarget Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| SetWarning | - | `setwarning Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| setwerewolf | - | `setwerewolf [true\|false]` | Yes | Implemented: Shared World or ordered host operation |
+| SetZoneRespawns | - | `setzonerespawns Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SexChange | - | `sexchange` | Optional | Partial: Changes shared actor-base sex and host appearance and rig readers, direct player visual reload and per-reference timing remain pending |
+| SetGlobalTimeMultiplier | sgtm | `sgtm <multiplier>` | No | Implemented: Shared World or ordered host operation |
+| ShouldAttackKill | - | `shouldattackkill Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Show | TST | `show Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowAllMapMarkers | tmm | `showallmapmarkers Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowAnim | SA | `showanim Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowBarterMenu | sbm | `showbartermenu Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowChargenMenu | scgm | `showchargenmenu Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowChargenMenuParams | scgmp | `showchargenmenuparams Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowClassMenu | - | `showclassmenu Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowClosestLocationForSphere | SCLFS | `showclosestlocationforsphere Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowDialogSubtitles | - | `showdialogsubtitles Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowFullQuestLog | SFQL | `showfullquestlog Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowGlobalVars | SGLV | `showglobalvars` | No | Implemented: Shared World or ordered host operation |
+| ShowHeadTrackTarget | SHeadT | `showheadtracktarget Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowHighMaxHeights | shmh | `showhighmaxheights Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowInventory | inv | `showinventory` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ShowLockpickMenu | slpm | `showlockpickmenu Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowLockpickMenuDebug | slpmd | `showlockpickmenudebug Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowLowMaxHeights | slmh | `showlowmaxheights Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowMap | - | `showmap Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowMenu | - | `showmenu Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowMessage | - | `showmessage Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowNameMenu | - | `shownamemenu Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowNodes | - | `shownodes Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowPivot | SP | `showpivot Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowQuestAliases | - | `showquestaliases <quest>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| ShowQuestLog | SQL | `showquestlog Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowQuests | SQ | `showquests Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowQuestVars | SQV | `showquestvars Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowRaceMenu | - | `showracemenu [race]` | No | Partial: Opens host race menu, race argument currently sets race without vanilla stat reset |
+| ShowRenderPasses | srp | `showrenderpasses Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| ShowRepairMenu | srm | `showrepairmenu Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowScenegraph | SSG | `showscenegraph Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowScenegraph SFSG | - | `showscenegraph sfsg Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowSpellMaking | - | `showspellmaking Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ShowViewerStrings | svs | `showviewerstrings Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowWarning | - | `showwarning Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowWhoDetectsPlayer | SWDP | `showwhodetectsplayer Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| Sin | - | `sin Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SkipAnim | - | `skipanim Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| SoundCatMod | scm | `soundcatmod Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SpeakSound | - | `speaksound Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SpellHasCastingPerk | - | `spellhascastingperk Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SpellHasKeyword | - | `spellhaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowQuestObjectives | SQO | `sqo` | No | Implemented: Shared World or ordered host operation |
+| Sqrt | - | `sqrt Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ShowQuestStages | SQS | `sqs <quest>` | No | Implemented: Shared World or ordered host operation |
+| ShowQuestTargets | SQT | `sqt` | No | Implemented: Shared World or ordered host operation |
+| StartAIControlledRobotTest | SPTP | `startaicontrolledrobottest Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| StartCannibal | - | `startcannibal Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartCombat | - | `startcombat Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartConversation | - | `startconversation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartMasterFileSeekData | - | `startmasterfileseekdata Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartMisterSandMan | - | `startmistersandman Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartPapyrusFormProfile | StartPFP | `startpapyrusformprofile Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartPapyrusScriptProfile | StartPSP | `startpapyrusscriptprofile Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartQuest | - | `startquest <quest>` | No | Implemented: Shared World or ordered host operation |
+| StartRadioConversation | - | `startradioconversation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartScene | - | `startscene Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StartTrackPlayerDoors | StartTPD | `starttrackplayerdoors Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopCombat | - | `stopcombat` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| StopCombatAlarmOnActor | - | `stopcombatalarmonactor` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| StopLook | - | `stoplook Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopMagicEffectVisuals | SME | `stopmagiceffectvisuals Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopMagicShaderVisuals | SMS | `stopmagicshadervisuals Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopPapyrusFormProfile | StopPFP | `stoppapyrusformprofile Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopPapyrusScriptProfile | StopPSP | `stoppapyrusscriptprofile Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopQuest | - | `stopquest <quest>` | No | Implemented: Shared World or ordered host operation |
+| StopReferenceEffect | sre | `stopreferenceeffect Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopScene | - | `stopscene Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopShaderParticleGeometry | sspg | `stopshaderparticlegeometry Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopTrackPlayerDoors | StopTPD | `stoptrackplayerdoors Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| StopWaiting | - | `stopwaiting Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| SetUFOCamSpeedMult | sucsm | `sucsm <speed multiplier>` | No | Implemented: Shared World or ordered host operation |
+| ShowVars | SV | `sv` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetWeather | sw | `sw <weather> [0\|1]` | No | Implemented: Shared World or ordered host operation |
+| ToggleAI | TAI | `tai` | Optional | Implemented: Shared World or ordered host operation |
+| Tan | - | `tan Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleBorders | TB | `tb` | No | Implemented: White lines follow loaded LAND edges and refresh across streaming |
+| ToggleControlsDriven | TC | `tc` | Yes | Pending: NPC movement fighting and camera control transfer needs a shared host input driver |
+| ToggleCombatAI | tcai | `tcai` | No | Implemented: Shared World or ordered host operation |
+| ToggleCollision | TCL | `tcl` | Optional | Partial: Untargeted player noclip works, targeted reference filters and freezing other actors are pending |
+| ToggleDetection | TDETECT | `tdetect` | No | Implemented: Shared World or ordered host operation |
+| TeachWord | - | `teachword <word>` | No | Implemented: Shared World or ordered host operation |
+| ToggleEOFImageSpace | teofis | `teofis` | No | Implemented: Disables base and modifier postprocessing and the transition fade overlay |
+| TestAllCells | TAC | `testallcells Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| TestCode | - | `testcode Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| TestDegrade | - | `testdegrade Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| TestFadeNodes | TestFN | `testfadenodes Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| TestHandleManagerWarnAndKillSDM | THMWAKS | `testhandlemanagerwarnandkillsdm Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| TestLocalMap | tlm | `testlocalmap Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| TestSeenData | tsd | `testseendata Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| Textures | tx | `textures Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleFlyCam | tfc | `tfc [0\|1]` | No | Partial: Detached camera and simulation freeze work, animation and audio freeze are pending |
+| ToggleFogOfWar | TFOW | `tfow` | No | Pending: The host has no local-map renderer whose terrain image can be toggled |
+| ToggleGrass | TG | `tg` | No | Implemented: Toggles grass batches and retains visibility across uploads |
+| ToggleGodMode | TGM | `tgm` | No | Partial: Damage immunity switch works, unlimited arrows, stamina, magicka and shout costs are not all bridged |
+| tick | - | `tick <seconds>` | No | Implemented: Shared World or ordered host operation |
+| ToggleImmortalMode | TIM | `tim` | No | Implemented: Shared World or ordered host operation |
+| Timing | FPS | `timing Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleLODLand | TLL | `tll` | No | Implemented: Toggles terrain object and tree LOD including later uploads and terrain rejoins |
+| ToggleMenus | TM | `tm` | No | Implemented: Shared World or ordered host operation |
+| ToggleMovement | TMOVE | `tmove` | No | Implemented: Shared World or ordered host operation |
+| ToggleActorMover | tam | `toggleactormover Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleActorsAI | - | `toggleactorsai Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleAiSchedules | TAIS | `toggleaischedules Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleAnimations | TANIM | `toggleanimations Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleAudioOverlay | TAO | `toggleaudiooverlay Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleBoundVisGeom | tbvg | `toggleboundvisgeom Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleCastShadows | tsh | `togglecastshadows Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleCellNode | TCN | `togglecellnode Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleCharControllerShape | TCCS | `togglecharcontrollershape Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleCollisionGeometry | TCG | `togglecollisiongeometry Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleCombatDebug | tcd | `togglecombatdebug Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleCombatStats | TCS | `togglecombatstats Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleContextOverlay | TCO | `togglecontextoverlay Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleConversations | TCONV | `toggleconversations Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleDebugDecal | TDD | `toggledebugdecal Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleDebugText | TDT | `toggledebugtext Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleDecalRendering | TDR | `toggledecalrendering Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleDepthBias | tdb | `toggledepthbias Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleDetectionStats | tds | `toggledetectionstats Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleEmotions | temo | `toggleemotions Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleEventLog | TEL | `toggleeventlog Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleFootIK | tfik | `togglefootik Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleFullHelp | TFH | `togglefullhelp Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleFullScreenMotionBlur | tfsmb | `togglefullscreenmotionblur Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleGrabIK | tgik | `togglegrabik Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleGrassUpdate | TGU | `togglegrassupdate Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleGUIOverlay | TGO | `toggleguioverlay Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleHDRDebug | THD | `togglehdrdebug Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleHeapTracking | THT | `toggleheaptracking Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| ToggleHighProcess | THIGHPROCESS | `togglehighprocess Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleLiteBrite | tlb | `togglelitebrite Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleLookIK | tlik | `togglelookik Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleLowProcess | TLOWPROCESS | `togglelowprocess Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleMagicStats | TMS | `togglemagicstats Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleMapCam | tmc | `togglemapcam Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleMapEffect | TME | `togglemapeffect Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleMarkers | TMK | `togglemarkers Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleMaterialGeometry | TMG | `togglematerialgeometry Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleMiddleHighProcess | TMHIGHPROCESS | `togglemiddlehighprocess Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleMiddleLowProcess | TMLOWPROCESS | `togglemiddlelowprocess Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleMotionBlur | tmb | `togglemotionblur Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleMotionDriven | TMD | `togglemotiondriven Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleMultiboundCheck | mbc | `togglemultiboundcheck Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleNavMesh | TNM | `togglenavmesh Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleNavmeshInfo | tni | `togglenavmeshinfo Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleOcclusion | tocc | `toggleocclusion Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| TogglePapyrusLog | TPLog | `togglepapyruslog Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| TogglePathingInfoFunction | TPI | `togglepathinginfofunction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| TogglePathLine | TPL | `togglepathline Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| TogglePoolTracking | TPT | `togglepooltracking Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| TogglePrimitives | TPR | `toggleprimitives Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleRagdollAnim | tra | `toggleragdollanim Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleRefractionDebug | trd | `togglerefractiondebug Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Toggles Foot IK system | SetVel | `toggles foot ik system Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleSafeZone | TSZ | `togglesafezone Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleShadowVolumes | TSV | `toggleshadowvolumes Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleSPUCulling | tSPUC | `togglespuculling Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| ToggleSPUMovement | tSPUM | `togglespumovement Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| ToggleSPURenderBatch | tSPURB | `togglespurenderbatch Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| ToggleSPUTransformUpdate | tSPUTU | `togglesputransformupdate Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| ToggleStairsGeometry | TSG | `togglestairsgeometry Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleTestLight | TTL | `toggletestlight Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleVerletDebug | tvd | `toggleverletdebug Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| ToggleWaterCurrentGeometry | twcg | `togglewatercurrentgeometry Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleWaterRadius | TWR | `togglewaterradius Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| TrapUpdate | - | `trapupdate Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| TriggerHitShader | ths | `triggerhitshader Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| TriggerHUDShudder | hudsh | `triggerhudshudder Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| TriggerScreenBlood | tsb | `triggerscreenblood Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleSky | TS | `ts` | No | Implemented: Hides the sky background and night meshes through the live SkyFrame |
+| ToggleScripts | TSCR | `tscr` | No | Implemented: Shared World or ordered host operation |
+| ToggleTrees | TT | `tt` | No | Partial: Authored tree batches and tree LOD toggle across uploads, dynamically created tree classification is pending |
+| ToggleWireframe | TWF | `twf` | No | Implemented: Toggles Godot viewport wireframe with edge data prepared before mesh loading |
+| ToggleWaterSystem | TWS | `tws` | No | Implemented: Toggles water surfaces and retains visibility across uploads |
+| UnequipAll | - | `unequipall Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UnequipItem | - | `unequipitem <item> [0\|1] [left\|right]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| UnEquipObject | - | `unequipobject Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UninstallMemoryTracker | UMT | `uninstallmemorytracker Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| UnLock | - | `unlock` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| UnlockWord | - | `unlockword <word>` | No | Implemented: Shared World or ordered host operation |
+| UnusedFunction1 | - | `unusedfunction1 Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UnusedFunction2 | - | `unusedfunction2 Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UnusedFunction3 | - | `unusedfunction3 Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UnusedFunction4 | - | `unusedfunction4 Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UnusedFunction5 | - | `unusedfunction5 Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UnusedFunction6 | - | `unusedfunction6 Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UpdateLevel | - | `updatelevel Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UpdateQuestInstanceGlobal | - | `updatequestinstanceglobal Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| UseWeapon | - | `useweapon Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| VisualRefPosition | VRP | `visualrefposition Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
+| Wait | - | `wait Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| WakeUpPC | - | `wakeuppc Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| WasteMemory | wm | `wastememory Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
+| WaterColor | mwc | `watercolor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| WornApparelHasKeywordCount | - | `wornapparelhaskeywordcount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| WornHasKeyword | - | `wornhaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+
+### Console validation
+
+`debug::play_tests` checks state through Console::run, including inventory,
+leveled-list addition, selected references, locks, quest objectives, actor
+values, settings, controls, animation requests, batch continuation and deferred
+deletion across a save. `debug::unsupported_tests` checks rejection for each
+callable pending or skipped catalog entry. These rejection tests are not
+semantic acceptance of those commands. Some existing debug commands remain
+covered by the earlier scenario and installed-game tests.
+
+`console_overlay_walkthrough_opens_submits_history_and_closes` runs the actual
+walkthrough headless. It injects grave, tilde, physical grave, typed text, Enter,
+history keys, reference clicks and Escape. It checks inventory mutation, error display, focus,
+mouse restoration and frozen player pose and clock. Installed runs require
+SKYRIM_DATA and SOE_GODOT_BIN, with a freshly built release extension supplied
+by SOE_CONSOLE_EXTENSION. Build and run through the run's cargo wrapper on
+Xvfb :99. Build the release extension before the test so the test does not
+launch a nested cargo process while holding a build slot.
+
+The 2026-10-13 checkpoint passed 1,023 Console::run tests within all 1,263
+game library tests. The final gate completed formatting, all four Clippy
+passes, comment lint, prose lint, TOML and Markdown checks, fuzz formatting and
+runner contracts. cargo-deny and cargo-audit were absent. Workspace testing
+reported 6,249 passes before stopping with exit 101 at twelve AI integration
+failures. The untouched 735176dff snapshot reproduced the same twelve failures
+with 4,241 passing integration tests. They concern follow/travel cell crossings,
+sleep destinations and runtime-obstacle routes in the package fixtures.
+This checkpoint does not claim a passing full gate.
+
+At that checkpoint the release extension built successfully, but the installed
+headless overlay run could not acquire the shared installed-data slot. Its
+script passed the Godot headless parse check. The continuation below records
+the later installed input and reference-click results.
+
+### Console continuation, 2026-10-14
+
+The installed headless walkthrough input regression passed against the release
+extension built from the FormID correction checkpoint. The expanded validation
+also checks host presentation and the deletion marker on selected references.
+The catalog contains 185 implemented entries, 18 partial entries, 109 skipped
+entries and 758 pending entries. Pending rejection tests establish the error
+contract, not the command's requested behavior.
+
+Grass, tree and water surfaces are separated by their record kind before
+material batching. Their visibility switches remain active across new uploads.
+LOD visibility also applies to later blocks and terrain joins. TB draws one
+server mesh of white LAND boundary segments, sampled from loaded terrain edge
+heights and refreshed as cells arrive or leave. This adds no reference nodes.
+Godot's local Viewport documentation requires wireframe generation before mesh
+loading for the Compatibility renderer. Player startup enables it before world
+uploads. The mesh edge data is an added rendering cost, not a measured frame
+rate claim.
+
+ANIMCAM selects third person, retains the player's facing while the camera
+orbits and handles mouse-wheel zoom. S1ST keeps the first-person rig visible in
+third person. TEOFIS suppresses base and modifier image-space passes and the
+transition fade. TS changes the live SkyFrame visibility, leaving illumination
+and weather state intact. The renderer's automatic shader clock and audio are
+still independent of TFC's simulation pause.
+
+REFINI reads the active profile's default, user and plugin INIs through the
+existing Settings layering rules, updates runtime INI queries and reapplies the
+camera settings. Startup resources such as archive mounts are not rebuilt.
+The default INI uses the directory beside the first profile Data root. A
+profile with its original game directory elsewhere needs that path retained
+by the profile resolver before REFINI can reread its default file.
+SAVEINI writes runtime settings to the last active plugin's INI in the profile
+Data root. A temporary-profile round trip checks reload, changed files, plugin
+precedence, separate game and Data paths and the last-plugin filename without
+writing to the installed game. SAVEINI reuses an existing filename regardless
+of case. Directory enumeration is sorted before case-folded lookup.
+
+Spell learning now uses World::add_actor_spell, so ADDSPELL and PSB activate
+supported constant abilities. REMOVESPELL dispels the removed spell's effects.
+FW sets the existing weather transition to its final state. Relationship reads
+fall back to authored RELA records, and relationship writes update both actors.
+RESETINVENTORY retains the restored default outfit's worn state in actor
+equipment. SEXCHANGE reaches the shared appearance and animation-rig readers.
+Leveled actors retain their selected traits before private-base creation, and
+SEXCHANGE changes their private base. A Console::run regression checks that
+another actor retains its sex, including after save and load. The existing
+inherited footstep regression also passes.
+TAI removes disabled actors from scheduled package updates and ready AI action
+delivery. Perk, shout, race and faction mutations reject forms of the wrong type
+before changing state, and negative faction ranks remove membership. These corrections
+reuse runtime paths. No Mudcrab code or new dependency was introduced.
+
+COC now selects CELL editor IDs through CellIndex and uses an exterior cell's
+signed grid center instead of world position zero. The local UESP CELL page
+identifies XCLC as exterior grid coordinates and flags. Separate Console::run
+regressions check COC, COW and COE on a negative X coordinate.
+
+BAT executes game operations while collecting host requests. The host consumes
+those requests after the whole batch, so a mixed save, mutation and load batch
+can observe the wrong intermediate state. UI-36 owns ordered host dispatch.
+The tree switch classifies authored references through the load order. Dynamic
+tree references need their runtime base included in that classification. UI-32
+remains wip for that case as well as the other presentation gaps. TC still
+needs an NPC input driver, and TFOW needs a local-map renderer. The opt-in
+threaded simulation execution gap is tracked separately by UI-35.
+
+Click selection rejects CELL, LAND and base records even after unrelated
+lookups have cached their state. Dynamic runtime references and the player
+remain selectable. MarkForDelete adds the UESP deletion marker to the selected
+reference label while its deletion is pending.
+
+The expanded installed walkthrough test passed on Xvfb :99 in 11.51 seconds,
+with exit status zero. Godot was launched only by cargo test through the run
+wrapper, using the newly built release extension. The process exited before
+any further build. All 436 host library tests passed. The headless run checks
+input, world-state mutation and host switches. It does not measure the rendered
+appearance or frame cost of each exterior visibility toggle.
+
+All 1,037 Console::run tests passed, including catalog rejection checks. All
+1,277 game library tests passed in the workspace gate. The full gate passed
+formatting, four Clippy passes, comment lint, prose lint, TOML, Markdown and
+fuzz formatting, plus 52 runner contract tests. Cargo-deny and cargo-audit were
+absent and skipped. The first reviewed workspace run recorded 6,265 passes before
+stopping at the same twelve AI integration failures documented above, with
+exit status 101. The integration binary reported 4,241 passes and twelve
+failures, with its four existing ignored cases unchanged. No test was weakened
+or newly ignored. The inherited footstep case passes in that run.
+
+The final catalog correction adds LOCK to the command metadata and table.
+Every practical command name and alias in the supplied UESP snapshot now has
+a catalog entry. The final release build passed, and its installed headless
+walkthrough test passed in 13.73 seconds with exit status zero. The final gate
+recorded 6,264 Rust passes before the same twelve AI failures, with exit status
+101. The game library and integration counts stayed at 1,277 and 4,241 passes.

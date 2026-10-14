@@ -66,6 +66,10 @@ impl World {
                 &spaces,
             );
             schedule.counts[level.index()] += 1;
+            if state.ai_disabled {
+                schedule.inactive.push(actor);
+                continue;
+            }
             if state.dead || state.unconscious {
                 schedule.inactive.push(actor);
             }

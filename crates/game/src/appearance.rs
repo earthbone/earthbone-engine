@@ -99,7 +99,7 @@ impl World {
                 source: Some(source),
                 race: self.actor_base_race(source)?,
                 skin: distributed_skin.or(self.skin(source)?),
-                female: self.npc_record(source)?.is_female(),
+                female: self.actor_female(actor)?,
             }
         } else {
             Traits::default()

@@ -132,10 +132,7 @@ impl crate::World {
         let (traits_race, female) = match base {
             Some(_) => {
                 let traits = self.actor_component_source(actor, crate::npc::template::TRAITS)?;
-                (
-                    self.actor_base_race(traits)?,
-                    self.npc_record(traits)?.is_female(),
-                )
+                (self.actor_base_race(traits)?, self.actor_female(actor)?)
             }
             None => (None, false),
         };

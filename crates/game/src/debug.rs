@@ -8,11 +8,11 @@
 //! dialogue, a menu or a player choice is unreachable and its test has to
 //! build a synthetic plugin instead of using the installed game. Skyrim
 //! answers the same problem with its console: `setstage`, `prid`,
-//! `player.additem`. This is that console's command layer without a UI.
+//! `player.additem`. PlayerNode exposes this command layer in its console overlay.
 //!
 //! Three callers share it: the scenario harness through its `debug` step,
-//! Rust tests through [`Console::run`], and later an in-game console, which
-//! is a separate plan item and builds only the UI on top.
+//! Rust tests through [`Console::run`], and PlayerNode's in-game overlay.
+//! Additional syntax follows the local UESP Skyrim Console snapshot of 2026-10-13.
 //!
 //! # Not a back door
 //!
@@ -52,6 +52,9 @@
 //! model, one is a plain list), so this is the same shape over `World`.
 
 use std::fmt;
+
+mod catalog;
+mod play;
 
 use soe_esm::GlobalFormId;
 use soe_papyrus::Value;
@@ -351,13 +354,41 @@ const COMMANDS: &[Entry] = &[
     },
 ];
 
-/// A running command session. The only state it keeps is the selected
-/// reference, the way the console keeps what `prid` picked.
+/// A console action that requires the host's camera, UI or filesystem.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostRequest {
+    /// Toggle a named presentation feature.
+    Toggle(String),
+    /// Set camera field of view in degrees.
+    Fov(f32),
+    /// Scale host movement, animation and simulation time.
+    TimeMultiplier(f64),
+    /// Toggle a detached camera, optionally freezing simulation.
+    FreeCamera(bool),
+    /// Set the free camera movement multiplier.
+    FreeCameraSpeed(f32),
+    /// Show an actor's inventory as a container.
+    Container(GlobalFormId),
+    /// Open the race menu.
+    RaceMenu,
+    /// Save or load an engine save through the host's save manager.
+    Save { name: String, load: bool },
+    /// Purge unattached host cell caches.
+    Purge,
+    /// Reload layered INIs or write runtime settings to the last plugin's INI.
+    Ini { reload: bool },
+}
+
+/// A command session retains selection, bounded batch depth and ordered host requests.
+/// Gameplay state stays in the shared World and VM.
 #[derive(Debug, Clone, Default)]
 pub struct Console {
     selected: Option<GlobalFormId>,
     /// Probe scripts assembled so far, so each gets its own script name.
     probes: usize,
+    host_requests: Vec<HostRequest>,
+    batch_depth: usize,
+    batch_directory: Option<std::path::PathBuf>,
 }
 
 impl Console {
@@ -389,6 +420,7 @@ impl Console {
                     format!("{:<20} {:<50} {}", c.name, c.args, c.what)
                 }
             })
+            .chain(catalog::help(prefix))
             .collect()
     }
 
@@ -401,16 +433,30 @@ impl Console {
     /// parse, a name resolves to no form, or the operation itself fails the
     /// way it would fail for a script.
     pub fn run(&mut self, game: &mut Game, line: &str) -> Result<Outcome, String> {
-        let body = line.split('#').next().unwrap_or("").trim();
-        if body.is_empty() {
+        let words = play::tokenize(line)?;
+        let Some(head) = words.first() else {
             return Ok(Outcome::Done);
-        }
-        let mut words = body.split_whitespace();
-        let head = words.next().ok_or("empty command")?;
-        let args: Vec<&str> = words.collect();
+        };
         let (target, name) = split_target(head);
-        let name = name.to_ascii_lowercase();
-        self.dispatch(game, target, &name, &args)
+        let lower = name.to_ascii_lowercase();
+        let name = catalog::canonical(&lower);
+        let args: Vec<&str> = words.iter().skip(1).map(String::as_str).collect();
+        self.dispatch(game, target, name, &args)
+    }
+
+    /// Consume ordered host presentation requests produced by command execution.
+    pub fn take_host_requests(&mut self) -> Vec<HostRequest> {
+        std::mem::take(&mut self.host_requests)
+    }
+
+    /// Configure the Data directory searched by BAT, including its parent game directory.
+    pub fn set_batch_directory(&mut self, directory: std::path::PathBuf) {
+        self.batch_directory = Some(directory);
+    }
+
+    /// Clear console selection, including a second click on the selected reference.
+    pub fn deselect(&mut self) {
+        self.selected = None;
     }
 
     /// Run a block of command lines, stopping at the first failure and
@@ -465,16 +511,19 @@ impl Console {
                 let log =
                     soe_trace::logging::global().ok_or("logging subscriber is not installed")?;
                 if !args.is_empty() {
-                    log.set_filter(&args.join(" "))
+                    log.set_filter(&args.join(","))
                         .map_err(|error| error.to_string())?;
                 }
                 Ok(Outcome::Text(log.filter()))
             }
-            "help" => Ok(Outcome::List(Console::help(args.first().unwrap_or(&"")))),
+            "help" => play::help(game, args),
 
             // ----- selection and lookup -----
             "prid" => {
                 let id = resolve(game, arg(0)?)?;
+                if !game.world_mut().is_reference(id) {
+                    return Err("prid requires a reference ID".into());
+                }
                 self.selected = Some(id);
                 Ok(Outcome::Form(id))
             }
@@ -511,7 +560,7 @@ impl Console {
                 ))
             }
             "listrefs" => {
-                let cell = resolve(game, arg(0)?)?;
+                let cell = resolve_editor(game, arg(0)?)?;
                 let refs = game.world_mut().cell_references(cell);
                 let world = game.world();
                 Ok(Outcome::List(
@@ -526,8 +575,8 @@ impl Console {
 
             // ----- quests -----
             "setstage" => {
-                let quest = resolve(game, arg(0)?)?;
-                let stage = number(arg(1)?)? as u16;
+                let quest = resolve_editor(game, arg(0)?)?;
+                let stage = play::integer(arg(1)?, 0, i32::from(u16::MAX))? as u16;
                 if game.set_stage(quest, stage) {
                     game.run_until_idle(64);
                     Ok(Outcome::Done)
@@ -536,13 +585,13 @@ impl Console {
                 }
             }
             "getstage" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let stage = game.world_mut().quest_state(quest).map_or(0, |q| q.highest);
                 Ok(Outcome::Int(i64::from(stage)))
             }
             "getstagedone" => {
-                let quest = resolve(game, arg(0)?)?;
-                let stage = number(arg(1)?)? as u16;
+                let quest = resolve_editor(game, arg(0)?)?;
+                let stage = play::integer(arg(1)?, 0, i32::from(u16::MAX))? as u16;
                 let done = game
                     .world_mut()
                     .quest_state(quest)
@@ -550,21 +599,24 @@ impl Console {
                 Ok(Outcome::Bool(done))
             }
             "startquest" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let started = game.start_quest(quest);
                 game.run_until_idle(64);
                 Ok(Outcome::Bool(started))
             }
             "stopquest" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let stopped = game.world_mut().stop_quest(quest);
                 Ok(Outcome::Bool(stopped))
             }
             "objective" => {
-                let quest = resolve(game, arg(0)?)?;
-                let index = number(arg(1)?)? as u16;
+                let quest = resolve_editor(game, arg(0)?)?;
+                let index = play::integer(arg(1)?, 0, i32::from(u16::MAX))? as u16;
                 let field = arg(2)?.to_ascii_lowercase();
                 let on = flag(args.get(3).copied())?;
+                if !matches!(field.as_str(), "displayed" | "completed" | "failed") {
+                    return Err(format!("unknown objective field {field}"));
+                }
                 let mut world = game.world_mut();
                 let objective = world
                     .objective(quest, index)
@@ -578,7 +630,7 @@ impl Console {
                 Ok(Outcome::Done)
             }
             "forcealias" => {
-                let quest = resolve(game, arg(0)?)?;
+                let quest = resolve_editor(game, arg(0)?)?;
                 let alias = number(arg(1)?)? as u32;
                 let target = resolve(game, arg(2)?)?;
                 if game.world_mut().force_alias(quest, alias, Some(target)) {
@@ -589,7 +641,7 @@ impl Console {
             }
             "showquestaliases" => {
                 let named = arg(0)?.to_string();
-                let quest = resolve(game, &named)?;
+                let quest = resolve_editor(game, &named)?;
                 let mut world = game.world_mut();
                 let state = world
                     .quest_state(quest)
@@ -610,7 +662,7 @@ impl Console {
             "placeatme" => {
                 let base = resolve(game, arg(0)?)?;
                 let at = self.target_of(game, target)?;
-                let count = args.get(1).map_or(Ok(1.0), |c| number(c))? as i64;
+                let count = play::integer(args.get(1).copied().unwrap_or("1"), 1, 10000)?;
                 let mut placed = Vec::new();
                 for _ in 0..count.max(1) {
                     placed.push(game.world_mut().place_at(base, at, false));
@@ -629,7 +681,7 @@ impl Console {
             }
             "movetocell" => {
                 let id = self.target_of(game, target)?;
-                let cell = resolve(game, arg(0)?)?;
+                let cell = resolve_editor(game, arg(0)?)?;
                 let mut world = game.world_mut();
                 let reference = world
                     .reference(id)
@@ -641,9 +693,10 @@ impl Console {
                 let id = self.target_of(game, target)?;
                 let on = name == "enable";
                 let mut world = game.world_mut();
-                let reference = world
-                    .reference(id)
-                    .ok_or_else(|| format!("{id} is not a reference"))?;
+                if id == world.player() && !on {
+                    return Err("the player cannot be disabled".into());
+                }
+                let reference = world.reference(id).ok_or("not a reference")?;
                 reference.enabled = on;
                 Ok(Outcome::Done)
             }
@@ -660,16 +713,9 @@ impl Console {
             "additem" | "removeitem" => {
                 let holder = self.target_of(game, target)?;
                 let item = resolve(game, arg(0)?)?;
-                let count = args.get(1).map_or(Ok(1.0), |c| number(c))? as i32;
-                let mut world = game.world_mut();
-                if name == "additem" {
-                    world.add_item(holder, item, count);
-                    Ok(Outcome::Done)
-                } else {
-                    Ok(Outcome::Int(i64::from(
-                        world.remove_item(holder, item, count, None),
-                    )))
-                }
+                let count =
+                    play::integer(args.get(1).copied().unwrap_or("1"), i32::MIN + 1, i32::MAX)?;
+                play::change_items(game, holder, item, count, name == "additem")
             }
             "getitemcount" => {
                 let holder = self.target_of(game, target)?;
@@ -683,6 +729,9 @@ impl Console {
             "setav" | "modav" => {
                 let actor = self.target_of(game, target)?;
                 let key = arg(0)?.to_string();
+                if crate::actor_values::actor_value_index(&key).is_none() {
+                    return Err(format!("unknown actor value {key}"));
+                }
                 let value = number(arg(1)?)? as f32;
                 let mut world = game.world_mut();
                 if world.actor(actor).is_none() {
@@ -702,6 +751,11 @@ impl Console {
             "getav" => {
                 let actor = self.target_of(game, target)?;
                 let key = arg(0)?;
+                if crate::actor_values::actor_value_index(key).is_none()
+                    || game.world_mut().actor(actor).is_none()
+                {
+                    return Err("getav requires an actor and known actor value".into());
+                }
                 Ok(Outcome::Float(f64::from(
                     game.world_mut().actor_value(actor, key),
                 )))
@@ -709,13 +763,35 @@ impl Console {
             "addspell" | "removespell" | "addperk" | "removeperk" | "addshout" => {
                 let actor = self.target_of(game, target)?;
                 let form = resolve(game, arg(0)?)?;
+                let tag = match name {
+                    "addspell" | "removespell" => soe_esm::Tag(*b"SPEL"),
+                    "addperk" | "removeperk" => soe_esm::Tag(*b"PERK"),
+                    _ => soe_esm::Tag(*b"SHOU"),
+                };
+                if game.world().tag_of(form) != Some(tag) {
+                    return Err(format!("{name} requires a {tag} form"));
+                }
+                if name == "addspell" {
+                    if game.world_mut().actor(actor).is_none() {
+                        return Err(format!("{actor} is not an actor"));
+                    }
+                    return Ok(Outcome::Bool(game.world_mut().add_actor_spell(actor, form)));
+                }
+                if name == "removespell" {
+                    let vm = &mut game.vm;
+                    let mut world = game.world.borrow_mut();
+                    let state = world.actor(actor).ok_or("not an actor")?;
+                    let changed = state.spells.remove(&form);
+                    if changed {
+                        world.dispel_spell(actor, form, &mut |n, c| vm.create_object_of(n, c));
+                    }
+                    return Ok(Outcome::Bool(changed));
+                }
                 let mut world = game.world_mut();
                 let state = world
                     .actor(actor)
                     .ok_or_else(|| format!("{actor} is not an actor"))?;
                 let changed = match name {
-                    "addspell" => state.spells.insert(form),
-                    "removespell" => state.spells.remove(&form),
                     "addperk" => state.perks.insert(form),
                     "removeperk" => state.perks.remove(&form),
                     _ => state.shouts.insert(form),
@@ -725,6 +801,9 @@ impl Console {
             "setrace" => {
                 let actor = self.target_of(game, target)?;
                 let race = resolve(game, arg(0)?)?;
+                if game.world().tag_of(race) != Some(soe_esm::Tag(*b"RACE")) {
+                    return Err("setrace requires a RACE form".into());
+                }
                 let mut world = game.world_mut();
                 let state = world
                     .actor(actor)
@@ -735,12 +814,19 @@ impl Console {
             "setfactionrank" => {
                 let actor = self.target_of(game, target)?;
                 let faction = resolve(game, arg(0)?)?;
-                let rank = number(arg(1)?)? as i32;
+                if game.world().tag_of(faction) != Some(soe_esm::Tag(*b"FACT")) {
+                    return Err("setfactionrank requires a FACT form".into());
+                }
+                let rank = play::integer(arg(1)?, i32::MIN + 1, i32::MAX)?;
                 let mut world = game.world_mut();
                 let state = world
                     .actor(actor)
                     .ok_or_else(|| format!("{actor} is not an actor"))?;
-                state.factions.insert(faction, rank);
+                if rank < 0 {
+                    state.factions.remove(&faction);
+                } else {
+                    state.factions.insert(faction, rank);
+                }
                 Ok(Outcome::Done)
             }
             "kill" => {
@@ -831,7 +917,6 @@ impl Console {
 
             // ----- globals and the clock -----
             "set" => {
-                let global = resolve(game, arg(0)?)?;
                 // `set <global> to <value>` is the console's own spelling.
                 let rest = if args.get(1).is_some_and(|w| w.eq_ignore_ascii_case("to")) {
                     arg(2)?
@@ -839,11 +924,15 @@ impl Console {
                     arg(1)?
                 };
                 let value = number(rest)? as f32;
+                let global = resolve_editor(game, arg(0)?)?;
+                if game.world().tag_of(global) != Some(soe_esm::Tag(*b"GLOB")) {
+                    return Err("set requires a global variable".into());
+                }
                 game.world_mut().set_global(global, value);
                 Ok(Outcome::Done)
             }
             "getglobalvalue" => {
-                let global = resolve(game, arg(0)?)?;
+                let global = resolve_editor(game, arg(0)?)?;
                 Ok(Outcome::Float(f64::from(
                     game.world_mut().global_value(global),
                 )))
@@ -860,7 +949,7 @@ impl Console {
             }
             "getgametime" => Ok(Outcome::Float(game.world().clock.game_hours())),
 
-            other => Err(format!("unknown command {other}, try `help`")),
+            other => self.play_command(game, target, other, args),
         }
     }
 }
@@ -876,15 +965,11 @@ fn split_target(head: &str) -> (Option<&str>, &str) {
 }
 
 /// A name, a hex FormID or `player`. Hex is accepted with an `0x` prefix and
-/// bare, the way the console takes `prid 1a332`, but a bare form that also
-/// names a form is read as the name first, since editor ids win in the
-/// console too.
+/// bare, the way the console takes `prid 1a332`. A valid numeric ID takes
+/// priority over an editor ID, including the vanilla F versus Gold001 collision.
 fn resolve(game: &mut Game, name: &str) -> Result<GlobalFormId, String> {
     if name.eq_ignore_ascii_case("player") {
         return Ok(game.player());
-    }
-    if let Some(id) = game.form(name) {
-        return Ok(id);
     }
     let hex = name
         .strip_prefix("0x")
@@ -892,14 +977,33 @@ fn resolve(game: &mut Game, name: &str) -> Result<GlobalFormId, String> {
         .unwrap_or(name);
     if let Ok(raw) = u32::from_str_radix(hex, 16) {
         if let Some(id) = game.world().from_runtime_id(raw) {
-            return Ok(id);
+            if game.world().tag_of(id).is_some() || game.world().reference_ref(id).is_some() {
+                return Ok(id);
+            }
         }
+    }
+    if let Some(id) = game.form(name) {
+        return Ok(id);
     }
     Err(format!("no form named {name}"))
 }
 
+/// Quest, cell and global-name arguments accept editor IDs before numeric fallback.
+fn resolve_editor(game: &mut Game, name: &str) -> Result<GlobalFormId, String> {
+    match game.form(name) {
+        Some(id) => Ok(id),
+        None => resolve(game, name),
+    }
+}
+
 fn number(s: &str) -> Result<f64, String> {
-    s.parse().map_err(|_| format!("expected a number, got {s}"))
+    let value: f64 = s
+        .parse()
+        .map_err(|_| format!("expected a number, got {s}"))?;
+    if !value.is_finite() || value.abs() > f64::from(f32::MAX) {
+        return Err(format!("non-finite or out of range number {s}"));
+    }
+    Ok(value)
 }
 
 fn flag(word: Option<&str>) -> Result<bool, String> {
@@ -1086,3 +1190,9 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod play_tests;
+
+#[cfg(test)]
+mod unsupported_tests;

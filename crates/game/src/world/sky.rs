@@ -158,6 +158,19 @@ fn rgb(bytes: &[u8], from: usize, to: usize, blend: f32) -> [f32; 3] {
 }
 
 impl World {
+    /// UESP ForceWeather switches the active weather without a transition.
+    pub fn force_active_weather(
+        &mut self,
+        weather: GlobalFormId,
+        override_weather: bool,
+    ) -> Result<(), VmError> {
+        self.set_active_weather(weather, override_weather, true)?;
+        self.weather.sky.target = Some(weather);
+        self.weather.sky.from.clear();
+        self.weather.sky.duration = 0.0;
+        Ok(())
+    }
+
     /// Read an interior's lighting without applying exterior weather to it.
     ///
     /// # Errors

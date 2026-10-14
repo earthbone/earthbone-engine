@@ -468,6 +468,7 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "SAV-15", write: write_reference_persistence, read: read_reference_persistence },
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
     super::scr_40::SECTION,
+    Section { name: "UI-31", write: super::refs::write_console_reference, read: super::refs::read_console_reference },
 ];
 
 fn write_vampire_lord_state(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {

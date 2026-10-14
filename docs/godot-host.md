@@ -9188,3 +9188,66 @@ six GiB acceptance check. The residency rows remain unfinished for that
 failure. The final outside-gate landmark capture passed with 1308 pixels
 against the unchanged 500-pixel threshold and passed visual review against
 its terrain control. The gameplay camera is restored before city measurement.
+
+## Shared in-game console, UI-31
+
+PlayerNode constructs the console overlay, so `walkthrough.gd` and the play
+path have identical input and selection behavior. Grave, tilde or physical
+grave opens it. Escape or the same key closes it. The console intercepts world
+input before inventory, activation, combat and mouse-look handling. Closing
+clears held inputs and restores the prior mouse mode. A visible pointer selects
+references using the existing Godot ray query and static, dynamic or actor body
+mapping. No node is allocated per selected or changed reference.
+
+Lines go to the same `soe_game::debug::Console::run` used by scenarios and Rust
+tests. Reference changes synchronize rendering and collision, and player pose
+changes reach the existing cell replacement path. Ordered host requests cover
+camera settings, free camera, menus and verified named saves. See the
+[command coverage table](game.md#console-command-coverage) for exact semantics
+and pending or skipped commands. UI-31 does not complete the entire UESP table.
+
+The installed regression is `console_overlay.rs`, running
+`console_overlay_test.gd` through the real walkthrough headless on Xvfb :99.
+Build the release extension through the run cargo wrapper first and set
+SOE_CONSOLE_EXTENSION to that library. The test requires SKYRIM_DATA and
+SOE_GODOT_BIN. The threaded simulation draft pauses host input but has no
+console command execution bridge yet.
+
+### Console continuation, 2026-10-14
+
+The installed walkthrough input regression passed against the FormID correction
+checkpoint. The continuation adds retained grass, tree, water and LOD visibility,
+LAND border lines, wireframe, sky and image-space switches, animator camera and
+first-person rig visibility. Grass and trees keep separate record-kind batches.
+Borders use one RenderingServer mesh rather than cell or reference nodes. No new
+per-reference node path is introduced.
+
+The expanded regression checks PRID labels, deletion markers, host presentation switches, the
+viewport wireframe state, streamer requests and unchanged actor facing while the
+animator camera rotates. A headless pass establishes input and host state. It
+does not establish the rendered appearance of each exterior toggle. The command
+coverage table in game.md retains partial and pending behavior.
+
+Selection validates record tags before accepting a collider mapping. Terrain,
+cell and base records remain unselectable after state-caching lookups. Runtime
+references with no authored record use the cached reference table.
+
+The expanded installed walkthrough test passed in 11.51 seconds on Xvfb :99,
+and its tracked cargo session exited with status zero. All 436 host library
+tests also passed. The release extension was built and the installed test was
+run through the run cargo wrapper.
+
+After adding the missing LOCK catalog entry, the final release build passed
+and the installed headless overlay test passed again in 13.73 seconds. Its
+tracked cargo session exited with status zero.
+
+## Scratch console reconciliation, 2026-10-14
+
+The free-walk and console merges retain bounded distant demand, worldspace
+instancing, responsive dialogue layout and console input capture. The incoming
+console catalog predated TOOL-08 diagnostics. Its 21 conflicting checks now
+verify exact target and argument errors, loaded-data reports, both toggle
+states and queued host requests. Command help identifies these diagnostic
+bridges, while Verlet and multibound requests retain explicit host limitations.
+Every check remains executable. SAVE_VERSION remains 37, and console deletion
+state uses its named reference section.

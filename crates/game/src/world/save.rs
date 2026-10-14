@@ -1854,6 +1854,7 @@ fn read_ref_state_with_table(
         record_flags: 0,
         enabled,
         deleted,
+        console_delete_pending: false,
         activation_blocked,
         opened,
         open_transition: None,
