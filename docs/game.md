@@ -455,6 +455,13 @@ and each target's Sneak, invisibility, movement noise and worn armor weight.
 Actor identity and liveness are validated once per identity within a batch,
 then read afresh on the next batch. Input validation still follows observation
 order and completes before any pool or LOS state changes.
+Already built actors use read-only state access for these senses. Lazy actor
+construction still occurs on first use. Detection reads retain PRF-31's contact
+and light membership indexes and PRF-34's cached enable state, avoiding the
+mutable-reference invalidations that CMB-32's original actor access triggered.
+The `prf_31_detection_reads_preserve_unchanged_reference_caches` regression
+requires 60 batches to retain cached enable entries and leave the translation
+candidate set empty. It failed before that access correction.
 An observer's combat awareness is indexed once per batch. Alert and busy
 modifiers remain specific to each pair. Previously known pairs absent from a
 batch receive a negative value, the lesser of the base detection value and

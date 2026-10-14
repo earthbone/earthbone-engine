@@ -562,8 +562,9 @@ impl PlayerNode {
         self.detection_stage_usec[2] = started.elapsed().as_micros() as i64;
         if verify_occlusion {
             let regions = symmetry.clear_region_count();
+            let batch_heads = symmetry.batch_head_count();
             godot_print!(
-                "PRF31 sight setup_us={setup_usec} independent={independent} clear={clear} regions={regions}"
+                "PRF31 sight setup_us={setup_usec} independent={independent} clear={clear} regions={regions} batch_heads={batch_heads}"
             );
             godot_print!("PRF31 occlusion checked={verified} mismatches={mismatches}");
             godot_print!("PRF31 reciprocal checked={reciprocal_verified}");

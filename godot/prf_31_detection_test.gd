@@ -68,6 +68,11 @@ func prf_31_gate_walk_keeps_detection_under_two_ms() -> void:
 	print("PRF31 exterior cell=", player.call("gameplay_cell"), " actors=", actors, " pairs=", pairs, " detection_us=", elapsed)
 	print("PRF31 stages sync/light/observations/evaluation=", player.call("detection_stage_times"))
 	print("PRF31 resident body placements=", player.call("contact_actor_bodies"))
+	if OS.get_environment("SOE_VERIFY_DETECTION_OCCLUSION") == "1":
+		for sample in range(3):
+			await physics_frame
+			_check(player.call("sample_detection", 0.0) > 0, "reused query ray equivalence sample " + str(sample))
+			_check(player.call("sample_detection_walk", 1.0 / 60.0, Vector3(1, 0, 0)) > 0, "moved query ray equivalence sample " + str(sample))
 	if OS.get_environment("PRF_31_BASELINE") != "1":
 		_check(elapsed <= DETECTION_BUDGET_US, "detection exceeded 2 ms")
 		await _walk_gate(player)

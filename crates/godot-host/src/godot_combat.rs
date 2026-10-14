@@ -34,12 +34,20 @@ pub enum ContactHit {
 pub(crate) struct DetectionQueries {
     pub(crate) ray: Gd<PhysicsRayQueryParameters3D>,
     cover_query: Gd<PhysicsShapeQueryParameters3D>,
-    shape_query: Gd<PhysicsShapeQueryParameters3D>,
+    region_query: Gd<PhysicsShapeQueryParameters3D>,
+    head_queries: HashMap<GlobalFormId, HeadQuery>,
+    region_exclusions: Vec<Rid>,
     cover: Rid,
     sphere: Rid,
     region: Rid,
     cover_exclusions_dirty: bool,
     exclusion_sources: DetectionExclusions,
+}
+
+struct HeadQuery {
+    parameters: Gd<PhysicsShapeQueryParameters3D>,
+    exclusions: Array<Rid>,
+    mask: Option<u32>,
 }
 
 #[derive(Default)]
@@ -56,7 +64,9 @@ impl DetectionQueries {
         Self {
             ray: PhysicsRayQueryParameters3D::new_gd(),
             cover_query: PhysicsShapeQueryParameters3D::new_gd(),
-            shape_query: PhysicsShapeQueryParameters3D::new_gd(),
+            region_query: PhysicsShapeQueryParameters3D::new_gd(),
+            head_queries: HashMap::new(),
+            region_exclusions: Vec::new(),
             cover: server.box_shape_create(),
             sphere: server.sphere_shape_create(),
             region: server.box_shape_create(),
@@ -210,34 +220,26 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
                 return sight;
             }
         }
-        let shape = queries.sphere;
-        let mut query = queries.shape_query.clone();
-        query.set_collision_mask(self.query.get_collision_mask());
-        query.set_shape_rid(shape);
-        for &(actor, eye, radius) in &heads {
-            server.shape_set_data(shape, &radius.to_variant());
-            query.set_transform(Transform3D::new(Basis::IDENTITY, eye));
-            query.set_exclude(self.excluded.get(&actor).unwrap_or(&Array::new()));
-            soe_trace::count(soe_trace::Operation::ShapeCasts, 1);
-            if self
-                .state
-                .intersect_shape_ex(&query)
-                .max_results(1)
-                .done()
-                .is_empty()
-            {
-                let index = sight.eyes.len();
-                sight.eyes.insert(actor, (eye, index));
-            }
-        }
-        heads.retain(|(actor, _, _)| sight.eyes.contains_key(actor));
+        let mask = self.query.get_collision_mask();
+        queries
+            .head_queries
+            .retain(|actor, _| self.excluded.contains_key(actor));
         heads.sort_by(|a, b| a.1.y.total_cmp(&b.1.y).then_with(|| a.0.cmp(&b.0)));
         let mut regions: Vec<(Vector3, Vector3, Vec<Vector3>)> = Vec::new();
-        for &(_, eye, _) in &heads {
+        for &(_, eye, radius) in &heads {
+            let eye_low = eye - Vector3::ONE * radius;
+            let eye_high = eye + Vector3::ONE * radius;
             if let Some((low, high, points)) = regions.last_mut() {
-                let next_low = Vector3::new(low.x.min(eye.x), low.y.min(eye.y), low.z.min(eye.z));
-                let next_high =
-                    Vector3::new(high.x.max(eye.x), high.y.max(eye.y), high.z.max(eye.z));
+                let next_low = Vector3::new(
+                    low.x.min(eye_low.x),
+                    low.y.min(eye_low.y),
+                    low.z.min(eye_low.z),
+                );
+                let next_high = Vector3::new(
+                    high.x.max(eye_high.x),
+                    high.y.max(eye_high.y),
+                    high.z.max(eye_high.z),
+                );
                 let size = next_high - next_low;
                 if size.x <= 32.0 && size.y <= 4.0 && size.z <= 32.0 {
                     *low = next_low;
@@ -246,14 +248,22 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
                     continue;
                 }
             }
-            regions.push((eye, eye, vec![eye]));
+            regions.push((eye_low, eye_high, vec![eye]));
         }
-        let excluded: Array<Rid> = capsules
+        let mut excluded: Vec<Rid> = capsules
             .iter()
             .filter_map(|(actor, _, _)| self.excluded.get(actor))
             .flat_map(Array::iter_shared)
             .collect();
-        query.set_exclude(&excluded);
+        excluded.sort_unstable();
+        let mut query = queries.region_query.clone();
+        if queries.region_exclusions != excluded {
+            query.set_exclude(&excluded.iter().copied().collect());
+            queries.region_exclusions = excluded;
+        }
+        if query.get_collision_mask() != mask {
+            query.set_collision_mask(mask);
+        }
         let shape = queries.region;
         query.set_shape_rid(shape);
         let mut regions = VecDeque::from(regions);
@@ -312,6 +322,53 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
                 regions.push_back((low, left_high, points));
                 regions.push_back((right_low, high, right));
             }
+        }
+        let shape = queries.sphere;
+        let occlusion = crate::detection::ActorOcclusion::new(capsules);
+        for &(actor, eye, radius) in &heads {
+            let center = GodotPos::new(eye.x, eye.y, eye.z).to_skyrim();
+            let clear = sight.sphere_in_clear_region(eye, radius)
+                && occlusion.sphere_clear(
+                    actor,
+                    [center.x, center.y, center.z],
+                    radius / METRES_PER_UNIT,
+                );
+            sight.batch_heads += usize::from(clear);
+            if !clear {
+                let head = queries.head_queries.entry(actor).or_insert_with(|| {
+                    let mut query = PhysicsShapeQueryParameters3D::new_gd();
+                    query.set_shape_rid(shape);
+                    HeadQuery {
+                        parameters: query,
+                        exclusions: Array::new(),
+                        mask: None,
+                    }
+                });
+                if head.mask != Some(mask) {
+                    head.parameters.set_collision_mask(mask);
+                    head.mask = Some(mask);
+                }
+                let excluded = self.excluded.get(&actor).cloned().unwrap_or_default();
+                if head.exclusions != excluded {
+                    head.parameters.set_exclude(&excluded);
+                    head.exclusions = excluded;
+                }
+                let query = &mut head.parameters;
+                server.shape_set_data(shape, &radius.to_variant());
+                query.set_transform(Transform3D::new(Basis::IDENTITY, eye));
+                soe_trace::count(soe_trace::Operation::ShapeCasts, 1);
+                if !self
+                    .state
+                    .intersect_shape_ex(&*query)
+                    .max_results(1)
+                    .done()
+                    .is_empty()
+                {
+                    continue;
+                }
+            }
+            let index = sight.eyes.len();
+            sight.eyes.insert(actor, (eye, index));
         }
         sight
             .pairs
@@ -413,6 +470,7 @@ pub(crate) struct SightSymmetry {
     eyes: HashMap<GlobalFormId, (Vector3, usize)>,
     pairs: Vec<Option<bool>>,
     clear_regions: Vec<(Vector3, Vector3)>,
+    batch_heads: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -431,6 +489,24 @@ impl SightReuse {
 }
 
 impl SightSymmetry {
+    pub(crate) fn batch_head_count(&self) -> usize {
+        self.batch_heads
+    }
+
+    fn sphere_in_clear_region(&self, center: Vector3, radius: f32) -> bool {
+        if !center.is_finite() || !radius.is_finite() || radius <= 0.0 {
+            return false;
+        }
+        self.clear_regions.iter().any(|(low, high)| {
+            center.x - radius >= low.x
+                && center.x + radius <= high.x
+                && center.y - radius >= low.y
+                && center.y + radius <= high.y
+                && center.z - radius >= low.z
+                && center.z + radius <= high.z
+        })
+    }
+
     pub(crate) fn clear_region_count(&self) -> usize {
         self.clear_regions.len()
     }
@@ -686,6 +762,22 @@ pub fn pose_segment(pose: Transform3D, reach_units: f32) -> Result<(Vector3, Vec
 #[cfg(test)]
 mod sight_symmetry_tests {
     use super::*;
+
+    #[test]
+    fn prf_31_endpoint_sphere_requires_whole_volume_in_a_current_clear_region() {
+        let mut sight = SightSymmetry::default();
+        assert!(!sight.sphere_in_clear_region(Vector3::ZERO, 1.0));
+        sight.clear_regions.push((-Vector3::ONE, Vector3::ONE));
+        assert!(sight.sphere_in_clear_region(Vector3::ZERO, 1.0));
+        assert!(!sight.sphere_in_clear_region(Vector3::RIGHT * 0.1, 1.0));
+        assert!(!sight.sphere_in_clear_region(Vector3::ZERO, 1.1));
+        sight.clear_regions.push((Vector3::ONE, Vector3::ONE * 3.0));
+        assert!(!sight.sphere_in_clear_region(Vector3::ONE, 0.5));
+        assert!(!SightSymmetry::default().sphere_in_clear_region(Vector3::ZERO, 1.0));
+        for radius in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert!(!sight.sphere_in_clear_region(Vector3::ZERO, radius));
+        }
+    }
 
     #[test]
     fn prf_31_scenery_clear_requires_continuous_current_region_coverage() {
