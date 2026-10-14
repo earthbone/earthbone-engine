@@ -26,6 +26,9 @@ func prf_31_gate_walk_keeps_detection_under_two_ms() -> void:
 	player.set("capture_mouse", false)
 	player.set("auto_step", false)
 	root.add_child(player)
+	# HST-23 presents and animates NPCs from the render callback independently
+	# of auto_step. This fixture drives only the capsule, camera and detection.
+	player.set_process(false)
 	_check(player.call("use_streamer_data", streamer), "shared data")
 	_check(player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) > 0, "entry")
 	_check(player.call("start_gameplay"), "gameplay")
@@ -60,6 +63,8 @@ func prf_31_gate_walk_keeps_detection_under_two_ms() -> void:
 	var pairs: int = player.call("sample_detection", 1.0 / 60.0)
 	var elapsed := Time.get_ticks_usec() - started
 	_check(pairs > 0, "resident exterior observations")
+	var visuals: Dictionary = player.call("npc_visual_counts")
+	_check(visuals.drawn == 0 and visuals.pending == 0, "manual detection omits NPC presentation")
 	print("PRF31 exterior cell=", player.call("gameplay_cell"), " actors=", actors, " pairs=", pairs, " detection_us=", elapsed)
 	print("PRF31 stages sync/light/observations/evaluation=", player.call("detection_stage_times"))
 	print("PRF31 resident body placements=", player.call("contact_actor_bodies"))

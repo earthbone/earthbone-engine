@@ -3,7 +3,7 @@
 //! Godot physics contact adapter. PhysicsDirectSpaceState3D.intersect_ray
 //! returns the first body RID, as specified in the local Godot class reference.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::BuildHasher;
 
 use godot::classes::{
@@ -38,7 +38,16 @@ pub(crate) struct DetectionQueries {
     cover: Rid,
     sphere: Rid,
     region: Rid,
-    cover_exclusions: Option<Array<Rid>>,
+    cover_exclusions_dirty: bool,
+    exclusion_sources: DetectionExclusions,
+}
+
+#[derive(Default)]
+struct DetectionExclusions {
+    player: Option<Array<Rid>>,
+    streamer: Option<Array<Rid>>,
+    actors: HashSet<Rid>,
+    combined: Array<Rid>,
 }
 
 impl DetectionQueries {
@@ -51,14 +60,45 @@ impl DetectionQueries {
             cover: server.box_shape_create(),
             sphere: server.sphere_shape_create(),
             region: server.box_shape_create(),
-            cover_exclusions: None,
+            cover_exclusions_dirty: true,
+            exclusion_sources: DetectionExclusions::default(),
         }
     }
 
-    fn sync_cover_exclusions(&mut self, trusted: &Array<Rid>) {
-        if self.cover_exclusions.as_ref() != Some(trusted) {
-            self.cover_query.set_exclude(trusted);
-            self.cover_exclusions = Some(trusted.duplicate_shallow());
+    /// Retain query exclusions until a source RID list or actor membership changes.
+    /// Source snapshots are copied because Godot arrays share mutable storage.
+    pub(crate) fn set_exclusions<S: BuildHasher>(
+        &mut self,
+        player: Option<&Array<Rid>>,
+        streamer: Option<&Array<Rid>>,
+        actors: &HashMap<Rid, GlobalFormId, S>,
+    ) {
+        let sources = &mut self.exclusion_sources;
+        if sources.player.as_ref() != player
+            || sources.streamer.as_ref() != streamer
+            || sources.actors.len() != actors.len()
+            || actors.keys().any(|rid| !sources.actors.contains(rid))
+        {
+            sources.player = player.map(Array::duplicate_shallow);
+            sources.streamer = streamer.map(Array::duplicate_shallow);
+            sources.actors = actors.keys().copied().collect();
+            let mut combined = player.map(Array::duplicate_shallow).unwrap_or_default();
+            if let Some(streamer) = streamer {
+                combined.extend_array(streamer);
+            }
+            let mut actor_rids: Vec<_> = actors.keys().copied().collect();
+            actor_rids.sort_unstable();
+            combined.extend(actor_rids);
+            sources.combined = combined;
+            self.cover_exclusions_dirty = true;
+        }
+    }
+
+    fn sync_cover_exclusions(&mut self) {
+        if self.cover_exclusions_dirty {
+            self.cover_query
+                .set_exclude(&self.exclusion_sources.combined);
+            self.cover_exclusions_dirty = false;
         }
     }
 
@@ -88,7 +128,6 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
     pub(crate) fn sight_symmetry(
         &mut self,
         capsules: &[(GlobalFormId, [f32; 3], f32)],
-        trusted: &Array<Rid>,
         queries: &mut DetectionQueries,
     ) -> SightSymmetry {
         let mut sight = SightSymmetry::default();
@@ -143,7 +182,7 @@ impl<'a, S: BuildHasher> ContactRays<'a, S> {
             return sight;
         }
         let mut server = PhysicsServer3D::singleton();
-        queries.sync_cover_exclusions(trusted);
+        queries.sync_cover_exclusions();
         let shape = queries.cover;
         let mut query = queries.cover_query.clone();
         query.set_shape_rid(shape);
