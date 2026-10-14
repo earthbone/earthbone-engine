@@ -604,6 +604,53 @@ fn persistent_full_lod_installed_whiterun_prepares_models() {
         missing.is_empty(),
         "eligible full models missing: {missing:?}"
     );
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("SOE_WHITERUN_PEAK_CHECK").is_some() {
+        let status = std::fs::read_to_string("/proc/self/status").unwrap();
+        let peak_kib = status
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("VmHWM:")?
+                    .split_whitespace()
+                    .next()?
+                    .parse::<u64>()
+                    .ok()
+            })
+            .expect("Linux process peak RSS");
+        eprintln!("WHITERUN_PREPARATION_PEAK_KIB={peak_kib}");
+        assert!(
+            peak_kib <= 2 * 1024 * 1024,
+            "isolated Whiterun preparation exceeded two GiB: {peak_kib} KiB"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn persistent_full_lod_installed_whiterun_preparation_peak_is_bounded() {
+    if std::env::var_os("SKYRIM_DATA").is_none() {
+        return;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "data_source::full_lod_visibility_tests::persistent_full_lod_installed_whiterun_prepares_models",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("SOE_WHITERUN_PEAK_CHECK", "1")
+        .output()
+        .unwrap();
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.status.success() && log.contains("WHITERUN_PREPARATION_PEAK_KIB="),
+        "{log}"
+    );
+    eprintln!("{log}");
 }
 
 #[cfg(feature = "godot")]

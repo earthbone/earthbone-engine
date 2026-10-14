@@ -4,10 +4,12 @@
 //! path normalization and Godot's complete mip-chain requirement.
 //! Nifly NifFile::TrimTexturePaths and OpenMW resourcehelpers.cpp/findDirectory
 //! strip export prefixes at a textures directory component before VFS lookup.
+//! OpenMW resource/objectcache.hpp preserves reuse while consumers own images.
+//! Weak handles adapt that policy without extending this cache's byte budget.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use soe_bsa::Vfs;
 use soe_dds::{Dds, Image as DdsImage};
@@ -184,7 +186,7 @@ pub(super) struct TextureCache {
     /// two workers reaching one texture at once share a single read instead
     /// of both doing it (the first version raced and read 132 files for 88
     /// textures).
-    textures: Mutex<ByteCache<TextureSlot>>,
+    textures: Mutex<PreparedTextures>,
     decoded_rgba: Mutex<ByteCache<Option<Arc<DdsImage>>>>,
     decoded: AtomicUsize,
     failures: AtomicUsize,
@@ -198,7 +200,7 @@ const IMAGE_CACHE_BYTES: usize = 64 * 1024 * 1024;
 impl Default for TextureCache {
     fn default() -> Self {
         Self {
-            textures: Mutex::new(ByteCache::new(IMAGE_CACHE_BYTES)),
+            textures: Mutex::new(PreparedTextures::new(IMAGE_CACHE_BYTES)),
             decoded_rgba: Mutex::new(ByteCache::new(IMAGE_CACHE_BYTES)),
             decoded: AtomicUsize::new(0),
             failures: AtomicUsize::new(0),
@@ -211,6 +213,52 @@ impl Default for TextureCache {
 
 /// A texture read at most once while resident, `None` after a failed read.
 type TextureSlot = Arc<OnceLock<Option<Arc<TextureData>>>>;
+
+struct PreparedTextures {
+    cache: ByteCache<TextureSlot>,
+    slots: HashMap<String, Weak<OnceLock<Option<Arc<TextureData>>>>>,
+    live: HashMap<String, Weak<TextureData>>,
+}
+
+impl PreparedTextures {
+    fn new(cap: usize) -> Self {
+        Self {
+            cache: ByteCache::new(cap),
+            slots: HashMap::new(),
+            live: HashMap::new(),
+        }
+    }
+
+    fn slot(&mut self, path: &str) -> TextureSlot {
+        if let Some(slot) = self.cache.get(path) {
+            return Arc::clone(slot);
+        }
+        let slot = self
+            .slots
+            .get(path)
+            .and_then(Weak::upgrade)
+            .unwrap_or_else(|| {
+                let slot = TextureSlot::default();
+                if let Some(image) = self.live.get(path).and_then(Weak::upgrade) {
+                    let _ = slot.set(Some(image));
+                }
+                slot
+            });
+        if self.slots.len() >= 4096 {
+            self.slots.retain(|_, slot| slot.strong_count() > 0);
+            self.live.retain(|_, image| image.strong_count() > 0);
+        }
+        self.slots.insert(path.to_owned(), Arc::downgrade(&slot));
+        self.cache.insert(path.to_owned(), Arc::clone(&slot), 0);
+        slot
+    }
+
+    fn clear(&mut self) {
+        self.cache.clear();
+        self.slots.clear();
+        self.live.clear();
+    }
+}
 
 fn texture_path(path: &str) -> String {
     let path = soe_bsa::normalize(path.trim())
@@ -261,8 +309,9 @@ impl TextureCache {
     #[cfg(feature = "godot")]
     pub(super) fn memory(&self, report: &mut crate::memory::AssetMemory) {
         let textures = self.textures.lock().unwrap_or_else(PoisonError::into_inner);
-        report.add("texture_cache_slots", textures.entries.len());
+        report.add("texture_cache_slots", textures.cache.entries.len());
         for image in textures
+            .cache
             .entries
             .values()
             .filter_map(|entry| entry.value.get().and_then(Option::as_ref))
@@ -270,7 +319,7 @@ impl TextureCache {
             report.image(image);
             report.add("texture_cache_payload_bytes", image.payload_bytes());
         }
-        report.add("texture_cache_bytes", textures.bytes);
+        report.add("texture_cache_bytes", textures.cache.bytes);
         let rgba = self
             .decoded_rgba
             .lock()
@@ -357,25 +406,30 @@ impl TextureCache {
         load: impl FnOnce(&str) -> Option<Arc<TextureData>>,
     ) -> Option<Arc<TextureData>> {
         let path = texture_path(path);
-        let slot = {
-            let mut cache = self.textures.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(slot) = cache.get(&path) {
-                Arc::clone(slot)
-            } else {
-                let slot = TextureSlot::default();
-                cache.insert(path.clone(), Arc::clone(&slot), 0);
-                slot
-            }
-        };
+        let slot = self
+            .textures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .slot(&path);
         let image = slot.get_or_init(|| load(&path)).clone();
         let mut cache = self.textures.lock().unwrap_or_else(PoisonError::into_inner);
-        // CONTEXT: An evicted in-flight slot must not charge a newer load of this path.
+        // CONTEXT: A clear or newer slot must not be repopulated by an old load.
         if cache
+            .slots
+            .get(&path)
+            .is_some_and(|current| current.ptr_eq(&Arc::downgrade(&slot)))
+        {
+            if let Some(image) = &image {
+                cache.live.insert(path.clone(), Arc::downgrade(image));
+            }
+        }
+        if cache
+            .cache
             .entries
             .get(&path)
             .is_some_and(|entry| Arc::ptr_eq(&entry.value, &slot))
         {
-            cache.set_bytes(
+            cache.cache.set_bytes(
                 &path,
                 image.as_ref().map_or(0, |image| image.retained_bytes()),
             );
@@ -509,6 +563,91 @@ mod tests {
             })
             .unwrap();
         assert!(Arc::ptr_eq(&first, &alias));
+    }
+
+    #[test]
+    fn evicted_live_texture_is_shared_without_another_load() {
+        let cache = TextureCache::default();
+        let first = cache
+            .get_or_load("textures/live.dds", |_| {
+                Some(Arc::new(TextureData::Compressed {
+                    width: 4,
+                    height: 4,
+                    format: BlockFormat::Bc1,
+                    mips: 1,
+                    mip0_len: 8,
+                    bytes: vec![0; 8],
+                }))
+            })
+            .unwrap();
+        for index in 0..4096 {
+            assert!(cache
+                .get_or_load(&format!("missing/{index}.dds"), |_| None)
+                .is_none());
+        }
+        let alias = cache
+            .get_or_load(r"Data\Textures\Live.DDS", |_| {
+                panic!("eviction must reuse the live surface's image")
+            })
+            .unwrap();
+        assert!(Arc::ptr_eq(&first, &alias));
+    }
+
+    fn image(bytes: usize) -> Arc<TextureData> {
+        Arc::new(TextureData::Rgba8(soe_dds::Image {
+            width: 1,
+            height: (bytes / 4) as u32,
+            depth: 1,
+            rgba: vec![0; bytes],
+        }))
+    }
+
+    #[test]
+    fn byte_eviction_and_oversized_images_keep_live_sharing_within_budget() {
+        for budget in [4, 12] {
+            let cache = TextureCache {
+                textures: Mutex::new(super::PreparedTextures::new(budget)),
+                ..TextureCache::default()
+            };
+            let first = cache.get_or_load("first.dds", |_| Some(image(8))).unwrap();
+            let second = cache.get_or_load("second.dds", |_| Some(image(8))).unwrap();
+            assert!(!cache
+                .textures
+                .lock()
+                .unwrap()
+                .cache
+                .entries
+                .contains_key("first.dds"));
+            let alias = cache
+                .get_or_load("first.dds", |_| panic!("live image reloaded"))
+                .unwrap();
+            assert!(Arc::ptr_eq(&first, &alias));
+            assert!(cache.textures.lock().unwrap().cache.bytes <= budget);
+            assert_eq!(second.payload_bytes(), 8);
+        }
+    }
+
+    #[test]
+    fn expired_weak_images_reload_and_explicit_clear_starts_a_cold_load() {
+        let cache = TextureCache {
+            textures: Mutex::new(super::PreparedTextures::new(4)),
+            ..TextureCache::default()
+        };
+        let first = cache.get_or_load("first.dds", |_| Some(image(8))).unwrap();
+        let weak = Arc::downgrade(&first);
+        drop(first);
+        assert!(
+            weak.upgrade().is_none(),
+            "cache retained an oversized image"
+        );
+        let second = cache.get_or_load("first.dds", |_| Some(image(8))).unwrap();
+        cache.clear_prepared();
+        let third = cache.get_or_load("first.dds", |_| Some(image(8))).unwrap();
+        assert!(
+            !Arc::ptr_eq(&second, &third),
+            "explicit clear did not start a cold load"
+        );
+        assert_eq!(cache.textures.lock().unwrap().cache.bytes, 0);
     }
 
     struct WarningCapture(Arc<Mutex<Vec<String>>>);

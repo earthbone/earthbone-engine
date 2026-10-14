@@ -207,3 +207,56 @@ repeated-cell stability or the under-8-GiB target on installed data.
 `target/memory/after/binary.json` identifies the built extension. Release and
 installed-test locks remain in force. The row remains `wip` pending those
 captures and a passing integration gate.
+
+## Preview cache sharing regression, PRF-39
+
+The scratch preview at `abfb2665` retains RND-41's bounded distant demand.
+A fresh single-test process on `363092378` peaks at 1.648 GiB for the installed
+Whiterun preparation. The same isolated test on the merged preview peaks at
+1.668 GiB and prepares the same eight admitted references, five drawable
+surfaces and three markers. The previously reported 22.9 GiB peak does not
+reproduce in that isolated process. Process high-water marks from a full suite
+can include earlier tests and child processes, so these comparisons use exact
+filters and one test thread.
+
+The inn admission does reproduce the regression. `363092378` prepares
+297,001,596 payload bytes and admits the inn. The preview prepares
+525,750,308 bytes and rejects it under the unchanged 384 MiB limit.
+Both preparations cover 697 references. The memory-port merge `d595ee31d`
+replaced lifetime image sharing with a 64 MiB owning cache. Eviction removed
+its lookup slot while prepared surfaces still owned the image, and later
+references loaded additional copies. The synthetic live-owner eviction check
+fails before the fix and passes afterward.
+
+The prepared-image cache now retains weak image and in-flight slot handles
+alongside its bounded owning cache. A live consumer shares the same image
+after eviction, including oversized images. Once every owner releases an
+image, a later request loads it again. Explicit clear also resets weak handles
+and starts a cold load. Old loads cannot repopulate a cleared weak registry.
+The owning byte and negative-slot limits remain 64 MiB and 4,096 entries.
+Expired weak metadata is pruned at that slot threshold. Live weak handles
+retain no image payload. The RGBA and completed LOD cache limits are unchanged.
+
+Local OpenMW `components/resource/objectcache.hpp`, `GenericObjectCache::update`,
+keeps externally referenced resources available for reuse. Its time-based
+strong cache does not fit this byte budget, so weak ownership supplies reuse
+without extending cache residency. No dependency, saved state or reference
+node is added. Texture identity still follows the resolved source and VFS path.
+
+`persistent_full_lod_installed_whiterun_preparation_peak_is_bounded` runs the
+preparation in a fresh Linux child process and checks VmHWM against two GiB.
+The limit was fixed before its first run. The child retains the existing
+selected-model and marker assertions. Cache tests cover slot and byte
+eviction, oversized sharing, expired owners, explicit clear and concurrent
+aliases. Installed after-fix measurements and the commit gate are recorded
+with the completed preview validation.
+
+The after-fix isolated Whiterun worker peaks at 1.650 GiB, with five drawable
+surfaces and the same eight admitted references. The inn payload returns to
+297,001,596 bytes, exactly the visibility-branch payload, and admission passes
+without changing its 384 MiB limit. The after-fix inn command peaks at
+1.709 GiB, compared with 1.899 GiB before the fix and 1.751 GiB on the
+visibility branch. All commands use one test thread. Eleven texture-cache
+checks pass, including the previously failing live-owner eviction regression.
+These are CPU preparation measurements. They do not certify the Godot scene's
+RSS or its existing six-GiB target. The release scene requires its own capture.
