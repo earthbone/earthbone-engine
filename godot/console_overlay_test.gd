@@ -85,6 +85,9 @@ func _console_test() -> void:
     _check(not selected_by_click.is_empty(), "world click selects a reference")
     if not selected_by_click.is_empty():
         _check(str(player.call("console_execute", "getself")) == selected_by_click, "unprefixed command uses click selection")
+        var selected_label: Label = player.get_node("ConsoleLayer/Console/Content/Selected")
+        _check(not str(player.call("console_execute", "markfordelete")).contains("error:"), "selected reference accepts MarkForDelete")
+        _check(selected_label.text.contains("[D]"), "pending deletion appears in selection label")
     line.clear()
     var command := "player.additem f 7"
     for character in command:
@@ -133,5 +136,32 @@ func _console_test() -> void:
     _check(root.get_camera_3d().global_position.distance_to(camera_before) > 0.01, "free camera moves")
     _check(player_before == player.call("position"), "free camera leaves player reference in place")
     player.call("console_execute", "tfc")
+    player.call("console_execute", "prid 00000014")
+    var selection: Label = player.get_node("ConsoleLayer/Console/Content/Selected")
+    _check(selection.text.contains("00000014"), "prid updates vanilla runtime FormID label")
+    for operation in [["ts", "sky"], ["teofis", "imagespace"], ["s1st", "first_person"]]:
+        var features_before: Dictionary = player.call("console_features")
+        var result := str(player.call("console_execute", operation[0]))
+        var features_after: Dictionary = player.call("console_features")
+        _check(not result.contains("error:") and features_before[operation[1]] != features_after[operation[1]], operation[0] + " changes host presentation")
+        player.call("console_execute", operation[0])
+        _check(player.call("console_features")[operation[1]] == features_before[operation[1]], operation[0] + " restores host presentation")
+    var prior_debug := root.debug_draw
+    player.call("console_execute", "twf")
+    _check(root.debug_draw == Viewport.DEBUG_DRAW_WIREFRAME, "twf changes actual viewport draw mode")
+    player.call("console_execute", "twf")
+    _check(root.debug_draw == prior_debug, "twf restores viewport draw mode")
+    for operation in ["tg", "tt", "tws", "tb", "tll"]:
+        _check(not str(player.call("console_execute", operation)).contains("error:"), operation + " reaches live streamer")
+        _check(not str(player.call("console_execute", operation)).contains("error:"), operation + " restores streamer presentation")
+    var prior_third := bool(player.call("is_third_person"))
+    var actor_angle := float(str(player.call("console_execute", "player.getangle z")))
+    player.call("console_execute", "animcam")
+    _check(player.call("is_third_person"), "animcam selects third person")
+    player.call("set_facing", deg_to_rad(actor_angle) + 0.5, 0.0)
+    player.call("advance", 1.0 / 60.0)
+    _check(absf(float(str(player.call("console_execute", "player.getangle z"))) - actor_angle) < 0.001, "animcam leaves actor facing unchanged")
+    player.call("console_execute", "animcam")
+    _check(bool(player.call("is_third_person")) == prior_third, "animcam restores prior view")
     print("CONSOLE_OVERLAY_RESULT ", "PASS" if failures.is_empty() else "FAIL", " failures=", failures)
     quit(0 if failures.is_empty() else 1)

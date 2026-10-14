@@ -375,6 +375,8 @@ pub enum HostRequest {
     Save { name: String, load: bool },
     /// Purge unattached host cell caches.
     Purge,
+    /// Reload layered INIs or write runtime settings to the last plugin's INI.
+    Ini { reload: bool },
 }
 
 /// A command session retains selection, bounded batch depth and ordered host requests.
@@ -753,13 +755,35 @@ impl Console {
             "addspell" | "removespell" | "addperk" | "removeperk" | "addshout" => {
                 let actor = self.target_of(game, target)?;
                 let form = resolve(game, arg(0)?)?;
+                let tag = match name {
+                    "addspell" | "removespell" => soe_esm::Tag(*b"SPEL"),
+                    "addperk" | "removeperk" => soe_esm::Tag(*b"PERK"),
+                    _ => soe_esm::Tag(*b"SHOU"),
+                };
+                if game.world().tag_of(form) != Some(tag) {
+                    return Err(format!("{name} requires a {tag} form"));
+                }
+                if name == "addspell" {
+                    if game.world_mut().actor(actor).is_none() {
+                        return Err(format!("{actor} is not an actor"));
+                    }
+                    return Ok(Outcome::Bool(game.world_mut().add_actor_spell(actor, form)));
+                }
+                if name == "removespell" {
+                    let vm = &mut game.vm;
+                    let mut world = game.world.borrow_mut();
+                    let state = world.actor(actor).ok_or("not an actor")?;
+                    let changed = state.spells.remove(&form);
+                    if changed {
+                        world.dispel_spell(actor, form, &mut |n, c| vm.create_object_of(n, c));
+                    }
+                    return Ok(Outcome::Bool(changed));
+                }
                 let mut world = game.world_mut();
                 let state = world
                     .actor(actor)
                     .ok_or_else(|| format!("{actor} is not an actor"))?;
                 let changed = match name {
-                    "addspell" => state.spells.insert(form),
-                    "removespell" => state.spells.remove(&form),
                     "addperk" => state.perks.insert(form),
                     "removeperk" => state.perks.remove(&form),
                     _ => state.shouts.insert(form),
@@ -769,6 +793,9 @@ impl Console {
             "setrace" => {
                 let actor = self.target_of(game, target)?;
                 let race = resolve(game, arg(0)?)?;
+                if game.world().tag_of(race) != Some(soe_esm::Tag(*b"RACE")) {
+                    return Err("setrace requires a RACE form".into());
+                }
                 let mut world = game.world_mut();
                 let state = world
                     .actor(actor)
@@ -779,12 +806,19 @@ impl Console {
             "setfactionrank" => {
                 let actor = self.target_of(game, target)?;
                 let faction = resolve(game, arg(0)?)?;
-                let rank = number(arg(1)?)? as i32;
+                if game.world().tag_of(faction) != Some(soe_esm::Tag(*b"FACT")) {
+                    return Err("setfactionrank requires a FACT form".into());
+                }
+                let rank = play::integer(arg(1)?, i32::MIN + 1, i32::MAX)?;
                 let mut world = game.world_mut();
                 let state = world
                     .actor(actor)
                     .ok_or_else(|| format!("{actor} is not an actor"))?;
-                state.factions.insert(faction, rank);
+                if rank < 0 {
+                    state.factions.remove(&faction);
+                } else {
+                    state.factions.insert(faction, rank);
+                }
                 Ok(Outcome::Done)
             }
             "kill" => {

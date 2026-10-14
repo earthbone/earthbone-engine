@@ -16,6 +16,7 @@ use soe_game::debug::{Console, HostRequest};
 use soe_physics::PhysicsWorld;
 
 use super::PlayerNode;
+mod ini;
 
 #[derive(Default)]
 pub(super) struct Session {
@@ -31,6 +32,11 @@ pub(super) struct Session {
     menus_visible: bool,
     lod_visible: bool,
     pub free_camera: Option<FreeCamera>,
+    pub sky_hidden: bool,
+    pub imagespace_disabled: bool,
+    pub show_first_person: bool,
+    pub animator_camera: Option<(crate::camera::CameraMode, f32)>,
+    wireframe: bool,
     free_speed: f32,
 }
 
@@ -47,8 +53,16 @@ struct View {
     input: Gd<LineEdit>,
 }
 
+fn selectable_reference(world: &soe_game::World, id: GlobalFormId) -> bool {
+    match world.tag_of(id) {
+        Some(tag) => tag == soe_esm::tag::REFR || tag == soe_esm::Tag(*b"ACHR"),
+        None => world.reference_ref(id).is_some(),
+    }
+}
+
 impl PlayerNode {
     pub(super) fn create_console(&mut self) {
+        godot::classes::RenderingServer::singleton().set_debug_generate_wireframes(true);
         let mut layer = CanvasLayer::new_alloc();
         layer.set_name("ConsoleLayer");
         layer.set_layer(100);
@@ -149,6 +163,23 @@ impl PlayerNode {
             // CONTEXT: Do not mark text events handled, LineEdit receives them in GUI input.
             return false;
         }
+        if self.console.animator_camera.is_some() {
+            if let Ok(button) = event.clone().try_cast::<InputEventMouseButton>() {
+                let zoom = match button.get_button_index() {
+                    MouseButton::WHEEL_UP => -20.0,
+                    MouseButton::WHEEL_DOWN => 20.0,
+                    _ => 0.0,
+                };
+                if zoom != 0.0 {
+                    if button.is_pressed() {
+                        self.rig.settings.boom_length =
+                            (self.rig.settings.boom_length + zoom).clamp(20.0, 2000.0);
+                        self.update_camera();
+                    }
+                    return true;
+                }
+            }
+        }
         false
     }
 
@@ -204,19 +235,23 @@ impl PlayerNode {
     }
 
     fn console_selection_label(&mut self) {
-        let label = self
-            .console
-            .commands
-            .selected()
-            .and_then(|id| {
-                let game = self.game.as_mut()?;
-                Some(format!(
-                    "{} ({:08X})",
-                    game.world().name_of(id).unwrap_or_default(),
-                    game.world().runtime_id(id)
-                ))
-            })
-            .unwrap_or_else(|| "No reference selected".into());
+        let label =
+            self.console
+                .commands
+                .selected()
+                .and_then(|id| {
+                    let game = self.game.as_mut()?;
+                    let deleted = game.world().reference_ref(id).is_some_and(|reference| {
+                        reference.console_delete_pending || reference.deleted
+                    });
+                    Some(format!(
+                        "{} ({:08X}){}",
+                        game.world().name_of(id).unwrap_or_default(),
+                        game.world().runtime_id(id),
+                        if deleted { " [D]" } else { "" },
+                    ))
+                })
+                .unwrap_or_else(|| "No reference selected".into());
         if let Some(view) = self.console.view.as_mut() {
             view.selected.set_text(&label);
         }
@@ -242,10 +277,12 @@ impl PlayerNode {
         let mut state = PhysicsServer3D::singleton().space_get_direct_state(space)?;
         let hit = state.intersect_ray(&query);
         let body = hit.get("rid")?.try_to::<Rid>().ok()?;
-        self.query_collision
+        let picked = self
+            .query_collision
             .reference_for_body(body)
             .or_else(|| self.game_streamer.as_ref()?.bind().reference_for_body(body))
-            .or_else(|| self.actor_bodies.owners().get(&body).copied())
+            .or_else(|| self.actor_bodies.owners().get(&body).copied())?;
+        selectable_reference(&self.game.as_ref()?.world(), picked).then_some(picked)
     }
 
     pub(super) fn console_noclip_step(
@@ -330,6 +367,18 @@ impl PlayerNode {
     #[func]
     pub fn console_is_open(&self) -> bool {
         self.console.open
+    }
+
+    /// Current console presentation switches for host diagnostics.
+    #[func]
+    pub fn console_features(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        result.set("sky", !self.console.sky_hidden);
+        result.set("imagespace", !self.console.imagespace_disabled);
+        result.set("first_person", self.console.show_first_person);
+        result.set("animcam", self.console.animator_camera.is_some());
+        result.set("wireframe", self.console.wireframe);
+        result
     }
 
     /// Execute through the same Console as scenario tests, retaining selection and history.
@@ -456,6 +505,7 @@ impl PlayerNode {
                     source.clear_prepared_textures();
                 }
             }
+            HostRequest::Ini { reload } => self.console_ini(reload)?,
         }
         Ok(())
     }
@@ -464,6 +514,55 @@ impl PlayerNode {
 impl PlayerNode {
     fn console_toggle_presentation(&mut self, name: &str) -> Result<(), String> {
         match name {
+            "animcam" => {
+                if let Some((mode, yaw)) = self.console.animator_camera.take() {
+                    self.rig.mode = mode;
+                    self.rig.set_facing(yaw, self.rig.pitch());
+                } else {
+                    self.console.animator_camera = Some((self.rig.mode, self.rig.yaw()));
+                    self.rig.mode = crate::camera::CameraMode::Third;
+                }
+                self.sync_camera_controls();
+                self.update_camera();
+            }
+            "s1st" => {
+                self.console.show_first_person = !self.console.show_first_person;
+                self.sync_camera_controls();
+            }
+            "ts" => self.console.sky_hidden = !self.console.sky_hidden,
+            "teofis" => {
+                self.console.imagespace_disabled = !self.console.imagespace_disabled;
+                self.refresh_image_space();
+                self.refresh_door_fade();
+            }
+            "twf" => {
+                self.console.wireframe = !self.console.wireframe;
+                let mut server = godot::classes::RenderingServer::singleton();
+                server.set_debug_generate_wireframes(true);
+                let draw = if self.console.wireframe {
+                    godot::classes::viewport::DebugDraw::WIREFRAME
+                } else {
+                    godot::classes::viewport::DebugDraw::DISABLED
+                };
+                self.base()
+                    .get_viewport()
+                    .ok_or("missing viewport")?
+                    .set_debug_draw(draw);
+            }
+            "tg" | "tt" | "tws" => {
+                self.game_streamer
+                    .as_mut()
+                    .ok_or("missing streamer")?
+                    .bind_mut()
+                    .toggle_console_geometry(name);
+            }
+            "tb" => {
+                self.game_streamer
+                    .as_mut()
+                    .ok_or("missing streamer")?
+                    .bind_mut()
+                    .toggle_console_borders();
+            }
             "tm" => {
                 self.console.menus_visible = !self.console.menus_visible;
                 let alpha = if self.console.menus_visible { 1.0 } else { 0.0 };
@@ -542,5 +641,38 @@ impl PlayerNode {
             camera.set_global_transform(super::godot_transform(&eye));
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::selectable_reference;
+    use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+
+    #[test]
+    fn click_selection_accepts_references_without_building_terrain_or_base_forms() {
+        let mut plugin = Plugin::new(FileHeader::default());
+        for (object, tag) in [
+            (0x800, *b"CELL"),
+            (0x801, *b"LAND"),
+            (0x802, *b"MISC"),
+            (0x803, *b"REFR"),
+        ] {
+            plugin.push_top(Record::new(Tag(tag), object));
+        }
+        let mut order = LoadOrder::new();
+        order.add("Selection.esm", plugin).unwrap();
+        let mut world = soe_game::World::new(order);
+        let id = |object| GlobalFormId { file: 0, object };
+        for object in [0x800, 0x801, 0x802] {
+            assert!(!selectable_reference(&world, id(object)));
+            assert!(world.reference_ref(id(object)).is_none());
+            world.reference(id(object));
+            assert!(!selectable_reference(&world, id(object)));
+        }
+        assert!(selectable_reference(&world, id(0x803)));
+        assert!(world.reference_ref(id(0x803)).is_none());
+        let player = world.player();
+        assert!(selectable_reference(&world, player));
     }
 }

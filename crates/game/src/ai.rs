@@ -424,11 +424,27 @@ pub fn procedure_of(world: &World, id: GlobalFormId) -> (Procedure, Option<Locat
     tree::first(world, id)
 }
 
+/// Actors whose package actions may be delivered while AI is enabled.
+pub(crate) fn ready_actors(world: &World) -> Vec<GlobalFormId> {
+    if !world.debug_ai_enabled {
+        return Vec::new();
+    }
+    world
+        .loaded_actors()
+        .into_iter()
+        .filter(|actor| {
+            world
+                .actor_ref(*actor)
+                .is_some_and(|state| !state.ai_disabled)
+        })
+        .collect()
+}
+
 /// Ready ForceGreet attempts, resolved to the assigned target and topic.
 pub(crate) fn force_greet_ready(
     world: &mut World,
 ) -> Vec<(GlobalFormId, GlobalFormId, GlobalFormId)> {
-    let actors = world.loaded_actors();
+    let actors = ready_actors(world);
     actors
         .into_iter()
         .filter_map(|actor| {
@@ -466,7 +482,7 @@ pub(crate) fn force_greet_started(world: &mut World, actor: GlobalFormId) {
 /// state is marked before returning so a save or later tick cannot duplicate
 /// the activation.
 pub(crate) fn activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalFormId)> {
-    let actors = world.loaded_actors();
+    let actors = ready_actors(world);
     actors
         .into_iter()
         .filter_map(|actor| {
@@ -515,7 +531,7 @@ pub(crate) fn dialogue_activate_ready(world: &mut World) -> Vec<(GlobalFormId, G
     if !range.is_finite() || range < 0.0 {
         return Vec::new();
     }
-    let actors = world.loaded_actors();
+    let actors = ready_actors(world);
     actors
         .into_iter()
         .filter_map(|actor| {

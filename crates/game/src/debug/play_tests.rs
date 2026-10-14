@@ -12,6 +12,10 @@ fn id(object: u32) -> GlobalFormId {
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
 fn fixture() -> (Game, Console) {
+    fixture_extra(Vec::new())
+}
+
+fn fixture_extra(extra: Vec<Record>) -> (Game, Console) {
     let mut plugin = Plugin::new(FileHeader::default());
     for (object, name) in [(7, "Player"), (0x601, "TestActorBase")] {
         plugin.push_top(npc::build_record(
@@ -160,6 +164,9 @@ fn fixture() -> (Game, Console) {
             .sub(T(b"EFIT"), effect_values),
     );
     let mut order = LoadOrder::new();
+    for record in extra {
+        plugin.push_top(record);
+    }
     order.add("Test.esm", plugin).unwrap();
     let mut game = Game::new(order);
     let player = game.player();
@@ -1056,6 +1063,7 @@ fn fw_forces_and_sw_requests_weather() {
     console.run(&mut game, "fw TestWeather,1").unwrap();
     let request = game.world().weather_request().unwrap();
     assert!(request.accelerate && request.override_weather);
+    assert_eq!(game.world().current_sky_weather(), Some(id(0x908)));
     console.run(&mut game, "sw TestWeather").unwrap();
     assert!(!game.world().weather_request().unwrap().accelerate);
 }
@@ -1415,7 +1423,7 @@ fn quest_cell_and_global_name_arguments_keep_hex_shaped_editor_ids() {
     plugin.push_top(
         Record::new(T(b"GLOB"), 0x900)
             .zsub(T(b"EDID"), "CAFE")
-            .sub(T(b"TNAM"), [b'f'])
+            .sub(T(b"FNAM"), *b"f")
             .sub(T(b"FLTV"), 1_f32.to_le_bytes()),
     );
     for object in [0xda05, 0xdad, 0xcafe] {
@@ -1442,4 +1450,307 @@ fn quest_cell_and_global_name_arguments_keep_hex_shaped_editor_ids() {
         game.world().reference_ref(player).unwrap().cell,
         Some(id(0x700))
     );
+}
+
+#[test]
+fn equipspell_accepts_voice_and_instant_sources_without_learning() {
+    let (mut game, mut console) = fixture();
+    console
+        .run(&mut game, "equipspell TestSpell voice")
+        .unwrap();
+    console
+        .run(&mut game, "equipspell TestSpell instant")
+        .unwrap();
+    let world = game.world();
+    let actor = world.actor_ref(id(0x600)).unwrap();
+    assert_eq!(actor.other_spell, Some(id(0x901)));
+    assert_eq!(actor.instant_spell, Some(id(0x901)));
+    assert!(!actor.spells.contains(&id(0x901)));
+}
+
+#[test]
+fn relationship_query_reads_authored_rank_and_set_updates_both_actors() {
+    let data = [
+        0x601_u32.to_le_bytes(),
+        7_u32.to_le_bytes(),
+        1_u32.to_le_bytes(),
+        0_u32.to_le_bytes(),
+    ]
+    .concat();
+    let (mut game, mut console) =
+        fixture_extra(vec![Record::new(T(b"RELA"), 0xb01).sub(T(b"DATA"), data)]);
+    assert_eq!(
+        console
+            .run(&mut game, "getrelationshiprank player")
+            .unwrap(),
+        Outcome::Int(3)
+    );
+    assert_eq!(
+        console
+            .run(&mut game, "player.getrelationshiprank 600")
+            .unwrap(),
+        Outcome::Int(3)
+    );
+    console
+        .run(&mut game, "setrelationshiprank player -2")
+        .unwrap();
+    assert_eq!(
+        console
+            .run(&mut game, "getrelationshiprank player")
+            .unwrap(),
+        Outcome::Int(-2)
+    );
+    assert_eq!(
+        console
+            .run(&mut game, "player.getrelationshiprank 600")
+            .unwrap(),
+        Outcome::Int(-2)
+    );
+}
+
+#[test]
+fn resetinventory_restores_default_outfit_and_equipped_state() {
+    let npc = npc::build_record(
+        0x601,
+        "TestActorBase",
+        "TestActorBase",
+        npc::Config::default(),
+        npc::Stats::default(),
+    )
+    .sub(T(b"DOFT"), 0xb02_u32.to_le_bytes());
+    let outfit = Record::new(T(b"OTFT"), 0xb02).sub(T(b"INAM"), 0xa21_u32.to_le_bytes());
+    let (mut game, mut console) = fixture_extra(vec![npc, outfit]);
+    console.run(&mut game, "removeallitems").unwrap();
+    assert!(!game
+        .world()
+        .actor_ref(id(0x600))
+        .unwrap()
+        .equipped
+        .contains(&id(0xa21)));
+    console.run(&mut game, "resetinventory").unwrap();
+    assert_eq!(
+        console.run(&mut game, "getitemcount TestArmor").unwrap(),
+        Outcome::Int(1)
+    );
+    let world = game.world();
+    assert!(world
+        .actor_ref(id(0x600))
+        .unwrap()
+        .equipped
+        .contains(&id(0xa21)));
+    assert!(world
+        .reference_ref(id(0x600))
+        .unwrap()
+        .inventory
+        .stacks(id(0xa21))
+        .iter()
+        .any(crate::inventory::Stack::worn));
+}
+
+#[test]
+fn targeted_tai_removes_actor_updates_until_reenabled() {
+    let (mut game, mut console) = fixture();
+    console.run(&mut game, "tai").unwrap();
+    let schedule = game.world_mut().schedule_actor_updates(1.0);
+    assert!(!schedule
+        .updates
+        .iter()
+        .any(|(actor, _)| *actor == id(0x600)));
+    assert!(schedule.inactive.contains(&id(0x600)));
+    assert!(!crate::ai::ready_actors(&game.world()).contains(&id(0x600)));
+    console.run(&mut game, "tai").unwrap();
+    assert!(game
+        .world_mut()
+        .schedule_actor_updates(1.0)
+        .updates
+        .iter()
+        .any(|(actor, _)| *actor == id(0x600)));
+    assert!(crate::ai::ready_actors(&game.world()).contains(&id(0x600)));
+    console.deselect();
+    console.run(&mut game, "tai").unwrap();
+    assert!(crate::ai::ready_actors(&game.world()).is_empty());
+}
+
+#[test]
+fn spellbook_commands_apply_and_remove_constant_abilities() {
+    let mut effect_data = vec![0_u8; 152];
+    effect_data[..4].copy_from_slice(&2_u32.to_le_bytes());
+    effect_data[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+    effect_data[68..72].copy_from_slice(&24_u32.to_le_bytes());
+    let effect = Record::new(T(b"MGEF"), 0xb05).sub(T(b"DATA"), effect_data);
+    let mut spell_data = vec![0_u8; 36];
+    spell_data[8..12].copy_from_slice(&4_u32.to_le_bytes());
+    let spell = Record::new(T(b"SPEL"), 0xb04)
+        .zsub(T(b"EDID"), "TestAbility")
+        .sub(T(b"SPIT"), spell_data)
+        .sub(T(b"EFID"), 0xb05_u32.to_le_bytes())
+        .sub(
+            T(b"EFIT"),
+            [
+                7_f32.to_le_bytes(),
+                0_u32.to_le_bytes(),
+                0_u32.to_le_bytes(),
+            ]
+            .concat(),
+        );
+    let (mut game, mut console) = fixture_extra(vec![effect, spell]);
+    console
+        .run(&mut game, "player.addspell TestAbility")
+        .unwrap();
+    assert_eq!(
+        console.run(&mut game, "player.getav health").unwrap(),
+        Outcome::Float(107.0)
+    );
+    console
+        .run(&mut game, "player.removespell TestAbility")
+        .unwrap();
+    assert_eq!(
+        console.run(&mut game, "player.getav health").unwrap(),
+        Outcome::Float(100.0)
+    );
+    console.run(&mut game, "psb").unwrap();
+    assert_eq!(
+        console.run(&mut game, "player.getav health").unwrap(),
+        Outcome::Float(107.0)
+    );
+}
+
+#[test]
+fn sexchange_updates_the_shared_appearance_traits() {
+    let (mut game, mut console) = fixture();
+    let before = game.world_mut().actor_appearance(id(0x600)).unwrap();
+    console.run(&mut game, "sexchange").unwrap();
+    let after = game.world_mut().actor_appearance(id(0x600)).unwrap();
+    assert_ne!(before.female, after.female);
+    assert_eq!(before.head_parts, after.head_parts);
+}
+
+#[test]
+fn sexchange_keeps_leveled_actor_traits_private() {
+    let selected = npc::build_record(
+        0xc00,
+        "SelectedFemale",
+        "Selected female",
+        npc::Config {
+            flags: npc::flags::FEMALE,
+            ..Default::default()
+        },
+        npc::Stats::default(),
+    );
+    let root = npc::build_record(
+        0xc02,
+        "LeveledRoot",
+        "Leveled root",
+        npc::Config {
+            template_flags: npc::template::TRAITS,
+            ..Default::default()
+        },
+        npc::Stats::default(),
+    )
+    .sub(T(b"TPLT"), 0xc01_u32.to_le_bytes());
+    let mut entry = vec![0; 12];
+    entry[4..8].copy_from_slice(&0xc00_u32.to_le_bytes());
+    entry[8..10].copy_from_slice(&1_u16.to_le_bytes());
+    let list = Record::new(T(b"LVLN"), 0xc01).sub(T(b"LVLO"), entry);
+    let (mut game, mut console) = fixture_extra(vec![selected, root, list]);
+    let player = game.player();
+    let first = game.world_mut().place_at(id(0xc02), player, false);
+    let second = game.world_mut().place_at(id(0xc02), player, false);
+    assert!(game.world_mut().actor_appearance(first).unwrap().female);
+    assert!(game.world_mut().actor_appearance(second).unwrap().female);
+    console.select(first);
+    console.run(&mut game, "sexchange").unwrap();
+    assert!(!game.world_mut().actor_appearance(first).unwrap().female);
+    assert!(game.world_mut().actor_appearance(second).unwrap().female);
+    let saved = game.world().save_state();
+    game.world_mut().load_state(&saved).unwrap();
+    assert!(!game.world_mut().actor_appearance(first).unwrap().female);
+    assert!(game.world_mut().actor_appearance(second).unwrap().female);
+}
+
+#[test]
+fn actor_commands_reject_wrong_form_types_and_fractional_faction_ranks() {
+    let (mut game, mut console) = fixture();
+    for line in [
+        "player.addperk TestItem",
+        "player.addshout TestItem",
+        "player.addspell TestItem",
+        "player.setrace TestItem",
+        "player.setfactionrank TestItem 1",
+        "player.setfactionrank TestFaction 1.5",
+    ] {
+        assert!(console.run(&mut game, line).is_err(), "{line}");
+    }
+    let player = game.player();
+    let world = game.world();
+    let actor = world.actor_ref(player).unwrap();
+    assert!(!actor.perks.contains(&id(0x200)));
+    assert!(!actor.shouts.contains(&id(0x200)));
+    assert!(!actor.spells.contains(&id(0x200)));
+    assert_ne!(actor.race, Some(id(0x200)));
+    assert!(!actor.factions.contains_key(&id(0x200)));
+    assert!(!actor.factions.contains_key(&id(0x905)));
+}
+
+#[test]
+fn setfactionrank_negative_removes_membership() {
+    let (mut game, mut console) = fixture();
+    console
+        .run(&mut game, "setfactionrank TestFaction 2")
+        .unwrap();
+    console
+        .run(&mut game, "setfactionrank TestFaction -1")
+        .unwrap();
+    assert!(!game
+        .world()
+        .actor_ref(id(0x600))
+        .unwrap()
+        .factions
+        .contains_key(&id(0x905)));
+}
+
+fn exterior_fixture() -> (Game, Console) {
+    let world = Record::new(T(b"WRLD"), 0xb11).zsub(T(b"EDID"), "Tamriel");
+    let mut cell = Record::new(T(b"CELL"), 0xb10)
+        .zsub(T(b"EDID"), "TestExterior")
+        .sub(T(b"DATA"), [0, 0])
+        .sub(
+            T(b"XCLC"),
+            [
+                (-2_i32).to_le_bytes(),
+                3_i32.to_le_bytes(),
+                0_i32.to_le_bytes(),
+            ]
+            .concat(),
+        );
+    cell.placement.world = Some(0xb11);
+    fixture_extra(vec![world, cell])
+}
+
+fn check_exterior_teleport(line: &str) {
+    let (mut game, mut console) = exterior_fixture();
+    assert_eq!(
+        console.run(&mut game, line).unwrap(),
+        Outcome::Form(id(0xb10))
+    );
+    let player = game.player();
+    let world = game.world();
+    let reference = world.reference_ref(player).unwrap();
+    assert_eq!(reference.cell, Some(id(0xb10)));
+    assert_eq!(reference.position, [-6144.0, 14336.0, 0.0]);
+}
+
+#[test]
+fn coc_uses_the_named_exterior_cell_grid_center() {
+    check_exterior_teleport("coc TestExterior");
+}
+
+#[test]
+fn cow_uses_worldspace_and_signed_grid_coordinates() {
+    check_exterior_teleport("cow Tamriel -2,3");
+}
+
+#[test]
+fn coe_uses_tamriel_grid_coordinates() {
+    check_exterior_teleport("coe -2,3");
 }

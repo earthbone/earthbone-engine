@@ -2718,10 +2718,12 @@ impl PlayerNode {
         let rendered = self
             .image_space
             .base()
+            .filter(|_| !self.console.imagespace_disabled)
             .map(crate::image_space::RenderedBase::from);
         let modifiers = self
             .game
             .as_ref()
+            .filter(|_| !self.console.imagespace_disabled)
             .and_then(|game| {
                 self.image_space
                     .render_layers(&game.world())
@@ -2769,7 +2771,8 @@ impl PlayerNode {
             let [red, green, blue, alpha] = presentation.rgba;
             view.overlay
                 .set_color(Color::from_rgba(red, green, blue, alpha));
-            view.overlay.set_visible(presentation.visible);
+            view.overlay
+                .set_visible(presentation.visible && !self.console.imagespace_disabled);
         }
     }
 

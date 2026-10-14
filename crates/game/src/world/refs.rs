@@ -1059,8 +1059,20 @@ impl World {
             return false;
         };
         reference.inventory = fresh.inventory;
+        let worn = reference
+            .inventory
+            .iter()
+            .filter_map(|(item, _)| {
+                reference
+                    .inventory
+                    .stacks(*item)
+                    .iter()
+                    .any(crate::inventory::Stack::worn)
+                    .then_some(*item)
+            })
+            .collect();
         if let Some(actor) = self.actor(id) {
-            actor.equipped.clear();
+            actor.equipped = worn;
             actor.left_weapon = None;
             actor.right_weapon = None;
             actor.prevent_equipment_removal.clear();

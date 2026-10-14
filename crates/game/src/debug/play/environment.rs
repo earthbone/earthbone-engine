@@ -9,8 +9,26 @@ mod crime;
 mod settings;
 
 pub(super) fn handles(name: &str) -> bool {
-    matches!(name, "tfc" | "sucsm" | "tm" | "tll" | "csb" | "pcb")
-        || crime::handles(name)
+    matches!(
+        name,
+        "tfc"
+            | "sucsm"
+            | "tm"
+            | "tll"
+            | "csb"
+            | "pcb"
+            | "tg"
+            | "tt"
+            | "tws"
+            | "ts"
+            | "twf"
+            | "teofis"
+            | "animcam"
+            | "s1st"
+            | "refini"
+            | "saveini"
+            | "tb"
+    ) || crime::handles(name)
         || settings::handles(name)
         || matches!(
             name,
@@ -98,10 +116,14 @@ impl Console {
                 }
                 self.host_requests.push(HostRequest::FreeCameraSpeed(speed));
             }
-            "tm" | "tll" | "csb" => self
+            "tm" | "tll" | "csb" | "tg" | "tt" | "tws" | "ts" | "twf" | "teofis" | "animcam"
+            | "tb" | "s1st" => self
                 .host_requests
                 .push(HostRequest::Toggle(name.to_owned())),
             "pcb" => self.host_requests.push(HostRequest::Purge),
+            "refini" | "saveini" => self.host_requests.push(HostRequest::Ini {
+                reload: name == "refini",
+            }),
             "quitgame" => game
                 .world_mut()
                 .debug_host_requests
@@ -230,11 +252,21 @@ impl Console {
 fn teleport(game: &mut Game, name: &str, args: &Args<'_>) -> Result<Outcome, String> {
     let index = CellIndex::build(game.world().order());
     let (cell, position) = if name == "coc" {
-        let cell = args.editor_form(game, 0)?;
+        let cell = match index.cell_by_editor_id(args.word(0)?) {
+            Some(cell) => cell,
+            None => args.editor_form(game, 0)?,
+        };
         if game.world().tag_of(cell) != Some(Tag(*b"CELL")) {
             return Err("coc requires a cell".into());
         }
-        (cell, [0.0; 3])
+        let position = index.grid_of(cell).map_or([0.0; 3], |grid| {
+            [
+                (grid.x as f32 + 0.5) * 4096.0,
+                (grid.y as f32 + 0.5) * 4096.0,
+                0.0,
+            ]
+        });
+        (cell, position)
     } else {
         let world = if name == "cow" {
             args.editor_form(game, 0)?
@@ -311,9 +343,11 @@ fn mass(game: &mut Game, name: &str) -> Result<Outcome, String> {
             .map(|(id, _)| id)
             .collect();
         let mut world = game.world_mut();
+        for spell in spells {
+            world.add_actor_spell(player, spell);
+        }
         world.words_taught.extend(words);
         let actor = world.actor(player).ok_or("missing player")?;
-        actor.spells.extend(spells);
         actor.shouts.extend(shouts);
     } else {
         let actors: Vec<_> = game

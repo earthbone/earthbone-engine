@@ -9756,7 +9756,9 @@ The opt-in threaded simulation draft accepts console pause requests but does
 not yet accept command execution. The ordinary walkthrough and play path retain
 one shared Game and execute commands against it. Partial camera, renderer,
 progression, save and ownership behaviors are identified in individual rows.
-Those gaps belong to UI-32, UI-33 and UI-34 in BACKLOG.csv.
+Those gaps belong to UI-32, UI-33 and UI-34 in BACKLOG.csv. The supplied
+UESP snapshot and local CK corpus do not document `setpccanusepowers` or
+`rewardplayer`. Their rows retain that missing contract instead of guessing.
 
 ### Console command coverage
 
@@ -9792,7 +9794,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | advancegametime | - | `advancegametime <hours>` | No | Implemented: Shared World or ordered host operation |
 | AdvancePCLevel | AdvLevel | `advlevel` | No | Implemented: Shared World or ordered host operation |
 | AdvancePCSkill | AdvSkill | `advskill <skill> <experience>` | No | Implemented: Shared World or ordered host operation |
-| ToggleAnimatorCam | animcam | `animcam` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleAnimatorCam | animcam | `animcam` | No | Implemented: Orbits and zooms the third-person camera while retaining the actor facing |
 | ApplyHavokImpulse | - | `applyhavokimpulse Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
 | ApplyImageSpaceModifier | imod | `applyimagespacemodifier Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | ApplyImageSpaceModifierCrossFade | imodcf | `applyimagespacemodifiercrossfade Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -9800,7 +9802,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | AttachPapyrusScript | APS | `attachpapyrusscript Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | AutoDisplayObjectives | - | `autodisplayobjectives Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | Autosave | - | `autosave Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| RunConsoleBatch | bat | `bat <filename>` | No | Implemented: Shared World or ordered host operation |
+| RunConsoleBatch | bat | `bat <filename>` | No | Partial: Game commands execute in file order, host actions are deferred until the batch finishes and mixed host or game ordering remains pending |
 | BeginTrace | bt | `begintrace Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
 | BetaComment | BC | `betacomment Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
 | CalcLowPathToPoint | LP2P | `calclowpathtopoint Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -9889,7 +9891,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | EquipItem | - | `equipitem <item> [0\|1] [left\|right]` | Yes or context dependent | Partial: Shared item and hand equip paths work, some ranged weapons and enchantments remain unsupported |
 | EquipObject | - | `equipobject Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | EquipShout | - | `equipshout <shout>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
-| EquipSpell | - | `equipspell <spell> <left\|right>` | Yes or context dependent | Partial: Known castable spells equip left or right, voice and instant sources are pending |
+| EquipSpell | - | `equipspell <spell> <left\|right\|voice\|instant>` | Yes | Implemented: Equips a spell source without adding it to the learned spell book |
 | EssentialDeathReload | - | `essentialdeathreload Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | EvalActorTextures | EAT | `evalactortextures Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | EvaluateSpellConditions | esc | `evaluatespellconditions Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -9916,7 +9918,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | ForceSave | - | `forcesave Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SetCameraFOV | FOV | `fov [degrees]` | No | Implemented: Shared World or ordered host operation |
 | FreezeRenderAccumulation | fra | `freezerenderaccumulation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| ForceWeather | fw | `fw <weather> [0\|1]` | No | Partial: Requests accelerated weather, an immediate zero-duration sky transition is pending |
+| ForceWeather | fw | `fw <weather> [0\|1]` | No | Implemented: Sets current sky weather without interpolation and retains the optional override |
 | GameComment | GC | `gamecomment Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | GetActionRef | getAR | `getactionref Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | GetActivationHeight | - | `getactivationheight Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -10129,7 +10131,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | GetReceivedGiftValue | - | `getreceivedgiftvalue Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | GetRefTypeAliveCount | - | `getreftypealivecount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | GetRefTypeDeadCount | - | `getreftypedeadcount Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| GetRelationshipRank | - | `getrelationshiprank <actor ref>` | Yes or context dependent | Partial: Reads runtime relationship overrides, authored relationship lookup is pending |
+| GetRelationshipRank | - | `getrelationshiprank <actor ref>` | Yes | Implemented: Reads runtime overrides and authored RELA ranks in either direction |
 | GetRelativeAngle | - | `getrelativeangle Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | GetReplacedItemType | - | `getreplaceditemtype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | GetRestrained | - | `getrestrained Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -10346,6 +10348,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | LocAliasIsLocation | - | `localiasislocation Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | LocationHasKeyword | - | `locationhaskeyword Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | LocationHasRefType | - | `locationhasreftype Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Lock | - | `lock <level>` | Yes | Implemented: Locks the selected reference at the requested difficulty |
 | Log | - | `log [SOE_LOG directives]` | No | Implemented: Shared World or ordered host operation |
 | Look | - | `look Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | lookup | - | `lookup <name or id>` | No | Implemented: Shared World or ordered host operation |
@@ -10418,13 +10421,13 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | PrintQuestSceneInfo | PrintS | `printquestsceneinfo Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | Prints NPC dialog | ShowSubtitle | `prints npc dialog Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | PrintShaderMacros | PSM | `printshadermacros Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| PlayerSpellBook | psb | `psb` | No | Partial: Adds learned spell and shout forms and teaches words, passive and bestial activation needs testing |
+| PlayerSpellBook | psb | `psb` | No | Partial: Learns all spells and shouts and teaches words, shared ability activation works, unsupported bestial effects remain bounded by the magic interpreter |
 | PushActorAway | - | `pushactoraway <actor ref> <force>` | Yes or context dependent | Implemented: Queue the shared signed radial actor impulse |
 | Quest | Quest | `quest Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | ExitGame | exit | `quitgame` | No | Implemented: Shared World or ordered host operation |
 | RecvAnimEvent | rae | `recvanimevent Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | RecycleActor | - | `recycleactor Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| RefreshINI | REFINI | `refini` | No | Pending: Recognized request, host resolved-profile INI reload is pending |
+| RefreshINI | REFINI | `refini` | No | Partial: Reloads resolved INI layers and reapplies camera and runtime settings, startup resources keep their active configuration |
 | RefreshShaders | RS | `refreshshaders Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
 | RegisterPrefix | RPRFX | `registerprefix Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | ReleaseWeatherOverride | rwo | `releaseweatheroverride` | No | Implemented: Shared World or ordered host operation |
@@ -10452,7 +10455,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | ResetFallDamageTimer | - | `resetfalldamagetimer Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | ResetHealth | - | `resethealth` | Yes or context dependent | Implemented: Shared World or ordered host operation |
 | ResetInterior | - | `resetinterior <cell>` | No | Implemented: Shared World or ordered host operation |
-| ResetInventory | - | `resetinventory` | Yes or context dependent | Partial: Restores authored inventory, default NPC outfit re-equipping is pending |
+| ResetInventory | - | `resetinventory` | Yes | Implemented: Restores authored inventory and default outfit with equipped instance state |
 | ResetMemContexts | rmc | `resetmemcontexts Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
 | ResetPerformanceTimers | rpt | `resetperformancetimers Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | ResetQuest | - | `resetquest <quest>` | No | Implemented: Shared World or ordered host operation |
@@ -10462,14 +10465,14 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | RevertFormList | - | `revertformlist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | RevertLeveledList | - | `revertleveledlist Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | RevertWorld | rw | `revertworld Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| rewardplayer | - | `rewardplayer Not present in the UESP snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| rewardplayer | - | `rewardplayer Not present in the UESP snapshot` | Unknown | Pending: No Skyrim syntax or behavior is documented in the supplied UESP or local CK sources |
 | Rotate | - | `rotate Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | RTGraph | - | `rtgraph Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | RumbleManager | RM | `rumblemanager Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | RunCellTest | rct | `runcelltest Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
 | RunCompaction | rcmpct | `runcompaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | RunMemoryPass | rmp | `runmemorypass Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
-| Show1stPerson | S1ST | `s1st` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| Show1stPerson | S1ST | `s1st` | No | Implemented: Shows the first-person rig alongside the third-person player model |
 | SameFaction | - | `samefaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SameFactionAsPC | - | `samefactionaspc Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SameRace | - | `samerace Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -10480,7 +10483,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | SaveGame | save | `save <name>` | No | Partial: Writes verified engine generations, vanilla ESS output and text dumps are unsupported |
 | SaveDebugTextPages | SaveDTP | `savedebugtextpages Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SaveHavokSnapshot | SHS | `savehavoksnapshot Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
-| SaveIniFiles | saveini | `saveini` | No | Pending: Recognized request, writing last-plugin INI settings is pending |
+| SaveIniFiles | saveini | `saveini` | No | Implemented: Writes all runtime INI settings to the last active plugin INI in the profile Data root |
 | SavePCFace | spf | `savepcface Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SaveWorld | - | `saveworld Not documented in this snapshot` | Yes or context dependent | Skipped: Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent |
 | Say | - | `say Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -10585,7 +10588,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | SetPapyrusQuestVar | SETPQV | `setpapyrusquestvar Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SetPapyrusVar | SETPV | `setpapyrusvar Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SetPathSprinting | SPS | `setpathsprinting Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| setpccanusepowers | - | `setpccanusepowers Not present in the UESP snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| setpccanusepowers | - | `setpccanusepowers Not present in the UESP snapshot` | Unknown | Pending: No Skyrim syntax or behavior is documented in the supplied UESP or local CK sources |
 | SetPCEnemyofFaction | - | `setpcenemyoffaction Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SetPCExpelled | - | `setpcexpelled Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SetPCFactionAttack | - | `setpcfactionattack Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -10603,7 +10606,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | SetQuestAliasLogging | sqal | `setquestaliaslogging Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SetQuestDelay | - | `setquestdelay Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SetRace | - | `setrace <race>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
-| SetRelationshipRank | - | `setrelationshiprank <actor ref> <rank>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
+| SetRelationshipRank | - | `setrelationshiprank <actor ref> <rank>` | Yes | Implemented: Updates the shared relationship override in both directions |
 | SetRestrained | - | `setrestrained <0\|1>` | Yes or context dependent | Implemented: Shared World or ordered host operation |
 | SetRigidBodyMass | - | `setrigidbodymass Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | SetRumble | - | `setrumble Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -10638,7 +10641,7 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | SetWarning | - | `setwarning Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | setwerewolf | - | `setwerewolf [true\|false]` | Yes | Implemented: Shared World or ordered host operation |
 | SetZoneRespawns | - | `setzonerespawns Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| SexChange | - | `sexchange` | Optional | Partial: Changes shared actor-base sex, rendered NPC appearance refresh is pending |
+| SexChange | - | `sexchange` | Optional | Partial: Changes shared actor-base sex and host appearance and rig readers, direct player visual reload and per-reference timing remain pending |
 | SetGlobalTimeMultiplier | sgtm | `sgtm <multiplier>` | No | Implemented: Shared World or ordered host operation |
 | ShouldAttackKill | - | `shouldattackkill Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | Show | TST | `show Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -10717,13 +10720,13 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | SetWeather | sw | `sw <weather> [0\|1]` | No | Implemented: Shared World or ordered host operation |
 | ToggleAI | TAI | `tai` | Optional | Implemented: Shared World or ordered host operation |
 | Tan | - | `tan Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| ToggleBorders | TB | `tb` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| ToggleControlsDriven | TC | `tc` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleBorders | TB | `tb` | No | Implemented: White lines follow loaded LAND edges and refresh across streaming |
+| ToggleControlsDriven | TC | `tc` | Yes | Pending: NPC movement fighting and camera control transfer needs a shared host input driver |
 | ToggleCombatAI | tcai | `tcai` | No | Implemented: Shared World or ordered host operation |
 | ToggleCollision | TCL | `tcl` | Optional | Partial: Untargeted player noclip works, targeted reference filters and freezing other actors are pending |
 | ToggleDetection | TDETECT | `tdetect` | No | Implemented: Shared World or ordered host operation |
 | TeachWord | - | `teachword <word>` | No | Implemented: Shared World or ordered host operation |
-| ToggleEOFImageSpace | teofis | `teofis` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleEOFImageSpace | teofis | `teofis` | No | Implemented: Disables base and modifier postprocessing and the transition fade overlay |
 | TestAllCells | TAC | `testallcells Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
 | TestCode | - | `testcode Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | TestDegrade | - | `testdegrade Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -10733,13 +10736,13 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | TestSeenData | tsd | `testseendata Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
 | Textures | tx | `textures Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | ToggleFlyCam | tfc | `tfc [0\|1]` | No | Partial: Detached camera and simulation freeze work, animation and audio freeze are pending |
-| ToggleFogOfWar | TFOW | `tfow` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| ToggleGrass | TG | `tg` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleFogOfWar | TFOW | `tfow` | No | Pending: The host has no local-map renderer whose terrain image can be toggled |
+| ToggleGrass | TG | `tg` | No | Implemented: Toggles grass batches and retains visibility across uploads |
 | ToggleGodMode | TGM | `tgm` | No | Partial: Damage immunity switch works, unlimited arrows, stamina, magicka and shout costs are not all bridged |
 | tick | - | `tick <seconds>` | No | Implemented: Shared World or ordered host operation |
 | ToggleImmortalMode | TIM | `tim` | No | Implemented: Shared World or ordered host operation |
 | Timing | FPS | `timing Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
-| ToggleLODLand | TLL | `tll` | No | Partial: Toggles resident LOD, retaining the switch across future streaming uploads is pending |
+| ToggleLODLand | TLL | `tll` | No | Implemented: Toggles terrain object and tree LOD including later uploads and terrain rejoins |
 | ToggleMenus | TM | `tm` | No | Implemented: Shared World or ordered host operation |
 | ToggleMovement | TMOVE | `tmove` | No | Implemented: Shared World or ordered host operation |
 | ToggleActorMover | tam | `toggleactormover Not documented in this snapshot` | Yes or context dependent | Skipped: Vanilla release no-op or unused debug command |
@@ -10811,11 +10814,11 @@ bridge. Skipped gives the reason the command has no useful engine equivalent.
 | TriggerHitShader | ths | `triggerhitshader Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | TriggerHUDShudder | hudsh | `triggerhudshudder Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | TriggerScreenBlood | tsb | `triggerscreenblood Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| ToggleSky | TS | `ts` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleSky | TS | `ts` | No | Implemented: Hides the sky background and night meshes through the live SkyFrame |
 | ToggleScripts | TSCR | `tscr` | No | Implemented: Shared World or ordered host operation |
-| ToggleTrees | TT | `tt` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| ToggleWireframe | TWF | `twf` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
-| ToggleWaterSystem | TWS | `tws` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
+| ToggleTrees | TT | `tt` | No | Partial: Authored tree batches and tree LOD toggle across uploads, dynamically created tree classification is pending |
+| ToggleWireframe | TWF | `twf` | No | Implemented: Toggles Godot viewport wireframe with edge data prepared before mesh loading |
+| ToggleWaterSystem | TWS | `tws` | No | Implemented: Toggles water surfaces and retains visibility across uploads |
 | UnequipAll | - | `unequipall Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
 | UnequipItem | - | `unequipitem <item> [0\|1] [left\|right]` | Yes or context dependent | Implemented: Shared World or ordered host operation |
 | UnEquipObject | - | `unequipobject Not documented in this snapshot` | Yes or context dependent | Pending: Play or testing command has no console bridge yet |
@@ -10868,7 +10871,103 @@ with 4,241 passing integration tests. They concern follow/travel cell crossings,
 sleep destinations and runtime-obstacle routes in the package fixtures.
 This checkpoint does not claim a passing full gate.
 
-The final release extension built successfully. The installed headless overlay
-run could not acquire the shared installed-data slot. Its script passed the
-Godot headless parse check, but the input and reference-click assertions have
-not executed. UI-31 remains wip until those checks complete.
+At that checkpoint the release extension built successfully, but the installed
+headless overlay run could not acquire the shared installed-data slot. Its
+script passed the Godot headless parse check. The continuation below records
+the later installed input and reference-click results.
+
+### Console continuation, 2026-10-14
+
+The installed headless walkthrough input regression passed against the release
+extension built from the FormID correction checkpoint. The expanded validation
+also checks host presentation and the deletion marker on selected references.
+The catalog contains 185 implemented entries, 18 partial entries, 109 skipped
+entries and 758 pending entries. Pending rejection tests establish the error
+contract, not the command's requested behavior.
+
+Grass, tree and water surfaces are separated by their record kind before
+material batching. Their visibility switches remain active across new uploads.
+LOD visibility also applies to later blocks and terrain joins. TB draws one
+server mesh of white LAND boundary segments, sampled from loaded terrain edge
+heights and refreshed as cells arrive or leave. This adds no reference nodes.
+Godot's local Viewport documentation requires wireframe generation before mesh
+loading for the Compatibility renderer. Player startup enables it before world
+uploads. The mesh edge data is an added rendering cost, not a measured frame
+rate claim.
+
+ANIMCAM selects third person, retains the player's facing while the camera
+orbits and handles mouse-wheel zoom. S1ST keeps the first-person rig visible in
+third person. TEOFIS suppresses base and modifier image-space passes and the
+transition fade. TS changes the live SkyFrame visibility, leaving illumination
+and weather state intact. The renderer's automatic shader clock and audio are
+still independent of TFC's simulation pause.
+
+REFINI reads the active profile's default, user and plugin INIs through the
+existing Settings layering rules, updates runtime INI queries and reapplies the
+camera settings. Startup resources such as archive mounts are not rebuilt.
+The default INI uses the directory beside the first profile Data root. A
+profile with its original game directory elsewhere needs that path retained
+by the profile resolver before REFINI can reread its default file.
+SAVEINI writes runtime settings to the last active plugin's INI in the profile
+Data root. A temporary-profile round trip checks reload, changed files, plugin
+precedence, separate game and Data paths and the last-plugin filename without
+writing to the installed game. SAVEINI reuses an existing filename regardless
+of case. Directory enumeration is sorted before case-folded lookup.
+
+Spell learning now uses World::add_actor_spell, so ADDSPELL and PSB activate
+supported constant abilities. REMOVESPELL dispels the removed spell's effects.
+FW sets the existing weather transition to its final state. Relationship reads
+fall back to authored RELA records, and relationship writes update both actors.
+RESETINVENTORY retains the restored default outfit's worn state in actor
+equipment. SEXCHANGE reaches the shared appearance and animation-rig readers.
+Leveled actors retain their selected traits before private-base creation, and
+SEXCHANGE changes their private base. A Console::run regression checks that
+another actor retains its sex, including after save and load. The existing
+inherited footstep regression also passes.
+TAI removes disabled actors from scheduled package updates and ready AI action
+delivery. Perk, shout, race and faction mutations reject forms of the wrong type
+before changing state, and negative faction ranks remove membership. These corrections
+reuse runtime paths. No Mudcrab code or new dependency was introduced.
+
+COC now selects CELL editor IDs through CellIndex and uses an exterior cell's
+signed grid center instead of world position zero. The local UESP CELL page
+identifies XCLC as exterior grid coordinates and flags. Separate Console::run
+regressions check COC, COW and COE on a negative X coordinate.
+
+BAT executes game operations while collecting host requests. The host consumes
+those requests after the whole batch, so a mixed save, mutation and load batch
+can observe the wrong intermediate state. UI-36 owns ordered host dispatch.
+The tree switch classifies authored references through the load order. Dynamic
+tree references need their runtime base included in that classification. UI-32
+remains wip for that case as well as the other presentation gaps. TC still
+needs an NPC input driver, and TFOW needs a local-map renderer. The opt-in
+threaded simulation execution gap is tracked separately by UI-35.
+
+Click selection rejects CELL, LAND and base records even after unrelated
+lookups have cached their state. Dynamic runtime references and the player
+remain selectable. MarkForDelete adds the UESP deletion marker to the selected
+reference label while its deletion is pending.
+
+The expanded installed walkthrough test passed on Xvfb :99 in 11.51 seconds,
+with exit status zero. Godot was launched only by cargo test through the run
+wrapper, using the newly built release extension. The process exited before
+any further build. All 436 host library tests passed. The headless run checks
+input, world-state mutation and host switches. It does not measure the rendered
+appearance or frame cost of each exterior visibility toggle.
+
+All 1,037 Console::run tests passed, including catalog rejection checks. All
+1,277 game library tests passed in the workspace gate. The full gate passed
+formatting, four Clippy passes, comment lint, prose lint, TOML, Markdown and
+fuzz formatting, plus 52 runner contract tests. Cargo-deny and cargo-audit were
+absent and skipped. The first reviewed workspace run recorded 6,265 passes before
+stopping at the same twelve AI integration failures documented above, with
+exit status 101. The integration binary reported 4,241 passes and twelve
+failures, with its four existing ignored cases unchanged. No test was weakened
+or newly ignored. The inherited footstep case passes in that run.
+
+The final catalog correction adds LOCK to the command metadata and table.
+Every practical command name and alias in the supplied UESP snapshot now has
+a catalog entry. The final release build passed, and its installed headless
+walkthrough test passed in 13.73 seconds with exit status zero. The final gate
+recorded 6,264 Rust passes before the same twelve AI failures, with exit status
+101. The game library and integration counts stayed at 1,277 and 4,241 passes.

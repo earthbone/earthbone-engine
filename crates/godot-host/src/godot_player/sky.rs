@@ -30,7 +30,11 @@ impl PlayerNode {
                 .and_then(|pair| pair.current.sky.clone()));
         }
         if let Some(game) = &mut self.game {
-            game.world_mut().sky_frame(cell)
+            let mut frame = game.world_mut().sky_frame(cell)?;
+            if let Some(frame) = &mut frame {
+                frame.visible &= !self.console.sky_hidden;
+            }
+            Ok(frame)
         } else if let Some(source) = &self.data_source {
             soe_game::World::from_shared_order(source.shared_order()).sky_frame(cell)
         } else {

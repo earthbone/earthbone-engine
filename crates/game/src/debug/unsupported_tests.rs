@@ -33,7 +33,19 @@ rejects!(addtocontainer_returns_reason, "addtocontainer");
 rejects!(addtomap_returns_reason, "addtomap");
 rejects!(addtopic_returns_reason, "addtopic");
 rejects!(addwatchaddress_returns_reason, "addwatchaddress");
-rejects!(animcam_returns_reason, "animcam");
+#[test]
+fn animcam_requests_host_presentation() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(
+        console.run(&mut game, "animcam").unwrap(),
+        super::Outcome::Done
+    );
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Toggle("animcam".into())]
+    );
+}
 rejects!(applyhavokimpulse_returns_reason, "applyhavokimpulse");
 rejects!(
     applyimagespacemodifier_returns_reason,
@@ -893,7 +905,19 @@ rejects!(rumblemanager_returns_reason, "rumblemanager");
 rejects!(runcelltest_returns_reason, "runcelltest");
 rejects!(runcompaction_returns_reason, "runcompaction");
 rejects!(runmemorypass_returns_reason, "runmemorypass");
-rejects!(s1st_returns_reason, "s1st");
+#[test]
+fn s1st_requests_host_presentation() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(
+        console.run(&mut game, "s1st").unwrap(),
+        super::Outcome::Done
+    );
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Toggle("s1st".into())]
+    );
+}
 rejects!(samefaction_returns_reason, "samefaction");
 rejects!(samefactionaspc_returns_reason, "samefactionaspc");
 rejects!(samerace_returns_reason, "samerace");
@@ -1185,9 +1209,30 @@ rejects!(
 rejects!(stoptrackplayerdoors_returns_reason, "stoptrackplayerdoors");
 rejects!(stopwaiting_returns_reason, "stopwaiting");
 rejects!(tan_returns_reason, "tan");
-rejects!(tb_returns_reason, "tb");
+#[test]
+fn tb_requests_cell_borders() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(console.run(&mut game, "tb").unwrap(), super::Outcome::Done);
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Toggle("tb".into())]
+    );
+}
 rejects!(tc_returns_reason, "tc");
-rejects!(teofis_returns_reason, "teofis");
+#[test]
+fn teofis_requests_host_presentation() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(
+        console.run(&mut game, "teofis").unwrap(),
+        super::Outcome::Done
+    );
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Toggle("teofis".into())]
+    );
+}
 rejects!(testallcells_returns_reason, "testallcells");
 rejects!(testcode_returns_reason, "testcode");
 rejects!(testdegrade_returns_reason, "testdegrade");
@@ -1200,7 +1245,16 @@ rejects!(testlocalmap_returns_reason, "testlocalmap");
 rejects!(testseendata_returns_reason, "testseendata");
 rejects!(textures_returns_reason, "textures");
 rejects!(tfow_returns_reason, "tfow");
-rejects!(tg_returns_reason, "tg");
+#[test]
+fn tg_requests_host_presentation() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(console.run(&mut game, "tg").unwrap(), super::Outcome::Done);
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Toggle("tg".into())]
+    );
+}
 rejects!(timing_returns_reason, "timing");
 rejects!(toggleactormover_returns_reason, "toggleactormover");
 rejects!(toggleactorsai_returns_reason, "toggleactorsai");
@@ -1303,10 +1357,46 @@ rejects!(trapupdate_returns_reason, "trapupdate");
 rejects!(triggerhitshader_returns_reason, "triggerhitshader");
 rejects!(triggerhudshudder_returns_reason, "triggerhudshudder");
 rejects!(triggerscreenblood_returns_reason, "triggerscreenblood");
-rejects!(ts_returns_reason, "ts");
-rejects!(tt_returns_reason, "tt");
-rejects!(twf_returns_reason, "twf");
-rejects!(tws_returns_reason, "tws");
+#[test]
+fn ts_requests_host_presentation() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(console.run(&mut game, "ts").unwrap(), super::Outcome::Done);
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Toggle("ts".into())]
+    );
+}
+#[test]
+fn tt_requests_host_presentation() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(console.run(&mut game, "tt").unwrap(), super::Outcome::Done);
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Toggle("tt".into())]
+    );
+}
+#[test]
+fn twf_requests_host_presentation() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(console.run(&mut game, "twf").unwrap(), super::Outcome::Done);
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Toggle("twf".into())]
+    );
+}
+#[test]
+fn tws_requests_host_presentation() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(console.run(&mut game, "tws").unwrap(), super::Outcome::Done);
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Toggle("tws".into())]
+    );
+}
 rejects!(unequipall_returns_reason, "unequipall");
 rejects!(unequipobject_returns_reason, "unequipobject");
 rejects!(
@@ -1336,5 +1426,29 @@ rejects!(
 );
 rejects!(wornhaskeyword_returns_reason, "wornhaskeyword");
 
-rejects!(refini_returns_reason, "refini");
-rejects!(saveini_returns_reason, "saveini");
+#[test]
+fn refini_requests_profile_settings() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(
+        console.run(&mut game, "refini").unwrap(),
+        super::Outcome::Done
+    );
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Ini { reload: true }]
+    );
+}
+#[test]
+fn saveini_requests_profile_settings() {
+    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut console = Console::new();
+    assert_eq!(
+        console.run(&mut game, "saveini").unwrap(),
+        super::Outcome::Done
+    );
+    assert_eq!(
+        console.take_host_requests(),
+        vec![super::HostRequest::Ini { reload: false }]
+    );
+}

@@ -8061,3 +8061,31 @@ Build the release extension through the run cargo wrapper first and set
 SOE_CONSOLE_EXTENSION to that library. The test requires SKYRIM_DATA and
 SOE_GODOT_BIN. The threaded simulation draft pauses host input but has no
 console command execution bridge yet.
+
+### Console continuation, 2026-10-14
+
+The installed walkthrough input regression passed against the FormID correction
+checkpoint. The continuation adds retained grass, tree, water and LOD visibility,
+LAND border lines, wireframe, sky and image-space switches, animator camera and
+first-person rig visibility. Grass and trees keep separate record-kind batches.
+Borders use one RenderingServer mesh rather than cell or reference nodes. No new
+per-reference node path is introduced.
+
+The expanded regression checks PRID labels, deletion markers, host presentation switches, the
+viewport wireframe state, streamer requests and unchanged actor facing while the
+animator camera rotates. A headless pass establishes input and host state. It
+does not establish the rendered appearance of each exterior toggle. The command
+coverage table in game.md retains partial and pending behavior.
+
+Selection validates record tags before accepting a collider mapping. Terrain,
+cell and base records remain unselectable after state-caching lookups. Runtime
+references with no authored record use the cached reference table.
+
+The expanded installed walkthrough test passed in 11.51 seconds on Xvfb :99,
+and its tracked cargo session exited with status zero. All 436 host library
+tests also passed. The release extension was built and the installed test was
+run through the run cargo wrapper.
+
+After adding the missing LOCK catalog entry, the final release build passed
+and the installed headless overlay test passed again in 13.73 seconds. Its
+tracked cargo session exited with status zero.

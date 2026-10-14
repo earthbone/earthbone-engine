@@ -202,6 +202,20 @@ impl World {
         self.reference_component_source(actor, base, group)
     }
 
+    /// Current sex retains a leveled actor's selected traits and private base.
+    pub(crate) fn actor_female(&mut self, actor: GlobalFormId) -> Result<bool, Error> {
+        let base = if self.actor_templates.contains_key(&actor) {
+            self.actor_component_source(actor, crate::npc::template::TRAITS)?
+        } else {
+            self.reference(actor)
+                .and_then(|reference| reference.base)
+                .ok_or_else(|| Error::Invalid(format!("missing actor base for {actor}")))?
+        };
+        self.actor_base(base)
+            .map(|state| state.female)
+            .ok_or_else(|| Error::Invalid(format!("missing actor base {base}")))
+    }
+
     pub(super) fn reference_component_source(
         &self,
         reference: GlobalFormId,

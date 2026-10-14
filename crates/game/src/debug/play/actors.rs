@@ -207,14 +207,34 @@ fn relations(
     if name.contains("relationship") && world.actor(other).is_none() {
         return Err("requires another actor".into());
     }
+    let authored_rank = if name == "getrelationshiprank" {
+        let base = world.base_of(id).ok_or("actor has no base")?;
+        let other_base = world.base_of(other).ok_or("actor has no base")?;
+        world
+            .relationship_record_rank(base, other_base)
+            .or_else(|| world.relationship_record_rank(other_base, base))
+    } else {
+        None
+    };
     let state = world.actor(id).ok_or("not an actor")?;
     match name {
         "setrelationshiprank" => {
-            state.relationships.insert(other, rank.unwrap_or(0));
+            let rank = rank.unwrap_or(0);
+            state.relationships.insert(other, rank);
+            world
+                .actor(other)
+                .ok_or("not an actor")?
+                .relationships
+                .insert(id, rank);
         }
         "getrelationshiprank" => {
             return Ok(Outcome::Int(i64::from(
-                state.relationships.get(&other).copied().unwrap_or(0),
+                state
+                    .relationships
+                    .get(&other)
+                    .copied()
+                    .or(authored_rank)
+                    .unwrap_or(0),
             )))
         }
         "addtofaction" if rank.unwrap_or(0) >= 0 => {
@@ -240,7 +260,10 @@ fn level(
 ) -> Result<Outcome, String> {
     if name == "sexchange" {
         let mut world = game.world_mut();
-        let base = world.base_of(id).ok_or("actor has no base")?;
+        let base = world
+            .leveled_actor_base(id)
+            .map_err(|error| error.to_string())?
+            .ok_or("actor has no base")?;
         let state = world.actor_base(base).ok_or("not an NPC base")?;
         state.female = !state.female;
         return Ok(Outcome::Bool(state.female));
@@ -306,14 +329,33 @@ fn magic(
         return Ok(Outcome::Done);
     }
     if name == "equipspell" {
-        let hand = match args.word(1)?.to_ascii_lowercase().as_str() {
-            "left" => crate::combat::Hand::Left,
-            "right" => crate::combat::Hand::Right,
-            _ => return Err("voice and instant equipspell are not bridged".into()),
-        };
-        game.world_mut()
-            .equip_hand_spell(id, hand, form)
-            .map_err(|e| e.to_string())?;
+        if game.world().tag_of(form) != Some(soe_esm::Tag(*b"SPEL")) {
+            return Err("requires a spell".into());
+        }
+        let source = args.word(1)?.to_ascii_lowercase();
+        let mut world = game.world_mut();
+        match source.as_str() {
+            "left" | "right" => {
+                let hand = if source == "left" {
+                    crate::combat::Hand::Left
+                } else {
+                    crate::combat::Hand::Right
+                };
+                world
+                    .equip_hand_spell(id, hand, form)
+                    .map_err(|e| e.to_string())?;
+            }
+            "voice" | "instant" => {
+                let state = world.actor(id).ok_or("not an actor")?;
+                if source == "voice" {
+                    state.other_spell = Some(form);
+                } else {
+                    state.instant_spell = Some(form);
+                }
+                state.equipped.insert(form);
+            }
+            _ => return Err("source must be left, right, voice or instant".into()),
+        }
         return Ok(Outcome::Done);
     }
     let mut world = game.world_mut();

@@ -21,7 +21,7 @@ addwatchaddress	awa	Not documented in this snapshot	Yes or context dependent	pen
 advancegametime		<hours>	No	implemented	Shared World or ordered host operation
 advlevel	advancepclevel		No	implemented	Shared World or ordered host operation
 advskill	advancepcskill	<skill> <experience>	No	implemented	Shared World or ordered host operation
-animcam	toggleanimatorcam		Yes or context dependent	pending	Play or testing command has no console bridge yet
+animcam	toggleanimatorcam		No	implemented	Orbits and zooms the third-person camera while retaining the actor facing
 applyhavokimpulse		Not documented in this snapshot	Yes or context dependent	skipped	Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent
 applyimagespacemodifier	imod	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 applyimagespacemodifiercrossfade	imodcf	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -29,7 +29,7 @@ attachashpile		Not documented in this snapshot	Yes or context dependent	pending	
 attachpapyrusscript	aps	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 autodisplayobjectives		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 autosave		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-bat	runconsolebatch	<filename>	No	implemented	Shared World or ordered host operation
+bat	runconsolebatch	<filename>	No	partial	Game commands execute in file order, host actions are deferred until the batch finishes and mixed host or game ordering remains pending
 begintrace	bt	Not documented in this snapshot	Yes or context dependent	skipped	Vanilla release no-op or unused debug command
 betacomment	bc	Not documented in this snapshot	Yes or context dependent	skipped	Vanilla release no-op or unused debug command
 calclowpathtopoint	lp2p	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -118,7 +118,7 @@ eptemperingitemisenchanted		Not documented in this snapshot	Yes or context depen
 equipitem		<item> [0|1] [left|right]	Yes or context dependent	partial	Shared item and hand equip paths work, some ranged weapons and enchantments remain unsupported
 equipobject		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 equipshout		<shout>	Yes or context dependent	implemented	Shared World or ordered host operation
-equipspell		<spell> <left|right>	Yes or context dependent	partial	Known castable spells equip left or right, voice and instant sources are pending
+equipspell		<spell> <left|right|voice|instant>	Yes	implemented	Equips a spell source without adding it to the learned spell book
 essentialdeathreload		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 evalactortextures	eat	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 evaluatespellconditions	esc	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -145,7 +145,7 @@ forcersxcrash	frsx	Not documented in this snapshot	Yes or context dependent	skip
 forcesave		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 fov	setcamerafov	[degrees]	No	implemented	Shared World or ordered host operation
 freezerenderaccumulation	fra	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-fw	forceweather	<weather> [0|1]	No	partial	Requests accelerated weather, an immediate zero-duration sky transition is pending
+fw	forceweather	<weather> [0|1]	No	implemented	Sets current sky weather without interpolation and retains the optional override
 gamecomment	gc	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 getactionref	getar	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 getactivationheight		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -358,7 +358,7 @@ getrealhourspassed		Not documented in this snapshot	Yes or context dependent	pen
 getreceivedgiftvalue		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 getreftypealivecount		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 getreftypedeadcount		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-getrelationshiprank		<actor ref>	Yes or context dependent	partial	Reads runtime relationship overrides, authored relationship lookup is pending
+getrelationshiprank		<actor ref>	Yes	implemented	Reads runtime overrides and authored RELA ranks in either direction
 getrelativeangle		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 getreplaceditemtype		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 getrestrained		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -575,6 +575,7 @@ localiashaskeyword		Not documented in this snapshot	Yes or context dependent	pen
 localiasislocation		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 locationhaskeyword		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 locationhasreftype		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
+lock		<level>	Yes	implemented	Locks the selected reference at the requested difficulty
 log		[SOE_LOG directives]	No	implemented	Shared World or ordered host operation
 look		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 lookup		<name or id>	No	implemented	Shared World or ordered host operation
@@ -647,13 +648,13 @@ printnpcdialog	pdialog	Not documented in this snapshot	Yes or context dependent	
 printquestsceneinfo	prints	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 prints npc dialog	showsubtitle	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 printshadermacros	psm	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-psb	playerspellbook		No	partial	Adds learned spell and shout forms and teaches words, passive and bestial activation needs testing
+psb	playerspellbook		No	partial	Learns all spells and shouts and teaches words, shared ability activation works, unsupported bestial effects remain bounded by the magic interpreter
 pushactoraway		<actor ref> <force>	Yes or context dependent	implemented	Queue the shared signed radial actor impulse
 quest		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 quitgame	exit,exitgame,qqq		No	implemented	Shared World or ordered host operation
 recvanimevent	rae	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 recycleactor		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-refini	refreshini		No	pending	Recognized request, host resolved-profile INI reload is pending
+refini	refreshini		No	partial	Reloads resolved INI layers and reapplies camera and runtime settings, startup resources keep their active configuration
 refreshshaders	rs	Not documented in this snapshot	Yes or context dependent	skipped	Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent
 registerprefix	rprfx	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 releaseweatheroverride	rwo		No	implemented	Shared World or ordered host operation
@@ -681,7 +682,7 @@ resetdialogueflags	rdf	Not documented in this snapshot	Yes or context dependent	
 resetfalldamagetimer		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 resethealth			Yes or context dependent	implemented	Shared World or ordered host operation
 resetinterior		<cell>	No	implemented	Shared World or ordered host operation
-resetinventory			Yes or context dependent	partial	Restores authored inventory, default NPC outfit re-equipping is pending
+resetinventory			Yes	implemented	Restores authored inventory and default outfit with equipped instance state
 resetmemcontexts	rmc	Not documented in this snapshot	Yes or context dependent	skipped	Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent
 resetperformancetimers	rpt	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 resetquest		<quest>	No	implemented	Shared World or ordered host operation
@@ -691,14 +692,14 @@ resurrect	resurrectactor		Yes or context dependent	implemented	Shared World or o
 revertformlist		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 revertleveledlist		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 revertworld	rw	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-rewardplayer		Not present in the UESP snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
+rewardplayer		Not present in the UESP snapshot	Unknown	pending	No Skyrim syntax or behavior is documented in the supplied UESP or local CK sources
 rotate		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 rtgraph		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 rumblemanager	rm	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 runcelltest	rct	Not documented in this snapshot	Yes or context dependent	skipped	Vanilla release no-op or unused debug command
 runcompaction	rcmpct	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 runmemorypass	rmp	Not documented in this snapshot	Yes or context dependent	skipped	Vanilla release no-op or unused debug command
-s1st	show1stperson		Yes or context dependent	pending	Play or testing command has no console bridge yet
+s1st	show1stperson		No	implemented	Shows the first-person rig alongside the third-person player model
 samefaction		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 samefactionaspc		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 samerace		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -709,7 +710,7 @@ saq	saq,startallquests		No	implemented	Shared World or ordered host operation
 save	savegame	<name>	No	partial	Writes verified engine generations, vanilla ESS output and text dumps are unsupported
 savedebugtextpages	savedtp	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 savehavoksnapshot	shs	Not documented in this snapshot	Yes or context dependent	skipped	Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent
-saveini	saveinifiles		No	pending	Recognized request, writing last-plugin INI settings is pending
+saveini	saveinifiles		No	implemented	Writes all runtime INI settings to the last active plugin INI in the profile Data root
 savepcface	spf	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 saveworld		Not documented in this snapshot	Yes or context dependent	skipped	Creation Engine renderer, memory, platform or Havok diagnostics have no equivalent
 say		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -814,7 +815,7 @@ setpackduration	spdur	Not documented in this snapshot	Yes or context dependent	p
 setpapyrusquestvar	setpqv	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 setpapyrusvar	setpv	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 setpathsprinting	sps	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-setpccanusepowers		Not present in the UESP snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
+setpccanusepowers		Not present in the UESP snapshot	Unknown	pending	No Skyrim syntax or behavior is documented in the supplied UESP or local CK sources
 setpcenemyoffaction		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 setpcexpelled		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 setpcfactionattack		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -832,7 +833,7 @@ setquestaliases		Not documented in this snapshot	Yes or context dependent	pendin
 setquestaliaslogging	sqal	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 setquestdelay		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 setrace		<race>	Yes or context dependent	implemented	Shared World or ordered host operation
-setrelationshiprank		<actor ref> <rank>	Yes or context dependent	implemented	Shared World or ordered host operation
+setrelationshiprank		<actor ref> <rank>	Yes	implemented	Updates the shared relationship override in both directions
 setrestrained		<0|1>	Yes or context dependent	implemented	Shared World or ordered host operation
 setrigidbodymass		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 setrumble		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -867,7 +868,7 @@ setvatstarget		Not documented in this snapshot	Yes or context dependent	skipped	
 setwarning		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 setwerewolf		[true|false]	Yes	implemented	Shared World or ordered host operation
 setzonerespawns		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-sexchange			Optional	partial	Changes shared actor-base sex, rendered NPC appearance refresh is pending
+sexchange			Optional	partial	Changes shared actor-base sex and host appearance and rig readers, direct player visual reload and per-reference timing remain pending
 sgtm	setglobaltimemultiplier	<multiplier>	No	implemented	Shared World or ordered host operation
 shouldattackkill		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 show	tst	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -946,13 +947,13 @@ sv	showvars		Yes or context dependent	implemented	Shared World or ordered host o
 sw	setweather	<weather> [0|1]	No	implemented	Shared World or ordered host operation
 tai	toggleai		Optional	implemented	Shared World or ordered host operation
 tan		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-tb	toggleborders		Yes or context dependent	pending	Play or testing command has no console bridge yet
-tc	togglecontrolsdriven		Yes or context dependent	pending	Play or testing command has no console bridge yet
+tb	toggleborders		No	implemented	White lines follow loaded LAND edges and refresh across streaming
+tc	togglecontrolsdriven		Yes	pending	NPC movement fighting and camera control transfer needs a shared host input driver
 tcai	togglecombatai		No	implemented	Shared World or ordered host operation
 tcl	togglecollision		Optional	partial	Untargeted player noclip works, targeted reference filters and freezing other actors are pending
 tdetect	toggledetection		No	implemented	Shared World or ordered host operation
 teachword		<word>	No	implemented	Shared World or ordered host operation
-teofis	toggleeofimagespace		Yes or context dependent	pending	Play or testing command has no console bridge yet
+teofis	toggleeofimagespace		No	implemented	Disables base and modifier postprocessing and the transition fade overlay
 testallcells	tac	Not documented in this snapshot	Yes or context dependent	skipped	Vanilla release no-op or unused debug command
 testcode		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 testdegrade		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
@@ -962,13 +963,13 @@ testlocalmap	tlm	Not documented in this snapshot	Yes or context dependent	skippe
 testseendata	tsd	Not documented in this snapshot	Yes or context dependent	skipped	Vanilla release no-op or unused debug command
 textures	tx	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 tfc	toggleflycam	[0|1]	No	partial	Detached camera and simulation freeze work, animation and audio freeze are pending
-tfow	togglefogofwar,togglefow		Yes or context dependent	pending	Play or testing command has no console bridge yet
-tg	togglegrass		Yes or context dependent	pending	Play or testing command has no console bridge yet
+tfow	togglefogofwar,togglefow		No	pending	The host has no local-map renderer whose terrain image can be toggled
+tg	togglegrass		No	implemented	Toggles grass batches and retains visibility across uploads
 tgm	togglegodmode		No	partial	Damage immunity switch works, unlimited arrows, stamina, magicka and shout costs are not all bridged
 tick		<seconds>	No	implemented	Shared World or ordered host operation
 tim	toggleimmortalmode		No	implemented	Shared World or ordered host operation
 timing	fps	Not documented in this snapshot	Yes or context dependent	skipped	Vanilla release no-op or unused debug command
-tll	togglelodland		No	partial	Toggles resident LOD, retaining the switch across future streaming uploads is pending
+tll	togglelodland		No	implemented	Toggles terrain object and tree LOD including later uploads and terrain rejoins
 tm	togglemenus		No	implemented	Shared World or ordered host operation
 tmove	togglemovement		No	implemented	Shared World or ordered host operation
 toggleactormover	tam	Not documented in this snapshot	Yes or context dependent	skipped	Vanilla release no-op or unused debug command
@@ -1040,11 +1041,11 @@ trapupdate		Not documented in this snapshot	Yes or context dependent	skipped	Van
 triggerhitshader	ths	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 triggerhudshudder	hudsh	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 triggerscreenblood	tsb	Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
-ts	togglesky		Yes or context dependent	pending	Play or testing command has no console bridge yet
+ts	togglesky		No	implemented	Hides the sky background and night meshes through the live SkyFrame
 tscr	togglescripts		No	implemented	Shared World or ordered host operation
-tt	toggletrees		Yes or context dependent	pending	Play or testing command has no console bridge yet
-twf	togglewireframe		Yes or context dependent	pending	Play or testing command has no console bridge yet
-tws	togglewatersystem		Yes or context dependent	pending	Play or testing command has no console bridge yet
+tt	toggletrees		No	partial	Authored tree batches and tree LOD toggle across uploads, dynamically created tree classification is pending
+twf	togglewireframe		No	implemented	Toggles Godot viewport wireframe with edge data prepared before mesh loading
+tws	togglewatersystem		No	implemented	Toggles water surfaces and retains visibility across uploads
 unequipall		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet
 unequipitem		<item> [0|1] [left|right]	Yes or context dependent	implemented	Shared World or ordered host operation
 unequipobject		Not documented in this snapshot	Yes or context dependent	pending	Play or testing command has no console bridge yet

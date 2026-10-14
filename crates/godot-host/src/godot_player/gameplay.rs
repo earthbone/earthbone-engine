@@ -657,6 +657,7 @@ impl PlayerNode {
         self.effect_shaders.sync(&game.world());
         self.automatic_detection = super::detection::AutomaticDetection::default();
         self.game = Some(game);
+        self.seed_console_ini(source);
         self.cap_catchup_steps();
         self.start_footstep_audio();
         self.clear_player_input();
@@ -732,7 +733,11 @@ impl PlayerNode {
         }
         self.sync_camera_controls();
         let feet = self.feet();
-        let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
+        let actor_yaw = self
+            .console
+            .animator_camera
+            .map_or(self.rig.yaw(), |(_, yaw)| yaw);
+        let rotation = [-self.rig.pitch(), 0.0, actor_yaw];
         if let Some(game) = &mut self.game {
             let player = game.player();
             let prior = game
@@ -923,7 +928,7 @@ impl PlayerNode {
         if let Some(visual) = &mut self.first_person_appearance {
             if visual.is_instance_valid() {
                 visual.bind_mut().set_first_person_geometry_visible(
-                    self.rig.mode == super::CameraMode::First
+                    (self.rig.mode == super::CameraMode::First || self.console.show_first_person)
                         && self.camera_state.first_person_geometry_visible(),
                 );
             } else {

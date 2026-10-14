@@ -20,9 +20,14 @@ pub(super) fn handles(name: &str) -> bool {
 pub(super) fn run(game: &mut Game, name: &str, args: &Args<'_>) -> Result<Outcome, String> {
     if matches!(name, "fw" | "sw") {
         let weather = args.form(game, 0)?;
-        game.world_mut()
-            .set_active_weather(weather, args.flag(1, false)?, name == "fw")
-            .map_err(|e| e.to_string())?;
+        let override_weather = args.flag(1, false)?;
+        let mut world = game.world_mut();
+        if name == "fw" {
+            world.force_active_weather(weather, override_weather)
+        } else {
+            world.set_active_weather(weather, override_weather, false)
+        }
+        .map_err(|e| e.to_string())?;
         return Ok(Outcome::Done);
     }
     if name == "releaseweatheroverride" {
