@@ -994,6 +994,47 @@ MQ101 and MQ101DragonAttack PEX fragments and VMAD properties identify the
 Helgen actions used by the authored routes. No assets or saves are copied into
 the repository and no dependency is added.
 
+The round-3 headless presenter skips subsequent SCEN phases whose start
+conditions are false. It waits on the current phase's completion conditions.
+Skipped phases dispatch neither their actions nor their fragments. Package
+actions spanning the current phase retain their state, and timers retain
+their original deadline when entering their ending phase. The earlier
+headless presenter from `e58219e29` treated the next phase's start conditions
+as a wait.
+This prevented the tower scene from leaving phase 5 once stage 40 was done.
+The phase rules follow the CK
+[scene documentation mirror](https://tesck.ru/index.php/Категория:Сцены).
+The phase and callback layouts follow local xEdit `wbRecord(SCEN)` and
+`wbVMADFragmentedSCEN`. Synthetic checks require skipped callbacks to stay
+absent, a spanning timer to keep its deadline and completion conditions to
+retain their timeout behavior.
+
+GetDistance accepts CTDA's use-aliases flag and resolves its reference
+parameter through the owning quest. Unknown and unfilled aliases return
+typed errors. Other alias-flagged functions and package-data parameters
+remain unsupported. The local sources are xEdit `wbDefinitionsCommon.pas`
+and Mutagen's Skyrim `Condition.cs`, which identifies bit 1 as
+`ParametersUseAliases`. This fixes the tower's phase-20 distance condition.
+
+The first route now presents the tower scene through phase 20 within its
+existing 600-tick bound. The installed regression records stages 22 and 105,
+rejects the skipped stage-30 fragment and requires no invented
+End_Tower_Smash event. Phase 14 uses its authored five-second fallback timer.
+The first successor comparison still lacks stages 100, 103, 120, 155, 158,
+162 and 168. The route still bypasses the tower jump and subsequent inn
+progression. These are PLY-03's unfinished acceptance scope, retained from
+`ce2addfd5` and `915d66cb8`. All checkpoint fields and route bounds remain
+required. DLG-09, DLG-18 and DLG-19 supply phase and action execution, and
+ANM-58 still requires reported animation events to come from graph playback.
+No saved state, section or dependency is added.
+
+Validation passes 4,276 debug integration tests with four existing ignores,
+241 library tests, game-only all-target clippy and package formatting.
+The installed tower-phase regression passes within the authored bound.
+Each of the six complete successor tests still fails only on the first
+pair's seven missing stages. The separate second-pair comparison passes.
+Every installed test ran individually on one thread.
+
 Placed-reference binding inherits the base form's VMAD scripts and property
 values before applying reference overrides. Removed scripts stay unattached,
 and saved instances retain their values. Each property's FormIDs resolve in

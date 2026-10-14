@@ -109,10 +109,7 @@ fn fixture_with_action(
     let mut scene = Record::new(tag(b"SCEN"), SCENE)
         .sub(tag(b"HNAM"), [])
         .zsub(tag(b"NAM0"), "First")
-        .sub(tag(b"NEXT"), [])
-        .sub(tag(b"HNAM"), [])
-        .sub(tag(b"HNAM"), [])
-        .zsub(tag(b"NAM0"), "Second");
+        .sub(tag(b"NEXT"), []);
     if gated {
         let mut condition = vec![0; 32];
         condition[4..8].copy_from_slice(&1.0f32.to_le_bytes());
@@ -121,6 +118,9 @@ fn fixture_with_action(
         scene = scene.sub(tag(b"CTDA"), condition);
     }
     scene = scene
+        .sub(tag(b"HNAM"), [])
+        .sub(tag(b"HNAM"), [])
+        .zsub(tag(b"NAM0"), "Second")
         .sub(tag(b"HNAM"), [])
         .sub(tag(b"ANAM"), 0u16.to_le_bytes())
         .zsub(tag(b"NAM0"), "Assigned line")
