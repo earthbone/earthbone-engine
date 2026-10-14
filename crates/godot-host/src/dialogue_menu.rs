@@ -6,6 +6,38 @@
 use soe_audio::LipWeightTrack;
 use soe_esm::GlobalFormId;
 
+/// Vanilla dialogue coordinates in a uniformly scaled 1280 by 720 stage.
+/// The topic list starts after its holder's nested List_mc translation.
+pub struct DialogueLayout {
+    pub topics: [f32; 4],
+    pub subtitle: [f32; 4],
+    pub speaker: [f32; 4],
+    pub scale: f32,
+}
+
+/// Fit the SWF's showAll stage within the current viewport.
+pub fn layout(width: f32, height: f32) -> DialogueLayout {
+    let scale = (width / 1280.0).min(height / 720.0).max(0.0);
+    let origin = [
+        (width - 1280.0 * scale) * 0.5,
+        (height - 720.0 * scale) * 0.5,
+    ];
+    let rect = |x, y, w, h| {
+        [
+            origin[0] + x * scale,
+            origin[1] + y * scale,
+            w * scale,
+            h * scale,
+        ]
+    };
+    DialogueLayout {
+        topics: rect(748.0, 304.5, 450.0, 335.0),
+        subtitle: rect(248.55, 576.7, 800.0, 100.0),
+        speaker: rect(546.55, 435.85, 200.0, 32.0),
+        scale,
+    }
+}
+
 /// Native mouth weights sampled against the active voice's playback clock.
 #[derive(Default)]
 pub struct DialogueMouth {
@@ -268,6 +300,59 @@ pub fn choose(game: &mut Game, topic: GlobalFormId) -> Result<Option<Line>, Erro
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn freewalk_installed_dialogue_uses_voice_category_and_authored_outputs() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(std::path::Path::new(&data)).unwrap();
+        let order = source.shared_order();
+        let settings = soe_game::sound::SoundSettings::default();
+        let conversation = soe_game::sound::prepare_dialogue(&order, false, &settings).unwrap();
+        assert!((conversation.gain - 0.9 * 0.8 * 0.9).abs() < 0.0001);
+        assert_eq!(conversation.output.kind, 0);
+        assert!(conversation.output.attenuates);
+        let curve = conversation.output.attenuation.as_ref().unwrap();
+        assert_eq!(curve.min_distance, 70.0);
+        assert_eq!(curve.max_distance, 3000.0);
+        assert_eq!(curve.curve, [100, 50, 20, 5, 0]);
+        assert!((20.0 * curve.gain_at_distance(140.0).log10()).abs() < 1.0);
+        let ambient = soe_game::sound::prepare_dialogue(&order, true, &settings).unwrap();
+        assert_eq!(ambient.gain, conversation.gain);
+        let music_gain =
+            soe_game::sound::default_category_gain(&order, *b"MDSC", &settings).unwrap();
+        assert!((music_gain - 0.7 * 0.5 * 0.9).abs() < 0.0001);
+        assert!(conversation.gain > music_gain * 2.0);
+        assert_eq!(ambient.output.kind, 1);
+        assert!(!ambient.output.attenuates);
+        eprintln!(
+            "Voice category gain {} dB, ambient output {:?}",
+            20.0 * conversation.gain.log10(),
+            ambient.output
+        );
+        let swf = source.vfs().read("interface/dialoguemenu.swf").unwrap();
+        assert!(swf.len() > 1000);
+    }
+
+    #[test]
+    fn freewalk_dialogue_layout_preserves_lower_viewport_and_uniform_scaling() {
+        for (width, height) in [
+            (320.0, 180.0),
+            (640.0, 360.0),
+            (1280.0, 720.0),
+            (2560.0, 1080.0),
+            (800.0, 1200.0),
+        ] {
+            let view = layout(width, height);
+            for [x, y, w, h] in [view.topics, view.subtitle, view.speaker] {
+                assert!(x >= 0.0 && x + w <= width + 0.001);
+                assert!(y >= 0.4 * height && y + h <= height + 0.001);
+            }
+            assert!((view.topics[2] / 450.0 - view.subtitle[2] / 800.0).abs() < 1e-6);
+        }
+    }
+
     use super::*;
     use soe_esm::{
         Entry as PluginEntry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin,

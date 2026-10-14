@@ -1073,6 +1073,14 @@ impl CellStreamerNode {
         self.collision.carry_anchor(reference, hit)
     }
 
+    pub(crate) fn throw_carried_reference(
+        &self,
+        reference: GlobalFormId,
+        direction: Vector3,
+    ) -> bool {
+        self.collision.throw_carried_reference(reference, direction)
+    }
+
     pub(crate) fn spring_carry(
         &self,
         reference: GlobalFormId,

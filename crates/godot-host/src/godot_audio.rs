@@ -85,6 +85,19 @@ struct MusicFadeState {
     from: Option<usize>,
     to: Option<usize>,
     fade: MusicFade,
+    to_gain: f32,
+}
+
+#[derive(Clone, Copy)]
+struct PlaybackParameters<'a> {
+    gain: f32,
+    pitch: f32,
+    output: &'a soe_game::sound::SoundOutput,
+}
+
+struct VoiceGain {
+    category: f32,
+    curve: soe_game::sound::Attenuation,
 }
 
 struct AmbientVoice {
@@ -132,6 +145,8 @@ pub struct SoundBank {
     ambience_replacement_pending: bool,
     acoustic_space: Option<soe_esm::GlobalFormId>,
     dialogue_voice: crate::dialogue_menu::DialogueVoice,
+    pub(crate) dialogue_ambient: bool,
+    voice_gains: HashMap<usize, VoiceGain>,
     effect_starts: u64,
     voice_starts: u64,
     music_starts: u64,
@@ -204,6 +219,8 @@ impl INode3D for SoundBank {
             ambience_replacement_pending: false,
             acoustic_space: None,
             dialogue_voice: crate::dialogue_menu::DialogueVoice::default(),
+            dialogue_ambient: false,
+            voice_gains: HashMap::new(),
             effect_starts: 0,
             voice_starts: 0,
             music_starts: 0,
@@ -244,6 +261,7 @@ impl INode3D for SoundBank {
             let playing = self.players[i].is_playing();
             if !playing && self.pool.peek(i).is_some() {
                 self.pool.release(i);
+                self.voice_gains.remove(&i);
             }
             self.dialogue_voice.update(
                 i,
@@ -251,6 +269,7 @@ impl INode3D for SoundBank {
                 f64::from(self.players[i].get_playback_position()),
             );
         }
+        self.update_voice_gains();
         self.poll_background();
         self.advance_music_fade(_delta as f32);
         self.advance_ambience_fades(_delta as f32);
@@ -652,7 +671,31 @@ impl SoundBank {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub(crate) fn play_voice(&mut self, data_path: GString, position: Vector3) -> i32 {
-        self.play(&data_path.to_string(), position, Kind::Voice)
+        let path = data_path.to_string();
+        let plan = self.source.as_ref().map(|source| {
+            soe_game::sound::prepare_dialogue(
+                &source.shared_order(),
+                self.dialogue_ambient,
+                &soe_game::sound::SoundSettings::default(),
+            )
+        });
+        match plan {
+            Some(Ok(plan)) => self.play_parameters(
+                &path,
+                position,
+                Kind::Voice,
+                Some(PlaybackParameters {
+                    gain: plan.gain,
+                    pitch: 1.0,
+                    output: &plan.output,
+                }),
+            ),
+            Some(Err(error)) => {
+                self.last_error = error.to_string().as_str().into();
+                -1
+            }
+            None => self.play(&path, position, Kind::Voice),
+        }
     }
 
     /// Stops a voice slot while leaving effect playback untouched.
@@ -673,6 +716,7 @@ impl SoundBank {
         };
         player.stop();
         self.pool.release(slot);
+        self.voice_gains.remove(&slot);
         self.dialogue_voice.stop(slot);
         true
     }
@@ -900,6 +944,14 @@ impl SoundBank {
             abrupt,
             ..
         } = pending;
+        let to_gain = self.source.as_ref().map_or(Ok(1.0), |source| {
+            soe_game::sound::default_category_gain(
+                &source.shared_order(),
+                *b"MDSC",
+                &soe_game::sound::SoundSettings::default(),
+            )
+            .map_err(|error| error.to_string())
+        })?;
         let from = self.music_current;
         let outgoing_fade = self.music_current_fade_out;
         let to = from.map_or(0, |slot| 1 - slot);
@@ -931,6 +983,7 @@ impl SoundBank {
             from,
             to: Some(to),
             fade: MusicFade::new(from_level, fade_in, outgoing_fade, abrupt),
+            to_gain,
         });
         if abrupt {
             self.advance_music_fade(0.0);
@@ -978,6 +1031,7 @@ impl SoundBank {
             from,
             to: None,
             fade: MusicFade::new(from_level, 0.0, fade_out, false),
+            to_gain: 0.0,
         });
     }
 
@@ -990,7 +1044,7 @@ impl SoundBank {
             self.music_players[slot].set_volume_db(linear_to_db(from_level));
         }
         if let Some(slot) = state.to {
-            self.music_players[slot].set_volume_db(linear_to_db(to_level));
+            self.music_players[slot].set_volume_db(linear_to_db(to_level * state.to_gain));
         }
         if finished {
             if let Some(slot) = state.from {
@@ -999,7 +1053,7 @@ impl SoundBank {
                 retire_feed(&mut self.music_feeds[slot], self.decoder.as_ref());
             }
             if let Some(slot) = state.to {
-                self.music_players[slot].set_volume_db(0.0);
+                self.music_players[slot].set_volume_db(linear_to_db(state.to_gain));
             }
             self.music_fade = None;
         }
@@ -1266,6 +1320,45 @@ impl SoundBank {
         kind: Kind,
         plan: Option<&soe_game::sound::SoundPlayback>,
     ) -> i32 {
+        self.play_parameters(
+            data_path,
+            position,
+            kind,
+            plan.map(|p| PlaybackParameters {
+                gain: p.gain,
+                pitch: p.pitch,
+                output: &p.output,
+            }),
+        )
+    }
+
+    fn update_voice_gains(&mut self) {
+        let Some(camera) = self.base().get_viewport().and_then(|v| v.get_camera_3d()) else {
+            return;
+        };
+        let listener = camera.get_global_position();
+        for slot in 0..self.players.len() {
+            if let Some(plan) = self.voice_gains.get(&slot) {
+                let distance = listener.distance_to(self.players[slot].get_global_position())
+                    * soe_physics::UNITS_PER_METER;
+                let gain = plan.category * plan.curve.gain_at_distance(distance);
+                let db = if gain > 0.0 {
+                    20.0 * gain.log10()
+                } else {
+                    f32::NEG_INFINITY
+                };
+                self.players[slot].set_volume_db(db);
+            }
+        }
+    }
+
+    fn play_parameters(
+        &mut self,
+        data_path: &str,
+        position: Vector3,
+        kind: Kind,
+        plan: Option<PlaybackParameters<'_>>,
+    ) -> i32 {
         if self.players.len() != SLOTS {
             self.last_error = "SoundBank must be inside the scene tree".into();
             return -1;
@@ -1284,6 +1377,21 @@ impl SoundBank {
             return -1;
         };
 
+        self.voice_gains.remove(&slot);
+        let voice_curve = (kind == Kind::Voice)
+            .then_some(plan)
+            .flatten()
+            .filter(|p| p.output.attenuates)
+            .and_then(|p| {
+                p.output.attenuation.as_ref().map(|curve| VoiceGain {
+                    category: p.gain,
+                    curve: curve.clone(),
+                })
+            });
+        let custom_voice_curve = voice_curve.is_some();
+        if let Some(curve) = voice_curve {
+            self.voice_gains.insert(slot, curve);
+        }
         let player = &mut self.players[slot];
         player.set_stream(&stream);
         player.set_global_position(position);
@@ -1297,7 +1405,14 @@ impl SoundBank {
         }));
         let positional = plan.is_none_or(|p| p.output.kind == 0);
         player.set_panning_strength(if positional { 1.0 } else { 0.0 });
-        let attenuates = plan.is_none_or(|p| p.output.attenuates);
+        let attenuates = plan.is_none_or(|p| p.output.attenuates) && !custom_voice_curve;
+        let max_db = if kind == Kind::Voice {
+            player.get_volume_db()
+        } else {
+            3.0
+        };
+        player.set_max_db(max_db);
+        player.set_attenuation_filter_db(if attenuates { -24.0 } else { 0.0 });
         player.set_attenuation_model(if attenuates {
             audio_stream_player_3d::AttenuationModel::INVERSE_DISTANCE
         } else {
@@ -1334,6 +1449,7 @@ impl SoundBank {
         } else {
             self.effect_starts += 1;
         }
+        self.update_voice_gains();
         self.last_error = GString::new();
         slot as i32
     }

@@ -153,3 +153,88 @@ fn dlg_11_starting_and_interrupting_response_plays_at_speaker_and_stops_prior_vo
     assert_eq!(output.stopped, [0, 1]);
     assert_eq!(active, None);
 }
+
+#[test]
+fn freewalk_installed_fuz_decode_preserves_voice_level_against_ffmpeg() {
+    use soe_audio::wma::{decode_with, Native};
+    use soe_audio::{Fuz, Xwma};
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let archive =
+        soe_bsa::Archive::open(&std::path::Path::new(&data).join("Skyrim - Voices_en0.bsa"))
+            .unwrap();
+    let mut paths: Vec<_> = archive
+        .files()
+        .iter()
+        .filter(|path| {
+            path.to_ascii_lowercase().contains("femaleeventoned")
+                && std::path::Path::new(path)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("fuz"))
+        })
+        .collect();
+    paths.sort();
+    assert!(paths.len() >= 6);
+    let mut mismatches = Vec::new();
+    for path in paths.into_iter().step_by(100).take(6) {
+        let bytes = archive.read(path).unwrap();
+        let fuz = Fuz::split(&bytes).unwrap();
+        let xwma = Xwma::parse(fuz.audio).unwrap();
+        let native = decode_with(&Native, &xwma).unwrap();
+        let mut child = Command::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "xwma",
+                "-i",
+                "pipe:0",
+                "-f",
+                "f32le",
+                "-acodec",
+                "pcm_f32le",
+                "pipe:1",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&xwma.to_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "ffmpeg failed for {path}");
+        let reference: Vec<_> = output
+            .stdout
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
+            .collect();
+        assert_eq!(native.samples.len(), reference.len());
+        let energy = |samples: &[f32]| samples.iter().map(|v| f64::from(*v).powi(2)).sum::<f64>();
+        let reference_energy = energy(&reference);
+        assert!(
+            reference_energy > 0.0,
+            "sampled voice must contain speech: {path}"
+        );
+        let difference_db = 10.0 * (energy(&native.samples) / reference_energy).log10();
+        if difference_db.abs() > 1.0 {
+            mismatches.push(format!("{path}: {difference_db} dB"));
+        }
+        eprintln!("{path}: decoded level difference {difference_db:.4} dB");
+    }
+    assert!(
+        mismatches.is_empty(),
+        "decoder level differs by more than one dB: {mismatches:?}"
+    );
+}

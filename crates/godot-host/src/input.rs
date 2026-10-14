@@ -363,6 +363,7 @@ pub enum Action {
     Walk,
     ToggleAlwaysRun,
     Activate,
+    Grab,
     TogglePov,
     ReadyWeapon,
     RightAttack,
@@ -386,6 +387,7 @@ impl Action {
             Action::Walk => "Run",
             Action::ToggleAlwaysRun => "Toggle Always Run",
             Action::Activate => "Activate",
+            Action::Grab => "Grab",
             Action::TogglePov => "Toggle POV",
             Action::ReadyWeapon => "Ready Weapon",
             Action::RightAttack | Action::RightAttackBlock => "Right Attack/Block",
@@ -394,7 +396,7 @@ impl Action {
     }
 
     #[must_use]
-    pub fn all() -> [Action; 15] {
+    pub fn all() -> [Action; 16] {
         [
             Action::Forward,
             Action::Back,
@@ -406,6 +408,7 @@ impl Action {
             Action::Walk,
             Action::ToggleAlwaysRun,
             Action::Activate,
+            Action::Grab,
             Action::TogglePov,
             Action::ReadyWeapon,
             Action::RightAttack,
@@ -448,6 +451,7 @@ impl Bindings {
             (Action::Walk, scan::SHIFT),
             (Action::ToggleAlwaysRun, scan::CAPS_LOCK),
             (Action::Activate, scan::E),
+            (Action::Grab, 0x2c),
             (Action::TogglePov, scan::F),
             (Action::ReadyWeapon, scan::R),
         ];
@@ -568,6 +572,7 @@ pub struct InputState {
     pub jump_pressed: bool,
     pub sneak_pressed: bool,
     pub activate_pressed: bool,
+    pub grab_pressed: bool,
     pub toggle_pov_pressed: bool,
     /// Draw or sheathe on the Ready Weapon press edge.
     pub ready_weapon_pressed: bool,
@@ -613,6 +618,7 @@ impl InputState {
             jump_pressed: pressed(Action::Jump),
             sneak_pressed: pressed(Action::Sneak),
             activate_pressed: pressed(Action::Activate),
+            grab_pressed: pressed(Action::Grab),
             toggle_pov_pressed: pressed(Action::TogglePov),
             ready_weapon_pressed: pressed(Action::ReadyWeapon),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),

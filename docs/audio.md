@@ -457,3 +457,27 @@ its encoder delay being dropped from the header's pre-skip.
   in `crates/esm` and a later pass.
 - Music and ambience, which are the same containers through a different descriptor.
 - Playback. No device, no mixer, no 3D panning.
+
+## Native xWMA PCM normalization, AUD-16
+
+The native adapter converts BlockSynth output to the WMA2 PCM convention
+before interleaving it. oxideav-wma 0.0.4 vendor_decode.rs anchors its gain
+at 64 and uses a calibrated ABS_SCALE of -0.0685. Its mlt.rs inverse
+transform includes 2/N. FFmpeg
+[wmadec.c](https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/wmadec.c)
+uses 10^(gain/20), 2/N and 1/32768 for normalized PCM. For the dependency
+anchor this yields an absolute scale of 10^(64/20)/32768, about 0.0483671.
+The adapter accounts for that difference before returning float samples.
+It does not change the category or mixer gain.
+
+The first installed FemaleEvenToned FUZ comparison measured 3.023114 dB
+of excess native output energy, matching the calibrated scale difference
+of 3.022810 dB. The six-line host survey requires no more than one dB of
+level difference against FFmpeg. Its threshold predates the first run.
+After the correction, all six Dawnguard and Dragonborn FemaleEvenToned lines
+pass, with differences from -0.0449 to 0.0558 dB. The installed test reports
+one pass in 2.69 seconds, and its log is target/freewalk-decode.log.
+Local corpus searches found no WMA codec source. Existing FUZ/xWMA readers,
+the dependency synthesis code and the existing FFmpeg comparison harness
+were read first. The adapter retains its packet parsing, sample counts and
+priming rules. No dependency is added.

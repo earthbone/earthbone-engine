@@ -129,6 +129,11 @@ func hst_22_carry_two_metres_collide_drop_and_tap() -> void:
 	await _tick(20)
 	if not _check(_matches(player.call("carry_status"), "grabbed"), "held Activate grabbed tankard"):
 		return
+	await _tick(60)
+	var hold: Dictionary = player.call("carry_status")
+	var held_transform: Transform3D = PhysicsServer3D.body_get_state(body, PhysicsServer3D.BODY_STATE_TRANSFORM)
+	var follow_error: float = (held_transform * hold.anchor).distance_to(hold.hold_point)
+	_check(follow_error < 0.20, "grabbed anchor follows hold point within 20 cm, actual=" + str(follow_error))
 	_check(PhysicsServer3D.body_get_mode(body) == PhysicsServer3D.BODY_MODE_RIGID, "carrying retains rigid mode")
 	_check(PhysicsServer3D.body_get_collision_layer(body) != 0 and PhysicsServer3D.body_get_collision_mask(body) != 0, "carrying retains collision")
 	var origin: Vector3 = PhysicsServer3D.body_get_state(body, PhysicsServer3D.BODY_STATE_TRANSFORM).origin
@@ -201,6 +206,53 @@ func hst_22_carry_two_metres_collide_drop_and_tap() -> void:
 	player.call("input_focus_gained")
 	await _tick(60)
 	landed = _pose().position
+	await _approach()
+	await _aim(_body_center())
+	var z := InputEventKey.new()
+	z.keycode = KEY_Z
+	z.pressed = true
+	Input.parse_input_event(z)
+	Input.flush_buffered_events()
+	await _tick()
+	z.pressed = false
+	Input.parse_input_event(z)
+	Input.flush_buffered_events()
+	await _tick(30)
+	_check(_matches(player.call("carry_status"), "grabbed"), "Z toggles carrying without taking the object")
+	z.pressed = true
+	Input.parse_input_event(z)
+	Input.flush_buffered_events()
+	player.call("advance", STEP)
+	_check(not player.call("carry_status").has("grabbed_object"), "second Z drops the carried object")
+	z.pressed = false
+	Input.parse_input_event(z)
+	Input.flush_buffered_events()
+	await _tick(2)
+	await _aim(_body_center())
+	z.pressed = true
+	Input.parse_input_event(z)
+	Input.flush_buffered_events()
+	await _tick()
+	z.pressed = false
+	Input.parse_input_event(z)
+	Input.flush_buffered_events()
+	await _tick(30)
+	_check(_matches(player.call("carry_status"), "grabbed"), "Z regrabs the dropped object for throwing")
+	var before_throw: Vector3 = PhysicsServer3D.body_get_state(body, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
+	var mouse := InputEventMouseButton.new()
+	mouse.button_index = MOUSE_BUTTON_LEFT
+	mouse.pressed = true
+	Input.parse_input_event(mouse)
+	Input.flush_buffered_events()
+	player.call("advance", STEP)
+	var after_throw: Vector3 = PhysicsServer3D.body_get_state(body, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
+	_check(not player.call("carry_status").has("grabbed_object"), "primary attack throws and clears shared grab")
+	_check(after_throw.distance_to(before_throw) > 4.9, "throw adds five metres per second of momentum")
+	mouse.pressed = false
+	Input.parse_input_event(mouse)
+	Input.flush_buffered_events()
+	await _tick(300)
+	await _approach()
 	# A quick press uses the same input ray and performs the ordinary pickup.
 	await _aim(_body_center())
 	if not _check(_matches(player.call("carry_status"), "crosshair"), "tap targets dropped tankard"):

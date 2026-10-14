@@ -100,6 +100,9 @@ pub struct PlayerNode {
     /// `advance` by hand with a fixed step.
     #[export]
     auto_step: bool,
+    /// Opt in to the mod's hover list. Vanilla hover only displays the prompt.
+    #[export]
+    quick_loot_enabled: bool,
     /// Stick look rate in mouse units per second, before camera sensitivity.
     #[export]
     gamepad_look_speed: f32,
@@ -277,6 +280,7 @@ impl INode3D for PlayerNode {
             base,
             capture_mouse: true,
             auto_step: true,
+            quick_loot_enabled: false,
             gamepad_look_speed: 800.0,
             exterior_triangle_budget: 0,
             exterior_byte_budget: 0,
@@ -669,6 +673,7 @@ impl INode3D for PlayerNode {
             self.refresh_objective_map();
         }
         self.refresh_mcm_options();
+        self.update_dialogue_layout();
         if self.auto_step && !self.menu.is_open() {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
@@ -1408,19 +1413,19 @@ impl PlayerNode {
         let previous_held = self.held_actions.clone();
         let input = self.gather();
         drop(input_scope);
-        self.route_hand_casts(
-            magic::HandCastInput {
-                was_held: previous_held.contains(&Action::LeftAttackBlock),
-                held: input.left_attack_held,
-                pressed: input.left_attack_pressed,
-            },
-            magic::HandCastInput {
-                was_held: previous_held.contains(&Action::RightAttackBlock),
-                held: input.right_attack_held,
-                pressed: input.right_attack_pressed,
-            },
-        );
         if self.grabbed_host.is_none() {
+            self.route_hand_casts(
+                magic::HandCastInput {
+                    was_held: previous_held.contains(&Action::LeftAttackBlock),
+                    held: input.left_attack_held,
+                    pressed: input.left_attack_pressed,
+                },
+                magic::HandCastInput {
+                    was_held: previous_held.contains(&Action::RightAttackBlock),
+                    held: input.right_attack_held,
+                    pressed: input.right_attack_pressed,
+                },
+            );
             self.update_telekinesis(input.activate_pressed);
         }
         if input.toggle_pov_pressed {
@@ -1429,10 +1434,12 @@ impl PlayerNode {
         if input.ready_weapon_pressed {
             self.toggle_weapon_ready();
         }
-        if self.player_appearance.is_some() {
-            self.route_weapon_input(&input, delta as f32);
-        } else {
-            self.begin_melee_swing_from_input(input.right_attack_pressed);
+        if self.grabbed_host.is_none() {
+            if self.player_appearance.is_some() {
+                self.route_weapon_input(&input, delta as f32);
+            } else {
+                self.begin_melee_swing_from_input(input.right_attack_pressed);
+            }
         }
 
         let camera = self.rig;
@@ -2790,6 +2797,7 @@ impl PlayerNode {
             jump_pressed: pressed(Action::Jump),
             sneak_pressed: pressed(Action::Sneak),
             activate_pressed: pressed(Action::Activate),
+            grab_pressed: pressed(Action::Grab),
             toggle_pov_pressed: pressed(Action::TogglePov),
             ready_weapon_pressed: pressed(Action::ReadyWeapon),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
