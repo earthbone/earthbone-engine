@@ -258,22 +258,69 @@ impl World {
         Ok(())
     }
 
-    /// Return the script-forced look-at target and pathing option.
+    /// Return the script-forced look-at target or active scene headtracking.
     #[must_use]
     pub fn actor_look_at(&mut self, actor: GlobalFormId) -> Option<(GlobalFormId, bool)> {
-        self.actor(actor).and_then(|state| state.forced_look_at)
+        let scripted = self.actor(actor)?.forced_look_at;
+        scripted.or_else(|| {
+            self.scene_headtrack_target(actor)
+                .map(|target| (target, false))
+        })
+    }
+
+    fn scene_headtrack_target(&self, actor: GlobalFormId) -> Option<GlobalFormId> {
+        let mut scenes: Vec<_> = self.scenes.iter().copied().collect();
+        scenes.sort_unstable();
+        for id in scenes {
+            let Some(phase) = self.scene_phase(id) else {
+                continue;
+            };
+            let Some(scene) = self
+                .record(id)
+                .and_then(|record| soe_esm::records::gameplay::Scene::from_record(record).ok())
+            else {
+                continue;
+            };
+            let Some(quest) = scene.quest.and_then(|raw| self.resolve_from(id, raw)) else {
+                continue;
+            };
+            for action in scene.actions {
+                if !matches!(
+                    action.data,
+                    soe_esm::records::gameplay::SceneActionData::Dialogue { .. }
+                ) || action.start_phase.is_none_or(|start| start > phase)
+                    || action.end_phase.is_none_or(|end| end < phase)
+                    || action
+                        .alias_id
+                        .and_then(|id| u32::try_from(id).ok())
+                        .and_then(|alias| *self.quests.get(&quest)?.aliases.get(&alias)?)
+                        != Some(actor)
+                {
+                    continue;
+                }
+                if action.flags.unwrap_or_default() & (1 << 17) != 0 {
+                    return self.player;
+                }
+                if let Some(target) = action
+                    .headtrack_alias
+                    .and_then(|id| u32::try_from(id).ok())
+                    .and_then(|alias| *self.quests.get(&quest)?.aliases.get(&alias)?)
+                {
+                    return Some(target);
+                }
+            }
+        }
+        None
     }
 
     /// Apply script vehicle and look-at relationships to shared reference placement.
     pub fn tick_actor_script_relationships(&mut self) {
         let actors = self.loaded_actors();
         for actor in actors {
-            let Some((vehicle, target)) = self
-                .actor_ref(actor)
-                .map(|state| (state.vehicle, state.forced_look_at))
-            else {
+            let Some(vehicle) = self.actor_ref(actor).map(|state| state.vehicle) else {
                 continue;
             };
+            let target = self.actor_look_at(actor);
             if let Some(vehicle) = vehicle {
                 if let Some((position, rotation, cell)) = self
                     .reference_ref(vehicle)

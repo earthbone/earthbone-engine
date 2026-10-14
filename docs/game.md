@@ -913,6 +913,46 @@ pass. Each of the six installed acceptance tests was rerun alone on one thread
 and still reports only the first pair's completed-stage mismatch. The separate
 second-pair installed acceptance test passes.
 
+The follow-up integration repair decodes SCEN HTID and accepts NULL dialogue
+topics for headtracking actions. Local xEdit's `wbRecord(SCEN)` allows a NULL
+DATA topic and defines HTID as a signed actor alias. CommonLibSSE-NG's
+`include/RE/B/BGSSceneActionDialogue.h` names the same fields. Active scene
+headtracking derives its target from the quest's aliases and phase bounds.
+Script-forced look-at targets retain precedence. Leaving an action's phase range
+or stopping the scene removes its derived target. NULL-topic presentation completes through
+DLG-18 without opening a spoken conversation. These changes add no saved fields.
+
+AI-48's `401a2e4ff` used a scene action slot for CTDA 550.
+SCR-44's newer `3113ec8b6` added the native action-ID query over SCEN INAM.
+The condition now follows that query. The older AI-48 fixtures use their authored
+action ID 1 and reject slot 0. In the installed tower scene, action ID 12 is
+slot 7. The former slot lookup held phase 2 after all its actions completed.
+The first route now presents the saved phase, walks to the tower door, waits for
+the authored stage-20 trigger and presents phase 3's line to reach phase 4.
+It returns along the entry path before continuing the original courtyard
+markers. Direct navigation from the tower door to the first courtyard marker
+alternated between two positions until its 3,600-tick limit. The return
+breadcrumb completes that leg with the existing bounds.
+The complete successor comparison and existing wait bounds remain required.
+
+The next tower diagnostic rejects navigation to `MQ101DASetStage25`: its trigger
+center is more than 128 units from NAVM. A route must select a surface point
+within the trigger volume. The installed `mq101alduinscript.OnUpdate` retries
+the smash idle. Its `OnAnimationEvent` sets AlduinSmashDone only after
+End_Tower_Smash. The retry does not supply that graph event. Later tower
+movement and animation playback are not established by the entry repair.
+
+Validation passes 4,271 debug integration tests with four existing ignores,
+240 game library tests, 50 ESM library tests and eight SCEN parser checks.
+Formatting and all-target clippy pass for both touched crates. The installed
+tower-entry regression reaches stage 160 after returning to the courtyard,
+and the second route passes its full checkpoint comparison. Each of the six
+installed acceptance tests still reports one differing field on the first
+pair: MQ101DragonAttack lacks stages 22, 25, 35, 40, 50, 100, 103, 105, 120,
+130, 151, 155, 158, 162 and 168. Stage 20 now matches. All compared quest flags,
+other stage fields and player item quantities match. Each installed test ran
+alone on one thread. The checkpoint assertions and tick limits are unchanged.
+
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
 `Quest_Script.wikitext` defines highest completed stage queries. The installed
@@ -7543,9 +7583,10 @@ GetDialogueEmotion (434) and GetDialogueEmotionValue (435) require a reference
 subject, then read the emotion type and 0 to 100 value from the current response
 of the active dialogue INFO for its speaker. They return zero when that
 reference has no current response.
-IsSceneActionComplete (550) resolves its SCEN and action slot and reads the
-scene's completed-action set for the current phase. IsInFavorState (635) reads
-the actor's existing `doing_favor` flag. Invalid scene slots and non-actor
+IsSceneActionComplete (550) resolves its SCEN and action ID through the action's
+INAM index, following SCR-44's native query. It reads the corresponding slot in
+the scene's completed-action set for the current phase. IsInFavorState (635) reads
+the actor's existing `doing_favor` flag. Invalid action IDs and non-actor
 favor subjects return typed errors.
 
 GetNoRumors (320), IsTalkingActivatorActor (370), IsScenePackageRunning (429)

@@ -18,6 +18,7 @@ const fn id(object: u32) -> GlobalFormId {
 }
 
 const SPEAKER: u32 = 0x100;
+const LOOK_TARGET: u32 = 0x101;
 const BASE: u32 = 0x500;
 const QUEST: u32 = 0x800;
 const TOPIC: u32 = 0x900;
@@ -29,6 +30,16 @@ fn fixture(alias_filled: bool, responses: &[&str]) -> Game {
 }
 
 fn fixture_with_phase_gate(alias_filled: bool, responses: &[&str], gated: bool) -> Game {
+    fixture_with_action(alias_filled, responses, gated, TOPIC, None)
+}
+
+fn fixture_with_action(
+    alias_filled: bool,
+    responses: &[&str],
+    gated: bool,
+    action_topic: u32,
+    headtrack_alias: Option<i32>,
+) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
         Record::new(tag(b"GMST"), 0xC00)
@@ -50,6 +61,11 @@ fn fixture_with_phase_gate(alias_filled: bool, responses: &[&str], gated: bool) 
             .sub(tag(b"NAME"), BASE.to_le_bytes())
             .sub(tag(b"DATA"), vec![0; 24]),
     );
+    plugin.push_top(
+        Record::new(tag(b"ACHR"), LOOK_TARGET)
+            .sub(tag(b"NAME"), BASE.to_le_bytes())
+            .sub(tag(b"DATA"), vec![0; 24]),
+    );
 
     let mut quest = Record::new(tag(b"QUST"), QUEST)
         .sub(tag(b"DNAM"), vec![0; 12])
@@ -60,7 +76,15 @@ fn fixture_with_phase_gate(alias_filled: bool, responses: &[&str], gated: bool) 
     if alias_filled {
         quest = quest.sub(tag(b"ALFR"), SPEAKER.to_le_bytes());
     }
-    plugin.push_top(quest.sub(tag(b"ALED"), []));
+    plugin.push_top(
+        quest
+            .sub(tag(b"ALED"), [])
+            .sub(tag(b"ALST"), 1u32.to_le_bytes())
+            .zsub(tag(b"ALID"), "Look target")
+            .sub(tag(b"FNAM"), 2u32.to_le_bytes())
+            .sub(tag(b"ALFR"), LOOK_TARGET.to_le_bytes())
+            .sub(tag(b"ALED"), []),
+    );
 
     let topic = Record::new(tag(b"DIAL"), TOPIC)
         .zsub(tag(b"FULL"), "Scene line")
@@ -104,7 +128,11 @@ fn fixture_with_phase_gate(alias_filled: bool, responses: &[&str], gated: bool) 
         .sub(tag(b"INAM"), 10u32.to_le_bytes())
         .sub(tag(b"SNAM"), 0u32.to_le_bytes())
         .sub(tag(b"ENAM"), 1u32.to_le_bytes())
-        .sub(tag(b"DATA"), TOPIC.to_le_bytes())
+        .sub(tag(b"DATA"), action_topic.to_le_bytes());
+    if let Some(alias) = headtrack_alias {
+        scene = scene.sub(tag(b"HTID"), alias.to_le_bytes());
+    }
+    scene = scene
         .sub(tag(b"ANAM"), [])
         .sub(tag(b"PNAM"), QUEST.to_le_bytes());
     plugin.push_top(scene);
@@ -119,6 +147,68 @@ fn fixture_with_phase_gate(alias_filled: bool, responses: &[&str], gated: bool) 
 fn start_scene(game: &mut Game) {
     let mut allocate = |_: &str, _: &str| ObjectId(1);
     assert!(game.world_mut().start_scene(id(SCENE), &mut allocate));
+}
+
+#[test]
+fn dlg_18_null_topic_headtracking_completes_without_opening_dialogue() {
+    let mut game = fixture_with_action(true, &[], false, 0, Some(1));
+    start_scene(&mut game);
+    let report = soe_game::play::run(
+        &mut game,
+        &soe_game::play::Route::parse("play-scene SceneDialogue.esp:b00 1 1").unwrap(),
+    );
+    assert!(report.passed(), "{}", report.format());
+    assert_eq!(
+        game.world().scene_action_slot_complete(id(SCENE), 0),
+        Some(true)
+    );
+    assert!(game.world().dialogue_session().is_none());
+    assert_eq!(
+        game.world_mut().actor_look_at(id(SPEAKER)),
+        Some((id(LOOK_TARGET), false))
+    );
+    let mut allocate = |_: &str, _: &str| ObjectId(1);
+    assert!(game.world_mut().stop_scene(id(SCENE), &mut allocate));
+    assert_eq!(game.world_mut().actor_look_at(id(SPEAKER)), None);
+}
+
+#[test]
+fn dlg_18_headtracking_preserves_a_scripted_look_at_after_the_scene_stops() {
+    let mut game = fixture_with_action(true, &[], false, 0, Some(1));
+    let player = game.player();
+    game.world_mut()
+        .set_actor_look_at(id(SPEAKER), Some(player), false)
+        .unwrap();
+    start_scene(&mut game);
+    assert_eq!(
+        game.world_mut().actor_look_at(id(SPEAKER)),
+        Some((player, false))
+    );
+    assert!(game
+        .start_scene_dialogue_action(id(SCENE), 0)
+        .unwrap()
+        .is_none());
+    let mut allocate = |_: &str, _: &str| ObjectId(1);
+    assert!(game.world_mut().stop_scene(id(SCENE), &mut allocate));
+    assert_eq!(
+        game.world_mut().actor_look_at(id(SPEAKER)),
+        Some((player, false))
+    );
+}
+
+#[test]
+fn dlg_18_null_topic_rejects_an_unfilled_headtracking_alias() {
+    let mut game = fixture_with_action(true, &[], false, 0, Some(2));
+    start_scene(&mut game);
+    assert!(matches!(
+        game.start_scene_dialogue_action(id(SCENE), 0),
+        Err(Error::State("scene headtracking actor alias is unfilled"))
+    ));
+    assert_eq!(
+        game.world().scene_action_slot_complete(id(SCENE), 0),
+        Some(false)
+    );
+    assert!(game.world().dialogue_session().is_none());
 }
 
 #[test]

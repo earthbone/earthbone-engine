@@ -2224,11 +2224,20 @@ fn function_value(
         }
         550 => {
             let scene = resolve(world, context.owner, raw, Some(*b"SCEN"))?;
-            let slot = c.parameters[1];
-            let Some(completed) = world.scene_action_slot_complete(scene, slot) else {
-                return Err(Error::Parameter(c.function, slot));
-            };
-            boolean(completed)
+            let action = c.parameters[1];
+            let definition = soe_esm::records::gameplay::Scene::from_record(
+                world.record(scene).ok_or(Error::Form(scene))?,
+            )
+            .map_err(|_| Error::Form(scene))?;
+            if !definition
+                .actions
+                .iter()
+                .any(|entry| entry.index == Some(action))
+            {
+                return Err(Error::Parameter(c.function, action));
+            }
+            let action = i32::try_from(action).map_err(|_| Error::Parameter(c.function, action))?;
+            boolean(world.scene_action_complete(scene, action))
         }
         635 => {
             no_parameter(c)?;
