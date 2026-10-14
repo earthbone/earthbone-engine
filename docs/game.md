@@ -953,6 +953,40 @@ pair: MQ101DragonAttack lacks stages 22, 25, 35, 40, 50, 100, 103, 105, 120,
 other stage fields and player item quantities match. Each installed test ran
 alone on one thread. The checkpoint assertions and tick limits are unchanged.
 
+The next integration repair walks the tower stairs through the installed
+stage-25, stage-35 and stage-40 trigger volumes. The marker points are NAVM
+triangle centers inside each XPRM volume. The stage-25 trigger center itself
+is more than 128 units above the nearest surface. The route returns through
+the same stairs and tower entry before continuing its courtyard markers.
+The first route still passes every step and reaches its endpoint in 2,430
+ticks. Its completed-stage gap falls from 15 stages to nine: 22, 100, 103,
+105, 120, 155, 158, 162 and 168. Quest flags and player inventory still match.
+The full checkpoint comparison remains required.
+
+`Actor.PlayIdle` now queues an animation request through HST-10, as
+SCR-15's paired-idle path already does. The earlier native from `1f656ad8b`
+reported the idle's editor ID directly as a Papyrus animation event and never
+requested playback. ANM-58's newer graph-report contract keeps requests and
+reported events separate. The older native test follows that contract and
+checks that a later graph report reaches the reference. Wrong form types and
+disabled actor AI reject playback, following the local CK
+`PlayIdle_-_Actor.wikitext`. No saved field or dependency is added.
+
+The installed tower regression requires stages 20, 25, 35, 40 and 50 from
+their trigger fragments and an Alduin smash playback request. It rejects a
+fabricated End_Tower_Smash event. Completing the tower scene remains outside
+that regression. A diagnostic requesting phase 14 after stage 40 times out
+at conditional phase advancement. Headless graph playback and the remaining
+scene progression are not established by the stair and request corrections.
+PLY-03 remains open and its six complete successor comparisons still fail.
+
+Validation passes 4,273 debug integration tests with four existing ignores,
+240 library tests, formatting and game-only all-target clippy. The installed
+tower regression and the separate second-pair comparison pass. Each of the
+six installed acceptance tests ran alone on one thread and reports the same
+nine missing stages on the first pair. All routes still pass their gameplay
+steps and retain their full checkpoint assertions and existing tick bounds.
+
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
 `Quest_Script.wikitext` defines highest completed stage queries. The installed

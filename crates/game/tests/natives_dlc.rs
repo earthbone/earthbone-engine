@@ -1738,9 +1738,8 @@ fn animation_variables_round_trip_per_type() {
 }
 
 /// SetAlpha "(Float afTargetAlpha, Bool abFade)". Without frames to fade
-/// over, the target is reached at once. PlayIdle sends the idle to the
-/// actor's graph, which the engine delivers as an animation event named
-/// after the idle.
+/// over, the target is reached at once. PlayIdle requests graph playback.
+/// ANM-58 delivers the graph's subsequent events to scripts.
 #[test]
 fn alpha_and_idles_reach_the_reference() {
     let mut g = game();
@@ -1761,12 +1760,43 @@ fn alpha_and_idles_reach_the_reference() {
         Value::Bool(true)
     );
     assert!(
-        g.world_mut()
-            .animation_events
+        g.world()
+            .animation_requests
             .iter()
-            .any(|(src, name)| *src == id && name == "IdleVampireFeed"),
-        "the idle was not delivered"
+            .any(|request| request.target == id && request.animation == "IdleVampireFeed"),
+        "the idle was not requested"
     );
+    assert!(g.world().animation_events.is_empty());
+    g.report_animation_event(id, "IdleFeedComplete");
+    assert_eq!(
+        g.world().animation_events,
+        [(id, "IdleFeedComplete".into())]
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn play_idle_rejects_wrong_forms_and_disabled_ai_without_requesting_playback() {
+    let mut g = game();
+    let vampire = obj(&mut g, "VampireRef");
+    let wrong_form = obj(&mut g, "VampireBase");
+    assert_eq!(
+        call(&mut g, &vampire, "PlayIdle", &[wrong_form]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "PlayIdle", &[Value::None]),
+        Value::Bool(false)
+    );
+    let actor = form(&g, "VampireRef");
+    g.world_mut().actor(actor).unwrap().ai_disabled = true;
+    let idle = obj(&mut g, "IdleVampireFeed");
+    assert_eq!(
+        call(&mut g, &vampire, "PlayIdle", &[idle]),
+        Value::Bool(false)
+    );
+    assert!(g.world().animation_requests.is_empty());
+    assert!(g.world().animation_events.is_empty());
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 

@@ -81,6 +81,65 @@ fn save_path(root: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
+fn ply_03_saved_tower_stairs_fire_triggers_and_request_the_smash_idle() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 tower stairs");
+        return;
+    };
+    let mut game = play::load_world_checkpoint(
+        &PathBuf::from(data),
+        &save_path(&PathBuf::from(corpus), CHECKPOINTS[0]),
+    )
+    .unwrap();
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    let alduin = game.world_mut().alias_ref(quest, 30).unwrap();
+    let idle = game
+        .world()
+        .editor_id(GlobalFormId {
+            file: 0,
+            object: 0x107a96,
+        })
+        .unwrap();
+    let mut route = Route::parse(ROUTES[0]).unwrap();
+    let smash = route
+        .steps
+        .iter()
+        .position(|(_, step)| {
+            matches!(step, play::Step::WaitStage { quest, stage: 40, .. }
+                if quest == "MQ101DragonAttack")
+        })
+        .unwrap();
+    route.steps.truncate(smash + 1);
+    let report = play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    for stage in [20, 25, 35, 40, 50] {
+        assert!(game.world().quest(quest).unwrap().done.contains(&stage));
+    }
+    assert!(
+        game.world()
+            .animation_requests
+            .iter()
+            .any(|request| request.target == alduin && request.animation == idle),
+        "expected {idle} on {alduin}, requests {:?}, AI disabled {:?}",
+        game.world().animation_requests,
+        game.world()
+            .actor_ref(alduin)
+            .map(|actor| actor.ai_disabled)
+    );
+    assert!(!game
+        .world()
+        .animation_events
+        .iter()
+        .any(|(source, event)| { *source == alduin && event == "End_Tower_Smash" }));
+}
+
+#[test]
 fn ply_03_difference_report_names_stage_quest_flags_and_inventory_fields() {
     let id = GlobalFormId {
         file: 0,
