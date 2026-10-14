@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Conservative sight rejection using the host's synchronized static capsules.
-//! Jolt Geometry/RayCapsule.h, Geometry/RayAABox.h and soe-physics's generated
-//! controller shape supply the sphere, slab and capsule models. An interior
-//! sphere witness before the target's outer box proves occlusion. Clear paths
+//! Jolt Geometry/RayCapsule.h, Geometry/RayAABox.h, Geometry/ClosestPoint.h and
+//! soe-physics's generated controller shape supply the distance and capsule
+//! models. An interior capsule witness before the target's outer box proves
+//! occlusion. Clear paths
 //! also require a Godot overlap proof for scenery. Uncertain segments still
 //! use Godot's ray query.
 
@@ -19,39 +20,64 @@ struct Capsule {
     high: [f64; 3],
 }
 
-pub(crate) struct ActorOcclusion(Vec<Capsule>);
+pub(crate) struct ActorOcclusion(Vec<Capsule>, bool);
 
 impl ActorOcclusion {
     pub(crate) fn new(actors: &[(GlobalFormId, [f32; 3], f32)]) -> Self {
-        Self(
-            actors
-                .iter()
-                .filter_map(|&(actor, position, scale)| {
-                    let Shape::Capsule { a, b, radius } = generated_controller_shape(scale) else {
-                        return None;
-                    };
-                    if !position
-                        .iter()
-                        .all(|p| p.is_finite() && p.abs() < radius * 10000.0)
-                    {
-                        return None;
-                    }
-                    let a = [a.x, a.y, a.z].map(f64::from);
-                    let b = [b.x, b.y, b.z].map(f64::from);
-                    let a = std::array::from_fn(|i| a[i] + f64::from(position[i]));
-                    let b = std::array::from_fn(|i| b[i] + f64::from(position[i]));
-                    let radius = f64::from(radius);
-                    Some(Capsule {
-                        actor,
-                        ends: [a, b],
-                        inner_squared: (radius * 0.99).powi(2),
-                        outer_squared: (radius * 1.01).powi(2),
-                        low: std::array::from_fn(|i| a[i].min(b[i]) - radius * 1.01),
-                        high: std::array::from_fn(|i| a[i].max(b[i]) + radius * 1.01),
-                    })
+        let capsules: Vec<_> = actors
+            .iter()
+            .filter_map(|&(actor, position, scale)| {
+                let Shape::Capsule { a, b, radius } = generated_controller_shape(scale) else {
+                    return None;
+                };
+                if !position
+                    .iter()
+                    .all(|p| p.is_finite() && p.abs() < radius * 10000.0)
+                {
+                    return None;
+                }
+                let a = [a.x, a.y, a.z].map(f64::from);
+                let b = [b.x, b.y, b.z].map(f64::from);
+                let a = std::array::from_fn(|i| a[i] + f64::from(position[i]));
+                let b = std::array::from_fn(|i| b[i] + f64::from(position[i]));
+                let radius = f64::from(radius);
+                Some(Capsule {
+                    actor,
+                    ends: [a, b],
+                    inner_squared: (radius * 0.99).powi(2),
+                    outer_squared: (radius * 1.01).powi(2),
+                    low: std::array::from_fn(|i| a[i].min(b[i]) - radius * 1.01),
+                    high: std::array::from_fn(|i| a[i].max(b[i]) + radius * 1.01),
                 })
-                .collect(),
-        )
+            })
+            .collect();
+        let complete = capsules.len() == actors.len();
+        Self(capsules, complete)
+    }
+
+    /// Prove an endpoint sphere misses every other excluded capsule.
+    /// Scenery and bodies outside this list still require a Godot overlap proof.
+    pub(crate) fn sphere_clear(&self, owner: GlobalFormId, center: [f32; 3], radius: f32) -> bool {
+        if !self.1
+            || !radius.is_finite()
+            || radius <= 0.0
+            || !center.iter().all(|value| value.is_finite())
+        {
+            return false;
+        }
+        let center = center.map(f64::from);
+        self.0.iter().all(|capsule| {
+            if capsule.actor == owner {
+                return true;
+            }
+            let [a, b] = capsule.ends;
+            let nearest = [a[0], a[1], center[2].clamp(a[2], b[2])];
+            let radius = f64::from(radius) * 1.01 + capsule.outer_squared.sqrt();
+            (0..3)
+                .map(|i| (center[i] - nearest[i]).powi(2))
+                .sum::<f64>()
+                > radius * radius
+        })
     }
 
     pub(crate) fn blocked(
@@ -118,7 +144,7 @@ impl ActorOcclusion {
         from: [f32; 3],
         to: [f32; 3],
     ) -> bool {
-        if !from.iter().chain(&to).all(|p| p.is_finite()) || from == to {
+        if !self.1 || !from.iter().chain(&to).all(|p| p.is_finite()) || from == to {
             return false;
         }
         let Some(target) = self.0.iter().find(|capsule| capsule.actor == target) else {
@@ -237,6 +263,50 @@ mod tests {
 
     fn id(object: u32) -> GlobalFormId {
         GlobalFormId { file: 0, object }
+    }
+
+    #[test]
+    fn prf_31_endpoint_sphere_checks_capsule_sides_caps_and_current_membership() {
+        let Shape::Capsule { a, b, radius } = generated_controller_shape(1.0) else {
+            panic!("generated capsule");
+        };
+        let owner = (id(1), [0.0; 3], 1.0);
+        let other = (id(2), [300.0, 0.0, 0.0], 1.0);
+        let occlusion = ActorOcclusion::new(&[owner, other]);
+        let middle = a.z.midpoint(b.z);
+        assert!(occlusion.sphere_clear(id(1), [0.0, 0.0, middle], 10.0));
+        assert!(!occlusion.sphere_clear(id(1), [300.0 + radius + 10.0, 0.0, middle], 10.0));
+        assert!(!occlusion.sphere_clear(id(1), [300.0, 0.0, b.z + radius + 10.0], 10.0));
+        assert!(occlusion.sphere_clear(id(1), [300.0, 0.0, b.z + radius + 30.0], 10.0));
+        assert!(ActorOcclusion::new(&[owner]).sphere_clear(id(1), [300.0, 0.0, middle], 10.0));
+        assert!(
+            !ActorOcclusion::new(&[owner, (id(2), [f32::NAN; 3], 1.0)]).sphere_clear(
+                id(1),
+                [0.0; 3],
+                10.0
+            )
+        );
+        for radius in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert!(!occlusion.sphere_clear(id(1), [0.0; 3], radius));
+        }
+        assert!(!occlusion.sphere_clear(id(1), [f32::NAN; 3], 10.0));
+    }
+
+    #[test]
+    fn prf_31_clear_path_keeps_unknown_capsules_on_the_godot_query_path() {
+        let actors = [
+            (id(1), [300_000.0, 0.0, 0.0], 4.0),
+            (id(2), [300_600.0, 0.0, 0.0], 4.0),
+            (id(3), [300_300.0, 0.0, 300.0], 1.0),
+        ];
+        let occlusion = ActorOcclusion::new(&actors);
+        assert_eq!(occlusion.0.len(), 2);
+        assert!(!occlusion.clear(
+            id(1),
+            id(2),
+            [300_000.0, 0.0, 400.0],
+            [300_600.0, 0.0, 400.0]
+        ));
     }
 
     #[test]

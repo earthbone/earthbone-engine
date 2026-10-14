@@ -10,7 +10,7 @@ use soe_papyrus::vm::state::Writer;
 use soe_papyrus::{Value, VmError};
 
 use super::save::{read_form_id, write_form_id, FormReader};
-use super::World;
+use super::{ActorState, World};
 use crate::detection::{
     Awareness, DetectionEvent, DetectionLevel, DetectionSettings, DetectionState, Error,
     Observation, Senses, StealthPool,
@@ -193,7 +193,7 @@ impl World {
             let (observer_sneak, blindness, fighting) = match observer_senses.entry(o.observer) {
                 std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    let observer = self.actor(o.observer).ok_or(Error::Actor(o.observer))?;
+                    let observer = self.detection_actor(o.observer)?;
                     *entry.insert((
                         observer.values.get("sneak").current(),
                         observer.values.get("blindness").current(),
@@ -321,9 +321,20 @@ impl World {
         }
     }
 
+    fn detection_actor(&mut self, id: GlobalFormId) -> Result<&ActorState, Error> {
+        if self.actor_ref(id).is_none()
+            || self
+                .reference_ref(id)
+                .is_none_or(|reference| !reference.is_actor)
+        {
+            self.actor(id).ok_or(Error::Actor(id))?;
+        }
+        self.actor_ref(id).ok_or(Error::Actor(id))
+    }
+
     fn target_senses(&mut self, id: GlobalFormId) -> Result<Senses, Error> {
         let magic_invisible = self.is_invisible(id);
-        let target = self.actor(id).ok_or(Error::Actor(id))?;
+        let target = self.detection_actor(id)?;
         let target_sneak = target.values.get("sneak").current();
         let muffle = if target.values.contains("movementnoisemult") {
             target.values.get("movementnoisemult").current()
@@ -497,6 +508,38 @@ mod prf_31_tests {
         }
         world.load_cell(id(1));
         world
+    }
+
+    #[test]
+    fn prf_31_detection_reads_preserve_unchanged_reference_caches() {
+        let mut world = world(Vec::new());
+        for actor in [id(3), id(4)] {
+            world.actor(actor).unwrap();
+            assert!(world.reference_enabled(actor));
+        }
+        world.translation_candidates.clear();
+        let observation = Observation {
+            observer: id(3),
+            target: id(4),
+            distance: 0.0,
+            line_of_sight: true,
+            light_level: 100.0,
+            motion: crate::detection::Motion::Still,
+            action_sound: 0.0,
+            action_sound_distance: None,
+            action_sound_line_of_sight: None,
+        };
+        for _ in 0..60 {
+            world.evaluate_detection(&[observation], 0.0).unwrap();
+            assert!(world.translation_candidates.is_empty());
+            for actor in [id(3), id(4)] {
+                assert!(world
+                    .reference_changes
+                    .borrow()
+                    .enabled
+                    .contains_key(&actor));
+            }
+        }
     }
 
     #[test]

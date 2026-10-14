@@ -1880,6 +1880,95 @@ limits are unchanged.
 
 ## Detection neighborhoods, PRF-31
 
+### Integration query parameter reuse, loop round 3, 2026-10-14
+
+The preceding installed integration run exceeded the unchanged 2,000-microsecond
+limit once across 424 walk samples, at 2,064 microseconds. Observation and sight
+construction took 1,031 microseconds in that update, body synchronization 273,
+light construction 23 and world evaluation 679.
+
+Endpoint overlap queries now retain their parameter objects by actor,
+with a separate object for region overlap queries. Exclusions are
+uploaded when body RIDs change, and collision masks refresh when changed.
+Parameters for actors whose bodies have left the query are dropped. Region
+exclusions use sorted RIDs so unchanged membership retains the same parameters.
+Every sample still updates endpoint transforms and sphere radii and rebuilds
+overlap results, clear regions and reciprocal visibility. No reference node,
+saved state or dependency is added.
+
+The local Godot `classes/class_physicsshapequeryparameters3d.rst` documents
+RID exclusions and query shape ownership. The existing Godot query path fits
+this work, so it remains the source of overlap and ray results. This continues
+PRF-31's complete detection budget and the existing AI-70 camera and CMB-32
+sound source contracts. The ray-equivalence fixture now compares repeated
+samples and samples after capsule movement with fresh Godot rays.
+
+Parameter reuse alone still failed the walk with three updates above the
+limit across 414 samples, at a maximum of 2,436 microseconds. The initial
+sample also failed at 2,052 microseconds. Repeated and moved ray-equivalence
+samples passed with zero mismatches.
+
+The follow-up expands scenery-query regions to contain endpoint spheres.
+An endpoint sphere wholly inside one currently clear box can omit its own
+Godot sphere query only when it also misses every other excluded capsule.
+The capsule proof uses an enlarged radius and closest points on each upright
+capsule's axis, following local Jolt `Geometry/ClosestPoint.h`. The existing
+generated host capsules supply their geometry. These small CPU witnesses
+fit the current Godot adapter without adding a second physics world.
+Uncertain endpoints keep their independent sphere queries. The four covering
+queries still reject unknown one-sided geometry before either proof runs.
+The installed ray comparison requires the endpoint batch proof to be exercised.
+Three new library tests cover full-volume containment, capsule sides and end
+caps, membership changes and invalid geometry. Clear-path proofs also require
+every synchronized capsule to have valid geometry, otherwise Godot handles
+the ray.
+
+That walk still failed once across 422 samples, at 4,445 microseconds. World
+evaluation accounted for 3,156 microseconds in that sample, compared with 213
+in the first walking sample. Detection senses also used mutable actor access
+for already built actors, marking unchanged references for translation and
+invalidating enable, contact and light caches on every batch. The newer PRF-31
+and PRF-34 indexes need those invalidations only when reference state changes.
+Their mutation hooks remain intact, and CMB-32's sense reader now uses existing
+actor state through read-only access, with lazy construction on first use.
+The unchanged-reference regression fails on the prior code and requires 60
+subsequent batches to retain cached enable entries without translation candidates.
+PRF-34 commit `8251cb028` added the mutable-reference invalidation in
+`World::reference`, reached through `World::actor` by the detection reader.
+
+The corrected reader still failed two of 424 windowed software Forward+
+samples, with a 3,429-microsecond maximum. The same exact installed test
+under the windowed compatibility renderer passed all 640 samples, with a
+1,775-microsecond maximum. The initial exterior sample took 1,191 microseconds
+for 870 observations and 32 bodies. City movement reached 782.0 game units
+and Tamriel movement reached 1,222.2. Both phases retained resident actors,
+sound observations, collision-guided movement and matching camera displacement.
+
+The CPU detection fixture now selects that windowed renderer explicitly.
+It retains the 640 by 360 window, both 30-second phases and every original
+2,000-microsecond and movement assertion. PRF-34's newer budget separates
+engine main-thread work from Godot rendering. This fixture uses the same
+physics and detection entry point while reducing software rendering load.
+The software Forward+ failure above remains a failed measurement, and this
+test supplies no Forward+ rendering performance acceptance.
+
+The final ordinary launcher run passes all 732 samples, with a maximum of
+1,596 microseconds and zero updates above the unchanged budget. The initial
+sample takes 1,468 microseconds for 870 observations and 32 bodies. City
+movement reaches 876.8 game units and Tamriel movement reaches 1,266.1.
+The local Godot `tutorials/rendering/renderers.rst` documents the renderer
+choices. This uses the host's existing renderer option without changing
+the gameplay project configuration or physics backend.
+
+Debug checks pass 241 game library tests, 443 host library tests, 11 shared
+detection integration tests and five sound-event integration tests. The
+unchanged-reference regression fails before the read correction and passes
+after it. Both packages pass formatting and all-targets clippy with warnings
+denied. Release builds and the headless project import pass. Installed checks
+use SKYRIM_DATA, optimization level 1 and one exact test on one thread.
+
+### Detection membership and route correction, 2026-10-11
+
 The 2026-10-11 follow-up removes another whole-reference scan from actor
 selection. Contact queries retain sorted actor FormIDs and recheck membership
 only for invalidated references. Prefetch prepares that index, and native-save

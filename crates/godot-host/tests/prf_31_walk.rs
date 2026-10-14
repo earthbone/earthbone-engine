@@ -58,6 +58,17 @@ fn prf_31_installed_actor_occlusion_matches_godot_rays() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stdout}\n{stderr}");
+    let batched_heads = stdout
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("PRF31 sight setup_us=")?
+                .split_once(" batch_heads=")?
+                .1
+                .parse::<usize>()
+                .ok()
+        })
+        .unwrap();
+    assert!(batched_heads > 0, "{stdout}");
     let verified = stdout
         .lines()
         .find_map(|line| line.strip_prefix("PRF31 occlusion checked="))
@@ -122,6 +133,8 @@ fn prf_31_installed_windowed_gate_walk_keeps_every_detection_update_under_two_ms
         .args([
             "--resolution",
             "640x360",
+            "--rendering-method",
+            "gl_compatibility",
             "--script",
             "prf_31_detection_test.gd",
         ])
