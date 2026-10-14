@@ -1042,6 +1042,68 @@ Each of the six complete successor tests still fails only on the first
 pair's seven missing stages. The separate second-pair comparison passes.
 Every installed test ran individually on one thread.
 
+The second round-3 repair retains a route's NAVM corridor until the graph
+revision changes. Replanning every tick could alternate between two points
+near a corner. Door changes still invalidate the corridor before movement.
+The local source is Recast's
+`DetourCrowd/Source/DetourPathCorridor.cpp`, which retains a corridor while
+advancing its position. This runner uses the existing Rust path rather than
+Detour's separate mesh representation. The synthetic checks bound a two-triangle
+route to two path-node expansions and require a closing door to stop movement.
+Surface checks, speeds and authored tick bounds remain required.
+
+HST-14 now includes persistent XPRM volumes overlapping an exterior grid cell.
+The per-cell cache from `cf2c2f23e` scanned only that cell's own children.
+It missed `dunCGSetStage155REF`, filed under Tamriel's persistent cell 0xD74.
+Persistent actor parents also resolve to the physical grid cell when testing
+movement, so temporary volumes can see those actors. Rotated box extents and
+sphere bounds select candidate cells. Actual occupancy still uses the original
+volume test. Cross-world matches are rejected, and trigger queries use
+RND-17's effective enable-parent state. The existing CellIndex supplies the
+world and cell identities. Local UESP `WRLD.wikitext` and xEdit's XPRM fields
+supply the record hierarchy and volume layout.
+
+Loading an exterior cell prepares its overlapping persistent trigger geometry
+and queues OnLoad when that geometry becomes available. Another attached cell
+retains a volume spanning their boundary. Leaving its last attached cell queues
+OnUnload. Movement also prepares newly enabled persistent volumes. Enabling or
+disabling loaded references queues these geometry lifecycle events at the
+existing loaded-3D transition. The event pump binds scripts before trigger
+delivery. Local CK `OnLoad_-_ObjectReference.wikitext` and
+`OnUnload_-_ObjectReference.wikitext` describe geometry lifetime separately from
+the parent cell. The installed `dunCGPlayerInSquareTriggerScript.OnLoad`
+initializes the quest variable used by its crossing handlers. Checkpoint startup
+now uses the existing cell-load path before gameplay. It still binds fresh
+scripts and does not import saved VM variables or execution.
+
+`finish-scene <scene> <max-ticks>` presents an active scene until its normal end,
+using the same required actions, conditions and phase callbacks as play-scene.
+An inactive scene is rejected, and a timeout retains its unfinished actions.
+The synthetic regression requires its end fragment once, after the timer ends.
+The first route now crosses the persistent stage-155 volume, finishes Alduin's
+scene for stage 162 and presents Hadvar's wall scene for stage 158. Stage 170's
+installed fragment stops that wall scene and records stage 168 through its
+end callback. These operations follow DLG-09, DLG-18 and DLG-19 rather than
+setting stages in the route runner.
+
+The installed first-pair comparison now completes gameplay without VM errors.
+Its only differing field is MQ101DragonAttack's completed stages, missing
+100, 103 and 120. The tower wall's `dragonTowerWallScript.OnAnimationEvent`
+sets stage 103 on its authored Begin event, whose quest fragment also sets
+100. That wall playback and the inn traversal remain unimplemented in this
+headless route. ANM-58 still requires reported events to come from playback.
+The six complete successor assertions retain those stages, all quest flags,
+player inventory and the existing tick bounds. No saved field, section,
+dependency, host node, game asset or save file is added.
+
+Validation passes 4,281 debug integration tests with four existing ignores,
+241 library tests, game-only all-target clippy, package formatting and prose
+lint. The installed road-scene regression, full second-pair comparison and
+PRF-11's 3,600-frame eight-millisecond AI check pass. Each of the six assigned
+successor tests still fails only on the first pair's three missing stages.
+Every installed test ran individually on one thread with development
+optimization level 1. The full workspace gate was not run for this repair.
+
 Placed-reference binding inherits the base form's VMAD scripts and property
 values before applying reference overrides. Removed scripts stay unattached,
 and saved instances retain their values. Each property's FormIDs resolve in

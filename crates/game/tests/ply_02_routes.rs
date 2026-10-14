@@ -236,6 +236,23 @@ fn ply_02_navigation_consumes_fixed_steps_and_reports_a_timeout() {
 }
 
 #[test]
+fn ply_02_navigation_retains_its_path_between_steps() {
+    let mut game = game(false);
+    let frame = soe_trace::WorkFrame::begin();
+    let report = run(&mut game, "navigate-marker Skyrim.esm:800 0 100 0 60 120");
+    assert!(report.passed(), "{}", report.format());
+    assert_eq!(
+        game.world().reference_ref(id(0x14)).unwrap().position,
+        [0.0, 100.0, 0.0]
+    );
+    assert!(
+        frame.counts().get(soe_trace::Operation::PathNodes) <= 2,
+        "{:?}",
+        frame.counts()
+    );
+}
+
+#[test]
 fn ply_02_navigation_rejects_disconnected_off_mesh_and_foreign_cell_targets() {
     for route in [
         "navigate-marker Skyrim.esm:800 0 100 0 120 100",
@@ -460,6 +477,69 @@ fn ply_02_navigation_follows_corners_without_cutting_off_the_navmesh() {
         "{}",
         report.format()
     );
+}
+
+#[test]
+fn ply_02_navigation_invalidates_a_retained_path_when_a_door_closes() {
+    use soe_esm::records::navm::DoorLink;
+    use soe_papyrus::asm::{f, ident, none, s, FunctionBuilder, ScriptBuilder};
+    use soe_papyrus::Opcode::{CallStatic, Return};
+
+    let mut game = game_with(false, |plugin| {
+        let record = plugin
+            .records
+            .iter_mut()
+            .find(|r| r.form_id == 0x1800)
+            .unwrap();
+        let data = &mut record
+            .subrecords
+            .iter_mut()
+            .find(|r| r.tag == Tag(*b"NVNM"))
+            .unwrap()
+            .data;
+        let mut nav = Geometry::parse(Tag(*b"NVNM"), data).unwrap();
+        nav.door_links.push(DoorLink {
+            triangle: 0,
+            crc: 0,
+            door: 0x810,
+        });
+        *data = nav.to_bytes();
+    });
+    game.world_mut().set_reference_open(id(0x810), true);
+    let world = game.shared_world();
+    game.vm.natives.register_global(
+        "RouteTest",
+        "CloseDoor",
+        Box::new(move |_| {
+            world.borrow_mut().set_reference_open(id(0x810), false);
+            soe_papyrus::NativeReturn::Value(soe_papyrus::Value::None)
+        }),
+    );
+    let bytes = ScriptBuilder::new("RouteClose", "Quest")
+        .function(
+            FunctionBuilder::new("OnRoute", "None")
+                .local("unused", "None")
+                .ins(
+                    CallStatic,
+                    vec![s("Utility"), s("Wait"), ident("unused"), f(0.05)],
+                )
+                .ins(
+                    CallStatic,
+                    vec![s("RouteTest"), s("CloseDoor"), ident("unused")],
+                )
+                .ins(Return, vec![none()])
+                .build(),
+        )
+        .bytes();
+    game.load_script(&bytes).unwrap();
+    let object = game.object_of_form(id(0x840));
+    game.vm.attach(object, "RouteClose").unwrap();
+    game.send_event(id(0x840), "OnRoute", &[]);
+    let report = run(&mut game, "navigate-marker Skyrim.esm:800 100 0 0 60 120");
+    assert!(!report.passed());
+    assert!(report.failure.unwrap().contains("no walkable NAVM path"));
+    assert!(report.ticks < 10);
+    assert!(game.world().reference_ref(id(0x14)).unwrap().position[0] < 10.0);
 }
 
 #[test]

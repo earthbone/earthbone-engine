@@ -81,6 +81,32 @@ fn save_path(root: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
+fn ply_03_persistent_road_trigger_and_scene_ends_record_their_stages() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 road scenes");
+        return;
+    };
+    let mut game = play::load_world_checkpoint(
+        &PathBuf::from(data),
+        &save_path(&PathBuf::from(corpus), CHECKPOINTS[0]),
+    )
+    .unwrap();
+    let route = Route::parse(ROUTES[0]).unwrap();
+    let report = play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    for stage in [155, 158, 162, 168] {
+        assert!(game.world().quest(quest).unwrap().done.contains(&stage));
+    }
+}
+
+#[test]
 fn ply_03_saved_tower_scene_skips_optional_phases_and_runs_the_fallback_timer() {
     let (Some(data), Some(corpus)) = (
         std::env::var_os("SKYRIM_DATA"),

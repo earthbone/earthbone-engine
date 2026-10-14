@@ -270,6 +270,57 @@ fn callbacks(game: &Game) -> Vec<&str> {
 }
 
 #[test]
+fn ply_03_finish_scene_waits_for_actions_and_dispatches_the_end_fragment_once() {
+    let record = Record::new(Tag(*b"SCEN"), 0x800)
+        .sub(Tag(*b"HNAM"), [])
+        .sub(Tag(*b"NEXT"), [])
+        .sub(Tag(*b"HNAM"), [])
+        .sub(Tag(*b"ANAM"), 2u16.to_le_bytes())
+        .sub(Tag(*b"ALID"), (-1i32).to_le_bytes())
+        .sub(Tag(*b"INAM"), 10u32.to_le_bytes())
+        .sub(Tag(*b"SNAM"), 0u32.to_le_bytes())
+        .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
+        .sub(Tag(*b"SNAM"), 0.03125f32.to_le_bytes())
+        .sub(Tag(*b"ANAM"), [])
+        .sub(Tag(*b"PNAM"), 0x810u32.to_le_bytes());
+    let mut game = fragment_game_with(record);
+    let mut allocate = |_: &str, _: &str| ObjectId(1);
+    assert!(game.world_mut().start_scene(id(0x800), &mut allocate));
+    let route = soe_game::play::Route::parse("finish-scene Scene.esp:800 1").unwrap();
+    let report = soe_game::play::run(&mut game, &route);
+    assert!(!report.passed());
+    assert_eq!(game.world().scene_phase(id(0x800)), Some(0));
+    assert_eq!(
+        callbacks(&game),
+        ["SceneCallbacks.Begin", "SceneCallbacks.Start0"]
+    );
+    let route = soe_game::play::Route::parse("finish-scene Scene.esp:800 3").unwrap();
+    let report = soe_game::play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    assert_eq!(game.world().scene_phase(id(0x800)), None);
+    assert_eq!(
+        callbacks(&game),
+        [
+            "SceneCallbacks.Begin",
+            "SceneCallbacks.Start0",
+            "SceneCallbacks.End0",
+            "SceneCallbacks.End",
+        ]
+    );
+    let report = soe_game::play::run(&mut game, &route);
+    assert!(!report.passed());
+    assert_eq!(
+        callbacks(&game)
+            .iter()
+            .filter(|name| **name == "SceneCallbacks.End")
+            .count(),
+        1
+    );
+    assert!(soe_game::play::Route::parse("finish-scene Scene.esp:800 36001").is_err());
+    assert!(soe_game::play::Route::parse("finish-scene Scene.esp:800").is_err());
+}
+
+#[test]
 fn dlg_09_scene_boundaries_call_named_fragments_once_in_phase_order() {
     let mut game = fragment_game();
     let mut allocate = |_: &str, _: &str| ObjectId(1);
