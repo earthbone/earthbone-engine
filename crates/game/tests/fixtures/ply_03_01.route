@@ -9,6 +9,7 @@ navigate-marker Skyrim.esm:984a 14619.852 -83394.797 8774.674 600 3600
 wait-stage MQ101DragonAttack 35 60
 navigate-marker Skyrim.esm:984a 14820.101 -83405.577 8937.913 600 3600
 wait-stage MQ101DragonAttack 40 60
+play-scene Skyrim.esm:d0594 20 600
 navigate-marker Skyrim.esm:984a 14619.852 -83394.797 8774.674 600 3600
 navigate-marker Skyrim.esm:984a 14458.809 -82970.648 8413.654 600 3600
 navigate Skyrim.esm:10757b 600 3600

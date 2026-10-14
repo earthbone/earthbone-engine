@@ -789,6 +789,18 @@ impl World {
     /// Advance once every action ending in the current phase has completed.
     /// A scene with no remaining phase ends and raises `OnEnd`.
     pub fn advance_scene_phase(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
+        let Some(phase) = self.scene_phase(id) else {
+            return false;
+        };
+        self.advance_scene_phase_to(id, phase + 1, alloc)
+    }
+
+    pub(crate) fn advance_scene_phase_to(
+        &mut self,
+        id: GlobalFormId,
+        next: u32,
+        alloc: Alloc<'_>,
+    ) -> bool {
         let Some(run) = self.scene_runs.get(&id) else {
             return false;
         };
@@ -800,6 +812,9 @@ impl World {
         let Ok(scene) = Scene::from_record(record) else {
             return false;
         };
+        if next <= phase || next as usize > scene.phases.len() {
+            return false;
+        }
         let required: Vec<u32> = scene
             .actions
             .iter()
@@ -816,7 +831,7 @@ impl World {
         let mut ending = Vec::new();
         for (slot, action) in scene.actions.iter().enumerate() {
             let slot = slot as u32;
-            if action.end_phase != Some(phase)
+            if action.end_phase.is_none_or(|end| end >= next)
                 || !matches!(action.data, SceneActionData::Package { .. })
                 || !self
                     .scene_runs
@@ -857,7 +872,6 @@ impl World {
             }
         }
         self.scene_fragment(id, SceneBoundary::PhaseEnd(phase), alloc);
-        let next = phase + 1;
         if next as usize >= scene.phases.len() {
             return self.stop_scene(id, alloc);
         }
@@ -873,7 +887,13 @@ impl World {
                 scene
                     .actions
                     .get(*slot as usize)
-                    .is_some_and(|action| action.end_phase.is_some_and(|end| end > next))
+                    .is_some_and(|action| action.end_phase.is_some_and(|end| end >= next))
+            });
+            run.timer_deadlines.retain(|slot, _| {
+                scene
+                    .actions
+                    .get(*slot as usize)
+                    .is_some_and(|action| action.end_phase.is_some_and(|end| end >= next))
             });
             self.scene_fragment(id, SceneBoundary::PhaseStart(next), alloc);
             true

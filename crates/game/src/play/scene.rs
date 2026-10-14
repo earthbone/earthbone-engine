@@ -3,7 +3,7 @@
 //! Headless presentation for DLG-18 scene dialogue and DLG-09 phase advancement.
 //! Phase conditions and action bounds follow local UESP SCEN and xEdit SCEN.
 
-use soe_esm::records::gameplay::{Scene, SceneActionData};
+use soe_esm::records::gameplay::{Condition, Scene, SceneActionData};
 use soe_esm::GlobalFormId;
 
 use super::Report;
@@ -73,10 +73,27 @@ pub(super) fn play(
             action.end_phase != Some(phase)
                 || game.world().scene_action_slot_complete(id, slot as u32) == Some(true)
         });
-        if presenting.is_none() && complete && phase_conditions(game, id, &scene, phase)? {
+        if presenting.is_none()
+            && complete
+            && phase_conditions(
+                game,
+                id,
+                &scene,
+                &scene.phases[phase as usize].completion_conditions,
+            )?
+        {
+            let mut next = phase + 1;
+            while let Some(candidate) = scene.phases.get(next as usize) {
+                if phase_conditions(game, id, &scene, &candidate.start_conditions)? {
+                    break;
+                }
+                next += 1;
+            }
             let world = game.shared_world();
             let mut allocate = |name: &str, class: &str| game.vm.create_object_of(name, class);
-            world.borrow_mut().advance_scene_phase(id, &mut allocate);
+            world
+                .borrow_mut()
+                .advance_scene_phase_to(id, next, &mut allocate);
         }
         super::append_log(game, report, log_start);
         super::tick(game, report);
@@ -90,7 +107,7 @@ fn phase_conditions(
     game: &mut Game,
     id: GlobalFormId,
     scene: &Scene,
-    phase: u32,
+    predicates: &[Condition],
 ) -> Result<bool, String> {
     let player = game.player();
     let mut world = game.world_mut();
@@ -109,21 +126,6 @@ fn phase_conditions(
         skill_use: None,
         light_level: None,
     };
-    let complete = conditions::evaluate(
-        &mut world,
-        &game.vm,
-        context,
-        &scene.phases[phase as usize].completion_conditions,
-    )
-    .map_err(|error| error.to_string())?;
-    if !complete {
-        return Ok(false);
-    }
-    conditions::evaluate(
-        &mut world,
-        &game.vm,
-        context,
-        &scene.phases[phase as usize + 1].start_conditions,
-    )
-    .map_err(|error| error.to_string())
+    conditions::evaluate(&mut world, &game.vm, context, predicates)
+        .map_err(|error| error.to_string())
 }
