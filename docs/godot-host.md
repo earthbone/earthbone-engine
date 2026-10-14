@@ -9251,3 +9251,13 @@ states and queued host requests. Command help identifies these diagnostic
 bridges, while Verlet and multibound requests retain explicit host limitations.
 Every check remains executable. SAVE_VERSION remains 37, and console deletion
 state uses its named reference section.
+
+## Preview fixture reconciliation, 2026-10-14
+
+HST-30 capsule checks retain exact scaling and recreation assertions using
+the host's Mudcrab radius 28 and height 100.8. Crouch and step dimensions keep
+their existing values. Diagnostic overlay checks inspect RichTextLabel's
+get_parsed_text after add_text, following the local Godot class documentation.
+The text property does not represent that appended tag stack. Both diagnostic
+report-content requirements remain. The inn admission limit stays at 384 MiB,
+with live texture sharing restoring its 297,001,596-byte payload.

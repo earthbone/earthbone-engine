@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 extends "res://walkthrough.gd"
 
-## Persistent full-model residency follows the vanilla header flags.
+## Flagged full models use physical near cells and bounded visible demand.
 var failures := 0
 
 
@@ -44,6 +44,10 @@ func _start() -> void:
 			break
 	_check(exited, "authored Bannered Mare exit")
 	player.call("advance", 0.0)
+	for _frame in range(90):
+		player.call("advance", 1.0 / 60.0)
+		await process_frame
+	_check(not player.call("door_fade_active"), "inn exit fade completed")
 	var gate: Dictionary = player.call("detection_gate_reference")
 	_check(not gate.is_empty(), "Whiterun gate found")
 	if gate.is_empty():
@@ -54,6 +58,13 @@ func _start() -> void:
 	_check(player.call("activate_reference", gate.file, gate.object), "authored gate crossing")
 	player.call("advance", 0.0)
 	_check(player.call("detection_worldspace") == "Tamriel", "Tamriel at gate")
+	for _frame in range(90):
+		player.call("advance", 1.0 / 60.0)
+		await process_frame
+	_check(not player.call("door_fade_active"), "gate fade completed")
+	for _frame in range(140):
+		player.call("advance", 0.0)
+		await process_frame
 	await process_frame
 	await RenderingServer.frame_post_draw
 	var drawn := _drawn()
@@ -61,8 +72,11 @@ func _start() -> void:
 		_check(not drawn.has(reference), "editor marker must stay invisible " + reference)
 	var count := 0
 	for reference: String in expected.all:
-		_check(drawn.has(reference), "worldspace full model missing " + reference)
 		count += int(drawn.has(reference))
+	for reference: String in streamer.call("distant_references"):
+		_check(expected.all.has(reference), "selected enabled full model " + reference)
+		_check(drawn.has(reference), "admitted full model missing " + reference)
+	_check(count > 0 and count < expected.all.size(), "bounded visible demand replaces whole-world preparation")
 	for reference: String in expected.near:
 		print("FULL_LOD_GATE ", reference, " drawn=", drawn.has(reference))
 	print("FULL_LOD_WORLD expected=", expected.all.size(), " drawn=", count, " near=", expected.near.size())
@@ -75,6 +89,10 @@ func _start() -> void:
 	_check(player.call("activate_reference", gate.far_file, gate.far_object), "return to Whiterun")
 	player.call("advance", 0.0)
 	_check(player.call("detection_worldspace") == "WhiterunWorld", "worldspace changed")
+	for _frame in range(90):
+		player.call("advance", 1.0 / 60.0)
+		await process_frame
+	_check(not player.call("door_fade_active"), "return fade completed")
 	await process_frame
 	drawn = _drawn()
 	var retained := 0

@@ -101,7 +101,7 @@ func _start() -> void:
 	await process_frame
 	if not _require(player.call("debug_geometry_counts").is_empty() and not player.has_node("SoeDebugGeometry"), "debug nodes freed when off"):
 		return
-	if not _require(diagnostics.text.contains("procedure=") and diagnostics.text.contains("CTDA["), "console overlay received reports"):
+	if not _require(diagnostics.get_parsed_text().contains("procedure=") and diagnostics.get_parsed_text().contains("CTDA["), "console overlay received reports"):
 		return
 	print("DEBUG_VIEWS passed")
 	quit(0)

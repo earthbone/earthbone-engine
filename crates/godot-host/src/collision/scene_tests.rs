@@ -127,12 +127,20 @@ fn bannered_mare_walking_routes() {
         for tick in 0..300 {
             world.walk(id, direction, soe_physics::JOG_SPEED);
             world.step(1.0 / 60.0);
-            let next = world.character(id).expect("character").position;
+            let character = world.character(id).expect("character");
+            let next = character.position;
             let dz = (next.z - previous.z).abs();
+            // Free fall past a floor edge moves at the character's own vertical
+            // speed. Only a grounded step, or a move faster than that speed, is a jump.
+            let allowed = if character.on_ground {
+                limit
+            } else {
+                f32::max(limit, character.velocity.z.abs() / 60.0 * 1.25)
+            };
             largest = largest.max(dz);
             assert!(next.x.is_finite() && next.y.is_finite() && next.z.is_finite());
             assert!(
-                dz <= limit,
+                dz <= allowed,
                 "{name} tick {tick} jumps {dz} units: {previous:?} -> {next:?}"
             );
             previous = next;

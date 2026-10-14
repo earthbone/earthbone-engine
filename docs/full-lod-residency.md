@@ -754,3 +754,16 @@ and MSTT. Those format definitions select the full model, not an unconditional
 whole-world Godot allocation. The requested visibility implementation keeps
 near models, conservative visible distant demand and logical record ownership.
 The older residency assertions describe the superseded preparation policy.
+
+## Preview contract reconciliation, 2026-10-14
+
+The legacy Full LOD checks now follow the visibility decision. Flagged models
+inside the near grid share physical presentation. The persistent world batch
+starts empty and selected distant demand prepares at most eight additions
+per update. Installed checks require every admitted drawable model, retain
+marker exclusion and release on return, and reject whole-world preparation.
+The separate visibility suite retains screen-size, terrain sight-line,
+hysteresis, conservative occlusion and landmark image checks. The legacy
+Godot fixture waits for the authored door fades before inspecting resources.
+Its former requirement to draw every eligible model throughout Tamriel was
+the old contract, not the governing visibility behavior.

@@ -53,8 +53,8 @@ fn scaled_npc_capsule_keeps_all_dimensions_and_recreates_on_scale_change() {
         Some([0.0, 0.0, 0.0])
     );
     let small = grounding.character(&physics, ACTOR_A).unwrap();
-    assert_eq!(small.settings.radius, 16.0);
-    assert_eq!(small.settings.height, 64.0);
+    assert_eq!(small.settings.radius, 14.0);
+    assert_eq!(small.settings.height, 50.4);
     assert_eq!(small.settings.crouch_height, 36.0);
     assert_eq!(small.settings.step_height, 18.0);
 
@@ -69,8 +69,8 @@ fn scaled_npc_capsule_keeps_all_dimensions_and_recreates_on_scale_change() {
         )
         .unwrap();
     let full = grounding.character(&physics, ACTOR_A).unwrap();
-    assert_eq!(full.settings.radius, 32.0);
-    assert_eq!(full.settings.height, 128.0);
+    assert_eq!(full.settings.radius, 28.0);
+    assert_eq!(full.settings.height, 100.8);
     assert_eq!(full.settings.crouch_height, 72.0);
     assert_eq!(full.settings.step_height, 36.0);
 }
@@ -159,7 +159,7 @@ fn removing_one_npc_body_does_not_remove_another_actors_controller() {
         )
         .unwrap();
     let remaining = grounding.character(&physics, ACTOR_B).unwrap();
-    assert_eq!(remaining.settings.radius, 24.0);
+    assert_eq!(remaining.settings.radius, 21.0);
     assert!(remaining.on_ground);
     let moved = grounding
         .update(

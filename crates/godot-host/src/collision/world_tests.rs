@@ -3,7 +3,7 @@
 //! Installed collision and exterior placement audits, using authored NIF and ACHR records.
 
 use super::*;
-use soe_physics::Vec3;
+use soe_physics::{CharacterSettings, Vec3};
 use std::collections::{BTreeMap, BTreeSet};
 
 fn source() -> Option<DataSource> {
@@ -451,15 +451,51 @@ fn installed_walkable_floor_grid_has_collision() {
                         // CONTEXT: Board and paving seams can expose no render triangle
                         // at an exact lattice coordinate. Keep the NAVM height there,
                         // so a missing visual floor never skips the collision check.
+                        let nav_height = p.z;
                         p.z = rendered_floor_height(&render, p).unwrap_or(p.z);
                         checked += 1;
-                        let hit = physics.raycast(p + Vec3::Z * 16.0, p - Vec3::Z * 32.0);
+                        // CONTEXT: Where an architecture shell covers the terrain, the
+                        // rendered sample is the hidden land below it and the NAVM height
+                        // is the floor the player walks on. Probe the span of both, plus
+                        // one step height above, because a collider the capsule steps
+                        // onto is still floor. A real hole has nothing in that span.
+                        let top = p.z.max(nav_height) + CharacterSettings::default().step_height;
+                        let bottom = p.z.min(nav_height) - 32.0;
+                        let hit =
+                            physics.raycast(Vec3::new(p.x, p.y, top), Vec3::new(p.x, p.y, bottom));
                         if hit.is_none() {
                             if misses.len() < 8 {
                                 eprintln!(
-                                    "FLOOR_DIAGNOSTIC {p:?} nav={id} flags={} triangle={} deep={:?}", record.flags, triangle.flags,
+                                    "FLOOR_DIAGNOSTIC {p:?} nav={id} nav_height={nav_height} flags={} triangle={} deep={:?}", record.flags, triangle.flags,
                                     physics.raycast(p + Vec3::Z * 16.0, p - Vec3::Z * 512.0)
                                 );
+                                for placed in &location.collision.placed {
+                                    let b = placed.collider.aabb();
+                                    if p.x >= b.min.x
+                                        && p.x <= b.max.x
+                                        && p.y >= b.min.y
+                                        && p.y <= b.max.y
+                                    {
+                                        let reference_owner =
+                                            source.order().winner_ref(placed.reference);
+                                        let model = reference_owner.and_then(|owner| {
+                                            let record = source.order().record(owner);
+                                            if record.tag != tag::REFR {
+                                                return None;
+                                            }
+                                            let reference = Refr::from_record(record).ok()?;
+                                            source
+                                                .order()
+                                                .winner(
+                                                    source
+                                                        .order()
+                                                        .resolve(owner.file, reference.base),
+                                                )
+                                                .and_then(model_for)
+                                        });
+                                        eprintln!("FLOOR_COLLIDER {} model={model:?} static={} bounds={b:?}", placed.reference, placed.collider.is_static());
+                                    }
+                                }
                                 if cell == inn {
                                     for placed in
                                         source.placed_cell_colliders(cell).expect("placed").0

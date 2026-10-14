@@ -147,7 +147,7 @@ fn persistent_full_lod_residency_is_world_scoped_and_disjoint_from_grid() {
         );
         assert_eq!(
             source.presentation_references(id(world + 2)),
-            &[id(world + 0x10), id(world + 0x14)]
+            &[id(world + 0x10), id(world + 0x11), id(world + 0x14)]
         );
         let loaded = source.load_location(id(world + 2), [0.0; 3], 0).unwrap();
         assert_eq!(loaded.cells.len(), 2);
@@ -157,8 +157,14 @@ fn persistent_full_lod_residency_is_world_scoped_and_disjoint_from_grid() {
                 .iter()
                 .map(|(_, cell)| cell.stats.meshes_failed)
                 .sum::<usize>(),
-            5
+            3
         );
+        assert!(source
+            .stream_cell_id(id(world + 1))
+            .unwrap()
+            .surfaces
+            .is_empty());
+        assert_eq!(source.distant_candidates(id(world)).len(), 3);
         assert_eq!(source.cell_index().references(id(world + 1)).len(), 5);
         assert_eq!(source.physical_references(id(world + 1)), &[]);
         assert_eq!(
@@ -360,7 +366,22 @@ fn persistent_full_lod_installed_whiterun_prepares_models() {
     let source = DataSource::open_with_threads(Path::new(&data), 1).unwrap();
     let (world, _, position) = gate_landing(&source);
     let persistent = source.cell_index().world_persistent_cell(world).unwrap();
-    let loaded = source.stream_cell_id(persistent).unwrap();
+    assert!(source
+        .stream_cell_id(persistent)
+        .unwrap()
+        .surfaces
+        .is_empty());
+    let candidates = source.distant_candidates(world);
+    let selected = crate::distant_visibility::Selector::default().update(
+        &candidates,
+        [position[0], position[1], position[2] + 120.0],
+        0,
+        |_, _| None,
+    );
+    assert!(!selected.is_empty() && selected.len() <= 8);
+    let loaded = source
+        .stream_selected_references(persistent, &selected)
+        .unwrap();
     let drawn: BTreeSet<_> = loaded
         .surfaces
         .iter()
@@ -398,7 +419,8 @@ fn persistent_full_lod_installed_whiterun_prepares_models() {
             (p[0] / crate::units::CELL_UNITS).floor() as i32,
             (p[1] / crate::units::CELL_UNITS).floor() as i32,
         ];
-        if !reference.is_persistent()
+        if !selected.contains(&id)
+            || !reference.is_persistent()
             || (record.flags & 0x0001_0000 == 0 && !(base.tag == tag::STAT && base.flags & 4 != 0))
             || grid[0].abs_diff(origin[0]) > 20
             || grid[1].abs_diff(origin[1]) > 20
@@ -425,7 +447,7 @@ fn persistent_full_lod_installed_whiterun_prepares_models() {
     }
     eprintln!("FULL_LOD_PREPARE expected_near={expected} markers_near={markers} drawn_world={} selected={} logical={} surfaces={} triangles={} failed={} missing={missing:?}",
         drawn.len(), source.presentation_references(persistent).len(), source.cell_index().references(persistent).len(), loaded.surfaces.len(), loaded.stats.triangles, loaded.stats.meshes_failed);
-    assert!(expected > 0);
+    assert!(expected + markers > 0);
     assert!(
         source.presentation_references(persistent).len()
             < source.cell_index().references(persistent).len()

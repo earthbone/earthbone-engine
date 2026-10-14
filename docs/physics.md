@@ -248,7 +248,8 @@ the feet to that height only when it fits within the step bound. Ground snap fol
 motion, including walks whose collision correction points upward. Rapier's
 shape sweeps are approximated by radius-bounded substeps and the existing
 six-pass contact solver, not a continuous time-of-impact query. Outside an
-active jump, its existing vertical contact-velocity feedback is retained.
+active jump, downward contact-velocity feedback is retained. Upward walking
+corrections do not launch a later airborne step.
 Rapier keeps the requested gravity velocity even when a slope clips movement. Separate
 climb and slide thresholds use contact normals. The interval between them
 holds a resting capsule without treating that face as walkable ground.
@@ -823,3 +824,29 @@ but do not produce physics bodies. Heightfield XY coordinates retain the
 native 128-unit sample grid after conversion from Godot coordinates, preventing
 roundoff gaps at adjoining cell edges. Height values and quadrant triangles
 remain those of the loaded LAND, including inherited parent terrain.
+
+## Preview stair and kitchen integration, HST-34
+
+The controller port imposed a forward landing-width check on generic callers
+whose configured minimum width is zero. Raising their feet to that future
+floor made the installed kitchen route jump 33.04064 units against its
+unchanged eight-unit limit. Generic steps again settle at the moved capsule.
+Mudcrab's explicit 28-unit landing width still requires a clear supported
+tread. A rounded rear stair edge may fail the rear snap, so a validated forward
+tread can establish that bounded landing without removing the width check.
+Height, radius, margin, slope, acceleration and gravity tuning stay unchanged.
+
+Local Mudcrab `crates/engine/src/physics.rs`, player_controller_bundle, supplies
+the explicit minimum width and disabled dynamic autosteps. OpenMW
+`apps/openmw/mwphysics/stepper.cpp`, Stepper::step, validates an upward trace,
+forward clearance and a walkable landing. Their Rapier and Bullet shape
+sweeps do not fit SimpleWorld's endpoint resolver, so its existing bounded
+lift, collision and descent checks remain. No dependency or saved field is
+added. HST-30 stairs and the installed kitchen route retain their thresholds.
+
+A missing rear snap can also use a clear forward tread for generic steps.
+A present generic landing is retained instead of raising it to the future
+floor. Walking contact can redirect velocity upward, but that correction no
+longer becomes a later airborne ascent request. Actual jumps retain their
+independent vertical request. The focused checks pass 27 physics library,
+15 character, two large-world and 17 synthetic cases with unchanged assertions.

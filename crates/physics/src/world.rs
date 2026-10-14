@@ -18,6 +18,8 @@
 //! continuous collision, or friction. The rendered path drives Godot's
 //! bundled Jolt for those, and the trait is shaped so neither side changes
 //! how shapes are produced or how the game layer moves a character.
+//! Jolt CharacterVirtual separates surface normals for slope and support from
+//! contact normals for penetration. This resolver uses the same distinction.
 
 use std::collections::HashMap;
 
@@ -357,6 +359,7 @@ impl SimpleWorld {
                 if !self.statics[si].layer.blocks_characters() {
                     continue;
                 }
+                let (a, b) = axis_at(position + Vec3::Z * s.collision_offset, s.radius, height);
                 let (on_prim, on_seg) = closest_prim_segment(&self.statics[si].prims[pi], a, b);
                 let d = on_seg - on_prim;
                 let dist = d.length();
@@ -371,17 +374,20 @@ impl SimpleWorld {
                 } else {
                     prim_normal_toward(&self.statics[si].prims[pi], on_seg)
                 };
+                let face = prim_normal_toward(&self.statics[si].prims[pi], on_seg);
+                let surface = if normal.z > face.z { normal } else { face };
                 let push = (radius - dist).max(0.0);
-                let resting_on_slope = normal.z >= s.min_slope_slide_cos
-                    && normal.z < s.max_slope_cos
+                let resting_on_slope = surface.z >= s.min_slope_slide_cos
+                    && surface.z < s.max_slope_cos
+                    && normal.z >= s.min_slope_slide_cos
                     && velocity.z <= 0.0
                     && velocity.x.hypot(velocity.y) < 1e-3;
                 let flat_normal = Vec3::new(normal.x, normal.y, 0.0);
                 let blocked_climb = normal.z > 0.0
-                    && normal.z < s.max_slope_cos
+                    && surface.z < s.max_slope_cos
                     && velocity.z <= 0.0
                     && velocity.dot(flat_normal) < 0.0;
-                blocked_walk |= normal.z < s.max_slope_cos && velocity.dot(flat_normal) < 0.0;
+                blocked_walk |= surface.z < s.max_slope_cos && velocity.dot(flat_normal) < 0.0;
                 let slide_normal = if blocked_climb {
                     flat_normal.normalized()
                 } else {
@@ -391,7 +397,7 @@ impl SimpleWorld {
                 if vn < 0.0 {
                     velocity = velocity - slide_normal * vn;
                 }
-                if normal.z >= s.max_slope_cos {
+                if surface.z >= s.max_slope_cos && on_prim.z <= a.z + 1e-3 {
                     on_ground = true;
                 }
                 if resting_on_slope {
@@ -408,8 +414,8 @@ impl SimpleWorld {
                     position + normal * push
                 };
                 moved = true;
-                // The axis moved, so re-query before touching more.
-                break;
+                // CONTEXT: Later contacts use the corrected axis. The next pass
+                // refreshes broad-phase candidates after all current constraints.
             }
             if !moved {
                 break;
@@ -471,17 +477,26 @@ impl SimpleWorld {
         }
         // Settle no further than the lift, so this never gains height it did
         // not actually step onto.
-        let landing = self.snap_down(moved, s, height, s.step_height)?;
-        let landing_width = s.step_min_width.max(s.radius);
-        let ahead = moved + wanted.normalized() * landing_width;
-        if self.overlaps(ahead, s, height) {
-            return None;
-        }
-        let supported = self.snap_down(ahead, s, height, s.step_height)?;
-        if supported.z + 1e-3 < landing.z {
-            return None;
-        }
-        let landing = Vec3::new(moved.x, moved.y, supported.z.max(landing.z));
+        let landing = self.snap_down(moved, s, height, s.step_height);
+        let landing = if s.step_min_width > 0.0 {
+            let ahead = moved + wanted.normalized() * s.step_min_width;
+            if self.overlaps(ahead, s, height) {
+                return None;
+            }
+            let supported = self.snap_down(ahead, s, height, s.step_height)?;
+            if landing.is_some_and(|landing| supported.z + 1e-3 < landing.z) {
+                return None;
+            }
+            // CONTEXT: A rounded riser can hide rear support. The configured
+            // forward tread still establishes clearance and a bounded landing.
+            Vec3::new(
+                moved.x,
+                moved.y,
+                supported.z.max(landing.map_or(supported.z, |p| p.z)),
+            )
+        } else {
+            landing?
+        };
         if landing.z > start.z + s.step_height + 1e-3 || self.overlaps(landing, s, height) {
             return None;
         }
@@ -609,7 +624,9 @@ impl SimpleWorld {
             ch.velocity.z = 0.0;
         }
         if !ch.jump_active {
-            ch.vertical_velocity = ch.velocity.z;
+            // CONTEXT: A walking contact can redirect horizontal speed upward.
+            // That correction must not launch a later airborne gravity step.
+            ch.vertical_velocity = ch.velocity.z.min(0.0);
         }
         self.characters.insert(id, ch);
     }
