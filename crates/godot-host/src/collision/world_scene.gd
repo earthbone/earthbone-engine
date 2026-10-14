@@ -66,6 +66,8 @@ func _start() -> void:
             break
     _check(exited, "authored inn exit")
     player.call("advance", 0.0)
+    await _tick(240)
+    _check(not player.call("door_fade_active"), "inn exit fade has completed")
     var gate: Dictionary = player.call("detection_gate_reference")
     _check(not gate.is_empty(), "Whiterun gate reference")
     if not gate.is_empty():
@@ -114,7 +116,7 @@ func _start() -> void:
         var front := Vector3(sin(yaw), cos(yaw), 0)
         var aimed := false
         for side in [1.0, -1.0]:
-            var offset := front * side * 115
+            var offset: Vector3 = front * side * 115
             var support: Dictionary = player.call("play_path_ground", item.position + offset + Vector3(0, 0, 24))
             if not _check(support.has("height"), "collision under front approach " + item.id):
                 continue

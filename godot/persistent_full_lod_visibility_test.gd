@@ -44,6 +44,10 @@ func _start() -> void:
 			break
 	_check(exited, "authored Bannered Mare exit")
 	player.call("advance", 0.0)
+	for _frame in range(90):
+		player.call("advance", 1.0 / 60.0)
+		await process_frame
+	_check(not player.call("door_fade_active"), "inn exit fade has completed")
 	var gate: Dictionary = player.call("detection_gate_reference")
 	_check(not gate.is_empty(), "Whiterun gate found")
 	if gate.is_empty():
