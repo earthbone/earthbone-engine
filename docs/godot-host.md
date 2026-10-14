@@ -7024,10 +7024,10 @@ OpenMW's `mwworld/cell.cpp` makes the same choice for ESM4 cells.
 `DLC1VampireCastleWorld` height of -14000 units, which is -200.025 metres.
 Interior cells never fall back, they need their own `XCLW`.
 
-`godot_layer::water_material` maps `WaterMaterial` onto a
-`StandardMaterial3D`: the shallow color is the albedo, `ANAM` over 255 is
-its alpha with alpha blending below full opacity, and culling is off so
-the plane shows from underneath. `MaterialKey` covers the water fields so
+`godot_layer::water_material` maps `WaterMaterial` onto a shared
+`ShaderMaterial`. The original RND-02 mapping used shallow color and
+ANAM over 255 in a standard material. RND-42 below adds normals, depth
+color and transparency, reflection tint and sun specular. `MaterialKey` covers the water fields so
 two water types never share a cached material. `CellStreamerNode` gains
 `water_planes()`, one dictionary per drawn water instance with its cell,
 RID, height, override material, opacity and shallow color, and
@@ -7035,7 +7035,8 @@ RID, height, override material, opacity and shallow color, and
 
 `godot/rnd_02_water_planes_check.gd` streams `DLC1VampireCastleExterior01`
 and fails unless one plane sits at the recorded height with a material whose
-albedo and alpha match the `WATR` record. It passed headless on Godot 4.7.2
+shallow color and base alpha match the `WATR` record. The original check
+passed headless on Godot 4.7.2
 and on 4.4.1, the API floor, against the installed game.
 
 Left open, listed here rather than silently dropped:
@@ -7043,12 +7044,7 @@ Left open, listed here rather than silently dropped:
 - **TNAM (MATT material) is not read.** WATR's `TNAM` names a `MATT` record,
   which itself names shader textures, not a plain diffuse and normal pair.
   No `esm` view or `godot-host` reader for `MATT` exists yet. `WaterMaterial`
-  carries only ANAM's opacity and DNAM's three colors, so a water plane's
-  authored material beyond flat color is not represented.
-- **NAM3 and NAM4 are not carried.** WATR names three noise texture layers,
-  only NAM2 is read onto `WaterMaterial::noise_texture`. One layer is enough
-  to prove the plane streams and renders before the shader mapping that would
-  use any of them exists.
+  reads WATR shading directly, without interpreting its MATT link.
 - **No per-instance shading.** One `MaterialDesc` per cell's water plane,
   built once from the cell's resolved WATR winner. Wave animation and other
   per-reference shader parameters were out of scope for this row's starting
@@ -7061,9 +7057,8 @@ Left open, listed here rather than silently dropped:
   its water. A dungeon lake's plane can therefore be sized larger or smaller
   than the authored water's true extent, since nothing here reads a specific
   water boundary shape.
-- **Deep and reflection colors, noise layers, fog and waves are not
-  shaded.** The material is a flat blended color. They wait for a water
-  shader.
+- **Surface displacement, underwater fog and interaction ripples are not
+  shaded.** RND-42 adds surface shading but keeps the original plane geometry.
 
 ## Grass placement, RND-11 (2026-09-24)
 
@@ -9261,3 +9256,94 @@ get_parsed_text after add_text, following the local Godot class documentation.
 The text property does not represent that appended tag stack. Both diagnostic
 report-content requirements remain. The inn admission limit stays at 384 MiB,
 with live texture sharing restoring its 297,001,596-byte payload.
+
+## WATR water shader, RND-42, 2026-10-15
+
+The Whiterun stone channels used the WATR shallow color in a
+StandardMaterial3D with no noise textures or flow. The shared water
+ShaderMaterial now samples three scrolling normals, blends shallow and deep
+colors and alpha by reconstructed opaque-scene depth, tints grazing views
+with the reflection color and adds directional sun specular. It uses stock
+Godot 4.4 forward rendering and the existing texture cache, BSA VFS and RID
+submission. Missing or corrupt normals stay absent with neutral normal
+contributions. The WATR colors and opacity still render. No reference nodes,
+new dependencies or per-frame material updates are added.
+
+Sources read locally:
+
+- TES5Edit `Core/wbDefinitionsTES5.pas`, WATR at lines 10304 to 10429,
+  supplies ANAM, FNAM, NAM2 to NAM5 and the DNAM offsets and defaults.
+  UESP `uesp-modfileformat/WATR.wikitext` confirms the 228 and 232 byte
+  layouts and legacy repeated NNAM paths. The reader uses named paths first,
+  then the corresponding legacy layer. Short fields and non-finite floats
+  retain defaults without failing the water surface.
+- `nifxml/nif.xml`, BSWaterShaderProperty and WaterShaderPropertyFlags,
+  and `crates/nif/src/blocks.rs` supply NiObjectNET inheritance, the two
+  shader flag words, UV offset and scale, and water flags. The host reads
+  this retained raw block with the NIF crate's bounds-checked Stream.
+  Truncation, non-finite UVs and trailing data return a NIF error.
+- OpenMW `components/nif/property.cpp` confirms the inherited water
+  property layout. Its `files/shaders/compatibility/water.frag` supplies
+  layered normals, view-angle Fresnel, depth color and sun specular as the
+  optical reference.
+- Community Shaders `package/Shaders/Water.hlsl` supplies per-layer
+  normal scrolling and coordinates divided by the noise scale. Planes
+  use world position in game units. VERTEX_UV meshes use their authored UVs
+  divided by 0.001 times the scale. Wind direction is interpreted in degrees,
+  and wind speed supplies a separate texture-space scroll rate. Spatial
+  scale affects coordinates without slowing their animation. UV scale precedes offset. `ISWaterFlow.hlsl` confirms that the
+  flow map is generated from current data rather than a WATR texture path.
+- Godot `godot-docs/tutorials/shaders/advanced_postprocessing.rst` and
+  `shader_reference/spatial_shader.rst` supply inverse projection depth
+  reconstruction, reverse-Z sky depth and directional light inputs.
+
+DNAM fields used are sun specular power (16), reflectivity (20), Fresnel
+amount (24), above-water fog near and far (32 and 36), colors (40 to 48),
+wind directions (100 to 108), wind speeds (112 to 120), fog amount (132),
+noise scales (172 to 180), amplitudes (184 to 192), reflection magnitude
+(196), sparkle and sun specular magnitudes (200 and 204), sparkle power
+(224) and flowmap scale (228). NAM2 to NAM4 resolve normal layers through
+TextureCache. FNAM Enable Flowmap allows NAM5 flow normals on placed water. Blend Normals
+controls whether the three noise layers also contribute when flow normals
+are present. Missing flow normals retain the noise layers.
+The shader uses NIF DEPTH, REFLECTIONS, VERTEX_UV and VERTEX_ALPHA_DEPTH.
+All retained flags, UVs, shading values and normal paths participate in the
+material cache key. Vertex alpha depth retains authored colors. Texture
+payloads participate in cell inventory and host memory accounting.
+
+The C++ and HLSL renderers cannot be linked into the Rust Godot host.
+This adapter reads their published contracts and implements the bounded
+surface shader in Godot's shading language. It does not reproduce every
+Skyrim shader permutation. WATR has a flow-normal texture but no named flow
+map. Generated cell-current flow maps, screen space reflection, refraction
+distortion, underwater fog, displaced waves and interaction ripples are
+outside this step. Reflection uses WATR tint, without a reflection pass.
+Fog near and far are converted from game units to metres. The depth buffer
+contains opaque geometry, so transparent objects below water do not supply
+its depth. The shader clock has Godot's normal rollover and pause behavior.
+
+Synthetic `water_shader_` tests cover every used WATR field, both DNAM
+lengths, legacy paths, absent and malformed data, NIF water flags and UVs,
+cache identity, and missing or corrupt noise. The installed
+`water_shader_installed_whiterun_channel_normals_resolve` builds only
+WRStairsStream references in WhiterunWorld and requires authored UV flow,
+a nonzero wind speed and all three BSA normal textures. The standalone
+`water_shader_compiles_on_stock_godot_forward_renderer` checks the production
+shader with a stock Godot binary named by SOE_GODOT_BIN. It creates no world
+and runs headless on display :99. The RND-02 plane check retains its height,
+color, opacity, blending and culling requirements through ShaderMaterial.
+
+Validation on 2026-10-15: the host library reports 539 passes with SKYRIM_DATA
+unset. The focused installed check finds three channel surfaces, with all
+three layers resolving to DefaultWater.dds through the BSAs. Their water flags
+are 0x3C4, including vertex UVs and vertex alpha depth. Stock Godot 4.4.1
+passes the standalone shader check with 34 uniforms. These checks establish
+field reading, texture resolution and shader parsing. Rendered appearance
+and the updated RND-02 scene script were not checked in this run. Logs are
+under target/water-logs because the requested lead-briefs directory was
+read-only in this worktree's sandbox.
+
+Package formatting and clippy with all targets and warnings denied also pass.
+The full workspace gate, installed Full LOD and play-path tests were excluded
+as requested. The final shader check also passes after removing a fixed UV
+derivative cutoff, which would suppress normal detail as pixel size changes.

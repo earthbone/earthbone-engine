@@ -42,6 +42,8 @@ impl AssetMemory {
             &textures.terrain_noise,
         ]
         .into_iter()
+        .chain(textures.water_noise.iter())
+        .chain([&textures.water_flow])
         .flatten()
         {
             self.image(image);

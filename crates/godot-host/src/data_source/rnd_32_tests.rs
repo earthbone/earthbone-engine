@@ -319,7 +319,14 @@ fn rnd_32_placed_water_uses_the_winning_bases_water_namespace() {
     let water = Record::new(Tag::new(b"WATR"), 0x0100_0850)
         .sub(b"ANAM", [128])
         .sub(b"DNAM", colors);
-    let expected = water_material_from(&water);
+    let mut expected = water_material_from(&water);
+    expected.mesh = Some(crate::mesh::WaterMesh {
+        flags1: 0x8000_0008,
+        flags2: 0x21,
+        water_flags: 0xC4,
+        uv_offset: [0.0; 2],
+        uv_scale: [1.0; 2],
+    });
     update.push_top(water);
     std::fs::write(directory.path().join("Update.esm"), update.to_bytes()).unwrap();
     let source = DataSource::open(directory.path()).unwrap();

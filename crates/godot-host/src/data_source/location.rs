@@ -69,7 +69,17 @@ impl PreparedCell {
                     material.environment_mask.as_deref(),
                     textures.environment_mask.as_deref(),
                 ),
-            ] {
+            ]
+            .into_iter()
+            .chain(material.water.iter().flat_map(|water| {
+                (0..3)
+                    .map(|i| (0, water.noise_layer(i), textures.water_noise[i].as_deref()))
+                    .chain([(
+                        0,
+                        water.flow_texture.as_deref(),
+                        textures.water_flow.as_deref(),
+                    )])
+            })) {
                 let Some(texture) = texture else {
                     continue;
                 };
