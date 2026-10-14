@@ -126,18 +126,18 @@ fn ai_48_favor_requires_actor_context_and_boolean_parameter_shape() {
 }
 
 #[test]
-fn ai_48_scene_action_slot_must_exist_and_completed_state_is_slot_specific() {
+fn ai_48_scene_action_id_must_exist_and_completed_state_is_id_specific() {
     let game = fixture();
     let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
     assert!(game.world_mut().start_scene(id(0xA00), &mut alloc));
-    assert_eq!(eval(&game, id(0x900), &c(550, [0xA00, 0], 1.0)), Ok(false));
+    assert_eq!(eval(&game, id(0x900), &c(550, [0xA00, 1], 1.0)), Ok(false));
     assert_eq!(
-        eval(&game, id(0x900), &c(550, [0xA00, 1], 0.0)),
-        Err(conditions::Error::Parameter(550, 1))
+        eval(&game, id(0x900), &c(550, [0xA00, 0], 0.0)),
+        Err(conditions::Error::Parameter(550, 0))
     );
     assert!(game.world_mut().complete_scene_action(id(0xA00), 0));
-    assert_eq!(eval(&game, id(0x900), &c(550, [0xA00, 0], 1.0)), Ok(true));
-    assert_eq!(eval(&game, id(0x900), &c(550, [0xA00, 0], 0.0)), Ok(false));
+    assert_eq!(eval(&game, id(0x900), &c(550, [0xA00, 1], 1.0)), Ok(true));
+    assert_eq!(eval(&game, id(0x900), &c(550, [0xA00, 1], 0.0)), Ok(false));
 }
 
 #[test]

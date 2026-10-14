@@ -315,6 +315,8 @@ pub struct SceneAction {
     pub flags: Option<u32>,
     pub start_phase: Option<u32>,
     pub end_phase: Option<u32>,
+    /// HTID names the headtracking actor alias, with -1 meaning no alias.
+    pub headtrack_alias: Option<i32>,
     pub data: SceneActionData,
 }
 
@@ -359,6 +361,7 @@ fn new_action(action_type: u16) -> SceneAction {
         flags: None,
         start_phase: None,
         end_phase: None,
+        headtrack_alias: None,
         data: SceneActionData::Unknown,
     }
 }
@@ -611,6 +614,14 @@ impl Scene {
                                 action.data = SceneActionData::Dialogue {
                                     topic: Some(fields(rec, sub.tag, &sub.data, 4)?.u32()?),
                                 };
+                            }
+                        }
+                    }
+                    b"HTID" => {
+                        if let Some(action) = current_action.as_mut() {
+                            if action.action_type == 0 {
+                                action.headtrack_alias =
+                                    Some(fields(rec, sub.tag, &sub.data, 4)?.i32()?);
                             }
                         }
                     }

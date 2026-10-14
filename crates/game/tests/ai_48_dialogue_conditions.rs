@@ -123,10 +123,10 @@ fn game() -> Game {
 fn ai_48_implemented_dialogue_and_scene_predicates_match_runtime_state() {
     let mut game = game();
     let actor = id(ACTOR);
-    let scene = condition(550, [SCENE, 0], 1.0);
+    let scene = condition(550, [SCENE, 1], 1.0);
     assert!(conditions::supports_function(550));
     assert_eq!(
-        evaluate(&game, actor, &condition(550, [SCENE, 0], 0.0)),
+        evaluate(&game, actor, &condition(550, [SCENE, 1], 0.0)),
         Ok(true)
     );
     let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
@@ -134,12 +134,12 @@ fn ai_48_implemented_dialogue_and_scene_predicates_match_runtime_state() {
     assert!(game.world_mut().complete_scene_action(id(SCENE), 0));
     assert_eq!(evaluate(&game, actor, &scene), Ok(true));
     assert_eq!(
-        evaluate(&game, actor, &condition(550, [SCENE, 0], 0.0)),
+        evaluate(&game, actor, &condition(550, [SCENE, 1], 0.0)),
         Ok(false)
     );
     assert_eq!(
-        evaluate(&game, actor, &condition(550, [SCENE, 1], 1.0)),
-        Err(conditions::Error::Parameter(550, 1))
+        evaluate(&game, actor, &condition(550, [SCENE, 0], 1.0)),
+        Err(conditions::Error::Parameter(550, 0))
     );
     assert_eq!(
         evaluate(&game, actor, &condition(550, [0xfff, 0], 1.0)),

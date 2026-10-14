@@ -1481,6 +1481,7 @@ impl Game {
     /// The action's alias and DIAL are read from the ordered SCEN action list.
     /// The line uses the normal INFO conditions and fragment lifecycle, while
     /// the action's assigned DIAL does not need to be a player menu choice.
+    /// A NULL topic presents headtracking without opening spoken dialogue.
     ///
     /// # Errors
     ///
@@ -1492,6 +1493,10 @@ impl Game {
         action_slot: u32,
     ) -> Result<Option<Line>, Error> {
         let (speaker, topic) = self.scene_dialogue_action(scene_id, action_slot)?;
+        let Some(topic) = topic else {
+            self.complete_scene_dialogue_action(scene_id, action_slot)?;
+            return Ok(None);
+        };
         let listener = self.player();
         self.begin_npc_dialogue(speaker, listener)?;
         match self.choose_dialogue_topic(topic) {
@@ -1522,6 +1527,7 @@ impl Game {
         action_slot: u32,
     ) -> Result<Option<Line>, Error> {
         let (speaker, topic) = self.scene_dialogue_action(scene_id, action_slot)?;
+        let topic = topic.ok_or(Error::State("scene action has no spoken dialogue"))?;
         let session_matches = self
             .world
             .borrow()
@@ -1560,7 +1566,7 @@ impl Game {
         &self,
         scene_id: GlobalFormId,
         action_slot: u32,
-    ) -> Result<(GlobalFormId, GlobalFormId), Error> {
+    ) -> Result<(GlobalFormId, Option<GlobalFormId>), Error> {
         let mut world = self.world.borrow_mut();
         let phase = world
             .scene_phase(scene_id)
@@ -1596,9 +1602,20 @@ impl Game {
         else {
             return Err(Error::State("scene dialogue has no topic"));
         };
-        let topic = world
-            .resolve_from(scene_id, *raw_topic)
-            .ok_or(Error::State("scene dialogue topic is unresolved"))?;
+        if let Some(alias) = action.headtrack_alias.and_then(|id| u32::try_from(id).ok()) {
+            if world.alias_ref(quest, alias).is_none() {
+                return Err(Error::State("scene headtracking actor alias is unfilled"));
+            }
+        }
+        let topic = if *raw_topic == 0 {
+            None
+        } else {
+            Some(
+                world
+                    .resolve_from(scene_id, *raw_topic)
+                    .ok_or(Error::State("scene dialogue topic is unresolved"))?,
+            )
+        };
         Ok((speaker, topic))
     }
 
@@ -1617,7 +1634,8 @@ impl Game {
                             .enumerate()
                             .filter_map(|(slot, action)| match action.data {
                                 SceneActionData::Dialogue { topic: Some(raw) }
-                                    if world.resolve_from(*id, raw) == session.topic =>
+                                    if raw != 0
+                                        && world.resolve_from(*id, raw) == session.topic =>
                                 {
                                     Some((*id, slot as u32))
                                 }
@@ -1637,7 +1655,7 @@ impl Game {
                 && self
                     .scene_dialogue_action(id, slot)
                     .is_ok_and(|(speaker, topic)| {
-                        session.speaker == speaker && session.topic == Some(topic)
+                        session.speaker == speaker && session.topic == topic
                     })
         })
     }

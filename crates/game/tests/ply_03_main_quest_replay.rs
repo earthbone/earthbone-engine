@@ -21,6 +21,60 @@ const CHECKPOINTS: [&str; 3] = [
     "03 Followed Ralof.ess",
 ];
 
+#[test]
+fn ply_03_saved_tower_scene_presents_headtracking_and_reaches_the_entry_trigger() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 tower entry");
+        return;
+    };
+    let mut game = play::load_world_checkpoint(
+        &PathBuf::from(data),
+        &save_path(&PathBuf::from(corpus), CHECKPOINTS[0]),
+    )
+    .unwrap();
+    let scene = GlobalFormId {
+        file: 0,
+        object: 0xd0594,
+    };
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    assert_eq!(game.world().scene_phase(scene), Some(2));
+    let (speaker, target) = {
+        let mut world = game.world_mut();
+        (
+            world.alias_ref(quest, 13).unwrap(),
+            world.alias_ref(quest, 12).unwrap(),
+        )
+    };
+    assert_eq!(
+        game.world_mut().actor_look_at(speaker),
+        Some((target, false))
+    );
+    let route = Route::parse(
+        "play-scene Skyrim.esm:d0594 3 600\n\
+         navigate Skyrim.esm:10757b 600 3600\n\
+         wait-stage MQ101DragonAttack 20 600\n\
+         play-scene Skyrim.esm:d0594 4 600\n\
+         expect-stage MQ101DragonAttack 20\n\
+         navigate-marker Skyrim.esm:982b 15636.233 -81284.97 8205.542 600 3600\n\
+         navigate-marker Skyrim.esm:982a 17970.816 -80446.69 8234.532 600 3600\n\
+         wait-stage MQ101DragonAttack 160 60\n\
+         expect-no-vm-error",
+    )
+    .unwrap();
+    let report = play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    assert_eq!(game.world().scene_phase(scene), Some(4));
+    assert!(game.world().quest(quest).unwrap().done.contains(&20));
+    assert!(game.world().quest(quest).unwrap().done.contains(&160));
+    assert!(game.world_mut().actor_look_at(speaker).is_none());
+}
+
 fn save_path(root: &Path, name: &str) -> PathBuf {
     root.join("Main Quest + Dawnguard(Vampire) + Dragonborn")
         .join(name)
