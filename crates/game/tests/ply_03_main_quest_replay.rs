@@ -81,6 +81,51 @@ fn save_path(root: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
+fn ply_03_saved_tower_scene_skips_optional_phases_and_runs_the_fallback_timer() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 tower phases");
+        return;
+    };
+    let mut game = play::load_world_checkpoint(
+        &PathBuf::from(data),
+        &save_path(&PathBuf::from(corpus), CHECKPOINTS[0]),
+    )
+    .unwrap();
+    let mut route = Route::parse(ROUTES[0]).unwrap();
+    let end = route
+        .steps
+        .iter()
+        .position(|(_, step)| matches!(step, play::Step::PlayScene { phase: 20, .. }))
+        .unwrap();
+    route.steps.truncate(end + 1);
+    let report = play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    assert_eq!(
+        game.world().scene_phase(GlobalFormId {
+            file: 0,
+            object: 0xd0594
+        }),
+        Some(20)
+    );
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    for stage in [22, 40, 105] {
+        assert!(game.world().quest(quest).unwrap().done.contains(&stage));
+    }
+    assert!(!game.world().quest(quest).unwrap().done.contains(&30));
+    assert!(!game
+        .world()
+        .animation_events
+        .iter()
+        .any(|(_, event)| event == "End_Tower_Smash"));
+}
+
+#[test]
 fn ply_03_saved_tower_stairs_fire_triggers_and_request_the_smash_idle() {
     let (Some(data), Some(corpus)) = (
         std::env::var_os("SKYRIM_DATA"),
