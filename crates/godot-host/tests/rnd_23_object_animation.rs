@@ -129,12 +129,16 @@ fn rnd_23_material_animation_keeps_other_placements_and_properties_unchanged() {
 #[test]
 fn rnd_23_animated_objects_stay_out_of_stationary_occluders_and_instancing() {
     use soe_godot_host::data_source::{LoadedSurface, SurfaceTextures};
-    use soe_godot_host::mesh::{build_surface, MeshData, MeshOptions};
+    use soe_godot_host::mesh::{build_surface, MaterialDesc, MeshData, MeshOptions};
 
     let arrays = build_surface(
         &MeshData {
             positions: vec![[0.0; 3], [70.0, 0.0, 0.0], [0.0, 70.0, 0.0]],
             indices: vec![0, 1, 2],
+            material: MaterialDesc {
+                double_sided: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         MeshOptions::default(),

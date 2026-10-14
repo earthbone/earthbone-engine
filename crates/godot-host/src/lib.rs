@@ -36,6 +36,7 @@ pub mod debug_draw;
 pub mod detect_life;
 pub mod detection;
 pub mod dialogue_menu;
+pub mod distant_visibility;
 pub mod door_fade;
 pub mod effect_shader;
 pub mod facegen;

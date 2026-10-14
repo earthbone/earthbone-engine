@@ -1,5 +1,11 @@
 # Persistent full models, RND-40
 
+This document retains the earlier RND-40 residency text and the incoming
+RND-41 decision. The RND-41 visibility decision governs the merged renderer.
+Earlier counts and whole-world observations describe their original checkpoints.
+
+## Persistent full models, RND-40 and RND-41
+
 The baseline survey ran on 2026-10-13 against Skyrim.esm, Update.esm,
 Dawnguard.esm, HearthFires.esm and Dragonborn.esm, before changing selection.
 The Whiterun gate XTEL landing is [19243.535, -7427.343, -3595.4053],
@@ -20,6 +26,15 @@ base type does not select Never Fades.
 
 Full models remain owned by their worldspace persistent cell during grid
 movement. Ordinary persistent geometry stays in its physical grid cell.
+
+STAT and MSTT header bit 2 selects Never Fades in xEdit. A similarly numbered
+bit on an unrelated base type does not select Never Fades. The earlier survey
+below counted only STAT Never Fades. The continuation corrects MSTT selection
+and keeps the MISC flag exclusion in the synthetic ownership test.
+
+The 2026-10-13 visibility decision supersedes whole-world residency.
+Inside loaded grid cells, both kinds use physical presentation. Beyond those
+cells, only visible demand is owned by the worldspace persistent cell.
 Collision uses the physical selection for both kinds. Static full models
 share local geometry through MultiMesh groups, including groups below the
 ordinary grid instancing threshold. Materials and textures share the existing
@@ -92,6 +107,12 @@ The remaining 251 supply visible geometry. Before the fix only
 WRLODWindowGlow01 was selected for a full model. The installed rendering
 check now submits all 251 and all 785 drawable full models in Tamriel.
 Returning through the gate retains zero Tamriel full-model references.
+
+The remaining 251 supply visible geometry. Before RND-40 only
+WRLODWindowGlow01 was selected for a full model. The historical RND-40 check
+submitted all 251 and all 785 drawable full models in Tamriel. RND-41 selects
+visible demand instead. Returning through the gate must retain zero Tamriel
+full-model references.
 
 | Reference | Base editor ID | Grid | Enabled | Model | Full model before |
 | --- | --- | --- | --- | --- | --- |
@@ -487,6 +508,8 @@ The 8 GB acceptance check failed.
 
 ## Verification
 
+## Historical RND-40 verification
+
 The host library suite passed 434 tests with installed inputs unset.
 The five focused selection and sharing tests passed, including three
 installed tests which returned early without those inputs. With installed
@@ -544,3 +567,190 @@ wrapper process, so it did not capture the Godot thread stacks.
 | audio.stone | Not observed | Run stopped at Hulda |
 | audio.grass | Not observed | Run stopped at Hulda |
 | gate_display | Pass | {"DISPLAY": ":99"} |
+
+## Visibility decision, RND-41
+
+Selection reads winning REFR DATA and XSCL, its base OBND, and the existing
+Full LOD or STAT Never Fades flags before requesting any NIF. All eight
+rotated and scaled bounds corners contribute to the world AABB.
+Bounds use the signed 16-bit XYZ minimum and maximum declared by xEdit's
+`wbObjectBounds` in `wbDefinitionsCommon.pas` and UESP `OBND_Field.wikitext`.
+Missing, zero or malformed bounds use a conservative 4096-unit cube at the placement.
+The diagonal must project to at least two pixels at a reference 720-pixel
+height and 75-degree vertical field of view. This normalized screen threshold
+is independent of actual window resolution and camera heading.
+
+A ray to any corner or the top centre clearing terrain admits the model.
+Joined resident BTR triangles supply a spatial height index per rendered
+surface. The old terrain LOD streamer retained meshes, not a ready CPU
+heightmap. The index is built alongside the rendered mesh, with no asset read.
+Water and unclassified surfaces supply no terrain blockers.
+Resident LAND heights replace masked BTR cells using the rendered SW to NE
+triangle diagonal. Hidden BTR geometry cannot supply a near-cell blocker.
+Sight lines sample every 128 units, capped at 8192 samples per ray, and lower
+terrain by 140 units to retain
+grazing silhouettes. Missing triangle coverage supplies no blocker. This is
+conservative sampling against rendered LOD, not proof of exact LAND horizons.
+
+Selection runs after 512 units of eye movement, a worldspace change, terrain
+replacement or a near-grid ownership change. Idle frames do not repeat terrain
+queries. The camera rig supplies first-person and third-person eye placement.
+Already admitted references retain a 1.5-pixel threshold, giving a release
+reach one third larger than admission. Three hidden observations and thirty
+update frames are required for release. Heading changes never evict a model.
+Once three hidden observations have accumulated, the frame debounce finishes
+even when the player stops, without repeating terrain queries.
+At most eight newly admitted references prepare per update, nearest first
+with FormID tie breaks. Further admission batches drain the retained visible
+demand without repeating sight lines. Movement or terrain changes replace
+pending demand before another model is prepared.
+Admitted demand uses live enable state, so an authored disabled flag does not
+reject a reference that the game enabled.
+All paths preparing a large-world persistent cell directly return no models.
+Generated object LOD still excludes persistent full-model candidates.
+
+Distant static placements share MultiMesh geometry and existing material and
+texture caches. Selected CPU surfaces survive demand updates. Worldspace
+replacement releases instances, selected surfaces, height samples and selector
+state and prunes material and prepared texture caches. Logical reference
+ownership stays in the load-order database. No saved section, dependency or
+per-reference node is added.
+
+Cell occluders and the project's occlusion setting default to enabled.
+Occluders use exact opaque source triangles and placement transforms, with
+no hull or expanded box. Water, cutouts, effects, refraction, skinning and
+animation are excluded, including TREE_ANIM vertex motion in the material
+shader. Single-sided surfaces are excluded because Godot treats occluder
+triangles as two-sided. A closed shell can still have invisible back faces
+when the camera is inside it. A source pose, enable or destruction change
+removes its old cell occluder. Missing blockers reduce culling rather than
+hide visible geometry.
+
+Joined terrain LOD supplies server-side occluders with the same triangles and
+holes, lowered two metres beneath its rendered surface. The join mask retains
+loaded LAND holes and recreates occluders at handoff. Water is excluded.
+Occluder RIDs are freed with the rendered block. Instance AABBs are unchanged,
+so Godot keeps any partly visible bound. Large batches retain large bounds,
+which can reduce culling effectiveness.
+
+The comparison reports were checked against local Mudcrab PR 210 demand and
+shared admission, PR 211 reservations, and PR 223 and 225 room visibility.
+Nearby demand before loads, bounded admission and fallback to visible informed
+this adapter, credited in distant_visibility.rs. PR 211's reservation ledger
+and adaptive stage controller were read. Their Bevy upload and disposal
+signals do not map to this synchronous server-RID path, which uses a fixed
+admission cap and measured process memory. No Mudcrab code was copied.
+The research culling and chef-201-vs-drawn-bridge notes separate API setup,
+CPU readiness and actual drawn evidence. Their Bevy render retry and room graph
+do not fit this server-RID path and were not ported. Context7 was queried for
+Godot 4.4.1 and occluder APIs, then checked against the versioned
+[occlusion guide](https://docs.godotengine.org/en/4.4/tutorials/3d/occlusion_culling.html)
+and [RenderingServer API](https://docs.godotengine.org/en/4.4/classes/class_renderingserver.html).
+
+The synthetic checks cover ridge rejection, a top clearing the ridge, missing
+coverage, scale and rotation, release reach, hidden debounce, idle frames,
+nearest admission, shared meshes and open-sheet occluder rejection. A Godot
+fixture compares draw calls and exposed red pixels with occlusion off and on.
+The installed Whiterun check uses Xvfb :99 at 640 by 360, samples actual Godot
+VmRSS through the tracked process tree, and has a predeclared six GiB peak
+limit. It records flagged-model counts and draw calls at the gate and after
+returning inside Whiterun, with a mountain-over-terrain capture and control.
+The ten pure selector and terrain checks passed. On Godot 4.4.1 under llvmpipe,
+the isolated fixture reduced draw calls from three to two and retained
+266 of 266 exposed red pixels. The RND-07 adversarial fixtures retain their
+source-order, size-order and placement assertions, with two-sided opaque
+materials to match their open triangle geometry. The open single-sided
+rejection test checks the new conservative exclusion.
+
+Two installed observations stopped before completing the scene. Their actual
+Godot VmRSS peaks were 11.256 and 11.324 GiB. The latter reached 325 drawn
+flagged references out of 785 eligible drawable Tamriel placements. These
+incomplete runs do not establish the draw-call comparison, city release or
+landmark capture. Old capture files are not evidence for a newer run.
+The next observation uses MALLOC_ARENA_MAX=2, MALLOC_TRIM_THRESHOLD_=65536 and
+LP_NUM_THREADS=4, alongside the run wrapper's installed slot and memory floor.
+Those are test-host settings, not changes to the project or the six GiB check.
+
+## Continuation of the timed attempt, 2026-10-13
+
+This work continues detached `dfa8db6f2` in the lead-play-visibility scratch
+worktree. Pending admissions retain the nearest-first visible IDs instead of
+repeating every terrain sight line after each eight-model batch. A terrain
+revision replaces pending demand. Deferred release completes at rest after
+three hidden observations and thirty update frames. An explicit zero XSCL
+produces zero projected size, while an absent XSCL retains the reader's unit
+scale default.
+
+The local xEdit MSTT definition, lines 5333 to 5351, names Never Fades at
+header bit 2. Persistent MSTT models now use the same visible-demand path as
+STAT models. The ownership fixture admits the new MSTT candidate, retains
+the MISC exclusion, and still prepares zero models from a direct large-world
+persistent-cell load. Cell blockers require two-sided opaque materials.
+Closed topology alone cannot prove that a surface blocks from both sides.
+TREE_ANIM shader motion also excludes a surface from blocker selection.
+RND-07's placement and index fixtures and the skinning and RND-23 animation
+fixtures now use two-sided opaque materials. Their assertions stay unchanged
+and still isolate those contracts from the one-sided exclusion.
+
+Fourteen selector and terrain tests and three occluder regressions passed.
+The MSTT ownership fixture passed separately. The Godot 4.4.1 fixture on
+Xvfb :99 reduced draw calls from three to two and retained all 266 exposed
+pixels. Every installed observation now keeps a unique `target/full-lod/run-*`
+directory and prints its path, so an earlier capture cannot fill a newer run.
+Memory telemetry is emitted before the draw-call and landmark captures.
+The six GiB check, landmark pixel threshold and city-release assertions stay
+unchanged. No dependency, saved section or production per-reference node was
+added.
+
+Context7 and Serena were unavailable in this continuation. The existing API
+adapter was checked against the local Godot documentation and the versioned
+Godot 4.4 OccluderInstance3D and occlusion guide. The earlier Context7 query
+remains recorded above. The continuation rebuilt the release extension through
+the run's cargo wrapper. Installed observations used Xvfb :99, the wrapper's
+installed slot and the allocator and llvmpipe settings recorded above. No
+hand-started Godot process or Skyrim process was used.
+
+The completed `target/full-lod/run-5D9ucg` observation measured the following
+with Godot 4.4.1 and llvmpipe at 640 by 360:
+
+| Location | Loaded flagged models | Distant models | Draw calls off | Draw calls on |
+| --- | ---: | ---: | ---: | ---: |
+| Whiterun gate | 325 | 324 | 3989 | 1839 |
+| Inside Whiterun | 0 | 0 | 2889 | 1010 |
+
+The gate had 785 eligible drawable Tamriel placements and 251 near-grid
+flagged references. Admission is 325, rather than the whole-world eligible
+set. The city has no authored flagged models in this fixture. Returning to
+Whiterun released all Tamriel full models and distant ownership. Gate
+occluders comprised two cell meshes and 261 terrain blocks, with 280150820
+bytes of resident height samples and 3547564 bytes of distant CPU geometry.
+The city retained two cell occluders and 260 parent terrain blocks.
+
+Godot exited normally, but the Rust test returned 101 because its measured
+peak VmRSS was 12.373745 GiB, above the unchanged six GiB limit. These are
+whole-process bytes, not an estimate of model payload. The observed budget
+failure remains open. RND-40 and RND-41 remain `wip`, with no completed
+evidence claim. An earlier observation peaked at 13.076820 GiB. Its capture's
+1698-pixel result was a false positive from foreground geometry, found by
+inspecting the PNG. That image does not prove a landmark over a ridge.
+The final capture uses RND-27's separate outside-gate camera and requires
+clear sky across the control image's top edge. It passes with 1308 pixels
+against the unchanged 500-pixel threshold. Both its landmark and terrain
+control PNGs were inspected, showing mountain geometry above the foreground
+ridge. The gameplay camera is restored before city measurements.
+
+## Scratch preview merge, 2026-10-14
+
+The merge retains both residency and visibility test modules. The original
+`full_lod_tests.rs` and `persistent_full_lod_test.gd` are unchanged. The incoming
+checks live in `full_lod_visibility_tests.rs` and
+`persistent_full_lod_visibility_test.gd`, with all their assertions retained.
+The older disjoint-grid and whole-world preparation checks conflict with the
+visibility decision and remain executable rather than being weakened.
+
+Local `../engine-refs/uesp-modfileformat/REFR.wikitext` names the Full LOD flag.
+`../engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas` names Never Fades on STAT
+and MSTT. Those format definitions select the full model, not an unconditional
+whole-world Godot allocation. The requested visibility implementation keeps
+near models, conservative visible distant demand and logical record ownership.
+The older residency assertions describe the superseded preparation policy.

@@ -24,3 +24,7 @@ enabled=PackedStringArray("res://addons/soe_cell_editor/plugin.cfg", "res://addo
 [physics]
 
 3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+occlusion_culling/use_occlusion_culling=true

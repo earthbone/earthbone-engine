@@ -6814,7 +6814,8 @@ are copied into one mesh. A `MultiMesh` surface receives its placement
 transform before it is copied. `CellStreamerNode` creates one server occluder
 instance for a cell when the runtime exposes Godot's 3D occluder methods, and
 frees both associated RIDs when the cell unloads or the node clears. The
-exported `cell_occluders` switch defaults off pending a measured improvement.
+exported `cell_occluders` switch now defaults on under RND-41, following the
+2026-10-13 user decision and conservative geometry checks.
 
 Godot's local `ArrayOccluder3D` and `OccluderInstance3D` docs state that
 occlusion culling has CPU cost and is usually not useful for large open
@@ -6824,8 +6825,8 @@ occlusion setting and generated meshes. Setting it to `1` enables both.
 The first Bannered Mare run loaded 318 statics and 145 draw instances with
 zero mesh failures, but X11 reported `BadAccess` and the process did not
 produce a frame percentile. Baseline p99: not recorded. Occluder p99: not
-recorded. The feature remains off until both values can be collected and the
-occluder run is lower.
+recorded. That trial retained the off default. RND-41 supersedes the trial's
+policy while retaining these historical measurements.
 
 ## Water planes, RND-02 (2026-09-24)
 
@@ -7072,8 +7073,9 @@ occluder mesh and instance for each streamed cell. `batch::cell_occluder_mesh`
 selects at most four nonempty opaque static surfaces by descending triangle
 count, keeps source order for equal counts, and applies a `MultiMesh` surface's
 instance transform before combining its vertices. Skinned, blend and cutout
-surfaces are excluded. Cell release and node cleanup free both occluder RIDs.
-The export defaults to off.
+surfaces are excluded. RND-41 also excludes effects, refraction, water and
+open single-sided surfaces. Cell release and node cleanup free both RIDs.
+The export defaults to on following the 2026-10-13 decision.
 
 Godot 4.4's `tutorials/3d/occlusion_culling.rst` requires a simplified
 occluder representation made from static objects. Skinned actor surfaces
@@ -7092,8 +7094,9 @@ Godot 4.4.1 Forward+, llvmpipe, a 640 by 360 window with the benchmark's fixed
 drew 189,506 triangles with 145 RenderingServer instances. With occluders off,
 the p99 samples were 40.514, 40.018 and 44.655 ms, median 40.514 ms. With
 occluders on, they were 39.019, 41.130 and 46.134 ms, median 41.130 ms. The
-enabled median was 0.616 ms higher, so the export remains off. These results
-are specific to this scene, machine and renderer.
+enabled median was 0.616 ms higher, so that trial retained the off default.
+RND-41 supersedes the default with conservative blockers. These historical
+results are specific to this scene, machine and renderer.
 
 `crates/godot-host/tests/rnd_07_adversarial.rs` checks empty and nonopaque
 input, deterministic source ordering for ties, top-four opaque selection,
@@ -8948,6 +8951,9 @@ The synthetic AUD-12 shutdown test checks nonblocking drop and completed
 worker teardown. PRF-14 retains both release and isolated debug checks and
 requires successful process exit after its count assertions.
 
+The following residency section records the earlier checkpoint. The visibility
+section below describes the current merged preview.
+
 ## Persistent full-model residency, RND-40
 
 Large-world persistent references with REFR Full LOD or a STAT Never Fades
@@ -8990,3 +8996,45 @@ PRF-37 timing gate passed individually with one test thread and development
 optimization level 1, using the built release extension on the private display.
 Package Clippy with all targets and warnings denied, and package formatting,
 passed. The full lint gate was excluded from this integration repair.
+
+## Persistent full-model visibility, RND-40 and RND-41
+
+Full LOD and persistent STAT or MSTT Never Fades placements render in their physical
+near cells. Beyond the grid, record bounds select visible demand before any
+model preparation. A two-pixel projected diagonal and any clear sight line
+to the top or a corner over resident terrain LOD admit the full model.
+Missing terrain retains visibility. The camera rig supplies the eye position.
+Selection runs after 512 units of movement or a worldspace, grid or terrain
+change. A 1.5-pixel release threshold, three hidden observations and thirty
+update frames retain models across ridge movement. The frame delay finishes
+at rest after the third hidden observation, without another terrain query.
+Admission starts at most
+eight references per update, nearest first, without resampling terrain for
+each admission batch. Large-world persistent-cell loads
+prepare no whole-world model set. Object LOD leaves these references to this
+full-model path. Small worlds retain their full-city presentation.
+
+Shared MultiMesh geometry, materials and textures survive selection updates.
+Worldspace replacement frees distant surfaces, instances and height samples.
+Collision stays in the near grid. No saved state or per-reference node is
+added. Cell occluders and project occlusion culling default to enabled.
+Exact opaque two-sided static triangles supply cell blockers, which
+are removed when their source state changes. Effects and transparent surfaces
+supply no blockers. TREE_ANIM shader motion also excludes a surface from
+occluder selection. Joined terrain blockers retain their holes and are lowered
+two metres. Godot's whole-instance bounds remain intact for partial visibility.
+Sources, acceptance checks, historical RND-40 counts and measured evidence are
+in [full-lod-residency.md](full-lod-residency.md).
+
+The 2026-10-13 continuation measured 325 loaded flagged models at the gate,
+including 324 distant models, out of 785 eligible drawable Tamriel placements.
+Godot 4.4.1 under llvmpipe at 640 by 360 reduced gate draw calls from 3989 to
+1839 with occlusion enabled. Inside Whiterun, all Tamriel distant models were
+released and draw calls fell from 2889 to 1010. The city fixture has zero
+authored flagged models. The separate partial-visibility fixture retained all
+266 exposed pixels while reducing draw calls from three to two.
+The installed process peaked at 12.373745 GiB VmRSS and failed the unchanged
+six GiB acceptance check. The residency rows remain unfinished for that
+failure. The final outside-gate landmark capture passed with 1308 pixels
+against the unchanged 500-pixel threshold and passed visual review against
+its terrain control. The gameplay camera is restored before city measurement.

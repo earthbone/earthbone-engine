@@ -63,6 +63,8 @@ mod destruction_tests;
 #[cfg(test)]
 mod full_lod_tests;
 #[cfg(test)]
+mod full_lod_visibility_tests;
+#[cfg(test)]
 mod marker_survey_tests;
 #[cfg(test)]
 mod prf_20_tests;
@@ -383,12 +385,16 @@ struct PresentationReferences {
     physical: HashMap<GlobalFormId, Vec<GlobalFormId>>,
 }
 
-/// UESP REFR bit 16 and xEdit STAT bit 2 select persistent full models.
+/// xEdit names header bit 2 Never Fades on STAT and MSTT, not every base type.
+fn base_never_fades(base: &Record) -> bool {
+    matches!(base.tag.as_bytes(), b"STAT" | b"MSTT")
+        && base.flags & soe_esm::records::stat::flags::NEVER_FADES != 0
+}
+
+/// UESP REFR bit 16 and xEdit Never Fades select persistent full models.
 fn persistent_full_model(reference: &Refr, base: &Record) -> bool {
     reference.is_persistent()
-        && (reference.record_flags & 0x0001_0000 != 0
-            || (base.tag == tag::STAT
-                && base.flags & soe_esm::records::stat::flags::NEVER_FADES != 0))
+        && (reference.record_flags & 0x0001_0000 != 0 || base_never_fades(base))
 }
 
 /// A winning cell record prepared for the editor's worldspace and cell tree.
@@ -774,9 +780,7 @@ impl DataSource {
                     let y = (position[1] / crate::units::CELL_UNITS).floor() as i32;
                     if let Some(grid) = index.exterior_cell(world, x, y) {
                         references.physical.entry(grid).or_default().push(id);
-                        if !full_model {
-                            references.cells.entry(grid).or_default().push(id);
-                        }
+                        references.cells.entry(grid).or_default().push(id);
                     }
                 }
             }
@@ -793,14 +797,70 @@ impl DataSource {
         })
     }
 
-    /// Persistent full models belong to the world cell, ordinary geometry to
-    /// its physical grid. Small worlds retain RND-27's whole-city selection.
+    /// Full-model candidates belong to the world cell, near geometry to its
+    /// physical grid. Small worlds retain RND-27's whole-city selection.
     /// Logical cells and script residency remain in the record index.
     pub(crate) fn presentation_references(&self, cell: GlobalFormId) -> &[GlobalFormId] {
         self.presentation_index()
             .cells
             .get(&cell)
             .map_or_else(|| self.cell_index().references(cell), Vec::as_slice)
+    }
+
+    /// Flagged candidates use winning record bounds before any model reads.
+    pub fn distant_candidates(
+        &self,
+        world: GlobalFormId,
+    ) -> Vec<crate::distant_visibility::Candidate> {
+        let Some(cell) = self.cell_index().world_persistent_cell(world) else {
+            return Vec::new();
+        };
+        let mut candidates = Vec::new();
+        for &id in self.cell_index().references(cell) {
+            let Some(owner) = self.order.winner_ref(id) else {
+                continue;
+            };
+            let record = self.order.record(owner);
+            if record.tag != tag::REFR || models::is_editor_reference(record) {
+                continue;
+            }
+            let Ok(reference) = Refr::from_record(record) else {
+                continue;
+            };
+            let Some(base) = self
+                .order
+                .winner(self.order.resolve(owner.file, reference.base))
+            else {
+                continue;
+            };
+            if !persistent_full_model(&reference, base) {
+                continue;
+            }
+            let Some(transform) = reference.transform else {
+                continue;
+            };
+            let bounds = base
+                .find(Tag::new(b"OBND"))
+                .filter(|data| data.len() == 12)
+                .map(|data| {
+                    std::array::from_fn(|i| i16::from_le_bytes([data[i * 2], data[i * 2 + 1]]))
+                })
+                .filter(|bounds: &[i16; 6]| {
+                    (0..3).all(|i| bounds[i] <= bounds[i + 3]) && bounds[..3] != bounds[3..]
+                })
+                .unwrap_or([-2048, -2048, -2048, 2048, 2048, 2048]);
+            if let Some(candidate) = crate::distant_visibility::Candidate::from_bounds(
+                id,
+                bounds,
+                transform.position,
+                transform.rotation,
+                reference.scale,
+            ) {
+                candidates.push(candidate);
+            }
+        }
+        candidates.sort_unstable_by_key(|candidate| candidate.id);
+        candidates
     }
 
     /// Distant full models add no distant physics residency.
@@ -966,6 +1026,24 @@ impl DataSource {
     /// A reference whose mesh fails to read or parse is counted as failed and
     /// skipped, it does not stop the rest of the cell from loading.
     pub fn stream_cell_id(&self, cell_id: GlobalFormId) -> Result<LoadedCell, DataSourceError> {
+        let references = if self
+            .cell_index()
+            .persistent_cell_world(cell_id)
+            .is_some_and(|world| !self.is_small_world(world))
+        {
+            &[][..]
+        } else {
+            self.presentation_references(cell_id)
+        };
+        self.stream_selected_references(cell_id, references)
+    }
+
+    /// Prepare only admitted full-model demand. Never scan meshes to select it.
+    pub(crate) fn stream_selected_references(
+        &self,
+        cell_id: GlobalFormId,
+        references: &[GlobalFormId],
+    ) -> Result<LoadedCell, DataSourceError> {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let _load = soe_trace::LoadScope::operation(
             "cell",
@@ -975,18 +1053,22 @@ impl DataSource {
         let _span = soe_trace::Span::new("host.stream_cell", "host");
         let mut stats = CellStats::default();
         let _capture = stats.profile.enter();
+        let authored_selection = self
+            .cell_index()
+            .persistent_cell_world(cell_id)
+            .is_none_or(|world| self.is_small_world(world));
         let work = {
             let _scan = soe_trace::Span::with_payload(
                 "host.scan_references",
                 "host",
-                self.presentation_references(cell_id).len() as u64,
+                references.len() as u64,
             );
             let mut work: Vec<(String, Refr, GlobalFormId)> = Vec::new();
             // A placed object whose winner is deleted is not in this slice,
             // the index files it under `deleted_references` instead. It stays
             // resolvable through the load order and the game starts it
             // disabled, so there is nothing here to draw.
-            for id in self.presentation_references(cell_id).iter().copied() {
+            for id in references.iter().copied() {
                 let Some(rref) = self.order.winner_ref(id) else {
                     continue;
                 };
@@ -1003,7 +1085,11 @@ impl DataSource {
                 let _reference = soe_trace::Span::new("host.reference", "host");
                 stats.references += 1;
 
-                if !soe_game::World::authored_reference_enabled(&self.order, id) {
+                // CONTEXT: Admitted distant demand already checked live enable
+                // state. Ordinary cell preparation follows authored state.
+                if authored_selection
+                    && !soe_game::World::authored_reference_enabled(&self.order, id)
+                {
                     continue;
                 }
 
@@ -1128,10 +1214,12 @@ impl DataSource {
         stats.texture_decode_failures = after.failures - before.failures;
         stats.texture_decode_time =
             std::time::Duration::from_nanos(after.decode_ns - before.decode_ns);
-        if let Some(water) = self.water_surface(cell_id, &surfaces) {
-            stats.water_plane_count += 1;
-            stats.triangles += water.arrays.triangle_count();
-            surfaces.push(water);
+        if authored_selection {
+            if let Some(water) = self.water_surface(cell_id, &surfaces) {
+                stats.water_plane_count += 1;
+                stats.triangles += water.arrays.triangle_count();
+                surfaces.push(water);
+            }
         }
         let mut loaded = LoadedCell { stats, surfaces };
         loaded.refresh_texture_inventory();
