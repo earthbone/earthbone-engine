@@ -2076,6 +2076,55 @@ clippy with warnings denied pass. The installed checks set SKYRIM_DATA and
 CARGO_PROFILE_DEV_OPT_LEVEL=1 and run one exact test on one thread.
 The workspace lint gate is excluded by the integration-fixer instructions.
 
+### Integration capsule sampling correction, 2026-10-14
+
+The next installed integration pass failed PRF-31's unchanged two millisecond
+walk limit on two of 390 updates, with a maximum of 2,209 microseconds.
+The capsule clear-path helper now rejects capsules outside the segment's
+bounds before testing slabs, and computes inverse direction once per segment.
+Capsule intersections reject radial misses before testing end spheres, with a
+finite cylinder shortcut for the remaining interior hits. The local Jolt
+`Jolt/Geometry/RayAABox.h` supplies the inverse-direction model, and
+`Jolt/Geometry/RayCapsule.h` supplies the radial rejection model.
+The existing enlarged bounds, zero-direction handling and exact capsule
+intersection remain in use. This follows PRF-31's whole-update budget while
+retaining CMB-32's directional sight and separate sound source and owner.
+Geometry and sight results still belong to one update, with no saved state,
+dependency or reference node added.
+
+The reusable query parameters retain combined exclusions until either source
+RID list or actor membership changes. Copied source arrays detect edits to
+Godot's shared array storage. Changed membership marks the covering query
+dirty. Actor RIDs are sorted when rebuilding the list. An unchanged sample
+neither rebuilds the list nor uploads it to Godot.
+
+HST-23 added NPC loading and animation through PlayerNode's render callback,
+independently of `auto_step`. The manual detection fixture now disables that
+callback and checks that no NPC visuals or loads start. The window, scenery,
+resident actor bodies, sounds, controller movement and camera remain active.
+This preserves the harness's existing omission of AI and VM ticks. It does
+not measure HST-23's NPC rendering budget.
+
+The first geometry optimization still failed the walk, including four
+over-budget updates and a 2,475 microsecond maximum. Disabling automatic
+presentation after that still left one over-budget update at 2,190
+microseconds. After exclusion reuse and radial rejection, the exact installed
+windowed walk passed all 424
+updates across both worldspaces, with a maximum of 1,801 microseconds and zero
+over-budget updates. The initial exterior sample took 1,541 microseconds for
+870 pairs and 32 bodies. City movement reached 417.6 game units and Tamriel
+movement reached 952.8. These are wall-clock measurements on the private
+software Vulkan display, with the original 2,000 microsecond limit.
+
+The installed occlusion comparison passed 764 shortcut decisions with zero
+mismatches, including 402 reciprocal lookups. The exact one-sided obstruction
+check also passed. Each installed case ran separately with development
+optimization level 1 and one test thread, after the release build and project
+import. Debug validation passed 440 library tests, five adversarial tests and
+the walk route check. The three installed runners skipped with data unset
+during the debug target run. Package all-target Clippy with warnings denied
+and formatting passed. The workspace lint gate was excluded from this repair.
+
 ### Follow-up local verification
 
 The 2026-10-11 follow-up retains draft commits `836a0228b` and `ab27b7705`

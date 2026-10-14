@@ -483,21 +483,16 @@ impl PlayerNode {
                     && !self.melee_bodies.values().any(|owner| owner == actor)
             })
             .collect();
-        let mut trusted = self
-            .query_collision
-            .sight_exclusions()
-            .map(Array::duplicate_shallow)
-            .unwrap_or_default();
-        if let Some(streamer) = &self.game_streamer {
-            let streamer = streamer.bind();
-            if let Some(exclusions) = streamer.sight_exclusions() {
-                trusted.extend_array(exclusions);
-            }
-        }
-        for &body in self.actor_bodies.owners().keys() {
-            trusted.push(body);
-        }
-        let mut symmetry = rays.sight_symmetry(&symmetric_capsules, &trusted, queries);
+        let streamer = self.game_streamer.as_ref().map(|streamer| streamer.bind());
+        queries.set_exclusions(
+            self.query_collision.sight_exclusions(),
+            streamer
+                .as_ref()
+                .and_then(|streamer| streamer.sight_exclusions()),
+            self.actor_bodies.owners(),
+        );
+        drop(streamer);
+        let mut symmetry = rays.sight_symmetry(&symmetric_capsules, queries);
         let verify_occlusion = std::env::var_os("SOE_VERIFY_DETECTION_OCCLUSION").is_some();
         let mut verified = 0;
         let mut reciprocal_verified = 0;
