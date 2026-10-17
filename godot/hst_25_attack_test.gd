@@ -14,7 +14,7 @@ func _check_weapons() -> void:
 			rig.call("advance", 1.0 / 60.0)
 			for clip in rig.call("active_clips"):
 				blocked[index] = blocked[index] or "block" in str(clip).to_lower()
-		await process_frame
+		await _animation_frame(_step)
 	Input.action_release("Left Attack/Block")
 	player.call("advance", 1.0 / 60.0)
 	_check(blocked[0] and blocked[1], "shield mouse hold did not play block clips in both views")
@@ -35,7 +35,7 @@ func _check_weapons() -> void:
 					rig.call("advance", 1.0 / 60.0)
 					for clip in rig.call("active_clips"):
 						two_hand_block[index] = two_hand_block[index] or "block" in str(clip).to_lower()
-				await process_frame
+				await _animation_frame(_step)
 			Input.action_release("Left Attack/Block")
 			player.call("advance", 1.0 / 60.0)
 			_check(two_hand_block[0] and two_hand_block[1], "two handed mouse hold did not play both block clips")
@@ -58,7 +58,7 @@ func _check_weapons() -> void:
 					var name := str(clip).get_slice("@", 0)
 					if not name in clip_names[index]: clip_names[index].append(name)
 			if contact_seen and contact_after == contact_health: contact_after = _health()
-			await process_frame
+			await _animation_frame(_step)
 		Input.action_release("Right Attack/Block")
 		player.call("advance", 1.0 / 60.0)
 		_check(powers[0] and powers[1], "weapon %x hold did not play both power clips" % weapon)
@@ -94,7 +94,7 @@ func _check_weapons() -> void:
 				bows[index] = bows[index] or "bow_draw" in str(clip).to_lower() or "bowdraw" in str(clip).to_lower()
 				var name := str(clip).get_slice("@", 0)
 				if not name in bow_clips[index]: bow_clips[index].append(name)
-		await process_frame
+		await _animation_frame(_step)
 	Input.action_release("Right Attack/Block")
 	player.call("advance", 1.0 / 60.0)
 	await _steps(90)

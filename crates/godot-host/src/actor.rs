@@ -1977,39 +1977,78 @@ mod tests {
         let binary =
             std::env::var_os("SOE_GODOT_BIN").expect("installed equipment check requires Godot");
         let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        for headless in [true, false] {
-            let mut command = std::process::Command::new(&binary);
-            if headless {
-                command.arg("--headless");
-            }
-            let output = command
-                .arg("--path")
-                .arg(workspace.join("godot"))
-                .args(["--resolution", "640x360", "--script", script])
-                .env("SKYRIM_DATA", &data)
-                .env("DISPLAY", ":99")
-                .env("SOE_INTERFACE_CACHE", "/tmp/soe-equipment-no-interface")
-                .env_remove("SOE_CAPTURE_PATH")
-                .env_remove("SOE_THREADED_SIMULATION")
-                .output()
+        let cells: &[&str] = if std::env::var("SOE_EQUIPMENT_ALL_CELLS").as_deref() == Ok("1") {
+            &["mare", "exterior"]
+        } else if std::env::var("SOE_EQUIPMENT_EXTERIOR").as_deref() == Ok("1") {
+            &["exterior"]
+        } else {
+            &["mare"]
+        };
+        for cell in cells {
+            let evidence = workspace.join(format!("target/hst25-final-{cell}"));
+            std::fs::create_dir_all(&evidence).unwrap();
+            for headless in [true, false] {
+                let mut command = std::process::Command::new(&binary);
+                if headless {
+                    command.arg("--headless");
+                }
+                let output = command
+                    .arg("--path")
+                    .arg(workspace.join("godot"))
+                    .args(["--resolution", "640x360", "--script", script])
+                    .env("SKYRIM_DATA", &data)
+                    .env(
+                        "SOE_EQUIPMENT_EXTERIOR",
+                        if *cell == "exterior" { "1" } else { "0" },
+                    )
+                    .env("DISPLAY", ":99")
+                    .env("SOE_INTERFACE_CACHE", "/tmp/soe-equipment-no-interface")
+                    .env_remove("SOE_CAPTURE_PATH")
+                    .env_remove("SOE_THREADED_SIMULATION")
+                    .output()
+                    .unwrap();
+                let log = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                std::fs::write(
+                    workspace.join(format!("target/{script}-{headless}.log")),
+                    &log,
+                )
                 .unwrap();
-            let log = format!(
-                "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            std::fs::write(
-                workspace.join(format!("target/{script}-{headless}.log")),
-                &log,
-            )
-            .unwrap();
-            assert!(
-                output.status.success()
-                    && log.contains("RESULT: PASS HST-25 inventory equipment")
-                    && !log.contains("SCRIPT ERROR"),
-                "{script} headless={headless} {}: {log}",
-                output.status
-            );
+                std::fs::write(evidence.join(format!("{script}-{headless}.log")), &log).unwrap();
+                assert!(
+                    output.status.success()
+                        && log.contains("RESULT: PASS HST-25 inventory equipment")
+                        && !log.contains("SCRIPT ERROR"),
+                    "{script} cell={cell} headless={headless} {}: {log}",
+                    output.status
+                );
+                if !headless {
+                    for suffix in [
+                        "bare",
+                        "armored",
+                        "drawn",
+                        "sheathed",
+                        "third_drawn",
+                        "third_sheathed",
+                        "first_drawn",
+                        "first_sheathed",
+                    ] {
+                        if script == "hst_25_armor_test.gd" && !matches!(suffix, "bare" | "armored")
+                        {
+                            continue;
+                        }
+                        let name = format!("hst_25_equipment_{suffix}.png");
+                        std::fs::copy(
+                            workspace.join("godot/.godot").join(&name),
+                            evidence.join(name),
+                        )
+                        .unwrap();
+                    }
+                }
+            }
         }
     }
 

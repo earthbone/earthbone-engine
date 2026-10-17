@@ -31,11 +31,15 @@ func _check(ok: bool, message: String) -> void:
 		failures += 1
 		printerr("FAIL: HST-25 equipment ", message)
 
+func _animation_frame(step: int) -> void:
+	if step % 8 == 0:
+		await process_frame
+
 func _steps(count: int) -> void:
 	for _step in count:
 		player_body.call("advance", 1.0 / 60.0)
 		player_arms.call("advance", 1.0 / 60.0)
-		await process_frame
+		await _animation_frame(_step)
 
 func _models(visual: Node3D) -> Array:
 	var models := []

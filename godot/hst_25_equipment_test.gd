@@ -47,7 +47,7 @@ func _ready(drawn: bool) -> void:
 					played[index] = true
 			var observation: Dictionary = visual.call("play_path_observation")
 			_check(observation.get("hands_drawn", not drawn) == (drawn if event in graph_events[index] else not drawn), "attachment changed before " + event)
-		await process_frame
+		await _animation_frame(_step)
 	for index in 2:
 		_check(played[index], "view %d did not play equip/unequip clip" % index)
 		_check(event in graph_events[index], "view %d did not emit %s" % [index, event])
@@ -104,7 +104,7 @@ func _proof_both_views() -> void:
 			moved = moved or before != visual.call("uploaded_skin_poses")
 			if contact_seen and contact_after == contact_health:
 				contact_after = _health()
-			await process_frame
+			await _animation_frame(_step)
 		_check(attacks[0] and attacks[1], "mouse attack did not select both authored attack clips")
 		_check(moved, "mouse attack did not move the selected rig")
 		_check(contact_seen and contact_after < contact_health, "authored hit frame did not apply shared combat damage")

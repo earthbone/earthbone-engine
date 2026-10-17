@@ -83,15 +83,25 @@ Third-person health changes from 1000 to 992.3, then first-person health changes
 from 992.3 to 984.6. Before the contact-source correction, the first-person hit
 left health at 992.3.
 
-The complete Bannered Mare sequence passes headless and windowed on the private
-software-rendered display. Windowed armor changes 6,823 pixels against the
-100-pixel minimum and unequip restores both rigs' previous models. Both rigs
+The complete sequence passes headless and windowed in Bannered Mare and
+WhiterunOrigin on the private software-rendered display. Windowed armor changes
+6,735 and 4,341 pixels against the 100-pixel minimum. Unequip restores both rigs'
+previous models. Both rigs
 play shield and two-handed block clips, dagger and warhammer power attacks,
 and Bow_DrawNock and Bow_DrawLight followed by arrowRelease. The fixture first
 reported 33 to 32 arrows because the player already held 23. It now establishes
 and asserts ten starting arrows, then retains the nine-arrow release assertion.
 The invisible rig's release marker cannot consume a second arrow. Captures are
-under `target/hst25-final-mare`.
+under `target/hst25-final-mare` and `target/hst25-final-exterior`.
+
+Run `hst_25_walkthrough_inventory_attacks` with SKYRIM_DATA, SOE_GODOT_BIN and
+SOE_EQUIPMENT_ALL_CELLS=1 to repeat all four modes. The combined run takes
+227.19 seconds. The earlier exterior windowed fixture reached the unchanged
+300-second process limit while waiting for a render after every animation tick.
+The fixture now yields a rendered frame once per eight manual animation ticks.
+Every 60 Hz animation step, clip observation, event and contact assertion still
+runs. Captures still wait for frame_post_draw. The runner records each location
+separately before moving to the next one. No assertion or timeout was relaxed.
 
 Projectile flight currently ends at its first actor without applying damage
 or OnHit. CMB-40 records that separate core gap. Projectile rendering and full
@@ -101,10 +111,13 @@ paths do not resolve conflicts between shield armor and weapon hand slots.
 INV-09 records that transition gap. No new
 production scene nodes, dependency or saved field is added. The first-person
 shadow rendering, rig turning, NPC movement, hair and faces remain with their
-round 4 owners. The torso placement regression and final Bannered Mare captures
-pass. The exterior headless sequence passes. Its windowed software fixture
-reaches the existing 300-second limit while rendering every animation tick.
-Confirmation with batched render waits is pending.
+round 4 owners. The captures show the sheathed third-person idle facing the
+camera while the drawn stance faces away. Root facing remains unresolved by
+these equipment changes. Contact placement against ordinary NPC collision
+geometry, other gear and rigs, and a GPU play session remain unverified.
+Package formatting, all-target Clippy and 601 host library tests pass. The game
+hand changes pass all-target Clippy and 1,356 game library tests. The ordinary
+library runs skip installed-data checks when their data variables are unset.
 
 ## Player view corrections, 2026-10-14
 
