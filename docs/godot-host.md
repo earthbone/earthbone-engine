@@ -1,5 +1,36 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## NPC render clock, round 4
+
+The inline presenter derived Speed from consecutive render-frame positions.
+When rendering outpaced physics, unchanged frames sent moveStop and the next
+tick sent moveStart. `r4_npc_clock_test.gd` reproduces this in the Bannered
+Mare by moving Hulda on alternating render frames. Before correction she
+moves 44.75 units, but her walking clips never advance beyond 0.03 seconds.
+The fixed check requires 16 units of displacement and a walk clock reaching
+0.1 seconds. It exits one before the correction.
+
+Inline NPC presentation now retains the last two simulation poses and samples
+locomotion only when simulation time advances. Render frames between ticks
+retain the current velocity. A later stopped tick produces zero velocity.
+Automatic presentation interpolates position and heading between those poses
+using Godot's physics interpolation fraction. Manual fixed-step checks present
+the latest pose. Clock rewinds, teleports and same-tick native placement changes
+reset history instead of interpolating across a jump. The threaded adapter
+retains its existing snapshot path.
+
+The local Godot `physics_interpolation_introduction.rst` and Engine class
+reference supply the previous/current pose and interpolation-fraction contract.
+The host reuses its placement conversion, graph inputs and RID submission.
+No new actor node, dependency or saved field is added. The transient history
+holds two render snapshots per existing actor node.
+
+The corrected release exits zero in the same installed clock check. Hulda
+moves 66.51 units and the maximum walking clip clock reaches 0.32 seconds,
+above the unchanged 0.1-second threshold. Before correction it was 0.03.
+The headless check proves graph-clock progress, not visual motion quality
+on the user's GPU.
+
 ## Sandbox collision recovery, round 4
 
 The unchanged installed progress check now measures Hulda traveling 315.54

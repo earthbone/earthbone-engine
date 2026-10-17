@@ -40,6 +40,11 @@ pub const LOCOMOTION_BEHAVIOR: &str = "behaviors/mt_behavior.hkx";
 /// The human behavior graph that connects locomotion, stagger and combat.
 pub const MASTER_BEHAVIOR: &str = "behaviors/0_master.hkx";
 
+#[cfg(any(feature = "godot", test))]
+mod presentation;
+#[cfg(feature = "godot")]
+pub(crate) use presentation::NpcPresentation;
+
 /// Vanilla one-handed melee behavior, with authored attack markers.
 pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
 

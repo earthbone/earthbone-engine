@@ -449,6 +449,15 @@ impl PlayerNode {
         }
         let mut parent = self.base().clone();
         let mut uploaded = false;
+        let source_seconds = self
+            .game
+            .as_ref()
+            .map(|game| game.world().clock.real_seconds);
+        let fraction = if self.auto_step && source_seconds.is_some() {
+            godot::classes::Engine::singleton().get_physics_interpolation_fraction() as f32
+        } else {
+            1.0
+        };
         for (id, placement) in placements {
             let Some(appearance) = self.npc_actors.appearances.get(&id) else {
                 continue;
@@ -530,8 +539,13 @@ impl PlayerNode {
                             if !node.is_inside_tree() {
                                 parent.add_child(&node);
                             }
-                            node.bind_mut()
-                                .present(placement, self.npc_actors.hidden, 0.0);
+                            node.bind_mut().present(
+                                placement,
+                                self.npc_actors.hidden,
+                                0.0,
+                                source_seconds,
+                                1.0,
+                            );
                             let result = node.bind_mut().install_presented_actor(
                                 id,
                                 rig,
@@ -568,8 +582,13 @@ impl PlayerNode {
                         id,
                     );
                 }
-                node.bind_mut()
-                    .present(placement, self.npc_actors.hidden, delta);
+                node.bind_mut().present(
+                    placement,
+                    self.npc_actors.hidden,
+                    delta,
+                    source_seconds,
+                    fraction,
+                );
                 if let Some(pair) = &self.simulation_pair {
                     for request in resident
                         .animation_cursor

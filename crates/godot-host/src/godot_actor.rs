@@ -209,6 +209,7 @@ pub struct SkinnedActorNode {
     assets: Option<Arc<ActorAssets>>,
     presented_actor: Option<soe_esm::GlobalFormId>,
     presented_placement: Option<soe_game::world::RefPlacement>,
+    presentation: crate::actor::NpcPresentation,
     presentation_hidden: bool,
     presented_moving: bool,
     presented_turning: i8,
@@ -249,6 +250,7 @@ impl INode3D for SkinnedActorNode {
             playing: true,
             presented_actor: None,
             presented_placement: None,
+            presentation: crate::actor::NpcPresentation::default(),
             presentation_hidden: false,
             presented_moving: false,
             presented_turning: 0,
@@ -1441,12 +1443,21 @@ impl SkinnedActorNode {
         placement: soe_game::world::RefPlacement,
         hidden: bool,
         delta: f32,
+        source_seconds: Option<f64>,
+        fraction: f32,
     ) {
-        if let (Some(motion), Some(vm)) = (
-            self.presented_placement
-                .and_then(|previous| crate::actor::NpcMotion::between(previous, placement, delta)),
-            self.vm.as_mut(),
-        ) {
+        let (placement, motion) = source_seconds.map_or_else(
+            || {
+                (
+                    placement,
+                    self.presented_placement.and_then(|previous| {
+                        crate::actor::NpcMotion::between(previous, placement, delta)
+                    }),
+                )
+            },
+            |seconds| self.presentation.sample(placement, seconds, fraction),
+        );
+        if let (Some(motion), Some(vm)) = (motion, self.vm.as_mut()) {
             let speed = motion.speed;
             let turn = motion.turn;
             vm.variables.set_by_name("Speed", speed);
