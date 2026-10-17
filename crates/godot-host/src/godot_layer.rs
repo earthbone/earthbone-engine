@@ -2549,6 +2549,9 @@ impl CellStreamerNode {
                 Basis::IDENTITY,
                 Vector3::new(position.x, position.y, position.z),
             );
+            let Some(render) = world.record(base).and_then(light_render_data) else {
+                continue;
+            };
             // The reference's object id spreads phases so neighbouring
             // lights do not flicker in step.
             let phase = (reference.object % 1024) as f32 * 0.618_034;
@@ -2587,9 +2590,6 @@ impl CellStreamerNode {
                 });
                 continue;
             }
-            let Some(render) = world.record(base).and_then(light_render_data) else {
-                continue;
-            };
             let light = crate::scene_timing::rendering_server(|| server.omni_light_create());
             let [begin, length] = fade.unwrap_or_default();
             crate::scene_timing::rendering_server(|| {
