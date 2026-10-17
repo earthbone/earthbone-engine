@@ -1333,6 +1333,7 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Gameplay);
         if !self.automatic_physics_step {
             self.flush_automatic_detection();
             self.detection_time_usec = -1;
@@ -1490,6 +1491,7 @@ impl PlayerNode {
         let physics_scope = soe_trace::SystemScope::new(soe_trace::System::Physics);
         let noclip = self.console_noclip_step(delta, &input);
         if let (Some(world), Some(id)) = (self.world.as_mut().filter(|_| !noclip), self.character) {
+            let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Movement);
             world.set_crouch(id, intent.crouch);
             let (direction, speed, jump) = player_locomotion(intent, paralyzed);
             world.walk(id, direction, speed);

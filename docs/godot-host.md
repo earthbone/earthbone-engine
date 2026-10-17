@@ -164,7 +164,10 @@ cancels stale work even when both doors name one persistent cell.
 
 Speculative admission retains 4,096 authored references, 384 MiB of mesh and unique texture
 payload and 100,000 collision primitives. Prepared locations also have a
-128-cell bound covering physical cells and inherited terrain. There remains
+128-cell bound covering physical cells and inherited terrain. Payload is checked
+after each cell and primitives after each static body, so rejected speculation
+stops preparing later products. Required transitions keep their full selection.
+There remains
 one worker or retained result. GPU and physics installation stay on the host
 thread, with query statics and cell uploads spread across process frames. No additional host node or saved field is added.
 
@@ -971,7 +974,9 @@ resident visual consumes its requests once, including across skipped ticks.
 
 Rig ownership retains an Arc for the interpreter's private borrow and drops that
 interpreter before replacing or releasing the Arc. Cell unload no longer leaks a
-rig allocation. The rig cache is cleared when the data source changes. Shutdown
+rig allocation. The rig cache removes entries after their last resident or pending
+consumer releases them. Reconciliation skips a cache lock held by a decoder until
+a later frame. Changing the data source clears the cache. Shutdown
 waits for outstanding decode jobs before releasing the host. Inline characters
 bind to the shared World for existing graph-event, stagger, facial and death
 hooks. `npc_visuals` reports identities, skinned surfaces, bones, head parts,
@@ -1009,6 +1014,8 @@ armor uses each selected ARMA's first-person model. Its rig and behavior come
 from `_1stperson/characters/firstperson.hkx` under the selected race's animation
 root. The first-person camera bone's reference transform anchors those meshes
 to the player camera. Missing first-person character files fail the binding.
+First-person preparation loads its own rig, graph, clips and addon meshes
+directly. The ordinary body prepares its assets separately.
 Race and armor changes refresh both views. Restoring a direct Game rebinds
 the existing visuals to its replacement World.
 

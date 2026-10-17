@@ -84,6 +84,7 @@ mod ui_25_tests;
 #[cfg(feature = "godot")]
 pub(crate) use chargen::ChargenCache;
 pub use location::LoadedLocation;
+pub(crate) use location::LocationLimits;
 #[cfg(feature = "godot")]
 pub(crate) use location::PreparedCell;
 pub use lod::LoadedLodBlock;
@@ -163,6 +164,11 @@ pub enum DataSourceError {
     WorkerPoolBuild(#[source] rayon::ThreadPoolBuildError),
     #[error("collision: {0}")]
     Collision(String),
+    #[error("location preparation exceeds its budget at payload={payload_bytes} primitives={primitives}")]
+    LocationBudget {
+        payload_bytes: usize,
+        primitives: usize,
+    },
 }
 
 /// Counts from one `stream_cell` run, for the headless smoke test and the
@@ -598,6 +604,7 @@ impl DataSource {
         threads: usize,
         cache_dir: Option<&Path>,
     ) -> Result<Self, DataSourceError> {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Source);
         let _load = soe_trace::LoadScope::operation(
             "startup",
             "DataSource",
@@ -1026,6 +1033,7 @@ impl DataSource {
     /// A reference whose mesh fails to read or parse is counted as failed and
     /// skipped, it does not stop the rest of the cell from loading.
     pub fn stream_cell_id(&self, cell_id: GlobalFormId) -> Result<LoadedCell, DataSourceError> {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Cell);
         let references = if self
             .cell_index()
             .persistent_cell_world(cell_id)

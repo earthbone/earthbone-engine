@@ -41,6 +41,7 @@ pub mod door_fade;
 pub mod effect_shader;
 pub mod facegen;
 pub mod facial;
+pub mod heap_tuning;
 pub mod hud;
 pub mod image_space;
 pub mod input;
@@ -126,6 +127,10 @@ mod entry {
             if level == InitStage::Scene {
                 crate::godot_logging::install();
                 crate::godot_profiler::register();
+            }
+            if level == InitStage::Core {
+                crate::heap_tuning::cap_malloc_arenas(crate::heap_tuning::DEFAULT_ARENA_CAP);
+                crate::heap_tuning::map_large_buffers();
             }
         }
 

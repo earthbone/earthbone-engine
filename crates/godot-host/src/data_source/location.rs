@@ -5,7 +5,7 @@
 //! CellIndex and the existing parent LAND path supply the same record semantics
 //! used by the exterior renderer. Logical reference ownership is left intact.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use soe_esm::{tag, GlobalFormId};
 use soe_physics::{BodyId, Collider, Iso, PhysicsWorld, Shape, SimpleWorld, Vec3};
@@ -21,6 +21,81 @@ pub struct LoadedLocation {
     pub collision: CellCollision,
     /// Host body ownership, including parent-world terrain on the local cell.
     pub collision_cells: BTreeMap<GlobalFormId, Vec<BodyId>>,
+}
+
+impl LoadedLocation {
+    /// Prepared mesh and distinct image payloads, shared across all selected cells.
+    pub(crate) fn payload_bytes(&self) -> usize {
+        let mut payload = LocationPayload::default();
+        for (_, cell) in &self.cells {
+            payload.add_cell(cell);
+        }
+        payload.bytes
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct LocationLimits {
+    pub payload_bytes: usize,
+    pub primitives: usize,
+}
+
+#[derive(Default)]
+struct LocationPayload {
+    bytes: usize,
+    images: HashSet<usize>,
+}
+
+impl LocationPayload {
+    fn add_cell(&mut self, cell: &LoadedCell) {
+        for surface in &cell.surfaces {
+            self.bytes = self.bytes.saturating_add(surface.arrays.mesh_byte_count());
+            for image in [
+                &surface.textures.diffuse,
+                &surface.textures.normal,
+                &surface.textures.environment,
+                &surface.textures.environment_mask,
+                &surface.textures.glow,
+                &surface.textures.greyscale,
+                &surface.textures.terrain_noise,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if self.images.insert(std::sync::Arc::as_ptr(image) as usize) {
+                    self.bytes = self.bytes.saturating_add(image.payload_bytes());
+                }
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct LocationBudget {
+    limits: Option<LocationLimits>,
+    payload: LocationPayload,
+}
+
+impl LocationBudget {
+    fn check_cell(&mut self, cell: &LoadedCell) -> Result<(), DataSourceError> {
+        if self.limits.is_some() {
+            self.payload.add_cell(cell);
+            self.check_primitives(0)?;
+        }
+        Ok(())
+    }
+
+    fn check_primitives(&self, primitives: usize) -> Result<(), DataSourceError> {
+        if self.limits.is_some_and(|limits| {
+            self.payload.bytes > limits.payload_bytes || primitives > limits.primitives
+        }) {
+            return Err(DataSourceError::LocationBudget {
+                payload_bytes: self.payload.bytes,
+                primitives,
+            });
+        }
+        Ok(())
+    }
 }
 
 #[cfg(feature = "godot")]
@@ -114,6 +189,21 @@ impl DataSource {
         position: [f32; 3],
         radius: i32,
     ) -> Result<LoadedLocation, DataSourceError> {
+        self.load_location_with_limits(cell, position, radius, None)
+    }
+
+    pub(crate) fn load_location_with_limits(
+        &self,
+        cell: GlobalFormId,
+        position: [f32; 3],
+        radius: i32,
+        limits: Option<LocationLimits>,
+    ) -> Result<LoadedLocation, DataSourceError> {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Cell);
+        let mut budget = LocationBudget {
+            limits,
+            ..LocationBudget::default()
+        };
         if !(0..=4).contains(&radius) || position.iter().any(|v| !v.is_finite()) {
             return Err(DataSourceError::CellNotFound(
                 "invalid destination coordinates or radius".into(),
@@ -121,7 +211,9 @@ impl DataSource {
         }
         let index = self.cell_index();
         let cells = if index.is_interior(cell) {
-            vec![(cell, self.stream_cell_id(cell)?)]
+            let loaded = self.stream_cell_id(cell)?;
+            budget.check_cell(&loaded)?;
+            vec![(cell, loaded)]
         } else {
             let owner = self
                 .order
@@ -173,19 +265,22 @@ impl DataSource {
                     "{world} at {origin:?}"
                 )));
             }
-            let mut cells: Vec<_> = self
-                .stream_exterior_block(block)?
-                .cells
-                .into_iter()
-                .map(|(cell, loaded)| (cell.id, loaded))
-                .collect();
+            let mut cells = Vec::new();
+            self.try_stream_exterior_each(&block, |cell, loaded, _| {
+                budget.check_cell(&loaded)?;
+                cells.push((cell.id, loaded));
+                Ok(())
+            })?;
             if let Some(persistent) = index.world_persistent_cell(world) {
                 if !cells.iter().any(|(id, _)| *id == persistent) {
-                    cells.push((persistent, self.stream_cell_id(persistent)?));
+                    let loaded = self.stream_cell_id(persistent)?;
+                    budget.check_cell(&loaded)?;
+                    cells.push((persistent, loaded));
                 }
             }
             cells
         };
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Movement);
         let mut colliders = Vec::new();
         let mut world = SimpleWorld::new();
         let mut references = HashMap::new();
@@ -209,6 +304,7 @@ impl DataSource {
                 let _build = soe_trace::LoadMeasure::new(soe_trace::LoadStage::CollisionBuild, "");
                 let before = world.primitive_count();
                 let body = world.add_static(&placed.collider);
+                budget.check_primitives(world.primitive_count())?;
                 references.insert(body, placed.reference);
                 bodies.push(body);
                 colliders.push(placed.collider.clone());
@@ -329,6 +425,7 @@ impl DataSource {
         cell: GlobalFormId,
         loaded: &LoadedCell,
     ) -> Result<(Vec<PlacedCollider>, CollisionStats), DataSourceError> {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Movement);
         let (mut placed, stats) = self.placed_cell_colliders(cell)?;
         let _build = soe_trace::LoadMeasure::new(soe_trace::LoadStage::CollisionBuild, "");
         for surface in &loaded.surfaces {
@@ -405,6 +502,142 @@ mod hst_08_tests {
     use crate::streaming::{CellStreamer, StreamBudget, StreamConfig};
     use crate::units::{GodotPos, SkyrimPos};
     use std::sync::Arc;
+
+    #[test]
+    fn speculative_location_stops_after_first_over_budget_cell() {
+        use super::super::fixture;
+        use soe_esm::{Entry, FileHeader, Group, GroupKind, Plugin, Record};
+
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join("meshes")).unwrap();
+        std::fs::create_dir_all(directory.path().join("textures")).unwrap();
+        let mut plugin = Plugin::new(FileHeader::default());
+        let mut top = Group::new(GroupKind::Top(tag::WRLD));
+        top.entries
+            .push(Entry::Record(plugin.push_record(Record::new(tag::WRLD, 1))));
+        let mut children = Group::new(GroupKind::WorldChildren(1));
+        let mut block = Group::new(GroupKind::ExteriorBlock { y: 0, x: 0 });
+        let mut sub = Group::new(GroupKind::ExteriorSubBlock { y: 0, x: 0 });
+        for x in 0_i32..3 {
+            let cell = 10 + x as u32;
+            let base = 100 + x as u32;
+            let mut grid = x.to_le_bytes().to_vec();
+            grid.extend_from_slice(&[0; 8]);
+            sub.entries.push(Entry::Record(
+                plugin.push_record(
+                    Record::new(tag::CELL, cell)
+                        .sub(b"DATA", [0, 0])
+                        .sub(b"XCLC", grid),
+                ),
+            ));
+            let mut temporary = Group::new(GroupKind::CellTemporary(cell));
+            temporary.entries.push(Entry::Record(
+                plugin.push_record(
+                    Record::new(tag::REFR, 200 + x as u32)
+                        .sub(b"NAME", base.to_le_bytes())
+                        .sub(b"DATA", [0; 24]),
+                ),
+            ));
+            let mut cell_children = Group::new(GroupKind::CellChildren(cell));
+            cell_children.entries.push(Entry::Group(temporary));
+            sub.entries.push(Entry::Group(cell_children));
+            plugin.push_top(Record::new(tag::STAT, base).zsub(b"MODL", &format!("{x}.nif")));
+
+            let mut writer = fixture::NifWriter::new(100);
+            let root = writer.reserve("NiNode");
+            let texture = writer.texture_set(&[&format!("textures/{x}.dds")]);
+            let texture = writer.add("BSShaderTextureSet", texture);
+            let shader = writer.lighting_shader(0, 0, 0, texture, &[]);
+            let shader = writer.add("BSLightingShaderProperty", shader);
+            let (vertices, triangles) = fixture::quad();
+            let shape = writer.bs_tri_shape(
+                "Fixture",
+                [0.0; 3],
+                -1,
+                shader,
+                -1,
+                soe_nif::vertex::attr::VERTEX | soe_nif::vertex::attr::UVS,
+                &vertices,
+                &triangles,
+                true,
+            );
+            let shape = writer.add("BSTriShape", shape);
+            let node = writer.ni_node("Root", [0.0; 3], fixture::IDENTITY, 1.0, &[shape]);
+            writer.fill(root, node);
+            writer.roots = vec![root];
+            std::fs::write(
+                directory.path().join(format!("meshes/{x}.nif")),
+                writer.finish(),
+            )
+            .unwrap();
+            let header = soe_dds::header::Header {
+                flags: soe_dds::header::flags::CAPS
+                    | soe_dds::header::flags::HEIGHT
+                    | soe_dds::header::flags::WIDTH
+                    | soe_dds::header::flags::PIXELFORMAT,
+                height: 4,
+                width: 4,
+                pitch_or_linear_size: 8,
+                depth: 0,
+                mip_map_count: 1,
+                pixel_format: soe_dds::header::PixelFormat {
+                    flags: soe_dds::header::pf::FOURCC,
+                    four_cc: *b"DXT1",
+                    rgb_bit_count: 0,
+                    r_mask: 0,
+                    g_mask: 0,
+                    b_mask: 0,
+                    a_mask: 0,
+                },
+                caps: soe_dds::header::caps::TEXTURE,
+                caps2: 0,
+                dx10: None,
+            };
+            let mut dds = header.to_bytes();
+            dds.extend_from_slice(&[0; 8]);
+            std::fs::write(directory.path().join(format!("textures/{x}.dds")), dds).unwrap();
+        }
+        block.entries.push(Entry::Group(sub));
+        children.entries.push(Entry::Group(block));
+        top.entries.push(Entry::Group(children));
+        plugin.groups.push(top);
+        std::fs::write(directory.path().join("Skyrim.esm"), plugin.to_bytes()).unwrap();
+        for master in &super::super::BASE_MASTERS[1..] {
+            std::fs::write(
+                directory.path().join(master),
+                Plugin::new(FileHeader::default()).to_bytes(),
+            )
+            .unwrap();
+        }
+        let source = DataSource::open_with_threads(directory.path(), 1).unwrap();
+        let destination = GlobalFormId {
+            file: 0,
+            object: 10,
+        };
+        let error = source
+            .load_location_with_limits(
+                destination,
+                [0.0; 3],
+                2,
+                Some(LocationLimits {
+                    payload_bytes: 0,
+                    primitives: usize::MAX,
+                }),
+            )
+            .err()
+            .unwrap();
+        assert!(
+            matches!(error, DataSourceError::LocationBudget { payload_bytes, primitives: 0 } if payload_bytes > 0)
+        );
+        assert_eq!(
+            source.textures.counters().decoded,
+            1,
+            "later cell textures were prepared after rejection"
+        );
+        let required = source.load_location(destination, [0.0; 3], 2).unwrap();
+        assert_eq!(required.cells.len(), 3);
+        assert_eq!(source.textures.counters().decoded, 3);
+    }
 
     fn surface(texture: Arc<TextureData>) -> LoadedSurface {
         LoadedSurface {

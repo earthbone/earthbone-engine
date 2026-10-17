@@ -3,6 +3,8 @@ extends "res://walkthrough.gd"
 
 ## Persistent full-model residency follows the vanilla header flags.
 var failures := 0
+var frame_peak := {}
+var current_phase := "startup"
 
 
 func _configure_player() -> void:
@@ -11,6 +13,9 @@ func _configure_player() -> void:
 
 
 func _process(_delta: float) -> bool:
+	var rss := _status_mib("VmRSS")
+	if rss > frame_peak.get("rss_mib", 0.0):
+		frame_peak = {"phase": current_phase, "rss_mib": rss, "hwm_mib": _status_mib("VmHWM"), "godot": _monitors()}
 	return false
 
 
@@ -42,11 +47,54 @@ func _drawn() -> Dictionary:
 	return drawn
 
 
+func _status_mib(key: String) -> float:
+	var file := FileAccess.open("/proc/self/status", FileAccess.READ)
+	if file == null:
+		return 0.0
+	while not file.eof_reached():
+		var line := file.get_line()
+		if line.begins_with(key + ":"):
+			return float(line.get_slice(":", 1).strip_edges().get_slice(" ", 0)) / 1024.0
+	return 0.0
+
+
+func _monitors() -> Dictionary:
+	return {
+		"static": Performance.get_monitor(Performance.MEMORY_STATIC),
+		"video": Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED),
+		"texture": Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED),
+		"buffer": Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED),
+		"objects": Performance.get_monitor(Performance.OBJECT_COUNT),
+		"resources": Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT),
+		"nodes": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+		"orphans": Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT),
+	}
+
+
+## Report process RSS next to Godot monitors and host payload ownership.
+func _phase(label: String) -> void:
+	current_phase = label
+	print("FULL_LOD_PHASE ", JSON.stringify({"phase": label, "rss_mib": _status_mib("VmRSS"), "anon_mib": _status_mib("RssAnon"), "file_mib": _status_mib("RssFile"), "shmem_mib": _status_mib("RssShmem"), "hwm_mib": _status_mib("VmHWM"), "godot": _monitors(), "attribution": streamer.call("memory_attribution"), "actors": _actor_memory(), "lod_cache": streamer.call("lod_cache_memory"), "collision": player.call("collision_memory_attribution"), "prefetch": player.call("interior_prefetch_status"), "npc_cache": player.call("npc_texture_memory_attribution"), "plugin_records": streamer.call("plugin_record_memory")}))
+
+
+func _actor_memory() -> Dictionary:
+	var result := {"nodes": 0, "cpu_mesh_allocation_bytes": 0, "cpu_expression_bytes": 0, "cpu_image_allocation_bytes": 0}
+	for child: Node in player.get_children():
+		if child.get_class() == "SkinnedActorNode":
+			result.nodes += 1
+			var memory: Dictionary = child.call("memory_attribution")
+			for key: String in result:
+				if key != "nodes":
+					result[key] = int(result[key]) + int(memory.get(key, 0))
+	return result
+
+
 func _start() -> void:
 	await super._start()
 	if not loaded:
 		quit(1)
 		return
+	_phase("after_inn")
 	var expected: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(OS.get_environment("SOE_FULL_LOD_EXPECT")))
 	var exited := false
 	for door: Dictionary in player.call("gameplay_doors"):
@@ -60,6 +108,7 @@ func _start() -> void:
 		player.call("advance", 1.0 / 60.0)
 		await process_frame
 	_check(not player.call("door_fade_active"), "inn exit fade has completed")
+	_phase("after_exit")
 	var gate: Dictionary = player.call("detection_gate_reference")
 	_check(not gate.is_empty(), "Whiterun gate found")
 	if gate.is_empty():
@@ -75,6 +124,7 @@ func _start() -> void:
 		player.call("advance", 1.0 / 60.0)
 		await process_frame
 	_check(not player.call("door_fade_active"), "gate fade has completed")
+	_phase("gate_settled")
 	for _frame in range(140):
 		player.call("advance", 0.0)
 		await process_frame
@@ -90,6 +140,7 @@ func _start() -> void:
 	_check(count > 0 and count < expected.all.size(), "bounded visible demand replaces whole-world preparation")
 	print("FULL_LOD_WORLD expected=", expected.all.size(), " drawn=", count, " near=", expected.near.size())
 	_report_memory()
+	_phase("after_gate")
 	var position: Vector3 = player.call("position")
 	var peak := Vector3(float(expected.peak[0]), float(expected.peak[1]), float(expected.peak[2]))
 	var delta := peak - position
@@ -136,6 +187,7 @@ func _start() -> void:
 				silhouette_pixels += 1
 	_check(silhouette_pixels >= 500, "distant mountain clears terrain ridge")
 	print("FULL_LOD_LANDMARK pixels=", silhouette_pixels, " threshold=500")
+	_phase("landmark_done")
 	streamer.call("set_object_lod_visible", true)
 	gameplay_camera.make_current()
 	camera.queue_free()
@@ -155,12 +207,15 @@ func _start() -> void:
 	_check(retained == 0, "Tamriel full models released")
 	_check(streamer.call("distant_references").is_empty(), "distant CPU and GPU ownership released")
 	print("FULL_LOD_RELEASE retained=", retained)
+	_phase("after_release")
 	var city_count := 0
 	for reference: String in expected.city:
 		city_count += int(drawn.has(reference))
 	_check(city_count == expected.city.size(), "every authored Whiterun flagged model drawn")
 	await _measure("city", city_count)
 	print("FULL_LOD_RESULT ", "PASS" if failures == 0 else "FAIL")
+	_phase("end")
+	print("FULL_LOD_FRAME_PEAK ", JSON.stringify(frame_peak))
 	quit(0 if failures == 0 else 1)
 
 

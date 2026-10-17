@@ -432,6 +432,18 @@ impl DataSource {
         block: &ExteriorBlock,
         mut on_cell: impl FnMut(ExteriorCell, LoadedCell, bool),
     ) -> Result<(), DataSourceError> {
+        self.try_stream_exterior_each(block, |cell, loaded, has_land| {
+            on_cell(cell, loaded, has_land);
+            Ok(())
+        })
+    }
+
+    /// Stop speculative preparation as soon as a completed cell exceeds admission.
+    pub(super) fn try_stream_exterior_each(
+        &self,
+        block: &ExteriorBlock,
+        mut on_cell: impl FnMut(ExteriorCell, LoadedCell, bool) -> Result<(), DataSourceError>,
+    ) -> Result<(), DataSourceError> {
         let mut wanted = block.cells.clone();
         wanted.extend_from_slice(&block.parent_cells);
         let land = self.land_for_cells(&wanted);
@@ -501,7 +513,7 @@ impl DataSource {
                 }
             }
             loaded.refresh_texture_inventory();
-            on_cell(*cell, loaded, has_land);
+            on_cell(*cell, loaded, has_land)?;
         }
         Ok(())
     }

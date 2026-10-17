@@ -82,6 +82,7 @@ impl DataSource {
     /// Only for a failure that stops the walk. Unreadable models are counted
     /// in [CollisionStats::failed] and skipped.
     pub fn collide_cell_id(&self, cell_id: GlobalFormId) -> Result<CellCollision, DataSourceError> {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Movement);
         let (colliders, mut stats) = self.placed_cell_colliders(cell_id)?;
         let mut world = SimpleWorld::new();
         let mut references = HashMap::new();

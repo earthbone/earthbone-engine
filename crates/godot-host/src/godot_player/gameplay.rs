@@ -598,6 +598,7 @@ impl PlayerNode {
     }
 
     pub(super) fn start_game_runtime(&mut self) -> bool {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Gameplay);
         if self.game.is_some() {
             return true;
         }
@@ -635,7 +636,10 @@ impl PlayerNode {
             }
         }
         game.apply_mod_data(source.vfs().loose_roots());
-        let scripts = game.load_scripts_from_vfs(source.vfs());
+        let scripts = {
+            let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Scripts);
+            game.load_scripts_from_vfs(source.vfs())
+        };
         if !scripts.scripts_failed.is_empty() {
             soe_trace::error!(target: "host::gameplay", system = "host::gameplay",
                 "PlayerNode: failed to load {} scripts",
@@ -737,6 +741,7 @@ impl PlayerNode {
     }
 
     pub(super) fn advance_game(&mut self, delta: f64, sprinting: bool) {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Gameplay);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _scene = crate::scene_timing::Scope::new(soe_trace::System::Other);
         if self.game.is_none() || self.main_menu.is_active() {
@@ -1430,6 +1435,7 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_game_pose(&mut self) -> bool {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Gameplay);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         self.location_preparing = false;
         let destination = {
@@ -1709,6 +1715,17 @@ impl PlayerNode {
             self.record_door_texture_preparation(texture_preparation);
             self.footstep_cadence.reset();
             self.motion = CameraMotion::new(feet, self.capsule_height());
+            drop(location.cells);
+            drop(collision.colliders);
+            drop(collision.placed);
+            {
+                let _release = soe_trace::LoadScope::operation(
+                    "location_heap_release",
+                    cell.to_string(),
+                    std::time::Duration::from_millis(33),
+                );
+                crate::heap_tuning::release_unused_pages();
+            }
             soe_trace::info!(target: "host::gameplay", system = "host::gameplay",
                 "GAMEPLAY cell={cell} position={position:?} bodies={} texture_prepare_ms={:.3} fade={}",
                 collision.stats.bodies,

@@ -391,3 +391,12 @@ border coordinates. It does not establish pixels, GPU completion, collision
 registration or process memory. Godot lacks Bevy's RenderMesh inventory in
 this host path. No expensive render inventory scan or resource handle retention
 is added. The counters are transient and add no save section or dependency.
+
+## Rust heap peaks
+
+`rust_heap_peaks` reports total requested live bytes, the process-lifetime
+peak and the peak since the previous report. Reading the interval restarts
+its peak at the current total. This exposes preparation spikes that have
+already been freed before the next phase snapshot. The host's allocation
+header continues to account frees and reallocations to their original system.
+These counters exclude Godot, libc overhead and driver allocations.

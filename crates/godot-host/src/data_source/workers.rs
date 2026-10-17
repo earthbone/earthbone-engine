@@ -39,6 +39,7 @@ impl WorkerPools {
         let pool = self.pool(threads)?;
         let chunk_size = items.len().div_ceil(threads);
         let recorder = soe_trace::WorkRecorder::current();
+        let owner = soe_trace::PayloadOwnerScope::current();
         let load_recorder = soe_trace::LoadRecorder::current();
         let load = soe_trace::LoadToken::current();
         let submitted = std::time::Instant::now();
@@ -47,6 +48,7 @@ impl WorkerPools {
                 items
                     .par_chunks(chunk_size)
                     .map(|chunk| {
+                        let _owner = soe_trace::PayloadOwnerScope::new(owner);
                         let _ownership = load.as_ref().map(soe_trace::LoadToken::enter);
                         soe_trace::LoadTrace::queue_wait("asset_chunk", submitted);
                         let _frame = recorder.as_ref().map(soe_trace::WorkRecorder::enter);

@@ -36,7 +36,10 @@ pub use frame::{
 };
 
 mod memory;
-pub use memory::{memory_allocated, memory_freed, MemorySnapshot};
+pub use memory::{
+    memory_allocated, memory_freed, rust_heap_peaks, MemorySnapshot, PayloadOwner,
+    PayloadOwnerScope, RustHeapPeaks,
+};
 mod stream;
 pub use stream::{
     streaming_coverage, streaming_snapshot, streaming_transition, LoadCapture, LoadMeasure,

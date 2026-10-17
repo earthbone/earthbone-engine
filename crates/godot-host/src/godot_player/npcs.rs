@@ -83,6 +83,14 @@ pub(super) struct NpcActors {
 }
 
 impl NpcActors {
+    fn prune_unused_rigs(&self) {
+        // CONTEXT: A decoder holds this lock during I/O. Reconcile on a later
+        // frame if it is busy, and keep every pending or resident consumer.
+        if let Ok(mut rigs) = self.rigs.try_lock() {
+            rigs.retain(|_, rig| Arc::strong_count(rig) > 1);
+        }
+    }
+
     pub(super) fn debug_actor(&self, actor: GlobalFormId) -> Option<Gd<SkinnedActorNode>> {
         self.residents.get(&actor)?.node.clone()
     }
@@ -301,6 +309,7 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_npc_actors(&mut self, delta: f32) {
+        self.npc_actors.prune_unused_rigs();
         self.npc_actors
             .textures
             .borrow_mut()
@@ -591,6 +600,15 @@ impl PlayerNode {
             report.add(&format!("texture_{format}_bytes"), bytes);
         }
         let mut result = VarDictionary::new();
+        if let Ok(rigs) = self.npc_actors.rigs.lock() {
+            result.set("rig_cache_entries", rigs.len() as i64);
+            result.set(
+                "rig_cache_without_consumers",
+                rigs.values()
+                    .filter(|rig| Arc::strong_count(rig) == 1)
+                    .count() as i64,
+            );
+        }
         for (name, value) in report.values {
             result.set(name.as_str(), value as i64);
         }
@@ -766,8 +784,62 @@ impl PlayerNode {
 
 #[cfg(test)]
 mod hst_23_tests {
-    use super::LoadingTasks;
+    use super::{ActorAssets, LoadingTasks, NpcActors};
     use std::sync::{mpsc, Arc};
+
+    #[test]
+    fn unused_rig_releases_after_the_last_resident_or_pending_consumer() {
+        let actors = NpcActors::default();
+        let rig = Arc::new(ActorAssets {
+            skeleton: soe_hkx::skeleton::Skeleton {
+                name: "fixture".into(),
+                parent_indices: Vec::new(),
+                bones: Vec::new(),
+                reference_pose: Vec::new(),
+                reference_floats: vec![0.0; 1024],
+                float_slots: Vec::new(),
+            },
+            ragdoll: None,
+            graph: soe_hkx::behavior::BehaviorGraph {
+                name: "fixture".into(),
+                variable_mode: 0,
+                root: None,
+                data: soe_hkx::behavior::BehaviorGraphData::default(),
+                nodes: Vec::new(),
+            },
+            clips: soe_hkx::interp::ClipLibrary::default(),
+            surfaces: Vec::new(),
+            skeleton_path: "fixture.hkx".into(),
+            skeleton_model_path: "fixture.nif".into(),
+            behavior_path: "fixture.hkx".into(),
+            project_path: None,
+            actor_race: None,
+            actor_female: None,
+            character_properties: Vec::new(),
+            missing_clips: Vec::new(),
+            unresolved_references: Vec::new(),
+        });
+        let released = Arc::downgrade(&rig);
+        let key = (rig.skeleton_path.clone(), rig.behavior_path.clone());
+        actors
+            .rigs
+            .lock()
+            .unwrap()
+            .insert(key.clone(), Arc::clone(&rig));
+        let decoder = actors.rigs.lock().unwrap();
+        actors.prune_unused_rigs();
+        assert!(Arc::ptr_eq(decoder.get(&key).unwrap(), &rig));
+        drop(decoder);
+        let pending = Arc::clone(&rig);
+        drop(rig);
+        actors.prune_unused_rigs();
+        assert_eq!(actors.rigs.lock().unwrap().len(), 1);
+        assert_eq!(pending.skeleton.reference_floats.len(), 1024);
+        drop(pending);
+        actors.prune_unused_rigs();
+        assert!(released.upgrade().is_none());
+        assert!(actors.rigs.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn hst_23_shutdown_waits_for_all_asset_jobs() {

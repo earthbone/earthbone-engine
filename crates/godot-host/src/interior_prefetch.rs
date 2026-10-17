@@ -3,7 +3,6 @@
 //! One speculative destination preparation, following OpenMW's nearby teleport
 //! door preload policy. Only immutable host inputs cross the worker boundary.
 
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -11,7 +10,7 @@ use std::thread::JoinHandle;
 use soe_esm::GlobalFormId;
 use soe_physics::PhysicsWorld;
 
-use crate::data_source::{DataSource, DataSourceError, LoadedLocation, TextureData};
+use crate::data_source::{DataSource, DataSourceError, LoadedLocation, LocationLimits};
 
 pub const APPROACH_RADIUS: f32 = 500.0;
 pub const SELECTION_INTERVAL: f64 = 0.25;
@@ -217,7 +216,19 @@ impl InteriorPrefetch {
             destination,
             Box::new(move || {
                 let source = source.speculative_view();
-                let mut location = source.load_location(destination, position, radius)?;
+                let limits = (preparation == Preparation::Speculative).then_some(LocationLimits {
+                    payload_bytes: MAX_PAYLOAD_BYTES,
+                    primitives: MAX_COLLISION_PRIMITIVES,
+                });
+                let mut location = match source.load_location_with_limits(destination, position, radius, limits) {
+                    Ok(location) => location,
+                    Err(error @ DataSourceError::LocationBudget { .. }) => {
+                        soe_trace::warn!(target: "host::interior_prefetch", system = "host::interior_prefetch",
+                            "interior_prefetch: rejected {destination} early: {error}");
+                        return Ok(None);
+                    }
+                    Err(error) => return Err(error),
+                };
                 if preparation == Preparation::Speculative && !admitted(&location) {
                     soe_trace::warn!(target: "host::interior_prefetch", system = "host::interior_prefetch",
                         "interior_prefetch: rejected {destination} payload={} primitives={}",
@@ -229,7 +240,10 @@ impl InteriorPrefetch {
                 // Retain the batch attachment's resolved FormID event order.
                 location.cells.sort_unstable_by_key(|(cell, _)| *cell);
                 // Build the immutable static broad phase before any host movement.
-                location.collision.world.step(0.0);
+                {
+                    let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Movement);
+                    location.collision.world.step(0.0);
+                }
                 Ok(Some(location))
             }),
         );
@@ -361,57 +375,14 @@ fn location_grid(
 }
 
 fn payload_bytes(location: &LoadedLocation) -> usize {
-    let mut bytes = 0usize;
-    let mut seen = HashSet::new();
-    for (_, cell) in &location.cells {
-        for surface in &cell.surfaces {
-            let arrays = &surface.arrays;
-            for size in [
-                std::mem::size_of_val(arrays.positions.as_slice()),
-                std::mem::size_of_val(arrays.normals.as_slice()),
-                std::mem::size_of_val(arrays.tangents.as_slice()),
-                std::mem::size_of_val(arrays.uvs.as_slice()),
-                std::mem::size_of_val(arrays.colors.as_slice()),
-                std::mem::size_of_val(arrays.indices.as_slice()),
-                std::mem::size_of_val(arrays.bones.as_slice()),
-                std::mem::size_of_val(arrays.weights.as_slice()),
-            ] {
-                bytes = bytes.saturating_add(size);
-            }
-            for texture in [
-                &surface.textures.diffuse,
-                &surface.textures.normal,
-                &surface.textures.environment,
-                &surface.textures.environment_mask,
-                &surface.textures.glow,
-                &surface.textures.greyscale,
-                &surface.textures.terrain_noise,
-            ]
-            .into_iter()
-            .flatten()
-            {
-                if seen.insert(Arc::as_ptr(texture)) {
-                    bytes = bytes.saturating_add(texture_bytes(texture.as_ref()));
-                }
-            }
-        }
-    }
-    bytes
-}
-
-fn texture_bytes(texture: &TextureData) -> usize {
-    match texture {
-        TextureData::Cubemap(faces) => faces.iter().map(texture_bytes).sum(),
-        TextureData::Compressed { bytes, .. } => bytes.len(),
-        TextureData::Rgba8(image) => image.rgba.len(),
-    }
+    location.payload_bytes()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::collision::{CellCollision, CollisionStats};
-    use crate::data_source::LoadedCell;
+    use crate::data_source::{LoadedCell, TextureData};
 
     const CELL: GlobalFormId = GlobalFormId { file: 0, object: 1 };
 
@@ -717,7 +688,24 @@ mod tests {
         assert!(payload_bytes(&prepared) > MAX_PAYLOAD_BYTES);
         assert!(prepared.collision.stats.primitives > MAX_COLLISION_PRIMITIVES);
         assert!(!admitted(&prepared));
+        let full_payload = payload_bytes(&prepared);
         drop(prepared);
+        let rejected = source.speculative_view().load_location_with_limits(
+            destination.cell,
+            destination.landing.position,
+            1,
+            Some(LocationLimits {
+                payload_bytes: MAX_PAYLOAD_BYTES,
+                primitives: MAX_COLLISION_PRIMITIVES,
+            }),
+        );
+        assert!(
+            matches!(rejected,
+                Err(DataSourceError::LocationBudget { payload_bytes, .. })
+                    if payload_bytes > MAX_PAYLOAD_BYTES && payload_bytes < full_payload
+            ),
+            "speculation must stop before preparing the full city payload"
+        );
         let mut prefetch = InteriorPrefetch::default();
         prefetch.prepare_transition(
             Arc::clone(&source),

@@ -3113,12 +3113,40 @@ impl CellStreamerNode {
     #[func]
     pub fn memory_attribution(&self) -> VarDictionary {
         let mut report = crate::memory::AssetMemory::default();
+        for owner in crate::allocations::Owner::ALL {
+            report.add(
+                &format!("rust_payload_{}_live_bytes", owner.name()),
+                crate::allocations::live_bytes(owner) as usize,
+            );
+            #[cfg(all(target_os = "linux", target_env = "gnu"))]
+            {
+                let bytes = crate::allocations::malloc_live_bytes(owner);
+                report.add(
+                    &format!("rust_payload_{}_malloc_bytes", owner.name()),
+                    bytes as usize,
+                );
+                report.add("rust_malloc_bytes", bytes as usize);
+            }
+        }
         let allocation = soe_trace::MemorySnapshot::now();
         for system in soe_trace::System::ALL {
             report.add(
                 &format!("rust_{}_live_bytes", system.name()),
                 allocation.live_bytes[system as usize] as usize,
             );
+        }
+        let heap = soe_trace::rust_heap_peaks();
+        report.add("rust_heap_live_bytes", heap.live_bytes as usize);
+        report.add("rust_heap_peak_bytes", heap.peak_since_start_bytes as usize);
+        report.add(
+            "rust_heap_report_peak_bytes",
+            heap.peak_since_last_report_bytes as usize,
+        );
+        if let Some(heap) = crate::heap_tuning::heap_info() {
+            report.add("malloc_arena_bytes", heap.arena);
+            report.add("malloc_arena_live_bytes", heap.uordblks);
+            report.add("malloc_arena_free_bytes", heap.fordblks);
+            report.add("malloc_mapped_bytes", heap.hblkhd);
         }
         if let Some(source) = &self.data_source {
             source.asset_memory(&mut report);
@@ -4477,6 +4505,7 @@ impl CellStreamerNode {
         scenario: Rid,
         totals: &mut StreamTotals,
     ) {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Cell);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _load = soe_trace::LoadScope::operation(
             "cell_upload",

@@ -30,7 +30,6 @@ use soe_hkx::QsTransform;
 use crate::actor::{ActorAssets, ActorSurface};
 use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
 use crate::data_source::DataSource;
-use crate::data_source::SurfaceTextures;
 use crate::godot_layer::actor_array_mesh_from;
 use crate::godot_ragdoll::LiveRagdoll;
 use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
@@ -299,6 +298,7 @@ impl INode3D for SkinnedActorNode {
     }
 
     fn process(&mut self, delta: f64) {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::ActorGraph);
         let _scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         let started = std::time::Instant::now();
         self.sync_death_rendering();
@@ -644,8 +644,7 @@ impl SkinnedActorNode {
         drop(textures);
         // CONTEXT: Materials own the uploaded textures. Morph and pose updates use geometry only.
         for surface in &mut self.surfaces {
-            surface.textures = SurfaceTextures::default();
-            surface.face_tint = None;
+            surface.release_uploaded_images();
         }
     }
 
@@ -691,6 +690,9 @@ impl SkinnedActorNode {
             report.textures(&surface.textures);
             if let Some((_, tint)) = &surface.face_tint {
                 report.image(tint);
+            }
+            if let Some((_, detail)) = &surface.face_detail {
+                report.image(detail);
             }
         }
         report.add("mesh_count", self.meshes.len());
@@ -1285,6 +1287,7 @@ impl SkinnedActorNode {
     }
 
     fn install_rig(&mut self, assets: Arc<ActorAssets>) {
+        let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::ActorGraph);
         self.vm = None;
         self.assets = Some(assets);
         let Some(owner) = &self.assets else { return };
