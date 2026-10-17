@@ -35,8 +35,18 @@ func _load_art() -> void:
 		return
 	if cache == null or cache.directory != cache_directory:
 		cache = InterfaceCache.new(cache_directory)
-	for movie_path in cache.movies:
-		if not cache_movie.is_empty() and not str(movie_path).ends_with(cache_movie):
+	var selected_movie := cache_movie.replace("\\", "/").to_lower()
+	var movie_paths: Array = []
+	if selected_movie.begins_with("interface/"):
+		var requested: Dictionary = cache.movie(selected_movie)
+		if requested.is_empty():
+			return
+		selected_movie = requested.path
+		movie_paths = [selected_movie]
+	else:
+		movie_paths = cache.movies.keys()
+	for movie_path in movie_paths:
+		if not selected_movie.is_empty() and not str(movie_path).ends_with(selected_movie):
 			continue
 		if cache_movie.is_empty() and "icon" not in str(movie_path).to_lower():
 			continue

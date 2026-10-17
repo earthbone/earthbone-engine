@@ -28,6 +28,7 @@ func run() -> void:
 		"interface/cycle.swf": "cycle/movie.tres",
 		"interface/escape.swf": "../outside/movie.tres",
 		"interface/fonts.swf": "fonts/movie.tres",
+		"interface/icons_aaa.swf": "icons/movie.tres",
 		"interface/icons_fixture.swf": "icons/movie.tres",
 	}})
 	var font_config := FileAccess.open(directory.path_join("fontconfig.txt"), FileAccess.WRITE)
@@ -101,7 +102,7 @@ func run() -> void:
 	var menu := Menu.new()
 	root.add_child(menu)
 	var items := [{"id": "1", "name": "Fixture item", "category": "Misc", "icon": "default_misc", "side": 0}]
-	menu.configure("inventory", items, directory)
+	menu.configure("inventory", items, directory, {"item": "INTERFACE\\ICONS_FIXTURE.SWF"})
 	var item_icon = menu.rows.get_child(0).get_child(0).get_child(1)
 	assert(item_icon.art_source == "interface/icons_fixture.swf")
 	var manifest := directory.path_join("manifest.json")

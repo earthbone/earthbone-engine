@@ -13,6 +13,7 @@ use super::PlayerNode;
 
 impl PlayerNode {
     pub(super) fn open_barter_menu(&mut self, merchant: GlobalFormId) -> bool {
+        let _span = crate::godot_ui_trace::scope(|| "ui.barter.open".into());
         let title = self
             .game
             .as_ref()
@@ -105,6 +106,7 @@ impl PlayerNode {
     }
 
     pub(super) fn open_container_menu(&mut self, holder: GlobalFormId) -> bool {
+        let _span = crate::godot_ui_trace::scope(|| "ui.container.open".into());
         let title = self
             .game
             .as_ref()

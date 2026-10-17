@@ -139,6 +139,7 @@ impl PlayerNode {
     }
 
     pub(super) fn present_items(&mut self, mode: &str, rows: &[(Row, i64)]) -> bool {
+        let presentation_started = std::time::Instant::now();
         let mut span = crate::godot_ui_trace::scope(|| "ui.items.present".into());
         span.set_payload(rows.len() as u64);
         let Some(mut content) = self.menu_content() else {
@@ -154,6 +155,10 @@ impl PlayerNode {
         if let Some(mut view) = content.get_node_or_null("ItemMenu") {
             let _guard = self.base_mut();
             view.call("replace_rows", &[data.to_variant()]);
+            view.set_meta(
+                "opening_main_thread_ms",
+                &(presentation_started.elapsed().as_secs_f64() * 1000.0).to_variant(),
+            );
             return true;
         }
         let script = godot::tools::try_load::<GDScript>("res://ui/item_menu.gd");
@@ -162,6 +167,22 @@ impl PlayerNode {
             return false;
         };
         let cache = self.item_art_cache();
+        let mut icon_sources = VarDictionary::new();
+        if let Some(source) = &self.data_source {
+            match crate::interface_art::icon_sources(source.vfs()) {
+                Ok(sources) => {
+                    if let Some(category) = sources.category {
+                        icon_sources.set("category", category);
+                    }
+                    if let Some(item) = sources.item {
+                        icon_sources.set("item", item);
+                    }
+                }
+                Err(error) => {
+                    godot_error!("PlayerNode: interface config: {error}");
+                }
+            }
+        }
         let base = self.base().clone();
         let _guard = self.base_mut();
         for mut child in content.get_children().iter_shared() {
@@ -175,7 +196,16 @@ impl PlayerNode {
         content.add_child(&view);
         view.call(
             "configure",
-            &[mode.to_variant(), data.to_variant(), cache.to_variant()],
+            &[
+                mode.to_variant(),
+                data.to_variant(),
+                cache.to_variant(),
+                icon_sources.to_variant(),
+            ],
+        );
+        view.set_meta(
+            "opening_main_thread_ms",
+            &(presentation_started.elapsed().as_secs_f64() * 1000.0).to_variant(),
         );
         true
     }

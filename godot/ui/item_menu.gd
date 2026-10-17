@@ -26,6 +26,7 @@ var descending := false
 var selected_id := ""
 var query := ""
 var cache_directory := ""
+var icon_sources: Dictionary = {}
 var art_cache = InterfaceCache.new()
 var categories: VBoxContainer
 var header: HBoxContainer
@@ -123,10 +124,11 @@ func _ready() -> void:
 	resized.connect(_resize_card)
 	refresh()
 
-func configure(menu_mode: String, data: Array, cache: String = "") -> void:
+func configure(menu_mode: String, data: Array, cache: String = "", sources: Dictionary = {}) -> void:
 	var _span = UiTrace.begin("ui.items.configure")
 	mode = menu_mode
 	source_rows = data
+	icon_sources = sources
 	set_art_cache(cache)
 
 func set_art_cache(cache: String) -> void:
@@ -319,6 +321,7 @@ func refresh() -> void:
 		category_art.icon_name = DefaultTheme.category_icon(str(choice))
 		category_art.cache_directory = cache_directory
 		category_art.cache = art_cache
+		category_art.cache_movie = str(icon_sources.get("category", ""))
 		category_art.cache_icon_name = DefaultTheme.installed_category(str(choice))
 		category_art.custom_minimum_size = Vector2(20, 20)
 		button.add_child(category_art)
@@ -368,6 +371,7 @@ func refresh() -> void:
 				icon.icon_name = row.get("icon", "default_misc")
 				icon.cache_directory = cache_directory
 				icon.cache = art_cache
+				icon.cache_movie = str(icon_sources.get("category" if row.category == "Spells" else "item", ""))
 				_cell(icon, key)
 				cells.add_child(icon)
 			elif key == "equipped" and row.get("equipped", false):

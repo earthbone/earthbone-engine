@@ -10158,3 +10158,43 @@ formatting, all-target Clippy and the release build pass. No full lint gate
 was run, following the round 4 task. These source-selection checks do not
 establish authored layout fidelity. The live captures also expose a separate
 configured-icon selection failure, tracked by UI-41.
+
+### Configured icon movies
+
+The first NORDIC free walk capture exits 1 at the configured-icon check in
+all five menus. The native presenter scans every icon movie and picks the
+alphabetically earlier Celtic category catalog. SkyUI's winning
+`interface/skyui/config.txt` selects the psychosteve category catalog, which
+NORDIC replaces. The converted NORDIC generation was present in every menu,
+so mounting the Data roots alone did not correct this separate selection.
+
+The presenter now reads the two quoted source entries in `[Appearance]`
+through `soe-profile::Ini`. It passes their paths to the item menu and
+resolves full interface paths case insensitively through InterfaceCache.
+Missing configuration retains the existing fallback. Malformed selectors
+report their key, and unreadable or malformed text reports the config path.
+The references are local SkyUI Community `data/interface/skyui/config.txt`
+and `source/actionscript/ItemMenus/ItemMenu.as`, function `setConfig`.
+The full AS2 configuration interpreter is outside this native selector path.
+
+The import fixture supplies an earlier competing catalog and an explicit
+mixed-case Windows path. It retains every import, font, cycle, generation
+and pixel assertion. Four focused source checks pass with the external
+SkyUI and NORDIC paths set. No mod file is copied into the repository.
+
+The item presenter also records its elapsed main-thread time as menu
+metadata. This exposes deferred barter presentation separately from its
+request, which returned in 0.3 ms while construction happened on the next
+frame. `ui.container.open` and `ui.barter.open` trace scopes cover the outer
+opening work. These are diagnostics without saved state or visible controls.
+
+The selector release library passes in 1 minute 47 seconds. Both sequential
+free walk runs exit zero, report no GDScript errors, and pass the configured
+source check in inventory, container, barter, magic and favorites. Captures
+are under `target/r4-ui/skyui-selected` and `target/r4-ui/nordic-selected`.
+The source names and pixels now distinguish the selected SkyUI and NORDIC
+category art. The strengthened import fixture and all 597 host library
+checks pass, alongside package formatting and all-target Clippy.
+Authored control placement and full chrome comparisons remain the existing
+UI-20 and UI-30 work. These captures establish the loadout and icon binding,
+without a claim that the native control layout matches the SWF layout.
