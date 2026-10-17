@@ -1,5 +1,15 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Dialogue headings, DLG-23, 2026-10-17
+
+An eligible DIAL without a prompt or FULL was rendered as its resolved FormID.
+The menu presenter now omits choices without display text. Dialogue execution
+keeps the record and its invisible continuation behavior. The name label reads
+the shared speaker reference as before and now sits above the topic panel.
+The former placement put the label over the actor. Two focused presenter and
+layout regressions failed before the fix. The walkthrough scene also checks
+the heading text and each displayed topic for leaked FormIDs.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and

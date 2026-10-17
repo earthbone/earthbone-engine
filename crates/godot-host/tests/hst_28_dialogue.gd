@@ -179,6 +179,11 @@ func _run_hst_28() -> void:
         labels.append((node as Button).text)
     print("hst_28 buttons: ", labels)
     _check(labels.has("I'd like to rent a room. (10 gold)"), "room option substitutes its quest global before display")
+    var heading := player.get_node("MenuLayer/DialogueSpeaker") as Label
+    _check(heading.text == "Hulda", "dialogue heading uses the speaker name")
+    _check(heading.get_global_rect().end.y <= content.get_global_rect().position.y, "speaker name heads the topic panel")
+    for topic: Dictionary in topics:
+        _check(topic.label != "%d:%06X" % [topic.file, topic.object], "topic button never displays a raw form id")
     var topic_button: Button
     if not topics.is_empty():
         for node: Node in content.find_children("*", "Button", true, false):
