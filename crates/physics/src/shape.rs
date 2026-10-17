@@ -745,14 +745,8 @@ impl<'a> Walker<'a> {
                     Some(Shape::Compound(out))
                 }
             }
-            Bhk::MoppBvTree { shape, scale } => {
-                let inner = self.shape(shape, depth + 1)?;
-                if (scale - 1.0).abs() > 1e-6 {
-                    inner.map(|s| s.scaled(scale))
-                } else {
-                    inner
-                }
-            }
+            // CONTEXT: Mudcrab's extract_shape traverses MOPP without resizing its child.
+            Bhk::MoppBvTree { shape, .. } => self.shape(shape, depth + 1)?,
             Bhk::CompressedMesh {
                 data,
                 scale,
@@ -981,6 +975,65 @@ mod chunk_reference_tests {
             let mut data = data();
             data.chunks[1].reference = reference;
             assert!(compressed_mesh(&data, Vec3::new(1.0, 1.0, 1.0), 0.0).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod mopp_tests {
+    use super::*;
+
+    #[test]
+    fn r4_mopp_metadata_does_not_resize_child_geometry() {
+        let header = Header {
+            version: soe_nif::header::VERSION_20_2_0_7,
+            user_version: 12,
+            bs_version: soe_nif::header::BS_SKYRIM_SE,
+            author: String::new(),
+            process_script: String::new(),
+            export_script: String::new(),
+            max_filepath: String::new(),
+            block_types: Vec::new(),
+            block_type_index: Vec::new(),
+            block_sizes: Vec::new(),
+            strings: Vec::new(),
+            groups: Vec::new(),
+        };
+        for scale in [0.5_f32, 1.0, 70.0, 254.0] {
+            let mut payload = 1_i32.to_le_bytes().to_vec();
+            payload.extend_from_slice(&[0; 12]);
+            payload.extend_from_slice(&scale.to_le_bytes());
+            let mut sphere = vec![0; 4];
+            sphere.extend_from_slice(&2.0_f32.to_le_bytes());
+            let blocks = [
+                Block::Collision {
+                    type_name: "bhkMoppBvTreeShape".into(),
+                    data: payload,
+                },
+                Block::Collision {
+                    type_name: "bhkSphereShape".into(),
+                    data: sphere,
+                },
+            ];
+            let mut walker = Walker {
+                header: &header,
+                blocks: &blocks,
+                out: Collected::default(),
+                seen: HashSet::new(),
+            };
+            let child = walker
+                .shape(BlockRef(1), 0)
+                .expect("child")
+                .expect("sphere");
+            assert_eq!(child.aabb(&Iso::IDENTITY).max.x, 2.0);
+            let wrapped = walker
+                .shape(BlockRef(0), 0)
+                .expect("wrapper")
+                .expect("wrapped sphere");
+            assert_eq!(
+                wrapped, child,
+                "MOPP metadata scale={scale} resized its child"
+            );
         }
     }
 }

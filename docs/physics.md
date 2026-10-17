@@ -892,3 +892,14 @@ The movement constants in `world.rs` remain fallback rates for callers
 without MOVT records. Gameplay supplies directional race movement rates and
 live actor modifiers from `soe-game`, documented in [game.md](game.md).
 The capsule still consumes a direction and speed without reading game forms.
+
+## MOPP child geometry, preview round 4
+
+MOPP wrappers retain their metadata in the decoder. Shape collection follows
+Mudcrab `crates/converter/src/collision.rs`, `extract_shape`, and traverses
+the child without resizing its geometry. The existing Rust shape collector
+supplies the same operation without importing the GLB converter.
+`r4_mopp_metadata_does_not_resize_child_geometry` compares a radius-2 sphere
+with its wrapped form at metadata scales 0.5, 1, 70 and 254. Before correction,
+scale 0.5 reduced the radius to 1. The installed south Whiterun tree has scale
+1 here, so this separate correction does not explain that reported wall.
