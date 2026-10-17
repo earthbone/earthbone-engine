@@ -39,6 +39,7 @@ macro_rules! with_world {
     }};
 }
 
+pub mod combat;
 pub mod consumables;
 pub mod magic;
 
