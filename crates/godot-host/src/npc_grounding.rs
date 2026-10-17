@@ -3,6 +3,7 @@
 //! HST-30 transient NPC capsules over the player's installed cell collision.
 //! Uses soe-physics' player controller. Godotwind's MoveContainer and WalkMove
 //! separate horizontal intent from gravity and perform one controller update.
+//! OpenMW AiWander::evadeObstacles retries obstructed wander destinations.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -11,6 +12,20 @@ use soe_physics::{BodyId, Character, CharacterSettings, PhysicsWorld, SimpleWorl
 
 /// Maximum downward correction of an authored spawn, in Skyrim units.
 pub const SPAWN_SNAP: f32 = 128.0;
+
+/// Continuous blocked intent before a sandbox target is retried.
+pub const BLOCKED_RETRY_SECONDS: f32 = 1.0;
+
+/// Transient collision feedback for the current resident capsule.
+#[derive(Debug, Clone, Copy)]
+pub struct MovementDiagnostics {
+    /// Latest requested placement, before controller collision resolution.
+    pub target: [f32; 3],
+    /// Continuous grounded intent with less than five percent actual progress.
+    pub blocked_seconds: f32,
+    /// Number of blocked controller steps since this capsule was installed.
+    pub blocked_steps: u64,
+}
 
 /// Nearest walkable collision surface at the feet's XY, within the spawn range.
 /// Upper floors and ceilings do not replace a nearer supporting floor.
@@ -41,6 +56,8 @@ struct Body {
     cell: GlobalFormId,
     scale: f32,
     last_target: Vec3,
+    blocked_seconds: f32,
+    blocked_steps: u64,
 }
 
 /// Transient controller resources. Resolved positions belong to World's references.
@@ -50,6 +67,22 @@ pub struct NpcGrounding {
 }
 
 impl NpcGrounding {
+    /// Read movement feedback without constructing an actor or capsule.
+    pub fn movement_diagnostics(&self, actor: GlobalFormId) -> Option<MovementDiagnostics> {
+        let body = self.bodies.get(&actor)?;
+        Some(MovementDiagnostics {
+            target: [body.last_target.x, body.last_target.y, body.last_target.z],
+            blocked_seconds: body.blocked_seconds,
+            blocked_steps: body.blocked_steps,
+        })
+    }
+
+    pub(crate) fn retry_started(&mut self, actor: GlobalFormId) {
+        if let Some(body) = self.bodies.get_mut(&actor) {
+            body.blocked_seconds = 0.0;
+        }
+    }
+
     /// Forget handles when their entire collision world is replaced.
     pub fn reset(&mut self) {
         self.bodies.clear();
@@ -150,6 +183,8 @@ impl NpcGrounding {
                     cell,
                     scale,
                     last_target: target,
+                    blocked_seconds: 0.0,
+                    blocked_steps: 0,
                 },
             );
         }
@@ -157,6 +192,7 @@ impl NpcGrounding {
         body.last_target = target;
         if delta > 0.0 {
             let character = world.character(body.id)?;
+            let before = character.position;
             let difference = target - character.position;
             let desired = if recreate {
                 Vec3::ZERO
@@ -165,8 +201,93 @@ impl NpcGrounding {
             };
             world.move_character(body.id, desired);
             world.step_character(body.id, delta);
+            let character = world.character(body.id)?;
+            let intent = desired.x.hypot(desired.y) * delta;
+            let progress = (character.position.x - before.x).hypot(character.position.y - before.y);
+            if character.on_ground && intent > 0.1 && progress < intent * 0.05 {
+                body.blocked_seconds += delta;
+                body.blocked_steps += 1;
+            } else {
+                body.blocked_seconds = 0.0;
+            }
         }
         let position = world.character(body.id)?.position;
         Some([position.x, position.y, position.z])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_nif::types::BlockRef;
+    use soe_physics::{Collider, Iso, Layer, MotionType, Shape};
+
+    #[test]
+    fn blocked_controller_intent_is_reported_and_clears_after_real_progress() {
+        let mut world = SimpleWorld::new();
+        for (center, half) in [
+            ([0.0, 0.0, -1.0], Vec3::new(1024.0, 1024.0, 1.0)),
+            ([128.0, 0.0, 100.0], Vec3::new(1.0, 200.0, 100.0)),
+        ] {
+            world.add_static(&Collider {
+                node: BlockRef(0),
+                node_name: String::new(),
+                layer: Layer::STATIC,
+                motion: MotionType::Fixed,
+                mass: 0.0,
+                transform: Iso::placement(center, [0.0; 3], 1.0),
+                shape: Shape::Box { half_extents: half },
+            });
+        }
+        let actor = GlobalFormId { file: 0, object: 1 };
+        let cell = GlobalFormId { file: 0, object: 2 };
+        let mut grounding = NpcGrounding::default();
+        let mut position = [0.0; 3];
+        let dt = 1.0 / 60.0;
+        for _ in 0..240 {
+            position = grounding
+                .update(
+                    &mut world,
+                    actor,
+                    Some(cell),
+                    [position[0] + 80.1 * dt, 0.0, position[2]],
+                    1.0,
+                    dt,
+                )
+                .unwrap();
+        }
+        let feedback = grounding.movement_diagnostics(actor).unwrap();
+        assert!(feedback.blocked_seconds >= BLOCKED_RETRY_SECONDS);
+        assert!(feedback.blocked_steps >= 60);
+        assert!(position[0] <= 98.0);
+        let blocked_at = position[0];
+        grounding.retry_started(actor);
+        assert_eq!(
+            grounding
+                .movement_diagnostics(actor)
+                .unwrap()
+                .blocked_seconds,
+            0.0
+        );
+        for _ in 0..60 {
+            position = grounding
+                .update(
+                    &mut world,
+                    actor,
+                    Some(cell),
+                    [position[0] - 80.1 * dt, 0.0, position[2]],
+                    1.0,
+                    dt,
+                )
+                .unwrap();
+        }
+        assert!(position[0] < blocked_at - 64.0);
+        assert_eq!(
+            grounding
+                .movement_diagnostics(actor)
+                .unwrap()
+                .blocked_seconds,
+            0.0
+        );
     }
 }

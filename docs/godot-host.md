@@ -1,5 +1,15 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Sandbox collision recovery, round 4
+
+The unchanged installed progress check now measures Hulda traveling 315.54
+units, compared with 39.95 before recovery. Her longest blocked interval
+falls from 28 seconds to one. Saadia travels 483.06 units with no blocked
+sample. The host reports continuous grounded collision blocking to the
+sandbox planner after one second. It retains fixed Travel and combat goals.
+The game implementation and local OpenMW source are recorded in
+[game.md](game.md#collision-blocked-sandbox-choices-round-4).
+
 ## NPC route progress, round 4, 2026-10-17
 
 `r4_npc_progress_test.gd` extends the free walk, using its installed data,

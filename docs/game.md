@@ -1,5 +1,22 @@
 # soe-game: the runtime form table and the first natives
 
+## Collision-blocked sandbox choices, round 4
+
+The free walk keeps Hulda targeting the counter marker for 28 seconds after
+collision stops her 12 units short. Failed marker routes also retain their
+unreachable destination. Sandbox now discards a completed failed route or a
+target blocked by the grounded controller for one second. A rejected marker
+is excluded for 30 simulation seconds. Package changes reset exclusions.
+Pending sliced searches retain their target. Travel and combat keep their
+fixed targets. The controller reports intended and actual horizontal travel,
+so a stopped or airborne actor cannot trigger this recovery.
+
+OpenMW `aiwander.cpp`, `evadeObstacles`, removes blocked wander destinations
+and returns to action selection. The existing sandbox marker and navigation
+planners supply the replacement here. Exclusions and collision counters are
+transient caches and do not add saved state. The marker retry and blocked
+controller regressions retain their fixed time and progress thresholds.
+
 ## Patrol marker wait defaults, round 4
 
 The installed Whiterun free walk reports Patrol marker has no idle time

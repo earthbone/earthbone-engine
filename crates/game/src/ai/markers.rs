@@ -30,9 +30,16 @@ struct Request {
     frame: u64,
 }
 
+struct Choices {
+    goal: Goal,
+    selected: Option<GlobalFormId>,
+    rejected: BTreeMap<GlobalFormId, f64>,
+}
+
 #[derive(Default)]
 pub(super) struct Planner {
     requests: BTreeMap<GlobalFormId, Request>,
+    choices: BTreeMap<GlobalFormId, Choices>,
     frame: u64,
     remaining: usize,
     next_actor: Option<GlobalFormId>,
@@ -40,6 +47,21 @@ pub(super) struct Planner {
 }
 
 impl Planner {
+    pub(super) fn select(&mut self, actor: GlobalFormId, target: Option<GlobalFormId>) {
+        if let Some(choices) = self.choices.get_mut(&actor) {
+            choices.selected = target;
+        }
+    }
+
+    pub(super) fn reject(&mut self, actor: GlobalFormId, now: f64) {
+        self.cancel(actor);
+        if let Some(choices) = self.choices.get_mut(&actor) {
+            if let Some(target) = choices.selected.take() {
+                choices.rejected.insert(target, now + 30.0);
+            }
+        }
+    }
+
     pub(super) fn cancel(&mut self, actor: GlobalFormId) {
         self.requests.remove(&actor);
     }
@@ -56,6 +78,12 @@ impl Planner {
         self.last_work = 0;
         self.requests
             .retain(|actor, _| actors.binary_search(actor).is_ok());
+        self.choices.retain(|actor, choices| {
+            choices
+                .rejected
+                .retain(|_, until| *until > world.clock.real_seconds);
+            actors.binary_search(actor).is_ok()
+        });
         let keys: Vec<_> = self.requests.keys().copied().collect();
         let start = self
             .next_actor
@@ -85,6 +113,19 @@ impl Planner {
         actor: GlobalFormId,
         goal: Goal,
     ) -> Poll<Vec<GlobalFormId>> {
+        let choices = self.choices.entry(actor).or_insert_with(|| Choices {
+            goal,
+            selected: None,
+            rejected: BTreeMap::new(),
+        });
+        if choices.goal != goal {
+            choices.goal = goal;
+            choices.selected = None;
+            choices.rejected.clear();
+        }
+        choices
+            .rejected
+            .retain(|_, until| *until > world.clock.real_seconds);
         if self
             .requests
             .get(&actor)
@@ -110,11 +151,14 @@ impl Planner {
             request.frame = self.frame;
         }
         if request.cursor == request.total {
-            Poll::Ready(
-                self.requests
-                    .remove(&actor)
-                    .map_or_else(Vec::new, |request| request.matches),
-            )
+            let mut matches = self
+                .requests
+                .remove(&actor)
+                .map_or_else(Vec::new, |request| request.matches);
+            if let Some(choices) = self.choices.get(&actor) {
+                matches.retain(|target| !choices.rejected.contains_key(target));
+            }
+            Poll::Ready(matches)
         } else {
             Poll::Pending
         }
@@ -214,6 +258,59 @@ mod tests {
             cell: id(0x800),
             center: [0.0; 3],
             radius: 10.0,
+        }
+    }
+
+    fn complete(planner: &mut Planner, world: &mut World) -> Vec<GlobalFormId> {
+        for _ in 0..20 {
+            planner.begin_frame(world, &[id(0x810)]);
+            if let Poll::Ready(markers) = planner.request(world, id(0x810), goal()) {
+                return markers;
+            }
+        }
+        panic!("marker query exceeded its fixed slice count");
+    }
+
+    #[test]
+    fn blocked_sandbox_marker_is_excluded_until_its_retry_time() {
+        let mut world = fixture();
+        let mut planner = Planner::default();
+        let initial = complete(&mut planner, &mut world);
+        let rejected = initial[0];
+        planner.select(id(0x810), Some(rejected));
+        planner.reject(id(0x810), world.clock.real_seconds);
+        let next = complete(&mut planner, &mut world);
+        assert_eq!(next.len(), initial.len() - 1);
+        assert!(!next.contains(&rejected));
+        world.clock.real_seconds += 30.0;
+        assert_eq!(complete(&mut planner, &mut world), initial);
+    }
+
+    #[test]
+    fn collision_feedback_retries_sandbox_but_preserves_travel_and_combat() {
+        let mut world = fixture();
+        let actor = id(0x810);
+        for (procedure, combat, expected) in [
+            (super::super::Procedure::Sandbox, false, true),
+            (super::super::Procedure::Travel, false, false),
+            (super::super::Procedure::Sandbox, true, false),
+        ] {
+            let state = world.actor(actor).unwrap();
+            state.in_combat = combat;
+            state.ai = super::super::AiState {
+                procedure,
+                destination: Some([100.0, 0.0, 0.0]),
+                path: vec![[100.0, 0.0, 0.0]],
+                ..super::super::AiState::default()
+            };
+            assert_eq!(
+                super::super::retry_blocked_sandbox(&mut world, actor),
+                expected
+            );
+            let ai = &world.actor_ref(actor).unwrap().ai;
+            assert_eq!(ai.destination.is_none(), expected);
+            assert_eq!(ai.path.is_empty(), expected);
+            assert!(!ai.arrived);
         }
     }
 

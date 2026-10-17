@@ -2318,6 +2318,35 @@ fn refresh_nav_doors(world: &mut World) {
 
 // ----- the driver -----
 
+/// Retry a sandbox target after the host reports sustained collision blocking.
+/// Fixed package goals and combat pursuit retain their current destinations.
+pub fn retry_blocked_sandbox(world: &mut World, actor: GlobalFormId) -> bool {
+    let Some(state) = world.loaded_actor_mut(actor) else {
+        return false;
+    };
+    if state.in_combat
+        || state.ai.procedure != Procedure::Sandbox
+        || state.ai.arrived
+        || state.ai.destination.is_none()
+    {
+        return false;
+    }
+    let mut ai = std::mem::take(&mut state.ai);
+    discard_sandbox_target(world, actor, &mut ai);
+    if let Some(state) = world.loaded_actor_mut(actor) {
+        state.ai = ai;
+    }
+    true
+}
+
+fn discard_sandbox_target(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
+    ai.destination = None;
+    ai.path.clear();
+    ai.path_cells.clear();
+    world.ai.planner.cancel(actor);
+    world.ai.markers.reject(actor, world.clock.real_seconds);
+}
+
 /// Advance every loaded actor: evaluate when due, then move.
 pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
     let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
@@ -3390,6 +3419,7 @@ fn step_procedure(
             return;
         };
         let target = if markers.is_empty() {
+            world.ai.markers.select(actor, None);
             let angle =
                 world.random_float_for(crate::world::RngStream::Ai, 0.0, std::f32::consts::TAU);
             let r = world.random_float_for(crate::world::RngStream::Ai, 0.0, ai.radius);
@@ -3402,6 +3432,7 @@ fn step_procedure(
             let pick =
                 world.random_int_for(crate::world::RngStream::Ai, 0, markers.len() as i32 - 1)
                     as usize;
+            world.ai.markers.select(actor, Some(markers[pick]));
             world
                 .reference(markers[pick])
                 .map(|s| s.position)
@@ -3490,11 +3521,24 @@ fn step_procedure(
     if let (false, Some(dest)) = (ai.arrived, ai.destination) {
         if ai.path.is_empty() {
             let Some((path, cells)) = plan(world, actor, position, dest, ai.center_cell) else {
+                if ai.procedure == Procedure::Sandbox && !world.ai.planner.waiting(actor) {
+                    discard_sandbox_target(world, actor, &mut ai);
+                }
                 if let Some(state) = world.loaded_actor_mut(actor) {
                     state.ai = ai;
                 }
                 return;
             };
+            if ai.procedure == Procedure::Sandbox
+                && path.is_empty()
+                && distance(position, dest) > ARRIVAL_DISTANCE
+            {
+                discard_sandbox_target(world, actor, &mut ai);
+                if let Some(state) = world.loaded_actor_mut(actor) {
+                    state.ai = ai;
+                }
+                return;
+            }
             ai.path = path;
             ai.path_cells = cells;
         }

@@ -286,8 +286,18 @@ impl PlayerNode {
             ) {
                 retained.insert(contact.actor);
                 if let Some(game) = &self.game {
-                    game.world_mut()
-                        .set_host_actor_pose(contact.actor, position, contact.rotation);
+                    let mut world = game.world_mut();
+                    world.set_host_actor_pose(contact.actor, position, contact.rotation);
+                    if self
+                        .npc_grounding
+                        .movement_diagnostics(contact.actor)
+                        .is_some_and(|feedback| {
+                            feedback.blocked_seconds >= crate::npc_grounding::BLOCKED_RETRY_SECONDS
+                        })
+                        && soe_game::ai::retry_blocked_sandbox(&mut world, contact.actor)
+                    {
+                        self.npc_grounding.retry_started(contact.actor);
+                    }
                 } else if let Some(simulation) = &self.simulation {
                     if let Some(source) = self
                         .simulation_pair
@@ -633,6 +643,14 @@ impl PlayerNode {
                     "position" => Vector3::new(position.x, position.y, position.z),
                     "on_ground" => character.on_ground,
                 };
+                if let Some(feedback) = self.npc_grounding.movement_diagnostics(*actor) {
+                    row.set(
+                        "requested",
+                        Vector3::new(feedback.target[0], feedback.target[1], feedback.target[2]),
+                    );
+                    row.set("blocked_seconds", feedback.blocked_seconds);
+                    row.set("blocked_steps", feedback.blocked_steps as i64);
+                }
                 if let Some(height) = crate::npc_grounding::support_height(physics, position) {
                     row.set("ground_z", height);
                     row.set("below_ground", height - position.z);
