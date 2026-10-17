@@ -59,6 +59,7 @@ The shared synthetic locomotion graph now sets its unused sync index to -1.
 It previously left zero there, pointing at Speed. Enabling state publication
 exposed that fixture error in the game animation timing checks. Their
 playhead and furniture-event assertions are unchanged.
+
 ## Clip entry markers, round 4
 
 ANM-63 delivers a trigger at the initial playhead once when its clip activates.

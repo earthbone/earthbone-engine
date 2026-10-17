@@ -88,6 +88,7 @@ behavior but provide no reusable Rust implementation. The resolver reads
 winning records and shared runtime state. It handles alias names, short
 names, race, pronouns, capitalization, relationship labels, global values,
 date and timer subtags, Name and BaseName, and Message.Show numeric slots.
+
 ## Bounded combat replanning, round 4
 
 The pursuing giant requested 50 paths per wall second toward the camera and
@@ -215,6 +216,7 @@ Recast's `RecastDemo/Source/Sample_SoloMesh.cpp` erodes walkable space by
 agent radius before the point funnel. OpenMW `AiPackage::pathTo` supplies
 agent bounds to its navigator. The engine reuses the existing inset from
 AI-95 instead of replacing native NAVM geometry or adding a dependency.
+
 ## Weapon and spell hand selection, HST-25
 
 The shared weapon transaction clears the previous spell in the selected hand,
@@ -237,6 +239,7 @@ and crossbows and rejects a left-hand assignment. This adds no saved state.
 The host routes arrowRelease animation annotations through the existing
 CMB-08 release latch and CMB-22 flight query. Projectile damage and projectile
 OnHit events remain absent from that core path, as recorded in [combat.md](combat.md).
+
 ## Activation survey, TST-22
 
 `activation_sweep` visits installed placements through Game activation and
@@ -12349,6 +12352,7 @@ during its existing record-indexing pass. Cycle, ambiguous-parent and malformed
 link rejection retain their previous behavior. The index contains no ownership
 or actor state and has no save section. Runtime record setters do not change
 PERK NNAM links. Repeated rank queries no longer scan every winning form.
+
 ## Authored warning and melee approach, round 4
 
 Combat acquisition now distinguishes aggressive actors from enemies. AIDT
@@ -12446,6 +12450,7 @@ The graph contains attackStart_ClubAttack1, attackStart_ClubAttack2 and
 attackStart_HandSwipeAttack. Their clips carry HitFrame and named SoundPlay
 annotations. The host's existing annotation importer previously discarded the
 sound annotations. No dependency or actor node is added.
+
 ## Stagger direction and weapon skill use (2026-10-03)
 
 `World::stagger_direction_value` turns the stored stagger source into the

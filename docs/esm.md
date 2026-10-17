@@ -749,6 +749,7 @@ plugin name. These always-on `soe-trace` load phases are independent of the
 optional span switch and do not change parsing, cache identity or form state.
 The boundaries follow this crate's existing parser and parsed-cache API and
 `docs/performance.md`'s parsed plugin cache measurements.
+
 ## LTEX material and the dominant LAND texture (2026-10-03)
 
 `LandTexture` also reads `MNAM` (the MATT material), `HNAM` friction and

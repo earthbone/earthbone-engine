@@ -1,3 +1,5 @@
+# godot-host: streaming, mesh and terrain for the Godot 4 host
+
 ## Surface emission, RND-49, 2026-10-17
 
 Preview3 adds constant radiance after diffuse texture modulation. Local
@@ -188,6 +190,7 @@ An obsolete snapshot cannot remove uncertain coverage. Installed confirmation
 peaks at 0.051 ms for main-thread selection and 0.595 ms for controller removal.
 Query hull preparation now joins the existing cell worker, preserving compound
 shapes and leaving server calls on the main thread.
+
 ## Ordinary giant strike follow-up, round 4
 
 The free walk strike probe first runs against the warning-only extension.
@@ -11676,7 +11679,6 @@ pose within 20 seconds without advancing game days.
 The finished automatic walkthrough installs QASmoke in 907 ms with the console
 open, compared with the original 20 second stall. Its camera Environment has
 the destination ambient and fog values. The game-day clock remains paused.
-
 
 ## Carry response at the grab point, HST-52, 2026-10-17
 
