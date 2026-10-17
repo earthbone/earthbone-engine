@@ -43,6 +43,9 @@ func _start() -> void:
 			or not menu.get("art_updates").is_empty()) and Time.get_ticks_msec() - started < 120_000:
 			await process_frame
 		print("R4_UI presentation mode=", mode, " ms=", menu.get_meta("opening_main_thread_ms", -1.0))
+		if not await _font_is_visible(menu, mode):
+			quit(1)
+			return
 		var cache = menu.get("art_cache")
 		var movie: Dictionary = cache.call("movie", "interface/skyui/inventorylists.swf")
 		var sources := {}
@@ -67,3 +70,29 @@ func _start() -> void:
 		player.call("close_menu")
 		await process_frame
 	quit(1 if failed else 0)
+
+func _font_is_visible(menu: Node, mode: String) -> bool:
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(256, 32)
+	viewport.transparent_bg = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(viewport)
+	var label := Label.new()
+	label.text = "Iron Sword NAME 123"
+	var menu_theme: Theme = menu.get("theme")
+	assert(menu_theme != null and menu_theme.default_font != null)
+	label.add_theme_font_override("font", menu_theme.default_font)
+	label.add_theme_font_size_override("font_size", 12)
+	viewport.add_child(label)
+	for frame in range(3):
+		await process_frame
+	await RenderingServer.frame_post_draw
+	var pixels := 0
+	var image := viewport.get_texture().get_image()
+	for y in range(image.get_height()):
+		for x in range(image.get_width()):
+			if image.get_pixel(x, y).a > 0.2:
+				pixels += 1
+	print("R4_UI font mode=", mode, " pixels=", pixels, " minimum=20")
+	viewport.queue_free()
+	return pixels > 20

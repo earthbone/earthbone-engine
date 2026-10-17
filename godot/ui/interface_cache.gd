@@ -139,6 +139,8 @@ func font(alias: String) -> Font:
 				continue
 			var value = resource(path)
 			if value is FontFile and (value.font_weight >= 700) == requested.bold and bool(value.get_font_style() & TextServer.FONT_ITALIC) == requested.italic:
+				# SWF outline atlases must scale below their cached raster size.
+				value.fixed_size_scale_mode = TextServer.FIXED_SIZE_SCALE_ENABLED
 				fonts[alias] = value
 				return value
 	return null

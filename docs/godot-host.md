@@ -10198,3 +10198,20 @@ checks pass, alongside package formatting and all-target Clippy.
 Authored control placement and full chrome comparisons remain the existing
 UI-20 and UI-30 work. These captures establish the loadout and icon binding,
 without a claim that the native control layout matches the SWF layout.
+
+## Imported menu font sizes, UI-42
+
+The free-walk captures expose blank native menu text after imported fonts
+resolve. The generated Futura atlas has a fixed size of 64 pixels and
+integer-only scaling. At the native menu's 12-pixel size, Godot rounds that
+scale to zero. An isolated render of the same cached font reports zero
+width and zero visible pixels. The local Godot
+`classes/class_textserver.rst` specifies fractional scaling for non-pixel
+fonts. With fractional scaling, the same text has width 82 and 321 visible
+pixels, above the test's unchanged 20-pixel minimum.
+
+InterfaceCache selects fractional scaling for resolved SWF font aliases.
+This works with existing converted caches and keeps the authored family,
+style and glyph atlas. It does not change the converter or require another
+resource generation. The free-walk capture script now checks actual
+12-pixel font pixels in each of the five menus for both UI loadouts.
