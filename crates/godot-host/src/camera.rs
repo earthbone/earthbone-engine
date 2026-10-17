@@ -27,15 +27,18 @@
 
 use soe_esm::GlobalFormId;
 use soe_physics::Vec3;
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 use crate::units::SkyrimPos;
 
-/// Two fixed-step poses for a render-frame camera. Mouse rotation stays live.
+/// Timed movement poses for a render-frame camera. Mouse rotation stays live.
 /// Follows Godot's advanced physics interpolation guide for manual cameras.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct CameraMotion {
     previous: (Vec3, f32),
     current: (Vec3, f32),
+    history: VecDeque<(Instant, Vec3, f32)>,
 }
 
 /// Camera controls currently applied by the host player node.
@@ -101,15 +104,53 @@ impl CameraHostState {
 impl CameraMotion {
     /// Reset both poses on entry or teleport so the old cell is never blended.
     pub fn new(feet: Vec3, height: f32) -> Self {
+        Self::new_at(feet, height, Instant::now())
+    }
+
+    fn new_at(feet: Vec3, height: f32, now: Instant) -> Self {
         Self {
             previous: (feet, height),
             current: (feet, height),
+            history: VecDeque::from([(now, feet, height)]),
         }
     }
 
     pub fn step(&mut self, feet: Vec3, height: f32) {
+        self.step_at(feet, height, Instant::now());
+    }
+
+    /// Use the same timestamp that supplies the controller's elapsed time.
+    pub fn step_at(&mut self, feet: Vec3, height: f32, now: Instant) {
         self.previous = self.current;
         self.current = (feet, height);
+        if self.history.back().is_some_and(|pose| pose.0 >= now) {
+            self.history.clear();
+        }
+        self.history.push_back((now, feet, height));
+        if self.history.len() > 256 {
+            self.history.pop_front();
+        }
+    }
+
+    /// Sample one physics interval behind wall time without extrapolating.
+    pub fn sample_at(&mut self, now: Instant, delay: Duration) -> (Vec3, f32) {
+        let target = now.checked_sub(delay).unwrap_or(now);
+        while self.history.get(1).is_some_and(|pose| pose.0 <= target) {
+            self.history.pop_front();
+        }
+        let Some(&(start, feet, height)) = self.history.front() else {
+            return self.current;
+        };
+        let Some(&(end, next_feet, next_height)) = self.history.get(1) else {
+            return (feet, height);
+        };
+        let fraction = (target.saturating_duration_since(start).as_secs_f64()
+            / end.duration_since(start).as_secs_f64())
+        .clamp(0.0, 1.0) as f32;
+        (
+            feet + (next_feet - feet) * fraction,
+            height + (next_height - height) * fraction,
+        )
     }
 
     pub fn sample(&self, fraction: f32) -> (Vec3, f32) {
@@ -124,6 +165,35 @@ impl CameraMotion {
 #[cfg(test)]
 mod motion_tests {
     use super::*;
+
+    #[test]
+    fn wall_time_sampling_keeps_older_intervals_after_a_short_physics_callback() {
+        let start = Instant::now();
+        let mut motion = CameraMotion::new_at(Vec3::ZERO, 128.0, start);
+        motion.step_at(
+            Vec3::new(10.0, 0.0, 0.0),
+            128.0,
+            start + Duration::from_millis(100),
+        );
+        let sample = |motion: &mut CameraMotion, millis| {
+            motion
+                .sample_at(
+                    start + Duration::from_millis(millis),
+                    Duration::from_millis(100),
+                )
+                .0
+                .x
+        };
+        assert!((sample(&mut motion, 140) - 4.0).abs() < 0.0001);
+        motion.step_at(
+            Vec3::new(15.0, 0.0, 0.0),
+            128.0,
+            start + Duration::from_millis(150),
+        );
+        assert!((sample(&mut motion, 160) - 6.0).abs() < 0.0001);
+        assert!((sample(&mut motion, 240) - 14.0).abs() < 0.0001);
+        assert_eq!(sample(&mut motion, 400), 15.0);
+    }
 
     #[test]
     fn interpolates_position_and_crouch_without_extrapolation() {

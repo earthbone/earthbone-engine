@@ -731,8 +731,10 @@ impl INode3D for PlayerNode {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
             self.rig.look(dx, dy);
-            let fraction = Engine::singleton().get_physics_interpolation_fraction() as f32;
-            let (feet, height) = self.motion.sample(fraction);
+            let delay = Duration::from_secs_f64(
+                1.0 / f64::from(Engine::singleton().get_physics_ticks_per_second()),
+            );
+            let (feet, height) = self.motion.sample_at(std::time::Instant::now(), delay);
             self.update_camera_shake(delta as f32);
             self.place_camera(feet, height);
         }
@@ -1572,7 +1574,7 @@ impl PlayerNode {
         }
         self.advance_door_fade(delta);
 
-        self.motion.step(self.feet(), self.capsule_height());
+        self.record_camera_motion();
         if !self.auto_step {
             self.update_camera();
         }
@@ -3023,6 +3025,15 @@ impl PlayerNode {
     /// Place the camera where the rig says, converting into Godot's space.
     fn update_camera(&mut self) {
         self.place_camera(self.feet(), self.capsule_height());
+    }
+
+    fn record_camera_motion(&mut self) {
+        let now = self
+            .automatic_physics_step
+            .then(|| self.runtime_clock.tick_time())
+            .flatten()
+            .unwrap_or_else(std::time::Instant::now);
+        self.motion.step_at(self.feet(), self.capsule_height(), now);
     }
 
     fn update_camera_shake(&mut self, delta: f32) {

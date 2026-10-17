@@ -131,6 +131,44 @@ fn r4_installed_full_tree_pipelines_are_warm() {
     r4_installed_route("r4_tree_pipeline_test.gd");
 }
 
+#[test]
+fn r4_installed_camera_interpolation_follows_wall_time() {
+    r4_player_view_route("r4_player_motion_test.gd", "R4_MOTION PASS");
+}
+
+fn r4_player_view_route(script: &str, marker: &str) {
+    let (Some(data), Some(godot)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_GODOT_BIN"),
+    ) else {
+        return;
+    };
+    let root = root();
+    let directory = root
+        .join("target/r4-runtime")
+        .join(script.trim_end_matches(".gd"));
+    std::fs::create_dir_all(&directory).unwrap();
+    let log = directory.join("run.log");
+    let errors = directory.join("run.err");
+    let status = Command::new(godot)
+        .arg("--path")
+        .arg(root.join("godot"))
+        .args(["--headless", "--script", script])
+        .env("SKYRIM_DATA", data)
+        .env_remove("SOE_THREADED_SIMULATION")
+        .env("SOE_R4_MOTION_REPORT", directory.join("motion.json"))
+        .stdin(Stdio::null())
+        .stdout(std::fs::File::create(&log).unwrap())
+        .stderr(std::fs::File::create(&errors).unwrap())
+        .status()
+        .unwrap();
+    let log = std::fs::read_to_string(log).unwrap();
+    let errors = std::fs::read_to_string(errors).unwrap();
+    assert!(status.success(), "{status}: {log}\n{errors}");
+    assert!(log.contains(marker), "{log}");
+    assert!(!errors.contains("SCRIPT ERROR"), "{errors}");
+}
+
 fn r4_installed_route(script: &str) {
     let (Some(data), Some(godot)) = (
         std::env::var_os("SKYRIM_DATA"),

@@ -45,7 +45,7 @@ impl PlayerNode {
                 sprinting: intent.sprinting,
             });
         }
-        self.motion.step(feet, self.capsule_height());
+        self.record_camera_motion();
         if !self.auto_step {
             self.update_camera();
         }

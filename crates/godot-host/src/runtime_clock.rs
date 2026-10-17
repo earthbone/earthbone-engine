@@ -12,6 +12,10 @@ pub(crate) struct RuntimeClock {
 }
 
 impl RuntimeClock {
+    pub(crate) fn tick_time(&self) -> Option<Instant> {
+        self.previous
+    }
+
     pub(crate) fn sample(&mut self, now: Instant, active: bool, fallback: f64) -> f64 {
         let previous = self.previous.take();
         if !active {

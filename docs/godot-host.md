@@ -63,6 +63,35 @@ probe previously added three surface pipelines each. The installed probe now rep
 for both models and exits zero. Retained representatives cost 25,668 mesh
 bytes across 155 meshes for 261 winning TREE models.
 
+## Render-frame camera clock, PRF-53, 2026-10-17
+
+The walkthrough reproduction uses ten physics callbacks per second and a
+120 FPS render limit. It samples after node processing, since SceneTree's
+process_frame signal precedes PlayerNode's camera placement. The fixed
+acceptance permits speed errors above 25 percent during less than 25 percent
+of sampled wall time, fewer than ten percent stationary samples, and requires
+movement and at least sixty render samples. The corrected baseline fails with
+38.5 percent speed-error time over 161 samples at a mean 5.303 metres per
+second. Sampling before node processing observes transient physics placement
+and does not establish rendered jitter.
+
+Godot's interpolation fraction follows its fixed-step clock. PRF-48 advances
+the controller on monotonic wall time instead, so stalls can leave that
+fraction behind and then catch it up on short frames. CameraMotion now retains
+timestamped controller poses and samples one physics interval behind the same
+wall clock. Older intervals remain available through closely spaced callbacks.
+It clamps to completed poses and retains the existing entry and teleport
+resets. Mouse heading stays on the render frame. Godot's local advanced
+physics interpolation guide supplies the manual position and live mouse-look
+contract. A focused case verifies an older interpolation interval survives a
+short callback. Installed confirmation passes in both scenes. The inn records
+9.01 percent speed-error time over 162 samples, down from the 38.5 percent
+baseline. The exterior records 23.35 percent over 64 samples. Stationary sample
+fractions are 4.94 and 3.13 percent, below the fixed ten percent limit.
+The fixture samples for at least 1.5 seconds and gathers at least sixty
+render samples. Its exterior route reaches the flat plaza before testing
+constant speed, since stair descent changes physical horizontal speed.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and
