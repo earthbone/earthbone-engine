@@ -71,6 +71,8 @@ pub mod quest_journal;
 pub mod quick_loot;
 pub mod race_menu;
 pub mod ragdoll;
+#[cfg(any(feature = "godot", test))]
+mod runtime_clock;
 pub mod save_recovery;
 pub mod skinned;
 pub mod streaming;

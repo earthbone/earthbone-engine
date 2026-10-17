@@ -1,5 +1,38 @@
 # Performance
 
+## Automatic gameplay clock, PRF-48, 2026-10-17
+
+Preview3 capped physics at one callback per rendered frame. Godot's local
+`classes/class_engine.rst` documents that this drops elapsed simulation time
+when rendering falls below the physics rate. The free-walk regression in
+`godot/r4_runtime_test.gd` starts the Bannered Mare, walks at a controlled
+20 FPS, activates its exit and walks in Whiterun at a 60 FPS limit. It records
+wall seconds, World clock seconds, movement, frame and system costs and a
+load trace. The clock tolerance is 5 percent, fixed before its first run.
+
+Before the correction, the inn advanced 3.3667 game seconds over 10.0423 wall
+seconds, a ratio of 0.33525. The exterior advanced 0.2667 seconds over 10.0477
+wall seconds, a ratio of 0.02654. The exterior recorded 16 frames with a
+588.754 ms median and 867.245 ms worst frame. Streaming reached 112.580 ms,
+render submission 64.796 ms and physics sync 3.265 ms. These measurements use
+Xvfb and llvmpipe, so they do not establish GPU frame rates.
+
+Automatic callbacks now use monotonic wall time. The existing controller
+substeps long intervals for collision without repeating the whole VM or AI
+tick. Console, menus, location preparation and manual stepping reset the
+automatic clock. Scripted `advance(delta)` calls retain their explicit time.
+The one-callback cap remains. Two unit cases cover a 20 FPS interval and
+pause/resume time debt. This corrects the clock independently of PRF-46's
+streaming stalls. No dependency, saved state or scene node is added.
+
+The corrected installed run passes and exits zero. The inn advances 10.1428
+game seconds in 10.0135 wall seconds, ratio 1.01291, and walks 1,111.87 units.
+The exterior advances 10.1886 seconds in 10.1939 seconds, ratio 0.99948, and
+walks 3,710 units. The host library passes 583 cases with installed data unset.
+All-target Clippy with warnings denied and package formatting pass. The
+exterior worst frame remains 881.882 ms and streaming reaches 145.492 ms.
+The clock pass does not meet the exterior frame budget. PRF-46 remains open.
+
 ## Exterior publication, PRF-45, 2026-10-15
 
 The initial `lead/perf-exterior` pass starts at preview2, `a621c939b`.

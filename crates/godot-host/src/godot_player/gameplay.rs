@@ -688,9 +688,8 @@ impl PlayerNode {
         installed
     }
 
-    /// One inline game tick per rendered frame bounds recovery after a hitch.
-    /// Godot drops overdue ticks instead of repeating all gameplay work. Below
-    /// 60 FPS this slows simulation, as documented by class_engine.rst.
+    /// One gameplay callback per rendered frame avoids repeated VM and AI work.
+    /// RuntimeClock supplies wall time and the capsule substeps collision.
     const CATCHUP_STEP_CAP: i32 = 1;
 
     fn cap_catchup_steps(&mut self) {

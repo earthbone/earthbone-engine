@@ -148,6 +148,7 @@ pub struct PlayerNode {
     detection_stage_usec: [i64; 4],
     automatic_detection: detection::AutomaticDetection,
     automatic_physics_step: bool,
+    runtime_clock: crate::runtime_clock::RuntimeClock,
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
@@ -315,6 +316,7 @@ impl INode3D for PlayerNode {
             detection_stage_usec: [0; 4],
             automatic_detection: detection::AutomaticDetection::default(),
             automatic_physics_step: false,
+            runtime_clock: crate::runtime_clock::RuntimeClock::default(),
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
             driver: Driver::new(),
@@ -623,6 +625,14 @@ impl INode3D for PlayerNode {
 
     fn physics_process(&mut self, delta: f64) {
         self.physics_ticks_since_process = self.physics_ticks_since_process.saturating_add(1);
+        let active = self.auto_step
+            && !self.location_preparing
+            && !self.menu.is_open()
+            && !self.console.open
+            && !self.main_menu.is_active();
+        let delta = self
+            .runtime_clock
+            .sample(std::time::Instant::now(), active, delta);
         if self.auto_step {
             let frame = Engine::singleton().get_process_frames();
             if !self.location_preparing {

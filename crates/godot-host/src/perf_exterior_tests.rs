@@ -90,6 +90,58 @@ fn root() -> PathBuf {
 }
 
 #[test]
+fn r4_installed_game_time_tracks_wall_time_through_the_inn_exit() {
+    let (Some(data), Some(godot)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_GODOT_BIN"),
+    ) else {
+        return;
+    };
+    let root = root();
+    let directory = root.join("target/r4-runtime");
+    std::fs::create_dir_all(&directory).unwrap();
+    let report = directory.join("clock.json");
+    let output = std::fs::File::create(directory.join("clock.log")).unwrap();
+    let errors = std::fs::File::create(directory.join("clock.err")).unwrap();
+    let status = Command::new(godot)
+        .arg("--path")
+        .arg(root.join("godot"))
+        .args(["--resolution", "640x360", "--script", "r4_runtime_test.gd"])
+        .env("SKYRIM_DATA", data)
+        .env("SOE_R4_REPORT", &report)
+        .env("SOE_GODOT_TIMEOUT", "600")
+        .env("DISPLAY", ":99")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("SOE_THREADED_SIMULATION")
+        .stdin(Stdio::null())
+        .stdout(output)
+        .stderr(errors)
+        .status()
+        .unwrap();
+    let log = std::fs::read_to_string(directory.join("clock.log")).unwrap();
+    let errors = std::fs::read_to_string(directory.join("clock.err")).unwrap();
+    assert!(status.success(), "{status}: {log}\n{errors}");
+    assert!(!errors.contains("SCRIPT ERROR:"), "{errors}");
+    assert!(log.contains("R4_RUNTIME PASS"), "{log}");
+    assert!(log.contains("WALKTHROUGH stopped: ready=true"), "{log}");
+    let row: serde_json::Value = serde_json::from_slice(&std::fs::read(&report).unwrap()).unwrap();
+    for phase in ["inn_20fps", "door_walk_60fps"] {
+        let ratio = row[phase]["ratio"].as_f64().unwrap();
+        assert!((ratio - 1.0).abs() < 0.05, "{phase}: {ratio}");
+        assert!(row[phase]["distance"].as_f64().unwrap() > 100.0);
+        println!("R4_CLOCK {phase} ratio={ratio} wall={} game={}", row[phase]["wall"], row[phase]["game"]);
+    }
+    let trace: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(report.with_extension("trace.json")).unwrap())
+            .unwrap();
+    assert!(trace["traceEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["ph"] == "X"));
+}
+
+#[test]
 fn prf_40_installed_exterior_uploads_and_physics_are_bounded() {
     let (Some(data), Some(godot)) = (
         std::env::var_os("SKYRIM_DATA"),
