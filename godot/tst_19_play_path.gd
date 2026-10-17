@@ -339,14 +339,10 @@ func _talk_to_hulda() -> bool:
 		topics[0].emit_signal("pressed")
 		chosen = true
 	await process_frame
-	content = player.call("menu_content")
-	var responses: Array = content.find_children("*", "Label", true, false) if content != null else []
-	var response := ""
-	for label: Label in responses:
-		if label.is_visible_in_tree() and not label.text.is_empty():
-			response += label.text
-	_check("route.hulda", activated and chosen and not response.is_empty() and player.call("is_menu_open"), {"reference": hulda.get("id", "missing"), "topics": topics.size(), "activated": activated, "chosen": chosen, "response": response})
+	var subtitle := player.get_node_or_null("MenuLayer/DialogueSubtitle") as Label
+	var response := subtitle.text if subtitle != null and subtitle.is_visible_in_tree() else ""
 	var state: Dictionary = player.call("dialogue_state")
+	_check("route.hulda", activated and chosen and not response.is_empty() and response == str(state.get("text", "")) and player.call("is_menu_open"), {"reference": hulda.get("id", "missing"), "topics": topics.size(), "activated": activated, "chosen": chosen, "response": response, "state_text": state.get("text", "")})
 	var slot := int(state.get("voice_slot", -1))
 	var voice: AudioStreamPlayer3D = bank.get_child(slot) if bank != null and slot >= 0 else null
 	var starts_after: int = bank.call("voice_start_count") if bank != null else 0

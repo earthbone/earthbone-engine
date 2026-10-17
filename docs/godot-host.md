@@ -10072,3 +10072,12 @@ Both PRF-26 transition fixtures now use the same helper. Their separate
 projects also omitted the compass and failed ready before menu requests
 could emit.
 No production layout or control behavior changes.
+
+## Play-path dialogue observation
+
+The installed preview3 gate reached Hulda and started the response voice,
+but its response lookup searched labels under the topic-list content.
+UI-39 places the response in `MenuLayer/DialogueSubtitle`, outside that list.
+The route now checks this visible label, requires nonempty text and compares
+it to the active dialogue record state. Voice playback remains a separate
+required observation.
