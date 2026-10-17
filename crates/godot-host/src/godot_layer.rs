@@ -1097,9 +1097,10 @@ impl CellStreamerNode {
         anchor: Vector3,
         target: Vector3,
         delta: f32,
+        max_force: f32,
     ) -> bool {
         self.collision
-            .spring_carry(reference, anchor, target, delta)
+            .spring_carry(reference, anchor, target, delta, max_force)
     }
 
     pub(crate) fn grab_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
