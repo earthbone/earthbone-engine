@@ -2,6 +2,7 @@
 
 //! Waypoint steering isolated from package effects. This preserves the existing
 //! PRF-11 driver budget, arrival tolerance and per-waypoint cell ownership.
+//! OpenMW AiPackage::pathTo uses ground-plane progress for walking actors.
 //! Only the actor's detached AI state is borrowed by the PRF-17 worker pool.
 
 use soe_esm::GlobalFormId;
@@ -19,7 +20,14 @@ pub(super) fn follow(
     let mut budget = ai.speed * dt;
     while budget > 0.0 && !ai.path.is_empty() {
         let next = ai.path[0];
-        let d = distance(pos, next);
+        // CONTEXT: Native NAVM planes differ from the collision floor. The host
+        // resolves gravity, so a walking actor cannot reach a buried waypoint.
+        let settings = soe_physics::CharacterSettings::mudcrab();
+        let d = if (next[2] - pos[2]).abs() <= settings.step_height + settings.ground_snap {
+            (next[0] - pos[0]).hypot(next[1] - pos[1])
+        } else {
+            distance(pos, next)
+        };
         if ai.procedure == Procedure::Patrol
             && ai.path.len() == 1
             && ai.radius > 0.0
@@ -69,6 +77,40 @@ mod tests {
 
     fn id(object: u32) -> GlobalFormId {
         GlobalFormId { file: 0, object }
+    }
+
+    #[test]
+    fn grounded_route_advances_past_navmesh_points_below_the_collision_floor() {
+        let mut ai = AiState {
+            procedure: Procedure::Sandbox,
+            speed: 80.1,
+            path: vec![[10.0, 0.0, 0.0], [100.0, 0.0, 0.0]],
+            path_cells: vec![Some(id(1)), Some(id(1))],
+            ..AiState::default()
+        };
+        let mut position = [0.0, 0.0, 8.0];
+        for _ in 0..60 {
+            position = follow(&mut ai, position, Some(id(1)), 1.0 / 60.0).0;
+            position[2] = 8.0;
+        }
+        assert!(
+            position[0] >= 75.0,
+            "route pinned to a NAVM height below the floor: {position:?}"
+        );
+        assert_eq!(ai.path, [[100.0, 0.0, 0.0]]);
+    }
+
+    #[test]
+    fn grounded_route_keeps_a_waypoint_on_a_different_floor() {
+        let mut ai = AiState {
+            procedure: Procedure::Travel,
+            speed: 80.1,
+            path: vec![[0.0, 0.0, 120.0], [100.0, 0.0, 120.0]],
+            ..AiState::default()
+        };
+        let position = follow(&mut ai, [0.0, 0.0, 8.0], None, 1.0 / 60.0).0;
+        assert_eq!(ai.path.len(), 2);
+        assert!(position[2] < 10.0);
     }
 
     #[test]

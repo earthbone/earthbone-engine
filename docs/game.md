@@ -1,5 +1,30 @@
 # soe-game: the runtime form table and the first natives
 
+## Grounded NAVM progress, round 4
+
+The free walk measurement in `godot/r4_npc_progress_test.gd` advances the
+Bannered Mare and Whiterun for 30 simulation seconds each. Its fixed limits
+require 64 units of movement and flag five seconds without progress on an
+active route. Before correction, Hulda travels 39.95 units and remains stuck
+for 28 seconds. Ysolda and Nazeem remain stuck for 27 seconds each. Their
+collision floor is 4.27 and 6.32 units above the local NAVM plane.
+
+The package driver measured full three-dimensional waypoint distance, while
+the host's NPC controller consumes horizontal intent and resolves gravity
+against collision. A buried waypoint remains outside the four-unit arrival
+tolerance after the actor reaches its XY position. The retained route did
+not request another path. Grounded progress now uses horizontal distance
+inside the existing controller's step-plus-snap height band. Larger height
+differences retain the spatial check. OpenMW's `apps/openmw/mwmechanics/aipackage.cpp`,
+`pathTo`, supplies the walking ground-plane progress comparison. Mudcrab's
+`crates/engine/src/physics.rs` supplies the existing controller tuning.
+The engine retains its native NAVM graph and existing controller.
+
+`grounded_route_advances_past_navmesh_points_below_the_collision_floor`
+reproduces a collision floor eight units above a route point. Corner
+clearance, unreachable furniture origins and unsupported package procedures
+are separate findings in the scene measurement.
+
 ## Race movement speeds, HST-40
 
 `movement::MovementType` reads the four directional walk/run pairs in MOVT
