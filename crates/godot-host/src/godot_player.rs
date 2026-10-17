@@ -3022,6 +3022,15 @@ impl PlayerNode {
         if self.camera.is_none() {
             return;
         }
+        if let Some(head_height) = self
+            .player_appearance
+            .as_ref()
+            .filter(|visual| visual.is_instance_valid())
+            .and_then(|visual| visual.bind().camera_head_height())
+        {
+            self.rig
+                .set_head_height(head_height, CharacterSettings::mudcrab().height);
+        }
         let (feet, height) = self.camera_anchor(feet, height);
 
         // In third person the boom is pulled in by whatever it would pass

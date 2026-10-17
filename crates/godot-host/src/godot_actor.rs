@@ -73,6 +73,7 @@ fn to_transform3d(a: &Affine) -> Transform3D {
 struct ShapeRids {
     instance: Rid,
     skeleton: Rid,
+    face_normals: bool,
 }
 
 struct AppearanceBinding {
@@ -203,6 +204,7 @@ pub struct SkinnedActorNode {
     #[export]
     first_person: bool,
     camera_offset: Transform3D,
+    head_height: Option<f32>,
     vm: Option<Interpreter<'static>>,
     assets: Option<Arc<ActorAssets>>,
     presented_actor: Option<soe_esm::GlobalFormId>,
@@ -254,6 +256,7 @@ impl INode3D for SkinnedActorNode {
             presented_appearance: None,
             first_person: false,
             camera_offset: Transform3D::IDENTITY,
+            head_height: None,
             assets: None,
             vm: None,
             surfaces: Vec::new(),
@@ -359,6 +362,7 @@ impl SkinnedActorNode {
     pub fn animation_graph_unloaded();
 
     fn cache_camera_offset(&mut self) {
+        self.head_height = None;
         let Some(assets) = self.assets.as_deref() else {
             return;
         };
@@ -368,6 +372,12 @@ impl SkinnedActorNode {
         else {
             return;
         };
+        self.head_height = assets
+            .skeleton
+            .bone_index("NPC Head [Head]")
+            .and_then(|index| model.get(index))
+            .map(|pose| pose.translation[2])
+            .filter(|height| height.is_finite() && *height > 0.0);
         self.camera_offset = assets
             .skeleton
             .bones
@@ -518,6 +528,11 @@ impl SkinnedActorNode {
     pub(crate) fn first_person_camera_offset(&self) -> Transform3D {
         self.camera_offset
     }
+
+    pub(crate) fn camera_head_height(&self) -> Option<f32> {
+        self.head_height
+            .map(|height| height * self.actor_placement().basis.col_b().length())
+    }
     /// Load the vanilla human character from `data_dir` and put `mesh_path`
     /// on its skeleton. Returns false and logs on failure.
     ///
@@ -637,7 +652,11 @@ impl SkinnedActorNode {
                 self.geometry_visible && !self.invisible && !self.presentation_hidden,
             );
             server.instance_attach_skeleton(instance, skeleton);
-            self.shapes.push(ShapeRids { instance, skeleton });
+            self.shapes.push(ShapeRids {
+                instance,
+                skeleton,
+                face_normals: surface.face_tint.is_some(),
+            });
             self.meshes.push(mesh);
             self.materials.push(material);
         }
@@ -1029,12 +1048,12 @@ impl SkinnedActorNode {
                     }
                 }
                 server.skeleton_bone_set_transform(rids.skeleton, i as i32, pose);
-                if surface.face_tint.is_some() {
+                if rids.face_normals {
                     normal_bases.push(pose.basis.inverse().transposed());
                 }
                 self.uploaded_skins.push(pose);
             }
-            if surface.face_tint.is_some() {
+            if rids.face_normals {
                 if let Ok(mut shader) = material
                     .clone()
                     .try_cast::<godot::classes::ShaderMaterial>()
@@ -1128,6 +1147,8 @@ impl SkinnedActorNode {
         row.set("shapes", &shapes);
         row.set("poses", &self.uploaded_skin_poses());
         row.set("placement", self.actor_placement());
+        row.set("head_height", self.head_height.unwrap_or(0.0));
+        row.set("camera_offset", self.camera_offset);
         row
     }
 
@@ -1229,7 +1250,7 @@ impl SkinnedActorNode {
                 .find(|actor| actor.actor == binding.actor)
                 .ok_or(CombatError::Unsupported("animated actor is not resident"))?;
             let placed = crate::units::placement_to_godot(
-                crate::units::skyrim_euler_matrix(actor.rotation),
+                crate::actor::body_heading_matrix(actor.rotation),
                 actor.position,
                 actor.scale,
             );
@@ -1576,6 +1597,9 @@ impl SkinnedActorNode {
     }
 
     fn actor_placement(&self) -> Transform3D {
+        if self.first_person {
+            return self.base().get_global_transform();
+        }
         if let Some(placement) = self.presented_placement {
             return placement_transform(placement);
         }
@@ -1592,7 +1616,7 @@ impl SkinnedActorNode {
             return self.base().get_global_transform();
         };
         let placed = crate::units::placement_to_godot(
-            crate::units::skyrim_euler_matrix(actor.rotation),
+            crate::actor::body_heading_matrix(actor.rotation),
             actor.position,
             actor.scale,
         );
