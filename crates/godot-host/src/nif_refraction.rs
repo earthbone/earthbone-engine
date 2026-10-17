@@ -32,3 +32,14 @@ pub fn shader(desc: &MaterialDesc) -> String {
             },
         )
 }
+
+#[cfg(test)]
+mod tests {
+    const SHADER: &str = include_str!("nif_refraction.gdshader");
+
+    #[test]
+    fn refraction_blends_by_displacement_and_never_writes_opaque_alpha() {
+        assert!(!SHADER.contains("ALPHA = 1.0"), "an opaque write hides the hearth flames");
+        assert!(SHADER.contains("ALPHA = clamp(length(offset)"));
+    }
+}
