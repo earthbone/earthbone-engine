@@ -258,14 +258,16 @@ impl World {
         Ok(())
     }
 
-    /// Return the script-forced look-at target or active scene headtracking.
+    /// Return script, conversation or active scene headtracking in that order.
     #[must_use]
     pub fn actor_look_at(&mut self, actor: GlobalFormId) -> Option<(GlobalFormId, bool)> {
         let scripted = self.actor(actor)?.forced_look_at;
-        scripted.or_else(|| {
-            self.scene_headtrack_target(actor)
-                .map(|target| (target, false))
-        })
+        scripted
+            .or_else(|| self.dialogue_target(actor).map(|target| (target, false)))
+            .or_else(|| {
+                self.scene_headtrack_target(actor)
+                    .map(|target| (target, false))
+            })
     }
 
     fn scene_headtrack_target(&self, actor: GlobalFormId) -> Option<GlobalFormId> {
@@ -320,7 +322,13 @@ impl World {
             let Some(vehicle) = self.actor_ref(actor).map(|state| state.vehicle) else {
                 continue;
             };
-            let target = self.actor_look_at(actor);
+            let target = self
+                .actor_ref(actor)
+                .and_then(|state| state.forced_look_at)
+                .or_else(|| {
+                    self.scene_headtrack_target(actor)
+                        .map(|target| (target, false))
+                });
             if let Some(vehicle) = vehicle {
                 if let Some((position, rotation, cell)) = self
                     .reference_ref(vehicle)

@@ -448,6 +448,29 @@ mod tests {
     }
 
     #[test]
+    fn round4_freewalk_conversation_tracks_the_listener_and_turns_the_speaker() {
+        let mut game = game();
+        let player = game.player();
+        {
+            let mut world = game.world_mut();
+            world.reference(player).unwrap().position = [100.0, 0.0, 0.0];
+            world.reference(id(SPEAKER)).unwrap().rotation[2] = std::f32::consts::PI;
+        }
+        for _ in 0..60 {
+            game.tick_menu_mode(1.0 / 60.0, true);
+        }
+        let mut world = game.world_mut();
+        assert_eq!(world.actor_look_at(id(SPEAKER)), Some((player, false)));
+        assert!(
+            (world.reference(id(SPEAKER)).unwrap().rotation[2] - std::f32::consts::FRAC_PI_2).abs()
+                < 0.05
+        );
+        drop(world);
+        game.close_dialogue();
+        assert_eq!(game.world_mut().actor_look_at(id(SPEAKER)), None);
+    }
+
+    #[test]
     fn round4_freewalk_unnamed_topic_is_never_a_form_id_button() {
         let mut game = game_with_question("");
         assert!(

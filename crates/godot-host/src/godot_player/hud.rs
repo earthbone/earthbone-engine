@@ -118,7 +118,7 @@ impl HudView {
         }
     }
 
-    pub(super) fn refresh(&mut self, game: &mut soe_game::Game, yaw: f32) {
+    pub(super) fn refresh(&mut self, game: &mut soe_game::Game, yaw: f32, menu_open: bool) {
         let player = game.player();
         let snapshot = crate::hud::Snapshot::read(game, player, yaw);
         self.root.set_visible(true);
@@ -147,6 +147,10 @@ impl HudView {
                 snapshot.compass.to_variant(),
             ],
         );
+        if menu_open {
+            self.activation_prompt.hide();
+            return;
+        }
         let prompt = super::activation::prompt(game);
         let focused = game.world().crosshair_reference();
         let speaker = focused
@@ -172,6 +176,10 @@ impl HudView {
 
     pub(super) fn hide(&mut self) {
         self.root.hide();
+    }
+
+    pub(super) fn hide_activation_prompt(&mut self) {
+        self.activation_prompt.hide();
     }
 
     pub(super) fn set_interface_notice(&mut self, text: &str) {

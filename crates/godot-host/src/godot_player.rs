@@ -722,9 +722,10 @@ impl INode3D for PlayerNode {
             self.update_camera_shake(delta as f32);
             self.place_camera(feet, height);
         }
+        let menu_open = self.menu.is_open() || self.console.open || self.main_menu.is_active();
         if let Some(game) = self.game.as_mut() {
             if let Some(view) = self.hud_view.as_mut() {
-                view.refresh(game, self.rig.yaw());
+                view.refresh(game, self.rig.yaw(), menu_open);
                 view.set_cart_mode(game.world().hud_cart_mode);
             }
         } else if let Some(view) = self.hud_view.as_mut() {

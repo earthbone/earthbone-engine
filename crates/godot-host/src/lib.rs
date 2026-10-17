@@ -44,6 +44,8 @@ pub mod door_fade;
 pub mod effect_shader;
 pub mod facegen;
 pub mod facial;
+#[cfg(any(feature = "godot", test))]
+mod head_tracking;
 pub mod heap_tuning;
 pub mod hud;
 pub mod image_space;

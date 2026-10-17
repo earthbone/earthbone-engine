@@ -825,6 +825,9 @@ impl PlayerNode {
         if !self.menu.open(&title.to_string()) {
             return false;
         }
+        if let Some(view) = self.hud_view.as_mut() {
+            view.hide_activation_prompt();
+        }
         self.hide_quick_loot();
         self.base_mut().emit_signal(
             "transition_requested",

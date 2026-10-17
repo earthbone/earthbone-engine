@@ -320,6 +320,11 @@ impl PlayerNode {
             return open;
         }
         self.console.open = open;
+        if open {
+            if let Some(view) = self.hud_view.as_mut() {
+                view.hide_activation_prompt();
+            }
+        }
         self.release_carry();
         self.clear_player_input();
         self.devices = crate::input::devices::Devices::default();

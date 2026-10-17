@@ -1,5 +1,33 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Conversation attention, DLG-24, 2026-10-17
+
+The activation HUD now hides its prompt for modal menus, the console and the
+main menu. The speaker label is the topic heading introduced by DLG-23.
+World derives the conversation look target from the active session without
+changing scripted look-at state. Game turns the speaker toward the listener
+at up to three radians per real second, including menu ticks. Closing the
+conversation removes that target.
+
+SkinnedActorNode corrects the animated head pose after graph evaluation. It
+rotates the head and descendants around the head pivot, with limits of 60
+degrees of yaw and 40 degrees of pitch. Other bones keep the authored pose.
+The listener target uses the existing NPC controller scale and a 128-unit
+head height. Creature-specific head offsets are not measured here.
+No per-reference nodes, saved fields or dependencies were added.
+
+Sources read are CK GetDialogueTarget and godotwind
+`src/core/animation/look_at_modifier.gd`. Godotwind puts look corrections after
+animation and converts the target into skeleton space. Its newer Godot
+modifier API does not fit the host API floor and server skinning path, so
+the same operation uses the existing Havok model pose buffer.
+The free walk conversation regression failed with no look target before the
+fix. Pose checks cover the pivot, descendants, other bones and angle limits.
+The installed hst_28 free walk scene now passes with the prompt hidden,
+body facing dot 0.99999994, head yaw -0.019756 and pitch 0.086884 radians.
+Voice, lip movement, topic selection, close behavior and all six viewport
+layout checks pass in the same run.
+
 ## Dialogue headings, DLG-23, 2026-10-17
 
 An eligible DIAL without a prompt or FULL was rendered as its resolved FormID.

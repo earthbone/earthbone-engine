@@ -1758,6 +1758,9 @@ impl Game {
         }
 
         self.run_until_idle(64);
+        self.world
+            .borrow_mut()
+            .tick_dialogue_attention(real_seconds);
         if !menu_mode {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             if let Err(error) = self.update_dialogue_range() {

@@ -191,6 +191,35 @@ pub enum Error {
 }
 
 impl World {
+    /// Turn an active conversation's speaker toward its listener in real time.
+    /// Menus pause the game clock but still present this dialogue motion.
+    pub(crate) fn tick_dialogue_attention(&mut self, delta: f64) {
+        if !delta.is_finite() || delta <= 0.0 {
+            return;
+        }
+        let Some(session) = self.dialogue.session.as_ref() else {
+            return;
+        };
+        let (speaker, listener) = (session.speaker, session.listener);
+        let Some(target) = self.reference(listener).map(|reference| reference.position) else {
+            return;
+        };
+        let Some(reference) = self.reference(speaker) else {
+            return;
+        };
+        let dx = target[0] - reference.position[0];
+        let dy = target[1] - reference.position[1];
+        if dx.hypot(dy) < 0.001 {
+            return;
+        }
+        let angle = dx.atan2(dy);
+        let difference = (angle - reference.rotation[2] + std::f32::consts::PI)
+            .rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        let limit = (delta.min(0.1) * 3.0) as f32;
+        reference.rotation[2] += difference.clamp(-limit, limit);
+    }
+
     /// Add a valid dialogue topic to the set offered to the player.
     ///
     /// # Errors
