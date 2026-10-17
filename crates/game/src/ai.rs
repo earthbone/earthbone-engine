@@ -380,6 +380,17 @@ pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
 }
 
 pub(crate) fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {
+    if world
+        .actor_ref(actor)
+        .is_some_and(|state| state.sneaking && !state.swimming)
+    {
+        let gait = if matches!(preferred, speed::RUN | speed::FAST_WALK) {
+            crate::movement::Gait::SneakRun
+        } else {
+            crate::movement::Gait::SneakWalk
+        };
+        return world.actor_movement(actor).speed(gait, 0.0, 1.0);
+    }
     let Some((race, multiplier, encumbered)) = world.movement_modifiers(actor) else {
         return movement_input(preferred).2;
     };
@@ -1151,6 +1162,10 @@ fn switch_to_inner(
     if chosen.map(|c| c.package) == current {
         return current;
     }
+    let sneaking = chosen
+        .and_then(|candidate| package(world, candidate.package))
+        .is_some_and(|package| package.has_flag(flags::ALWAYS_SNEAK));
+    world.actor(actor)?.sneaking = sneaking;
     if let Some(old) = current {
         if package(world, old).is_some_and(|p| p.has_flag(flags::UNLOCK_DOORS_ON_CHANGE)) {
             unlock_cell_doors(world, actor, alloc);
@@ -4446,6 +4461,55 @@ fn read_tree_state_version(r: &mut Reader<'_>, version: u16) -> Result<Option<Tr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn r4_package_sneak_enters_and_leaves_shared_actor_posture() {
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        let mut general = [0; 12];
+        general[..4].copy_from_slice(&flags::ALWAYS_SNEAK.to_le_bytes());
+        plugin.push_top(soe_esm::Record::new(T(b"PACK"), 1).sub(T(b"PKDT"), general));
+        plugin.push_top(soe_esm::Record::new(T(b"PACK"), 2).sub(T(b"PKDT"), [0; 12]));
+        let mut order = soe_esm::LoadOrder::new();
+        order.add("sneak.esp", plugin).unwrap();
+        let mut world = World::new(order);
+        let actor = world.player();
+        let mut next = 1;
+        let mut alloc = |_: &str, _: &str| {
+            let id = soe_papyrus::ObjectId(next);
+            next += 1;
+            id
+        };
+        for (object, expected) in [(1, true), (2, false), (1, true)] {
+            switch_to(
+                &mut world,
+                actor,
+                Some(Candidate {
+                    package: GlobalFormId { file: 0, object },
+                    alias: None,
+                }),
+                &mut alloc,
+            );
+            assert_eq!(world.actor_ref(actor).unwrap().sneaking, expected);
+        }
+        switch_to(&mut world, actor, None, &mut alloc);
+        assert!(!world.actor_ref(actor).unwrap().sneaking);
+    }
+
+    #[test]
+    fn r4_package_sneak_movement_uses_shared_walk_and_run_rates() {
+        let mut world = World::new(soe_esm::LoadOrder::new());
+        let actor = world.player();
+        world.actor(actor).unwrap().sneaking = true;
+        let profile = world.actor_movement(actor);
+        assert_eq!(
+            movement_speed(&mut world, actor, speed::WALK),
+            profile.speed(crate::movement::Gait::SneakWalk, 0.0, 1.0)
+        );
+        assert_eq!(
+            movement_speed(&mut world, actor, speed::RUN),
+            profile.speed(crate::movement::Gait::SneakRun, 0.0, 1.0)
+        );
+    }
 
     #[test]
     fn scr_14_keep_offset_rotates_body_space_and_rejects_non_finite_target() {
