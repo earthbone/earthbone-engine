@@ -51,6 +51,10 @@ pub fn contact_annotation_triggers(graph: &mut BehaviorGraph, clips: &ClipLibrar
                     | "attackStop"
                     | "weaponDraw"
                     | "weaponSheathe"
+                    | "arrowRelease"
+                    | "bowDrawStart"
+                    | "bowDrawn"
+                    | "bowEnd"
             ) {
                 continue;
             }

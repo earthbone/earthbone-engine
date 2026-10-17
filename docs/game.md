@@ -19,6 +19,10 @@ The free walk inventory reproduction rejected a hunting bow before this
 correction. `hst_25_ranged_weapon_uses_the_authored_both_hands_slot` checks bows
 and crossbows and rejects a left-hand assignment. This adds no saved state.
 
+The host routes arrowRelease animation annotations through the existing
+CMB-08 release latch and CMB-22 flight query. Projectile damage and projectile
+OnHit events remain absent from that core path, as recorded in [combat.md](combat.md).
+
 ## Race movement speeds, HST-40
 
 `movement::MovementType` reads the four directional walk/run pairs in MOVT

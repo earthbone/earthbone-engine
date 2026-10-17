@@ -12,18 +12,72 @@ use super::PlayerNode;
 
 #[godot_api(secondary)]
 impl PlayerNode {
-    fn active_weapon_contact(&mut self, name: &str, hand: Hand, pose: Transform3D) -> bool {
-        if self
-            .melee_contact
-            .armed()
-            .is_none_or(|(_, armed)| armed != hand)
+    pub(super) fn send_weapon_event(&mut self, event: &str) {
+        for visual in [
+            &mut self.player_appearance,
+            &mut self.first_person_appearance,
+        ]
+        .into_iter()
+        .flatten()
         {
-            return false;
+            visual.bind_mut().send_graph_event(event.into());
         }
-        self.melee_bone_contact(name.into(), pose)
+    }
+
+    pub(super) fn cancel_weapon_input(&mut self) {
+        self.weapon_holds = [None, None];
+        self.ranged_release.cancel();
+        self.melee_contact.cancel();
+        if let Some(game) = &mut self.game {
+            let actor = game.player();
+            let mut world = game.world_mut();
+            let _ = world.set_blocking(actor, false);
+            for event in ["blockStop", "bowCancel"] {
+                world.request_animation(actor, event);
+            }
+        }
     }
 
     pub(super) fn route_weapon_input(&mut self, input: &crate::input::InputState, delta: f32) {
+        let Some(game) = &mut self.game else { return };
+        let actor = game.player();
+        let (kinds, shield, left_spell, ready, was_blocking) = {
+            let mut world = game.world_mut();
+            let kinds = [Hand::Left, Hand::Right].map(|hand| {
+                if world.hand_spell(actor, hand).is_some() {
+                    return None;
+                }
+                let weapon = world.hand_weapon(actor, hand)?;
+                soe_game::combat::records::Weapon::from_record(world.record(weapon)?)
+                    .ok()
+                    .map(|weapon| weapon.animation)
+            });
+            let shield = world.equipped_shield(actor).ok().flatten().is_some();
+            let left_spell = world.hand_spell(actor, Hand::Left).is_some();
+            let state = world.actor_ref(actor);
+            (
+                kinds,
+                shield,
+                left_spell,
+                state.is_some_and(|state| state.weapon_drawn),
+                state.is_some_and(|state| state.blocking),
+            )
+        };
+        let blocking = ready
+            && input.left_attack_held
+            && !left_spell
+            && (shield || matches!(kinds[1], Some(5 | 6)));
+        if blocking != was_blocking {
+            let _ = game.world_mut().set_blocking(actor, blocking);
+            self.send_weapon_event(if blocking { "blockStart" } else { "blockStop" });
+        }
+        if !ready {
+            self.weapon_holds = [None, None];
+            if input.right_attack_pressed || input.left_attack_pressed {
+                self.toggle_weapon_ready();
+            }
+            return;
+        }
         for (index, hand, pressed, held) in [
             (
                 0,
@@ -38,13 +92,28 @@ impl PlayerNode {
                 input.right_attack_held,
             ),
         ] {
-            let equipped = self.game.as_mut().is_some_and(|game| {
-                let actor = game.player();
-                let mut world = game.world_mut();
-                world.hand_spell(actor, hand).is_none() && world.hand_weapon(actor, hand).is_some()
-            });
-            if !equipped {
+            if kinds[index].is_none() || (index == 0 && blocking) {
                 self.weapon_holds[index] = None;
+                continue;
+            }
+            if matches!(kinds[index], Some(7 | 9)) {
+                if pressed {
+                    let armed = self
+                        .game
+                        .as_mut()
+                        .is_some_and(|game| self.ranged_release.begin(game, actor).is_ok());
+                    if armed {
+                        self.weapon_holds[index] = Some(0.0);
+                        self.send_weapon_event(if kinds[index] == Some(9) {
+                            "crossbowAttackStart"
+                        } else {
+                            "bowAttackStart"
+                        });
+                    }
+                }
+                if !held && self.weapon_holds[index].take().is_some() {
+                    self.send_weapon_event("attackRelease");
+                }
                 continue;
             }
             if pressed {
@@ -60,6 +129,75 @@ impl PlayerNode {
                 }
             }
         }
+    }
+
+    pub(super) fn update_ranged_flights(&mut self, delta: f32) {
+        if self.ranged_flights.is_empty() {
+            return;
+        }
+        let Some(space) = self.base().get_world_3d().map(|world| world.get_space()) else {
+            return;
+        };
+        let Some(game) = &mut self.game else {
+            self.ranged_flights.clear();
+            return;
+        };
+        let owners = [&self.melee_bodies, self.actor_bodies.owners()];
+        self.ranged_flights.retain_mut(|flight| {
+            match flight.advance(space, &owners, delta) {
+                Ok(crate::combat::ProjectileUpdate::Flying { .. }) => true,
+                Ok(_) => {
+                    let _ = flight.recover_missed_arrow(game);
+                    false
+                }
+                Err(error) => {
+                    soe_trace::error!(target: "host::combat", system = "host::combat", "arrow flight: {error}");
+                    false
+                }
+            }
+        });
+    }
+
+    fn active_weapon_contact(&mut self, name: &str, hand: Hand, pose: Transform3D) -> bool {
+        if name == "arrowRelease" && hand == Hand::Right {
+            let Some(camera) = &self.camera else {
+                return false;
+            };
+            let direction = -camera.get_global_transform().basis.col_c();
+            let units = 1.0 / crate::units::METRES_PER_UNIT;
+            let origin = [
+                pose.origin.x * units,
+                -pose.origin.z * units,
+                pose.origin.y * units,
+            ];
+            let direction = [direction.x, -direction.z, direction.y];
+            let Some(game) = &mut self.game else {
+                return false;
+            };
+            return match self
+                .ranged_release
+                .event(game, "bowRelease", origin, direction)
+            {
+                Ok(Some(request)) => {
+                    self.ranged_flights
+                        .push(crate::combat::ProjectileFlight::new(request));
+                    true
+                }
+                Ok(None) => false,
+                Err(error) => {
+                    soe_trace::error!(target: "host::combat", system = "host::combat", "arrow release: {error}");
+                    false
+                }
+            };
+        }
+        if self
+            .melee_contact
+            .armed()
+            .is_none_or(|(_, armed)| armed != hand)
+        {
+            return false;
+        }
+        self.melee_bone_contact(name.into(), pose)
     }
 }
 
@@ -196,7 +334,7 @@ impl PlayerNode {
                 .send_graph_event(if drawn { "WeapEquip" } else { "Unequip" }.into());
         }
         if !drawn {
-            self.melee_contact.cancel();
+            self.cancel_weapon_input();
         }
         if let Some(visual) = &mut self.first_person_appearance {
             visual

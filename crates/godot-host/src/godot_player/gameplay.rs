@@ -539,6 +539,7 @@ impl PlayerNode {
 
         let previous_detection = std::mem::take(&mut self.automatic_detection);
         let previous_game = self.game.replace(game);
+        self.ranged_flights.clear();
         self.clear_player_input();
         self.melee_contact.cancel();
         self.melee_bodies.clear();

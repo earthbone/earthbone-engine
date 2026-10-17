@@ -183,6 +183,8 @@ pub struct PlayerNode {
     npc_actors: npcs::NpcActors,
     first_person_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     weapon_holds: [Option<f32>; 2],
+    ranged_release: crate::combat::RangedRelease,
+    ranged_flights: Vec<crate::combat::ProjectileFlight>,
     npc_grounding: crate::npc_grounding::NpcGrounding,
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     debug_ref_markers: BTreeMap<GlobalFormId, Rid>,
@@ -350,6 +352,8 @@ impl INode3D for PlayerNode {
             npc_actors: npcs::NpcActors::default(),
             first_person_appearance: None,
             weapon_holds: [None, None],
+            ranged_release: crate::combat::RangedRelease::default(),
+            ranged_flights: Vec::new(),
             npc_grounding: crate::npc_grounding::NpcGrounding::default(),
             pending_debug_latents: Vec::new(),
             debug_ref_markers: BTreeMap::new(),
@@ -845,7 +849,7 @@ impl PlayerNode {
 
     #[func]
     fn input_focus_lost(&mut self) {
-        self.weapon_holds = [None, None];
+        self.cancel_weapon_input();
         self.input_focused = false;
         if let Some(game) = self.game.as_mut() {
             let player = game.player();
@@ -1208,6 +1212,7 @@ impl PlayerNode {
     #[func]
     pub fn load_data(&mut self, path: GString) -> bool {
         self.clear_player_input();
+        self.ranged_flights.clear();
         self.interface_cache_job = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.location_preparing = false;
@@ -1261,6 +1266,7 @@ impl PlayerNode {
         self.interface_cache_job = None;
         self.data_source = Some(source);
         self.game = None;
+        self.ranged_flights.clear();
         self.clear_player_input();
         self.image_space = crate::image_space::ImageSpaceStack::default();
         self.refresh_image_space();
@@ -1502,6 +1508,7 @@ impl PlayerNode {
             }
         }
 
+        self.update_ranged_flights(delta as f32);
         let camera = self.rig;
         let movement = self.game.as_mut().map_or_else(Default::default, |game| {
             let player = game.player();

@@ -479,7 +479,13 @@ impl SkinnedActorNode {
                 world
                     .record(weapon)
                     .and_then(|record| soe_game::combat::records::Weapon::from_record(record).ok())
-                    .map_or(0.0, |weapon| f32::from(weapon.animation))
+                    .map_or(0.0, |weapon| {
+                        if weapon.animation == 9 {
+                            12.0
+                        } else {
+                            f32::from(weapon.animation)
+                        }
+                    })
             } else if hand == Hand::Left
                 && world
                     .equipped_shield(binding.actor)
@@ -984,7 +990,7 @@ impl SkinnedActorNode {
             .filter(|_| !self.first_person)
             .map(|binding| (binding.world.clone(), binding.actor));
         report_graph_events(&mut events, |event| {
-            if matches!(event, "HitFrame" | "attackStop") {
+            if matches!(event, "HitFrame" | "attackStop" | "arrowRelease") {
                 for hand in [Hand::Right, Hand::Left] {
                     if let Ok(pose) = self.weapon_pose(hand) {
                         self.signals().weapon_contact().emit(

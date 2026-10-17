@@ -184,10 +184,10 @@ impl PlayerNode {
         self.player_input.pending() as i64
     }
 
-    /// Clear the transient command queue and log without changing World.
+    /// Clear queued controls and cancel held weapon actions before resuming input.
     #[func]
     pub fn clear_player_input(&mut self) {
-        self.weapon_holds = [None, None];
+        self.cancel_weapon_input();
         self.player_input = Driver::default();
     }
 

@@ -1776,6 +1776,70 @@ mod tests {
     }
 
     #[test]
+    fn hst_25_installed_weapon_and_bow_event_contract() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        for (object, expected) in [
+            (0x1397e, 2),
+            (0x13980, 6),
+            (0x13981, 6),
+            (0x13982, 4),
+            (0x1359d, 5),
+            (0x13985, 7),
+        ] {
+            let record = world
+                .record(soe_esm::GlobalFormId { file: 0, object })
+                .unwrap();
+            let weapon = soe_game::combat::records::Weapon::from_record(record).unwrap();
+            assert_eq!(
+                weapon.animation, expected,
+                "fixture weapon kind for {object:x}"
+            );
+            println!(
+                "HST-25 record {object:x} {:?} animation={}",
+                record.editor_id(),
+                weapon.animation
+            );
+        }
+        let player = world.player();
+        for assets in [
+            ActorAssets::load_for_actor(&mut world, player, source.vfs()).unwrap(),
+            ActorAssets::load_player_first_person(&mut world, player, source.vfs()).unwrap(),
+        ] {
+            for node in &assets.graph.nodes {
+                if let soe_hkx::behavior::NodeKind::StateMachine(machine) = &node.kind {
+                    if matches!(
+                        node.name.as_str(),
+                        "1HM_Behavior"
+                            | "BowAttackBehavior"
+                            | "BowDrawBehavior"
+                            | "Bow_DrawingBehavior"
+                            | "Bow_AttackStandingBehavior"
+                    ) {
+                        for state in &machine.states {
+                            for transition in &state.transitions {
+                                let event = usize::try_from(transition.event_id)
+                                    .ok()
+                                    .and_then(|id| assets.graph.data.event_names.get(id));
+                                println!(
+                                    "HST-25 graph={} machine={} state={} event={event:?} to={}",
+                                    assets.behavior_path,
+                                    node.name,
+                                    state.name,
+                                    transition.to_state_id
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn hst_25_installed_skeleton_has_required_sheath_nodes() {
         let Some(data) = std::env::var_os("SKYRIM_DATA") else {
             return;
@@ -1883,6 +1947,11 @@ mod tests {
     #[test]
     fn hst_25_walkthrough_inventory_equipment() {
         inventory_scene("hst_25_equipment_test.gd");
+    }
+
+    #[test]
+    fn hst_25_walkthrough_inventory_attacks() {
+        inventory_scene("hst_25_attack_test.gd");
     }
 
     #[test]

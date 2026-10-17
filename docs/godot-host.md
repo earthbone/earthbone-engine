@@ -23,6 +23,9 @@ form equipped. It did not assign a hand, so the attachment renderer found no
 sword and the attack transaction failed. The presenter now uses the shared
 hand equipment transaction, with its selected hand. The host's earlier debug
 equip helper already used that transaction and therefore missed this defect.
+Selecting a weapon also clears the previous spell in the occupied hand.
+The replacement scene failed before this change because the stale right-hand
+spell took priority over the newly equipped sword's model.
 
 Shields previously stayed in the armor skin assembly and had no sheath path.
 Their INV-08-selected addon now supplies the movable shield model. It follows
@@ -46,20 +49,51 @@ of the authored WeaponBack with an identity local pose. The synthetic anchor
 check verifies the resulting model transform and preservation of custom nodes.
 This fallback is host policy, not an authored vanilla shield attachment.
 
-The first equipment scene failed on the missing back anchor. After the
-correction, both rigs pass the draw and sheathe clip, attachment marker and
-visibility assertions. Ordinary mouse attacks select authored clips and emit
-HitFrame in both rigs. The equipment fixture captures both camera views on the
-private software-rendered display. The first-person shadow, rig turning, NPC
-movement, hair and faces belong to other round 4 tasks.
+The first installed equipment run failed on the missing back anchor. It
+confirmed the draw and sheathe clips and their attachment markers in both rigs,
+and ordinary mouse attacks select clips and emit HitFrame in both views.
+The first attack run played no block clip, rejected bow and ammunition equip,
+produced no bow draw or release and consumed no arrow. Held dagger and mace
+power attacks emitted hit markers. The initial two-handed fixture used IronMace
+0x13982. The installed record survey corrected it to IronWarhammer 0x13981
+without changing the two-handed clip assertion. Input now routes block starts and
+stops to the graph and shared blocking state. Bow input arms CMB-08, while the
+authored arrowRelease marker releases one shot into CMB-22 flight. Menu and
+focus cancellation clear held actions and queue their graph stops.
+
+The installed behavior graph accepts bowAttackStart and attackRelease as
+input. Bow_DrawNock and Bow_Draw annotations supply bowDrawStart and bowDrawn
+to advance its internal phases, followed by arrowRelease and bowEnd. These
+annotations use the existing clip-trigger conversion, including its crop and
+duplicate checks. The local CK animation-event pages and Nemesis annotation
+data distinguish input requests from these authored phase markers.
 
 Only the visible player rig supplies combat contacts. Previously all contacts
 came from the third-person graph even while the first-person graph was shown.
 The scene uses a controlled collider for a resident actor to check that its
-health changes at the selected rig's authored marker once. Third-person health
-changes from 1000 to 992.3, then first-person health changes from 992.3 to 984.6.
-Before the contact-source correction, the first-person hit left health at 992.3.
-The fixture checks contact timing, not normal actor collision geometry.
+health changes at the selected rig's authored marker once. The fixture is a
+contact-timing check, not a survey of actor collision shapes in normal play.
+Third-person health changes from 1000 to 992.3, then first-person health changes
+from 992.3 to 984.6. Before the contact-source correction, the first-person hit
+left health at 992.3.
+
+The complete Bannered Mare sequence passes headless and windowed on the private
+software-rendered display. Windowed armor changes 6,783 pixels against the
+100-pixel minimum and unequip restores both rigs' previous models. Both rigs
+play shield and two-handed block clips, dagger and warhammer power attacks,
+and Bow_DrawNock and Bow_DrawLight followed by arrowRelease. The fixture first
+reported 33 to 32 arrows because the player already held 23. It now establishes
+and asserts ten starting arrows, then retains the nine-arrow release assertion.
+The invisible rig's release marker cannot consume a second arrow. Captures are
+under `target/hst25-final-mare`.
+
+Projectile flight currently ends at its first actor without applying damage
+or OnHit. CMB-40 records that separate core gap. Projectile rendering and full
+hand spell presentation are also not established by these checks. No new
+production scene nodes, dependency or saved field is added. The first-person
+shadow rendering, rig turning, NPC movement, hair and faces remain with their
+round 4 owners. Visual review found the fallback sheathed shield at head height.
+Its torso placement correction and the corrected exterior capture are pending.
 
 ## Player view corrections, 2026-10-14
 
