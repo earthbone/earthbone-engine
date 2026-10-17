@@ -5,6 +5,8 @@ extends Control
 const DefaultTheme = preload("res://ui/theme/theme.gd")
 const InterfaceCache = preload("res://ui/interface_cache.gd")
 
+const UiTrace = preload("res://ui/trace.gd")
+
 var icon_name := "default_misc"
 var cache_directory := ""
 var cache_icon_name := ""
@@ -28,9 +30,11 @@ func _ready() -> void:
 	queue_redraw()
 
 func _load_art() -> void:
+	var _span = UiTrace.begin("ui.icon.art." + icon_name)
 	if cache_directory.is_empty():
 		return
-	cache = InterfaceCache.new(cache_directory)
+	if cache == null or cache.directory != cache_directory:
+		cache = InterfaceCache.new(cache_directory)
 	for movie_path in cache.movies:
 		if not cache_movie.is_empty() and not str(movie_path).ends_with(cache_movie):
 			continue
@@ -71,6 +75,7 @@ func _load_art() -> void:
 						return
 
 func _load_theme() -> void:
+	var _span = UiTrace.begin("ui.icon.theme." + icon_name)
 	var path := DefaultTheme.resource_path(icon_name)
 	if path.is_empty() or not FileAccess.file_exists(path):
 		return

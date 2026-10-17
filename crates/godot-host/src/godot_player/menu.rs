@@ -819,6 +819,7 @@ impl PlayerNode {
     /// Open the modal shell. The framework owns controls added to menu_content.
     #[func]
     pub fn open_menu(&mut self, title: GString) -> bool {
+        let _span = soe_trace::Span::new("ui.menu.open", "ui");
         if !self.base().is_inside_tree() || self.menu_view.is_none() {
             return false;
         }
@@ -1072,6 +1073,7 @@ impl PlayerNode {
     /// Open the shared player's inventory and render one SkyUI-style category.
     #[func]
     pub fn open_inventory_menu(&mut self) -> bool {
+        let _span = crate::godot_ui_trace::scope(|| "ui.inventory.open".into());
         if self.game.is_none() || !self.open_menu("Inventory".into()) {
             return false;
         }

@@ -3053,3 +3053,99 @@ and zero foreground draw compilations. Surface and specialization counts
 remain eight and 36, then six and 34. These shared-machine observations keep
 PRF-47 below 33 ms and leave PRF-46 open. They do not establish hardware FPS.
 The current reports and load traces remain in `target/prf40-after`.
+
+## Preview3 inventory stall follow-up, 2026-10-17
+
+The starting extension is `586d22c0b` on `lead/play-preview3`. The retained
+round 4 gate log ends after a successful loose-item pickup and reports a
+2,008 ms watchdog breach while opening inventory. Its ten-test harness
+reported nine passes and one failure. The first follow-up run retained the
+same two-second watchdog and passed loose/inventory, but failed at the exit
+with a 2,016 ms stale heartbeat. That harness also reported nine passes and
+one failure, in 138.30 seconds. These were separate observations before
+span capture identified the inventory cost. Captures are retained in `target/tst_19/r4-original`
+and `target/tst_19/r4-baseline`.
+
+UI spans now cover record-backed row snapshots, dictionary marshalling,
+menu construction, icon and font resource loads, converted-art publication
+and the conversion worker. GDScript scopes hold a RefCounted native guard
+and use the trace crate's clock and thread IDs. Isolated fixtures without
+the extension skip those scopes. `SOE_UI_TRACE=<absolute-json-path>` enables
+Chrome capture and a worker export every 500 ms, so completed spans survive
+a watchdog termination. Export uses a temporary file and rename, and joins
+the exporter before extension unload. Normal play performs no trace-file I/O.
+
+The local Godot `class_refcounted.rst`, `class_resourceloader.rst` and
+`thread_safe_apis.rst` define lifetime, resource-cache and worker boundaries.
+No resource reader or model format changes are involved in this diagnostic.
+
+The instrumented reproduction failed at loose with a 2,006 ms stale
+heartbeat, nine harness passes and one failure, in 60.98 seconds. Its Chrome
+trace is `target/tst_19/r4-before-trace.json`. Main-thread ID 29 completed
+14 `ui.cache.manifest` spans totalling 1,350.446 ms before termination.
+Individual parses reached 136.678 ms. Each icon constructed an InterfaceCache
+and parsed `manifest.json`, including the converter's entire output-hash
+table. Rebuilding categories and item rows repeated this work. The watchdog
+terminated the process before inventory opening completed. While conversion
+is pending, menus use bundled art without reading the generated manifest.
+The expensive path begins after publication, explaining why reaching the
+same stage did not fail on every repeat.
+
+The inventory row snapshot took 0.094 ms and dictionary marshalling took
+0.445 and 0.291 ms. Converted-cache publication took 0.006 ms. There were
+no main-thread archive, DDS or NIF spans in the inventory opening interval.
+The active native item presenter does not call the older 3D preview path.
+FFDec conversion remains on the interface-cache worker. Converter discovery
+checks filesystem paths and starts no subprocess. These observations rule
+out the proposed model-read, conversion-wait and repeated-record candidates
+for this reproduced stall.
+
+Each item menu now retains one InterfaceCache for its current immutable
+generation, shared by font lookup, decorations, category icons and row
+icons. Refreshes reuse its parsed movie metadata and fonts. Changing the
+generation replaces that cache. Ownership stays within the menu and its
+existing controls, without a global cache or a reference cycle. No saved
+fields, dependencies or per-world-reference nodes change.
+
+The UI-20 import fixture now removes its synthetic manifest after first
+presentation and refreshes the menu. Before the fix it fails because the
+new icons reread the missing manifest and lose installed art. After the
+fix it retains installed art and still discards it when the generation
+changes. The unchanged import, font-style, cycle and pixel checks also pass.
+
+The final extension includes the existing `scr-24-test,cmb-37-test` driver
+features required by the full lint gate. Its release build passed in
+1 minute 35 seconds after waiting for the shared build slot. The installed
+confirmation retains `target/tst_19/r4-after-trace.json` and
+`target/tst_19/r4-after`. Main-thread ID 29 opened inventory in 425.270 ms,
+leaving 1,574.730 ms below the unchanged 2,000 ms watchdog. It parsed the
+nonempty manifest once, in 214.560 ms. Two empty-cache constructors took
+only microseconds. The row snapshot took 0.082 ms. Conversion took
+2,375.459 ms on worker thread 66, outside the main-thread opening interval.
+
+The full harness still reports nine passes and one failure, in 153.84
+seconds. Inventory, loose pickup and the hearth passed. The process later
+failed at exit with a 2,012 ms stale heartbeat, also observed at 2,016 ms
+before this fix. Completed main-thread engine spans at exit stayed below
+35 ms. The last include sky texture decode at 3.372 ms and its upload at
+0.388 ms. The log also records a 2,219.837 ms frame interval with 76 shader
+specializations. This is an interval containing compilation, not measured
+compiler time or a confirmed root cause. `npc.grounded` also reports no
+resident actors during that transition. Exterior stops, return and full
+duration remain unverified. PRF-49 tracks this separate failure, while
+PRF-48 is narrowed to inventory opening and cache retention. No watchdog,
+frame budget or assertion changed.
+
+All ten harness results are retained individually in
+`target/tst_19/r4-stall/report.json`. The host library run passes 590 tests
+with installed-data variables unset. Package formatting, all-target Clippy
+with warnings denied, comment lint, prose lint and Markdown lint pass.
+Comment lint emits an existing duplicate-helper advisory without failing.
+
+The single final `tools/lint.sh` run exits zero with 9,974 Rust passes,
+55 runner checks and 14 existing ignores. Cargo-deny and cargo-audit are
+absent and skipped. It takes 1205.07 seconds including compilation and
+exceeds the five-minute target. The installed route remains the separate
+failure above. The loose stop itself reports a 460.572 ms maximum frame
+interval, including the 425.270 ms inventory opening, with 1,539.428 ms of
+margin below the unchanged watchdog.

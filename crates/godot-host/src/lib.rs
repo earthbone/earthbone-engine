@@ -116,6 +116,8 @@ mod godot_sky;
 #[cfg(feature = "godot")]
 pub mod godot_tether;
 #[cfg(feature = "godot")]
+mod godot_ui_trace;
+#[cfg(feature = "godot")]
 mod godot_world;
 
 #[cfg(feature = "godot")]
@@ -138,6 +140,9 @@ mod entry {
         }
 
         fn on_stage_deinit(level: InitStage) {
+            if level == InitStage::Scene {
+                crate::godot_ui_trace::stop();
+            }
             if level == InitStage::Scene {
                 crate::background_audio::wait_for_decoders();
                 crate::godot_profiler::unregister();

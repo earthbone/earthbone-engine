@@ -4,6 +4,7 @@ extends SceneTree
 
 const Cache = preload("res://ui/interface_cache.gd")
 const Icon = preload("res://ui/item_icon.gd")
+const Menu = preload("res://ui/item_menu.gd")
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -19,7 +20,7 @@ func part(character: int) -> Dictionary:
 func run() -> void:
 	var directory := OS.get_environment("SOE_UI_20_IMPORT_FIXTURE")
 	assert(not directory.is_empty())
-	for folder in ["root", "card", "cycle", "fonts"]:
+	for folder in ["root", "card", "cycle", "fonts", "icons"]:
 		assert(DirAccess.make_dir_recursive_absolute(directory.path_join(folder)) == OK)
 	write_json(directory.path_join("manifest.json"), {"movies": {
 		"interface/inventorymenu.swf": "root/movie.tres",
@@ -27,6 +28,7 @@ func run() -> void:
 		"interface/cycle.swf": "cycle/movie.tres",
 		"interface/escape.swf": "../outside/movie.tres",
 		"interface/fonts.swf": "fonts/movie.tres",
+		"interface/icons_fixture.swf": "icons/movie.tres",
 	}})
 	var font_config := FileAccess.open(directory.path_join("fontconfig.txt"), FileAccess.WRITE)
 	font_config.store_string('fontlib "FONTS.SWF"\nmap "$EverywhereMediumFont" = "Fixture Face" Normal\nmap "$BoldFont" = "Fixture Face" Bold\nmap "$ItalicFont" = "Fixture Face" Italic\n')
@@ -54,6 +56,10 @@ func run() -> void:
 	})
 	write_json(directory.path_join("cycle/movie.json"), {
 		"symbols": {"Loop": 4}, "imports": {"inventorymenu.swf": {"Loop": 4}},
+	})
+	write_json(directory.path_join("icons/movie.json"), {
+		"imports": {"skyui/itemcard.swf": {"Card": 1}},
+		"timelines": {"5": {"frames": [{"labels": ["default_misc"], "display_list": [part(1)]}]}},
 	})
 	var mesh := ArrayMesh.new()
 	var arrays := []
@@ -92,6 +98,22 @@ func run() -> void:
 	assert(imported.meshes.size() == 1)
 	assert(imported.meshes[0].mesh == icon.meshes[0].mesh)
 	assert(imported.meshes[0].transform.origin == Vector2(3, 4))
+	var menu := Menu.new()
+	root.add_child(menu)
+	var items := [{"id": "1", "name": "Fixture item", "category": "Misc", "icon": "default_misc", "side": 0}]
+	menu.configure("inventory", items, directory)
+	var item_icon = menu.rows.get_child(0).get_child(0).get_child(1)
+	assert(item_icon.art_source == "interface/icons_fixture.swf")
+	var manifest := directory.path_join("manifest.json")
+	assert(DirAccess.rename_absolute(manifest, manifest + ".retained") == OK)
+	menu.replace_rows(items)
+	item_icon = menu.rows.get_child(0).get_child(0).get_child(1)
+	assert(item_icon.art_source == "interface/icons_fixture.swf", "refresh must retain the published generation without rereading its manifest")
+	assert(DirAccess.rename_absolute(manifest + ".retained", manifest) == OK)
+	menu.set_art_cache("")
+	item_icon = menu.rows.get_child(0).get_child(0).get_child(1)
+	assert(item_icon.art_source.begins_with("res://ui/theme/"), "changing generation must discard the old installed art")
+	menu.queue_free()
 	await process_frame
 	await RenderingServer.frame_post_draw
 	var image := root.get_texture().get_image()

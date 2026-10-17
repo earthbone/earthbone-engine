@@ -2,6 +2,8 @@
 extends RefCounted
 ## UI-19 imports and font aliases follow SkyUI's ImportAssets2 and fontconfig.
 
+const UiTrace = preload("res://ui/trace.gd")
+
 var directory := ""
 var movies: Dictionary = {}
 var metadata: Dictionary = {}
@@ -10,6 +12,7 @@ var font_aliases: Dictionary = {}
 var fonts: Dictionary = {}
 
 func _init(cache_directory: String = "") -> void:
+	var _span = UiTrace.begin("ui.cache.manifest")
 	directory = cache_directory
 	var path := directory.path_join("manifest.json")
 	if directory.is_empty() or not FileAccess.file_exists(path):
@@ -39,6 +42,7 @@ func _read_font_config() -> void:
 			}
 
 func font(alias: String) -> Font:
+	var _span = UiTrace.begin("ui.cache.font." + alias)
 	if fonts.has(alias):
 		return fonts[alias]
 	if not font_aliases.has(alias):
@@ -62,6 +66,7 @@ func font(alias: String) -> Font:
 	return null
 
 func movie(path: String) -> Dictionary:
+	var _span = UiTrace.begin("ui.cache.movie." + path)
 	path = path.replace("\\", "/").to_lower().simplify_path()
 	if path in metadata:
 		return metadata[path]

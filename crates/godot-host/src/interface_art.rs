@@ -30,6 +30,7 @@ impl CacheJob {
         decompiler: Decompiler,
     ) -> std::io::Result<Self> {
         Self::spawn(move || {
+            let _span = soe_trace::Span::new("ui.art.convert", "ui");
             let plugins = source
                 .order()
                 .files()

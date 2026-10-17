@@ -55,6 +55,7 @@ fn form(data: &VarDictionary) -> Option<GlobalFormId> {
 
 impl PlayerNode {
     fn item_art_cache(&mut self) -> String {
+        let _span = soe_trace::Span::new("ui.art.cache_request", "ui");
         if let Some(cache) = &self.interface_cache {
             return cache.clone();
         }
@@ -111,6 +112,7 @@ impl PlayerNode {
             return;
         };
         self.interface_cache_job = None;
+        let _span = soe_trace::Span::new("ui.art.publish", "ui");
         let cache = match result {
             Ok(cache) => {
                 if let Some(hud) = self.hud_view.as_mut() {
@@ -137,14 +139,18 @@ impl PlayerNode {
     }
 
     pub(super) fn present_items(&mut self, mode: &str, rows: &[(Row, i64)]) -> bool {
+        let mut span = crate::godot_ui_trace::scope(|| "ui.items.present".into());
+        span.set_payload(rows.len() as u64);
         let Some(mut content) = self.menu_content() else {
             return false;
         };
         self.item_panel_layout();
         let mut data = VarArray::new();
+        let marshal = soe_trace::Span::new("ui.items.marshal", "ui");
         for (row, side) in rows {
             data.push(&dictionary(row, *side).to_variant());
         }
+        drop(marshal);
         if let Some(mut view) = content.get_node_or_null("ItemMenu") {
             let _guard = self.base_mut();
             view.call("replace_rows", &[data.to_variant()]);
@@ -179,10 +185,12 @@ impl PlayerNode {
             return false;
         };
         let player = game.world_mut().player();
+        let span = soe_trace::Span::new("ui.inventory.rows", "ui");
         let rows = item_menu::inventory(game, player)
             .into_iter()
             .map(|row| (row, 0))
             .collect::<Vec<_>>();
+        drop(span);
         self.present_items("inventory", &rows)
     }
 

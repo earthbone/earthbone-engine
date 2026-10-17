@@ -10103,3 +10103,20 @@ The converter, exported sources, generation keys and watchdog limit remain.
 The boundary follows local `godot-docs/tutorials/performance/thread_safe_apis.rst`.
 The local `SkyUI-Community/tools/FFDec/ffdec-cli` still supplies the external
 exporter through the existing converter.
+
+## Shared interface generation during item presentation
+
+Preview3's loose-stage watchdog was reproduced at 2,006 ms. Trace spans
+identified repeated main-thread JSON parsing, with 14 InterfaceCache
+constructions totalling 1,350.446 ms before termination. The converter's
+manifest includes hashes for every generated file, so parsing it per icon
+was expensive even though FFDec already ran on a worker.
+
+A menu now shares one InterfaceCache among its fonts, decorations and item
+and category icons. Refreshes reuse the generation's movie metadata and
+font resources. A changed generation creates a fresh cache. This follows
+Godot's local RefCounted lifetime contract, with no global ownership or
+reference cycle. The UI-20 import fixture fails before the fix when its
+manifest is removed between presentation and refresh, and passes afterward,
+including generation replacement. See [performance.md](performance.md) for
+trace capture and installed-route measurements.

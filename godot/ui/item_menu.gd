@@ -14,6 +14,8 @@ const FAVORITE_CATEGORIES = ["All", "Gear", "Aid", "Magic"]
 const MAGIC_CATEGORIES = ["All", "Spells"]
 const LABELS = {"equipped": "", "icon": "", "name": "NAME", "category": "TYPE", "weight": "WGT", "value": "VAL", "ratio": "V/W", "damage": "DMG", "armor": "ARM", "cost": "COST"}
 
+const UiTrace = preload("res://ui/trace.gd")
+
 var mode := "inventory"
 var source_rows: Array = []
 var visible_rows: Array = []
@@ -24,6 +26,7 @@ var descending := false
 var selected_id := ""
 var query := ""
 var cache_directory := ""
+var art_cache = InterfaceCache.new()
 var categories: VBoxContainer
 var header: HBoxContainer
 var rows: VBoxContainer
@@ -40,6 +43,7 @@ var player_gold := 0
 var merchant_gold := 0
 
 func _ready() -> void:
+	var _span = UiTrace.begin("ui.items.ready")
 	name = "ItemMenu"
 	set_meta("hand", 1)
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -60,6 +64,7 @@ func _ready() -> void:
 		decoration.stretch_art = true
 		decoration.art_color = Color(0.035, 0.045, 0.05, 0.96) if decoration_name == "background" else Color(0.10, 0.13, 0.15, 0.85)
 		decoration.cache_directory = cache_directory
+		decoration.cache = art_cache
 		decoration.cache_movie = "itemcard.swf"
 		decoration.cache_symbol = "ItemCard"
 		decoration.cache_instance = "background"
@@ -119,17 +124,20 @@ func _ready() -> void:
 	refresh()
 
 func configure(menu_mode: String, data: Array, cache: String = "") -> void:
+	var _span = UiTrace.begin("ui.items.configure")
 	mode = menu_mode
 	source_rows = data
 	set_art_cache(cache)
 
 func set_art_cache(cache: String) -> void:
+	var _span = UiTrace.begin("ui.items.art")
 	cache_directory = cache
 	if is_node_ready():
 		_apply_cache_font()
 		for decoration_name in ["Background", "Frame"]:
 			var decoration = get_node(decoration_name)
 			decoration.cache_directory = cache_directory
+			decoration.cache = art_cache
 			decoration.meshes.clear()
 			decoration.art_bounds = Rect2()
 			decoration.art_source = "builtin"
@@ -140,8 +148,9 @@ func set_art_cache(cache: String) -> void:
 		refresh()
 
 func _apply_cache_font() -> void:
-	var cache := InterfaceCache.new(cache_directory)
-	theme.default_font = cache.font("$EverywhereMediumFont")
+	if art_cache.directory != cache_directory:
+		art_cache = InterfaceCache.new(cache_directory)
+	theme.default_font = art_cache.font("$EverywhereMediumFont")
 
 func replace_rows(data: Array) -> void:
 	source_rows = data
@@ -283,6 +292,7 @@ func _cell(control: Control, key: String) -> void:
 	control.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 func refresh() -> void:
+	var _span = UiTrace.begin("ui.items.refresh")
 	if not is_node_ready():
 		return
 	gold_label.visible = mode == "barter"
@@ -308,6 +318,7 @@ func refresh() -> void:
 		category_art.name = "CategoryIcon"
 		category_art.icon_name = DefaultTheme.category_icon(str(choice))
 		category_art.cache_directory = cache_directory
+		category_art.cache = art_cache
 		category_art.cache_icon_name = DefaultTheme.installed_category(str(choice))
 		category_art.custom_minimum_size = Vector2(20, 20)
 		button.add_child(category_art)
@@ -356,12 +367,14 @@ func refresh() -> void:
 				var icon := Icon.new()
 				icon.icon_name = row.get("icon", "default_misc")
 				icon.cache_directory = cache_directory
+				icon.cache = art_cache
 				_cell(icon, key)
 				cells.add_child(icon)
 			elif key == "equipped" and row.get("equipped", false):
 				var marker := Icon.new()
 				marker.icon_name = "marker"
 				marker.cache_directory = cache_directory
+				marker.cache = art_cache
 				marker.cache_movie = "inventorylists.swf"
 				marker.cache_symbol = "EquipIcon"
 				_cell(marker, key)
