@@ -20,6 +20,51 @@ fn r4_installed_giant_sources_and_combat_style() {
             let state = world.actor(actor).unwrap();
             (state.dead, state.ai_disabled, state.race)
         };
+        if let Some(race) = race {
+            println!(
+                "R4_SOURCE actor={actor} attributes={:?}",
+                world
+                    .record(race)
+                    .and_then(|record| soe_game::race::Attributes::from_record(record).ok())
+                    .flatten()
+            );
+        }
+        for hand in [soe_game::combat::Hand::Right, soe_game::combat::Hand::Left] {
+            let weapon = world.hand_weapon(actor, hand);
+            let reach = world.melee_reach(actor, hand);
+            println!("R4_SOURCE actor={actor} hand={hand:?} weapon={weapon:?} reach={reach:?}");
+        }
+        if let Ok(mut owner) = world.actor_component_source(actor, template::TRAITS) {
+            let mut seen = std::collections::BTreeSet::new();
+            while seen.insert(owner) {
+                let Some(record) = world.record(owner) else {
+                    break;
+                };
+                println!(
+                    "R4_SOURCE actor={actor} audio_owner={owner} editor={:?} sound_fields={:?}",
+                    record.editor_id(),
+                    record
+                        .subrecords
+                        .iter()
+                        .filter(|s| matches!(
+                            s.tag.as_bytes(),
+                            b"CSDT" | b"CSDI" | b"CSDC" | b"CSCR"
+                        ))
+                        .collect::<Vec<_>>()
+                );
+                let Some(raw) = record
+                    .find(Tag(*b"CSCR"))
+                    .and_then(|b| b.try_into().ok())
+                    .map(u32::from_le_bytes)
+                else {
+                    break;
+                };
+                let Some(next) = world.resolve_from(owner, raw).filter(|_| raw != 0) else {
+                    break;
+                };
+                owner = next;
+            }
+        }
         let aggression = world.actor_value(actor, "aggression");
         let confidence = world.actor_value(actor, "confidence");
         println!("R4_SOURCE actor={actor} base={base} dead={dead} ai_disabled={ai_disabled} race={race:?} aggression={aggression} confidence={confidence}");

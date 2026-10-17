@@ -222,6 +222,111 @@ impl World {
         }
     }
 
+    /// Record-backed melee stop distance, including race, NPC and reference scale.
+    /// CSTY equipment multipliers enable weapon and unarmed approach options.
+    ///
+    /// # Errors
+    /// Rejects malformed race, style, equipment or scale inputs.
+    pub fn combat_approach_distance(&mut self, actor: GlobalFormId) -> soe_esm::Result<f32> {
+        let race = self.actor(actor).and_then(|actor| actor.race);
+        let Some(race) = race else {
+            return Ok(crate::ai::COMBAT_ARRIVAL_DISTANCE);
+        };
+        let attributes = self
+            .record(race)
+            .map(crate::race::Attributes::from_record)
+            .transpose()?
+            .flatten();
+        let Some(attributes) = attributes else {
+            return Ok(crate::ai::COMBAT_ARRIVAL_DISTANCE);
+        };
+        let source = self.actor_component_source(actor, crate::npc::template::AI_DATA)?;
+        let style = if let Some(bytes) = self
+            .record(source)
+            .and_then(|record| record.find(soe_esm::Tag(*b"ZNAM")))
+        {
+            let mut field =
+                soe_esm::cursor::Fields::new(soe_esm::Tag(*b"NPC_"), soe_esm::Tag(*b"ZNAM"), bytes);
+            field.exact(4)?;
+            let raw = field.u32()?;
+            if raw == 0 {
+                None
+            } else {
+                Some(
+                    self.resolve_from(source, raw)
+                        .ok_or_else(|| soe_esm::Error::Invalid("unresolved combat style".into()))?,
+                )
+            }
+        } else {
+            None
+        };
+        let multiplier = |index: usize| -> soe_esm::Result<f32> {
+            let Some(style) = style else { return Ok(1.0) };
+            let record = self
+                .record(style)
+                .filter(|record| record.tag == soe_esm::Tag(*b"CSTY") && !record.is_deleted())
+                .ok_or_else(|| soe_esm::Error::Invalid("missing combat style".into()))?;
+            let Some(data) = record.find(soe_esm::Tag(*b"CSGD")) else {
+                return Ok(1.0);
+            };
+            if data.len() < 8 || data.len() % 4 != 0 || data.len() > 40 {
+                return Err(soe_esm::Error::Invalid("invalid CSTY CSGD length".into()));
+            }
+            let Some(bytes) = data.get(index * 4..index * 4 + 4) else {
+                return Ok(1.0);
+            };
+            let value =
+                f32::from_le_bytes(bytes.try_into().map_err(|_| {
+                    soe_esm::Error::Invalid("short combat style multiplier".into())
+                })?);
+            if !value.is_finite() || value < 0.0 {
+                return Err(soe_esm::Error::Invalid(
+                    "invalid combat style multiplier".into(),
+                ));
+            }
+            Ok(value)
+        };
+        let melee = multiplier(3)?;
+        let unarmed = multiplier(7)?;
+        let weapon = self
+            .hand_weapon(actor, Hand::Right)
+            .or_else(|| self.hand_weapon(actor, Hand::Left));
+        let reach = if let Some(weapon) = weapon.filter(|_| melee > 0.0) {
+            let weapon = self
+                .record(weapon)
+                .ok_or_else(|| soe_esm::Error::Invalid("missing approach weapon".into()))?;
+            let weapon = Weapon::from_record(weapon)?;
+            let distance = match self.game_setting("fCombatDistance") {
+                Some(Value::Float(value)) if value.is_finite() && value > 0.0 => value,
+                None => DEFAULT_COMBAT_DISTANCE,
+                Some(_) => {
+                    return Err(soe_esm::Error::Invalid(
+                        "invalid combat distance setting".into(),
+                    ))
+                }
+            };
+            distance * weapon.reach
+        } else if melee > 0.0 || unarmed > 0.0 {
+            attributes.unarmed_reach
+        } else {
+            return Err(soe_esm::Error::Invalid(
+                "combat style enables no available melee attack".into(),
+            ));
+        };
+        let traits = self.actor_component_source(actor, crate::npc::template::TRAITS)?;
+        let scale = self.actor_controller_scale(traits)?;
+        let placed = self
+            .reference_ref(actor)
+            .map_or(1.0, |reference| reference.scale);
+        let distance = reach * scale * placed;
+        if !distance.is_finite() || distance < 0.0 || !placed.is_finite() || placed <= 0.0 {
+            return Err(soe_esm::Error::Invalid(
+                "invalid melee approach distance".into(),
+            ));
+        }
+        Ok(distance.max(crate::ai::COMBAT_ARRIVAL_DISTANCE))
+    }
+
     /// Melee reach in game units for the weapon `attacker` holds in `hand`:
     /// `fCombatDistance` times the weapon's DNAM reach times the reference
     /// scale, the formula UESP documents on the WEAP page.

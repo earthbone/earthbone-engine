@@ -320,6 +320,7 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_npc_actors(&mut self, delta: f32) {
+        self.sync_actor_sounds();
         self.npc_actors.prune_unused_rigs();
         self.npc_actors
             .textures
@@ -341,6 +342,7 @@ impl PlayerNode {
             self.npc_actors.textures = crate::godot_layer::SharedTextures::default();
             self.npc_actors.source = Some(Arc::clone(&source));
         }
+        let mut contacts = Vec::new();
         let mut placements = BTreeMap::new();
         if let Some(pair) = &self.simulation_pair {
             self.npc_actors
@@ -560,6 +562,35 @@ impl PlayerNode {
                                     id,
                                 );
                             }
+                            let warning = self.game.as_ref().map_or_else(
+                                || {
+                                    self.simulation_pair.as_ref().is_some_and(|pair| {
+                                        pair.current.pending_warnings.contains(&id)
+                                    })
+                                },
+                                |game| {
+                                    game.world()
+                                        .actor_ref(id)
+                                        .and_then(|actor| actor.aggro_warning)
+                                        .is_some_and(|warning| !warning.completed)
+                                },
+                            );
+                            if warning && result.is_ok() {
+                                node.bind_mut()
+                                    .send_presented_animation("aggroWarningStart");
+                            }
+                            if result.is_ok() {
+                                let strike = self.game.as_ref().and_then(|game| {
+                                    game.world()
+                                        .actor_ref(id)
+                                        .and_then(|actor| actor.npc_strike.as_ref())
+                                        .filter(|strike| !strike.finished)
+                                        .map(|strike| strike.event.clone())
+                                });
+                                if let Some(event) = strike {
+                                    node.bind_mut().send_presented_animation(&event);
+                                }
+                            }
                             if let Err(error) = result {
                                 resident.error = Some(error);
                                 node.queue_free();
@@ -590,6 +621,12 @@ impl PlayerNode {
                     source_seconds,
                     fraction,
                 );
+                contacts.extend(
+                    node.bind_mut()
+                        .take_contacts()
+                        .into_iter()
+                        .map(|contact| (id, contact)),
+                );
                 if let Some(pair) = &self.simulation_pair {
                     for request in resident
                         .animation_cursor
@@ -600,6 +637,7 @@ impl PlayerNode {
                 }
             }
         }
+        self.npc_strike_contacts(contacts);
         soe_trace::metric_set(
             soe_trace::Metric::AnimationActors,
             self.npc_actors
@@ -750,6 +788,7 @@ impl PlayerNode {
                 let npc = world.npc(source)?;
                 world.resolve_from(source, npc.class?)
             });
+            let combat_distance = world.combat_approach_distance(*id).ok();
             let actor = world.actor_ref(*id)?;
             Some(vdict! { "actor" => id.to_string().as_str(),
                 "package" => actor.ai.package.and_then(|package| world.editor_id(package)).unwrap_or_default().as_str(),
@@ -759,6 +798,9 @@ impl PlayerNode {
                 "ai_disabled" => actor.ai_disabled, "dead" => actor.dead, "unconscious" => actor.unconscious,
                 "in_combat" => actor.in_combat,
                 "combat_target" => actor.combat_target.map_or_else(String::new, |id| id.to_string()).as_str(),
+                "warning_target" => actor.aggro_warning.map_or_else(String::new, |warning| warning.target.to_string()).as_str(),
+                "warning_complete" => actor.aggro_warning.is_some_and(|warning| warning.completed),
+                "aware_sound_starts" => self.actor_sound_starts.get(id).copied().unwrap_or(0) as i64,
                 "destination" => actor.ai.destination.map_or(Vector3::ZERO, |p| Vector3::new(p[0], p[1], p[2])),
                 "next_waypoint" => actor.ai.path.first().map_or(Vector3::ZERO, |p| Vector3::new(p[0], p[1], p[2])),
                 "last_evaluation" => actor.ai.last_evaluation,
@@ -766,6 +808,7 @@ impl PlayerNode {
                 "race" => actor.race.and_then(|race| world.editor_id(race)).unwrap_or_default().as_str(),
                 "class" => class.and_then(|class| world.editor_id(class)).unwrap_or_default().as_str(),
                 "combat_style" => style.and_then(|style| world.editor_id(style)).unwrap_or_default().as_str(),
+                "combat_distance" => combat_distance.unwrap_or(0.0),
                 "ai_data_error" => source_error.as_str(), "package_source_error" => packages_error.as_str(),
                 "package_count" => package_count as i64,
                 "aggression" => data.map_or(-1, |data| i64::from(data.aggression)),

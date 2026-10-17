@@ -69,6 +69,13 @@ fn to_transform3d(a: &Affine) -> Transform3D {
     )
 }
 
+/// An authored contact marker sampled from the uploaded pose.
+pub(crate) struct PoseContact {
+    pub name: String,
+    pub hand: Hand,
+    pub pose: Transform3D,
+}
+
 /// The two RIDs one skinned shape needs.
 struct ShapeRids {
     instance: Rid,
@@ -231,6 +238,7 @@ pub struct SkinnedActorNode {
     model: Vec<QsTransform>,
     skins: Vec<Affine>,
     uploaded_skins: Vec<Transform3D>,
+    contacts: Vec<PoseContact>,
     stats: VarDictionary,
     applied_expression_weights: std::collections::BTreeMap<String, f32>,
     elapsed: f64,
@@ -274,6 +282,7 @@ impl INode3D for SkinnedActorNode {
             model: Vec::new(),
             skins: Vec::new(),
             uploaded_skins: Vec::new(),
+            contacts: Vec::new(),
             stats: VarDictionary::new(),
             applied_expression_weights: std::collections::BTreeMap::new(),
             elapsed: 0.0,
@@ -906,6 +915,7 @@ impl SkinnedActorNode {
     /// this while `playing`, and a test can call it directly.
     #[func]
     pub fn advance(&mut self, delta: f32) {
+        self.contacts.clear();
         self.pose_stages = [0.0; 5];
         self.sync_invisibility();
         self.sync_death_rendering();
@@ -970,6 +980,11 @@ impl SkinnedActorNode {
             if matches!(event, "HitFrame" | "attackStop") {
                 for hand in [Hand::Right, Hand::Left] {
                     if let Ok(pose) = self.weapon_pose(hand) {
+                        self.contacts.push(PoseContact {
+                            name: event.to_owned(),
+                            hand,
+                            pose,
+                        });
                         self.signals().weapon_contact().emit(
                             &GString::from(event),
                             hand == Hand::Left,
@@ -983,6 +998,10 @@ impl SkinnedActorNode {
             }
             self.signals().animation_event().emit(&GString::from(event));
         });
+    }
+
+    pub(crate) fn take_contacts(&mut self) -> Vec<PoseContact> {
+        std::mem::take(&mut self.contacts)
     }
 
     fn push_pose(&mut self) {

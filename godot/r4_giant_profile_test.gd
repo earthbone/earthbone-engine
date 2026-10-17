@@ -20,6 +20,8 @@ func _measure() -> void:
 	await super._start()
 	if not loaded:
 		return
+	player.call("debug_view_command", "prid 00000014")
+	player.call("debug_view_command", "setav health 10000")
 	var human_timings := {}
 	var human_stages := {}
 	for frame in 300:
@@ -73,6 +75,8 @@ func _measure() -> void:
 	print("R4_GIANT select=", player.call("debug_view_command", "prid %08X" % int(giant.object)))
 	for query in ["getav aggression", "getav confidence", "isincombat", "ShowAiList"]:
 		print("R4_GIANT_RECORD ", query, " ", player.call("debug_view_command", query))
+	# This is a pursuit budget, so establish hostility before moving away.
+	print("R4_GIANT_HOSTILITY ", player.call("debug_view_command", "setav aggression 3"))
 	var queued: bool = player.call("queue_player_input", {"action": "move_to", "file": giant.file, "object": giant.object, "offset": Vector3(700, 0, 0), "match_rotation": false})
 	var applied: bool = player.call("step_player_input")
 	print("R4_GIANT_PLACEMENT ", JSON.stringify({"queued": queued, "applied": applied, "player": player.call("position"), "giant": giant.position}))

@@ -60,6 +60,9 @@ use crate::world::{Alloc, Handle, Pending, World};
 
 use metrics::Phase;
 
+pub(crate) mod engagement;
+pub(crate) mod npc_strike;
+pub use engagement::AggroWarning;
 mod markers;
 pub mod metrics;
 mod movement;
@@ -90,8 +93,8 @@ const EVALUATION_INTERVAL: f64 = 1.0;
 const FRAME_EVALUATION_BUDGET: usize = 4;
 /// A sandbox with no radius wanders this far around its center.
 const DEFAULT_SANDBOX_RADIUS: f32 = 512.0;
-/// Combat movement stops within this distance of the selected target.
-const COMBAT_ARRIVAL_DISTANCE: f32 = 4.0;
+/// Fallback for actors without authored race reach.
+pub(crate) const COMBAT_ARRIVAL_DISTANCE: f32 = 4.0;
 /// OpenMW AiPackage gates path rebuilds on reaction time and goal displacement.
 const COMBAT_REPLAN_INTERVAL: f64 = 0.25;
 const COMBAT_GOAL_TOLERANCE: f32 = 32.0;
@@ -2876,6 +2879,8 @@ fn ignores_combat_inner(world: &mut World, actor: GlobalFormId) -> bool {
 }
 
 fn clear_combat_engagement(world: &mut World, actor: GlobalFormId) {
+    engagement::clear(world, actor);
+    npc_strike::cancel(world, actor);
     world.ai.combat_routes.remove(&actor);
     if let Some(state) = world.loaded_actor_mut(actor) {
         if !state.in_combat && state.combat_target.is_none() {
@@ -2946,10 +2951,11 @@ fn acquire_combat_target_inner(world: &mut World, actor: GlobalFormId) -> bool {
     {
         return false;
     }
-    let aggression = world.actor_value(actor, "aggression");
-    if aggression < 1.0 {
+    let Some(policy) = engagement::Policy::for_actor(world, actor) else {
+        engagement::clear(world, actor);
         return false;
-    }
+    };
+    policy.refresh(world, actor);
     if ignores_combat(world, actor) {
         return false;
     }
@@ -2957,25 +2963,37 @@ fn acquire_combat_target_inner(world: &mut World, actor: GlobalFormId) -> bool {
     let Some(from) = world.reference(actor).map(|reference| reference.position) else {
         return false;
     };
-    let frenzied = world.is_frenzied(actor);
-    let candidates: Vec<_> = world
+    let frenzied = world.is_frenzied(actor) || world.actor_value(actor, "aggression") >= 3.0;
+    let mut candidates: Vec<_> = world
         .detection
         .pools
         .iter()
         .filter(|(_, pool)| {
-            pool.observers.get(&actor).is_some_and(|awareness| {
-                awareness.level == crate::detection::DetectionLevel::Combat
-            })
+            pool.observers
+                .get(&actor)
+                .is_some_and(|awareness| policy.perceives(*awareness))
         })
         .map(|(target, _)| *target)
         .filter(|target| world.actor_ref(*target).is_some())
         .collect();
+    candidates.sort_unstable_by(|left, right| {
+        let separation = |target| {
+            world
+                .reference_ref(target)
+                .map_or(f32::INFINITY, |reference| {
+                    distance(from, reference.position)
+                })
+        };
+        separation(*left)
+            .total_cmp(&separation(*right))
+            .then_with(|| left.cmp(right))
+    });
     let mut best: Option<(GlobalFormId, f32)> = None;
     for target in candidates {
         if target == actor
-            || !world.awareness(actor, target).is_some_and(|awareness| {
-                awareness.level == crate::detection::DetectionLevel::Combat
-            })
+            || !world
+                .awareness(actor, target)
+                .is_some_and(|awareness| policy.perceives(awareness))
             || world
                 .actor(target)
                 .is_none_or(|state| state.dead || state.unconscious || state.teammate && !frenzied)
@@ -2994,7 +3012,11 @@ fn acquire_combat_target_inner(world: &mut World, actor: GlobalFormId) -> bool {
         if !in_guard_area {
             continue;
         }
-        let candidate = (target, distance(from, position));
+        let separation = distance(from, position);
+        if !policy.accepts(world, actor, target, separation) {
+            continue;
+        }
+        let candidate = (target, separation);
         if best.is_none_or(|current| {
             candidate
                 .1
@@ -3009,6 +3031,7 @@ fn acquire_combat_target_inner(world: &mut World, actor: GlobalFormId) -> bool {
     let Some(target) = target else {
         return false;
     };
+    engagement::clear(world, actor);
     let no_combat_alert = world
         .actor_ref(actor)
         .and_then(|state| state.ai.package)
@@ -3062,15 +3085,37 @@ fn pursue_combat_target_inner(world: &mut World, actor: GlobalFormId, dt: f32) {
     else {
         return;
     };
+    let approach = match world.combat_approach_distance(actor) {
+        Ok(distance) => distance,
+        Err(error) => {
+            soe_trace::error!(target: "game::ai", system = "combat", "approach {actor}: {error}");
+            return;
+        }
+    };
     let remaining = movement::waypoint_distance(position, destination);
     let Some(state) = world.actor(actor) else {
         return;
     };
-    if remaining <= COMBAT_ARRIVAL_DISTANCE {
+    if remaining <= approach {
         state.ai.destination = Some(destination);
         state.ai.path.clear();
         state.ai.path_cells.clear();
         state.ai.arrived = true;
+        if let Some(reference) = world.reference(actor) {
+            reference.rotation[2] =
+                (destination[0] - position[0]).atan2(destination[1] - position[1]);
+        }
+        npc_strike::start(world, actor, target);
+        return;
+    }
+    if state
+        .npc_strike
+        .as_ref()
+        .is_some_and(|strike| !strike.finished)
+    {
+        state.ai.path.clear();
+        state.ai.path_cells.clear();
+        state.ai.arrived = false;
         return;
     }
     let mut ai = std::mem::take(&mut state.ai);
@@ -3127,7 +3172,7 @@ fn pursue_combat_target_inner(world: &mut World, actor: GlobalFormId, dt: f32) {
         world.ai.combat_routes.insert(actor, route);
     }
     let steering_started = std::time::Instant::now();
-    let mut budget = speed * dt.max(0.0);
+    let mut budget = (speed * dt.max(0.0)).min((remaining - approach).max(0.0));
     while budget > 0.0 && !ai.path.is_empty() {
         let next = ai.path[0];
         let d = movement::waypoint_distance(position, next);
@@ -3154,7 +3199,7 @@ fn pursue_combat_target_inner(world: &mut World, actor: GlobalFormId, dt: f32) {
             }
         }
     }
-    ai.arrived = movement::waypoint_distance(position, destination) <= COMBAT_ARRIVAL_DISTANCE;
+    ai.arrived = movement::waypoint_distance(position, destination) <= approach;
     if let Some(reference) = world.reference(actor) {
         reference.position = position;
         if cell.is_some() {

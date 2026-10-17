@@ -11602,3 +11602,101 @@ a catalog entry. The final release build passed, and its installed headless
 walkthrough test passed in 13.73 seconds with exit status zero. The final gate
 recorded 6,264 Rust passes before the same twelve AI failures, with exit status
 101. The game library and integration counts stayed at 1,277 and 4,241 passes.
+
+## Authored warning and melee approach, round 4
+
+Combat acquisition now distinguishes aggressive actors from enemies. AIDT
+aggression one needs an enemy faction reaction, an enemy relationship or
+provocation. Shared and friendly factions exclude unprovoked acquisition.
+Very aggressive actors may select neutral targets and frenzy still overrides
+that filter. Existing authored Guard area intrusion behavior remains active.
+Cowardly confidence prevents unprovoked acquisition, and Calm suspends radius
+warnings while its aggression reduction holds.
+
+The NPC AI-data template supplies the aggro-radius flag and three AIDT radii.
+A positively detected Alert target can receive a warning before Combat
+awareness. Entry into the warning band queues aggroWarningStart once. The
+actor stays neutral until the target crosses the attack radius, or crosses
+the warn-attack radius after the authored graph emits aggroWarningStop.
+Leaving the warning radius clears the warning. Candidates are sorted by
+distance and FormID before warning selection. A validated surviving melee
+hit provokes the victim without waiting for another detection update.
+The CMB-40 actor section stores the target and completion flag. SAVE_VERSION
+remains 37. Warning state participates in deterministic hashing.
+
+The traits template and an explicit NPC CSCR audio-template chain supply the
+CSDT Aware sound category. The NPC category value is one. CSDI
+resolves the descriptor and CSDC supplies its chance. Choice and sound
+variation draws come from the simulation AI random stream. A transient host
+request reuses the positional SoundBank. No actor-specific node is added.
+
+Melee approach reads RACE unarmed reach, weapon reach, fCombatDistance and
+CSTY CSGD melee and unarmed equipment choices. A creature without a held
+weapon uses race reach when either close-combat choice has a positive weight.
+A zero unarmed weight does not disable its melee choice. Controller height and the live
+reference scale convert that reach to placed units. The RACE size enum is a
+category, not an additional metric scale. CSCR's circle, fallback, flank and
+stalk values are not distances. A coarse AI step is capped at remaining
+approach distance. Records without race attributes retain the existing
+four-unit fallback, and malformed authored choices return a typed error.
+
+Sources read locally are xEdit Core/wbDefinitionsTES5.pas for NPC AIDT,
+ZNAM, CSTY CSGD and RACE DATA,
+uesp-modfileformat/NPC.wikitext and FACT.wikitext for inheritance and faction
+reactions, CommonLibSSE-NG TESNPC.h for the eight CreatureSounds slots, and
+OpenMW apps/openmw/mwmechanics/aicombat.cpp for reaction gates. The shared
+xEdit and Mutagen sound enum includes four foot slots, which disagrees with
+NPC data. The installed AudioTemplate records use categories zero, six and
+seven. AudioTemplateGiant category seven points to NPCGiantConsciousLP.
+That agrees with the NPC-specific UESP enum. It defines no Aware entry, so
+the generic Aware reader cannot supply this giant with a warning roar.
+The extracted giant behavior graph supplies aggroWarningStart and its timed
+aggroWarningStop transition. The installed giantActorSCRIPT only registers
+GiantStompEffect and requests area knockback and rumble. It does not own the
+warning policy. Existing parsers and the animation event bridge suffice.
+No dependency is added.
+
+This milestone covers warning, provocation and approach. Ordinary NPC pursuit
+still needs strike selection and host-confirmed contacts, tracked by CMB-45.
+The pure threaded sound preparation path does not evaluate conditional SNDRs.
+The inline installed scene is the acceptance path for this milestone.
+
+## Ordinary NPC contact timing, round 4
+
+CMB-45 selects forward ordinary ATKD/ATKE entries from the resolved NPC attack
+data component, its ATKR attack race or the actor race. An explicit override
+with no supported entry stays an override. Selection uses authored chance
+weights and the saved AI random stream. The actor faces its target at melee
+reach and sends the selected event to its behavior graph. Movement waits while
+the strike is active. The graph's attackStop starts the authored recovery time,
+with a 0.25-second engine floor for zero-recovery entries.
+
+The host takes HitFrame after skin pose upload and reads that hand's world
+weapon transform. It consumes the actor's sole contact opportunity before
+querying the first physics body on the reach segment. Obstructions and empty
+space consume the opportunity too. Only an actor hit reaches Game::melee_hit.
+The existing shared damage, armor, events, death and provocation paths apply.
+This bridge currently uses the inline Game. Threaded physical attack dispatch
+remains part of UI-35.
+
+A pending event is replayed when an inline visual becomes resident, and graph
+unload cancels its active strike. The CMB-45 actor section retains event,
+target, hand, weapon, contact consumption and recovery. SAVE_VERSION stays 37.
+The deterministic actor hash includes these fields. SoundPlay annotations
+retain their authored time and resolve SNDR editor IDs through the form table.
+Sound variation draws remain in the simulation.
+
+The ordinary selector accepts unit damage multipliers without attack spells,
+power, bash or rotating flags. Attack-specific damage and stagger modifiers
+are CMB-46. Power and spell-bearing attack execution is CMB-47. Existing unarmed
+contact damage still has the stagger limitation documented in combat.md.
+These bounds exclude the giant power stomp while retaining its normal club
+and swipe entries.
+
+Local sources read are xEdit wbAttackData and NPC/RACE ATKR, the installed
+giant RACE entries and graph, and OpenMW aicombat.cpp. The giant normal entries
+have damage multiplier one, strike angle 65 and club recovery 1.5 seconds.
+The graph contains attackStart_ClubAttack1, attackStart_ClubAttack2 and
+attackStart_HandSwipeAttack. Their clips carry HitFrame and named SoundPlay
+annotations. The host's existing annotation importer previously discarded the
+sound annotations. No dependency or actor node is added.

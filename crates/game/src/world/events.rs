@@ -397,6 +397,35 @@ impl World {
     /// An animation event fired on `source`: recorded, and delivered as
     /// `OnAnimationEvent(source, name)` to whoever registered for it.
     pub fn animation_event(&mut self, source: GlobalFormId, name: &str, alloc: Alloc<'_>) {
+        if let Some(sound) = name
+            .strip_prefix("SoundPlay.")
+            .or_else(|| name.strip_prefix("2_SoundPlay."))
+        {
+            if let Some(descriptor) = self
+                .form(sound)
+                .filter(|id| self.tag_of(*id) == Some(soe_esm::Tag(*b"SNDR")))
+            {
+                let draws =
+                    std::array::from_fn(|_| self.random_float_for(super::RngStream::Ai, 0.0, 1.0));
+                self.actor_sound_requests.push(super::ActorSoundRequest {
+                    actor: source,
+                    descriptor,
+                    draws,
+                });
+            }
+        }
+        if name.eq_ignore_ascii_case("attackStop") {
+            crate::ai::npc_strike::finish(self, source);
+        }
+
+        if name.eq_ignore_ascii_case("aggroWarningStop") {
+            if let Some(warning) = self
+                .loaded_actor_mut(source)
+                .and_then(|actor| actor.aggro_warning.as_mut())
+            {
+                warning.completed = true;
+            }
+        }
         self.animation_events.push((source, name.to_string()));
         self.finish_animation_waits(source, Some(name));
         let listeners: Vec<ObjectId> = self
@@ -442,6 +471,7 @@ impl World {
 
     /// The graph for this reference stopped producing events.
     pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
+        crate::ai::npc_strike::finish(self, source);
         self.finish_animation_waits(source, None);
     }
 

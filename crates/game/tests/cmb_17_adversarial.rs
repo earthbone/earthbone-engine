@@ -80,8 +80,18 @@ fn navmesh() -> Geometry {
 fn fixture() -> World {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"CELL"), CELL));
-    plugin.push_top(actor_base(HUNTER_BASE, 1));
-    plugin.push_top(actor_base(TARGET_BASE, 0));
+    let faction_entry = |object: u32| {
+        let mut data = object.to_le_bytes().to_vec();
+        data.extend_from_slice(&[0; 4]);
+        data
+    };
+    plugin.push_top(actor_base(HUNTER_BASE, 1).sub(b"SNAM", faction_entry(0x812)));
+    plugin.push_top(actor_base(TARGET_BASE, 0).sub(b"SNAM", faction_entry(0x813)));
+    let mut enemy = 0x813_u32.to_le_bytes().to_vec();
+    enemy.extend_from_slice(&0_i32.to_le_bytes());
+    enemy.extend_from_slice(&1_i32.to_le_bytes());
+    plugin.push_top(Record::new(Tag(*b"FACT"), 0x812).sub(b"XNAM", enemy));
+    plugin.push_top(Record::new(Tag(*b"FACT"), 0x813));
     plugin.push_top(actor_ref(HUNTER, HUNTER_BASE, [5.0, 10.0, 0.0]));
     plugin.push_top(actor_ref(TARGET, TARGET_BASE, [80.0, 80.0, 0.0]));
     plugin.push_top(Record::new(Tag(*b"NAVM"), 0x810).sub(Tag(*b"NVNM"), navmesh().to_bytes()));

@@ -622,3 +622,70 @@ impl PlayerNode {
         ))
     }
 }
+
+impl PlayerNode {
+    pub(super) fn npc_strike_contacts(
+        &mut self,
+        contacts: Vec<(GlobalFormId, crate::godot_actor::PoseContact)>,
+    ) {
+        if !contacts
+            .iter()
+            .any(|(_, contact)| contact.name == "HitFrame")
+        {
+            return;
+        }
+        self.sync_actor_bodies();
+        let Some(world) = self.base().get_world_3d() else {
+            return;
+        };
+        let space = world.get_space();
+        let Some(game) = &mut self.game else { return };
+        let owners = [&self.melee_bodies, self.actor_bodies.owners()];
+        for (actor, contact) in contacts {
+            if contact.name != "HitFrame" {
+                continue;
+            }
+            let opportunity = {
+                game.world_mut()
+                    .take_npc_strike_contact(actor, contact.hand)
+            };
+            let (weapon, reach) = match opportunity {
+                Ok(Some(opportunity)) => opportunity,
+                Ok(None) => continue,
+                Err(error) => {
+                    soe_trace::error!(target:"host::melee",system="combat","NPC strike {actor}: {error}");
+                    continue;
+                }
+            };
+            let hit =
+                crate::godot_combat::pose_segment(contact.pose, reach).and_then(|(from, to)| {
+                    crate::godot_combat::first_contact(space, &owners, actor, from, to)
+                });
+            match hit {
+                Ok(crate::godot_combat::ContactHit::Actor(target)) => {
+                    let result = game.melee_hit(soe_game::combat::MeleeHit {
+                        attacker: actor,
+                        target,
+                        weapon,
+                        is_bash: false,
+                        is_power_attack: false,
+                    });
+                    match result {
+                        Ok(result) => {
+                            soe_trace::info!(target:"host::melee",system="combat","NPC_STRIKE actor={actor} target={target} damage={}",result.health_damage);
+                        }
+                        Err(error) => {
+                            soe_trace::error!(target:"host::melee",system="combat","NPC strike {actor} target={target}: {error}");
+                        }
+                    }
+                }
+                Ok(hit) => {
+                    soe_trace::info!(target:"host::melee",system="combat","NPC_STRIKE_MISS actor={actor} hit={hit:?} pose={:?} reach={reach}",contact.pose);
+                }
+                Err(error) => {
+                    soe_trace::error!(target:"host::melee",system="combat","NPC strike {actor}: {error}");
+                }
+            }
+        }
+    }
+}

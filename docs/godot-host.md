@@ -1,5 +1,64 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Ordinary giant strike follow-up, round 4
+
+The free walk strike probe first runs against the warning-only extension.
+No attack clip plays, and player health stays at 1000. The check fails.
+The initial warning completion fixture also leaves and re-enters the warning
+band. Shorter strafe excursions preserve movement and positive detection while
+allowing a continuous warning. Health in the separate approach and timing
+fixtures is raised so a correct strike cannot terminate those measurements.
+
+The inline host now collects authored contact poses after upload and queries
+the existing physics bodies once per strike. The actor-owned latch consumes
+misses and obstructions. Six library regressions cover event selection,
+hand identity, duplicate contact, recovery, save retention and named sounds.
+The sound timing regression fails before the importer correction with zero
+sound events rather than one. It also retains the later HitFrame assertion.
+The full scope and save contract are in
+[game.md](game.md#ordinary-npc-contact-timing-round-4).
+
+The installed giant audio template contains only its conscious loop. Its
+warning clip carries four footstep annotations and no sound event. The
+requested warning roar still lacks a sourced hook and remains separately
+tracked. Ordinary strike contacts do not establish power or attached-spell
+execution. No new actor node or dependency is added.
+
+## Giant warning and approach follow-up, round 4
+
+The moving-player free walk probe reproduces premature hostility before the
+correction. At the midpoint of the authored warning band, detection reaches
+28.87, the giant engages, and neither a warning clip nor a warning sound starts.
+The probe exits one with two failures. Earlier stationary probes had negative
+detection and do not establish a visible warning failure.
+
+The installed giant's AI-data source is EncGiant01 with aggression one,
+confidence four and aggro radius enabled. Warn, warn-attack and attack radii
+are 1024, 750 and 375 units. RACE unarmed reach is 512 units, with race
+height one. csGiant's CSCR values are circle and movement behavior weights,
+not an approach radius. The policy and source credits are in
+[game.md](game.md#authored-warning-and-melee-approach-round-4).
+
+The host delivers a record-selected Aware sound through its existing
+SoundBank slots, tracks starts for the installed probe, and restores a pending
+warning when an actor presentation becomes resident. Inline and snapshot
+presentation receive the same simulation-selected descriptor and variation
+draws. This adds no per-reference node. The named CMB-40 actor save section
+retains warning identity without changing SAVE_VERSION.
+
+The first installed confirmation catches a style-selection error. csGiant
+sets melee weight one and unarmed weight zero. Its race attack still uses
+melee reach, so treating unarmed weight zero as a prohibition rejects pursuit.
+The corrected regression uses these authored weights. The same run selects
+the warning clip and stays neutral in the warning band, but no roar starts.
+AudioTemplateGiant supplies only its conscious loop, category seven, and the
+warning clip has footsteps without a sound annotation. The warning roar is
+not established by the generic Aware reader.
+
+NPC strike execution is still a separate acceptance check, CMB-45. Entering
+combat and arriving at reach do not establish a damaging attack. Speaker
+output and sustained GPU frame rate are not measured by the headless probe.
+
 ## Giant replanning follow-up, round 4
 
 The free walk giant probe now requires at most five requests per wall second
