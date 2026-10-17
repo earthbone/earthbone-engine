@@ -36,6 +36,7 @@ impl FrameBudget {
 }
 
 enum Unit {
+    Particle(Box<crate::data_source::LoadedParticle>),
     Door(GlobalFormId, Vec<LoadedSurface>),
     Animated(Box<LoadedSurface>),
     Multi(Box<InstanceGroup>),
@@ -132,9 +133,14 @@ impl Plan {
         cell: GlobalFormId,
         surfaces: &[LoadedSurface],
         batch: bool,
+        particles: &[crate::data_source::LoadedParticle],
     ) -> Self {
         let _span = soe_trace::Span::new("host.prepare_upload", "host");
-        let mut units = VecDeque::new();
+        let mut units: VecDeque<_> = particles
+            .iter()
+            .cloned()
+            .map(|p| Unit::Particle(Box::new(p)))
+            .collect();
         let mut doors = BTreeMap::<GlobalFormId, Vec<LoadedSurface>>::new();
         let mut groups = BTreeMap::<usize, Vec<LoadedSurface>>::new();
         for surface in surfaces {
@@ -268,6 +274,10 @@ impl CellStreamerNode {
                 break;
             };
             match unit {
+                Unit::Particle(particle) => {
+                    self.add_nif_particle(cell, &particle, scenario);
+                    totals.instances += 1;
+                }
                 Unit::Door(id, surfaces) => {
                     self.hide_resident_distant_references(cell, [id]);
                     self.add_door(cell, id, &surfaces, scenario);
@@ -345,6 +355,7 @@ impl CellStreamerNode {
             cell,
             &loaded.surfaces,
             self.batch_surfaces,
+            &loaded.particles,
         )
     }
 }
@@ -408,6 +419,7 @@ mod tests {
             },
             &surfaces,
             true,
+            &[],
         );
         assert_eq!(plan.units.len(), 1);
         assert_eq!(plan.largest_batch, surfaces.len());
@@ -438,7 +450,7 @@ mod tests {
             file: 0,
             object: 100,
         };
-        let plan = Plan::new(None, id, &surfaces, true);
+        let plan = Plan::new(None, id, &surfaces, true, &[]);
         assert_eq!(plan.units.len(), 1);
         let Some(Unit::Multi(group)) = plan.units.front() else {
             panic!("repeated models must instance")
@@ -448,7 +460,7 @@ mod tests {
             assert_eq!(surface.reference, member.reference);
         }
         let surfaces: Vec<_> = (1..=8).map(surface).collect();
-        let plan = Plan::new(None, id, &surfaces, false);
+        let plan = Plan::new(None, id, &surfaces, false, &[]);
         assert_eq!(plan.units.len(), surfaces.len());
         assert!(plan.units.iter().all(|unit| matches!(unit, Unit::Mesh(_))));
     }
@@ -482,6 +494,7 @@ mod tests {
                     },
                     &[input],
                     batch,
+                    &[],
                 );
                 let Some(Unit::Mesh(mesh)) = plan.units.front() else {
                     panic!("single tree must use mesh fallback")

@@ -300,7 +300,7 @@ impl Material {
         m
     }
 
-    fn from_effect(p: &EffectShader) -> Material {
+    pub(crate) fn from_effect(p: &EffectShader) -> Material {
         let source_texture = normalize_texture_path(&p.source_texture);
         let greyscale_texture = normalize_texture_path(&p.greyscale_texture);
         let mut m = Material {
@@ -336,7 +336,7 @@ impl Material {
         m
     }
 
-    fn apply_alpha(&mut self, a: &AlphaProperty) {
+    pub(crate) fn apply_alpha(&mut self, a: &AlphaProperty) {
         if a.blend_enabled() {
             self.blend = Some(Blend {
                 src: a.src_blend(),

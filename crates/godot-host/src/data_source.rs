@@ -299,7 +299,18 @@ impl SurfaceTextures {
     }
 }
 
+/// Source particle resources prepared on the same workers as model surfaces.
+#[derive(Clone)]
+pub struct LoadedParticle {
+    pub reference: GlobalFormId,
+    pub emitter: Arc<soe_nif::particle::RenderEmitter>,
+    pub material: MaterialDesc,
+    pub textures: SurfaceTextures,
+    pub placement: NifTransform,
+}
+
 pub struct LoadedCell {
+    pub particles: Vec<LoadedParticle>,
     pub stats: CellStats,
     pub surfaces: Vec<LoadedSurface>,
 }
@@ -309,9 +320,12 @@ impl LoadedCell {
     /// terrain and complete cubemap faces. Shared cells each report their usage.
     pub fn texture_inventory(&self) -> std::collections::BTreeMap<String, usize> {
         let mut inventory = std::collections::BTreeMap::new();
-        for surface in &self.surfaces {
-            let material = &surface.arrays.material;
-            let textures = &surface.textures;
+        for (material, textures) in self
+            .surfaces
+            .iter()
+            .map(|s| (&s.arrays.material, &s.textures))
+            .chain(self.particles.iter().map(|p| (&p.material, &p.textures)))
+        {
             if let Some(terrain) = &textures.terrain {
                 for (q, quadrant) in terrain.quadrants.iter().enumerate() {
                     for (path, image) in &quadrant.layers {
@@ -1195,10 +1209,12 @@ impl DataSource {
         let results = self.build_all(&work, &model_counts)?;
         let after = self.textures.counters();
         let mut surfaces = Vec::new();
+        let mut particles = Vec::new();
         let mut texture_sets = HashSet::new();
         for ((model, refr, reference), result) in work.iter().zip(results) {
             match result {
                 Ok(LoadedStatic::Surfaces {
+                    particles: prepared_particles,
                     built,
                     marker_shapes_filtered,
                     marker_only,
@@ -1208,7 +1224,7 @@ impl DataSource {
                     stats.editor_markers_filtered += marker_shapes_filtered;
                     stats.editor_marker_only_models += usize::from(marker_only);
                     stats.meshes_parsed += 1;
-                    if built.is_empty() {
+                    if built.is_empty() && prepared_particles.is_empty() {
                         stats.reference_skips.insert(
                             *reference,
                             if marker_only {
@@ -1218,6 +1234,15 @@ impl DataSource {
                             },
                         );
                     }
+                    particles.extend(prepared_particles.into_iter().map(
+                        |(emitter, material, textures)| LoadedParticle {
+                            reference: *reference,
+                            emitter,
+                            material,
+                            textures,
+                            placement: placement_transform(refr),
+                        },
+                    ));
                     let placement = placement_iso(refr);
                     let identity_base = instance_transform.is_some().then(|| model.to_lowercase());
                     for (shape_index, (arrays, textures)) in built.into_iter().enumerate() {
@@ -1282,7 +1307,11 @@ impl DataSource {
                 surfaces.push(water);
             }
         }
-        let mut loaded = LoadedCell { stats, surfaces };
+        let mut loaded = LoadedCell {
+            particles,
+            stats,
+            surfaces,
+        };
         loaded.refresh_texture_inventory();
         loaded.stats.reference_counts = self.reference_counts(cell_id, &loaded, None);
         for (kind, counts) in &loaded.stats.reference_counts {
@@ -1306,6 +1335,7 @@ impl DataSource {
         let record = self.order.record(winner);
         if models::is_editor_reference(record) {
             return Ok(LoadedCell {
+                particles: Vec::new(),
                 stats: CellStats::default(),
                 surfaces: Vec::new(),
             });
@@ -1317,6 +1347,7 @@ impl DataSource {
             .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
         let Some(model) = models::render_model_for(base) else {
             return Ok(LoadedCell {
+                particles: Vec::new(),
                 stats: CellStats::default(),
                 surfaces: Vec::new(),
             });
@@ -1348,6 +1379,7 @@ impl DataSource {
         let base = self.order.resolve(winner.file, refr.base);
         let loaded = self.load_object_surfaces(model, &refr, false, playback, Some(base))?;
         let LoadedStatic::Surfaces {
+            particles: prepared_particles,
             built,
             marker_shapes_filtered,
             marker_only,
@@ -1377,7 +1409,21 @@ impl DataSource {
                 }
             })
             .collect();
-        Ok(LoadedCell { stats, surfaces })
+        let particles = prepared_particles
+            .into_iter()
+            .map(|(emitter, material, textures)| LoadedParticle {
+                reference,
+                emitter,
+                material,
+                textures,
+                placement: placement_transform(&refr),
+            })
+            .collect();
+        Ok(LoadedCell {
+            particles,
+            stats,
+            surfaces,
+        })
     }
 
     /// The cell's water plane, built from its own `CELL` record rather than
@@ -1605,7 +1651,16 @@ impl DataSource {
                 refr_transform.scale,
             )
         });
+        let mut particles = Vec::new();
+        if playback == SurfacePlayback::Live && base.is_some() {
+            for emitter in soe_nif::particle::render_emitters(&file)? {
+                let material = particle_material(&emitter);
+                let textures = self.textures.resolve(&self.vfs, &material);
+                particles.push((Arc::new(emitter), material, textures));
+            }
+        }
         Ok(LoadedStatic::Surfaces {
+            particles,
             built: out,
             animations,
             marker_shapes_filtered,
@@ -1745,6 +1800,11 @@ type BuiltStatic = Result<LoadedStatic, DataSourceError>;
 
 enum LoadedStatic {
     Surfaces {
+        particles: Vec<(
+            Arc<soe_nif::particle::RenderEmitter>,
+            MaterialDesc,
+            SurfaceTextures,
+        )>,
         built: Vec<(SurfaceArrays, SurfaceTextures)>,
         animations: Vec<Option<crate::object_animation::AnimatedSurface>>,
         marker_shapes_filtered: usize,
@@ -2177,3 +2237,29 @@ mod water_shader_tests;
 
 #[cfg(test)]
 mod r4_camp_tests;
+
+pub(crate) fn particle_material(emitter: &soe_nif::particle::RenderEmitter) -> MaterialDesc {
+    let mesh = NifMesh {
+        name: emitter.timing.system_name.clone(),
+        block: emitter.block,
+        transform: NifTransform::IDENTITY,
+        bound: soe_nif::types::Bound::default(),
+        positions: Vec::new(),
+        normals: Vec::new(),
+        tangents: Vec::new(),
+        uvs: Vec::new(),
+        uv_sets: Vec::new(),
+        colors: Vec::new(),
+        indices: Vec::new(),
+        bone_weights: Vec::new(),
+        bone_indices: Vec::new(),
+        skin: None,
+        material: emitter.material.clone(),
+    };
+    let mut material = material_desc_from(&mesh);
+    // Particle colour carries alpha whenever the source enables vertex colours.
+    // Community Shaders Effect.hlsl multiplies all four channels under VC.
+    material.shader_flags_1 |= soe_nif::blocks::flags1::VERTEX_ALPHA;
+    material.shader_flags_2 |= soe_nif::blocks::flags2::VERTEX_COLORS;
+    material
+}

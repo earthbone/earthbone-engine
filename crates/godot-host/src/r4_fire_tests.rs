@@ -12,6 +12,16 @@ fn r4_installed_giant_fire_authored_clock_survey() {
     let source = DataSource::open(Path::new(&data)).unwrap();
     let path = "meshes/clutter/giant/giantcampfire01burning.nif";
     let file = soe_nif::parse(&source.vfs().read(path).unwrap()).unwrap();
+    for (index, block) in file.blocks.iter().enumerate() {
+        if let soe_nif::blocks::Block::Unknown { type_name, data } = block {
+            if type_name.starts_with("NiPSys")
+                || type_name == "BSPSysScaleModifier"
+                || type_name == "NiColorData"
+            {
+                eprintln!("R4 SOURCE {index} {type_name} {data:02x?}");
+            }
+        }
+    }
     let animation = ObjectAnimation::from_file(&file).unwrap();
     eprintln!(
         "R4 FIRE authored sequences={:?} emitters={:?}",
@@ -92,4 +102,74 @@ fn installed_giant_camp_fire_clock_walkthrough() {
             && !log.contains("SCRIPT ERROR"),
         "{log}"
     );
+}
+
+#[test]
+fn r4_installed_giant_fire_streams_all_authored_emitters() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open(Path::new(&data)).unwrap();
+    let fire = soe_esm::GlobalFormId {
+        file: 0,
+        object: 0x040911,
+    };
+    let loaded = source.stream_reference(fire).unwrap();
+    assert_eq!(loaded.particles.len(), 3);
+    let mut rates: Vec<_> = loaded
+        .particles
+        .iter()
+        .map(|p| p.emitter.timing.rate.value.round() as i32)
+        .collect();
+    rates.sort_unstable();
+    assert_eq!(rates, [3, 24, 60]);
+    for particle in &loaded.particles {
+        eprintln!("R4 RENDER source={:?}", particle.emitter);
+        #[cfg(feature = "godot")]
+        std::fs::write(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+                "../../target/r4-particle-{}.gdshader",
+                particle.emitter.block
+            )),
+            crate::godot_layer::particles::process_shader(&particle.emitter),
+        )
+        .unwrap();
+        #[cfg(feature = "godot")]
+        {
+            let shader = crate::nif_effect::shader(
+                &particle.material,
+                particle.material.effect.as_ref().unwrap(),
+            );
+            std::fs::write(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+                    "../../target/r4-particle-{}-draw.gdshader",
+                    particle.emitter.block
+                )),
+                crate::godot_layer::particles::billboard_shader(&shader, &particle.emitter),
+            )
+            .unwrap();
+        }
+    }
+    for particle in loaded.particles {
+        assert_eq!(particle.reference, fire);
+        assert!(
+            particle.emitter.unsupported.is_empty(),
+            "{:?}",
+            particle.emitter.unsupported
+        );
+        assert!(particle
+            .material
+            .diffuse
+            .as_ref()
+            .is_some_and(|p| !p.is_empty()));
+        assert!(particle.textures.diffuse.is_some());
+        let expected_speed = match particle.emitter.timing.system_name.as_str() {
+            "PSmoke" => 0.0,
+            "PFireball" => 60.0,
+            "PCloudForgeSparks" => 45.0,
+            name => panic!("unexpected particle system {name}"),
+        };
+        assert_eq!(particle.emitter.velocity[0], expected_speed);
+        assert!(particle.emitter.timing.capacity > 0);
+    }
 }

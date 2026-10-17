@@ -391,6 +391,7 @@ mod tests {
             cells: vec![(
                 CELL,
                 LoadedCell {
+                    particles: Vec::new(),
                     stats: crate::data_source::CellStats::default(),
                     surfaces: Vec::new(),
                 },

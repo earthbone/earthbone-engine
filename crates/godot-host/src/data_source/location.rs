@@ -48,22 +48,29 @@ struct LocationPayload {
 
 impl LocationPayload {
     fn add_cell(&mut self, cell: &LoadedCell) {
-        for surface in &cell.surfaces {
-            self.bytes = self.bytes.saturating_add(surface.arrays.mesh_byte_count());
+        self.bytes = cell.surfaces.iter().fold(self.bytes, |bytes, s| {
+            bytes.saturating_add(s.arrays.mesh_byte_count())
+        });
+        for textures in cell
+            .surfaces
+            .iter()
+            .map(|s| &s.textures)
+            .chain(cell.particles.iter().map(|p| &p.textures))
+        {
             for image in [
-                &surface.textures.diffuse,
-                &surface.textures.normal,
-                &surface.textures.environment,
-                &surface.textures.environment_mask,
-                &surface.textures.glow,
-                &surface.textures.greyscale,
-                &surface.textures.terrain_noise,
+                &textures.diffuse,
+                &textures.normal,
+                &textures.environment,
+                &textures.environment_mask,
+                &textures.glow,
+                &textures.greyscale,
+                &textures.terrain_noise,
             ]
             .into_iter()
-            .chain(surface.textures.water_noise.iter())
-            .chain([&surface.textures.water_flow])
+            .chain(textures.water_noise.iter())
+            .chain([&textures.water_flow])
             .flatten()
-            .chain(surface.textures.terrain_images())
+            .chain(textures.terrain_images())
             {
                 if self.images.insert(std::sync::Arc::as_ptr(image) as usize) {
                     self.bytes = self.bytes.saturating_add(image.payload_bytes());
@@ -724,6 +731,7 @@ mod hst_08_tests {
         second.textures = first.textures.clone();
         let mesh_bytes = first.arrays.mesh_byte_count() + second.arrays.mesh_byte_count();
         let cell = LoadedCell {
+            particles: Vec::new(),
             stats: CellStats::default(),
             surfaces: vec![first, second],
         };
@@ -760,6 +768,7 @@ mod hst_08_tests {
         let mut cell = PreparedCell {
             id: GlobalFormId { file: 0, object: 2 },
             loaded: LoadedCell {
+                particles: Vec::new(),
                 stats: CellStats::default(),
                 surfaces,
             },
@@ -785,6 +794,7 @@ mod hst_08_tests {
         let cell = PreparedCell {
             id: GlobalFormId { file: 0, object: 2 },
             loaded: LoadedCell {
+                particles: Vec::new(),
                 stats: CellStats {
                     triangles: 2,
                     ..CellStats::default()

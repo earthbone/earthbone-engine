@@ -53,6 +53,7 @@ fn prf_20_cell_texture_memory_deduplicates_paths_and_counts_cube_faces() {
         });
     }
     let cell = LoadedCell {
+        particles: Vec::new(),
         stats: CellStats::default(),
         surfaces,
     };

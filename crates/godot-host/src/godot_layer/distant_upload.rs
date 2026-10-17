@@ -166,7 +166,13 @@ impl CellStreamerNode {
                     .iter()
                     .map(|s| s.arrays.triangle_count())
                     .sum();
-                let plan = upload::Plan::new(Some(&source), owner, &loaded.surfaces, batch);
+                let plan = upload::Plan::new(
+                    Some(&source),
+                    owner,
+                    &loaded.surfaces,
+                    batch,
+                    &loaded.particles,
+                );
                 Ok(Prepared {
                     revision,
                     loaded,

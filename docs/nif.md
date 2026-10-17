@@ -41,6 +41,40 @@ segment table is skipped with the trailing fields, while the mesh output keeps
 the complete triangle list and shape name. Object LOD rendering currently
 draws that full list for each selected BTO block.
 
+## Particle render fields, RND-60 and RND-61, 2026-10-17
+
+`particle::render_emitters` adds renderer input beside the timing-only emitter
+API. It retains the effect material and alpha property, emitter-node placement,
+velocity and volume parameters, radius variation, simple colour fields,
+scale samples, rotation and atlas frame fields. The NiPSysData atlas stores
+U offset, U width, V offset and V height. Its particle geometry omits vertex
+payloads in Bethesda 20.2, even when the presence flags are set.
+
+Layouts follow local nifly `src/Particles.cpp`, `src/Geometry.cpp`, and
+nif.xml. xEdit's `wbDataFormatNif.pas` confirms the modifier field groups.
+OpenMW `components/nifosg/particle.cpp` supplies the older normalized-age colour
+and grow/fade contract. The local mudcrab reader declares Bethesda modifier
+types but leaves their bodies empty. NifSkope's upstream
+[src/gl/glparticles.cpp](https://github.com/niftools/nifskope/blob/develop/src/gl/glparticles.cpp)
+was also checked. Its controller path covers the older particle family and
+supplies no Bethesda execution oracle. These readers are references, rather
+than dependencies linked into this crate.
+
+The source survey uses the existing BSA extractor to retain one NIF under
+target. Set SOE_NIF_SAMPLES to that extraction root to run the format survey.
+It reports three giant-fire systems. Smoke has 64 atlas entries and 220 scale
+samples, fireball 32 and 60, and sparks 16 and 200. Their base velocities are
+0, 60 and 45 game units per second. The independent synthetic fixture checks
+material links, cylinder dimensions, velocity, radius variation, quota,
+grow/fade values and colour keys. Malformed volume and nonfinite motion are
+rejected. Hidden-source timing permits existing deaths without hidden births.
+
+The strict installed modifier assertion still fails on BSPSysLODModifier.
+RND-61 owns distance LOD and animated force execution. Declared simple-colour,
+scale and atlas fields permit a host to draw the effects, but the current
+host interpretation does not establish exact original-engine motion or atlas
+timing. The source assertion remains in place to keep that gap observable.
+
 ## Layers
 
 - `stream`: bounds-checked little-endian reads. Every count that sizes an

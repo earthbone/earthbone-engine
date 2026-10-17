@@ -102,11 +102,58 @@ include the five-pass terrain material. GPU rendering passes the limit.
 
 Whole-frame walking is still slow. Wall-frame p99 is 68.446, 153.772 and
 400.599 ms respectively. Process p99 is 66.430, 174.097 and 496.743 ms.
-Those measurements do not establish 60 FPS playback. CPU frame work requires
-its own investigation. The probe records GPU, render CPU, process and wall
+Those measurements do not establish 60 FPS playback. CPU frame work remains within the open PRF-37 and PRF-38 scopes. The probe records GPU, render CPU, process and wall
 samples separately in an external JSON artifact. Godot's local
 `class_renderingserver.rst` documents the measured render-time units as ms.
 The probes add no dependencies, saved state or production nodes.
+
+## Streamed NIF particle births, RND-60, 2026-10-17
+
+The private hardware free-walk baseline has zero particle systems for giant
+fire reference `0:040911`, with zero smoke and spark pixels. Cell preparation
+previously read only mesh shapes. The standalone RND-14 timing node was not
+part of that path. NIF particle assets now travel beside prepared surfaces,
+including their decoded textures, reference placement and source timing.
+Upload uses Godot particle RIDs and draw-pass meshes. It adds no scene nodes.
+Cell retirement, location clear and exit release these resources. Hidden
+sources advance deaths without births. Scene pause updates native speed through the node notifications.
+
+The birth timeline retains the source controller, visibility keys, lifetime
+variation and live quota. Native shader simulation advances each submitted
+birth's age and position. In particular, the 42-particle spark quota bounds
+accepted births below the nominal rate of 60 per second. Renderer inspection
+reports submitted births, source time, live count and capacity.
+
+The giant fire supplies nominal rates 24, 3 and 60, with maximum lifetimes
+4.605834, 1.4 and 4 seconds. `r4_emission_probe.gd` requires three resident
+systems and visible smoke and sparks. Its original 20-pixel minimum, upper
+rate bound and 4.8-second expiry limit remain. Before the finished-renderer
+run, a lower bound was added at 80 percent of the smaller of nominal births
+and capacity. Rates are checked against the same sampled source interval,
+including frames needed for image readback. The marker materials retain
+texture alpha and lifetime colour alpha while identifying each system.
+
+The generated shaders were checked separately on the RTX 5070 Ti. Four manual
+births show 821 smoke marker pixels, 812 fireball and 2304 spark pixels,
+then zero after expiry. The release build passes. The finished free-walk
+capture is blocked by a shared test-lock deadlock in another checkout, so
+live source pacing and expiry are not yet confirmed. RND-60 remains blocked.
+
+The strict source survey remains failing on BSPSysLODModifier. It has not
+been weakened. RND-61 separately tracks distance LOD and animated forces.
+Baked scale samples, colour percentages and atlas frame fields are retained,
+but their host sampling is an interpretation awaiting original-engine parity
+controls. Velocity aspect and system-scale interactions also remain unverified.
+The current result must not be read as full NIF particle execution parity.
+
+Local nifly `Particles.cpp` and `Geometry.cpp` supply the layouts. OpenMW's
+particle renderer is OSG-specific and does not execute these Bethesda modifier
+families. Community Shaders `Effect.hlsl` multiplies all four vertex-colour
+channels under VC, which the particle material now preserves. NifSkope's
+upstream particle implementation was checked for missing execution semantics,
+as recorded in docs/nif.md. Godot's particle shader and RenderingServer
+references supply manual emission and resource lifetime. No dependencies or
+saved fields were added.
 
 ## Giant camp fire clock, RND-54, 2026-10-17
 

@@ -38,6 +38,7 @@ impl DataSource {
             .surfaces
             .iter()
             .map(|surface| surface.reference)
+            .chain(loaded.particles.iter().map(|p| p.reference))
             .collect();
         let index = self.cell_index();
         let mut result: BTreeMap<Tag, ReferenceCounts> = BTreeMap::new();

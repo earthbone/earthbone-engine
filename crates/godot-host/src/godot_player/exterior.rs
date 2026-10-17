@@ -487,6 +487,7 @@ impl PlayerNode {
                                             cell.id,
                                             &cell.loaded.surfaces,
                                             batch,
+                                            &cell.loaded.particles,
                                         );
                                         (cell, plan)
                                     })

@@ -44,6 +44,7 @@ use crate::units::{
 use soe_physics::{Iso, Vec3};
 
 mod object_animation;
+pub(crate) mod particles;
 
 mod console_render;
 mod distant_upload;
@@ -198,6 +199,7 @@ pub struct CellStreamerNode {
     spell_art: std::collections::BTreeMap<GlobalFormId, SpellArtResources>,
     /// Active SPGD layers, each rendered as one server-side MultiMesh.
     shader_particles: std::collections::BTreeMap<GlobalFormId, ShaderParticleInstance>,
+    nif_particles: std::collections::BTreeMap<(GlobalFormId, usize), particles::ResidentParticle>,
     /// Point lights for active magic effects that placed LIGH references.
     runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     /// The `CELL` each streamed exterior grid position resolved to, so
@@ -848,6 +850,7 @@ impl INode3D for CellStreamerNode {
             visual_effects: std::collections::BTreeMap::new(),
             spell_art: std::collections::BTreeMap::new(),
             shader_particles: std::collections::BTreeMap::new(),
+            nif_particles: std::collections::BTreeMap::new(),
             runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             rendered_cells: std::collections::BTreeSet::new(),
@@ -922,7 +925,18 @@ impl INode3D for CellStreamerNode {
         self.reference_index_dirty = true;
     }
 
+    fn on_notification(&mut self, what: godot::classes::notify::Node3DNotification) {
+        use godot::classes::notify::Node3DNotification;
+        let speed = match what {
+            Node3DNotification::PAUSED | Node3DNotification::DISABLED => 0.0,
+            Node3DNotification::UNPAUSED | Node3DNotification::ENABLED => 1.0,
+            _ => return,
+        };
+        self.pause_nif_particles(speed);
+    }
+
     fn process(&mut self, delta: f64) {
+        self.advance_nif_particles(delta as f32);
         self.advance_object_animations(delta as f32);
         self.advance_doors(delta as f32);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
@@ -1603,6 +1617,8 @@ impl CellStreamerNode {
             }
         });
         self.reference_index_dirty = true;
+        self.nif_particles
+            .retain(|_, p| !departed.contains(&p.cell));
         self.instances.retain(|instance| {
             if departed.contains(&instance.cell) {
                 crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
@@ -1826,6 +1842,7 @@ impl CellStreamerNode {
         }
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _phase = crate::scene_timing::Scope::new(soe_trace::System::Streaming);
+        self.sync_nif_particle_placements(world);
         self.refresh_reference_index(world);
         let mut changed_references = self.reference_changes.changed(world);
         self.sync_deferred_references(world, &changed_references);
@@ -2098,6 +2115,13 @@ impl CellStreamerNode {
                 if !self.reference_changes.is_watched(reference) {
                     self.reference_changes.watch(world, reference);
                 }
+            }
+        }
+        for particle in self.nif_particles.values() {
+            self.resident_references
+                .insert(particle.reference, particle.cell);
+            if !self.reference_changes.is_watched(particle.reference) {
+                self.reference_changes.watch(world, particle.reference);
             }
         }
         for (&reference, door) in &self.doors {
@@ -3448,7 +3472,7 @@ impl CellStreamerNode {
     /// Bounds are in Godot metres. Inspection does not rebuild model resources.
     #[func]
     pub fn nif_surfaces(&self) -> Array<VarDictionary> {
-        let mut out = Array::new();
+        let mut out = self.nif_particle_surfaces();
         for instance in &self.instances {
             let desc = &instance.arrays.material;
             let effect = desc.effect.as_ref();
@@ -3758,6 +3782,7 @@ impl CellStreamerNode {
                     self.distant.near_hidden.remove(id) && self.distant.surfaces.contains_key(id);
             }
         }
+        self.nif_particles.retain(|_, p| p.cell != owner);
         self.rendered_cells.remove(&owner);
         self.free_doors(&[owner]);
         self.deferred_references.retain(|_, cell| *cell != owner);
@@ -4539,6 +4564,12 @@ impl CellStreamerNode {
     ) -> LoadedCell {
         let enabled = |id| world.is_none_or(|world| world.reference_enabled(id));
         let mut visible = LoadedCell {
+            particles: loaded
+                .particles
+                .iter()
+                .filter(|p| enabled(p.reference))
+                .cloned()
+                .collect(),
             stats: loaded.stats.clone(),
             surfaces: loaded
                 .surfaces
@@ -4579,6 +4610,7 @@ impl CellStreamerNode {
                 .surfaces
                 .iter()
                 .map(|surface| surface.reference)
+                .chain(loaded.particles.iter().map(|p| p.reference))
                 .collect();
             let references = if source
                 .cell_index()
@@ -4952,6 +4984,7 @@ impl CellStreamerNode {
     }
 
     fn free_instances(&mut self) {
+        self.nif_particles.clear();
         self.free_console_borders();
         self.rendered_cells.clear();
         self.reference_index_dirty = true;
@@ -5488,7 +5521,11 @@ impl CellStreamerNode {
         };
         self.add_cell(
             owner,
-            &LoadedCell { stats, surfaces },
+            &LoadedCell {
+                stats,
+                surfaces,
+                particles: Vec::new(),
+            },
             scenario,
             &mut StreamTotals::default(),
         );
