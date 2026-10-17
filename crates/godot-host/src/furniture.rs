@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![cfg_attr(not(feature = "godot"), allow(dead_code))]
 
 //! FURN placement uses nifly's FurniturePosition and xEdit's FNPR/NAM0 fields.
 //! The existing NIF reader retains these extra blocks as opaque data. This
@@ -86,6 +85,7 @@ impl Marker {
 }
 
 pub(crate) struct Use {
+    #[cfg(feature = "godot")]
     pub seat: (soe_esm::GlobalFormId, u16),
     pub position: [f32; 3],
     pub heading: f32,
@@ -176,6 +176,7 @@ pub(crate) fn prepare(
         .furniture_entry_idle(actor, animation, entry)
         .ok_or("no matching furniture IDLE entry")?;
     Ok(Some(Use {
+        #[cfg(feature = "godot")]
         seat,
         position,
         heading,
@@ -183,12 +184,14 @@ pub(crate) fn prepare(
     }))
 }
 
+#[cfg(feature = "godot")]
 #[derive(Default)]
 pub(crate) struct ActorUse {
     seat: Option<(soe_esm::GlobalFormId, u16)>,
     exiting: bool,
 }
 
+#[cfg(feature = "godot")]
 impl ActorUse {
     pub(crate) fn sync(
         &mut self,

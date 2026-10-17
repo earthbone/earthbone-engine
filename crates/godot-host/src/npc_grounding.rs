@@ -91,7 +91,7 @@ impl NpcGrounding {
         })
     }
 
-    #[cfg_attr(not(feature = "godot"), allow(dead_code))]
+    #[cfg(any(test, feature = "godot"))]
     pub(crate) fn retry_started(&mut self, actor: GlobalFormId) {
         if let Some(body) = self.bodies.get_mut(&actor) {
             body.blocked_seconds = 0.0;

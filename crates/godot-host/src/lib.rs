@@ -84,14 +84,14 @@ pub mod race_menu;
 pub mod ragdoll;
 #[cfg(feature = "godot")]
 mod render_pick;
-#[cfg(any(feature = "godot", test))]
+#[cfg(feature = "godot")]
 mod runtime_clock;
 pub mod save_recovery;
 pub mod skinned;
 #[cfg(feature = "godot")]
 mod sound_decode;
 pub mod streaming;
-#[cfg(any(feature = "godot", test))]
+#[cfg(feature = "godot")]
 mod swimming;
 pub mod terrain;
 pub mod terrain_lod;
@@ -99,7 +99,7 @@ pub mod terrain_lod_generate;
 pub mod terrain_lod_join;
 pub mod training_menu;
 pub mod tree_lod;
-#[cfg(any(feature = "godot", test))]
+#[cfg(feature = "godot")]
 mod tree_warmup;
 pub mod ui;
 pub mod units;

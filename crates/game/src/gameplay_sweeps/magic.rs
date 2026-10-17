@@ -778,12 +778,7 @@ pub fn visual_checks() -> Vec<Json> {
 #[must_use]
 pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
     let Some(bases) = bases(order) else {
-        return report(
-            "magic",
-            "no target base forms found",
-            Vec::new(),
-            visual_checks(),
-        );
+        return report("magic", "no target base forms found", &[], &visual_checks());
     };
     let mut rows = Vec::new();
     for (spell, name) in tome_spells(order, options) {
@@ -875,8 +870,8 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
     report(
         "magic",
         "SPEL, MGEF, ENCH and SHOU records, CK wiki cast semantics and UESP resistance, no captured vanilla runtime oracle",
-        rows,
-        visual_checks(),
+        &rows,
+        &visual_checks(),
     )
 }
 

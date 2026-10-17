@@ -206,9 +206,8 @@ pub fn visual_check(name: &str, records: &[String]) -> Json {
 
 /// The sweep report: rows, counts and the pending visual checks.
 #[must_use]
-#[allow(clippy::needless_pass_by_value)]
-pub fn report(kind: &str, oracle: &str, rows: Vec<Json>, visual: Vec<Json>) -> Json {
-    let counts = counts(&rows);
+pub fn report(kind: &str, oracle: &str, rows: &[Json], visual: &[Json]) -> Json {
+    let counts = counts(rows);
     json!({"schema":1,"sweep":kind,"oracle":oracle,"counts":counts,
         "visual":visual,"rows":rows})
 }
@@ -302,7 +301,7 @@ mod tests {
         let counts = counts(&rows);
         assert_eq!(counts["by_failure_cause"]["c1"], 2);
         assert_eq!(counts["by_base_type"]["ALCH"]["pass"], 1);
-        let report = report("t", "o", rows, vec![visual_check("v", &[])]);
+        let report = report("t", "o", &rows, &[visual_check("v", &[])]);
         assert!(!all_passed(&report));
         assert!(markdown(&report).contains("| c1 | 2 |"));
     }

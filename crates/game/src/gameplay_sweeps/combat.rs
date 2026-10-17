@@ -511,8 +511,8 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
         return report(
             "combat",
             "no target base forms found",
-            Vec::new(),
-            visual_checks(),
+            &[],
+            &visual_checks(),
         );
     };
     let mut rows = Vec::new();
@@ -565,8 +565,8 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
     report(
         "combat",
         "WEAP records, fCombatSneak settings and CK wiki combat rules, no captured vanilla runtime oracle",
-        rows,
-        visual_checks(),
+        &rows,
+        &visual_checks(),
     )
 }
 

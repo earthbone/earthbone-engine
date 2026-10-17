@@ -490,8 +490,8 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
     report(
         "consumables",
         "CK wiki and UESP archetypes, MGEF flags and ALCH records, no captured vanilla runtime oracle",
-        rows,
-        visual_checks(order),
+        &rows,
+        &visual_checks(order),
     )
 }
 

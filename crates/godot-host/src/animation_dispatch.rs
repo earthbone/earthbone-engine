@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![cfg_attr(not(feature = "godot"), allow(dead_code))]
 
 //! Routes game animation requests to the host visual with the matching form
 //! identity.
@@ -34,13 +33,13 @@ pub(crate) struct SneakGraphState {
 }
 
 /// Last swimming edge submitted to one graph instance.
-#[cfg(any(feature = "godot", test))]
+#[cfg(feature = "godot")]
 #[derive(Debug, Default)]
 pub(crate) struct SwimGraphState {
     swimming: bool,
 }
 
-#[cfg(any(feature = "godot", test))]
+#[cfg(feature = "godot")]
 impl SwimGraphState {
     pub(crate) fn apply(&mut self, vm: &mut soe_hkx::interp::Interpreter<'_>, swimming: bool) {
         if self.swimming != swimming {
