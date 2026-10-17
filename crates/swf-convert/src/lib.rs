@@ -13,11 +13,13 @@ mod bitmap;
 mod cache;
 mod convert;
 mod geometry;
+mod java;
 mod resource;
 
 pub use cache::{build_cache, Cache, Decompiler};
 pub use convert::{convert, Font, Frame, Glyph, Instance, Movie, TextField, Timeline};
 pub use geometry::{Mesh, Paint, Surface};
+pub use java::find_java;
 pub use resource::write_art;
 
 /// Conversion failures retain the asset or operation that failed.

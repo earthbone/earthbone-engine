@@ -1289,7 +1289,7 @@ import the release extension before running the installed host test.
 ## Interface art discovery and panel bounds, UI-27
 
 PlayerNode selects FFDec before building its interface cache. It tries a
-valid `SOE_FFDEC_JAR` with Java on PATH, then the executable named by
+valid `SOE_FFDEC_JAR` with discovered Java, then the executable named by
 `SOE_FFDEC`, then directories in `SOE_TOOLS_PATH` and the Godot project
 setting `soe/tools/path`. That setting accepts an absolute path or a Godot
 resource path. Tools directories may contain FFDec directly, under `FFDec`,
@@ -9284,3 +9284,50 @@ fontconfig or place controls from the converted display lists. The retained
 capture therefore cannot establish SkyUI chrome or authored element positions.
 A loaded icon source is evidence of asset resolution only. Imported movie and
 font binding plus passing layout and chrome comparisons are still required.
+
+## Interface tools and visual acceptance, UI-30, 2026-10-17
+
+JPEXS requires Java. Java discovery tries an explicit `SOE_JAVA` executable,
+then `JAVA_HOME/bin/java`, PATH, Linuxbrew under `/home` and `/var/home`,
+`/usr/bin`, `/usr/local/bin`, and sorted JVM installs under `/usr/lib/jvm`,
+`/usr/lib64/jvm` and `/opt`. An invalid explicit `SOE_JAVA` disables Java
+selection, making a missing-tool check repeatable without changing system
+files. The converter launches the discovered executable directly. The local
+FFDec `ffdec.sh` supplies the conventional JVM search reference.
+
+Missing Java or FFDec and conversion errors create an InterfaceNotice label
+on a CanvasLayer above the modal menu. The notice names the failed tool or
+asset. Successful conversion clears it. This is session presentation data
+with no saved state and no per-reference nodes. Java launch resolution lives
+in `swf-convert`, which required a small cross-crate change for this host row.
+
+`export_interface_reference` reads the vanilla archive, then SkyUI, then the
+NORDIC loose overlay. With SKYRIM_DATA, SOE_TEST_SKYUI, SOE_TEST_NORDIC and
+SOE_FFDEC_JAR set, run it with an output directory under target. It exports
+inventorymenu, containermenu and dialoguemenu frames for both themes through
+real JPEXS. The 2026-10-17 run wrote 76 PNG frames. Temporary SWFs stay under
+`/tmp` and are removed. Ruffle reads the import envelopes. Import URL case is
+preserved for JPEXS while VFS lookup remains case insensitive. No mod asset
+or source is committed. FFDec still reports virtual gfxfontlib aliases that
+have no physical VFS movie, so these static frames do not prove font fidelity.
+
+The comparator fixes four normalized viewport regions before the run: frame
+(0.01, 0.04, 0.97, 0.91), list header (0.02, 0.12, 0.44, 0.08), item card
+(0.56, 0.38, 0.40, 0.51), and category bar (0.02, 0.04, 0.44, 0.08). Every
+region needs 90 percent pixel agreement at an RGB distance of at most 0.18,
+at least 12 reference edges above RGB distance 0.08, and 85 percent edge
+coverage within one pixel. Transparent reference pixels are omitted. TST-19
+also retains its existing whole-image requirement. Identical chrome passes,
+while a plain panel and chrome moved by 12 pixels fail.
+
+UI-30 remains unfinished. The native inventory capture fails all four regions
+against SkyUI frame 11. Edge coverage is 0.151 for frame, 0.346 for list
+header, 0 for item card, and 0.230 for category bar. Native controls still
+need imported movie and font binding. Map, journal and HUD theme acceptance
+has not passed. NORDIC also exposes a native cache rejection: a sprite
+declares 250 frames but contains 200. The exporter reads only import envelopes
+and JPEXS can render this input, while the native converter still rejects it.
+
+The exporter promotes the existing tempfile dependency from test scope to
+runtime scope. Cargo tree shows no newly resolved package. It remains the
+small temporary-directory utility already used by the converter.

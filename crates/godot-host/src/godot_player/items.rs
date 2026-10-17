@@ -78,6 +78,9 @@ impl PlayerNode {
             settings.globalize_path(&configured).to_string()
         };
         let Some(decompiler) = crate::interface_art::from_env(&configured) else {
+            if let Some(hud) = self.hud_view.as_mut() {
+                hud.set_interface_notice(crate::interface_art::unavailable_notice());
+            }
             self.interface_cache = Some(String::new());
             return String::new();
         };
@@ -92,9 +95,17 @@ impl PlayerNode {
             .map(|file| file.name.clone())
             .collect::<Vec<_>>();
         let cache = match soe_swf_convert::build_cache(source.vfs(), &plugins, &root, &decompiler) {
-            Ok(cache) => cache.directory.to_string_lossy().into_owned(),
+            Ok(cache) => {
+                if let Some(hud) = self.hud_view.as_mut() {
+                    hud.set_interface_notice("");
+                }
+                cache.directory.to_string_lossy().into_owned()
+            }
             Err(error) => {
                 godot_error!("PlayerNode: interface art cache failed: {error}");
+                if let Some(hud) = self.hud_view.as_mut() {
+                    hud.set_interface_notice(&format!("Interface art conversion failed: {error}"));
+                }
                 String::new()
             }
         };

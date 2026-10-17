@@ -86,7 +86,7 @@ fn discover(
 pub(crate) fn from_env(configured_tools: &str) -> Option<Decompiler> {
     let jar = std::env::var_os("SOE_FFDEC_JAR").map(PathBuf::from);
     let launcher = std::env::var_os("SOE_FFDEC").map(PathBuf::from);
-    let search_path = std::env::var_os("PATH")
+    let mut search_path = std::env::var_os("PATH")
         .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
         .unwrap_or_default();
     let mut tools = std::env::var_os("SOE_TOOLS_PATH")
@@ -111,7 +111,12 @@ pub(crate) fn from_env(configured_tools: &str) -> Option<Decompiler> {
             }),
         );
     }
-    let selected = discover(jar.as_deref(), launcher.as_deref(), &tools, &search_path);
+    let selected = soe_swf_convert::find_java().and_then(|java| {
+        if let Some(directory) = java.parent() {
+            search_path.insert(0, directory.to_path_buf());
+        }
+        discover(jar.as_deref(), launcher.as_deref(), &tools, &search_path)
+    });
     static LOG_SELECTION: std::sync::Once = std::sync::Once::new();
     LOG_SELECTION.call_once(|| match &selected {
         Some(Decompiler::Jar(path)) => {
@@ -125,6 +130,14 @@ pub(crate) fn from_env(configured_tools: &str) -> Option<Decompiler> {
         }
     });
     selected
+}
+
+pub(crate) fn unavailable_notice() -> &'static str {
+    if soe_swf_convert::find_java().is_none() {
+        "Interface art: Java unavailable. Set JAVA_HOME or install Java."
+    } else {
+        "Interface art: JPEXS FFDec unavailable. Set SOE_FFDEC_JAR or SOE_TOOLS_PATH."
+    }
 }
 
 #[cfg(test)]

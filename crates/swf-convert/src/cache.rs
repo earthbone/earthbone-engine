@@ -58,7 +58,10 @@ impl Decompiler {
         let mut command = match self {
             Self::Program(program) => Command::new(program),
             Self::Jar(jar) => {
-                let mut c = Command::new("java");
+                let java = crate::find_java().ok_or_else(|| {
+                    Error::Decompiler("Java unavailable. Set JAVA_HOME or install Java".into())
+                })?;
+                let mut c = Command::new(java);
                 c.arg("-Djava.awt.headless=true").arg("-jar").arg(jar);
                 c
             }

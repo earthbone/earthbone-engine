@@ -67,3 +67,8 @@ The paged font render check uses an isolated Godot project so host diagnostics
 autoloads do not require an imported GDExtension. It keeps the original pixel
 thresholds and saves the frame before checking them, including on failure.
 Generated art and decompiled scripts remain external inputs and outputs.
+
+UI-30 adds Java executable discovery for the existing JPEXS process. It reads
+SOE_JAVA, JAVA_HOME, PATH and conventional Linux install paths, following the
+local FFDec launcher. A selected JAR uses that absolute executable instead of
+requiring java on PATH. No parser or native cache format changes.

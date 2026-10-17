@@ -10,6 +10,8 @@ use super::PlayerNode;
 
 pub(super) struct HudView {
     layer: Gd<CanvasLayer>,
+    notice_layer: Gd<CanvasLayer>,
+    interface_notice: Gd<Label>,
     root: Gd<Control>,
     health_label: Gd<Label>,
     health_bar: Gd<ProgressBar>,
@@ -75,8 +77,25 @@ impl HudView {
         root.add_child(&blood_overlay);
         layer.add_child(&root);
 
+        let mut notice_layer = CanvasLayer::new_alloc();
+        notice_layer.set_name("InterfaceNotices");
+        notice_layer.set_layer(200);
+        let mut interface_notice = Label::new_alloc();
+        interface_notice.set_name("InterfaceNotice");
+        interface_notice.set_mouse_filter(MouseFilter::IGNORE);
+        interface_notice.set_position(Vector2::new(24.0, 4.0));
+        interface_notice.set_size(Vector2::new(580.0, 48.0));
+        interface_notice.set_autowrap_mode(godot::classes::text_server::AutowrapMode::WORD_SMART);
+        interface_notice.add_theme_color_override("font_color", Color::WHITE);
+        interface_notice.add_theme_color_override("font_outline_color", Color::BLACK);
+        interface_notice.add_theme_constant_override("outline_size", 8);
+        interface_notice.hide();
+        notice_layer.add_child(&interface_notice);
+
         Self {
             layer,
+            notice_layer,
+            interface_notice,
             root,
             health_label: health.0,
             health_bar: health.1,
@@ -130,6 +149,11 @@ impl HudView {
 
     pub(super) fn hide(&mut self) {
         self.root.hide();
+    }
+
+    pub(super) fn set_interface_notice(&mut self, text: &str) {
+        self.interface_notice.set_text(text);
+        self.interface_notice.set_visible(!text.is_empty());
     }
 
     pub(super) fn set_cart_mode(&mut self, enabled: bool) {
@@ -195,6 +219,7 @@ impl PlayerNode {
     pub(super) fn create_hud(&mut self) {
         let view = HudView::new();
         self.base_mut().add_child(&view.layer);
+        self.base_mut().add_child(&view.notice_layer);
         self.hud_view = Some(view);
     }
 }

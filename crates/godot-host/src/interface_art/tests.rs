@@ -112,3 +112,51 @@ fn ui_27_configured_tools_precedes_path_and_accepts_direct_jar() {
         jar
     );
 }
+
+#[test]
+fn ui_30_missing_java_notice_uses_the_live_menu_fallback() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+        return;
+    };
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let captures = workspace.join("target/ui-30");
+    std::fs::create_dir_all(&captures).unwrap();
+    let output = std::process::Command::new(godot)
+        .arg("--path")
+        .arg(workspace.join("godot"))
+        .args([
+            "--resolution",
+            "640x360",
+            "--script",
+            "ui_30_missing_java_test.gd",
+        ])
+        .env("SKYRIM_DATA", data)
+        .env("DISPLAY", ":99")
+        .env_remove("WAYLAND_DISPLAY")
+        .env(
+            "SOE_UI_30_NOTICE_CAPTURE",
+            captures.join("missing-java.png"),
+        )
+        .env("SOE_JAVA", workspace.join("target/absent-ui-30-java"))
+        .env("SOE_THREADED_SIMULATION", "0")
+        .env_remove("SOE_INTERFACE_CACHE")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    std::fs::write(
+        captures.join("missing-java.log"),
+        format!("{stdout}\n{stderr}"),
+    )
+    .unwrap();
+    assert!(
+        output.status.success()
+            && stdout.contains("UI-30 NOTICE PASS")
+            && !stderr.contains("SCRIPT ERROR"),
+        "{}\n{stdout}\n{stderr}",
+        output.status
+    );
+}
