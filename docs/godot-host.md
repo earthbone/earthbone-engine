@@ -6135,6 +6135,10 @@ On 2026-10-17, 29 protocol checks pass, including the installed original
 SkyUI framework and state callbacks. Game and host library runs report 1334
 and 531 passes. Both crates pass clippy with all targets. The native-window
 check still awaits the shared installed-test slot, so UI-13 remains in progress.
+The native picker uses a 180 by 140 color plane. A standalone headless
+Godot check measures its dialog at 238 by 303 pixels, within the 640 by 360
+test viewport. The original-framework window test also asserts this bound.
+The shared installed slot is held by another job, so that test has not started.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host

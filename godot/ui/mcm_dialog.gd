@@ -23,6 +23,8 @@ func configure(owner_node: Node, id: int, caption: String, remap: bool, start: i
 	else:
 		picker = ColorPicker.new()
 		picker.name = "ColorPicker"
+		picker.add_theme_constant_override("sv_width", 180)
+		picker.add_theme_constant_override("sv_height", 140)
 		picker.edit_alpha = false
 		picker.sliders_visible = false
 		picker.presets_visible = false

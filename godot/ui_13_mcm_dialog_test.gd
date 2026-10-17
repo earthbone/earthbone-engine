@@ -27,6 +27,7 @@ func _run() -> void:
 	var dialog := player.get_node_or_null("McmDialog") as ConfirmationDialog
 	_check(dialog != null and dialog.visible, "native color dialog is invisible")
 	if dialog != null:
+		_check(dialog.size.x <= 640 and dialog.size.y <= 360, "color dialog exceeds the viewport")
 		var picker: ColorPicker = dialog.get("picker")
 		_check(picker.color.to_html(false) == "123456", "Papyrus start color was ignored")
 		_check(dialog.get("default_color") == 0xabcdef, "Papyrus default color was ignored")
