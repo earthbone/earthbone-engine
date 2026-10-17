@@ -1429,6 +1429,8 @@ fn quest_cell_and_global_name_arguments_keep_hex_shaped_editor_ids() {
     for object in [0xda05, 0xdad, 0xcafe] {
         plugin.push_top(Record::new(T(b"MISC"), object));
     }
+    plugin.push_top(Record::new(T(b"STAT"), 0xd00).zsub(T(b"EDID"), "COCMarkerHeading"));
+    plugin.push_top(coc_reference(0xd01, 0xd00, 0x700, [100.0, 200.0, 300.0]));
     let mut order = LoadOrder::new();
     order.add("Test.esm", plugin).unwrap();
     let mut game = Game::new(order);
@@ -1449,6 +1451,10 @@ fn quest_cell_and_global_name_arguments_keep_hex_shaped_editor_ids() {
     assert_eq!(
         game.world().reference_ref(player).unwrap().cell,
         Some(id(0x700))
+    );
+    assert_eq!(
+        game.world().reference_ref(player).unwrap().position,
+        [100.0, 200.0, 300.0]
     );
 }
 
@@ -1753,4 +1759,173 @@ fn cow_uses_worldspace_and_signed_grid_coordinates() {
 #[test]
 fn coe_uses_tamriel_grid_coordinates() {
     check_exterior_teleport("coe -2,3");
+}
+
+fn coc_reference(object: u32, base: u32, cell: u32, position: [f32; 3]) -> Record {
+    let mut record = Record::new(T(b"REFR"), object)
+        .sub(T(b"NAME"), base.to_le_bytes())
+        .sub(
+            T(b"DATA"),
+            position
+                .into_iter()
+                .chain([0.0, 0.0, 1.25])
+                .flat_map(f32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+    record.placement.cell = Some(cell);
+    record
+}
+
+#[test]
+fn r4_coc_prefers_coc_marker_and_preserves_heading() {
+    let marker = Record::new(T(b"STAT"), 0xd00).zsub(T(b"EDID"), "COCMarkerHeading");
+    let (mut game, mut console) = fixture_extra(vec![
+        marker,
+        coc_reference(0xd01, 0xd00, 0x700, [100.0, 200.0, 300.0]),
+    ]);
+    console.run(&mut game, "coc TestCell").unwrap();
+    let player = game.player();
+    let world = game.world();
+    let reference = world.reference_ref(player).unwrap();
+    assert_eq!(
+        (reference.position, reference.rotation[2]),
+        ([100.0, 200.0, 300.0], 1.25)
+    );
+}
+
+#[test]
+fn r4_coc_uses_reciprocal_door_arrival_inside_target_cell() {
+    let mut outgoing = coc_reference(0x500, 0x400, 0x700, [50.0, 60.0, 70.0]);
+    outgoing = outgoing.sub(
+        T(b"XTEL"),
+        [0xd01_u32.to_le_bytes().to_vec(), vec![0; 24]].concat(),
+    );
+    let mut incoming = coc_reference(0xd01, 0x400, 0x701, [5000.0, 6000.0, 7000.0]);
+    incoming = incoming.sub(
+        T(b"XTEL"),
+        [
+            0x500_u32.to_le_bytes().to_vec(),
+            [150.0_f32, 160.0, 170.0, 0.0, 0.0, 2.5]
+                .into_iter()
+                .flat_map(f32::to_le_bytes)
+                .collect(),
+        ]
+        .concat(),
+    );
+    let (mut game, mut console) = fixture_extra(vec![outgoing, incoming]);
+    console.run(&mut game, "coc TestCell").unwrap();
+    let player = game.player();
+    let world = game.world();
+    let reference = world.reference_ref(player).unwrap();
+    assert_eq!(
+        (reference.position, reference.rotation[2]),
+        ([150.0, 160.0, 170.0], 2.5)
+    );
+}
+
+#[test]
+fn r4_coc_uses_heading_marker_before_ordinary_references() {
+    let marker = Record::new(T(b"STAT"), 0xd00).zsub(T(b"EDID"), "XMarkerHeading");
+    let (mut game, mut console) = fixture_extra(vec![
+        marker,
+        coc_reference(0xd01, 0xd00, 0x700, [300.0, 200.0, 100.0]),
+    ]);
+    console.run(&mut game, "coc TestCell").unwrap();
+    let player = game.player();
+    let position = game.world().reference_ref(player).unwrap().position;
+    assert_eq!(position, [300.0, 200.0, 100.0]);
+}
+
+#[test]
+fn r4_coc_exterior_uses_authored_marker_height() {
+    let marker = Record::new(T(b"STAT"), 0xd00).zsub(T(b"EDID"), "COCMarkerHeading");
+    let mut cell = Record::new(T(b"CELL"), 0xd10)
+        .zsub(T(b"EDID"), "MarkerExterior")
+        .sub(T(b"DATA"), [0, 0])
+        .sub(T(b"XCLC"), vec![0; 12]);
+    cell.placement.world = Some(0xd11);
+    let (mut game, mut console) = fixture_extra(vec![
+        marker,
+        cell,
+        Record::new(T(b"WRLD"), 0xd11),
+        coc_reference(0xd01, 0xd00, 0xd10, [1200.0, 900.0, -2400.0]),
+    ]);
+    console.run(&mut game, "coc MarkerExterior").unwrap();
+    let player = game.player();
+    let position = game.world().reference_ref(player).unwrap().position;
+    assert_eq!(position, [1200.0, 900.0, -2400.0]);
+}
+
+#[test]
+fn r4_coc_skips_disabled_markers() {
+    let coc = Record::new(T(b"STAT"), 0xd00).zsub(T(b"EDID"), "COCMarkerHeading");
+    let heading = Record::new(T(b"STAT"), 0xd02).zsub(T(b"EDID"), "XMarkerHeading");
+    let mut disabled = coc_reference(0xd01, 0xd00, 0x700, [900.0; 3]);
+    disabled.flags |= soe_esm::plugin::flags::INITIALLY_DISABLED;
+    let (mut game, mut console) = fixture_extra(vec![
+        coc,
+        heading,
+        disabled,
+        coc_reference(0xd03, 0xd02, 0x700, [100.0; 3]),
+    ]);
+    console.run(&mut game, "coc TestCell").unwrap();
+    let player = game.player();
+    let position = game.world().reference_ref(player).unwrap().position;
+    assert_eq!(position, [100.0; 3]);
+}
+
+#[test]
+fn r4_coc_empty_interior_rejects_before_moving_player() {
+    let (mut game, mut console) = fixture_extra(vec![Record::new(T(b"CELL"), 0xd10)
+        .zsub(T(b"EDID"), "EmptyInterior")
+        .sub(T(b"DATA"), [1, 0])]);
+    let player = game.player();
+    let before = game.world().reference_ref(player).unwrap().cell;
+    assert_eq!(
+        console.run(&mut game, "coc EmptyInterior").unwrap_err(),
+        "cell has no suitable arrival reference"
+    );
+    assert_eq!(game.world().reference_ref(player).unwrap().cell, before);
+}
+
+#[test]
+fn r4_coc_exterior_without_markers_uses_land_height() {
+    let mut cell = Record::new(T(b"CELL"), 0xd10)
+        .zsub(T(b"EDID"), "TerrainExterior")
+        .sub(T(b"DATA"), [0, 0])
+        .sub(T(b"XCLC"), vec![0; 12]);
+    cell.placement.world = Some(0xd11);
+    let heights = soe_esm::records::land::Heights::encode(&vec![-2400.0; 33 * 33]);
+    let mut land = Record::new(T(b"LAND"), 0xd12).sub(T(b"VHGT"), heights.to_bytes());
+    land.placement.cell = Some(0xd10);
+    let (mut game, mut console) = fixture_extra(vec![cell, land, Record::new(T(b"WRLD"), 0xd11)]);
+    console.run(&mut game, "coc TerrainExterior").unwrap();
+    let player = game.player();
+    let position = game.world().reference_ref(player).unwrap().position;
+    assert_eq!(position, [2048.0, 2048.0, -2400.0]);
+}
+
+#[test]
+fn r4_coc_exterior_finds_persistent_markers_only_inside_its_grid() {
+    let mut cell = Record::new(T(b"CELL"), 0xd10)
+        .zsub(T(b"EDID"), "PersistentExterior")
+        .sub(T(b"DATA"), [0, 0])
+        .sub(T(b"XCLC"), vec![0; 12]);
+    cell.placement.world = Some(0xd11);
+    let mut persistent = Record::new(T(b"CELL"), 0xd12).sub(T(b"DATA"), [0, 0]);
+    persistent.placement.world = Some(0xd11);
+    persistent.placement.group = Some(soe_esm::GroupKind::WorldChildren(0xd11));
+    let base = Record::new(T(b"STAT"), 0xd00).zsub(T(b"EDID"), "COCMarkerHeading");
+    let (mut game, mut console) = fixture_extra(vec![
+        cell,
+        persistent,
+        base,
+        Record::new(T(b"WRLD"), 0xd11),
+        coc_reference(0xd01, 0xd00, 0xd12, [7000.0; 3]),
+        coc_reference(0xd02, 0xd00, 0xd12, [1200.0, 900.0, 2800.0]),
+    ]);
+    console.run(&mut game, "coc PersistentExterior").unwrap();
+    let player = game.player();
+    let position = game.world().reference_ref(player).unwrap().position;
+    assert_eq!(position, [1200.0, 900.0, 2800.0]);
 }

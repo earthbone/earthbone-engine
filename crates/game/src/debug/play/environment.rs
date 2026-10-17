@@ -5,6 +5,7 @@
 use super::{Args, Console, Game, HostRequest, Outcome};
 use soe_esm::{CellIndex, Tag};
 use soe_papyrus::Value;
+mod coc;
 mod crime;
 mod settings;
 
@@ -251,7 +252,7 @@ impl Console {
 
 fn teleport(game: &mut Game, name: &str, args: &Args<'_>) -> Result<Outcome, String> {
     let index = CellIndex::build(game.world().order());
-    let (cell, position) = if name == "coc" {
+    let (cell, position, rotation) = if name == "coc" {
         let cell = match index.cell_by_editor_id(args.word(0)?) {
             Some(cell) => cell,
             None => args.editor_form(game, 0)?,
@@ -259,14 +260,8 @@ fn teleport(game: &mut Game, name: &str, args: &Args<'_>) -> Result<Outcome, Str
         if game.world().tag_of(cell) != Some(Tag(*b"CELL")) {
             return Err("coc requires a cell".into());
         }
-        let position = index.grid_of(cell).map_or([0.0; 3], |grid| {
-            [
-                (grid.x as f32 + 0.5) * 4096.0,
-                (grid.y as f32 + 0.5) * 4096.0,
-                0.0,
-            ]
-        });
-        (cell, position)
+        let destination = coc::destination(&game.world(), &index, cell)?;
+        (cell, destination.position, Some(destination.rotation))
     } else {
         let world = if name == "cow" {
             args.editor_form(game, 0)?
@@ -282,6 +277,7 @@ fn teleport(game: &mut Game, name: &str, args: &Args<'_>) -> Result<Outcome, Str
         (
             cell,
             [(x as f32 + 0.5) * 4096.0, (y as f32 + 0.5) * 4096.0, 0.0],
+            None,
         )
     };
     let player = game.player();
@@ -289,6 +285,9 @@ fn teleport(game: &mut Game, name: &str, args: &Args<'_>) -> Result<Outcome, Str
         let mut world = game.world_mut();
         let reference = world.reference(player).ok_or("missing player")?;
         reference.position = position;
+        if let Some(rotation) = rotation {
+            reference.rotation = rotation;
+        }
         reference.cell = Some(cell);
     }
     game.change_cell(Some(cell));

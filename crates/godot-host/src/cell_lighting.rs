@@ -361,3 +361,120 @@ mod tests {
         assert_eq!(light.distance_fade(), None);
     }
 }
+
+#[cfg(test)]
+mod r4_coc {
+    use super::*;
+
+    #[test]
+    fn r4_coc_installed_destinations_and_lighting() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source =
+            crate::data_source::DataSource::open_with_threads(std::path::Path::new(&data), 1)
+                .unwrap();
+        let order = source.shared_order();
+        let index = soe_esm::CellIndex::build(&order);
+        let mut game = soe_game::Game::from_shared_order(order.clone());
+        let mut console = soe_game::debug::Console::new();
+        let mut failures = Vec::new();
+        for name in [
+            "QASmoke",
+            "WarehouseFurniture",
+            "XTestGrantInt",
+            "WhiterunExterior04",
+        ] {
+            let cell = index.cell_by_editor_id(name).unwrap();
+            let record = order.winner(cell).unwrap();
+            eprintln!(
+                "R4_CELL {name} id={cell} flags={:?} XCLL={:?} LTMP={:?} XCIM={:?}",
+                record.find(soe_esm::Tag(*b"DATA")),
+                record.find(soe_esm::Tag(*b"XCLL")),
+                record.find(soe_esm::Tag(*b"LTMP")),
+                record.find(soe_esm::Tag(*b"XCIM"))
+            );
+            let host = cell_lighting(&order, cell);
+            if let Some(host) = &host {
+                let world = game.world().interior_lighting(cell).unwrap();
+                eprintln!("R4_LIGHT {name} host={host:?} world={world:?}");
+                let color = |rgb: [u8; 3]| rgb.map(|v| f32::from(v) / 255.0);
+                assert_eq!(
+                    world.ambient,
+                    color(host.ambient),
+                    "{name} ambient inheritance"
+                );
+                assert_eq!(
+                    world.ambient_directions,
+                    host.ambient_directions.map(color),
+                    "{name} directional ambient inheritance"
+                );
+                assert_eq!(
+                    world.directional,
+                    color(host.directional),
+                    "{name} directional inheritance"
+                );
+                assert_eq!(
+                    world.fog_color,
+                    color(host.fog_near_color),
+                    "{name} fog color inheritance"
+                );
+                assert_eq!(
+                    world.fog,
+                    [host.fog_near, host.fog_far, host.fog_power, host.fog_max],
+                    "{name} fog distances and power"
+                );
+                let expected = host.fog_far_color.map(|v| f32::from(v) / 255.0);
+                if world.fog_far_color != expected {
+                    failures.push(format!(
+                        "{name} shared fog {:?} != host {:?}",
+                        world.fog_far_color, expected
+                    ));
+                }
+            }
+            let mut markers = Vec::new();
+            for id in index.references(cell) {
+                let rr = order.winner_ref(*id).unwrap();
+                let record = order.record(rr);
+                if record.tag != soe_esm::Tag(*b"REFR") {
+                    continue;
+                }
+                let Ok(refr) = soe_esm::records::refr::Refr::from_record(record) else {
+                    continue;
+                };
+                let base = order.resolve(rr.file, refr.base);
+                let Some(base) = order.winner(base) else {
+                    continue;
+                };
+                let edid = base.editor_id().unwrap_or_default();
+                if edid.eq_ignore_ascii_case("COCMarkerHeading")
+                    || edid.eq_ignore_ascii_case("XMarkerHeading")
+                    || base.tag == soe_esm::Tag(*b"DOOR")
+                {
+                    eprintln!("R4_MARKER {name} id={id} base={edid} enabled={} transform={:?} teleport={:?}", soe_game::World::authored_reference_enabled(&order, *id), refr.transform, refr.teleport);
+                }
+                if edid.eq_ignore_ascii_case("COCMarkerHeading") {
+                    markers.push((*id, refr.transform.unwrap()));
+                }
+            }
+            console.run(&mut game, &format!("coc {name}")).unwrap();
+            let player = game.player();
+            let world = game.world();
+            let arrival = world.reference_ref(player).unwrap();
+            eprintln!(
+                "R4_ARRIVAL {name} position={:?} rotation={:?}",
+                arrival.position, arrival.rotation
+            );
+            if arrival.position == [0.0; 3] {
+                failures.push(format!("{name} arrived at origin"));
+            }
+            if let Some((_, marker)) = markers.first() {
+                if arrival.position != marker.position || arrival.rotation[2] != marker.rotation[2]
+                {
+                    failures.push(format!("{name} did not use COC marker {marker:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+}

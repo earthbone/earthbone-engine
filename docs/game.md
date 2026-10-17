@@ -11988,3 +11988,22 @@ actors, inventory objects and typed forms. The existing `debug.rs` and
 `debug/commands.tsv` manifests provide the executable Rust syntax. Their
 completion adapter reuses the shared World indexes instead of introducing
 another form store. No dependency is added.
+
+## Console arrival references, HST-55
+
+COC resolves winning placed records in the requested cell, with authored
+COCMarkerHeading first, a reciprocal door's XTEL arrival next, then
+XMarkerHeading and a suitable placed object. The chosen transform supplies
+position and heading. Disabled, deleted and nonfinite placements are excluded.
+Exterior searches also include world-persistent references in that grid cell.
+An exterior without a suitable reference uses its grid centre with decoded
+LAND height when present. An empty interior rejects the jump before moving
+the player. COW and COE retain their coordinate command behavior.
+
+Sources read locally are CK `CenterOnCell_-_Debug.wikitext`, UESP
+`uesp-skyrim-console/Console.wikitext`, and OpenMW `worldimp.cpp`
+`findInteriorPosition`, `findExteriorPosition` and `searchDoorDestInCell`.
+The CK page recommends placed heading markers. OpenMW supplies the marker
+and reciprocal door precedence. Its cell-store and renderer types do not fit
+this runtime, so the implementation reads the existing form table and index.
+The REFR and LAND readers remain the existing format implementations.
