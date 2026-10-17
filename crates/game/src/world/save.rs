@@ -1245,6 +1245,7 @@ impl World {
         );
         let previous_weather_image_space = std::mem::take(&mut self.weather_image_space);
         let previous_weather = std::mem::take(&mut self.weather);
+        let previous_activations = std::mem::take(&mut self.activation_parents.queued);
         let previous_cloaks = std::mem::take(&mut self.cloak_effects);
         let previous_effect_shaders = std::mem::take(&mut self.effect_shaders);
         let fallback_player_level = player
@@ -1310,6 +1311,8 @@ impl World {
         self.unresolved_records = previous_unresolved;
         self.brewed_potions = previous_brewed;
         self.cloak_effects = previous_cloaks;
+        let activations =
+            std::mem::replace(&mut self.activation_parents.queued, previous_activations);
         self.created_base_records = previous_created_bases;
         section_result?;
         validation_result?;
@@ -1569,6 +1572,7 @@ impl World {
             timescale,
         };
         self.pending = pending;
+        self.activation_parents.queued = activations;
         self.timers = timers;
         self.notifications = notifications;
         self.message_boxes = message_boxes;

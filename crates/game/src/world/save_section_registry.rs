@@ -159,7 +159,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     super::image_space::SECTION,
     Section { name: "SCR-27", write: write_sun_gaze_modifier, read: read_sun_gaze_modifier },
     super::magic::TAPER_SECTION,
-    Section { name: "RND-18", write: super::sky::write_sky, read: super::sky::read_sky },
+    Section { name: "RND-18", write: super::sky::write_sky, read: super::sky::read_sky },    Section { name: "SCR-76", write: super::activation_parents::write, read: super::activation_parents::read },
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 

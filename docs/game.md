@@ -20,6 +20,44 @@ the execution path. Mudcrab streaming was checked for object animation wiring
 and did not supply a Skyrim object graph bridge to reuse.
 No game assets or script instruction dumps belong in the report.
 
+## Activation-parent dispatch, SCR-76
+
+Successful default activation now queues children from winning XAPR records.
+The reverse index uses the existing CommonLibWorld decoder, including its
+load-order namespace resolution and malformed-field checks. It is a derived
+index, with no parallel mutable reference state. Default-only calls also
+queue children. A blocked default action does not. Children receive normal
+activation with their immediate parent as actor and bind their scripts before
+dispatch. The root still receives its original activating actor.
+
+Authored delays use elapsed simulation seconds and pause with the world.
+Zero and negative delays are immediate. Work is sorted by deadline, reference,
+actor and ancestry. Ancestor cycles stop with a native error. Each pump drains
+at most 64 tasks, leaving further work queued. Delayed work and ancestry use
+the named SCR-76 world section and participate in the determinism hash.
+SAVE_VERSION remains 37. Loading a save without this section clears the queue.
+Malformed saved work leaves the live queue unchanged.
+
+Sources are the local CommonLibSSE-NG ExtraActivateRefChildren.h,
+RefActivateData.h and ExtraActivateRef.h, Skymp MpObjectReference.cpp
+ActivateChilds and unit/ActivateParentTest.cpp, plus QuickLootIE
+Behaviors/ContainerAnimator.cpp. Skymp dispatches each child with its immediate
+parent and defers even zero-delay children until timer processing. QuickLoot's
+InitChildActivates signature alone does not establish child event identity.
+The existing XAPR view and timer infrastructure remain the readers and clock.
+No executable is read or called.
+The CK Activate page supplies blocked and default-only behavior.
+Skymp's dispatch comment marks its actor choice uncertain. TST-54 therefore
+retains the vanilla actor and timer-order oracle check. Parent-only XAPD
+restrictions are SCR-78. These limits are not claimed as verified by the
+synthetic dispatch tests.
+
+The first test failed because the XAPR child stayed closed. Seven focused
+checks now cover open state, root and child actors, cold script binding, blocked parent
+and child behavior, delayed save and reload, cycles, malformed XAPR and atomic
+saved-deadline rejection. Installed script-effect parity remains part of the
+sweep oracle work, rather than a claim made by these synthetic checks.
+
 ## Shared object graph assets, ANM-61
 
 The host and headless survey share anim_driver project, character, rig, graph
