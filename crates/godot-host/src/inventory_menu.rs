@@ -136,7 +136,8 @@ pub fn toggle_equip_hand(
     let Some(tag) = world.tag_of(item) else {
         return false;
     };
-    if !matches!(tag.as_bytes(), b"WEAP" | b"ARMO") || world.item_count(player, item) <= 0 {
+    if !matches!(tag.as_bytes(), b"WEAP" | b"ARMO" | b"AMMO") || world.item_count(player, item) <= 0
+    {
         return false;
     }
     if world
@@ -147,6 +148,19 @@ pub fn toggle_equip_hand(
     } else if tag == Tag(*b"WEAP") {
         world.equip_hand_weapon(player, hand, item).is_ok()
     } else {
+        if tag == Tag(*b"AMMO") {
+            let previous: Vec<_> = world
+                .actor_ref(player)
+                .into_iter()
+                .flat_map(|actor| actor.equipped.iter().copied())
+                .filter(|equipped| world.tag_of(*equipped) == Some(Tag(*b"AMMO")))
+                .collect();
+            for previous in previous {
+                if world.unequip_item(player, previous).is_err() {
+                    return false;
+                }
+            }
+        }
         world.equip_item(player, item).is_ok()
     }
 }

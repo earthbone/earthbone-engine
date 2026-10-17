@@ -9,6 +9,16 @@ model. The inventory hand-replacement regression fails with that stale spell
 and passes when weapon selection clears it through the existing spell
 unequip transaction. This reuses the saved hand fields.
 
+## Ranged hand equipment, HST-25
+
+The hand selector accepts WEAP animation types 7 and 9 as well as melee types.
+The same ETYP, EQUP parent and DOBJ hand-root resolution checks their selected
+hand and inventory count. Ranged weapons with a both-hands slot must be selected
+through the right hand. Staff and unsupported types retain their typed error.
+The free walk inventory reproduction rejected a hunting bow before this
+correction. `hst_25_ranged_weapon_uses_the_authored_both_hands_slot` checks bows
+and crossbows and rejects a left-hand assignment. This adds no saved state.
+
 ## Race movement speeds, HST-40
 
 `movement::MovementType` reads the four directional walk/run pairs in MOVT

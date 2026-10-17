@@ -110,7 +110,7 @@ impl World {
     }
 
     /// Select a weapon in the shared equipment state for a specific hand.
-    /// Two-handed melee weapons occupy both hands and are selected by the right.
+    /// Two-handed weapons occupy both hands and are selected by the right.
     ///
     /// # Errors
     /// Missing actor/item, malformed weapon, incompatible hand or insufficient copies.
@@ -163,8 +163,8 @@ impl World {
         granted_copies: i32,
     ) -> Result<(Option<GlobalFormId>, Option<GlobalFormId>), Error> {
         let (_, weapon) = self.combat_weapon_source(item)?;
-        if !matches!(weapon.animation, 1..=6) {
-            return Err(Error::Unsupported("non-melee hand weapon"));
+        if !matches!(weapon.animation, 1..=7 | 9) {
+            return Err(Error::Unsupported("unsupported hand weapon type"));
         }
         let slots = self.weapon_hand_slots(item)?;
         let selected = match hand {
@@ -223,5 +223,63 @@ impl World {
         let copies =
             1 + i32::from(state.left_weapon == Some(item) && state.right_weapon == Some(item));
         (self.item_count(actor, item) >= copies).then_some(item)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    #[test]
+    fn hst_25_ranged_weapon_uses_the_authored_both_hands_slot() {
+        for animation in [7, 9] {
+            let id = |object| GlobalFormId { file: 0, object };
+            let mut plugin = Plugin::new(FileHeader::default());
+            for slot in [0x100, 0x101] {
+                plugin.push_top(Record::new(Tag(*b"EQUP"), slot));
+            }
+            plugin.push_top(
+                Record::new(Tag(*b"EQUP"), 0x102)
+                    .sub(Tag(*b"DATA"), 1_u32.to_le_bytes())
+                    .sub(
+                        Tag(*b"PNAM"),
+                        [0x100_u32.to_le_bytes(), 0x101_u32.to_le_bytes()].concat(),
+                    ),
+            );
+            plugin.push_top(
+                Record::new(Tag(*b"DOBJ"), 0x103).sub(
+                    Tag(*b"DNAM"),
+                    [
+                        b"LHEQ".as_slice(),
+                        &0x100_u32.to_le_bytes(),
+                        b"RHEQ",
+                        &0x101_u32.to_le_bytes(),
+                    ]
+                    .concat(),
+                ),
+            );
+            let mut data = vec![0; 100];
+            data[0] = animation;
+            plugin.push_top(
+                Record::new(Tag(*b"WEAP"), 0x104)
+                    .sub(Tag(*b"DATA"), [0; 10])
+                    .sub(Tag(*b"DNAM"), data)
+                    .sub(Tag(*b"ETYP"), 0x102_u32.to_le_bytes()),
+            );
+            let mut order = LoadOrder::new();
+            order.add("Bow.esm", plugin).unwrap();
+            let mut world = World::new(order);
+            let player = world.player();
+            world.add_item(player, id(0x104), 1);
+            assert!(world
+                .equip_hand_weapon(player, Hand::Left, id(0x104))
+                .is_err());
+            world
+                .equip_hand_weapon(player, Hand::Right, id(0x104))
+                .unwrap();
+            assert_eq!(world.hand_weapon(player, Hand::Right), Some(id(0x104)));
+            assert_eq!(world.hand_weapon(player, Hand::Left), None);
+        }
     }
 }
