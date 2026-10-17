@@ -58,22 +58,55 @@ This change adds no dependencies, saved state, scene nodes or rendering passes.
 
 ## First person report investigation, RND-51, 2026-10-17
 
-The local walkthrough probe sees zero foreground pixels in the sheathed
-`MT_Idle.HKX` pose. Its hand geometry is below the camera. Readied unarmed
-hands contribute 22434 pixels, the sword case 22519, the exterior case 19703
-and the downward view 19371. A physical R-key event selects `1HM_Idle` and
-`1HM_Equip` and contributes 1954 pixels. These counts compare visible and
-hidden captures inside a geometry mask. The first capture retains production
-shadow settings, and the probe restores them after its mask capture.
+The retained `r4_first_person_probe.gd` and UID still fail the original
+sheathed visibility assertion. `MT_Idle.HKX` puts the hand geometry below the
+camera and yields zero foreground pixels. On the RTX 5070 Ti at private
+:99, raised unarmed hands yield 22302 visible pixels, sword 20774, exterior
+21371 and downward view 20741. Physical R input yields 1964. An expanded
+source-resolved equipment survey also sees greatsword 2525, right-hand Flames
+2090 and dual Flames 2972. Each compares production visibility against a
+hidden capture inside a geometry mask and restores shadow settings.
 
-The race's first person rig, skin poses and equipped model are present. The
-camera mask is 1048575. The actor upload uses Godot's default shadow mode,
-with no shadows-only or private visibility-layer assignment. The reported
-readied shadow-only failure has not been reproduced with this profile.
-RND-51 is blocked on identifying the screenshot's weapon-ready state or a
-matching readied reproduction. The failing local probe remains uncommitted
-at `godot/r4_first_person_probe.gd`. It still fails its sheathed visibility
-assertion and has not been weakened to produce a passing result.
+Bow, crossbow and staff setup fails before rendering. The game hand-assignment
+path rejects their non-melee animation types. Pixels measured after a failed
+equip belong to the preceding pose and are not evidence for those weapons.
+The probe retains the equip failures and skips those mislabeled captures.
+
+The first person rig, skin poses and equipped melee model are present.
+Camera mask 1048575 includes the geometry. Actor upload uses the default
+shadow mode. No readied shadow-only failure was reproduced in the tested
+states. RND-51 remains blocked on the screenshot's matching equipment and
+ready state. The probe's zero-pixel sheathed assertion remains unchanged.
+
+## Neutral FaceGen RGB and GPU walking, RND-58 and RND-59, 2026-10-17
+
+`r4_face_rgb_probe.gd` measures the production face shader with neutral,
+unshaded output at four UV samples on Hulda, Mikael, Saadia and Lucia.
+A CPU calculation follows the authored diffuse, tint and detail textures and
+Community Shaders `Lighting.hlsl` FaceGen equation. Other head parts are
+hidden while measuring the head material, since blended brows and hairlines
+would otherwise contaminate the sampled colour. The fixed limit is two
+bytes per channel with at least 500 covered pixels. All sixteen cases pass
+on the old extension, with maximum error 0.003712 and about 30000 pixels per
+head. This verifies neutral albedo arithmetic. It does not compare original
+game lighting, subsurface response or tonemapping. No face shader change was
+needed for this measurement.
+
+`r4_gpu_walk_probe.gd` holds actual movement input along the collision-guided
+free walk route. RenderingServer GPU timing is separate from process timing
+and wall time. Each 1920 by 1080 location has 600 positive GPU samples over
+at least ten seconds and movement over 100 Skyrim units. The fixed p99 limit
+is 16.67 ms. RTX 5070 Ti results on private :99 are 0.722 ms in the inn,
+6.994 ms in Whiterun and 2.306 ms on the plains. These baseline measurements
+include the five-pass terrain material. GPU rendering passes the limit.
+
+Whole-frame walking is still slow. Wall-frame p99 is 68.446, 153.772 and
+400.599 ms respectively. Process p99 is 66.430, 174.097 and 496.743 ms.
+Those measurements do not establish 60 FPS playback. CPU frame work requires
+its own investigation. The probe records GPU, render CPU, process and wall
+samples separately in an external JSON artifact. Godot's local
+`class_renderingserver.rst` documents the measured render-time units as ms.
+The probes add no dependencies, saved state or production nodes.
 
 ## Giant camp fire clock, RND-54, 2026-10-17
 
