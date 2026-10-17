@@ -1418,6 +1418,48 @@ impl SkinnedActorNode {
         self.presented_appearance.as_ref() != Some(appearance)
     }
 
+    pub(crate) fn console_geometry_hit(&self, from: Vector3, to: Vector3) -> Option<f32> {
+        if !self.geometry_visible || self.presentation_hidden || self.invisible {
+            return None;
+        }
+        let placement = self
+            .ragdoll
+            .as_ref()
+            .map_or_else(|| self.actor_placement(), LiveRagdoll::actor_transform);
+        if placement.basis.determinant().abs() < 1e-10 {
+            return None;
+        }
+        let inverse = placement.affine_inverse();
+        let start = inverse * from;
+        let end = inverse * to;
+        let mut offset = 0;
+        let mut best: Option<f32> = None;
+        for surface in &self.surfaces {
+            let poses = self
+                .uploaded_skins
+                .get(offset..offset + surface.map.len())
+                .unwrap_or_default();
+            offset += surface.map.len();
+            let vertices = crate::render_pick::posed_vertices(
+                &surface.arrays.positions,
+                &surface.arrays.bones,
+                &surface.arrays.weights,
+                poses,
+            );
+            if let Some((fraction, _)) = crate::render_pick::surface_hit(
+                start,
+                end,
+                &vertices,
+                Some(&surface.arrays.indices),
+            ) {
+                if best.is_none_or(|old| fraction < old) {
+                    best = Some(fraction);
+                }
+            }
+        }
+        best
+    }
+
     pub(crate) fn presented_position(&self) -> Vector3 {
         self.actor_placement().origin
     }

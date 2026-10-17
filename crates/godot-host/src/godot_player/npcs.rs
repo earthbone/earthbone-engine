@@ -94,6 +94,36 @@ impl NpcActors {
     pub(super) fn debug_actor(&self, actor: GlobalFormId) -> Option<Gd<SkinnedActorNode>> {
         self.residents.get(&actor)?.node.clone()
     }
+    pub(super) fn console_geometry_pick(
+        &self,
+        from: Vector3,
+        to: Vector3,
+    ) -> Option<crate::render_pick::Pick> {
+        let mut best = None;
+        for (&actor, resident) in &self.residents {
+            if let Some(fraction) = resident
+                .node
+                .as_ref()
+                .and_then(|node| node.bind().console_geometry_hit(from, to))
+            {
+                crate::render_pick::nearer(&mut best, (fraction, actor));
+            }
+        }
+        best
+    }
+
+    pub(super) fn console_reference_for_body(&self, body: Rid) -> Option<GlobalFormId> {
+        self.residents.iter().find_map(|(&actor, resident)| {
+            resident.node.as_ref().and_then(|node| {
+                node.bind()
+                    .ragdoll_bodies()
+                    .iter_shared()
+                    .any(|rid| rid == body)
+                    .then_some(actor)
+            })
+        })
+    }
+
     pub(super) fn wait_for_loads(&self) {
         self.loading.wait();
     }

@@ -1024,7 +1024,7 @@ pub(crate) fn closest_segment_triangle(
 
 /// Möller and Trumbore. Fraction along `from to` at which the segment
 /// crosses the triangle, either side.
-fn ray_triangle(from: Vec3, to: Vec3, t0: Vec3, t1: Vec3, t2: Vec3) -> Option<f32> {
+pub fn ray_triangle(from: Vec3, to: Vec3, t0: Vec3, t1: Vec3, t2: Vec3) -> Option<f32> {
     let dir = to - from;
     let e1 = t1 - t0;
     let e2 = t2 - t0;

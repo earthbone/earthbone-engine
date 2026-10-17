@@ -927,3 +927,8 @@ nifly `src/bhk.cpp`, OpenMW `components/nif/physics.cpp`, and Mudcrab
 keeps NiGeometryData positions in Creation units. Its GLB converter does not
 fit this engine's direct NIF path, so the existing collector owns the unit
 normalization. No reference exception, asset copy or dependency is added.
+
+Console selection reuses the existing two-sided segment-triangle query through
+`world::ray_triangle`. The host uses it for uploaded geometry outside character
+controller capsules, without changing controller dimensions or adding a
+physics body for each visual surface.

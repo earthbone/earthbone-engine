@@ -276,12 +276,34 @@ impl PlayerNode {
         query.set_exclude(&excluded);
         let mut state = PhysicsServer3D::singleton().space_get_direct_state(space)?;
         let hit = state.intersect_ray(&query);
-        let body = hit.get("rid")?.try_to::<Rid>().ok()?;
-        let picked = self
-            .query_collision
-            .reference_for_body(body)
-            .or_else(|| self.game_streamer.as_ref()?.bind().reference_for_body(body))
-            .or_else(|| self.actor_bodies.owners().get(&body).copied())?;
+        let body = hit.get("rid").and_then(|value| value.try_to::<Rid>().ok());
+        let physical = body.and_then(|body| {
+            self.query_collision
+                .reference_for_body(body)
+                .or_else(|| self.game_streamer.as_ref()?.bind().reference_for_body(body))
+                .or_else(|| self.actor_bodies.owners().get(&body).copied())
+                .or_else(|| self.npc_actors.console_reference_for_body(body))
+        });
+        let mut nearest = hit
+            .get("position")
+            .and_then(|value| value.try_to::<Vector3>().ok())
+            .map(|point| (point.distance_to(from) / from.distance_to(to), physical));
+        let actor = self.npc_actors.console_geometry_pick(from, to);
+        let reference = self
+            .game_streamer
+            .as_ref()
+            .and_then(|streamer| streamer.bind().console_geometry_pick(from, to));
+        let own_body = self
+            .player_appearance
+            .as_ref()
+            .and_then(|visual| visual.bind().console_geometry_hit(from, to))
+            .map(|fraction| (fraction, player));
+        for (fraction, reference) in actor.into_iter().chain(reference).chain(own_body) {
+            if nearest.is_none_or(|old| fraction <= old.0 + f32::EPSILON) {
+                nearest = Some((fraction, Some(reference)));
+            }
+        }
+        let picked = nearest?.1?;
         selectable_reference(&self.game.as_ref()?.world(), picked).then_some(picked)
     }
 

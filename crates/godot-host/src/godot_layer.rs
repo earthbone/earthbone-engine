@@ -45,6 +45,7 @@ use soe_physics::{Iso, Vec3};
 
 mod object_animation;
 
+mod console_pick;
 mod console_render;
 mod distant_upload;
 mod play_path;

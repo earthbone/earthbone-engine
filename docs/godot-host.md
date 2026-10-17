@@ -10148,3 +10148,45 @@ counts. The installed wall regression passes with four clear rays and a
 with one movement body and one query body for the tree, four clear distant
 rays and a grounded 705-unit southward walk. The fixture starts at the named
 WhiterunExterior04 cell and streams the resident exterior around the player.
+
+## Console geometry selection, preview round 4
+
+Console picking combines its existing physics query with the uploaded actor
+and reference triangles. A generated character capsule can be shorter and
+narrower than a giant or mammoth's rendered body. The former physics-only
+query could not select the visible silhouette outside that capsule, or a
+reference with no solid collision model.
+
+Actor queries skin vertices with the transforms already sent to Godot and
+use the current reference placement. Static batches retain their triangle
+owners. Animated objects use their uploaded instance and bone transforms.
+Resident doors use their current submitted draw transform.
+MultiMesh queries use each current placement and its reference ID.
+The nearest rendered or physical hit wins, so intervening scenery still
+occludes a farther actor. Ragdoll bodies also resolve to their owning actor.
+The third-person player body participates when visible. No reference node,
+persistent pick body, saved field or dependency is added.
+
+`r4_console_creatures_test.gd` extends the free walk scene and clicks posed
+giant and mammoth triangles above two metres. The shared pure surface tests
+cover a hit above the capsule, a miss outside geometry, nearest depth and
+stable FormID ties. Existing NPC and object selection remains covered by
+`console_overlay_test.gd`.
+
+The creature fixture reuses authored ACHR references and verifies effective
+visibility and a contact body before waiting for their rendered nodes.
+PlaceAtMe actors already obtain contact bodies, but the current NPC renderer
+filters out references without an authored ACHR record. HST-54 tracks that
+separate rendering gap.
+
+Before correction, both above-capsule creature clicks selected the inn roof
+reference `0005D68A`. After correction, the same posed triangles select giant
+`000BB986` at height 4.686 metres and mammoth `0009834C` at height 6.212 metres.
+The fixture exits zero with no failures. The existing console overlay scene
+also exits zero, retaining NPC, object, history and visibility checks.
+
+The adapter reuses `soe_physics::world::ray_triangle`, exposing the existing
+Moller and Trumbore routine rather than adding a second implementation.
+Godot's local `Aabb`, `Mesh.get_faces`, `MultiMesh` and skeleton-transform
+contracts supply bounds, uploaded geometry and placement. The existing
+batch and skin adapters retain reference ownership and current poses.
