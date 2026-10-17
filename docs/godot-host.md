@@ -1,5 +1,40 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Giant camp texture swap, RND-53, 2026-10-17
+
+Reference `0:0C8E8B` uses base `GiantObeliskBlue02_MountainSlab` and model
+`Clutter/Giant/GiantObeliskBlue02.nif`. Its MODS entry selects geometry name
+`GiantObeliskBlue02:2`, geometry index two and TXST `0:0A9293`,
+`LandscapeMountainSlab`. The host ignored MODS and rendered the NIF's
+`giantrock01.dds`. The live free walk baseline has zero mountain-slab
+materials and 20207 pixels contributed by the obelisk batches.
+After the fix, the same scene records one selected mountain-slab material
+and 18998 contributed pixels. Its assertion passes and the process exits
+with status zero. The diffuse and normal source check also passes.
+The captured rock changes little because its lighting paint overlays lose
+their vertex masks. That separate cause is tracked as RND-55. The MODS
+assertion proves the selected material, rather than claiming pixel parity.
+
+The generic MODL loader now resolves MODS in the winning base record's
+namespace and reads the winning TXST. It applies the swap before filtering
+helper geometry and building materials. Both geometry selectors must match.
+TXST paths gain the Data texture root when absent. The TXST slot order is
+mapped to the NIF slot order, including the environment mask and glow slots.
+Existing batch and material keys retain the resulting texture paths, keeping
+different swaps of a shared model apart. Replacement destruction models keep
+their own textures. No scene nodes, dependencies or saved fields were added.
+
+The layout comes from local xEdit `Core/wbDefinitionsCommon.pas` function
+`wbAlternateTexture` and `Core/wbDefinitionsTES5.pas` TXST definition.
+CommonLib `TESModelTextureSwap.h` confirms the two selectors. UESP TXST and
+Mudcrab's converter extractor were also read. The converter does not resolve
+winning runtime records, so this small adapter uses the existing ESM cursor
+and load-order table. No external implementation was copied. Synthetic tests
+cover a base override, a separate winning TXST override, all eight slots,
+shared-name geometry, material identity and truncated or trailing MODS data.
+The installed source check also retains both paint overlays and resolves
+the selected diffuse and normal textures through the VFS.
+
 ## Creature skin indices, RND-52, 2026-10-17
 
 The live walkthrough starts in Bleakwind Basin and observes placed giant

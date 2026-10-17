@@ -45,6 +45,7 @@ use crate::mesh::{
     WaterMaterial,
 };
 
+mod alternate_textures;
 #[cfg(feature = "godot")]
 mod chargen;
 mod exterior;
@@ -1518,6 +1519,9 @@ impl DataSource {
         let instancing = instancing && !animated;
         let mut animations = Vec::new();
         let mut meshes = file.meshes()?;
+        if let Some(base) = base {
+            alternate_textures::apply(&self.order, base, model, &mut meshes)?;
+        }
         let marker_shapes_filtered = meshes
             .iter()
             .filter(|mesh| marker_blocks.contains(&mesh.block))
@@ -2137,3 +2141,6 @@ mod rnd_39_tests;
 
 #[cfg(test)]
 mod water_shader_tests;
+
+#[cfg(test)]
+mod r4_camp_tests;
