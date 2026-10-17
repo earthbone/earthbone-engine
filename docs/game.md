@@ -7,7 +7,7 @@ never applied it. Changing packages now updates the shared actor sneak field,
 including clearing it when leaving the package. Package movement selects the
 same actor movement profile's sneak walk or sneak run rates while the actor
 is sneaking and outside swimming. Native StartSneaking uses this same field.
-The inline host visual observes it through HST-52 and plays the vanilla graph.
+The inline host visual observes it through HST-58 and plays the vanilla graph.
 
 Mutagen `Mutagen.Bethesda.Skyrim/Records/Major Records/Package.cs` names the
 `0x00020000` flag, matching the existing package decoder. The CK
@@ -38,7 +38,7 @@ Sources read are xEdit `wbDefinitionsTES5.pas` GMST DATA's wbLString branch
 and UESP `GMST.wikitext`. The existing localized text resolver supplies the
 lookup. No parser, dependency or saved field was added.
 
-## Flora and tree activation, INV-09, 2026-10-17
+## Flora and tree activation, INV-12, 2026-10-17
 
 World reads FLOR and TREE production from winning PFIG, PFPC and SNAM fields.
 Activation uses PFPC's spring, summer, fall and winter bytes against the live
@@ -49,7 +49,7 @@ checks and stolen stack metadata as loose items. Sound requests use the
 harvested reference as their positional source.
 
 Harvest timestamps live in World, ordered by resolved reference FormID. The
-INV-09 named world section saves them with SAVE_VERSION still 37. Loading
+world section named INV-09 saves them, a name that predates the id split, task INV-12 with SAVE_VERSION still 37. Loading
 validates the section before committing it, and a missing section starts empty.
 Expired timestamps invalidate reference presentation. Respawn intervals read
 iHoursToRespawnCell and the cleared-location variant, with 240 and 720 hour
@@ -146,7 +146,7 @@ units and zero blocked seconds. Whiterun active routes stay below the
 five-second stuck bound. Ysolda travels 1,350.22 units and Nazeem 998.62.
 The 1,343 game library tests and strict all-target Clippy pass. The release
 build passes in 6 minutes 56 seconds. Combat hostility and warning policy
-remain CMB-40 and CMB-43, separate from waypoint progress.
+remain CMB-51 and CMB-43, separate from waypoint progress.
 
 ## Collision-blocked sandbox choices, round 4
 
@@ -318,7 +318,7 @@ and child behavior, delayed save and reload, cycles, malformed XAPR and atomic
 saved-deadline rejection. Installed script-effect parity remains part of the
 sweep oracle work, rather than a claim made by these synthetic checks.
 
-## Shared object graph assets, ANM-61
+## Shared object graph assets, ANM-65
 
 The host and headless survey share anim_driver project, character, rig, graph
 and clip resolution. Assets retain the decoded skeleton for named NIF node
@@ -12343,7 +12343,7 @@ The REFR and LAND readers remain the existing format implementations.
 
 ### Perk dispatch cost during barter
 
-PRF-50 keeps the actor's owned perk identities as the entry-point source.
+PRF-57 keeps the actor's owned perk identities as the entry-point source.
 This follows local CommonLibSSE-NG `include/RE/A/Actor.h`, `ForEachPerk`,
 and `include/RE/B/BGSPerk.h` rank visitors. Resolved identities remain sorted
 before dispatch. The winning records still supply entry sections, conditions
@@ -12371,7 +12371,7 @@ the warn-attack radius after the authored graph emits aggroWarningStop.
 Leaving the warning radius clears the warning. Candidates are sorted by
 distance and FormID before warning selection. A validated surviving melee
 hit provokes the victim without waiting for another detection update.
-The CMB-40 actor section stores the target and completion flag. SAVE_VERSION
+The actor section named CMB-40 (task CMB-51) stores the target and completion flag. SAVE_VERSION
 remains 37. Warning state participates in deterministic hashing.
 
 The traits template and an explicit NPC CSCR audio-template chain supply the

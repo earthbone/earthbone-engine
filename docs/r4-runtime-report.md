@@ -20,8 +20,8 @@ run does not establish the user's real GPU frame budget.
 The inherited uncommitted loading work was reviewed and completed here. New
 backlog rows split the measured causes into bounded units. PRF-41 and PRF-42
 already refer to completed rig preparation and retirement work in this tree.
-This task uses PRF-46 and PRF-48 through PRF-54 for the runtime work instead.
-RND-47 covers the medium tree band and HST-41 covers first person heading.
+This task uses PRF-46 and PRF-50 through PRF-56 for the runtime work instead.
+RND-62 covers the medium tree band and HST-57 covers first person heading.
 
 ## Before and after evidence
 

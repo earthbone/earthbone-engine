@@ -1,6 +1,6 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
-## Surface emission, RND-49, 2026-10-17
+## Surface emission, RND-66, 2026-10-17
 
 Preview3 adds constant radiance after diffuse texture modulation. Local
 Community Shaders `Lighting.hlsl` instead adds `emitColor` to `diffuseColor`
@@ -139,7 +139,7 @@ executable.
 
 ## Round 4 runtime timing, 2026-10-17
 
-PRF-48 corrects the automatic World and player-controller clock. One capped
+PRF-55 corrects the automatic World and player-controller clock. One capped
 Godot physics callback now supplies monotonic wall time, and the existing
 capsule controller substeps long movement intervals. Manual `advance(delta)`
 retains explicit time. Menus, console and location preparation do not build
@@ -159,7 +159,7 @@ checks while falling. Both corrected routes finish grounded. Total software
 renderer frame times still exceed 33 ms. See [performance.md](performance.md)
 for source paths, measurements and the real GPU validation limit.
 
-The RND-47 free-walk survey found 715 missing trees among 850 archived trees
+The RND-62 free-walk survey found 715 missing trees among 850 archived trees
 outside near cells within eight cells. Whole-block exclusion discarded every
 tree in a 4 by 4 block when one cell had near detail. The correction
 groups billboard surfaces by physical source cell and masks only resident near
@@ -234,7 +234,7 @@ The host delivers a record-selected Aware sound through its existing
 SoundBank slots, tracks starts for the installed probe, and restores a pending
 warning when an actor presentation becomes resident. Inline and snapshot
 presentation receive the same simulation-selected descriptor and variation
-draws. This adds no per-reference node. The named CMB-40 actor save section
+draws. This adds no per-reference node. The actor save section named CMB-40, task CMB-51,
 retains warning identity without changing SAVE_VERSION.
 
 The first installed confirmation catches a style-selection error. csGiant
@@ -448,7 +448,7 @@ Combat acquisition and the hard-coded four-unit pursuit do. Acquisition
 currently uses aggression and Combat detection without warning-radius policy.
 The measured giant path requests reach 60 per second while its target moves.
 Warning, combat approach and rendered slowdown checks remain separate rows
-CMB-40, CMB-41 and PRF-51. Faction hostility before acquisition is CMB-43.
+CMB-51, CMB-41 and PRF-60. Faction hostility before acquisition is CMB-43.
 This diagnostic does not implement them.
 
 The stage-enabled release also exits zero. Giant pose p99 is 74.68 and
@@ -469,7 +469,7 @@ point differs from the collision floor by 7.03 and 27.03 units at the phase
 ends. The separate combat waypoint loop measured spatial distance,
 which prompted CMB-42's failing progress regression and correction. The screenshot also
 shows arm deformation. This headless cost test does not validate that pose
-or prove visual smoothness on the user's GPU. The forearm correction is ANM-62.
+or prove visual smoothness on the user's GPU. The forearm correction is ANM-66.
 
 After the combat correction, the final giant probe again exits zero. Giant
 pose p99 is 90.46 and 73.10 microseconds. Main engine p99 is 20.40 and 16.27
@@ -484,9 +484,9 @@ retained interpreter and decoded clip library, with no new dependency,
 actor node or saved field. Local serde-hkx class descriptions, the existing
 hkx shared-node cache and Godot RID submission remain the implementation.
 
-## Tree pipeline warmup, PRF-49, 2026-10-17
+## Tree pipeline warmup, PRF-56, 2026-10-17
 
-PRF-49 prepares the load order's winning TREE material and vertex layouts on a
+PRF-56 prepares the load order's winning TREE material and vertex layouts on a
 worker. The loading screen draws small representatives using production NIF
 and BTT builders and keeps their materials and shaders alive across cell
 retirement. Private placeholder textures avoid filling the real texture cache
@@ -507,7 +507,7 @@ movement and at least sixty render samples. The corrected baseline fails with
 second. Sampling before node processing observes transient physics placement
 and does not establish rendered jitter.
 
-Godot's interpolation fraction follows its fixed-step clock. PRF-48 advances
+Godot's interpolation fraction follows its fixed-step clock. PRF-55 advances
 the controller on monotonic wall time instead, so stalls can leave that
 fraction behind and then catch it up on short frames. CameraMotion now retains
 timestamped controller poses and samples one physics interval behind the same
@@ -524,7 +524,7 @@ The fixture samples for at least 1.5 seconds and gathers at least sixty
 render samples. Its exterior route reaches the flat plaza before testing
 constant speed, since stair descent changes physical horizontal speed.
 
-## Animated first person attachment, HST-41, 2026-10-17
+## Animated first person attachment, HST-57, 2026-10-17
 
 The walkthrough first person fixture walks forward, left, backward and right
 while holding the camera heading. It observes the current animated camera bone
@@ -549,7 +549,7 @@ The exterior segment moves 331 units and finishes grounded. The earlier
 camera-height, hidden-body and camera-attachment fixture also passes. The
 separate exterior obstruction remains outside this row.
 
-## Mountain source-cell coverage, RND-49, 2026-10-17
+## Mountain source-cell coverage, RND-65, 2026-10-17
 
 Screenshot `39-mountain-lod.png` from preview `586d22c0b` shows a coarse
 medium ridge in front of sharper far mountains. The regression extends
@@ -670,7 +670,7 @@ Their queued calls were stopped with exit 130. The memory cause and the longer
 handoff remain unverified, and the row remains in progress. The full workspace
 gate is excluded by this task.
 
-## Sneak posture bridge, HST-52 draft, 2026-10-17
+## Sneak posture bridge, HST-58 draft, 2026-10-17
 
 The free walk controller toggled its own sneak flag and shortened the capsule,
 but sent only speed and move events to the player graphs. The rendered body
@@ -801,7 +801,7 @@ vertex-green rule. Godot's BaseMaterial3D reference defines the sRGB vertex
 flag. These are references for the existing Rust assembly and material paths.
 This change adds no dependencies, saved state, scene nodes or rendering passes.
 
-## First person report investigation, RND-51, 2026-10-17
+## First person report investigation, RND-69, 2026-10-17
 
 The retained `r4_first_person_probe.gd` and UID still fail the original
 sheathed visibility assertion. `MT_Idle.HKX` puts the hand geometry below the
@@ -820,7 +820,7 @@ The probe retains the equip failures and skips those mislabeled captures.
 The first person rig, skin poses and equipped melee model are present.
 Camera mask 1048575 includes the geometry. Actor upload uses the default
 shadow mode. No readied shadow-only failure was reproduced in the tested
-states. RND-51 remains blocked on the screenshot's matching equipment and
+states. RND-69 remains blocked on the screenshot's matching equipment and
 ready state. The probe's zero-pixel sheathed assertion remains unchanged.
 
 ## Neutral FaceGen RGB and GPU walking, RND-58 and RND-59, 2026-10-17
@@ -900,7 +900,7 @@ as recorded in docs/nif.md. Godot's particle shader and RenderingServer
 references supply manual emission and resource lifetime. No dependencies or
 saved fields were added.
 
-## Giant camp fire clock, RND-54, 2026-10-17
+## Giant camp fire clock, RND-72, 2026-10-17
 
 The live fire is reference `0:040911`, model
 `Clutter/Giant/GiantCampfire01Burning.nif`. Its `Flames` shape uses
@@ -982,7 +982,7 @@ No external implementation was copied. The installed assertion compares all
 three obelisk colour streams with the NIF, and the small fixture checks RGB,
 alpha, both channels and an absent colour stream against material identity.
 
-## Giant camp texture swap, RND-53, 2026-10-17
+## Giant camp texture swap, RND-71, 2026-10-17
 
 Reference `0:0C8E8B` uses base `GiantObeliskBlue02_MountainSlab` and model
 `Clutter/Giant/GiantObeliskBlue02.nif`. Its MODS entry selects geometry name
@@ -1017,7 +1017,7 @@ shared-name geometry, material identity and truncated or trailing MODS data.
 The installed source check also retains both paint overlays and resolves
 the selected diffuse and normal textures through the VFS.
 
-## Creature skin indices, RND-52, 2026-10-17
+## Creature skin indices, RND-70, 2026-10-17
 
 The live walkthrough starts in Bleakwind Basin and observes placed giant
 `0:033FA3` and mammoth `0:033FA6`. The giant uses the Giant race's 80-bone rig,
@@ -1050,7 +1050,7 @@ crate's reordered-palette unit case and the host's installed global-index
 case both fail before the change. No dependencies, scene nodes or saved
 state were added.
 
-## Near tree placement fallback, RND-50, 2026-10-17
+## Near tree placement fallback, RND-68, 2026-10-17
 
 The lone pine above the Whiterun plains comes from near tree geometry at the
 world origin. It remains when BTT billboards, BTO object LOD and Full LOD are
@@ -1082,7 +1082,7 @@ and reports the representative pine's NIF shape skinning. xEdit
 existing `cell_occluder_mesh` transform and `units::GodotTransform` define
 the host placement convention. No external code was copied.
 
-## Animated water materials, RND-49, 2026-10-17
+## Animated water materials, RND-67, 2026-10-17
 
 The free walk uses the object animation path for the Whiterun stair river
 `0:090D35`, model `WRStairsWater01River01.nif`. Its two shapes have a WATR
@@ -1338,7 +1338,7 @@ model-presence library check passed before the fix and is only a coverage
 guard. It is not evidence of working activation animation.
 See [validation.md](validation.md) for the command and oracle limits.
 
-## Placed object behavior graphs, ANM-61
+## Placed object behavior graphs, ANM-65
 
 Live object surfaces now resolve BSBehaviorGraphExtraData through the existing
 game HKX project loader. One graph playhead per placed reference supplies
@@ -1355,10 +1355,10 @@ lookup correction. The free walk QASmoke comparison is nine buttons without
 motion before and nine with motion after. Both cell processes exited normally.
 The after visit took 33.401 seconds. Concurrent quest errors still fail the
 sweep. Forge and smelter rigs have no matching object node and report binding
-errors. Furniture animation remains HST-52, with no fallback pass claimed.
+errors. Furniture animation remains HST-61, with no fallback pass claimed.
 
 This bridge runs with the inline Game. Threaded request and pose transport is
-ANM-62. PlayGamebryoAnimation and full script-effect oracles remain separate
+ANM-67. PlayGamebryoAnimation and full script-effect oracles remain separate
 work. The source contracts and unchanged evaluator are listed in
 [game.md](game.md). The test and sweep measure transforms and script completion,
 not pixels or physical sound output.
@@ -5396,7 +5396,7 @@ Godot's emission operator and energy multiplier. The NIF reader already
 retains these fields. Only its independent test writer needed an emission
 parameter. No format parser or new dependency was added.
 
-RND-49 routes emitting ordinary surfaces through the shared lighting shader.
+RND-66 routes emitting ordinary surfaces through the shared lighting shader.
 It multiplies emission by diffuse color and by a glow map when one is bound.
 The decal shader receives the same color, multiplier and sRGB texture. Material and
 batch keys include all three so shared diffuse maps cannot combine distinct
@@ -11680,7 +11680,7 @@ The finished automatic walkthrough installs QASmoke in 907 ms with the console
 open, compared with the original 20 second stall. Its camera Environment has
 the destination ambient and fog values. The game-day clock remains paused.
 
-## Carry response at the grab point, HST-52, 2026-10-17
+## Carry response at the grab point, HST-59, 2026-10-17
 
 The installed Bannered Mare survey finds a 0.8 kg glazed cup, 5 kg baskets,
 a 20 kg Basket04 and a 70 kg wooden bowl. All have inventory weight 0.5.
@@ -11758,7 +11758,7 @@ The host library passes 593 checks with installed inputs unset. Package
 formatting, all-target Clippy and the release build pass. No full lint gate
 was run, following the round 4 task. These source-selection checks do not
 establish authored layout fidelity. The live captures also expose a separate
-configured-icon selection failure, tracked by UI-41.
+configured-icon selection failure, tracked by UI-44.
 
 ### Configured icon movies
 
@@ -11800,7 +11800,7 @@ Authored control placement and full chrome comparisons remain the existing
 UI-20 and UI-30 work. These captures establish the loadout and icon binding,
 without a claim that the native control layout matches the SWF layout.
 
-## Door picking through collision proxies, HST-52
+## Door picking through collision proxies, HST-60
 
 The free-walk E-key reproduction aims at the visible exit from the authored
 return marker in Heimskr's House. Reference `0056DF3` is a STAT frame based on
@@ -11838,7 +11838,7 @@ rendered selection, side-wall occlusion, no-key rejection and keyed E travel.
 Dragonsreach in both directions, plus the reported house exit. It checks
 location completion, supporting collision and destination navigation.
 
-## Imported menu font sizes, UI-42
+## Imported menu font sizes, UI-45
 
 The free-walk captures expose blank native menu text after imported fonts
 resolve. The generated Futura atlas has a fixed size of 64 pixels and

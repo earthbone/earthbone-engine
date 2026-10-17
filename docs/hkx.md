@@ -62,7 +62,7 @@ playhead and furniture-event assertions are unchanged.
 
 ## Clip entry markers, round 4
 
-ANM-63 delivers a trigger at the initial playhead once when its clip activates.
+ANM-68 delivers a trigger at the initial playhead once when its clip activates.
 The previous strict previous-time comparison skipped a marker at zero, and
 also skipped a marker exactly at a nonzero start time. The existing activation
 flag is consumed by the clip's first generation. A zero time step can deliver

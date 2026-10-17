@@ -1,6 +1,6 @@
 # Performance
 
-## Automatic gameplay clock, PRF-48, 2026-10-17
+## Automatic gameplay clock, PRF-55, 2026-10-17
 
 Preview3 capped physics at one callback per rendered frame. Godot's local
 `classes/class_engine.rst` documents that this drops elapsed simulation time
@@ -175,7 +175,7 @@ formatting, all-target Clippy and 600 host library cases pass, with installed
 fixtures run separately from the ungated library count. No dependency,
 saved field or per-reference scene node is added.
 
-## Tree pipeline warmup, PRF-49, 2026-10-17
+## Tree pipeline warmup, PRF-56, 2026-10-17
 
 The free-walk full-tree probe loads a pine and an aspen through the production
 model mesh API after entering Whiterun. Before warmup, each creates three
@@ -3352,7 +3352,7 @@ margin below the unchanged watchdog.
 
 ## Cached item menus in free walk
 
-PRF-50 measures `godot/r4_menu_budget.gd` in `walkthrough.gd` with the
+PRF-57 measures `godot/r4_menu_budget.gd` in `walkthrough.gd` with the
 SkyUI and NORDIC Data overlays, the production converter and an existing
 art cache. The 33 ms opening limit and 256 distinct chest-item minimum
 were written before the first measurement. The script opens all 40 enabled
