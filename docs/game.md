@@ -716,7 +716,8 @@ delivers cell and trigger events, checks surface samples within 0.25 units,
 and fails on missing paths, interrupted movement or timeout. Load-door crossings
 use activation steps. Navigation adds no collision host or reference nodes.
 The runner does not consume host obstacle shapes or simulate capsule movement.
-Trigger queries use the shared generated actor capsule at the NAVM footpoint.
+Its movement updates retain point trigger queries. The capsule query API and
+its installed measurements are described under the PLY-03 follow-up below.
 
 Actions use the shared PLY-01 executor and advance 1/60 second, including gameplay
 rejections. Unresolved form names fail before execution. `talk` activates an
@@ -10103,9 +10104,9 @@ crossing counts. The two triggers and their enable parent are disabled both
 at checkpoint load and after the route. The replay still reaches stage 192.
 Patrol now has a valid procedure, but Alduin emits neither Open nor
 End_Tower_Smash, and the wall receives no graph request. That driver validation
-used the actor's footpoint and point sweep. The capsule follow-up below changes
-the Game movement path's overlap query. The parent's saved enable state still
-needs separate verification.
+used the actor's footpoint and point sweep. The capsule follow-up below adds
+an explicit body query. The parent's saved enable state still needs separate
+verification.
 
 The existing ESS reader finds parent 0:0F7E82 with saved form-flag words
 `0x040B, 0x0040` in checkpoint 01 and `0x0409, 0x0040` in checkpoint 02.
@@ -10135,7 +10136,7 @@ PLY-03 remains open. The lead's workspace gate was not run, as requested.
 
 ### Capsule trigger follow-up
 
-Game movement now uses `World::update_trigger_actor_body`. This query places
+`World::update_trigger_actor_body` and `Game::update_trigger_actor_body` place
 the existing generated contact capsule at the actor's feet, with race, NPC
 and reference scale resolved through `actor_controller_scale`. Box contacts
 use the distance from the capsule axis to the rotated box, so a rounded
@@ -10146,16 +10147,16 @@ outside endpoints. Existing membership bookkeeping delivers enter and leave
 once per crossing and continues to reject disabled triggers and dead actors.
 
 `World::update_trigger_actor_position` retains its point-query contract for
-callers without body geometry. The NPC package driver still calls that API.
-The Game movement bridge, including headless player navigation, uses the body
-query. No host node, saved field, asset dependency or second physics engine
-is added. This path uses the generated contact capsule rather than loading
+callers without body geometry. The NPC package driver and Game movement
+bridge, including headless navigation, retain point queries. Body dispatch
+is explicit. No host node, saved field, asset dependency or second physics
+engine is added. This path uses the generated contact capsule rather than loading
 an authored skeleton collision phantom. Host controller dimensions and
 crouching are not passed into this query.
 
 The local sources read were CK `OnTriggerEnter` for collision-volume event
 semantics, Jolt `Geometry/AABox.h` for clamped point distance and
-`Physics/Collision/Shape/CapsuleShape.cpp` for the cap-and-axis model. The
+`Physics/Collision/Shape/CapsuleShape.cpp` for the capsule ends and axis. The
 existing `soe-physics::generated_controller_shape` and game contact-scale
 resolver supply dimensions. Jolt's code is C++, and the existing Rust physics
 crate has no public capsule-volume distance query. The small distance query
@@ -10171,3 +10172,24 @@ state cannot substitute for entering the perch. The step-by-step replay
 keeps Alduin's phase-4 Patrol package until after stage 40, and he remains
 thousands of units from the wall. The follow-up does not inject an entry
 event or change scene completion conditions.
+
+The installed capsule survey passes on 2026-10-17. Neither trigger contains
+a route footpoint. The generated player capsule touches 0:0ED5FC at five
+route samples and never touches 0:0CD6AC. Both triggers are disabled after
+the route. Their XESP flag words are zero, so both follow their parent's
+enable state without inversion. This confirms a body-overlap gap in the old
+query and an enable state blocker independent of that geometry. The route
+and its assertions are unchanged, and the survey injects no trigger or animation event.
+
+Scoped checks pass game all-target clippy, game formatting, 259 game library
+tests, 55 probe tests and 10 trigger integration checks. Installed-data gates
+were unset for these crate runs. The separate installed capsule survey runs
+one test with both data variables set and passes in 142.73 seconds.
+
+The first integration of the generated capsule into every Game movement
+query produced 34 passes and seven failures in the installed PLY-03 suite.
+Six failures retain the checkpoint's missing stages 100, 103 and 120. The
+additional tower-entry failure found stage 50 where the route requires
+stage 20. The capsule query therefore remains an explicit API. Automatic
+adoption needs collision-body dimensions and stance that agree with the
+gameplay path. The point-query behavior and every assertion are retained.

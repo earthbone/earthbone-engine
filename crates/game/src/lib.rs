@@ -1471,9 +1471,29 @@ impl Game {
         threads
     }
 
-    /// Updates capsule trigger membership after an actor movement step and runs the
+    /// Updates point trigger membership after an actor movement step and runs the
     /// resulting `OnTriggerEnter` or `OnTriggerLeave` handlers.
     pub fn update_trigger_actor_position(
+        &mut self,
+        actor: GlobalFormId,
+        cell: Option<GlobalFormId>,
+        from: [f32; 3],
+        to: [f32; 3],
+    ) {
+        let vm = &mut self.vm;
+        self.world.borrow_mut().update_trigger_actor_position(
+            actor,
+            cell,
+            from,
+            to,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
+    }
+
+    /// Updates trigger membership for a generated capsule and settles its events.
+    /// Hosts using a generated contact body can select this query explicitly.
+    pub fn update_trigger_actor_body(
         &mut self,
         actor: GlobalFormId,
         cell: Option<GlobalFormId>,
