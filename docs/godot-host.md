@@ -1,3 +1,40 @@
+## Central campfire glow, RND-52, 2026-10-17
+
+The central Bannered Mare fire is `Campfire01Burning`, reference `0:05D691`
+at approximately -121, -385, 33. The earlier hearth capture selected the two
+wall fireplaces, references `0:0602CB` and `0:0616F2`, and missed this model.
+The central model contains a radial `Glow02:0` effect card with source texture
+`effects/glowslightflash.dds`, warm vertex RGB, vertex alpha and SrcAlpha/One
+blending. Its palette field is empty and its palette flag is clear.
+
+The model-name fallback assigned that card a sibling fire palette. This
+reinterpreted its authored vertex red as a palette coordinate and produced
+the pale halo shown in the preview3 screenshot. The fallback now preserves
+vertex-colored effects. Authored palettes, blend factors, alpha and flame
+controller speeds retain their values.
+
+`r4_vertex_colored_radial_glow_keeps_its_authored_color` fails before the fix
+with palette bit 16 where zero is required, and passes afterward. The
+installed archive assertion checks the exact central glow and three particle
+systems. A small extracted-asset fixture reproduces the pale halo through
+preview3's production material builder. The corrected Forward+ fixture has
+no inferred palette and increases warm pixels from 7 to 577, with zero
+clipped white pixels in either capture. This is an isolated model capture,
+not acceptance of the complete free-walk fire. The host library passes 597
+tests with game data unset, and all-target Clippy passes with warnings denied.
+
+The central model's actual flames and smoke require its three particle
+systems. World loading does not instantiate those systems. RND-53 records
+that separate gap. The shared installed-data lock blocks the full free-walk
+baseline and cell survey. The release build also waits on its shared lock.
+The isolated correction was checked with a debug extension on Xvfb :99 and
+llvmpipe. No per-reference nodes, dependencies or saved state are added.
+
+Sources read are local nifly `src/Shaders.cpp`, nifxml `nif.xml`, Community
+Shaders `package/Shaders/Effect.hlsl` for the vertex and palette equation,
+and the installed `Campfire01Burning.nif`. NIF and BSA readers were reused
+for the archive inspection. Game assets remain outside tracked files.
+
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
 ## Player view corrections, 2026-10-14
