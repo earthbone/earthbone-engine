@@ -131,10 +131,10 @@ mod tests {
     }
 
     #[test]
-    fn hst_33_light_body_follows_while_heavy_body_lags() {
+    fn hst_51_light_body_follows_while_heavy_body_lags() {
         let light_error = follow(1.0, 100.0, 30);
         let heavy_error = follow(10.0, 100.0, 30);
-        eprintln!("HST-33 after 0.25 s: 1 kg error={light_error} m, 10 kg error={heavy_error} m");
+        eprintln!("HST-51 after 0.25 s: 1 kg error={light_error} m, 10 kg error={heavy_error} m");
         assert!(
             light_error < 0.4,
             "light body follows promptly: {light_error}"
@@ -144,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn hst_33_small_mass_stays_stable_and_force_includes_gravity() {
+    fn hst_51_small_mass_stays_stable_and_force_includes_gravity() {
         assert!(follow(0.01, 100.0, 240) < 0.001);
         for mass in [1.0, 10.0, 150.0] {
             let impulse = spring_impulse(
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn hst_33_force_limit_reads_winning_gmst_and_live_script_override() {
+    fn hst_51_force_limit_reads_winning_gmst_and_live_script_override() {
         let setting = |value: f32| {
             soe_esm::Record::new(soe_esm::Tag::new(b"GMST"), 42)
                 .zsub(b"EDID", "fZKeyMaxForce")
@@ -220,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn hst_33_installed_grab_settings_and_nif_masses() {
+    fn hst_51_installed_grab_settings_and_nif_masses() {
         let Some(data) = std::env::var_os("SKYRIM_DATA") else {
             return;
         };
@@ -239,7 +239,7 @@ mod tests {
                 .try_into()
                 .unwrap();
             let value = f32::from_le_bytes(bytes);
-            eprintln!("HST-33 {name}={value}");
+            eprintln!("HST-51 {name}={value}");
             assert!(value.is_finite());
             settings.insert(name, value);
         }
@@ -260,7 +260,7 @@ mod tests {
         assert!(light.is_finite() && light > 0.0 && heavy.is_finite() && heavy > light);
         let light_error = follow(light, settings["fZKeyMaxForce"], 30);
         let heavy_error = follow(heavy, settings["fZKeyMaxForce"], 30);
-        eprintln!("HST-33 {} dynamic NIF colliders: {light} kg error={light_error} m, {heavy} kg error={heavy_error} m", masses.len());
+        eprintln!("HST-51 {} dynamic NIF colliders: {light} kg error={light_error} m, {heavy} kg error={heavy_error} m", masses.len());
         assert!(
             heavy_error > light_error,
             "installed heavy body follows more slowly"

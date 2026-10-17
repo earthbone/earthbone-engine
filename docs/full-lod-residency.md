@@ -729,7 +729,7 @@ The city retained two cell occluders and 260 parent terrain blocks.
 Godot exited normally, but the Rust test returned 101 because its measured
 peak VmRSS was 12.373745 GiB, above the unchanged six GiB limit. These are
 whole-process bytes, not an estimate of model payload. The observed budget
-failure remains open. RND-40 and RND-41 remain `wip`, with no completed
+failure remains open. RND-48 and RND-41 remain `wip`, with no completed
 evidence claim. An earlier observation peaked at 13.076820 GiB. Its capture's
 1698-pixel result was a false positive from foreground geometry, found by
 inspecting the PNG. That image does not prove a landmark over a ridge.

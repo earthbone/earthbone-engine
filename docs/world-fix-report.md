@@ -1,7 +1,7 @@
 # World fix checkpoint, 2026-10-13
 
 This is a partial checkpoint on detached integration scratch HEAD, based on
-`735176dff`, in `lead-play-world`. HST-31, HST-32 and HST-33 remain wip.
+`735176dff`, in `lead-play-world`. HST-44, HST-49 and HST-33 remain wip.
 It is not a merge-ready result. No master branch or other worktree is changed.
 
 ## Changes

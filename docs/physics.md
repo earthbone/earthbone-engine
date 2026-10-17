@@ -739,7 +739,7 @@ its step and floor probes, rather than claiming they are continuous sweeps.
 Counts enter the active `soe_trace::WorkFrame` and add no saved physics state.
 `tests/prf_14_work.rs` checks missed rays and capsule work in an empty world.
 
-## World surface audit, HST-31
+## World surface audit, HST-44
 
 The 2026-10-13 WhiterunWorld and Bannered Mare survey reads every enabled
 REFR model carrying a collision object. At the starting checkpoint it finds

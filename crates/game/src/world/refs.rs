@@ -1264,7 +1264,7 @@ pub(super) fn write_console_reference(
     writer.bool(reference.console_delete_pending);
 }
 
-/// Restore deferred console deletion from UI-31.
+/// Restore deferred console deletion from UI-37.
 pub(super) fn read_console_reference(
     reference: &mut RefState,
     reader: &mut super::save::FormReader<'_, '_>,

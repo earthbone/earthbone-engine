@@ -318,7 +318,7 @@ godot-host and their docs, plus the backlog and third-party notice.
 capture, retained payload accounting, image and LOD cache budgets, actor
 texture sharing, before and after RSS, and the limits of Godot byte counters.
 
-## Exterior door preparation, HST-31
+## Exterior door preparation, HST-48
 
 The first installed run of `78981e93` reaches every inn approach. Hulda offers
 two topics, selecting magic displays its localized response and starts voice
@@ -659,7 +659,7 @@ All preceding gate steps pass, including four clippy commands and 52 Python
 runner cases. cargo-deny and cargo-audit are absent and reported as skips.
 The fail-fast test phase stops at the game integration binary, so this run does
 not certify a complete workspace pass or the five-minute tier 1 budget.
-UI-31, AUD-15, UI-32, HST-31 and AUD-16 are blocked on that integration gate,
+UI-38, AUD-15, UI-39, HST-47 and AUD-16 are blocked on that integration gate,
 with their focused acceptance checks passing. No check, input, ignore or lint
 exemption is changed to conceal those AI failures.
 
@@ -2353,7 +2353,7 @@ activate on release. Telekinesis retains its separate input path.
 The carry target stays at the captured eye-ray distance in front of the
 camera. The body remains rigid with its existing collision layer, mask,
 gravity and velocity. Each fixed step applies a central impulse from a damped
-spring between the hit anchor and that target. HST-33 replaces the mass-scaled
+spring between the hit anchor and that target. HST-51 replaces the mass-scaled
 acceleration with a bounded force spring, described below. It compensates the
 body's current host gravity within the force budget and bounds its impulse
 timestep to 1/30 second. Release stops applying impulses and keeps
@@ -2388,7 +2388,7 @@ contact and settling, compares World and rendering poses, checks focus-loss
 release, then taps to pick up the dropped item. It captures
 `target/hst-22-carry.png`, writes `target/hst-22-scene.log` and quits.
 
-### Grab weight, HST-33
+### Grab weight, HST-51
 
 The old spring multiplied its capped acceleration by body mass, so every
 object accelerated alike. The spring now uses stiffness 200 newtons per metre
@@ -2419,7 +2419,7 @@ Godotwind's `src/core/interaction/carry_controller.gd` uses a velocity drive,
 which would bypass the required weight response here. Existing readers and
 the server-body spring are reused rather than adding a parser or node path.
 
-The `hst_33_` tests compare 1 kg and 10 kg bodies after 0.25 seconds toward
+The `hst_51_` tests compare 1 kg and 10 kg bodies after 0.25 seconds toward
 a target one metre away. Their declared limits are below 0.4 metre error for
 the light body, above 0.6 metre for the heavy body and more than twice the
 light body's error. They also check light-body stability, the total force
@@ -3695,7 +3695,7 @@ drawn models and zero retained parent-world models on city return. Its Rust
 test failed the unchanged six-GiB peak RSS limit at 17.736 GiB. The previous
 residency verification also failed that limit, as recorded in
 `docs/full-lod-residency.md`. That capture does not establish whether the mask
-change increased peak memory. RND-40 and RND-41 remain unfinished.
+change increased peak memory. RND-48 and RND-41 remain unfinished.
 
 At an earlier checkpoint, one full lint run exited zero with 9,836 Rust tests passed, 14 ignored and
 55 performance-runner contracts passed. Cargo-deny and cargo-audit were
@@ -5529,7 +5529,7 @@ animated physics body and shape follow the mesh transform.
 
 ### Resident doors, HST-21
 
-The 2026-10-13 HST-31 correction supersedes the quarter-turn presentation
+The 2026-10-13 HST-43 correction supersedes the quarter-turn presentation
 and open-state collision removal described below. `add_cell` diverted DOOR
 surfaces out of RND-23, and `add_door` retained only their initial model pose.
 ResidentDoor then rotated the whole reference about its placement origin.
@@ -9293,7 +9293,7 @@ and regional music before the first movement step. This follows the existing
 persistent-cell and grid semantics in `data_source/location.rs` and AUD-13's
 CELL and regional selection contract.
 
-## Exterior world fixes, HST-31 to HST-33
+## Exterior world fixes, HST-44, HST-49 and HST-33
 
 Location replacement formerly cleared the streamer's Jolt bodies and
 installed only rendering. PlayerNode rebuilt static query bodies, while
@@ -9369,7 +9369,7 @@ installed slot remains occupied. Its acceptance is pending, and UI-31 remains
 wip. The Game conditions, quote and transaction fixtures pass, as reported
 in game.md. The full gate's unrelated AI route failures are retained.
 
-## Mudcrab streaming port, HST-31
+## Mudcrab streaming port, HST-46
 
 The exterior planner follows Mudcrab main `268f988` cell response generation
 checks and PR 210 `4db055d` demand ordering. The GPL host port retains the MIT
@@ -9471,7 +9471,7 @@ The installed PLY-04 empty-route check was not rerun. No assertion was changed
 to hide either gap. The backlog rows stay unfinished while their gate and
 complete-route checks are unmet.
 
-## Mudcrab installed route evidence, HST-32
+## Mudcrab installed route evidence, HST-50
 
 The fixture walks the authored inn exit, the Whiterun gate approach, the
 return approach and the inn return door using ordinary player movement and
@@ -9630,7 +9630,7 @@ optimization level 1, using the built release extension on the private display.
 Package Clippy with all targets and warnings denied, and package formatting,
 passed. The full lint gate was excluded from this integration repair.
 
-## Persistent full-model visibility, RND-40 and RND-41
+## Persistent full-model visibility, RND-48 and RND-41
 
 Full LOD and persistent STAT or MSTT Never Fades placements render in their physical
 near cells. Beyond the grid, record bounds select visible demand before any
@@ -9672,7 +9672,7 @@ failure. The final outside-gate landmark capture passed with 1308 pixels
 against the unchanged 500-pixel threshold and passed visual review against
 its terrain control. The gameplay camera is restored before city measurement.
 
-## Shared in-game console, UI-31
+## Shared in-game console, UI-37
 
 PlayerNode constructs the console overlay, so `walkthrough.gd` and the play
 path have identical input and selection behavior. Grave, tilde or physical
@@ -9687,7 +9687,7 @@ tests. Reference changes synchronize rendering and collision, and player pose
 changes reach the existing cell replacement path. Ordered host requests cover
 camera settings, free camera, menus and verified named saves. See the
 [command coverage table](game.md#console-command-coverage) for exact semantics
-and pending or skipped commands. UI-31 does not complete the entire UESP table.
+and pending or skipped commands. UI-37 does not complete the entire UESP table.
 
 The installed regression is `console_overlay.rs`, running
 `console_overlay_test.gd` through the real walkthrough headless on Xvfb :99.

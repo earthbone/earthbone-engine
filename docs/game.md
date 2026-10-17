@@ -54,7 +54,7 @@ loads Skyrim, Update and all three DLC masters. It checks the new player's
 Nord race, NPC_Default_MT and the race's sprint rate. No saved field or
 dependency is added.
 
-## Nearby load-door destinations, HST-31
+## Nearby load-door destinations, HST-48
 
 `nearby_load_destination` selects both interior and exterior XTEL destinations
 through the existing source-coordinate-frame query. The interior-only API
@@ -10170,7 +10170,7 @@ health assertion exercises the caster target. Existing Rust readers and
 public save profiling supply the fixture encoding, with no reference code
 copied or dependency added.
 
-## Initial exterior actor placement, HST-32
+## Initial exterior actor placement, HST-49
 
 Loading or attaching an exterior cell resolves first package locations for
 enabled persistent ACHRs in its worldspace, temporary ACHRs in attached
@@ -10466,7 +10466,7 @@ through the host VFS. Sources are local xEdit DOBJ and SNCT, UESP SNCT and
 CommonLibSSE BGSSoundCategory. The installed host category and scene checks
 verify the playback parameters. No world field or save section is added.
 
-## In-game console, UI-31
+## In-game console, UI-37
 
 PlayerNode owns a fixed native console control tree, so the walkthrough and
 play path share selection, history and command execution. Grave, tilde and the
@@ -10500,7 +10500,7 @@ many All Known Commands entries. Those rows say so instead of guessing.
 
 Runtime switches remain transient, like the existing Papyrus debug switches.
 MarkForDelete waits for the reference's cell to load again and is retained in the
-UI-31 reference save section. SAVE_VERSION remains 37. Dropped stacks retain
+legacy `UI-31` reference save section for UI-37. SAVE_VERSION remains 37. Dropped stacks retain
 metadata. Full concrete stacks reuse their original reference. Partial drops
 leave that identity on the inventory remainder. The shared removal helper
 clears equipment when its last item leaves inventory. Copied inventory bundles clear worn flags and original-reference
