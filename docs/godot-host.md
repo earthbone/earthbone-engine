@@ -1,5 +1,33 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Animated water materials, RND-49, 2026-10-17
+
+The free walk uses the object animation path for the Whiterun stair river
+`0:090D35`, model `WRStairsWater01River01.nif`. Its two shapes have a WATR
+surface and an effect foam overlay. The static material selector handled WATR,
+but the animated selector sent the water shape to the generic decal shader.
+With no diffuse texture, that shader drew white. The animation path now uses
+the same WATR material builder and keeps its authored UV scale, offset and
+opacity when updating material controllers. The foam retains its own shader.
+
+The local xEdit WATR definition, nif.xml BSWaterShaderProperty flags,
+Community Shaders `package/Shaders/Effect.hlsl` and OpenMW
+`files/shaders/compatibility/bs/nolighting.frag` supply the material contracts.
+No external implementation was copied. No dependencies, saved fields or scene
+nodes were added.
+
+`r4_water_probe.gd` enters the real free walk exterior from the Bannered Mare,
+inspects the streamed river and samples its contribution against a hidden
+capture. The threshold requires at least 100 affected pixels, less than half
+neutral bright pixels and exactly one WATR material. Before the fix, 116867
+of 173210 affected pixels were white and neither surface had WATR uniforms.
+After the fix, 34017 of 167259 affected pixels were white, with the foam
+still present, and the capture exited successfully. The water surface exposes
+its green WATR colors, three normals and zero base opacity. Separate layer
+captures keep the authored foam visible for diagnosis.
+The installed material check also verifies all three normal textures, the
+water depth alpha range and the animated status of both shapes.
+
 ## Near LAND texture detail, round 4
 
 The walkthrough terrain probe exits the Bannered Mare and moves to the

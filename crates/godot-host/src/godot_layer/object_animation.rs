@@ -89,6 +89,13 @@ impl RuntimeSurface {
         let mut color = desc.emissive_color;
         let mut strength = desc.emissive_multiple;
         let mut uv_rotation = 0.0;
+        if let Some(water) = &desc.water {
+            alpha = water.alpha();
+            if let Some(mesh) = &water.mesh {
+                offset = mesh.uv_offset;
+                scale = mesh.uv_scale;
+            }
+        }
         if let Some(effect) = &desc.effect {
             offset = effect.uv_offset;
             scale = effect.uv_scale;
@@ -126,7 +133,9 @@ impl RuntimeSurface {
             material
                 .set_shader_parameter("uv_scale", &Vector2::new(scale[0], scale[1]).to_variant());
             material.set_shader_parameter("uv_rotation", &uv_rotation.to_variant());
-            if let Some(effect) = &desc.effect {
+            if desc.water.is_some() {
+                material.set_shader_parameter("base_alpha", &alpha.to_variant());
+            } else if let Some(effect) = &desc.effect {
                 material.set_shader_parameter(
                     "base_color",
                     &Vector4::new(color[0], color[1], color[2], alpha).to_variant(),
@@ -177,7 +186,15 @@ impl CellStreamerNode {
         {
             desc.alpha = AlphaMode::Blend;
         }
-        let material = if let Some(effect) = &desc.effect {
+        let material = if let Some(water) = &desc.water {
+            water_material(
+                water,
+                &surface.textures,
+                &mut self.materials.textures,
+                &self.materials.shaders,
+            )
+            .upcast()
+        } else if let Some(effect) = &desc.effect {
             nif_effect_material(
                 &desc,
                 effect,
