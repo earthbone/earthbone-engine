@@ -1,5 +1,52 @@
 # Validation against the vanilla engine
 
+## Activation sweep before previews
+
+Round 4 adds an installed survey over the five vanilla masters. Prepare the
+release extension once after source changes, as described below, then run:
+
+```sh
+rtk cargo build -p soe-godot-host -p soe-game --release --lib \
+  --bin soe-activation-sweep --features scr-24-test,cmb-37-test
+rtk proxy env SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" \
+  SOE_GODOT_BIN="/path/to/installed-slot/godot" \
+  python3 tools/activation_sweep.py
+```
+
+The command writes `docs/activation-sweep.json` and `docs/activation-sweep.md`.
+Exit 0 means every measured contract passed. Exit 1 means the report contains
+failures or unverified outcomes. Exit 2 means setup failed. The requested test
+cells run before the city and ruin cells. Duplicate editor IDs retain each
+cell's resolved identity. `--all-cells` expands the visit to every populated
+cell in the load order. `--cell <editor-id>` selects a focused reproduction.
+`--headless-only` runs the state survey without Godot. `--reuse` retains the
+state report and repeats its host pass. Neither option establishes a full pass
+without the omitted evidence.
+
+Each cell starts with fresh world and script state. References activate in
+the cell index order, retaining effects from earlier activations, as on a
+player visit. Each activation has three simulated seconds to settle. The
+report retains disabled placements as exclusions, attached scripts, static
+PEX animation and linked-reference calls, NIF sequences, inventory and door
+state, furniture entry, linked state, VM logs and native errors. A separate
+observer counts OnActivate without replacing the authored scripts. Timer and
+quest errors during that interval are concurrent errors, not proof that the
+target caused them.
+
+One headless Godot process per cell extends `walkthrough.gd` and uses
+PlayerNode's activation entry point. It records menus, rendered surfaces,
+target-specific uploaded animation transforms and Papyrus errors. The runner
+waits for and records each process exit before the next cell. Use the shared
+installed-slot Godot wrapper. Per-cell input, output and logs stay under
+`target/activation-sweep`. A missing completion or reference result fails.
+
+This is a contract survey from CK Activate, OnActivate, PlayAnimation and
+PlayGamebryoAnimation, installed records and authored animation assets. It
+does not yet have captured vanilla runtime oracles for every script. Unknown
+script effects remain failures. Uploaded motion alone does not prove correct
+pixels, event timing, or activation-ray reachability. Those gaps remain
+explicit in the report and must not be promoted to passes.
+
 The question every engine change has to answer is "does Skyrim do this?".
 Launching Skyrim per test is not an option, so the oracle is captured once
 from the real game and replayed as often as needed. The harness lives in

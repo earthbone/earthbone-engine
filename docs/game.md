@@ -1,5 +1,25 @@
 # soe-game: the runtime form table and the first natives
 
+## Activation survey, TST-22
+
+`activation_sweep` visits installed placements through Game activation and
+records typed state contracts, OnActivate counts, pending animation waits,
+static PEX call metadata and errors. The initial diagnostic baseline contains
+3,131 activations across 51 cells. It predates the stricter state classifier,
+plugin-ordered archive view and additional Whiterun exterior selection.
+Keep that distinction when comparing later runs. The report and its owning
+failure rows are described in [validation.md](validation.md).
+
+Sources read locally are CK Activate, OnActivate, PlayAnimation,
+PlayGamebryoAnimation and IsActivateChild, xEdit ACTI, LIGH and XAPR fields,
+UESP FLOR, TREE and REFR, nifly Animation.cpp and ExtraData.cpp, and nif.xml
+BSBehaviorGraphExtraData. OpenMW activator.cpp distinguishes script activation
+from a default null action. Its TES3 action does not execute Skyrim PEX or
+HKX projects. The existing Rust readers, VM and animation evaluator remain
+the execution path. Mudcrab streaming was checked for object animation wiring
+and did not supply a Skyrim object graph bridge to reuse.
+No game assets or script instruction dumps belong in the report.
+
 ## Race movement speeds, HST-40
 
 `movement::MovementType` reads the four directional walk/run pairs in MOVT

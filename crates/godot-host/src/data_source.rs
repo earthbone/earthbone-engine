@@ -952,6 +952,17 @@ impl DataSource {
     /// interior cell when both an interior and an exterior one share a name.
     #[must_use]
     pub fn resolve_cell(&self, editor_id: &str) -> Option<GlobalFormId> {
+        if let Some((file, object)) = editor_id.split_once(':') {
+            let id = GlobalFormId {
+                file: file.parse().ok()?,
+                object: u32::from_str_radix(object, 16).ok()?,
+            };
+            return self
+                .order
+                .winner(id)
+                .filter(|record| record.tag == soe_esm::tag::CELL)
+                .map(|_| id);
+        }
         self.cell_index().cell_by_editor_id(editor_id)
     }
 
@@ -2081,6 +2092,8 @@ mod grass_tests;
 #[cfg(test)]
 mod marker_shape_tests;
 
+#[cfg(test)]
+mod activation_sweep_tests;
 #[cfg(test)]
 mod animated_static_mesh_tests;
 

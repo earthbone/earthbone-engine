@@ -22,6 +22,7 @@
 //! game.tick(1.0 / 60.0);
 //! ```
 
+pub mod activation_sweep;
 pub mod actor_values;
 pub mod ai;
 pub mod ambience;

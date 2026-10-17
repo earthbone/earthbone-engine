@@ -159,6 +159,31 @@ impl PlayerNode {
             return result;
         };
         let (base, enabled) = (reference.base, reference.enabled);
+        result.set("opened", reference.opened);
+        result.set("blocked", reference.activation_blocked);
+        result.set("locked", reference.locked);
+        let linked = reference.linked.clone();
+        let mut links = VarDictionary::new();
+        for (_, id) in linked {
+            if let Some(reference) = world.reference(id) {
+                let mut state = VarDictionary::new();
+                state.set("enabled", reference.enabled);
+                state.set("opened", reference.opened);
+                links.set(id.to_string(), &state);
+            }
+        }
+        result.set("linked", &links);
+        result.set("seated", world.furniture_seat(player).is_some());
+        let mut animations = PackedStringArray::new();
+        for request in &world.animation_requests {
+            animations.push(&format!("{} {}", request.target, request.animation));
+        }
+        result.set("animation_requests", &animations);
+        let mut errors = PackedStringArray::new();
+        for (native, error) in &world.native_errors {
+            errors.push(&format!("{native}: {error}"));
+        }
+        result.set("native_errors", &errors);
         result.set("enabled", enabled);
         if let Some(base) = base {
             result.set("base_file", i64::from(base.file));
@@ -176,6 +201,13 @@ impl PlayerNode {
             result.set("owned_count", stolen);
         }
         drop(world);
+        let mut errors = PackedStringArray::new();
+        for entry in &game.vm.log.entries {
+            if entry.message.starts_with("error:") {
+                errors.push(&entry.message);
+            }
+        }
+        result.set("papyrus_errors", &errors);
         let target = game.object_of_form(target);
         result.set(
             "activations",

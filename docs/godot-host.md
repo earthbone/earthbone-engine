@@ -1,5 +1,21 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Activation sweep instrumentation, TST-22
+
+`godot/activation_sweep.gd` extends the free-walk scene and records one
+installed visit per cell. Per-reference RID transforms exclude unrelated
+autonomous surfaces. Activation observations retain event counts, menus,
+door and furniture state, linked state and error deltas. The runner tracks
+each Godot process and its exit status through the shared installed slot.
+No per-reference scene nodes are added.
+
+The first completed QASmoke visit took 24.434 seconds. All nine DweButton01
+placements emitted Trigger01 and retained five animation surfaces, while
+none changed its uploaded transforms over three simulated seconds. A
+model-presence library check passed before the fix and is only a coverage
+guard. It is not evidence of working activation animation.
+See [validation.md](validation.md) for the command and oracle limits.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and
