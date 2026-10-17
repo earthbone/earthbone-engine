@@ -706,6 +706,60 @@ passes, using warnings denied through the required run wrapper.
 Host package formatting and git diff whitespace checks pass.
 The installed Whiterun bounded-speculation check passes separately in
 87.89 seconds. The full workspace gate remains the lead's responsibility.
-The final uninstrumented six-test command has passed the installed
-first-person check and all four data_source::full_lod_tests checks with
-this extension. Its visibility budget case is running at this milestone.
+The final uninstrumented six-test command passes the installed first-person
+check and all four data_source::full_lod_tests checks with this extension.
+Its visibility case exits Godot successfully and reports FULL_LOD_RESULT
+PASS, including zero retained Tamriel full models after the return. The
+unchanged RSS assertion fails at 12.151299 GiB. The command exits 101 after
+872.87 seconds, with five passes and one failure. No test is removed,
+ignored or weakened. The visibility test's Rust file is unchanged.
+
+The final ordinary capture is `target/full-lod/run-O3dO1w`, with Godot PID
+4951. The following values are MiB except counts. Libc live combines arena
+and directly mapped malloc allocations, excluding the driver's direct maps.
+Requested and usable Rust bytes overlap with that libc total. Godot resource
+estimates overlap with driver ownership. These columns must not be summed.
+
+| Phase | RSS | Rust requested | Rust usable | Libc live | Arena free | Textures | Buffers | Objects | Nodes | Orphans |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| after_inn | 4046.1 | 2606.7 | 2804.6 | 3793.3 | 59.5 | 282.0 | 17.7 | 2575 | 98 | 0 |
+| after_exit | 8631.0 | 4416.5 | 4650.0 | 7049.2 | 435.3 | 1001.4 | 168.8 | 19258 | 169 | 0 |
+| gate_settled | 9987.9 | 3699.8 | 3934.3 | 6412.8 | 1658.7 | 818.1 | 117.2 | 17797 | 103 | 0 |
+| after_gate | 9988.0 | 3699.8 | 3934.3 | 6414.3 | 1657.2 | 818.1 | 117.2 | 17797 | 103 | 0 |
+| landmark_done | 9991.6 | 3699.8 | 3934.3 | 6642.9 | 1428.6 | 818.1 | 117.2 | 17802 | 104 | 0 |
+| return frame peak | 12412.8 | - | - | - | - | 953.1 | 158.5 | 18208 | 134 | 0 |
+| after_release | 11121.7 | 4286.7 | 4522.8 | 7297.1 | 2010.0 | 1001.4 | 168.7 | 19264 | 169 | 0 |
+| end | 11122.0 | 4286.5 | 4522.6 | 7297.0 | 2010.0 | 1001.4 | 168.7 | 19267 | 169 | 0 |
+
+The independent sampler's 12.151299 GiB peak remains authoritative. The
+script's nearest frame peak is lower because blocking work occurs between
+frames. Rust's interval peak during the return is 5,846.4 MiB. The final
+phase report also exposes Linux RssShmem, at 443.3 MiB after the inn,
+1,537.2 MiB after exit, 2,231.5 MiB at the gate and 2,240.7 MiB after release.
+This explains why RssAnon and RssFile alone did not cover process RSS.
+
+All actor phase reports now include face detail and retain zero CPU image
+bytes. The final gate has four cached rigs and zero without consumers.
+The speculative inn is gone and the rejected city leaves no ready payload.
+The completed LOD cache holds 223,440 bytes after release. Distant CPU and
+GPU ownership is empty after returning to Whiterun. The city remains live,
+so its ordinary meshes, textures and 39 actor nodes are still required.
+
+Implementation commit `9349362e855d11148adb1b02a0a4b8ec0843d94e` preserves
+the earlier allocator and first-person corrections and adds the mmap
+threshold, rig pruning, incremental speculative admission, face-detail
+release and expanded attribution. Against the user's supplied 17.9 GiB
+baseline, the final observed peak is 12.151 GiB. This comparison combines
+the changes and allocator variation. It does not assign each byte to one
+fix or prove one merge caused the full five-GiB difference.
+
+The result is partial. The six GiB budget is still exceeded. Remaining live
+preparation and driver allocations require further reduction. The native
+capture names lavapipe but cannot name its private internal pools without
+symbols. Gameplay allocation sites remain grouped rather than split into
+individual World maps. Actor CPU image preparation can still duplicate
+pending inputs before shared GPU upload, with no measured isolated cost.
+The final trim traces take 17.6, 62.1, 148.4 and 92.4 ms at location installs,
+so three exceed their declared 33 ms budget. Allocator controls were measured
+on this GNU/Linux glibc host, and other libc implementations remain untested.
+No additional dependency, per-reference node or saved field is introduced.
