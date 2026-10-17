@@ -5,6 +5,32 @@
 
 use soe_esm::GlobalFormId;
 
+/// Last posture submitted to one graph instance, separate from game state.
+#[cfg(any(feature = "godot", test))]
+#[derive(Debug, Default)]
+pub(crate) struct SneakGraphState {
+    sneaking: bool,
+}
+
+#[cfg(any(feature = "godot", test))]
+impl SneakGraphState {
+    /// Publish the shared actor posture and raise only its transition edge.
+    /// Event names follow the vanilla master behavior's sneak transitions.
+    pub(crate) fn apply(&mut self, vm: &mut soe_hkx::interp::Interpreter<'_>, sneaking: bool) {
+        if let Some(event) = self.transition(sneaking) {
+            vm.send_event_named(event);
+        }
+    }
+
+    fn transition(&mut self, sneaking: bool) -> Option<&'static str> {
+        if self.sneaking == sneaking {
+            return None;
+        }
+        self.sneaking = sneaking;
+        Some(if sneaking { "SneakStart" } else { "SneakStop" })
+    }
+}
+
 /// Position in the world's append-only animation request log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnimationEventCursor(usize);
@@ -42,5 +68,23 @@ impl AnimationEventCursor {
 pub fn report_graph_events(events: &mut Vec<String>, mut report: impl FnMut(&str)) {
     for event in events.drain(..) {
         report(&event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SneakGraphState;
+
+    #[test]
+    fn r4_sneak_posture_enters_and_exits_once_per_change() {
+        let mut state = SneakGraphState::default();
+        assert_eq!(state.transition(false), None);
+        assert_eq!(state.transition(true), Some("SneakStart"));
+        for _ in 0..120 {
+            assert_eq!(state.transition(true), None);
+        }
+        assert_eq!(state.transition(false), Some("SneakStop"));
+        assert_eq!(state.transition(false), None);
+        assert_eq!(state.transition(true), Some("SneakStart"));
     }
 }

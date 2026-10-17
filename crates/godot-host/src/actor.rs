@@ -2118,6 +2118,208 @@ mod tests {
     }
 
     #[test]
+    fn r4_sneak_extracted_graphs_play_idle_walk_run_and_exit() {
+        let Some(directory) = std::env::var_os("SOE_HKX_DIR") else {
+            return;
+        };
+        let mut vfs = Vfs::new();
+        vfs.add_loose_root(std::path::Path::new(&directory))
+            .unwrap();
+        for (root, character) in [
+            (CHARACTER_ROOT.to_owned(), "characters/defaultmale.hkx"),
+            (
+                format!("{CHARACTER_ROOT}_1stperson/"),
+                "characters/firstperson.hkx",
+            ),
+        ] {
+            let path = format!("{root}{character}");
+            let bytes = vfs.read(&path).unwrap();
+            let character =
+                CharacterData::from_packfile(&Packfile::parse(&bytes).unwrap()).unwrap();
+            let bytes = vfs
+                .read(&format!("{root}{}", character.rig_name.replace('\\', "/")))
+                .unwrap();
+            let skeleton = AnimationContainer::from_packfile(&Packfile::parse(&bytes).unwrap())
+                .unwrap()
+                .skeletons
+                .remove(0);
+            let (graph, unresolved) = ActorAssets::load_graph(
+                &vfs,
+                &format!("{root}{}", character.behavior_filename.replace('\\', "/")),
+            )
+            .unwrap();
+            assert!(unresolved.is_empty(), "unresolved graphs: {unresolved:?}");
+            let (library, _) = ActorAssets::load_clips(&vfs, &graph, &root);
+            for npc in [false, true] {
+                if npc && root.contains("_1stperson") {
+                    continue;
+                }
+                let mut vm = soe_hkx::interp::Interpreter::new(
+                    &graph,
+                    &library,
+                    skeleton.reference_pose.clone(),
+                );
+                for (name, word) in character.character_property_names.iter().zip(
+                    character
+                        .character_property_values
+                        .as_ref()
+                        .map(|values| values.word_values.as_slice())
+                        .unwrap_or_default(),
+                ) {
+                    if let Some(index) = vm.character_properties.index(name) {
+                        vm.character_properties.set_word(index, *word);
+                    }
+                }
+                for (name, value) in [
+                    ("IsNPC", f32::from(npc)),
+                    ("IsPlayer", f32::from(!npc)),
+                    ("iIsPlayer", f32::from(!npc)),
+                ] {
+                    vm.variables.set_by_name(name, value);
+                }
+                let active = |vm: &soe_hkx::interp::Interpreter<'_>| -> Vec<String> {
+                    vm.active_clips()
+                        .iter()
+                        .filter_map(|(id, _)| match &graph.node(*id).kind {
+                            soe_hkx::behavior::NodeKind::Clip(clip) => {
+                                Some(clip.animation_name.to_ascii_lowercase())
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                };
+                let mut posture = crate::animation_dispatch::SneakGraphState::default();
+                for _ in 0..60 {
+                    vm.update(1.0 / 60.0);
+                }
+                println!("{root} npc={npc} standing={:?}", active(&vm));
+                posture.apply(&mut vm, true);
+                for _ in 0..60 {
+                    vm.update(1.0 / 60.0);
+                }
+                println!("{root} npc={npc} sneak idle={:?}", active(&vm));
+                println!(
+                    "sneak sync={:?}",
+                    vm.variables
+                        .index("iIsInSneak")
+                        .and_then(|index| vm.variables.word(index))
+                );
+                assert_eq!(
+                    vm.variables
+                        .index("iIsInSneak")
+                        .and_then(|index| vm.variables.word(index)),
+                    Some(1)
+                );
+                assert!(
+                    active(&vm).iter().any(|clip| clip.contains("sneak")),
+                    "sneak idle absent"
+                );
+                vm.send_event_named("moveStart");
+                for speed in [47.2, 222.0] {
+                    vm.variables.set_by_name("Speed", speed);
+                    for _ in 0..60 {
+                        vm.update(1.0 / 60.0);
+                    }
+                    println!("{root} npc={npc} speed={speed} clips={:?}", active(&vm));
+                    let gait = if speed < 100.0 {
+                        "sneakwalk"
+                    } else {
+                        "sneakrun"
+                    };
+                    assert!(
+                        active(&vm).iter().any(|clip| clip.contains(gait)),
+                        "sneak locomotion absent"
+                    );
+                }
+                posture.apply(&mut vm, false);
+                vm.variables.set_by_name("Speed", 0.0);
+                vm.send_event_named("moveStop");
+                for _ in 0..120 {
+                    vm.update(1.0 / 60.0);
+                }
+                println!("{root} npc={npc} exit={:?}", active(&vm));
+                assert!(
+                    !active(&vm).iter().any(|clip| clip.contains("sneak")),
+                    "sneak persisted after exit"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn r4_sneak_installed_graphs_follow_shared_posture() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(std::path::Path::new(&data)).unwrap();
+        let mut game = source.localized_game().unwrap();
+        let player = game.player();
+        for first_person in [false, true] {
+            let assets = if first_person {
+                ActorAssets::load_player_first_person(&mut game.world_mut(), player, source.vfs())
+            } else {
+                ActorAssets::load_for_actor(&mut game.world_mut(), player, source.vfs())
+            }
+            .unwrap();
+            for npc in [false, true] {
+                if first_person && npc {
+                    continue;
+                }
+                let mut vm = if npc {
+                    assets.npc_interpreter(false)
+                } else {
+                    assets.interpreter()
+                };
+                let mut posture = crate::animation_dispatch::SneakGraphState::default();
+                let clips = |vm: &soe_hkx::interp::Interpreter<'_>| -> Vec<String> {
+                    vm.active_clips()
+                        .iter()
+                        .filter_map(|(id, _)| match &assets.graph.node(*id).kind {
+                            soe_hkx::behavior::NodeKind::Clip(clip) => {
+                                Some(clip.animation_name.to_ascii_lowercase())
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                };
+                for _ in 0..60 {
+                    vm.update(1.0 / 60.0);
+                }
+                posture.apply(&mut vm, true);
+                for _ in 0..60 {
+                    vm.update(1.0 / 60.0);
+                }
+                let idle = clips(&vm);
+                println!("sneak first_person={first_person} npc={npc} idle={idle:?}");
+                assert!(idle.iter().any(|clip| clip.contains("sneak")));
+                let initial = vm.pose().to_vec();
+                vm.variables.set_by_name("Speed", 47.2);
+                vm.send_event_named("moveStart");
+                for _ in 0..60 {
+                    vm.update(1.0 / 60.0);
+                }
+                let walking = clips(&vm);
+                println!("sneak first_person={first_person} npc={npc} walk={walking:?}");
+                assert!(walking.iter().any(|clip| clip.contains("sneak")));
+                assert!(walking.iter().any(|clip| clip.contains("sneakwalk")));
+                assert_ne!(initial, vm.pose());
+                vm.variables.set_by_name("Speed", 222.0);
+                for _ in 0..60 {
+                    vm.update(1.0 / 60.0);
+                }
+                assert!(clips(&vm).iter().any(|clip| clip.contains("sneakrun")));
+                posture.apply(&mut vm, false);
+                vm.variables.set_by_name("Speed", 0.0);
+                vm.send_event_named("moveStop");
+                for _ in 0..120 {
+                    vm.update(1.0 / 60.0);
+                }
+                assert!(!clips(&vm).iter().any(|clip| clip.contains("sneak")));
+            }
+        }
+    }
+
+    #[test]
     fn hst_23_installed_hulda_head_and_idle_pose() {
         let Some(data) = std::env::var_os("SKYRIM_DATA") else {
             return;

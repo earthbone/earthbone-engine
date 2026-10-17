@@ -28,7 +28,7 @@ use soe_hkx::pose::to_model_space_into;
 use soe_hkx::QsTransform;
 
 use crate::actor::{ActorAssets, ActorSurface};
-use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
+use crate::animation_dispatch::{report_graph_events, AnimationEventCursor, SneakGraphState};
 use crate::data_source::DataSource;
 use crate::godot_layer::actor_array_mesh_from;
 use crate::godot_ragdoll::LiveRagdoll;
@@ -83,6 +83,7 @@ struct AppearanceBinding {
     cache: crate::actor::AppearanceCache,
     stagger: StaggerTracker,
     animation_cursor: AnimationEventCursor,
+    sneak_graph: SneakGraphState,
     mouth_targets: Vec<String>,
 }
 
@@ -912,6 +913,7 @@ impl SkinnedActorNode {
         let stagger_event = self.take_stagger_event();
         let requests = self.take_animation_requests();
         self.sync_hand_variables();
+        self.sync_sneak_posture();
         let (Some(assets), Some(vm)) = (self.assets.as_deref(), self.vm.as_mut()) else {
             return;
         };
@@ -1310,6 +1312,9 @@ impl SkinnedActorNode {
     fn install_rig(&mut self, assets: Arc<ActorAssets>) {
         let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::ActorGraph);
         self.vm = None;
+        if let Some(binding) = &mut self.appearance {
+            binding.sneak_graph = SneakGraphState::default();
+        }
         self.assets = Some(assets);
         let Some(owner) = &self.assets else { return };
         // SAFETY: Arc keeps its allocation stationary. Only this private
@@ -1398,6 +1403,7 @@ impl SkinnedActorNode {
             cache: crate::actor::AppearanceCache::default(),
             stagger: StaggerTracker::default(),
             animation_cursor,
+            sneak_graph: SneakGraphState::default(),
             mouth_targets,
         });
     }
@@ -1688,6 +1694,7 @@ impl SkinnedActorNode {
             cache,
             stagger: StaggerTracker::default(),
             animation_cursor,
+            sneak_graph: SneakGraphState::default(),
             mouth_targets: Vec::new(),
         });
         self.facial_binding = Some(FacialBinding { world, actor });
@@ -1781,6 +1788,17 @@ impl SkinnedActorNode {
         if let Err(error) = self.replace_surfaces(update.surfaces) {
             soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode appearance: {error}");
         }
+    }
+
+    fn sync_sneak_posture(&mut self) {
+        let (Some(binding), Some(vm)) = (&mut self.appearance, &mut self.vm) else {
+            return;
+        };
+        let world = binding.world.borrow();
+        let sneaking = world
+            .actor_ref(binding.actor)
+            .is_some_and(|actor| actor.sneaking && !actor.swimming);
+        binding.sneak_graph.apply(vm, sneaking);
     }
 
     fn take_animation_requests(&mut self) -> Vec<String> {
