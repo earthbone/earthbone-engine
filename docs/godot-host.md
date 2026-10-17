@@ -10208,3 +10208,29 @@ zero. Final package formatting and all-target Clippy pass for physics, game
 and host. Library checks pass 30, 1,361 and 594 tests respectively, with
 optional installed inputs unset. The separate release extension build passes.
 No workspace test or full lint script was run, as instructed.
+
+## Console text selection, UI-42
+
+The console keeps Godot's LineEdit editing, clipboard and primary-selection
+paste behavior. Ctrl+A, Ctrl+C, Ctrl+V, middle paste, Home, End, word movement
+and Shift selection run through native control input. RichTextLabel output now
+enables mouse selection and keyboard focus so Ctrl+C copies selected text
+across command and result lines. Page Up and Page Down remain overlay actions.
+No per-reference node path is added.
+
+Sources are local Godot `class_lineedit.rst` and `class_richtextlabel.rst`.
+`godot/r4_console_text_test.gd` extends the free walkthrough and sends Godot
+input events with both DisplayServer clipboards on the isolated X display.
+Before correction, output dragging and copying fail. The input editing,
+clipboard, primary paste, paging and Tab checks already pass.
+
+The text fixture drags to the last shaped line, using RichTextLabel's line
+offsets. The [Godot 4.4 selection handler](https://github.com/godotengine/godot/blob/4.4.1-stable/scene/gui/rich_text_label.cpp)
+requires a text item at both drag endpoints. The initial fixture ended in
+blank space below the text, which also prevented selection in a minimal label
+with selection enabled. The assertions for selection across lines and clipboard copying are retained.
+
+Native input event checks select zero characters with selection disabled and
+72 characters across lines with it enabled. The finished walkthrough text
+scene passes in both the Bannered Mare and WhiterunExterior04, including both
+clipboards, output copying, paging and Tab completion.

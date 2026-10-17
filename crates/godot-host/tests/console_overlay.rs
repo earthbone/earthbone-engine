@@ -54,3 +54,61 @@ fn console_overlay_walkthrough_opens_submits_history_and_closes() {
         result.status
     );
 }
+
+#[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
+fn r4_scene(script: &str, marker: &str, windowed: bool) {
+    let (Some(data), Some(godot), Some(extension)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_GODOT_BIN"),
+        std::env::var_os("SOE_CONSOLE_EXTENSION"),
+    ) else {
+        return;
+    };
+    let extension = std::path::Path::new(&extension);
+    assert!(extension.is_file(), "release extension must exist");
+    let project = isolated_project::project(
+        &[
+            script,
+            "walkthrough.gd",
+            "render_warmup.gd",
+            "system_overlay.gd",
+            "load_diagnostics.gd",
+            "record_sky.gd",
+            "record_sky.gdshader",
+            "record_fog.gdshader",
+        ],
+        Some(extension),
+    );
+    let mut command = std::process::Command::new(godot);
+    if windowed {
+        command.args(["--rendering-method", "gl_compatibility"]);
+    } else {
+        command.arg("--headless");
+    }
+    let result = command
+        .arg("--path")
+        .arg(project.path())
+        .args(["--script", script])
+        .env("SKYRIM_DATA", data)
+        .env("DISPLAY", ":99")
+        .env("LIBGL_ALWAYS_SOFTWARE", "1")
+        .env_remove("WAYLAND_DISPLAY")
+        .env("XDG_DATA_HOME", project.path())
+        .env("XDG_CACHE_HOME", project.path())
+        .output();
+    assert!(result.is_ok(), "could not start Godot: {result:?}");
+    let Ok(result) = result else { return };
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        result.status.success() && stdout.contains(marker),
+        "{script} {}\n{stdout}\n{stderr}",
+        result.status
+    );
+}
+
+#[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn r4_console_text_uses_clipboards_mouse_selection_and_paging() {
+    r4_scene("r4_console_text_test.gd", "R4_TEXT_RESULT PASS", true);
+}

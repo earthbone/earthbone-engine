@@ -3,7 +3,7 @@
 //! Native console overlay following UESP Skyrim Console and Godot Control input.
 //! One fixed control tree belongs to PlayerNode, with no per-reference nodes.
 
-use godot::classes::control::{LayoutPreset, SizeFlags};
+use godot::classes::control::{FocusMode, LayoutPreset, SizeFlags};
 use godot::classes::input::MouseMode;
 use godot::classes::{
     CanvasLayer, Input, InputEvent, InputEventKey, InputEventMouseButton, Label, LineEdit,
@@ -90,6 +90,8 @@ impl PlayerNode {
         output.set_v_size_flags(SizeFlags::EXPAND_FILL);
         output.set_scroll_follow(true);
         output.set_use_bbcode(false);
+        output.set_selection_enabled(true);
+        output.set_focus_mode(FocusMode::ALL);
         let mut input = LineEdit::new_alloc();
         input.set_name("Input");
         input.set_placeholder("Console command");
