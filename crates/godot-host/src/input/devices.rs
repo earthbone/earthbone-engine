@@ -59,6 +59,18 @@ pub fn godot_pad_for(code: u32) -> Option<PadControl> {
     })
 }
 
+/// SKSE macro code for a control-map gamepad mask, in InputMap.h order.
+#[must_use]
+pub fn gamepad_macro(code: u32) -> Option<u32> {
+    const MASKS: [u32; 16] = [
+        1, 2, 4, 8, 0x10, 0x20, 0x40, 0x80, 0x100, 0x200, 0x1000, 0x2000, 0x4000, 0x8000, 9, 10,
+    ];
+    MASKS
+        .iter()
+        .position(|mask| *mask == code)
+        .map(|index| 266 + index as u32)
+}
+
 #[derive(Debug, Default)]
 struct Pad {
     buttons: BTreeSet<i32>,

@@ -3,13 +3,17 @@
 //! Godot controls for the player status meters and heading compass.
 
 use godot::classes::control::{LayoutPreset, MouseFilter};
-use godot::classes::{CanvasLayer, ColorRect, Control, Label, ProgressBar, VBoxContainer};
+use godot::classes::{
+    CanvasLayer, ColorRect, Control, GDScript, Label, ProgressBar, VBoxContainer,
+};
 use godot::prelude::*;
 
 use super::PlayerNode;
 
 pub(super) struct HudView {
     layer: Gd<CanvasLayer>,
+    notice_layer: Gd<CanvasLayer>,
+    interface_notice: Gd<Label>,
     root: Gd<Control>,
     health_label: Gd<Label>,
     health_bar: Gd<ProgressBar>,
@@ -17,7 +21,7 @@ pub(super) struct HudView {
     magicka_bar: Gd<ProgressBar>,
     stamina_label: Gd<Label>,
     stamina_bar: Gd<ProgressBar>,
-    compass: Gd<Label>,
+    compass: Gd<Control>,
     activation_prompt: Gd<Label>,
     cart_mode: Gd<Label>,
     blood_overlay: Gd<ColorRect>,
@@ -36,15 +40,20 @@ impl HudView {
 
         let mut stats = VBoxContainer::new_alloc();
         stats.set_name("StatusMeters");
-        stats.set_position(Vector2::new(24.0, 24.0));
+        stats.set_position(Vector2::new(24.0, 80.0));
         let health = meter_row(&mut stats, "Health", "HealthMeter");
         let magicka = meter_row(&mut stats, "Magicka", "MagickaMeter");
         let stamina = meter_row(&mut stats, "Stamina", "StaminaMeter");
 
-        let mut compass = Label::new_alloc();
+        let mut compass = Control::new_alloc();
         compass.set_name("Compass");
-        compass.set_position(Vector2::new(520.0, 24.0));
-        compass.set_text("W   NW   [N]   NE   E");
+        let script = godot::tools::load::<GDScript>("res://ui/compass.gd");
+        compass.set_script(&script);
+        compass.set_mouse_filter(MouseFilter::IGNORE);
+        compass.set_anchors_and_offsets_preset(LayoutPreset::CENTER_TOP);
+        compass.set_position(Vector2::new(-200.0, 24.0));
+        compass.set_size(Vector2::new(400.0, 40.0));
+        compass.set_clip_contents(true);
 
         let mut activation_prompt = Label::new_alloc();
         activation_prompt.set_name("ActivationPrompt");
@@ -75,8 +84,25 @@ impl HudView {
         root.add_child(&blood_overlay);
         layer.add_child(&root);
 
+        let mut notice_layer = CanvasLayer::new_alloc();
+        notice_layer.set_name("InterfaceNotices");
+        notice_layer.set_layer(200);
+        let mut interface_notice = Label::new_alloc();
+        interface_notice.set_name("InterfaceNotice");
+        interface_notice.set_mouse_filter(MouseFilter::IGNORE);
+        interface_notice.set_position(Vector2::new(24.0, 4.0));
+        interface_notice.set_size(Vector2::new(580.0, 48.0));
+        interface_notice.set_autowrap_mode(godot::classes::text_server::AutowrapMode::WORD_SMART);
+        interface_notice.add_theme_color_override("font_color", Color::WHITE);
+        interface_notice.add_theme_color_override("font_outline_color", Color::BLACK);
+        interface_notice.add_theme_constant_override("outline_size", 8);
+        interface_notice.hide();
+        notice_layer.add_child(&interface_notice);
+
         Self {
             layer,
+            notice_layer,
+            interface_notice,
             root,
             health_label: health.0,
             health_bar: health.1,
@@ -114,7 +140,13 @@ impl HudView {
             "Stamina",
             snapshot.stamina,
         );
-        self.compass.set_text(&snapshot.compass);
+        self.compass.call(
+            "set_heading",
+            &[
+                snapshot.compass_offset.to_variant(),
+                snapshot.compass.to_variant(),
+            ],
+        );
         let prompt = super::activation::prompt(game);
         let focused = game.world().crosshair_reference();
         let speaker = focused
@@ -128,8 +160,23 @@ impl HudView {
         self.activation_prompt.set_visible(!text.is_empty());
     }
 
+    pub(super) fn set_heading(&mut self, yaw: f32) {
+        self.compass.call(
+            "set_heading",
+            &[
+                crate::hud::compass_offset(yaw).to_variant(),
+                crate::hud::compass_tape(yaw).to_variant(),
+            ],
+        );
+    }
+
     pub(super) fn hide(&mut self) {
         self.root.hide();
+    }
+
+    pub(super) fn set_interface_notice(&mut self, text: &str) {
+        self.interface_notice.set_text(text);
+        self.interface_notice.set_visible(!text.is_empty());
     }
 
     pub(super) fn set_cart_mode(&mut self, enabled: bool) {
@@ -195,6 +242,7 @@ impl PlayerNode {
     pub(super) fn create_hud(&mut self) {
         let view = HudView::new();
         self.base_mut().add_child(&view.layer);
+        self.base_mut().add_child(&view.notice_layer);
         self.hud_view = Some(view);
     }
 }

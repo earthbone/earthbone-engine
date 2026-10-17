@@ -303,6 +303,12 @@ pub struct Config {
 }
 
 impl Game {
+    /// Config currently opened by the MCM lifecycle.
+    #[must_use]
+    pub fn mcm_active_config(&self) -> Option<GlobalFormId> {
+        self.mcm_active
+    }
+
     /// Current native presentation data transmitted by the active config.
     /// This view is transient and does not replace the config's VM state.
     pub fn mcm_options(&self) -> Vec<OptionData> {

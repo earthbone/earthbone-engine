@@ -1475,7 +1475,7 @@ import the release extension before running the installed host test.
 ## Interface art discovery and panel bounds, UI-27
 
 PlayerNode selects FFDec before building its interface cache. It tries a
-valid `SOE_FFDEC_JAR` with Java on PATH, then the executable named by
+valid `SOE_FFDEC_JAR` with discovered Java, then the executable named by
 `SOE_FFDEC`, then directories in `SOE_TOOLS_PATH` and the Godot project
 setting `soe/tools/path`. That setting accepts an absolute path or a Godot
 resource path. Tools directories may contain FFDec directly, under `FFDec`,
@@ -6303,10 +6303,10 @@ stores without writing into the user's Godot save directory.
 
 ## Native menu framework
 
-The HUD uses one CanvasLayer with three ProgressBars and a compass Label.
+The HUD uses one CanvasLayer with three ProgressBars and a clipped compass Control.
 PlayerNode refreshes it each process frame from the shared Game and its camera
 yaw. Health, magicka and stamina read their current and modified maximum actor
-values, then clamp the fill fraction to 0 through 1. The compass tape centers
+values, then clamp the fill fraction to 0 through 1. The compass description centers
 the nearest 45 degree cardinal or intercardinal direction under the heading.
 These are Godot-native controls. SkyUI's `MeterWidget` and `MiniMapWidget`
 informed the meter percentage and player-angle behavior, and CK
@@ -6388,6 +6388,36 @@ and dMenu style ImGui pages, and compares host rendering options. Those
 frameworks are not implemented by the native menu framework described here.
 See [ui-frameworks.md](ui-frameworks.md) for the research and proposed rows.
 
+### Continuous camera compass, UI-29
+
+The native compass is a clipped, repeated strip with cardinal and intercardinal
+labels, five-degree ticks and a fixed center marker. Camera yaw moves the strip
+two pixels per degree. Its 720 pixel period repeats at north, including when
+yaw crosses zero or makes several turns. The existing rounded heading string
+is retained for accessibility and diagnostics. It does not place the strip.
+The global HUD gains no placed-reference nodes. Status meters sit below the
+strip so they do not overlap at a 640 by 360 viewport.
+
+The local vanilla and SkyUI HUDMenu `SetCompassAngle` callback interpolates
+the strip position across a full turn. That protocol was read in the external
+UI-23 decompilation. The native drawing uses independently authored geometry
+and Godot's default font, without mod art or layouts. Existing camera units
+and Skyrim yaw conventions supply the heading. World compass targets and
+cell NorthMarker adjustments remain outside this rotation change.
+
+`ui_29_camera_degree_steps_move_the_strip_continuously` sets the camera rig
+in one-degree steps over two turns. The allowed step error is 0.001 pixels.
+`ui_29_windowed_camera_degree_steps_move_the_rendered_strip` exercises the
+live PlayerNode and Control over 361 headings with the same tolerance,
+requires 360 changed offsets and visible compass ink, and retains a generated
+capture and process logs under `target/ui-29`.
+
+On 2026-10-17, the camera-rig check, all 532 host library tests and four
+focused HUD checks pass. Host clippy passes with all targets. The release
+extension build and Godot project import pass. The live windowed check has
+not started because another job holds the shared installed-test slot.
+UI-29 remains in progress until that result is available.
+
 ### MCM registration and declared pages, UI-05
 
 PlayerNode renders live registered config names and the selected config's
@@ -6403,12 +6433,26 @@ counters, page and VM errors. `ui_05_windowed_unmodified_scripts_render_and_sele
 loads external compiled SkyUI scripts through `SOE_TEST_SKYUI`, then runs
 `godot/ui_05_mcm_lifecycle_test.gd` through `SOE_GODOT_BIN`. It checks visible
 buttons in script order, clicks their production signals, verifies callbacks,
-captures the drawn 640 by 360 viewport and quits. Its plugin, scripts, capture
-and process output are generated under `target/ui_05_host`. The check skips
+captures the drawn 640 by 360 viewport and quits. Its plugin and original
+SkyUI scripts live in a temporary directory outside the checkout. Only the
+generated capture and process output are retained under `target/ui_05_host`.
+The check skips
 when either environment input is unset. Build the release extension and import
 the Godot project before running it. This adds no per-reference scene nodes.
 
+On 2026-10-17, all 19 focused game lifecycle checks pass with the installed
+SkyUI PEX files. Host library checks report 531 passes and host clippy passes.
+The windowed page-list check is queued behind the shared installed-test slot.
+UI-05 remains in progress until that check completes.
+
 ### MCM text and toggle rows, UI-11
+
+On 2026-10-17, the original SkyUI PEX checks pass in 18 focused game tests
+and eight host protocol tests. The windowed options check remains queued
+behind the shared installed-test slot, so UI-11 remains in progress.
+
+The windowed fixture keeps original SkyUI PEX files in a temporary directory
+outside the checkout. Generated captures and logs stay in `target/ui_11_host`.
 
 `mcm_menu::ConfigPage` stores text/value and toggle rows in authored order.
 It returns SkyUI option IDs using the page number in the high byte and a slot
@@ -6489,34 +6533,46 @@ routes slider and menu selection and acceptance to those callbacks. The
 
 ### MCM color and key-map options, UI-13
 
-`ConfigPage` adds integer color and key-map rows. A key remap sends
-`OnOptionKeyMapChange(option, keyCode, conflictControl, conflictName)` to the
-configured script, including empty conflict strings when no conflict exists.
-The callback does not change the row value. The config script can apply its
-decision with `set_keymap_value`. Opening a color dialog sends
-`OnOptionColorOpen(option)`, and accepting the active dialog sends
-`OnOptionColorAccept(option, color)`. The config script applies an accepted
-value with `set_color_value`. A color dialog starts with SkyUI's `-1` start and
-default colors. Its active dialog setters model `SetColorDialogStartColor` and
-`SetColorDialogDefaultColor`. Cancel clears the active dialog without sending
-an accept callback or changing the row. Disabled and hidden options reject
-these callbacks. The callback names and argument order follow the local
-SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
-`SKI_ConfigManager.psc`. `KeyConflictScanner::from_bindings` derives vanilla
-conflicts from the active gameplay `Bindings`, including every key in a chord
-and the keyboard, mouse and gamepad columns. `remap_key_live` checks those
-bindings first, then asks each registered MCM config to run its
-`GetCustomControl(keyCode)` method in registration order. It reports the first
-nonempty custom control with that config's `ModName`. The older scanner
-constructor and `remap_key_scanned` remain available for focused callers and
-fixtures. After `OnOptionColorOpen` settles, the host reads the attached
-`SKI_ConfigBase` script's `_colorParams` array. Its first two integer entries
-set the dialog's start and default colors, matching calls to
-`SetColorDialogStartColor` and `SetColorDialogDefaultColor`. Missing or
-non-integer entries leave the corresponding `-1` default in place. Synthetic
-tests cover active binding discovery, registered script calls, callback
-eligibility, conflict precedence, Papyrus color setters, acceptance and
-cancellation without Skyrim data.
+The live `ConfigPage` projects color and key-map rows from the original
+framework's UI calls, preserving sparse page IDs and flags. Selecting a color
+calls `RequestColorDialogData`, which initializes SkyUI's dialog state and
+routes ordinary or state-option callbacks. The host reads the settled
+`_colorParams` array, including the `-1` sentinel for unspecified values.
+Acceptance calls `SetColorValue`, preserving the original framework's
+`OnOptionColorAccept` and `OnColorAcceptST` dispatch and state restoration.
+
+`godot/ui/mcm_dialog.gd` uses Godot's ColorPicker inside a ConfirmationDialog.
+Default changes the pending picker value. Cancel and Escape close the dialog
+without an acceptance callback. Key-map dialogs capture keyboard, mouse and
+gamepad inputs and pass SKSE macro codes to the original `RemapKey` method.
+Live conflicts use the active control map first, then registered configs'
+`GetCustomControl` results in registration order. The numbering comes from
+local CommonLibSSE-NG `SKSE/InputMap.h` and `InputMap.cpp`. Existing device
+translation tables provide Godot indices. The separate older scanner API
+continues to serve callers that supply raw control-map codes.
+
+The script retains authority over accepted values. Hidden, disabled,
+closed-config and stale-page callbacks are rejected. Only the active dialog
+can accept once. Closing or switching the page removes its native window.
+The fixed menu control tree gains one temporary dialog, not a node for any
+placed reference. It adds no saved state or dependency.
+
+SkyUI's `SKI_ConfigBase.psc`, `SKI_ConfigManager.psc` and
+`ModConfigPanel/ColorDialog.as` supplied the protocol. The native layout and
+controls are independently authored. Tests load the installed unmodified
+framework PEX outside the checkout with a small authored child config.
+They cover ordinary and state-based callbacks, start/default setters,
+cancellation, conflict precedence, script-authored updates and stale input.
+Generated window captures and logs are retained under `target/ui-13`.
+
+On 2026-10-17, 29 protocol checks pass, including the installed original
+SkyUI framework and state callbacks. Game and host library runs report 1334
+and 531 passes. Both crates pass clippy with all targets. The native-window
+check still awaits the shared installed-test slot, so UI-13 remains in progress.
+The native picker uses a 180 by 140 color plane. A standalone headless
+Godot check measures its dialog at 238 by 303 pixels, within the 640 by 360
+test viewport. The original-framework window test also asserts this bound.
+The shared installed slot is held by another job, so that test has not started.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
@@ -6529,9 +6585,8 @@ Native presenters use PlayerNode::game and game_mut to read and mutate the
 shared form-backed runtime. menu_content exposes a Control container owned by
 the framework. menu_opened and menu_closed signals run after their state change
 through gdext's reentrant base guard, allowing callbacks to inspect PlayerNode.
-Dialogue and MCM presenters remain unimplemented and can use this shell with
-Crafting and MCM are not implemented here. Their menus can use this shell and
-their existing gameplay APIs.
+The dialogue, crafting and MCM presenters use this shell and their shared
+Game APIs.
 
 The inventory presenter now uses this shell. It renders the SkyUI categories
 All, Weapons, Apparel, Potions, Scrolls, Food, Ingredients, Books, Keys and
@@ -9787,3 +9842,199 @@ Package formatting and clippy with all targets and warnings denied also pass.
 The full workspace gate, installed Full LOD and play-path tests were excluded
 as requested. The final shader check also passes after removing a fixed UV
 derivative cutoff, which would suppress normal detail as pixel size changes.
+
+## Item menu verification, UI-20, 2026-10-17
+
+The native item presenter keeps the equipment column heading empty and names
+its tooltip. The TYPE column reserves enough width for Ingredients at the
+scene test font size. Item rows reuse the existing card name resolver and
+omit unresolved description-table markers such as `<string 0>`. A localized
+record fixture covers the missing-table case. The scene runner retains its
+built-in and installed SkyUI captures and logs under `target/ui-20`.
+
+SkyUI Community remains the behavior reference, including
+`ItemMenus/InventoryLists.as`, `ItemMenu.as`, `InventoryMenu.as`,
+`MagicMenu.as`, `Common/skyui/filter/SortFilter.as` and `NameFilter.as`.
+The implementation is project code. No reference source or installed art is
+bundled by this change. Existing sort, search, category, tab and card checks
+exercise the native behavior, including missing values and accent folding.
+
+UI-20 remains unfinished. The presenter allocates native container bounds and
+uses its own control theme. It does not place controls from the converted
+display lists. The retained
+capture therefore cannot establish SkyUI chrome or authored element positions.
+A loaded icon source is evidence of asset resolution only. Passing layout and
+chrome comparisons are still required.
+
+The follow-up `ui/interface_cache.gd` resolves imported linkage names across
+published movies. Relative URLs use the importing movie's directory and
+case-insensitive data paths. Character IDs remain local to their defining
+movie. Cycles, missing links and paths outside the cache return no definition.
+The icon presenter uses that resolver for nested sprites and named children
+of imported symbols. Mesh and bitmap definitions are found through their
+resource files, since the writer omits their dictionaries from `movie.json`.
+The local references are SkyUI Community's `inventorymenu.xml` and
+`skyui/inventorylists.xml` ImportAssets2 tags. This is new host code and adds
+no copied source or art, dependency, saved state or per-reference nodes.
+
+`ui_20_imported_sprite_uses_its_own_dictionary_and_rejects_cycles` draws an
+imported shape through the production icon presenter. It checks dictionary
+identity, composed transforms, named-child selection, missing symbols, cycles,
+path rejection and a rendered pixel. Its synthetic resources stay under
+`/tmp`. The standalone 640 by 360 Xvfb :99 scene passes on 2026-10-17.
+The same cache reader handles fontlib and map declarations from the winning
+fontconfig file, matching family, bold and italic style against converted
+FontFile resources. The native item menu uses the configured
+`$EverywhereMediumFont` as its theme font. Missing declarations or resources
+retain Godot's fallback. The standalone scene checks regular, bold and italic
+selection without installed art. Cache generation now hashes fontconfig, a
+small change in swf-convert needed to invalidate stale font mappings. The
+reference is local SkyUI `build/fontconfig.txt`. No font or alias mapping is
+hard-coded into the native presenter.
+
+These checks do not establish authored control placement or chrome fidelity.
+Those remain UI-20's blockers, along with installed font binding validation.
+
+The follow-up checks pass 532 host library tests, three converter library
+tests and seven focused converter integration checks, including Godot loading
+all four converted font styles. Both crates pass formatting and all-target
+clippy. The standalone built-in menu behavior scene and import/font selection
+scene pass on Xvfb :99. The installed scene retry is still waiting for the
+shared installed-test slot. No installed-font or chrome pass is claimed.
+
+## Interface tools and visual acceptance, UI-30, 2026-10-17
+
+JPEXS requires Java. Java discovery tries an explicit `SOE_JAVA` executable,
+then `JAVA_HOME/bin/java`, PATH, Linuxbrew under `/home` and `/var/home`,
+`/usr/bin`, `/usr/local/bin`, and sorted JVM installs under `/usr/lib/jvm`,
+`/usr/lib64/jvm` and `/opt`. An invalid explicit `SOE_JAVA` disables Java
+selection, making a missing-tool check repeatable without changing system
+files. The converter launches the discovered executable directly. The local
+FFDec `ffdec.sh` supplies the conventional JVM search reference.
+
+Missing Java or FFDec and conversion errors create an InterfaceNotice label
+on a CanvasLayer above the modal menu. The notice names the failed tool or
+asset. Successful conversion clears it. This is session presentation data
+with no saved state and no per-reference nodes. Java launch resolution lives
+in `swf-convert`, which required a small cross-crate change for this host row.
+
+`export_interface_reference` reads the vanilla archive, then SkyUI, then the
+NORDIC loose overlay. With SKYRIM_DATA, SOE_TEST_SKYUI, SOE_TEST_NORDIC and
+SOE_FFDEC_JAR set, run it with an output directory under target. It exports
+inventorymenu, containermenu and dialoguemenu frames for both themes through
+real JPEXS. The 2026-10-17 run wrote 76 PNG frames. Temporary SWFs stay under
+`/tmp` and are removed. Ruffle reads the import envelopes. Import URL case is
+preserved for JPEXS while VFS lookup remains case insensitive. No mod asset
+or source is committed. FFDec still reports virtual gfxfontlib aliases that
+have no physical VFS movie, so these static frames do not prove font fidelity.
+
+The comparator fixes four normalized viewport regions before the run: frame
+(0.01, 0.04, 0.97, 0.91), list header (0.02, 0.12, 0.44, 0.08), item card
+(0.56, 0.38, 0.40, 0.51), and category bar (0.02, 0.04, 0.44, 0.08). Every
+region needs 90 percent pixel agreement at an RGB distance of at most 0.18,
+at least 12 reference edges above RGB distance 0.08, and 85 percent edge
+coverage within one pixel. Transparent reference pixels are omitted. TST-19
+also retains its existing whole-image requirement. Identical chrome passes,
+while a plain panel and chrome moved by 12 pixels fail.
+
+UI-30 remains unfinished. The native inventory capture fails all four regions
+against SkyUI frame 11. Edge coverage is 0.151 for frame, 0.346 for list
+header, 0 for item card, and 0.230 for category bar. Native controls still
+need imported movie and font binding. Map, journal and HUD theme acceptance
+has not passed. NORDIC also exposes a native cache rejection: a sprite
+declares 250 frames but contains 200. The exporter reads only import envelopes
+and JPEXS can render this input, while the native converter still rejects it.
+
+The UI-30 follow-up preserves explicit End tags and accepts closed short
+sprites while retaining both frame counts. A read-only envelope survey of
+NORDIC 2.4.1 found four such sprites across its 35 movies, including the
+bottom-bar rejection above. The new converter check requires all 35 to parse
+and retains the four measured sprite mismatches. Its art-cache path also
+retains the loading menu's closed one-of-two-frame root. The strict parser
+keeps its root-count rejection. The HUD's actionless matrix record is
+validated and retained as a diagnostic, following JPEXS's display-list
+behavior for an occupied depth. Existing truncated-input and
+unterminated-sprite assertions are unchanged. Details and the Ruffle source
+reference are in [swf-convert.md](swf-convert.md).
+
+The final art-policy run passes four regressions, including all 35 NORDIC
+movies, ten unchanged adversarial checks and three converter library tests.
+It retains exactly four short sprites and the loading menu's one short root.
+The cache regression proves the strict parser still rejects a root mismatch
+while the art cache retains both counts. Both crates pass all-target clippy
+and cargo formatting. The host library passes 532 tests, with installed-data
+gates unset. The missing-Java live retry was canceled while waiting for the
+shared installed-test slot, without a notice result.
+
+The final release extension build and Godot import pass after the art-policy
+checks. UI-30 remains in progress for the live missing-Java notice,
+installed font binding and the inventory, container, magic, map, journal
+and HUD theme captures. UI-20's authored control placement and chrome remain
+unfinished. No art or source from the installs was added to the checkout.
+
+The exporter promotes the existing tempfile dependency from test scope to
+runtime scope. Cargo tree shows no newly resolved package. It remains the
+small temporary-directory utility already used by the converter.
+
+The Java discovery unit checks pass, along with three converter library tests,
+532 host library tests and both crates' clippy checks. The release extension
+and project import pass. `ui_30_missing_java_notice_uses_the_live_menu_fallback`
+has not started because another job holds the shared installed-test slot.
+Its implementation and generated reference exports do not establish that
+runtime notice result or the missing theme acceptance checks.
+
+## UI chain validation checkpoint, 2026-10-17
+
+UI-19 and UI-23 meet their recorded done checks. UI-20 and UI-30 retain the
+movie, font and theme gaps described above. UI-05, UI-11, UI-13 and UI-29
+retain their native-window validation gaps. Their queued Godot attempts and
+the missing-Java notice attempt were canceled before Cargo started because
+another job held the shared installed-test slot. Neither attempt produced a
+test result. The slot was still held after both queued processes exited.
+
+The explicit SkyUI source rerun passes all 19 UI-05 game checks and all eight
+UI-11 host protocol checks. The UI-11 game suite passes 18 checks, and UI-13
+passes 29 protocol checks, including the original framework and state options.
+The compass rig check passes 721 headings at a 0.001 pixel tolerance. The
+standalone native picker measures 238 by 303 pixels. These results do not
+replace the unrun windowed checks.
+
+Game, host and converter library checks pass 1334, 532 and three tests.
+Those library runs leave SKYRIM_DATA unset, so installed-data cases return
+early. The focused MCM checks set the external SkyUI and NORDIC fixture paths.
+Clippy with all targets and crate formatting pass. The release extension and
+Godot import pass. The full lead gate was not run, as instructed.
+
+## UI chain follow-up validation, 2026-10-17
+
+On `lead/ui-swf`, `8e869d0b` adds cache import resolution, configured fonts
+and numeric FontFile styles. `4f4a1d7a` adds bounded NORDIC art conversion
+without changing strict root-frame rejection. The final checks pass 532 host
+and three converter library tests, with installed-data gates unset. All-target
+clippy and cargo formatting pass for both crates. Four converter regressions,
+including all 35 NORDIC movies, and ten unchanged adversarial checks pass.
+The earlier seven UI-20 converter checks and both standalone Godot scenes
+also pass. Both external mod variables stay set for the focused runs.
+
+The final release build passes in 4 minutes 51 seconds. The extension is newer
+than the converter source, and Godot import exits successfully. No dependency,
+saved state or per-reference node path was added. The full lead gate was not
+run, as instructed.
+
+Windowed retry results are separate from those checks:
+
+| Check | Observed result |
+| --- | --- |
+| UI-20 installed scene | Canceled without a scene result while queued |
+| UI-30 missing-Java notice | Canceled without a notice result while queued |
+| UI-05 lifecycle | Monitored cargo wrapper blocked in flock on installed-0.lock before Cargo started |
+| UI-11 options | Reached compilation, canceled with exit 130 before a scene result |
+| UI-13 dialogs | Canceled with exit 130 without a scene result |
+| UI-29 camera | Monitored cargo wrapper blocked on installed-0.lock, stopped before Cargo started |
+
+The monitored retries inspect only their own process trees. They show the
+wrapper waiting in `flock 8`, with the shared slot occupied. The bounded
+UI-29 retry stops its own process group and reports exit 130. These are
+unavailable scene checks, not passing captures. UI-05, UI-11, UI-13 and UI-29
+therefore stay in progress. UI-19 and UI-23 retain their earlier completion
+evidence. UI-20 and UI-30 retain the visual gaps described above.

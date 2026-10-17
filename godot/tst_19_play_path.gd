@@ -876,12 +876,14 @@ func _menu_theme(kind: String) -> void:
 	var reference_directory := OS.get_environment("SOE_PLAY_PATH_THEME_REFERENCE")
 	var reference_path := ""
 	var similarity := 0.0
+	var chrome := {"pass": false, "regions": {}}
 	var reference_error := "SOE_PLAY_PATH_THEME_REFERENCE is unset"
 	if not reference_directory.is_empty():
 		reference_path = reference_directory.path_join(selected + "-" + kind + ".png")
 		var reference := Image.load_from_file(reference_path)
 		var capture := await _capture()
 		if reference != null and not reference.is_empty() and reference.get_size() == capture.get_size():
+			chrome = preload("res://ui/theme_compare.gd").compare(capture, reference)
 			var matched := 0
 			var sampled := 0
 			for y in range(0, capture.get_height(), 8):
@@ -896,7 +898,7 @@ func _menu_theme(kind: String) -> void:
 			reference_error = ""
 		else:
 			reference_error = "missing or wrong-sized reference frame"
-	_check("menu." + kind + "_theme", content != null and content.is_visible_in_tree() and converted and error.is_empty() and reference_error.is_empty() and similarity >= 0.80, {"applicable": true, "theme": selected, "sources": sources, "conversion_error": error, "reference": reference_path, "reference_similarity": similarity, "reference_error": reference_error, "sample_step": 8, "pixel_error_limit": 0.18, "similarity_limit": 0.80})
+	_check("menu." + kind + "_theme", content != null and content.is_visible_in_tree() and converted and error.is_empty() and reference_error.is_empty() and similarity >= 0.80 and chrome.pass, {"applicable": true, "theme": selected, "sources": sources, "conversion_error": error, "reference": reference_path, "reference_similarity": similarity, "reference_error": reference_error, "sample_step": 8, "pixel_error_limit": 0.18, "similarity_limit": 0.80, "chrome": chrome})
 
 func _install_audio_probe() -> void:
 	audio_bus = AudioServer.bus_count

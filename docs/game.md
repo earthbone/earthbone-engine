@@ -1099,6 +1099,9 @@ manager's `RegisterMod`, stores its ID and manager identity, then delivers
 events do not repeat registration. Its reset event clears the base's manager
 identity so `ForceReset` can register the config again without repeating init.
 
+`Game::mcm_active_config` exposes the active config identity for host dialog
+eligibility checks. It adds no saved state.
+
 `Game::mcm_configs` retries manager readiness and scans running quest forms.
 It presents successfully registered configs in manager slot order and
 reads `ModName` and `Pages` after registration callbacks. The host's open and

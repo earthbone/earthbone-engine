@@ -6,6 +6,113 @@
 use soe_swf_convert::{build_cache, Decompiler};
 
 #[test]
+fn ui_20_converted_font_style_flags_survive_godot_loading() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+        return Ok(());
+    };
+    let inputs = tempfile::tempdir_in("/tmp")?;
+    let output = tempfile::tempdir_in("/tmp")?;
+    std::fs::create_dir(inputs.path().join("interface"))?;
+    let mut tags = Vec::new();
+    for style in 0..4_u16 {
+        let mut flags = swf::FontFlag::HAS_WIDE_CODES;
+        if style & 1 != 0 {
+            flags |= swf::FontFlag::IS_BOLD;
+        }
+        if style & 2 != 0 {
+            flags |= swf::FontFlag::IS_ITALIC;
+        }
+        tags.push(swf::Tag::DefineFont2(Box::new(swf::Font {
+            version: 3,
+            id: style + 1,
+            name: swf::SwfStr::from_utf8_str("Style fixture"),
+            language: swf::Language::Unknown,
+            layout: None,
+            glyphs: vec![],
+            flags,
+        })));
+    }
+    tags.extend([swf::Tag::ShowFrame, swf::Tag::End]);
+    let mut header = swf::Header::default_with_swf_version(9);
+    header.num_frames = 1;
+    let mut bytes = Vec::new();
+    swf::write_swf(&header, &tags, &mut bytes)?;
+    std::fs::write(inputs.path().join("interface/fonts.swf"), bytes)?;
+    let mut vfs = soe_bsa::Vfs::new();
+    vfs.add_loose_root(inputs.path())?;
+    let cache = build_cache(
+        &vfs,
+        &[],
+        output.path(),
+        &Decompiler::Program("unused-ffdec".into()),
+    )?;
+    let resources = cache.movies["interface/fonts.swf"]
+        .parent()
+        .ok_or("movie directory")?;
+    let project = tempfile::tempdir_in("/tmp")?;
+    std::fs::write(project.path().join("project.godot"), "config_version=5\n")?;
+    std::fs::write(
+        project.path().join("font_test.gd"),
+        r#"extends SceneTree
+func _initialize():
+    var directory = OS.get_environment("SOE_UI_20_FONT_RESOURCE_DIR")
+    for style in range(4):
+        var font = load(directory.path_join("font-%d.tres" % (style + 1)))
+        if not font is FontFile or font.get_font_style() != style:
+            printerr("font style failed: ", style)
+            quit(1)
+            return
+    print("UI-20 FONT STYLE PASS")
+    quit(0)
+"#,
+    )?;
+    let result = std::process::Command::new(godot)
+        .args(["--headless", "--path"])
+        .arg(project.path())
+        .args(["--script", "font_test.gd"])
+        .env("SOE_UI_20_FONT_RESOURCE_DIR", resources)
+        .output()?;
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        result.status.success()
+            && stdout.contains("UI-20 FONT STYLE PASS")
+            && !stderr.contains("SCRIPT ERROR"),
+        "{stdout}\n{stderr}"
+    );
+    Ok(())
+}
+
+#[test]
+fn ui_20_font_config_changes_rebuild_the_external_cache() -> Result<(), Box<dyn std::error::Error>>
+{
+    let inputs = tempfile::tempdir_in("/tmp")?;
+    let output = tempfile::tempdir_in("/tmp")?;
+    std::fs::create_dir(inputs.path().join("interface"))?;
+    let path = inputs.path().join("interface/fontconfig.txt");
+    std::fs::write(&path, b"fontlib \"first.swf\"\n")?;
+    let mut vfs = soe_bsa::Vfs::new();
+    vfs.add_loose_root(inputs.path())?;
+    let tool = Decompiler::Program("unused-ffdec".into());
+    let first = build_cache(&vfs, &[], output.path(), &tool)?;
+    assert_eq!(
+        std::fs::read(first.directory.join("fontconfig.txt"))?,
+        b"fontlib \"first.swf\"\n"
+    );
+    assert!(build_cache(&vfs, &[], output.path(), &tool)?.reused);
+    std::fs::write(&path, b"fontlib \"second.swf\"\n")?;
+    let second = build_cache(&vfs, &[], output.path(), &tool)?;
+    assert_ne!(first.directory, second.directory);
+    assert!(!second.reused);
+    assert_eq!(
+        std::fs::read(second.directory.join("fontconfig.txt"))?,
+        b"fontlib \"second.swf\"\n"
+    );
+    Ok(())
+}
+
+#[test]
 fn ui_20_skyui_icon_sprites_parse() {
     let Some(root) = std::env::var_os("SOE_TEST_SKYUI") else {
         return;

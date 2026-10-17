@@ -2,6 +2,7 @@
 extends SceneTree
 
 const Menu = preload("res://ui/item_menu.gd")
+const Cache = preload("res://ui/interface_cache.gd")
 var failures: Array[String] = []
 var actions: Array = []
 
@@ -25,11 +26,16 @@ func run() -> void:
 	menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var data := [item("1", "Ébony blade", "Weapons", 5.0, 100), item("2", "apple", "Food", 1.0, 2), item("3", "Arrow", "Weapons", 0.0, 4), item("4", "Unknown", "Misc", null, 5)]
 	menu.configure("inventory", data, OS.get_environment("SOE_INTERFACE_CACHE"))
+	var cache := Cache.new(OS.get_environment("SOE_INTERFACE_CACHE"))
+	if cache.font_aliases.has("$EverywhereMediumFont"):
+		var font := cache.font("$EverywhereMediumFont")
+		check(font != null and menu.theme.default_font == font, "configured converted font reaches the native menu theme")
 	menu.activate_item.connect(func(row, amount, side): actions.append([row.id, amount, side]))
 	await process_frame
 	await process_frame
 	print("UI-20 rows ", ids(menu), " category=", menu.category, " side=", menu.side)
 	check(menu.column_order() == ["equipped", "icon", "name", "category", "weight", "value"], "default column order")
+	check(menu.header.get_node("equipped").text.is_empty() and menu.header.get_node("equipped").tooltip_text == "Equipped", "equipment column has a named tooltip")
 	check(ids(menu) == ["2", "3", "4", "1"], "case insensitive name order")
 	menu.sort_by("weight")
 	print("UI-20 weight descending ", ids(menu))
@@ -54,6 +60,8 @@ func run() -> void:
 	check(category_rect.end.x <= list_rect.position.x, "category column left of item list")
 	check(list_rect.end.x <= card_rect.position.x, "item card right of columns")
 	check(root.get_visible_rect().encloses(card_rect), "card inside viewport")
+	var type_font: Font = menu.get_theme_default_font()
+	check(menu._cell_width("category") >= type_font.get_string_size("Ingredients", HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x, "type column fits full category names")
 	if not OS.get_environment("SOE_INTERFACE_CACHE").is_empty():
 		var found := false
 		for button in menu.rows.get_children():

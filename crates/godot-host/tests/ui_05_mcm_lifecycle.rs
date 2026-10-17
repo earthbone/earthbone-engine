@@ -27,8 +27,10 @@ fn ui_05_windowed_unmodified_scripts_render_and_select_declared_pages() {
         game.vm.log.messages()
     );
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture_directory = tempfile::tempdir_in("/tmp").unwrap();
+    fixture.write(fixture_directory.path());
     let directory = root.join("target/ui_05_host");
-    fixture.write(&directory);
+    std::fs::create_dir_all(&directory).unwrap();
     let output = std::process::Command::new(godot)
         .args([
             "--path",
@@ -39,11 +41,16 @@ fn ui_05_windowed_unmodified_scripts_render_and_select_declared_pages() {
             "res://ui_05_mcm_lifecycle_test.gd",
         ])
         .current_dir(&root)
-        .env("SOE_UI_05_FIXTURE_DIR", &directory)
+        .env("SOE_UI_05_FIXTURE_DIR", fixture_directory.path())
         .output()
         .unwrap();
     std::fs::write(directory.join("stdout.txt"), &output.stdout).unwrap();
     std::fs::write(directory.join("stderr.txt"), &output.stderr).unwrap();
+    std::fs::copy(
+        fixture_directory.path().join("mcm-pages.png"),
+        directory.join("mcm-pages.png"),
+    )
+    .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(

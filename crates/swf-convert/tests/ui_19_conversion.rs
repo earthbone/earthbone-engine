@@ -461,6 +461,7 @@ fn ui_19_godot_loads_paged_font_and_renders_glyphs_from_both_pages() {
         .unwrap()
         .join("font-1.tres");
     let script = output.path().join("ui_19_font.gd");
+    std::fs::write(output.path().join("project.godot"), "config_version=5\n").unwrap();
     std::fs::write(
         &script,
         r#"extends SceneTree
@@ -490,8 +491,13 @@ func check():
     await process_frame
     await RenderingServer.frame_post_draw
     var pixels = root.get_texture().get_image()
+    pixels.save_png(OS.get_environment("SOE_UI_19_CAPTURE"))
     for x in [72, 192]:
         if pixels.get_pixel(x, 100).r < 0.8:
+            print("UI-19 missing glyph pixel at ", Vector2i(x, 100), ": ", pixels.get_pixel(x, 100))
+            for code in [33, 600]:
+                var index = font.get_glyph_index(64, code, 0)
+                print("glyph ", code, " index ", index, " offset ", font.get_glyph_offset(0, Vector2i(64, 0), index), " size ", font.get_glyph_size(0, Vector2i(64, 0), index))
             quit(3)
             return
     print("UI-19 FONT PASS")
@@ -505,7 +511,7 @@ func check():
     std::fs::create_dir_all(&captures).unwrap();
     let result = Command::new(godot)
         .arg("--path")
-        .arg(workspace.join("godot"))
+        .arg(output.path())
         .args(["--resolution", "640x360", "--script"])
         .arg(script)
         .env("SOE_UI_19_FONT", font)

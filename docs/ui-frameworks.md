@@ -218,7 +218,7 @@ timelines. They are ordinary SWF tags, not Scaleform-only tags:
 | Purpose | Tags handled by UI-19 |
 |---|---|
 | Shapes and images | `DefineShape`, `DefineBits`, `DefineBitsJpeg2`, `DefineBitsJpeg3`, `DefineBitsLossless`, `JpegTables` |
-| Text and fonts | `DefineEditText`, `DefineText`, `DefineText2`, `DefineFont2` |
+| Text and fonts | `DefineEditText`, `DefineText`, `DefineText2`, `DefineFont2`, `DefineFont3` |
 | Display and timeline | `DefineSprite`, `PlaceObject`, `RemoveObject`, `ShowFrame`, `FrameLabel` |
 | Symbols and scripts | `ExportAssets`, `ImportAssets`, `SymbolClass`, `DoAction`, `DoInitAction`, `DefineButton`, `DefineButton2` |
 | Explicitly unsupported by UI-19 | `DefineMorphShape`, `DefineFont`, `DefineFont4`, and unknown tag codes, retained as unsupported tag IDs |
@@ -232,8 +232,10 @@ four signatures are file headers, not SWF tag codes.
 
 Ruffle runs ActionScript 1 and 2, but a Skyrim menu also expects the host
 services and Scaleform extensions named below. The Ruffle repository does not
-provide the Skyrim `gfx` namespace. Each used extension needs either a
-compatible implementation or a documented per-menu replacement. The `GameDelegate`
+provide the Skyrim `gfx` namespace as builtins. The installed vanilla
+inventory movie supplies 14 `gfx` classes, including GameDelegate,
+NavigationCode, FocusHandler, InputDelegate and EventDispatcher. Each native
+extension still needs compatible behavior or a documented per-menu replacement. The `GameDelegate`
 entries belong to the Skyrim host and need an engine bridge even if Ruffle
 executes the surrounding script.
 
@@ -243,8 +245,8 @@ executes the surrounding script.
 | Navigation constants | `gfx.ui.NavigationCode` including `TAB`, `ENTER`, directions, and gamepad buttons | Map host keyboard and controller input to the exact constants used by each menu |
 | Focus management | `gfx.managers.FocusHandler.instance.setFocus`, `getFocus` | Maintain focus across lists, cards, dialogs, and menu transitions |
 | Input adaptation | `gfx.managers.InputDelegate.instance.enableControlFixup`, `isGamepad`, `inputToNav` | Translate Godot input events and controller layouts into the navigation events expected by the SWF |
-| Controls and events | `gfx.controls.Button`, `gfx.controls.ButtonGroup`, `gfx.controls.ScrollBar`, `gfx.events.EventDispatcher` | Supply compatible components and event ordering for scripts that construct or extend them |
-| Scaleform text and mouse extensions | `TextField.SetText` is absent from Ruffle AVM1, and the source also uses MovieClip and mouse APIs | Implement `SetText` and test MovieClip and mouse behavior against the source menus |
+| Controls and events | `gfx.controls.Button`, `gfx.controls.ButtonGroup`, `gfx.controls.ScrollBar`, `gfx.events.EventDispatcher` | Execute the embedded components and test their native dependencies and event ordering |
+| Movie-supplied text helpers and host extensions | `Shared.GlobalFunc.MaintainTextFormat` installs `TextField.SetText`, while Stage rectangles and mouse queries need a separate audit | Execute the movie helper and verify the remaining host APIs individually |
 
 This inventory is a source-level compatibility map, not a claim that stock
 Ruffle lacks every similarly named Adobe Flash feature. The API surface was
@@ -252,7 +254,12 @@ checked against Ruffle nightly 2026-10-09 at commit `fbb4ce8`. Its AVM1 global
 registration has no `gfx` namespace, so the listed `gfx.io`, `gfx.ui`,
 `gfx.managers`, `gfx.controls` and `gfx.events` symbols are absent from stock
 Ruffle. The same revision's AVM1 `TextField` implementation has no `SetText`
-member, so `TextField.SetText` is a missing Scaleform extension. This check
+member. The earlier claim that `TextField.SetText` is a missing Scaleform extension
+confuses builtin registration with movie-supplied code. SkyUI Community
+`Vanilla/Shared/GlobalFunc.as::MaintainTextFormat` installs that prototype
+method and `SetLockFunction` installs `MovieClip.Lock`. These helpers need
+AVM1 execution and initialization checks. Their absence from a builtin table
+does not establish a native implementation gap. This check
 does not mark standard Flash methods such as `MovieClip.gotoAndStop` as
 missing. The pinned source links are [AVM1 globals](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals.rs)
 and [AVM1 TextField](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals/text_field.rs).
@@ -337,10 +344,144 @@ and diagnostics.
   TextField surface audit.
 - [Ruffle pull request 9090](https://github.com/ruffle-rs/ruffle/pull/9090),
   for the `GFX` and `CFX` header signature change.
-- The research lead at `research/engine-map/leads/ui-scaleform.md` and the
-  local Ruffle clone were absent from this checkout. The pinned upstream source
+- The research lead was read from the workspace research directory on
+  2026-10-17. The local Ruffle clone is absent. The pinned upstream source
   links above were checked directly for the AVM1 namespace and `TextField.SetText`
   findings. Compatibility behavior still needs a runtime prototype and menu
   tests.
 - Scaleform extension behavior is described as a compatibility target from
   source usage. Verify each method against primary references during UI-28.
+
+### Embedded classes and native extensions, correction on 2026-10-17
+
+A missing builtin namespace is only one part of the API audit. A SWF can
+install its own `gfx` classes and prototype methods through DoInitAction and
+DoAction. The execution prototype must run those definitions before deciding
+which methods need a host implementation. In particular, SetText and Lock
+are supplied by Shared.GlobalFunc. Source presence alone also does not prove
+that their text layout and viewport inputs behave correctly in Ruffle.
+
+The UI-27 through UI-30 labels above are historical research proposals.
+BACKLOG.csv now assigns those IDs to other work. New execution tasks need
+fresh IDs before they can be claimed. The estimates describe work areas,
+which must be split into bounded rows when implementation starts.
+
+The same pinned Ruffle files were checked directly on 2026-10-17:
+
+| API | Pinned native table | Interpretation |
+|---|---|---|
+| Stage.safeRect and Stage.visibleRect | Absent from stage.rs | Supply viewport and safe-area values after checking movie initialization |
+| Mouse.getTopMostEntity | Absent from mouse.rs | Host hit testing needs an adapter |
+| TextField.textAutoSize and verticalAutoSize | Absent from text_field.rs | Check shrink and vertical sizing behavior with the loaded scripts |
+| TextFormat.getTextExtent | Present in text_format.rs | Reuse and verify the existing implementation |
+| TextField.SetText and MovieClip.Lock | Supplied by Shared.GlobalFunc | Run the prototype initialization from the movie |
+
+Pinned source: [Stage](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals/stage.rs),
+[Mouse](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals/mouse.rs),
+[TextFormat](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals/text_format.rs),
+and the TextField link above. The local CommonLibSSE-NG FxDelegate.h and
+FxDelegateHandler.h define the external-interface callback shape and handler
+registration. Only their public contract was read. No executable addresses
+or implementation were used.
+
+The decompiled vanilla inventory GameDelegate uses ExternalInterface.call
+with the method name, response ID and method arguments. It registers `call`
+and `respond` callbacks. Responses use the ID to recover the original scope
+and callback. The host must preserve synchronous response delivery before
+the delegate releases that response entry, as well as callback argument order.
+This establishes the host boundary without copying the embedded class.
+
+### Installed decompilation and GFx tags, 2026-10-17
+
+The reproducible survey uses Ruffle tag envelopes and real JPEXS output. It
+includes `.swf` and `.gfx` files, including the six vanilla exported GFX
+movies omitted by the SWF-only UI-19 art cache selection. Counts include
+embedded library copies in separate movies and literal reference sites. They
+are not counts of unique host operations. Decompiled source remains under
+`/tmp/soe-ui23-2026-10-17`, outside the checkout.
+
+| Input load order | Movies | AS2 files | Delegate call sites | Callback registration sites | gfxExtensions references | gfxPlayer references |
+|---|---:|---:|---:|---:|---:|---:|
+| vanilla | 59 | 3987 | 777 | 237 | 83 | 0 |
+| skyui | 76 | 3497 | 772 | 231 | 90 | 3 |
+
+Both inputs contain six ExporterInfo tags (1000) and 444 DefineExternalImage2
+tags (1009). These names and IDs were checked with javap against the local
+JPEXS ffdec_lib.jar gfx tag declarations. All occur in the six vanilla
+`interface/exported/*.gfx` movies. The image tags occur in hudmenu (145),
+quest_journal (163) and tutorialmenu (136). The ordinary menu SWFs have no
+tag codes from 1000 upward in this survey. Header acceptance alone does not
+implement external image references or exporter metadata.
+
+Each load order supplies 22 distinct embedded gfx class definitions across
+its movies. The inventory movie supplies 14, including GameDelegate and
+the controls, focus, navigation and event classes listed above. The execution
+track should use the loaded classes and implement their native dependencies.
+
+### Delegate inventory from installed vanilla movies
+
+This table includes literal calls and callback registrations from every
+vanilla movie with a delegate operation, including shared embedded classes.
+
+| Winning vanilla movie | Delegate names |
+|---|---|
+| `interface/bartermenu.swf` | `CloseMenu`, `DisabledItemSelect`, `GetRawDealWarningString`, `InvalidateListData`, `ItemSelect`, `PlaySound`, `QuantitySliderOpen`, `RequestItemCardInfo`, `RestoreIndices`, `SaveIndices`, `SetBarterMultipliers`, `SetButtonMapping`, `SetCategoriesList`, `StartMouseRotation`, `StopMouseRotation`, `ToggleMenuFade`, `UpdateItem3D`, `UpdateItemCardInfo`, `UpdatePlayerInfo`, `ZoomItemModel`, `myLog` |
+| `interface/bethesdanetlogin.swf` | `myLog` |
+| `interface/book.swf` | `PrepForClose`, `SetBookText`, `TurnPage` |
+| `interface/bookmenu.swf` | `ShowTakeButton`, `UpdateTurnPagesButton`, `myLog` |
+| `interface/console.swf` | `ExecuteCommand`, `HideComplete` |
+| `interface/containermenu.swf` | `AttemptEquip`, `CheckForMouseEquip`, `CloseMenu`, `DisabledItemSelect`, `EquipItem`, `InvalidateListData`, `ItemSelect`, `ItemTransfer`, `PlaySound`, `QuantitySliderOpen`, `RequestItemCardInfo`, `RestoreIndices`, `SaveIndices`, `SetButtonMapping`, `SetCategoriesList`, `StartMouseRotation`, `StopMouseRotation`, `TakeAllItems`, `ToggleMenuFade`, `UpdateItem3D`, `UpdateItemCardInfo`, `UpdatePlayerInfo`, `XButtonPress`, `ZoomItemModel`, `myLog` |
+| `interface/craftingmenu.swf` | `AuxButtonPress`, `CalculateCharge`, `CanFadeItemInfo`, `ChooseItem`, `CloseMenu`, `CraftButtonPress`, `CraftSelectedItem`, `EndItemRename`, `InvalidateListData`, `PlaySound`, `SetButtonMapping`, `SetCategoriesList`, `SetSelectedCategory`, `SetSelectedItem`, `ShowItem3D`, `SliderClose`, `StartMouseRotation`, `StopMouseRotation`, `myLog` |
+| `interface/creationclubmenu.swf` | `myLog` |
+| `interface/creditsmenu.swf` | `myLog` |
+| `interface/dialoguemenu.swf` | `AdjustForPALSD`, `Cancel`, `CloseMenu`, `FadeDone`, `HideDialogueText`, `NotifyVoiceReady`, `PopulateDialogueList`, `SetButtonMapping`, `SetSpeakerName`, `ShowDialogueList`, `ShowDialogueText`, `SkipText`, `StartHideMenu`, `TopicClicked`, `myLog` |
+| `interface/exported/hudmenu.gfx` | `FadeOutChargeMeters`, `FadeOutStamina`, `FlashShoutMeter`, `GetButtonFromUserEvent`, `HideSubtitle`, `PlaySound`, `RegisterHUDComponents`, `SetChargeMeterPercent`, `SetCompassAngle`, `SetCompassMarkers`, `SetCompassTemperature`, `SetCrosshairEnabled`, `SetCrosshairTarget`, `SetEnemyHealthPercent`, `SetEnemyHealthTargetPercent`, `SetHealthMeterPercent`, `SetLoadDoorInfo`, `SetLocationName`, `SetMagickaMeterPercent`, `SetShoutMeterPercent`, `SetStaminaMeterPercent`, `SetSubtitlesEnabled`, `ShowElements`, `ShowMessage`, `ShowNotification`, `ShowSubtitle`, `ShowTutorialHintText`, `StartMagickaMeterBlinking`, `StartStaminaMeterBlinking`, `ValidateCrosshair`, `myLog` |
+| `interface/exported/quest_journal.gfx` | `BackOutFromLoadGame`, `CharacterSelected`, `CloseMenu`, `ConfirmOKToLoad`, `DeleteSave`, `FinishRemapMode`, `ForceStopSaveListLoading`, `GetButtonFromUserEvent`, `HideMenu`, `IsOKtoLoad`, `LOAD`, `LoadGame`, `ModManager`, `ORBISDeleteSave`, `OnSaveDataEventLoadCANCEL`, `OnSaveDataEventSaveCANCEL`, `OnSaveDataEventSaveSUCCESS`, `OpenKinectTuner`, `OptionChange`, `PlaySound`, `PopulateCharacterList`, `PopulateCreationClubTopics`, `PopulateHelpTopics`, `PrepSaveGameScreenshot`, `QuickSave`, `QuitToDesktop`, `QuitToMainMenu`, `RefreshSystemButtons`, `RememberCurrentTabIndex`, `RequestAudioOptions`, `RequestCreationClubText`, `RequestDisplayOptions`, `RequestGameplayOptions`, `RequestHelpText`, `RequestInputMappings`, `RequestIsOnPC`, `RequestObjectivesData`, `RequestPlayerInfo`, `RequestQuestsData`, `ResetControlsToDefaults`, `ResetControlsToDefaults_Ounce`, `RestoreSavedSettings`, `SAVE`, `SaveControls`, `SaveGame`, `SaveSettings`, `ScreenshotReady`, `SetButtonMapping`, `SetRemoteDevice`, `SetSaveDisabled`, `SetVersionText`, `SettingsSaved`, `ShouldShowKinectTunerOption`, `ShouldShowMod`, `ShowMenu`, `ShowTargetOnMap`, `StartCloseMenu`, `StartRemapMode`, `ToggleQuestActiveStatus`, `ToggleShowMiscObjectives`, `UpdatePermissions`, `UseCurrentCharacterFilter`, `myLog`, `onFillCharacterListComplete`, `onRightStickInput`, `onSaveLoadBatchComplete`, `updateStats` |
+| `interface/exported/racesex_menu.gfx` | `ChangeDoubleMorph`, `ChangeFaceDetails`, `ChangeHairColorPreset`, `ChangeHeadPart`, `ChangeHeadPreset`, `ChangeName`, `ChangePreset`, `ChangeRace`, `ChangeTintingMask`, `ChangeWeight`, `ConfirmDone`, `FadeOut`, `HideLoadingIcon`, `PlaySound`, `SetAllowTextInput`, `SetCategoriesList`, `SetNameText`, `SetOptionSliders`, `SetRaceList`, `SetRaceText`, `ShowTextEntry`, `ShowTextEntryField`, `ShowVirtualKeyboard`, `ZoomPC`, `moveCategoriesUp`, `myLog` |
+| `interface/exported/textentry.gfx` | `myLog` |
+| `interface/exported/tutorialmenu.gfx` | `CloseMenu`, `GetButtonFromUserEvent`, `SetButtonMapping`, `myLog` |
+| `interface/fadermenu.swf` | `FadeDone`, `InitFade`, `UpdateFade` |
+| `interface/favoritesmenu.swf` | `FadeDone`, `ItemSelect`, `PlaySound`, `PopulateItems`, `SetSelectedItem`, `StartFadeOut` |
+| `interface/giftmenu.swf` | `CloseMenu`, `DisabledItemSelect`, `InvalidateListData`, `ItemSelect`, `PlaySound`, `QuantitySliderOpen`, `RequestItemCardInfo`, `RestoreIndices`, `SaveIndices`, `SetButtonMapping`, `SetCategoriesList`, `SetMenuInfo`, `StartMouseRotation`, `StopMouseRotation`, `ToggleMenuFade`, `UpdateItem3D`, `UpdateItemCardInfo`, `UpdatePlayerInfo`, `ZoomItemModel`, `myLog` |
+| `interface/hudmenu.swf` | `FadeOutChargeMeters`, `FadeOutStamina`, `FlashShoutMeter`, `GetButtonFromUserEvent`, `HideSubtitle`, `PlaySound`, `RegisterHUDComponents`, `SetChargeMeterPercent`, `SetCompassAngle`, `SetCompassMarkers`, `SetCompassTemperature`, `SetCrosshairEnabled`, `SetCrosshairTarget`, `SetEnemyHealthPercent`, `SetEnemyHealthTargetPercent`, `SetHealthMeterPercent`, `SetLoadDoorInfo`, `SetLocationName`, `SetMagickaMeterPercent`, `SetShoutMeterPercent`, `SetStaminaMeterPercent`, `SetSubtitlesEnabled`, `ShowElements`, `ShowMessage`, `ShowNotification`, `ShowSubtitle`, `ShowTutorialHintText`, `StartMagickaMeterBlinking`, `StartStaminaMeterBlinking`, `ValidateCrosshair`, `myLog` |
+| `interface/inventory components/bottombar.swf` | `SetButtonMapping`, `myLog` |
+| `interface/inventory components/inventorylists.swf` | `InvalidateListData`, `PlaySound`, `SetCategoriesList`, `myLog` |
+| `interface/inventory components/invertedinventorylists.swf` | `InvalidateListData`, `PlaySound`, `SetCategoriesList` |
+| `interface/inventory components/itemcard.swf` | `PlaySound`, `myLog` |
+| `interface/inventorymenu.swf` | `AttemptChargeItem`, `AttemptEquip`, `CheckForMouseEquip`, `CloseMenu`, `CloseTweenMenu`, `DisabledItemSelect`, `DropItem`, `InvalidateListData`, `ItemCardListCallback`, `ItemDrop`, `ItemRotating`, `ItemSelect`, `PlaySound`, `QuantitySliderOpen`, `RequestItemCardInfo`, `RestoreIndices`, `SaveIndices`, `SetButtonMapping`, `SetCategoriesList`, `ShowSoulGemList`, `ShowTweenMenu`, `StartMouseRotation`, `StopMouseRotation`, `ToggleMenuFade`, `UpdateItem3D`, `UpdateItemCardInfo`, `UpdatePlayerInfo`, `ZoomItemModel`, `myLog` |
+| `interface/levelupmenu.swf` | `PlaySound`, `addHealth`, `addMagicka`, `addStamina` |
+| `interface/loadingmenu.swf` | `RequestLoadingText`, `RequestPlayerInfo` |
+| `interface/lockpickingmenu.swf` | `SetLockInfo`, `SetPickMinMax`, `ToggleDebugMode`, `UpdateLockAngle`, `UpdateLockPickingButtonPrompt`, `UpdatePickAngle`, `UpdatePickHealth`, `UpdateSweetSpot`, `myLog` |
+| `interface/logindialog.swf` | `myLog` |
+| `interface/magicmenu.swf` | `AttemptEquip`, `CloseMenu`, `CloseTweenMenu`, `DisabledItemSelect`, `DragonSoulSpent`, `InvalidateListData`, `ItemSelect`, `PlaySound`, `RequestItemCardInfo`, `RestoreIndices`, `SaveIndices`, `SetButtonMapping`, `SetCategoriesList`, `ShowShoutFail`, `ShowTweenMenu`, `StartMouseRotation`, `StopMouseRotation`, `ToggleMenuFade`, `UpdateItem3D`, `UpdateItemCardInfo`, `UpdatePlayerInfo`, `ZoomItemModel`, `myLog` |
+| `interface/map.swf` | `ClickCallback`, `ClickSelectedMarker`, `CurrentLocationCallback`, `GetMouseButtonForSetDestination`, `MarkerClick`, `OpenJournalCallback`, `PlaySound`, `RefreshMarkers`, `SetDateString`, `SetLocalMapExtents`, `SetSelectedMarker`, `ShowJournal`, `ToggleMapCallback`, `myLog` |
+| `interface/messagebox.swf` | `PlaySound`, `buttonPress`, `setButtons`, `setIsCancellable`, `setIsVertical`, `setMessageText` |
+| `interface/modmanager.swf` | `myLog` |
+| `interface/quest_journal.swf` | `BackOutFromLoadGame`, `CharacterSelected`, `CloseMenu`, `ConfirmOKToLoad`, `DeleteSave`, `FinishRemapMode`, `ForceStopSaveListLoading`, `GetButtonFromUserEvent`, `HideMenu`, `IsOKtoLoad`, `LOAD`, `LoadGame`, `ModManager`, `ORBISDeleteSave`, `OnSaveDataEventLoadCANCEL`, `OnSaveDataEventSaveCANCEL`, `OnSaveDataEventSaveSUCCESS`, `OpenKinectTuner`, `OptionChange`, `PlaySound`, `PopulateCharacterList`, `PopulateCreationClubTopics`, `PopulateHelpTopics`, `PrepSaveGameScreenshot`, `QuickSave`, `QuitToDesktop`, `QuitToMainMenu`, `RefreshSystemButtons`, `RememberCurrentTabIndex`, `RequestAudioOptions`, `RequestCreationClubText`, `RequestDisplayOptions`, `RequestGameplayOptions`, `RequestHelpText`, `RequestInputMappings`, `RequestIsOnPC`, `RequestObjectivesData`, `RequestPlayerInfo`, `RequestQuestsData`, `ResetControlsToDefaults`, `ResetControlsToDefaults_Ounce`, `RestoreSavedSettings`, `SAVE`, `SaveControls`, `SaveGame`, `SaveSettings`, `ScreenshotReady`, `SetButtonMapping`, `SetRemoteDevice`, `SetSaveDisabled`, `SetVersionText`, `SettingsSaved`, `ShouldShowKinectTunerOption`, `ShouldShowMod`, `ShowMenu`, `ShowTargetOnMap`, `StartCloseMenu`, `StartRemapMode`, `ToggleQuestActiveStatus`, `ToggleShowMiscObjectives`, `UpdatePermissions`, `UseCurrentCharacterFilter`, `myLog`, `onFillCharacterListComplete`, `onRightStickInput`, `onSaveLoadBatchComplete`, `updateStats` |
+| `interface/racesex_menu.swf` | `ChangeDoubleMorph`, `ChangeFaceDetails`, `ChangeHairColorPreset`, `ChangeHeadPart`, `ChangeHeadPreset`, `ChangeName`, `ChangePreset`, `ChangeRace`, `ChangeTintingMask`, `ChangeWeight`, `ConfirmDone`, `FadeOut`, `HideLoadingIcon`, `PlaySound`, `SetAllowTextInput`, `SetCategoriesList`, `SetNameText`, `SetOptionSliders`, `SetRaceList`, `SetRaceText`, `ShowTextEntry`, `ShowTextEntryField`, `ShowVirtualKeyboard`, `ZoomPC`, `moveCategoriesUp`, `myLog` |
+| `interface/sleepwaitmenu.swf` | `Cancel`, `OK`, `PlaySound`, `myLog` |
+| `interface/startmenu.swf` | `ActivateJoyConStrapInstruction`, `CONTINUE`, `ChangeUser`, `CharacterSelected`, `ConfirmContinue`, `ConfirmNewGame`, `ConfirmOKToLoad`, `CreationClub`, `DeleteSave`, `DoDeleteSaveUISanityCheck`, `DoLoadDLCPlugins`, `DoneLoadingDLC`, `DownloadAll`, `EndPressStartState`, `ExitJoyConStrapInstructionScreen`, `FadeInMenu`, `FadeOutMenu`, `FirstTimeOunceDataTransferCheck`, `ForceStopSaveListLoading`, `HELP`, `IsOKtoLoad`, `LoadDLC`, `MOD`, `NEW`, `ORBISDeleteSave`, `OnDeleteSaveUISanityCheck`, `OnDisabledLoadPress`, `OnOunceDataTransfer`, `OnPS5DataTransfer`, `OnSaveDataEventLoadCANCEL`, `OnSaveDataEventLoadSUCCESS`, `OpenMarketplace`, `PlaySound`, `PopulateCharacterList`, `PrepSaveGameScreenshot`, `QuitToDesktop`, `QuitToMainMenu`, `ScreenshotReady`, `SetFirstExitedMenu`, `ShowGamerTagAndIcon`, `Sky10DLCPressed`, `StartLoadingDLC`, `StartState`, `currentState`, `fadeOutStarted`, `myLog`, `onFillCharacterListComplete`, `onProfileChange`, `onSaveLoadBatchComplete`, `onStartButtonProcessFinished`, `sendMenuProperties` |
+| `interface/statsmenu.swf` | `HideRing`, `MoveCamera`, `SetDescriptionCard`, `SetDirection`, `SetFadedIn`, `SetPerkCount`, `SetPlayerInfo`, `SetStatsMode`, `ShowLegendaryButtonHint`, `UpdateSkillList`, `myLog` |
+| `interface/streaminginstall.swf` | `SetPercent` |
+| `interface/textentry.swf` | `myLog` |
+| `interface/trainingmenu.swf` | `Exit`, `Train`, `myLog` |
+| `interface/tutorialmenu.swf` | `CloseMenu`, `GetButtonFromUserEvent`, `SetButtonMapping`, `myLog` |
+| `interface/tweenmenu.swf` | `CloseMenu`, `HideMenu`, `HighlightMenu`, `OpenAnimFinished`, `OpenHighlightedMenu`, `ResetStatsButton`, `ShowMenu`, `StartCloseMenu`, `StartCloseMenuAnim`, `StartOpenMenuAnim`, `myLog` |
+
+At the pinned Ruffle revision, tag_code.rs has no ExporterInfo or
+DefineExternalImage2 entries. read.rs retains such codes as Unknown payloads.
+They therefore need typed external-image support before the exported GFX
+movies can render correctly. The existing ordinary SWF menus are a smaller
+first execution target.
+
+Ruffle already exposes ExternalInterfaceProvider::call_method,
+on_callback_available and get_id, plus registered callbacks in external.rs.
+Its AVM1 ExternalInterface implementation routes calls through that provider.
+The prototype can reuse this host boundary for GameDelegate instead of adding
+a second call mechanism. This is an integration proposal, with response
+reentrancy and argument conversion still requiring a runtime fixture.
+
+Pinned sources: [tag codes](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/swf/src/tag_code.rs),
+[tag reader](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/swf/src/read.rs),
+[external provider](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/external.rs),
+and [AVM1 ExternalInterface](https://github.com/ruffle-rs/ruffle/blob/fbb4ce8/core/src/avm1/globals/external_interface.rs).

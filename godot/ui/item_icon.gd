@@ -3,6 +3,7 @@ extends Control
 ## Installed UI-19 art takes precedence over the UI-24 default theme.
 
 const DefaultTheme = preload("res://ui/theme/theme.gd")
+const InterfaceCache = preload("res://ui/interface_cache.gd")
 
 var icon_name := "default_misc"
 var cache_directory := ""
@@ -16,6 +17,7 @@ var meshes: Array = []
 var art_bounds := Rect2()
 var art_source := "builtin"
 var texture: Texture2D
+var cache
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -28,28 +30,29 @@ func _ready() -> void:
 func _load_art() -> void:
 	if cache_directory.is_empty():
 		return
-	var manifest = JSON.parse_string(FileAccess.get_file_as_string(cache_directory.path_join("manifest.json")))
-	if not manifest is Dictionary:
-		return
-	for movie_path in manifest.get("movies", {}):
+	cache = InterfaceCache.new(cache_directory)
+	for movie_path in cache.movies:
 		if not cache_movie.is_empty() and not str(movie_path).ends_with(cache_movie):
 			continue
 		if cache_movie.is_empty() and "icon" not in str(movie_path).to_lower():
 			continue
-		var directory := cache_directory.path_join(str(manifest.movies[movie_path])).get_base_dir()
-		var metadata = JSON.parse_string(FileAccess.get_file_as_string(directory.path_join("movie.json")))
-		if not metadata is Dictionary:
+		var source: Dictionary = cache.movie(str(movie_path))
+		if source.is_empty():
 			continue
+		var metadata: Dictionary = source.data
 		if not cache_symbol.is_empty():
-			var character = metadata.get("symbols", {}).get(cache_symbol)
-			if character != null:
+			var definition: Dictionary = cache.symbol(str(movie_path), cache_symbol)
+			if not definition.is_empty():
+				source = definition.movie
+				metadata = source.data
+				var character: int = definition.character
 				if cache_instance.is_empty():
-					_collect(metadata, directory, [{"character": character, "transform": [1, 0, 0, 1, 0, 0]}], Transform2D.IDENTITY, 0)
+					_collect(source, [{"character": character, "transform": [1, 0, 0, 1, 0, 0]}], Transform2D.IDENTITY, 0)
 				else:
 					var timeline = metadata.get("timelines", {}).get(str(int(character)), {})
 					for frame in timeline.get("frames", []):
 						var instances: Array = frame.get("display_list", []).filter(func(part): return part.get("name", "") == cache_instance)
-						_collect(metadata, directory, instances, Transform2D.IDENTITY, 0)
+						_collect(source, instances, Transform2D.IDENTITY, 0)
 						if not meshes.is_empty():
 							break
 				if not meshes.is_empty():
@@ -62,7 +65,7 @@ func _load_art() -> void:
 		for timeline in metadata.get("timelines", {}).values():
 			for frame in timeline.get("frames", []):
 				if label in frame.get("labels", []):
-					_collect(metadata, directory, frame.display_list, Transform2D.IDENTITY, 0)
+					_collect(source, frame.display_list, Transform2D.IDENTITY, 0)
 					if not meshes.is_empty():
 						art_source = str(movie_path)
 						return
@@ -85,7 +88,7 @@ func _load_theme() -> void:
 	if not meshes.is_empty() or texture != null:
 		art_source = path
 
-func _collect(metadata: Dictionary, directory: String, instances: Array, transform: Transform2D, depth: int) -> void:
+func _collect(source: Dictionary, instances: Array, transform: Transform2D, depth: int) -> void:
 	if depth >= 16:
 		return
 	for instance in instances:
@@ -96,7 +99,12 @@ func _collect(metadata: Dictionary, directory: String, instances: Array, transfo
 			continue
 		var t: Array = instance.transform
 		var local := transform * Transform2D(Vector2(t[0], t[1]), Vector2(t[2], t[3]), Vector2(t[4], t[5]))
-		var shape_path := directory.path_join("shape-%d.tres" % int(instance.character))
+		var resolved: Dictionary = cache.character_source(source, int(instance.character))
+		if resolved.is_empty():
+			continue
+		var target: Dictionary = resolved.movie
+		var character: int = resolved.character
+		var shape_path := str(target.directory).path_join("shape-%d.tres" % character)
 		if FileAccess.file_exists(shape_path):
 			var mesh = load(shape_path)
 			if mesh is Mesh:
@@ -104,9 +112,9 @@ func _collect(metadata: Dictionary, directory: String, instances: Array, transfo
 				var bounds: Rect2 = local * mesh.get_meta("swf_bounds", Rect2())
 				art_bounds = bounds if art_bounds.size == Vector2.ZERO else art_bounds.merge(bounds)
 		else:
-			var timeline = metadata.get("timelines", {}).get(str(int(instance.character)), {})
+			var timeline = target.data.get("timelines", {}).get(str(character), {})
 			if not timeline.get("frames", []).is_empty():
-				_collect(metadata, directory, timeline.frames[0].display_list, local, depth + 1)
+				_collect(target, timeline.frames[0].display_list, local, depth + 1)
 
 func _draw() -> void:
 	if texture != null:

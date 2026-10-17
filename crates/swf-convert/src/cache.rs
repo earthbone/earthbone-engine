@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use soe_bsa::{Source, Vfs};
 
-use crate::{convert, resource, Error};
+use crate::{convert_art, resource, Error};
 
-const FORMAT: &str = "soe-interface-2";
+const FORMAT: &str = "soe-interface-3";
 
 /// The external JPEXS command used to preserve AS2 source for reference.
 #[derive(Debug, Clone)]
@@ -58,7 +58,10 @@ impl Decompiler {
         let mut command = match self {
             Self::Program(program) => Command::new(program),
             Self::Jar(jar) => {
-                let mut c = Command::new("java");
+                let java = crate::find_java().ok_or_else(|| {
+                    Error::Decompiler("Java unavailable. Set JAVA_HOME or install Java".into())
+                })?;
+                let mut c = Command::new(java);
                 c.arg("-Djava.awt.headless=true").arg("-jar").arg(jar);
                 c
             }
@@ -249,6 +252,13 @@ pub fn build_cache(
     for root in vfs.loose_roots() {
         hash_part(&mut hash, root.to_string_lossy().as_bytes());
     }
+    let font_config = if vfs.resolve("interface/fontconfig.txt").is_some() {
+        Some(vfs.read("interface/fontconfig.txt")?)
+    } else {
+        None
+    };
+    hash_part(&mut hash, b"interface/fontconfig.txt");
+    hash_part(&mut hash, font_config.as_deref().unwrap_or_default());
     let paths: Vec<_> = vfs
         .list("interface")
         .into_iter()
@@ -289,12 +299,15 @@ pub fn build_cache(
     let pending = tempfile::Builder::new()
         .prefix(".interface-")
         .tempdir_in(&root)?;
+    if let Some(bytes) = font_config {
+        std::fs::write(pending.path().join("fontconfig.txt"), bytes)?;
+    }
     let mut movies = BTreeMap::new();
     for (path, data) in inputs {
         let movie_dir = digest(path.as_bytes());
         let output = pending.path().join(&movie_dir);
         let converted = (|| {
-            let movie = convert(&data)?;
+            let movie = convert_art(&data)?;
             resource::write(&movie, &output)?;
             if movie.action_blocks > 0 {
                 decompiler.export(&data, &output.join("as2-reference"))?;

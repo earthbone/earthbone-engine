@@ -171,6 +171,26 @@ fn string(value: &swf::SwfStr, version: u8) -> String {
 /// # Errors
 /// Returns a typed parser, bitmap, geometry or invalid timeline error.
 pub fn convert(bytes: &[u8]) -> Result<Movie, Error> {
+    convert_movie(bytes, RootFrames::Exact)
+}
+
+/// Convert bounded art while retaining closed short root timelines.
+///
+/// Declared and actual frame counts remain separate. No frames are invented.
+///
+/// # Errors
+/// Returns parser, geometry, bitmap or incomplete timeline errors.
+pub fn convert_art(bytes: &[u8]) -> Result<Movie, Error> {
+    convert_movie(bytes, RootFrames::RetainClosed)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RootFrames {
+    Exact,
+    RetainClosed,
+}
+
+fn convert_movie(bytes: &[u8], root_frames: RootFrames) -> Result<Movie, Error> {
     let length = bytes
         .get(4..8)
         .and_then(|b| <[u8; 4]>::try_from(b).ok())
@@ -198,7 +218,14 @@ pub fn convert(bytes: &[u8]) -> Result<Movie, Error> {
         action_blocks: 0,
         unsupported_tags: vec![],
     };
-    timeline(&tags, 0, buffer.header.num_frames(), &mut movie, 0)?;
+    timeline(
+        &tags,
+        0,
+        buffer.header.num_frames(),
+        &mut movie,
+        0,
+        root_frames,
+    )?;
     movie.unsupported_tags.sort_unstable();
     movie.unsupported_tags.dedup();
     Ok(movie)
@@ -224,6 +251,7 @@ fn read_tags(mut bytes: &[u8], version: u8, nesting: usize) -> Result<Vec<Tag<'_
                 return Err(Error::Invalid("End tag has a nonzero payload".into()));
             }
             found_end = true;
+            tags.push(Tag::End);
             break;
         }
         let tag = if code == 39 {
@@ -236,6 +264,27 @@ fn read_tags(mut bytes: &[u8], version: u8, nesting: usize) -> Result<Vec<Tag<'_
                 num_frames,
                 tags: read_tags(sprite.get_ref(), version, nesting + 1)?,
             })
+        } else if code == 26 && payload.first() == Some(&4) {
+            // CONTEXT: JPEXS ignores NORDIC's actionless matrix on an occupied HUD depth.
+            let mut normalized = [0_u8; 29];
+            let target = normalized.get_mut(..payload.len()).ok_or_else(|| {
+                Error::Invalid("matrix-only PlaceObject2 exceeds matrix bounds".into())
+            })?;
+            target.copy_from_slice(payload);
+            target[0] |= 1;
+            let mut place_reader = swf::read::Reader::new(target, version);
+            place_reader
+                .read_place_object_2_or_3(2)
+                .map_err(|e| Error::Swf(e.to_string()))?;
+            if !place_reader.get_ref().is_empty() {
+                return Err(Error::Invalid(
+                    "matrix-only PlaceObject2 has trailing payload bytes".into(),
+                ));
+            }
+            Tag::Unknown {
+                tag_code: code,
+                data: payload,
+            }
         } else if matches!(code, 26 | 70) {
             let mut place_reader = swf::read::Reader::new(payload, version);
             let place = place_reader
@@ -405,6 +454,7 @@ fn timeline(
     declared_frames: u16,
     movie: &mut Movie,
     nesting: usize,
+    root_frames: RootFrames,
 ) -> Result<(), Error> {
     if nesting > 64 {
         return Err(Error::Invalid("sprite nesting exceeds 64".into()));
@@ -480,6 +530,7 @@ fn timeline(
                 sprite.num_frames,
                 movie,
                 nesting + 1,
+                root_frames,
             )?,
             Tag::ExportAssets(exports) => {
                 for asset in exports {
@@ -587,7 +638,11 @@ fn timeline(
             display_list: display.values().cloned().collect(),
         });
     }
-    if frames.len() != declared_frames as usize {
+    let terminated_short_sprite = (id != 0 || root_frames == RootFrames::RetainClosed)
+        && matches!(tags.last(), Some(Tag::End))
+        && !frames.is_empty()
+        && frames.len() < declared_frames as usize;
+    if frames.len() != declared_frames as usize && !terminated_short_sprite {
         return Err(Error::Invalid(format!(
             "timeline {id} declares {declared_frames} frames but contains {}",
             frames.len()

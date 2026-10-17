@@ -167,3 +167,27 @@ fn ui_23_scaleform_research_estimates_and_splits_followup_work() {
         assert!(doc.contains(term), "research doc is missing {term}");
     }
 }
+
+#[test]
+fn ui_23_movie_helpers_and_existing_external_interface_are_distinguished() {
+    let doc = std::fs::read_to_string(repo_root().join("docs/ui-frameworks.md")).unwrap();
+    let doc = doc.split_whitespace().collect::<Vec<_>>().join(" ");
+    for finding in [
+        "SetText and Lock are supplied by Shared.GlobalFunc",
+        "TextFormat.getTextExtent | Present in text_format.rs",
+        "ExternalInterfaceProvider::call_method",
+        "six ExporterInfo tags (1000) and 444 DefineExternalImage2",
+        "14 `gfx` classes",
+    ] {
+        assert!(
+            doc.contains(finding),
+            "missing source-backed finding: {finding}"
+        );
+    }
+    let source = action_script_root().join("Vanilla/Shared/GlobalFunc.as");
+    if source.exists() {
+        let source = std::fs::read_to_string(source).unwrap();
+        assert!(source.contains("TextField.prototype.SetText = function"));
+        assert!(source.contains("MovieClip.prototype.Lock = function"));
+    }
+}

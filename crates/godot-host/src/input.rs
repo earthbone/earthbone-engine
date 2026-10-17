@@ -429,6 +429,7 @@ pub struct Bindings {
     mouse: BTreeMap<Action, Binding>,
     gamepad: BTreeMap<Action, Binding>,
     vanilla_controls: Vec<(u32, String)>,
+    macro_controls: Vec<(u32, String)>,
     movement: Binding,
     look: Binding,
 }
@@ -465,7 +466,7 @@ impl Bindings {
             .collect();
         keyboard.insert(Action::LeftAttackBlock, Binding::unmapped());
         keyboard.insert(Action::RightAttackBlock, Binding::unmapped());
-        let vanilla_controls = pairs
+        let vanilla_controls: Vec<_> = pairs
             .iter()
             .map(|(action, code)| (*code, action.event_name().to_string()))
             .collect();
@@ -479,6 +480,7 @@ impl Bindings {
                 (Action::RightAttackBlock, Binding::key(0)),
             ]),
             gamepad: BTreeMap::new(),
+            macro_controls: vanilla_controls.clone(),
             vanilla_controls,
             movement: Binding::unmapped(),
             look: Binding::unmapped(),
@@ -492,6 +494,23 @@ impl Bindings {
             for mapping in &context.mappings {
                 self.vanilla_controls
                     .retain(|(_, control)| control != &mapping.event);
+                self.macro_controls
+                    .retain(|(_, control)| control != &mapping.event);
+                for (device, binding) in [&mapping.keyboard, &mapping.mouse, &mapping.gamepad]
+                    .into_iter()
+                    .enumerate()
+                {
+                    for code in binding.0.iter().flat_map(|chord| &chord.0) {
+                        let mapped = match device {
+                            1 if *code <= 9 => Some(256 + *code),
+                            2 => devices::gamepad_macro(*code).or(Some(*code)),
+                            _ => Some(*code),
+                        };
+                        if let Some(mapped) = mapped {
+                            self.macro_controls.push((mapped, mapping.event.clone()));
+                        }
+                    }
+                }
                 for binding in [&mapping.keyboard, &mapping.mouse, &mapping.gamepad] {
                     for chord in &binding.0 {
                         for code in &chord.0 {
@@ -541,6 +560,12 @@ impl Bindings {
     #[must_use]
     pub fn vanilla_controls(&self) -> &[(u32, String)] {
         &self.vanilla_controls
+    }
+
+    /// Active controls in the SKSE keyboard, mouse and gamepad macro space.
+    #[must_use]
+    pub fn macro_controls(&self) -> &[(u32, String)] {
+        &self.macro_controls
     }
 
     /// InputMap can represent bindings made only of single input codes.

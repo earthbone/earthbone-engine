@@ -59,8 +59,10 @@ pub struct Snapshot {
     pub magicka: Meter,
     /// Player stamina meter.
     pub stamina: Meter,
-    /// Five-point compass tape centered on the player's heading.
+    /// Nearby headings for accessibility and diagnostics.
     pub compass: String,
+    /// Horizontal position of the repeated compass strip, in pixels.
+    pub compass_offset: f32,
 }
 
 impl Snapshot {
@@ -72,6 +74,7 @@ impl Snapshot {
             magicka: read_meter(&mut world, player, "magicka"),
             stamina: read_meter(&mut world, player, "stamina"),
             compass: compass_tape(yaw),
+            compass_offset: compass_offset(yaw),
         }
     }
 }
@@ -91,7 +94,17 @@ fn read_meter(world: &mut soe_game::World, player: GlobalFormId, name: &str) -> 
     }
 }
 
-fn compass_tape(yaw: f32) -> String {
+/// The 720 pixel compass period moves left by two pixels per yaw degree.
+#[must_use]
+pub fn compass_offset(yaw: f32) -> f32 {
+    if yaw.is_finite() {
+        -yaw.rem_euclid(std::f32::consts::TAU).to_degrees() * 2.0
+    } else {
+        0.0
+    }
+}
+
+pub(crate) fn compass_tape(yaw: f32) -> String {
     let yaw = if yaw.is_finite() { yaw } else { 0.0 };
     let direction = (yaw.rem_euclid(std::f32::consts::TAU) / std::f32::consts::FRAC_PI_4).round()
         as usize
@@ -113,6 +126,24 @@ fn compass_tape(yaw: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ui_29_camera_degree_steps_move_the_strip_continuously() {
+        const TOLERANCE: f32 = 0.001;
+        let mut camera = crate::camera::CameraRig::default();
+        let mut previous = 0.0;
+        for degree in 0..=720 {
+            camera.set_facing((degree as f32).to_radians(), 0.0);
+            let current = compass_offset(camera.yaw());
+            if degree > 0 {
+                let step = (current - previous).rem_euclid(720.0);
+                assert!((step - 718.0).abs() <= TOLERANCE, "degree {degree}: {step}");
+            }
+            previous = current;
+        }
+        assert_eq!(compass_offset(f32::NAN), 0.0);
+        assert_eq!(compass_offset(f32::INFINITY), 0.0);
+    }
 
     #[test]
     fn ui_06_compass_tape_tracks_heading_and_wraps() {
