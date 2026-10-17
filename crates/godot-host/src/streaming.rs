@@ -161,6 +161,7 @@ struct CellEntry {
     attempts: u32,
     retry_at: u64,
     completed: bool,
+    release_started: bool,
     requested_at: std::time::Instant,
 }
 
@@ -380,6 +381,15 @@ impl CellStreamer {
         true
     }
 
+    /// Claim irreversible resource release so re-entry waits for its completion.
+    pub fn begin_retirement(&mut self, request: CellRequest) -> bool {
+        let Some(entry) = self.matching(request, CellState::Retiring) else {
+            return false;
+        };
+        entry.release_started = true;
+        true
+    }
+
     /// A matching retirement finished freeing its host resources.
     pub fn mark_retired(&mut self, request: CellRequest) -> bool {
         if self.matching(request, CellState::Retiring).is_none() {
@@ -402,6 +412,7 @@ impl CellStreamer {
         };
         if let Some(entry) = self.cells.get_mut(&request.cell) {
             entry.state = CellState::Drawable;
+            entry.release_started = false;
             entry.generation = self.next_generation;
         }
         true
@@ -461,7 +472,7 @@ impl CellStreamer {
         self.cells.retain(|cell, entry| {
             let relevant =
                 desired.contains(cell) || cell.ring_distance(centre) <= self.config.unload_radius;
-            if relevant && entry.state == CellState::Retiring {
+            if relevant && entry.state == CellState::Retiring && !entry.release_started {
                 entry.state = CellState::Drawable;
                 self.next_generation = if self.record_trace {
                     NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -563,6 +574,7 @@ impl CellStreamer {
                     attempts,
                     retry_at: 0,
                     completed: false,
+                    release_started: false,
                     requested_at: std::time::Instant::now(),
                 },
             );
@@ -940,6 +952,26 @@ mod tests {
         assert_ne!(new.generation, token.generation);
         assert!(!s.mark_retired(token));
         assert!(s.mark_retired(new));
+    }
+
+    #[test]
+    fn begun_retirement_keeps_its_generation_until_resources_are_released() {
+        let mut s = unlimited(0, 0);
+        settle_drawable(&mut s, SkyrimPos::default());
+        let far = SkyrimPos::new(8.0 * CELL_UNITS, 0.0, 0.0);
+        let plan = s.update(far);
+        acknowledge(&mut s, &plan);
+        let token = s.update(far).retirements[0];
+        assert!(s.begin_retirement(token));
+        s.update(SkyrimPos::default());
+        assert_eq!(s.state(token.cell), Some(CellState::Retiring));
+        assert_eq!(s.request(token.cell), Some(token));
+        assert!(s.mark_retired(token));
+        assert!(s
+            .update(SkyrimPos::default())
+            .requests
+            .iter()
+            .any(|request| request.cell == token.cell));
     }
     #[test]
     fn retry_preflight_includes_exactly_the_next_due_attempt() {

@@ -128,6 +128,16 @@ impl LodBlockCoord {
         let dy = (min_y - y).max(y - max_y).max(0);
         dx.max(dy).min(i64::from(i32::MAX)) as i32
     }
+
+    /// Whether the two archived blocks cover any of the same cells.
+    pub fn overlaps(self, other: Self) -> bool {
+        let span = i64::from(self.level.cells());
+        let other_span = i64::from(other.level.cells());
+        i64::from(self.x) < i64::from(other.x) + other_span
+            && i64::from(other.x) < i64::from(self.x) + span
+            && i64::from(self.y) < i64::from(other.y) + other_span
+            && i64::from(other.y) < i64::from(self.y) + span
+    }
 }
 
 /// The file's base name, `<world lowercase>.<level>.<x>.<y>`, matching the
@@ -351,6 +361,13 @@ pub struct LodStep {
     pub evicted: Vec<LodBlockCoord>,
 }
 
+/// A background block read may still be running when a frame polls it.
+pub enum LodLoad {
+    Ready(u64),
+    Missing,
+    Pending,
+}
+
 impl LodStep {
     /// Every block the caller must free, unloads then evictions.
     pub fn released(&self) -> impl Iterator<Item = LodBlockCoord> + '_ {
@@ -386,6 +403,8 @@ pub struct TerrainLodStreamer {
     selected: Option<Vec<LodBlockCoord>>,
     full_cells: Vec<CellCoord>,
     cell_handoff: bool,
+    /// Previous coverage retained until all overlapping replacements are ready.
+    fallbacks: HashSet<LodBlockCoord>,
 }
 
 impl TerrainLodStreamer {
@@ -411,6 +430,7 @@ impl TerrainLodStreamer {
             selected: None,
             full_cells: Vec::new(),
             cell_handoff: false,
+            fallbacks: HashSet::new(),
         })
     }
 
@@ -474,6 +494,13 @@ impl TerrainLodStreamer {
 
     pub fn is_resident(&self, block: LodBlockCoord) -> bool {
         self.resident.contains_key(&block)
+    }
+
+    /// Partially loaded finer coverage waits behind the retained coarse block.
+    pub fn is_drawable(&self, block: LodBlockCoord) -> bool {
+        !self.fallbacks.iter().any(|fallback| {
+            fallback.level.cells() > block.level.cells() && fallback.overlaps(block)
+        })
     }
 
     /// Recorded bytes across every resident block, the residency budget's
@@ -548,7 +575,11 @@ impl TerrainLodStreamer {
                         self.config.full_res_radius
                     },
                     r,
-                    &self.full_cells,
+                    if self.cell_handoff {
+                        &[]
+                    } else {
+                        self.full_cells.as_slice()
+                    },
                 )
             });
         }
@@ -663,6 +694,20 @@ impl TerrainLodStreamer {
         settle: bool,
         mut load: impl FnMut(LodBlockCoord) -> Result<Option<u64>, E>,
     ) -> LodStep {
+        self.step_polled(focus, settle, |block| {
+            load(block).map(|bytes| bytes.map_or(LodLoad::Missing, LodLoad::Ready))
+        })
+    }
+
+    /// Run a cycle without treating pending worker reads as missing assets.
+    /// Pending blocks remain eligible for another poll on the next frame.
+    pub fn step_polled<E: std::fmt::Display>(
+        &mut self,
+        focus: CellCoord,
+        settle: bool,
+        mut load: impl FnMut(LodBlockCoord) -> Result<LodLoad, E>,
+    ) -> LodStep {
+        let previous = self.resident.clone();
         let plan = if settle {
             self.settle(focus)
         } else {
@@ -674,21 +719,48 @@ impl TerrainLodStreamer {
         };
         for block in plan.load {
             match load(block) {
-                Ok(Some(bytes)) => {
+                Ok(LodLoad::Ready(bytes)) => {
                     self.record_bytes(block, bytes);
                     step.loaded.push((block, bytes));
                 }
-                Ok(None) => {
+                Ok(LodLoad::Missing) => {
                     self.mark_absent(block);
                     step.missing.push(block);
                 }
+                Ok(LodLoad::Pending) => self.mark_unloaded(block),
                 Err(e) => {
                     self.mark_unloaded(block);
                     step.failed.push((block, e.to_string()));
                 }
             }
         }
+        self.fallbacks.clear();
+        if let Some(selected) = &self.selected {
+            step.unloaded.retain(|block| {
+                let covers_near = !self.cell_handoff
+                    && (block.ring_distance(focus) <= self.config.full_res_radius
+                        || self
+                            .full_cells
+                            .iter()
+                            .any(|cell| block.ring_distance(*cell) == 0));
+                let pending = selected.iter().any(|replacement| {
+                    block.overlaps(*replacement)
+                        && !self.resident.contains_key(replacement)
+                        && !self.absent.contains(replacement)
+                });
+                if !covers_near && pending {
+                    if let Some(bytes) = previous.get(block) {
+                        self.resident.insert(*block, *bytes);
+                        self.fallbacks.insert(*block);
+                        return false;
+                    }
+                }
+                true
+            });
+        }
         step.evicted = self.evict_to_budget(focus);
+        self.fallbacks
+            .retain(|block| self.resident.contains_key(block));
         step
     }
 }
@@ -696,6 +768,79 @@ impl TerrainLodStreamer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coarse_coverage_stays_until_every_finer_worker_is_ready() {
+        let coarse = LodBlockCoord {
+            level: LodLevel::L8,
+            x: 0,
+            y: 0,
+        };
+        let fine: Vec<_> = [0, 4]
+            .into_iter()
+            .flat_map(|x| {
+                [0, 4].into_iter().map(move |y| LodBlockCoord {
+                    level: LodLevel::L4,
+                    x,
+                    y,
+                })
+            })
+            .collect();
+        let mut catalog = fine.clone();
+        catalog.push(coarse);
+        let mut streamer = TerrainLodStreamer::with_catalog(
+            TerrainLodConfig {
+                full_res_radius: 0,
+                lod_radius: 64,
+                max_loads_per_tick: 1,
+                ..TerrainLodConfig::default()
+            },
+            CellCoord::new(0, 0),
+            catalog,
+        )
+        .unwrap()
+        .with_cell_handoff();
+        streamer.step(CellCoord::new(40, 0), true, |_| Ok::<_, String>(Some(128)));
+        assert!(streamer.is_resident(coarse));
+        let focus = CellCoord::new(5, 0);
+        let pending = streamer.step_polled(focus, false, |_| Ok::<_, String>(LodLoad::Pending));
+        assert!(
+            streamer.is_resident(coarse),
+            "coarse coverage vanished before the first worker finished"
+        );
+        assert!(pending.released().all(|block| block != coarse));
+        for index in 0..fine.len() {
+            let step = streamer.step_polled(focus, false, |_| Ok::<_, String>(LodLoad::Ready(32)));
+            assert_eq!(step.loaded.len(), 1);
+            assert_eq!(streamer.is_resident(coarse), index + 1 < fine.len());
+            for (block, _) in step.loaded {
+                assert_eq!(streamer.is_drawable(block), index + 1 == fine.len());
+            }
+        }
+        assert!(fine.into_iter().all(|block| streamer.is_drawable(block)));
+    }
+
+    #[test]
+    fn pending_worker_is_retried_without_recording_missing_content() {
+        let focus = CellCoord::new(0, 0);
+        let mut streamer = TerrainLodStreamer::new(TerrainLodConfig {
+            max_loads_per_tick: 1,
+            ..TerrainLodConfig::default()
+        })
+        .unwrap();
+        let mut pending = None;
+        let first = streamer.step_polled(focus, false, |block| {
+            pending = Some(block);
+            Ok::<_, String>(LodLoad::Pending)
+        });
+        assert_eq!(first, LodStep::default());
+        let next = streamer.step_polled(focus, false, |block| {
+            assert_eq!(Some(block), pending);
+            Ok::<_, String>(LodLoad::Ready(128))
+        });
+        assert_eq!(next.loaded, vec![(pending.unwrap(), 128)]);
+        assert!(next.missing.is_empty());
+    }
 
     fn config(budget_bytes: u64) -> TerrainLodConfig {
         TerrainLodConfig {

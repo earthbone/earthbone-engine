@@ -157,6 +157,13 @@ pub struct BatchStats {
 /// occluder. Sorting uses triangle count and preserves source order on ties.
 pub const CELL_OCCLUDER_SURFACES: usize = 4;
 
+#[derive(Default)]
+pub(crate) struct PreparedOccluder {
+    pub vertices: Vec<[f32; 3]>,
+    pub indices: Vec<i32>,
+    pub sources: std::collections::BTreeMap<GlobalFormId, soe_physics::Iso>,
+}
+
 fn opaque_from_both_sides(surface: &SurfaceArrays) -> bool {
     // SAFETY: Godot occluders are two-sided. Closure alone cannot prove
     // opacity, since a camera inside a one-sided shell sees its culled backs.
@@ -170,6 +177,13 @@ fn opaque_from_both_sides(surface: &SurfaceArrays) -> bool {
 /// hide geometry behind their holes, so only fully opaque static surfaces
 /// qualify.
 pub fn cell_occluder_mesh(surfaces: &[LoadedSurface]) -> (Vec<[f32; 3]>, Vec<i32>) {
+    cell_occluder_mesh_refs(surfaces.iter())
+}
+
+pub(crate) fn cell_occluder_mesh_refs<'a>(
+    surfaces: impl IntoIterator<Item = &'a LoadedSurface>,
+) -> (Vec<[f32; 3]>, Vec<i32>) {
+    let surfaces: Vec<_> = surfaces.into_iter().collect();
     let mut candidates: Vec<(usize, usize)> = surfaces
         .iter()
         .enumerate()

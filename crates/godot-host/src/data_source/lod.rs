@@ -29,6 +29,8 @@ use crate::units::CELL_UNITS;
 #[derive(Clone)]
 pub struct LoadedLodBlock {
     pub surfaces: Vec<LoadedSurface>,
+    /// Source cells for tree surfaces, in surface order. Empty for other LOD kinds.
+    pub tree_cells: Vec<CellCoord>,
     pub approx_bytes: u64,
     /// Number of winning references whose authored LOD mesh contributed.
     pub authored_references: usize,
@@ -120,6 +122,7 @@ impl DataSource {
         let triangles = arrays.triangle_count();
         let textures = self.textures.resolve(&self.vfs, &arrays.material);
         Ok(Some(LoadedLodBlock {
+            tree_cells: Vec::new(),
             surfaces: vec![LoadedSurface {
                 animation: None,
                 reference: world,
@@ -385,6 +388,7 @@ impl DataSource {
         let meshes = file.meshes()?;
         if meshes.is_empty() {
             return Ok(LoadedLodBlock {
+                tree_cells: Vec::new(),
                 surfaces: Vec::new(),
                 approx_bytes: 0,
                 authored_references: 0,
@@ -421,6 +425,7 @@ impl DataSource {
             });
         }
         Ok(LoadedLodBlock {
+            tree_cells: Vec::new(),
             surfaces,
             approx_bytes,
             authored_references: 0,
@@ -475,6 +480,7 @@ impl DataSource {
             });
         }
         Ok(Some(LoadedLodBlock {
+            tree_cells: Vec::new(),
             surfaces,
             approx_bytes,
             authored_references: 0,
@@ -666,6 +672,7 @@ impl DataSource {
             return Ok(None);
         }
         Ok(Some(LoadedLodBlock {
+            tree_cells: Vec::new(),
             surfaces,
             approx_bytes,
             authored_references,

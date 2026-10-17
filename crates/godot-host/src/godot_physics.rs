@@ -1220,6 +1220,35 @@ pub fn add_placed_query_statics(space: Rid, colliders: &[PlacedCollider]) -> Cel
     out
 }
 
+pub(crate) fn add_prepared_query_static(
+    space: Rid,
+    placed: &PlacedCollider,
+    prepared: PreparedBody,
+) -> CellBodies {
+    let _span = soe_trace::Span::new("host.godot_physics", "host");
+    let mut server = PhysicsServer3D::singleton();
+    let mut out = CellBodies::default();
+    if let Some((body, shapes)) = build_prepared_body(
+        &mut server,
+        space,
+        &placed.collider,
+        BodyMode::STATIC,
+        &mut out.stats,
+        prepared,
+    ) {
+        out.entries.push(StaticEntry {
+            reference: Some(placed.reference),
+            original: Some(placed.original),
+            source: placed.collider.clone(),
+            synced: None,
+            body,
+            shapes,
+        });
+    }
+    out.sight_bodies = Some(SightBodies::new(out.body_rids()));
+    out
+}
+
 /// Adds placed static and movable collision to `space`, keeping each body's
 /// reference and load-time placement for grabbing and runtime synchronization.
 pub fn add_placed_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodies {
@@ -1294,6 +1323,66 @@ pub fn add_placed_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodie
     out
 }
 
+/// Keep every movable reference's shapes together across publication slices.
+pub(crate) type MovableGroups = std::collections::VecDeque<Vec<PlacedCollider>>;
+
+pub(crate) fn movable_groups(colliders: &[PlacedCollider]) -> MovableGroups {
+    let mut groups = std::collections::BTreeMap::<_, Vec<_>>::new();
+    for placed in colliders
+        .iter()
+        .filter(|placed| !placed.collider.is_static())
+    {
+        groups
+            .entry(placed.reference)
+            .or_default()
+            .push(placed.clone());
+    }
+    groups.into_values().collect()
+}
+
+#[cfg(test)]
+mod movable_group_tests {
+    use super::*;
+
+    #[test]
+    fn publication_slices_preserve_interleaved_reference_shapes_and_mass() {
+        let placed = |object, x, mass| PlacedCollider {
+            reference: GlobalFormId { file: 0, object },
+            original: Iso::placement([x, 2.0, 3.0], [0.0; 3], 1.0),
+            collider: Collider {
+                node: soe_nif::BlockRef(0),
+                node_name: "movable parts".into(),
+                layer: soe_physics::Layer::CLUTTER,
+                motion: soe_physics::MotionType::Dynamic,
+                mass,
+                transform: Iso::placement([x, 2.0, 3.0], [0.0; 3], 1.0),
+                shape: Shape::Sphere { radius: 4.0 },
+            },
+        };
+        let parts = [
+            placed(2, 20.0, 3.0),
+            placed(1, 10.0, 5.0),
+            placed(2, 20.0, 7.0),
+            placed(3, 30.0, 0.0),
+        ];
+        let mut groups = movable_groups(&parts);
+        assert_eq!(groups.len(), 2);
+        let first = groups.pop_front().unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].reference.object, 1);
+        let second = groups.pop_front().unwrap();
+        assert_eq!(second.len(), 2);
+        assert!(second.iter().all(|part| part.reference.object == 2));
+        assert_eq!(
+            second.iter().map(|part| part.collider.mass).sum::<f32>(),
+            10.0
+        );
+        assert_eq!(second[0].original, parts[0].original);
+        assert_eq!(second[1].collider.transform, parts[2].collider.transform);
+        assert!(groups.is_empty());
+    }
+}
+
 fn body_transform(pose: &Iso) -> Transform3D {
     let t = placement_to_godot(
         pose.rotation.rows,
@@ -1360,8 +1449,20 @@ fn build_body(
     mode: BodyMode,
     stats: &mut GodotCollisionStats,
 ) -> Option<(Rid, Vec<Rid>)> {
+    build_prepared_body(server, space, collider, mode, stats, prepare_body(collider))
+}
+
+/// CPU geometry retained until the main thread publishes one complete body.
+pub(crate) struct PreparedBody {
+    prims: Vec<GodotPrim>,
+}
+
+pub(crate) fn prepare_body(collider: &Collider) -> PreparedBody {
+    let flatten_span = soe_trace::Span::new("host.physics_flatten", "host");
     let mut prims = Vec::new();
     flatten(&collider.shape, &collider.transform, &mut prims);
+    drop(flatten_span);
+    let hull_span = soe_trace::Span::new("host.physics_hulls", "host");
     for prim in &mut prims {
         let GodotPrim::Convex(points) = prim else {
             continue;
@@ -1378,6 +1479,18 @@ fn build_body(
             *points = hull;
         }
     }
+    drop(hull_span);
+    PreparedBody { prims }
+}
+
+fn build_prepared_body(
+    server: &mut Gd<PhysicsServer3D>,
+    space: Rid,
+    collider: &Collider,
+    mode: BodyMode,
+    stats: &mut GodotCollisionStats,
+    PreparedBody { mut prims }: PreparedBody,
+) -> Option<(Rid, Vec<Rid>)> {
     if mode == BodyMode::RIGID {
         let count = prims.len();
         prims.retain(|prim| !matches!(prim, GodotPrim::Trimesh(_, _)));
@@ -1395,6 +1508,7 @@ fn build_body(
     server.body_set_space(body, space);
     let mut shapes = Vec::with_capacity(prims.len());
     for prim in prims {
+        let shape_span = soe_trace::Span::new("host.physics_shape_create", "host");
         let mut transform = Transform3D::IDENTITY;
         let shape = match prim {
             GodotPrim::Trimesh(faces, radius) => {
@@ -1443,6 +1557,8 @@ fn build_body(
                 rid
             }
         };
+        drop(shape_span);
+        let _attach = soe_trace::Span::new("host.physics_shape_attach", "host");
         server
             .body_add_shape_ex(body, shape)
             .transform(transform)
@@ -2050,6 +2166,46 @@ mod tests {
             points.push(Vector3::new(x, y, z));
         }
         points
+    }
+
+    #[test]
+    fn prf_54_worker_preparation_keeps_compound_geometry_and_placement() {
+        let points: Vec<_> = prf_32_44_point_cloud_fixture()
+            .iter()
+            .map(|p| Vec3::new(p.x * 70.0, p.y * 70.0, p.z * 70.0))
+            .collect();
+        let collider = Collider {
+            node: soe_nif::BlockRef(0),
+            node_name: "prepared compound".into(),
+            layer: soe_physics::Layer::STATIC,
+            motion: soe_physics::MotionType::Fixed,
+            mass: 0.0,
+            transform: Iso::placement([140.0, 70.0, 0.0], [0.0; 3], 2.0),
+            shape: Shape::Compound(vec![
+                (
+                    Iso::IDENTITY,
+                    Shape::ConvexHull {
+                        points: points.clone(),
+                    },
+                ),
+                (Iso::IDENTITY, Shape::Sphere { radius: 7.0 }),
+            ]),
+        };
+        let prepared = prepare_body(&collider);
+        assert_eq!(prepared.prims.len(), 2);
+        let GodotPrim::Convex(hull) = &prepared.prims[0] else {
+            panic!("compound hull was lost");
+        };
+        let expected: Vec<_> = points[..8]
+            .iter()
+            .map(|point| godot_point(collider.transform.apply(*point)))
+            .collect();
+        assert_eq!(hull, &expected);
+        let GodotPrim::Sphere { radius, centre } = &prepared.prims[1] else {
+            panic!("compound sphere was lost");
+        };
+        assert_eq!(*radius, 14.0 * METRES_PER_UNIT);
+        assert_eq!(*centre, godot_point(Vec3::new(140.0, 70.0, 0.0)));
     }
 
     #[test]

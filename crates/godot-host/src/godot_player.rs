@@ -659,6 +659,15 @@ impl INode3D for PlayerNode {
     fn process(&mut self, delta: f64) {
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         if !self.location_preparing {
+            if self.auto_step {
+                let elapsed =
+                    self.host_frame.finish().system_ns[soe_trace::System::Streaming as usize];
+                if let Some(streamer) = &mut self.game_streamer {
+                    streamer
+                        .bind_mut()
+                        .charge_streaming_budget(Duration::from_nanos(elapsed));
+                }
+            }
             if self.auto_step && self.game.is_some() && !self.advance_exterior() {
                 self.auto_step = false;
             }
@@ -3043,6 +3052,7 @@ impl PlayerNode {
     }
 
     fn place_camera(&mut self, feet: Vec3, height: f32) {
+        let _span = soe_trace::Span::new("host.camera_place", "host");
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _phase = crate::scene_timing::Scope::new(soe_trace::System::Input);
         if self.camera.is_none() {

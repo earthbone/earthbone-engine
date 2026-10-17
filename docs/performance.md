@@ -1,5 +1,24 @@
 # Performance
 
+## Exterior publication stages, PRF-46, PRF-52 and PRF-54
+
+The door route exposed a blocking join on background LOD preparation. The
+walking path now polls completion and keeps previous coverage until finer
+workers finish. Atlas image bytes use contiguous packed-array transfers.
+All three LOD streams share the publication clock. The existing cell worker
+also prepares occluders and query hulls, including the 36.939 ms hull operation
+identified by the grounded trace. Server allocation and attachment stay on
+the main thread. Movable publication keeps all shapes of one reference in
+one compound body and slices between references.
+
+Retirement hides departing render batches and releases resources in bounded
+slices, charging the shared clock. A started retirement keeps its generation
+until release completes. Render finalization and gameplay cell entry previously
+shared a frame and cost about 12 and 15 ms. The ordered lifecycle delta now
+runs on the following streaming frame before new loads. The fixture retains
+its timing assertions and adds collision-supported entry and a grounded finish.
+The visibility and tree handoff rows complete the combined route validation.
+
 ## Automatic gameplay clock, PRF-48, 2026-10-17
 
 Preview3 capped physics at one callback per rendered frame. Godot's local

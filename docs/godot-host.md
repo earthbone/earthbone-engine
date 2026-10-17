@@ -1,5 +1,21 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Exterior publication stages, PRF-46, PRF-52 and PRF-54
+
+Walking now polls unfinished LOD workers and retains coarse coverage until
+finer blocks are ready. Terrain, object and tree publication share a frame
+budget. Packed image bytes use contiguous copies. Cell preparation builds
+occluders and query hulls on the existing worker, leaving server calls on the
+main thread. Movable references retain their compound shapes across slices.
+
+Departing render batches hide before resource retirement. Retirement keeps
+its generation until release finishes. Gameplay entry and unload deltas run
+on the next streaming frame after render finalization, retaining their order.
+The grounded fixture now selects collision support and requires a grounded
+finish, since the old fixture could pass horizontal travel while falling.
+The separate visibility and tree rows carry their own acceptance evidence.
+No per-reference scene node, dependency or saved field is added.
+
 ## Tree pipeline warmup, PRF-49, 2026-10-17
 
 PRF-49 prepares the load order's winning TREE material and vertex layouts on a

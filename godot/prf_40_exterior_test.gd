@@ -59,6 +59,19 @@ func _start() -> void:
 	while player.call("is_location_preparing") and Time.get_ticks_msec() < deadline:
 		await process_frame
 	_check(not player.call("is_location_preparing"), "initial location preparation completed")
+	player.set("auto_step", false)
+	var support: Dictionary = player.call("play_path_ground", point + Vector3(0, 0, 4096))
+	_check(not support.is_empty(), "starting point has collision support")
+	if not support.is_empty():
+		point.z = float(support.height) + 32.0
+		_check(player.call("enter_cell", target, point.x, point.y, point.z) >= 0, "start on collision surface")
+	player.call("advance", 0.0)
+	player.set("auto_step", true)
+	deadline = Time.get_ticks_msec() + 120_000
+	await process_frame
+	while player.call("is_location_preparing") and Time.get_ticks_msec() < deadline:
+		await process_frame
+	_check(not player.call("is_location_preparing"), "grounded location preparation completed")
 	var before := Warmup.snapshot()
 	var upload_before := {}
 	if streamer.has_method("upload_progress"):
@@ -69,6 +82,8 @@ func _start() -> void:
 	var physics_ms: Array[float] = []
 	var max_steps := 0
 	var start: Vector3 = player.call("position")
+	var initial_ground: Dictionary = player.call("play_path_ground", start + Vector3(0, 0, 128))
+	player.call("set_detailed_tracing", true)
 	var start_cell: String = player.call("gameplay_cell")
 	var residents_before: Dictionary = player.call("exterior_resources")
 	var previous := Time.get_ticks_usec()
@@ -88,6 +103,7 @@ func _start() -> void:
 		if index == 179:
 			Input.action_release("Forward")
 	Input.action_release("Forward")
+	player.call("set_detailed_tracing", false)
 	var after := Warmup.snapshot()
 	var delta: Array[int] = []
 	for index in before.size():
@@ -107,6 +123,7 @@ func _start() -> void:
 		"distance": start.distance_to(finish),
 		"horizontal_distance": Vector2(start.x, start.y).distance_to(Vector2(finish.x, finish.y)),
 		"start": [start.x, start.y, start.z],
+		"initial_ground": initial_ground,
 		"finish": [finish.x, finish.y, finish.z],
 		"on_ground": player.call("is_on_ground"),
 		"start_cell": start_cell,
@@ -125,8 +142,10 @@ func _start() -> void:
 		results[field + "_p99"] = values[ceili(values.size() * 0.99) - 1]
 		results[field + "_max"] = values.back()
 	_check(max_steps <= 1, "physics catch-up exceeded one step")
+	_check(results.streaming_ms_max < 33.0, "streaming stays below 33 ms")
 	_check(results.distance > 128.0, "player moved through the exterior")
 	_check(results.start_cell != results.end_cell, "traversal crossed a CELL boundary")
+	_check(results.on_ground, "traversal finished on collision ground")
 	var path := OS.get_environment("SOE_PRF40_REPORT")
 	if not path.is_empty():
 		var output := FileAccess.open(path, FileAccess.WRITE)

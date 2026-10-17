@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::thread::JoinHandle;
 
-use godot::obj::WithBaseField;
+use godot::obj::{Singleton, WithBaseField};
 use soe_esm::GlobalFormId;
 use soe_physics::{BodyId, PhysicsWorld};
 
@@ -32,6 +32,8 @@ type Outcome = (
         Option<(
             crate::data_source::PreparedCell,
             crate::godot_layer::upload::Plan,
+            crate::batch::PreparedOccluder,
+            Vec<Option<crate::godot_physics::PreparedBody>>,
         )>,
         String,
     >,
@@ -43,6 +45,20 @@ pub(super) struct Pending {
     requests: Vec<CellRequest>,
     queue: VecDeque<Outcome>,
     upload: Option<Uploading>,
+    retirements: VecDeque<Retiring>,
+    lifecycle: Option<CellDelta>,
+}
+
+struct CellDelta {
+    entered: Vec<GlobalFormId>,
+    departed: Vec<GlobalFormId>,
+}
+
+struct Retiring {
+    request: CellRequest,
+    cell: GlobalFormId,
+    started: bool,
+    bodies: Vec<BodyId>,
 }
 
 struct Uploading {
@@ -51,6 +67,11 @@ struct Uploading {
     plan: crate::godot_layer::upload::Plan,
     totals: crate::godot_layer::StreamTotals,
     placed: usize,
+    query_ready: bool,
+    query_bodies: Vec<Option<crate::godot_physics::PreparedBody>>,
+    bodies: Vec<BodyId>,
+    occluder: crate::batch::PreparedOccluder,
+    movable: crate::godot_physics::MovableGroups,
 }
 
 impl Drop for Pending {
@@ -124,9 +145,22 @@ fn advance_lod(
         return true;
     }
 
-    node.update_terrain_lod(focus.x, focus.y) >= 0
-        && node.update_object_lod(focus.x, focus.y) >= 0
-        && node.update_tree_lod(focus.x, focus.y) >= 0
+    let first = if progressive {
+        godot::classes::Engine::singleton().get_process_frames() % 3
+    } else {
+        0
+    };
+    for offset in 0..3 {
+        let drawn = match (first + offset) % 3 {
+            0 => node.update_terrain_lod(focus.x, focus.y),
+            1 => node.update_object_lod(focus.x, focus.y),
+            _ => node.update_tree_lod(focus.x, focus.y),
+        };
+        if drawn < 0 {
+            return false;
+        }
+    }
+    true
 }
 
 pub(super) fn config() -> StreamConfig {
@@ -381,6 +415,7 @@ impl PlayerNode {
     fn advance_exterior_async(&mut self) -> bool {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let _span = soe_trace::Span::new("host.exterior_frame", "host");
+        let started = std::time::Instant::now();
         let feet = self.feet();
         let focus = SkyrimPos::new(feet.x, feet.y, feet.z);
         let direction = self.rig.look_direction();
@@ -397,6 +432,30 @@ impl PlayerNode {
             return true;
         };
         let coord = CellCoord::containing(focus);
+        let Some(focus_cell) = source
+            .cell_index()
+            .exterior_cell(exterior.world, coord.x, coord.y)
+        else {
+            return false;
+        };
+        if let Some(delta) = exterior.pending.lifecycle.take() {
+            let _span = soe_trace::Span::new("host.exterior_game_cells", "host");
+            if let Err(error) =
+                game.update_streaming_cells(focus_cell, &delta.entered, &delta.departed)
+            {
+                soe_trace::error!(target: "host::exterior", system = "cell_streaming", "exterior residency update: {error}");
+                return false;
+            }
+            game.record_exterior_cell_loads(delta.entered.len());
+            let audio_changed = self.loaded_cell != Some(focus_cell);
+            self.loaded_cell = Some(focus_cell);
+            if audio_changed {
+                self.sync_cell_ambience(focus_cell);
+                self.sync_cell_music(focus_cell);
+            }
+            return true;
+        }
+        streamer.bind_mut().retire_uploads_step();
         if !advance_lod(
             exterior,
             source,
@@ -411,12 +470,6 @@ impl PlayerNode {
             soe_trace::error!(target: "host::exterior", system = "cell_streaming", "exterior LOD update failed at {},{}", coord.x, coord.y);
             return false;
         }
-        let Some(focus_cell) = source
-            .cell_index()
-            .exterior_cell(exterior.world, coord.x, coord.y)
-        else {
-            return false;
-        };
         if source.is_small_world(exterior.world) {
             if game.update_streaming_cells(focus_cell, &[], &[]).is_err() {
                 return false;
@@ -430,9 +483,11 @@ impl PlayerNode {
             f64::from(direction.y),
             f64::from(direction.z),
         ]);
+        let planning_span = soe_trace::Span::new("host.exterior_plan", "host");
         let busy = exterior.pending.job.is_some()
             || !exterior.pending.queue.is_empty()
-            || exterior.pending.upload.is_some();
+            || exterior.pending.upload.is_some()
+            || !exterior.pending.retirements.is_empty();
         let plan = if busy {
             exterior.planner.update_with_budget(
                 focus,
@@ -448,6 +503,23 @@ impl PlayerNode {
         } else {
             exterior.planner.update(focus)
         };
+        drop(planning_span);
+        for request in &plan.retirements {
+            if let Some(cell) =
+                source
+                    .cell_index()
+                    .exterior_cell(exterior.world, request.cell.x, request.cell.y)
+            {
+                exterior.pending.retirements.push_back(Retiring {
+                    request: *request,
+                    cell,
+                    started: false,
+                    bodies: Vec::new(),
+                });
+            } else {
+                exterior.planner.mark_retired(*request);
+            }
+        }
         if !plan.requests.is_empty() {
             for request in &plan.requests {
                 exterior.planner.mark_loading(*request);
@@ -456,6 +528,7 @@ impl PlayerNode {
             let world = exterior.world;
             let requests = plan.requests.clone();
             let batch = streamer.bind().batch_uploads();
+            let enabled_span = soe_trace::Span::new("host.exterior_enabled", "host");
             let disabled: std::collections::BTreeSet<_> = requests
                 .iter()
                 .filter_map(|request| {
@@ -467,6 +540,7 @@ impl PlayerNode {
                 .filter(|id| !game.world().reference_enabled(**id))
                 .copied()
                 .collect();
+            drop(enabled_span);
             match std::thread::Builder::new()
                 .name("exterior-prepare".into())
                 .spawn(move || {
@@ -488,7 +562,46 @@ impl PlayerNode {
                                             &cell.loaded.surfaces,
                                             batch,
                                         );
-                                        (cell, plan)
+                                        let _span = soe_trace::Span::new(
+                                            "host.exterior_occluder_prepare",
+                                            "host",
+                                        );
+                                        let surfaces: Vec<_> = cell
+                                            .loaded
+                                            .surfaces
+                                            .iter()
+                                            .filter(|surface| {
+                                                crate::godot_layer::upload::base_tag(
+                                                    Some(&source),
+                                                    surface.reference,
+                                                ) != Some(soe_esm::Tag::new(b"DOOR"))
+                                            })
+                                            .collect();
+                                        let (vertices, indices) =
+                                            crate::batch::cell_occluder_mesh_refs(
+                                                surfaces.iter().copied(),
+                                            );
+                                        let sources = surfaces
+                                            .iter()
+                                            .map(|surface| (surface.reference, surface.placement))
+                                            .collect();
+                                        let occluder = crate::batch::PreparedOccluder {
+                                            vertices,
+                                            indices,
+                                            sources,
+                                        };
+                                        let query_bodies = cell
+                                            .colliders
+                                            .iter()
+                                            .map(|placed| {
+                                                placed.collider.is_static().then(|| {
+                                                    crate::godot_physics::prepare_body(
+                                                        &placed.collider,
+                                                    )
+                                                })
+                                            })
+                                            .collect();
+                                        (cell, plan, occluder, query_bodies)
                                     })
                                 })
                                 .map_err(|error| error.to_string());
@@ -535,14 +648,19 @@ impl PlayerNode {
                     continue;
                 }
                 match outcome {
-                    Ok(Some((cell, upload))) => {
+                    Ok(Some((cell, upload, occluder, query_bodies))) => {
                         exterior.planner.mark_completed(request);
                         exterior.pending.upload = Some(Uploading {
                             request,
+                            movable: crate::godot_physics::movable_groups(&cell.colliders),
                             cell,
                             plan: upload,
                             totals: crate::godot_layer::StreamTotals::default(),
                             placed: 0,
+                            query_ready: false,
+                            query_bodies,
+                            bodies: Vec::new(),
+                            occluder,
                         });
                         break;
                     }
@@ -557,6 +675,65 @@ impl PlayerNode {
                 }
             }
         }
+        let retire_started = std::time::Instant::now();
+        let retire_span = soe_trace::Span::new("host.exterior_retire", "host");
+        let mut departed = Vec::new();
+        while started.elapsed() < crate::godot_layer::upload::SLICE_BUDGET {
+            let Some(mut retiring) = exterior.pending.retirements.pop_front() else {
+                break;
+            };
+            if !retiring.started {
+                if exterior.planner.request(retiring.request.cell) != Some(retiring.request)
+                    || exterior.planner.state(retiring.request.cell)
+                        != Some(crate::streaming::CellState::Retiring)
+                {
+                    continue;
+                }
+                let detach_span = soe_trace::Span::new("host.exterior_retire_detach", "host");
+                if !streamer
+                    .bind_mut()
+                    .retire_streamed_cell(retiring.cell, &game.world())
+                {
+                    exterior.planner.mark_retirement_failed(retiring.request);
+                    return false;
+                }
+                drop(detach_span);
+                if !exterior.planner.begin_retirement(retiring.request) {
+                    return false;
+                }
+                retiring.bodies = exterior.cells.remove(&retiring.cell).unwrap_or_default();
+                retiring.started = true;
+            }
+            while started.elapsed() < crate::godot_layer::upload::SLICE_BUDGET {
+                let Some(body) = retiring.bodies.pop() else {
+                    break;
+                };
+                if let Some(reference) = self.collision_references.get(&body) {
+                    let _span = soe_trace::Span::new("host.exterior_retire_query", "host");
+                    self.query_collision.remove_reference(*reference);
+                }
+                let controller_span =
+                    soe_trace::Span::new("host.exterior_retire_controller", "host");
+                physics.remove(body);
+                drop(controller_span);
+                untrack_collision_body(
+                    &mut self.collision_references,
+                    &mut self.collision_bodies,
+                    body,
+                );
+            }
+            if retiring.bodies.is_empty() && !streamer.bind().cell_release_pending(retiring.cell) {
+                exterior.planner.mark_retired(retiring.request);
+                departed.push(retiring.cell);
+            } else {
+                exterior.pending.retirements.push_front(retiring);
+                break;
+            }
+        }
+        drop(retire_span);
+        streamer
+            .bind_mut()
+            .charge_streaming_budget(retire_started.elapsed());
         let mut entered = Vec::new();
         if let Some(mut uploading) = exterior.pending.upload.take() {
             let id = uploading.cell.id;
@@ -572,75 +749,90 @@ impl PlayerNode {
                     return false;
                 }
                 if uploading.plan.is_empty() && uploading.placed < uploading.cell.colliders.len() {
-                    let end = (uploading.placed + 32).min(uploading.cell.colliders.len());
-                    self.query_collision
-                        .append(crate::godot_physics::add_placed_query_statics(
-                            space,
-                            &uploading.cell.colliders[uploading.placed..end],
-                        ));
-                    uploading.placed = end;
-                }
-                if !uploading.plan.is_empty() || uploading.placed < uploading.cell.colliders.len() {
-                    exterior.pending.upload = Some(uploading);
-                } else {
-                    let mut bodies = Vec::new();
-                    for placed in uploading
-                        .cell
-                        .colliders
-                        .iter()
-                        .filter(|p| p.collider.is_static())
+                    let collision_started = std::time::Instant::now();
+                    let _span = soe_trace::Span::new("host.exterior_query_collision", "host");
+                    while uploading.placed < uploading.cell.colliders.len()
+                        && started.elapsed() < crate::godot_layer::upload::SLICE_BUDGET
                     {
-                        let body = physics.add_static(&placed.collider);
-                        track_collision_body(
-                            &mut self.collision_references,
-                            &mut self.collision_bodies,
-                            body,
-                            placed.reference,
-                        );
-                        bodies.push(body);
+                        let placed = &uploading.cell.colliders[uploading.placed];
+                        if placed.collider.is_static() {
+                            let _span = soe_trace::Span::new("host.exterior_query_body", "host");
+                            if !uploading.query_ready {
+                                let Some(prepared) =
+                                    uploading.query_bodies[uploading.placed].take()
+                                else {
+                                    return false;
+                                };
+                                self.query_collision.append(
+                                    crate::godot_physics::add_prepared_query_static(
+                                        space, placed, prepared,
+                                    ),
+                                );
+                                uploading.query_ready = true;
+                            }
+                            if started.elapsed() >= crate::godot_layer::upload::SLICE_BUDGET {
+                                break;
+                            }
+                            let body = physics.add_static(&placed.collider);
+                            track_collision_body(
+                                &mut self.collision_references,
+                                &mut self.collision_bodies,
+                                body,
+                                placed.reference,
+                            );
+                            uploading.bodies.push(body);
+                        }
+                        uploading.query_ready = false;
+                        uploading.placed += 1;
                     }
                     streamer
                         .bind_mut()
-                        .finish_streamed_upload(&uploading.cell, &game.world());
-                    exterior.cells.insert(id, bodies);
+                        .charge_streaming_budget(collision_started.elapsed());
+                }
+                if !uploading.plan.is_empty()
+                    || uploading.placed < uploading.cell.colliders.len()
+                    || started.elapsed() >= crate::godot_layer::upload::SLICE_BUDGET
+                {
+                    exterior.pending.upload = Some(uploading);
+                } else if uploading.movable.is_empty() {
+                    let finalize_started = std::time::Instant::now();
+                    let finalize_span = soe_trace::Span::new("host.exterior_finalize", "host");
+                    streamer.bind_mut().finish_streamed_upload(
+                        &uploading.cell,
+                        &game.world(),
+                        std::mem::take(&mut uploading.occluder),
+                    );
+                    exterior
+                        .cells
+                        .insert(id, std::mem::take(&mut uploading.bodies));
                     exterior.planner.mark_drawable(uploading.request);
                     entered.push(id);
+                    drop(finalize_span);
+                    streamer
+                        .bind_mut()
+                        .charge_streaming_budget(finalize_started.elapsed());
+                } else {
+                    let movable_started = std::time::Instant::now();
+                    if !streamer.bind_mut().install_movable_groups_step(
+                        &mut uploading.movable,
+                        crate::godot_layer::upload::SLICE_BUDGET.saturating_sub(started.elapsed()),
+                    ) {
+                        return false;
+                    }
+                    streamer
+                        .bind_mut()
+                        .charge_streaming_budget(movable_started.elapsed());
+                    exterior.pending.upload = Some(uploading);
                 }
             } else {
                 streamer
                     .bind_mut()
                     .apply_cell_delta(&[], &[id], &game.world());
-                for placed in &uploading.cell.colliders[..uploading.placed] {
+                let query_count = uploading.placed + usize::from(uploading.query_ready);
+                for placed in &uploading.cell.colliders[..query_count] {
                     self.query_collision.remove_reference(placed.reference);
                 }
-            }
-        }
-
-        let departed: Vec<_> = plan
-            .retirements
-            .iter()
-            .filter_map(|request| {
-                source
-                    .cell_index()
-                    .exterior_cell(exterior.world, request.cell.x, request.cell.y)
-            })
-            .collect();
-        if !departed.is_empty()
-            && !streamer
-                .bind_mut()
-                .apply_cell_delta(&[], &departed, &game.world())
-        {
-            for request in &plan.retirements {
-                exterior.planner.mark_retirement_failed(*request);
-            }
-            return false;
-        }
-        for id in &departed {
-            if let Some(bodies) = exterior.cells.remove(id) {
-                for body in bodies {
-                    if let Some(reference) = self.collision_references.get(&body) {
-                        self.query_collision.remove_reference(*reference);
-                    }
+                for body in uploading.bodies {
                     physics.remove(body);
                     untrack_collision_body(
                         &mut self.collision_references,
@@ -650,16 +842,19 @@ impl PlayerNode {
                 }
             }
         }
-        for request in &plan.retirements {
-            exterior.planner.mark_retired(*request);
+
+        if !entered.is_empty() || !departed.is_empty() {
+            exterior.pending.lifecycle = Some(CellDelta { entered, departed });
+            return true;
         }
-        if !entered.is_empty() || !departed.is_empty() || self.loaded_cell != Some(focus_cell) {
-            if let Err(error) = game.update_streaming_cells(focus_cell, &entered, &departed) {
+        if self.loaded_cell != Some(focus_cell) {
+            let _span = soe_trace::Span::new("host.exterior_game_cells", "host");
+            if let Err(error) = game.update_streaming_cells(focus_cell, &[], &[]) {
                 soe_trace::error!(target: "host::exterior", system = "cell_streaming", "exterior residency update: {error}");
                 return false;
             }
         }
-        game.record_exterior_cell_loads(entered.len());
+        let distant_span = soe_trace::Span::new("host.exterior_distant", "host");
         if !streamer.bind_mut().update_distant(
             exterior.world,
             [eye.x, eye.y, eye.z],
@@ -668,6 +863,7 @@ impl PlayerNode {
         ) {
             return false;
         }
+        drop(distant_span);
         let audio_changed = self.loaded_cell != Some(focus_cell);
         self.loaded_cell = Some(focus_cell);
         if audio_changed {

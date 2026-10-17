@@ -117,6 +117,11 @@ fn r4_installed_game_time_tracks_wall_time_through_the_inn_exit() {
 }
 
 #[test]
+fn r4_installed_door_streaming_stays_below_thirty_three_ms() {
+    r4_installed_route("r4_streaming_test.gd");
+}
+
+#[test]
 fn r4_installed_full_tree_pipelines_are_warm() {
     r4_installed_route("r4_tree_pipeline_test.gd");
 }
@@ -166,6 +171,14 @@ fn r4_installed_route(script: &str) {
             "R4_CLOCK {phase} ratio={ratio} wall={} game={}",
             row[phase]["wall"], row[phase]["game"]
         );
+    }
+    if script == "r4_streaming_test.gd" {
+        let frames = row["door_walk_60fps"]["frames"].as_array().unwrap();
+        let worst = frames
+            .iter()
+            .map(|frame| frame["streaming_ms"].as_f64().unwrap())
+            .fold(0.0, f64::max);
+        assert!(worst < 33.0, "door streaming reached {worst} ms");
     }
     let trace: serde_json::Value =
         serde_json::from_slice(&std::fs::read(report.with_extension("trace.json")).unwrap())
@@ -265,6 +278,11 @@ fn prf_40_installed_exterior_uploads_and_physics_are_bounded() {
             row["physics_ms_max"].as_f64().unwrap() < 33.0,
             "{cell}: physics callback breached 33 ms: {}",
             row["physics_ms_max"]
+        );
+        assert!(
+            row["streaming_ms_max"].as_f64().unwrap() < 33.0,
+            "{cell}: streaming callback breached 33 ms: {}",
+            row["streaming_ms_max"]
         );
         assert_eq!(
             row["pipelines"]["draw"].as_u64().unwrap(),

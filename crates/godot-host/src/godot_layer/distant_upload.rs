@@ -4,6 +4,7 @@
 //! Mudcrab's acknowledged drawable lifecycle supplies the handoff rule.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use super::{upload, BatchTable, CellStreamerNode, LoadedCell, LoadedSurface, StreamTotals};
@@ -14,7 +15,8 @@ pub(super) struct Prepared {
     revision: u64,
     loaded: LoadedCell,
     plan: upload::Plan,
-    surfaces: BTreeMap<GlobalFormId, Vec<LoadedSurface>>,
+    surfaces: BTreeMap<GlobalFormId, Arc<Vec<LoadedSurface>>>,
+    occluder: crate::batch::PreparedOccluder,
 }
 
 pub(super) struct Publishing {
@@ -30,7 +32,10 @@ impl Publishing {
     }
 }
 
-fn owns_batch(table: &BatchTable, surfaces: &BTreeMap<GlobalFormId, Vec<LoadedSurface>>) -> bool {
+fn owns_batch(
+    table: &BatchTable,
+    surfaces: &BTreeMap<GlobalFormId, Arc<Vec<LoadedSurface>>>,
+) -> bool {
     match table {
         BatchTable::Instances(members) => {
             !members.is_empty() && members.iter().all(|id| surfaces.contains_key(id))
@@ -142,8 +147,10 @@ impl CellStreamerNode {
         let Some(source) = self.data_source.clone() else {
             return false;
         };
+        let snapshot_span = soe_trace::Span::new("host.distant_snapshot", "host");
         let mut surfaces = self.distant.surfaces.clone();
         surfaces.retain(|id, _| selected.contains(id));
+        drop(snapshot_span);
         let batch = self.batch_surfaces;
         let revision = self.distant.revision;
         match std::thread::Builder::new()
@@ -157,9 +164,13 @@ impl CellStreamerNode {
                     surfaces.entry(*id).or_default();
                 }
                 for surface in loaded.surfaces.drain(..) {
-                    surfaces.entry(surface.reference).or_default().push(surface);
+                    Arc::make_mut(surfaces.entry(surface.reference).or_default()).push(surface);
                 }
-                loaded.surfaces = surfaces.values().flatten().cloned().collect();
+                loaded.surfaces = surfaces
+                    .values()
+                    .flat_map(|surfaces| surfaces.iter())
+                    .cloned()
+                    .collect();
                 loaded.stats.references = selected.len();
                 loaded.stats.triangles = loaded
                     .surfaces
@@ -167,11 +178,22 @@ impl CellStreamerNode {
                     .map(|s| s.arrays.triangle_count())
                     .sum();
                 let plan = upload::Plan::new(Some(&source), owner, &loaded.surfaces, batch);
+                let (vertices, indices) = crate::batch::cell_occluder_mesh(&loaded.surfaces);
+                let sources = loaded
+                    .surfaces
+                    .iter()
+                    .map(|surface| (surface.reference, surface.placement))
+                    .collect();
                 Ok(Prepared {
                     revision,
                     loaded,
                     plan,
                     surfaces,
+                    occluder: crate::batch::PreparedOccluder {
+                        vertices,
+                        indices,
+                        sources,
+                    },
                 })
             }) {
             Ok(worker) => {
@@ -187,6 +209,7 @@ impl CellStreamerNode {
 
     /// Returns whether a replacement is still pending after this frame's slice.
     pub(super) fn poll_distant_upload(&mut self, owner: GlobalFormId) -> Result<bool, ()> {
+        let _span = soe_trace::Span::new("host.distant_publication", "host");
         if self
             .distant
             .worker
@@ -225,14 +248,14 @@ impl CellStreamerNode {
         if let Some(mut publishing) = self.distant.publishing.take() {
             if publishing.prepared.revision != self.distant.revision {
                 let mut server = super::RenderingServer::singleton();
-                self.instances.retain(|instance| {
+                for instance in std::mem::take(&mut self.instances) {
                     if publishing.contains_rid(instance.rid) {
-                        server.free_rid(instance.rid);
-                        false
+                        server.instance_set_visible(instance.rid, false);
+                        self.retiring_instances.push_back(instance);
                     } else {
-                        true
+                        self.instances.push(instance);
                     }
-                });
+                }
                 self.reference_index_dirty = true;
                 self.materials.prune_unused();
                 return Ok(false);
@@ -260,14 +283,14 @@ impl CellStreamerNode {
                 return Ok(true);
             }
             let mut server = super::RenderingServer::singleton();
-            self.instances.retain(|instance| {
+            for instance in std::mem::take(&mut self.instances) {
                 if publishing.old_rids.contains(&instance.rid) {
-                    server.free_rid(instance.rid);
-                    false
+                    server.instance_set_visible(instance.rid, false);
+                    self.retiring_instances.push_back(instance);
                 } else {
-                    true
+                    self.instances.push(instance);
                 }
-            });
+            }
             for (rid, kind) in publishing.new_rids {
                 server.instance_set_visible(rid, self.console_visibility[kind]);
             }
@@ -280,7 +303,16 @@ impl CellStreamerNode {
             });
             if self.cell_occluders {
                 if let Some(scenario) = self.scenario() {
-                    self.add_cell_occluder(owner, &publishing.prepared.loaded.surfaces, scenario);
+                    let occluder = std::mem::take(&mut publishing.prepared.occluder);
+                    if let Some(rids) =
+                        Self::create_occluder(occluder.vertices, occluder.indices, scenario)
+                    {
+                        self.occluders.push(super::CellOccluder {
+                            cell: owner,
+                            _rids: rids,
+                            sources: occluder.sources,
+                        });
+                    }
                 }
             }
             let stale_doors: Vec<_> = self
@@ -316,7 +348,7 @@ mod tests {
     fn prf_40_distant_replacement_preserves_other_persistent_geometry() {
         let distant = GlobalFormId { file: 0, object: 1 };
         let ordinary = GlobalFormId { file: 0, object: 2 };
-        let surfaces = BTreeMap::from([(distant, Vec::new())]);
+        let surfaces = BTreeMap::from([(distant, Arc::new(Vec::new()))]);
         assert!(owns_batch(&BatchTable::Instances(vec![distant]), &surfaces));
         assert!(!owns_batch(
             &BatchTable::Instances(vec![ordinary]),
