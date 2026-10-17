@@ -1267,6 +1267,13 @@ fn switch_to_inner(
 }
 
 fn unlock_cell_doors(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) {
+    set_owned_cell_doors(world, actor, false, alloc);
+}
+
+/// Lock or unlock every door in the actor's cell that the actor owns, either
+/// directly or through a faction. The UnlockDoors and LockDoors procedures
+/// and the package unlock flags share this.
+fn set_owned_cell_doors(world: &mut World, actor: GlobalFormId, lock: bool, alloc: Alloc<'_>) {
     let Some(cell) = world.reference(actor).and_then(|reference| reference.cell) else {
         return;
     };
@@ -1285,11 +1292,12 @@ fn unlock_cell_doors(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) {
                     .actor(actor)
                     .is_some_and(|state| state.factions.contains_key(&owner))
         });
-        if locked && owned_by_actor {
-            world.set_locked(door, false, alloc);
+        if locked != lock && owned_by_actor {
+            world.set_locked(door, lock, alloc);
         }
     }
 }
+
 fn start_boundary_action(
     world: &mut World,
     package_id: GlobalFormId,
