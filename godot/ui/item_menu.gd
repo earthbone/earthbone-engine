@@ -121,6 +121,9 @@ func _ready() -> void:
 func configure(menu_mode: String, data: Array, cache: String = "") -> void:
 	mode = menu_mode
 	source_rows = data
+	set_art_cache(cache)
+
+func set_art_cache(cache: String) -> void:
 	cache_directory = cache
 	if is_node_ready():
 		_apply_cache_font()

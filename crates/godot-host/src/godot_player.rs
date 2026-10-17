@@ -262,6 +262,7 @@ pub struct PlayerNode {
     appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
     interface_cache: Option<String>,
+    interface_cache_job: Option<crate::interface_art::CacheJob>,
     quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
     objective_map_snapshot: Option<Vec<crate::objective_map::Marker>>,
     mcm_config: Option<GlobalFormId>,
@@ -416,6 +417,7 @@ impl INode3D for PlayerNode {
             appearance_choice: None,
             menu_view: None,
             interface_cache: None,
+            interface_cache_job: None,
             quest_journal_snapshot: None,
             objective_map_snapshot: None,
             mcm_config: None,
@@ -649,6 +651,7 @@ impl INode3D for PlayerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        self.poll_interface_cache();
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         if !self.location_preparing {
             if self.auto_step && self.game.is_some() && !self.advance_exterior() {
@@ -1201,6 +1204,7 @@ impl PlayerNode {
     #[func]
     pub fn load_data(&mut self, path: GString) -> bool {
         self.clear_player_input();
+        self.interface_cache_job = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.location_preparing = false;
         self.location_install = None;
@@ -1250,6 +1254,7 @@ impl PlayerNode {
         self.location_preparing = false;
         self.location_install = None;
         self.interface_cache = None;
+        self.interface_cache_job = None;
         self.data_source = Some(source);
         self.game = None;
         self.clear_player_input();

@@ -4,6 +4,27 @@
 
 use super::*;
 
+#[test]
+fn interface_cache_poll_does_not_wait_for_export_and_delivers_the_result() {
+    let (release, waiting) = mpsc::channel();
+    let job = CacheJob::spawn(move || {
+        waiting.recv().unwrap();
+        Ok("completed-art".into())
+    })
+    .unwrap();
+    // CONTEXT: The worker cannot finish until after this nonblocking poll.
+    assert!(job.poll().is_none());
+    release.send(()).unwrap();
+    assert_eq!(job.0.recv().unwrap(), Ok("completed-art".into()));
+}
+
+#[test]
+fn interface_cache_poll_reports_worker_failure() {
+    let job = CacheJob::spawn(|| Err("export rejected".into())).unwrap();
+    assert_eq!(job.0.recv().unwrap(), Err("export rejected".into()));
+    assert!(matches!(job.poll(), Some(Err(message)) if message.contains("disconnected")));
+}
+
 fn executable_file(directory: &Path, name: &str) -> PathBuf {
     let file = directory.join(name);
     std::fs::write(&file, "#!/bin/sh\nexit 0\n").unwrap();

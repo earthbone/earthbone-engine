@@ -58,6 +58,9 @@ impl PlayerNode {
         if let Some(cache) = &self.interface_cache {
             return cache.clone();
         }
+        if self.interface_cache_job.is_some() {
+            return String::new();
+        }
         if let Ok(cache) = std::env::var("SOE_INTERFACE_CACHE") {
             self.interface_cache = Some(cache.clone());
             return cache;
@@ -88,18 +91,32 @@ impl PlayerNode {
             || std::path::PathBuf::from("/tmp/soe-interface-cache"),
             std::path::PathBuf::from,
         );
-        let plugins = source
-            .order()
-            .files()
-            .iter()
-            .map(|file| file.name.clone())
-            .collect::<Vec<_>>();
-        let cache = match soe_swf_convert::build_cache(source.vfs(), &plugins, &root, &decompiler) {
+        match crate::interface_art::CacheJob::start(source.clone(), root, decompiler) {
+            Ok(job) => {
+                self.interface_cache_job = Some(job);
+                if let Some(hud) = self.hud_view.as_mut() {
+                    hud.set_interface_notice("Preparing interface art");
+                }
+            }
+            Err(error) => {
+                godot_error!("PlayerNode: interface art worker failed: {error}");
+                self.interface_cache = Some(String::new());
+            }
+        }
+        String::new()
+    }
+
+    pub(super) fn poll_interface_cache(&mut self) {
+        let Some(result) = self.interface_cache_job.as_ref().and_then(|job| job.poll()) else {
+            return;
+        };
+        self.interface_cache_job = None;
+        let cache = match result {
             Ok(cache) => {
                 if let Some(hud) = self.hud_view.as_mut() {
                     hud.set_interface_notice("");
                 }
-                cache.directory.to_string_lossy().into_owned()
+                cache
             }
             Err(error) => {
                 godot_error!("PlayerNode: interface art cache failed: {error}");
@@ -110,7 +127,13 @@ impl PlayerNode {
             }
         };
         self.interface_cache = Some(cache.clone());
-        cache
+        if let Some(mut view) = self
+            .menu_content()
+            .and_then(|content| content.get_node_or_null("ItemMenu"))
+        {
+            let _guard = self.base_mut();
+            view.call("set_art_cache", &[cache.to_variant()]);
+        }
     }
 
     pub(super) fn present_items(&mut self, mode: &str, rows: &[(Row, i64)]) -> bool {

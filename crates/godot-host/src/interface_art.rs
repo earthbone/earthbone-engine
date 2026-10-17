@@ -4,8 +4,54 @@
 //! The converter owns export arguments and runs the selected tool out of process.
 
 use std::path::{Path, PathBuf};
+use std::sync::{mpsc, Arc};
 
 use soe_swf_convert::Decompiler;
+
+/// File conversion stays off the Godot thread, including external FFDec waits.
+pub(crate) struct CacheJob(mpsc::Receiver<Result<String, String>>);
+
+impl CacheJob {
+    fn spawn(
+        work: impl FnOnce() -> Result<String, String> + Send + 'static,
+    ) -> std::io::Result<Self> {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("interface-cache".into())
+            .spawn(move || {
+                let _ = sender.send(work());
+            })?;
+        Ok(Self(receiver))
+    }
+
+    pub(crate) fn start(
+        source: Arc<crate::data_source::DataSource>,
+        root: PathBuf,
+        decompiler: Decompiler,
+    ) -> std::io::Result<Self> {
+        Self::spawn(move || {
+            let plugins = source
+                .order()
+                .files()
+                .iter()
+                .map(|file| file.name.clone())
+                .collect::<Vec<_>>();
+            soe_swf_convert::build_cache(source.vfs(), &plugins, &root, &decompiler)
+                .map(|cache| cache.directory.to_string_lossy().into_owned())
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    pub(crate) fn poll(&self) -> Option<Result<String, String>> {
+        match self.0.try_recv() {
+            Ok(result) => Some(result),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Some(Err("interface cache worker disconnected".into()))
+            }
+        }
+    }
+}
 
 fn executable(path: &Path) -> bool {
     #[cfg(unix)]

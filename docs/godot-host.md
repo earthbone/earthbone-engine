@@ -10087,3 +10087,19 @@ readiness. The authored open animation precedes destination preparation, so
 waiting only for preparation checked the original inn cell and ended the
 route early. Required destination and route assertions remain unchanged.
 Failed door-state pixel checks now retain both comparison frames.
+
+## Interface conversion during play
+
+The installed preview3 route passed the container walk, then the two-second
+watchdog fired while the main thread waited for FFDec in
+`swf-convert::cache::Decompiler::export`. The first item menu had built the
+entire winning interface generation synchronously. A worker now runs the
+same converter and publishes its result through a nonblocking channel.
+Godot keeps the menu responsive with its bundled art while conversion runs,
+then applies the completed cache to the open item menu on the main thread.
+No Godot object crosses the worker boundary. Reloading data drops the old
+receiver so a previous load order cannot publish into the new menu.
+The converter, exported sources, generation keys and watchdog limit remain.
+The boundary follows local `godot-docs/tutorials/performance/thread_safe_apis.rst`.
+The local `SkyUI-Community/tools/FFDec/ffdec-cli` still supplies the external
+exporter through the existing converter.
