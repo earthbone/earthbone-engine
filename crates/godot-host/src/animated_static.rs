@@ -178,6 +178,7 @@ mod tests {
 
     fn plain_node(name: &str, controller: BlockRef, children: Vec<BlockRef>) -> Block {
         Block::Node(Node {
+            switch: None,
             av: AvObject {
                 net: ObjectNet {
                     name: name.to_string(),

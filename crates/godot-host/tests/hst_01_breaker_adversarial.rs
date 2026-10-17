@@ -27,6 +27,7 @@ fn node(name: &str, controller: BlockRef, children: Vec<BlockRef>) -> Block {
         },
         children,
         effects: Vec::new(),
+        switch: None,
     })
 }
 

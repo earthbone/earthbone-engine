@@ -51,6 +51,15 @@ pub struct Node {
     pub av: AvObject,
     pub children: Vec<BlockRef>,
     pub effects: Vec<BlockRef>,
+    /// NiSwitchNode's trailing flags and selected child, from nif.xml and nifly Nodes.cpp.
+    pub switch: Option<SwitchState>,
+}
+
+/// NiSwitchNode state. `u32::MAX` selects no child.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SwitchState {
+    pub flags: u16,
+    pub active: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -528,6 +537,7 @@ pub enum Block {
 impl Block {
     pub fn type_name(&self) -> &str {
         match self {
+            Block::Node(node) if node.switch.is_some() => "NiSwitchNode",
             Block::Node(_) => "NiNode",
             Block::TriShape(_) => "NiTriShape",
             Block::GeometryData(_) => "NiTriShapeData",
@@ -728,6 +738,7 @@ fn read_node(s: &mut Stream<'_>, c: &Ctx<'_>) -> Result<Node> {
         av,
         children,
         effects,
+        switch: None,
     })
 }
 
@@ -1246,6 +1257,7 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
         let exact = matches!(
             type_name.as_str(),
             "NiNode"
+                | "NiSwitchNode"
                 | "BSFadeNode"
                 | "NiTriShape"
                 | "NiTriStrips"
@@ -1273,7 +1285,16 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
                 | "NiFloatData"
         ) || (type_name == "BSLightingShaderProperty" && h.bs_version < BS_FALLOUT_4);
         let block = match kind_of(&type_name) {
-            Kind::Node => Block::Node(read_node(s, &c)?),
+            Kind::Node => {
+                let mut node = read_node(s, &c)?;
+                if type_name == "NiSwitchNode" {
+                    node.switch = Some(SwitchState {
+                        flags: s.u16()?,
+                        active: s.u32()?,
+                    });
+                }
+                Block::Node(node)
+            }
             Kind::TriShape if type_name == "BSLODTriShape" => {
                 Block::TriShape(read_bs_lod_tri_shape(s, &c)?)
             }

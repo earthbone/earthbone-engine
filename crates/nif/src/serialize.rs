@@ -204,6 +204,10 @@ fn encode_node(node: &Node, strings: &HashMap<String, u32>) -> Result<Vec<u8>> {
     put_i32(&mut out, node.av.collision.0);
     put_refs(&mut out, &node.children)?;
     put_refs(&mut out, &node.effects)?;
+    if let Some(state) = node.switch {
+        put_u16(&mut out, state.flags);
+        put_u32(&mut out, state.active);
+    }
     Ok(out)
 }
 
