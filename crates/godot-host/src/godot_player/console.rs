@@ -518,7 +518,7 @@ impl PlayerNode {
         }
         if self.game.is_some() {
             self.process_console_quit();
-            if !self.sync_game_pose() {
+            if !self.sync_game_pose() && !self.location_preparing {
                 output.push_str("\nerror: host could not install the new player pose");
             }
             self.sync_door_presentation();

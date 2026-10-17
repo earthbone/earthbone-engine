@@ -112,3 +112,9 @@ fn r4_scene(script: &str, marker: &str, windowed: bool) {
 fn r4_console_text_uses_clipboards_mouse_selection_and_paging() {
     r4_scene("r4_console_text_test.gd", "R4_TEXT_RESULT PASS", true);
 }
+
+#[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn r4_coc_installs_queued_cell_while_console_pauses_gameplay() {
+    r4_scene("r4_coc_paused_test.gd", "R4_PAUSED_RESULT PASS", false);
+}

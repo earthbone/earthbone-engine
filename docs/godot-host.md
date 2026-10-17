@@ -10234,3 +10234,17 @@ Native input event checks select zero characters with selection disabled and
 72 characters across lines with it enabled. The finished walkthrough text
 scene passes in both the Bannered Mare and WhiterunExterior04, including both
 clipboards, output copying, paging and Tab completion.
+
+## Queued console cell installation, HST-56
+
+With automatic stepping enabled, the host prepares and installs a new cell in
+stages. Console pause now polls that outstanding installation before returning
+without a gameplay tick. A command that queued preparation is accepted, while
+an installation failure still reports an error. The game clock and controls
+stay paused. `r4_coc_paused_test.gd` exercises the free walkthrough with ordinary
+automatic stepping, leaves the console open, and requires the QASmoke marker
+pose within 20 seconds without advancing game days.
+
+The finished automatic walkthrough installs QASmoke in 907 ms with the console
+open, compared with the original 20 second stall. Its camera Environment has
+the destination ambient and fog values. The game-day clock remains paused.

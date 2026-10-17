@@ -1424,8 +1424,12 @@ impl PlayerNode {
 
     fn advance_measured(&mut self, delta: f64) {
         if self.console.open {
+            if self.location_change_pending() {
+                self.sync_game_pose();
+            }
             return;
         }
+
         if self.console_free_camera_step(delta) {
             return;
         }
