@@ -10050,6 +10050,12 @@ and authored End_Tower_Smash triggers. The installed smash generator has
 flags zero, allowing annotation conversion. Its End_Tower_Smash and
 to_Perch_Idle triggers fire 0.002 seconds before clip end.
 
+An isolated installed-asset diagnostic loads the winning records into a fresh
+world and requests Open on wall 0:06CF54. The driver resolves its NIF,
+project, character, skeleton, behavior and clip, marks the reference loaded
+and reports Open followed by Begin. This world restores no save and loads
+no installed PEX definitions. The synthetic OnLoad listener test covers script delivery.
+
 Sources read for this change were local CK PlayIdle, PlayIdleWithTarget,
 OnAnimationEvent, OnLoad and OnTriggerEnter pages, UESP IDLE.wikitext, xEdit
 wbDefinitionsTES5.pas IDLE, FURN and PACK definitions, nifxml/nif.xml
@@ -10100,15 +10106,28 @@ uses the actor's footpoint and point sweep, not its controller body. No
 trigger volume change is part of this patch. Controller-body overlap and
 the parent's saved enable state need separate verification.
 
+The existing ESS reader finds parent 0:0F7E82 with saved form-flag words
+`0x040B, 0x0040` in checkpoint 01 and `0x0409, 0x0040` in checkpoint 02.
+The current importer XORs the first word with the winning record's `0x0C00`,
+leaving the initially-disabled bit set. xEdit names the two fields but does
+not establish their runtime operation. FallrimTools preserves them without
+applying them. This observation supplies a real-save case for the existing
+[SAV-54 evidence gap](save.md#reference-mask-implementation-and-evidence-sav-54).
+It does not justify changing the flag operation in this driver patch.
+
 Checks on 2026-10-17 pass 253 game library tests, 440 HKX tests, 55 probe
-tests and 22 Patrol integration tests. Optional installed-data and capture
-gates were unset for those crate runs. Formatting and all-target clippy pass
-for game, HKX and probe. Eleven game driver tests include the three moved
+tests and 22 Patrol integration tests. Eight HST-14 trigger-delivery tests
+also pass, including gated cases that return early without installed data.
+Optional installed-data and capture gates were unset for those crate runs.
+Formatting and all-target clippy pass for game, HKX and probe. Eleven game driver tests include the three moved
 probe checks and eight graph, script, timing, request and lifecycle checks.
 The HKX change supplies the state ownership and initial trigger handling
 needed by the shared game driver, without a second interpreter.
 
-The installed diagnostic route completes through stage 192, with stages
-100, 103 and 120 still absent. The full installed PLY-03 suite has not yet
-completed on this milestone. PLY-03 remains unfinished. The lead's workspace
-gate was not run, as requested.
+The full installed PLY-03 run on 2026-10-17 completes with 33 passes and
+six failures out of 39 selected tests, exit status 101. Every failure reports
+the same first-pair done-stage difference: stages 100, 103 and 120 are absent.
+Quest flags and player inventory match. The second pair matches its successor
+without a field difference. The tower entry, fallback timer and stairs
+regressions pass. No assertion, route or replay event was changed.
+PLY-03 remains open. The lead's workspace gate was not run, as requested.
