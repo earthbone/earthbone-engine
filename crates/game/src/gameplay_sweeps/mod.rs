@@ -40,6 +40,7 @@ macro_rules! with_world {
 }
 
 pub mod consumables;
+pub mod magic;
 
 /// One checked record, before it is labelled for the report.
 #[derive(Debug, Clone, PartialEq)]

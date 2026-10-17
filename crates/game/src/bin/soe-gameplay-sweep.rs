@@ -3,12 +3,12 @@
 //! Headless gameplay sweeps. Expectations follow docs/validation.md.
 
 use soe_game::activation_sweep::installed_order;
-use soe_game::gameplay_sweeps::{self, consumables, Options};
+use soe_game::gameplay_sweeps::{self, consumables, magic, Options};
 use std::path::Path;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: soe-gameplay-sweep <consumables> <report.json> [--only <editor id prefix>] [--limit <n>]";
+    "usage: soe-gameplay-sweep <consumables|magic> <report.json> [--only <editor id prefix>] [--limit <n>]";
 
 fn run() -> Result<bool, String> {
     let data = std::env::var_os("SKYRIM_DATA").ok_or("SKYRIM_DATA is required")?;
@@ -19,6 +19,7 @@ fn run() -> Result<bool, String> {
     let order = installed_order(Path::new(&data))?;
     let report = match kind.as_str() {
         "consumables" => consumables::run(&order, &options),
+        "magic" => magic::run(&order, &options),
         _ => return Err(USAGE.into()),
     };
     std::fs::write(
