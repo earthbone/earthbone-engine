@@ -46,10 +46,15 @@ pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
 /// Render transform supplied by the shared world's actor placement.
 pub fn npc_transform(placement: soe_game::world::RefPlacement) -> crate::units::GodotTransform {
     crate::units::placement_to_godot(
-        crate::units::skyrim_euler_matrix(placement.rotation),
+        body_heading_matrix(placement.rotation),
         placement.position,
         placement.scale,
     )
+}
+
+/// Actor bodies stay upright while the view and head can pitch independently.
+pub(crate) fn body_heading_matrix(rotation: [f32; 3]) -> [[f32; 3]; 3] {
+    crate::units::skyrim_euler_matrix([0.0, 0.0, rotation[2]])
 }
 
 /// Authored locomotion inputs derived from consecutive rendered placements.
@@ -1624,6 +1629,179 @@ mod tests {
     use std::path::Path;
 
     #[test]
+    fn installed_adult_face_pixels_and_animated_normals() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let world = soe_game::World::from_shared_order(source.shared_order());
+        let actors: Vec<_> = ["Hulda", "Belethor", "Ysolda", "Braith"]
+            .into_iter()
+            .map(|name| {
+                let base = world.form(name).unwrap();
+                let actor = world.references_of_base(base, 1)[0];
+                format!("{name}:{}:{}", actor.file, actor.object)
+            })
+            .collect();
+        drop(world);
+        drop(source);
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let directory = workspace.join("target/adult-face-regression");
+        std::fs::create_dir_all(&directory).unwrap();
+        let output = std::process::Command::new(binary)
+            .arg("--path")
+            .arg(workspace.join("godot"))
+            .args(["--resolution", "640x360", "--script", "adult_face_test.gd"])
+            .env("SKYRIM_DATA", data)
+            .env("DISPLAY", ":99")
+            .env("SOE_FACE_ACTORS", actors.join(","))
+            .env("SOE_CHARACTER_OUTPUT", &directory)
+            .output()
+            .unwrap();
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::fs::write(directory.join("test.log"), &log).unwrap();
+        assert!(
+            output.status.success()
+                && log.contains("RESULT: PASS adult face")
+                && !log.contains("SCRIPT ERROR"),
+            "{log}"
+        );
+        println!("{log}");
+    }
+
+    #[test]
+    fn installed_first_person_camera_attachment_and_race_height() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let directory = workspace.join("target/player-view-regression");
+        std::fs::create_dir_all(&directory).unwrap();
+        let output = std::process::Command::new(binary)
+            .arg("--headless")
+            .arg("--path")
+            .arg(workspace.join("godot"))
+            .args(["--script", "actor_view_player_test.gd"])
+            .env("SKYRIM_DATA", data)
+            .env("DISPLAY", ":99")
+            .output()
+            .unwrap();
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::fs::write(directory.join("test.log"), &log).unwrap();
+        assert!(
+            output.status.success()
+                && log.contains("RESULT: PASS player view")
+                && !log.contains("SCRIPT ERROR"),
+            "{log}"
+        );
+        println!("{log}");
+    }
+
+    #[test]
+    fn installed_actor_view_source_survey() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        for name in ["Hulda", "Belethor", "Ysolda", "Braith"] {
+            let base = world.form(name).unwrap();
+            let actor = world.references_of_base(base, 1)[0];
+            let appearance = world.actor_appearance(actor).unwrap();
+            println!("ACTOR {name} actor={actor} appearance={appearance:?}");
+            for (owner, tag) in [
+                (base, soe_esm::Tag(*b"FTST")),
+                (appearance.race.unwrap(), soe_esm::Tag(*b"DFTM")),
+                (appearance.race.unwrap(), soe_esm::Tag(*b"DFTF")),
+            ] {
+                let texture_set = world.record(owner).unwrap().find(tag).map(|bytes| {
+                    let raw = u32::from_le_bytes(bytes.try_into().unwrap());
+                    world.resolve_from(owner, raw).unwrap()
+                });
+                println!("FACE_TEXTURE {name} field={tag:?} set={texture_set:?}");
+                if let Some(texture_set) = texture_set {
+                    let record = world.record(texture_set).unwrap();
+                    println!("TXST {name} {:?}", record.subrecords);
+                }
+            }
+            let face = appearance.facegen.as_ref().unwrap();
+            let path = format!(
+                "meshes/actors/character/facegendata/facegeom/{}/{:08X}.nif",
+                face.plugin, face.object
+            );
+            let bytes = read(source.vfs(), &path).unwrap();
+            let file = soe_nif::parse(&bytes).unwrap();
+            let head_name = &appearance
+                .head_parts
+                .iter()
+                .find(|part| part.part_type == 1)
+                .unwrap()
+                .name;
+            let meshes = file.meshes().unwrap();
+            let head = meshes
+                .iter()
+                .find(|mesh| mesh.name.eq_ignore_ascii_case(head_name))
+                .unwrap();
+            assert_eq!(
+                head.material.kind,
+                soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::FaceTint)
+            );
+            println!(
+                "FACEGEOM {name} path={path} kind={:?} textures={:?}",
+                head.material.kind, head.material.textures
+            );
+            let assets = ActorAssets::load_for_actor(&mut world, actor, source.vfs()).unwrap();
+            for surface in assets
+                .surfaces
+                .iter()
+                .filter(|s| s.head_part_type == Some(1))
+            {
+                assert!(surface.face_tint.is_some(), "{name} has exported tint");
+                assert!(surface.face_detail.is_some(), "{name} has FaceGen detail");
+                assert!(
+                    surface.textures.diffuse.is_some(),
+                    "{name} has face diffuse"
+                );
+                assert!(surface.textures.normal.is_some(), "{name} has face normal");
+                assert_eq!(
+                    surface.arrays.material.shader_flags_1
+                        & soe_nif::blocks::flags1::MODEL_SPACE_NORMALS
+                        != 0,
+                    name != "Braith",
+                    "adult model-space normals differ from the child's tangent-space map"
+                );
+                println!("HEAD {name} name={} material={:?} tint={:?} detail={:?} constant={:?} diffuse={} normal={}", surface.name, surface.arrays.material, surface.face_tint.as_ref().map(|(p,_)|p), surface.face_detail.as_ref().map(|(p,_)|p), surface.tint_color, surface.textures.diffuse.is_some(), surface.textures.normal.is_some());
+            }
+        }
+        let player = world.player();
+        for assets in [
+            ActorAssets::load_for_actor(&mut world, player, source.vfs()).unwrap(),
+            ActorAssets::load_player_first_person(&mut world, player, source.vfs()).unwrap(),
+        ] {
+            let model = assets
+                .skeleton
+                .to_model_space(&assets.skeleton.reference_pose)
+                .unwrap();
+            println!("PLAYER skeleton={}", assets.skeleton_path);
+            for (bone, pose) in assets.skeleton.bones.iter().zip(model).filter(|(bone, _)| {
+                bone.name.contains("Head") || bone.name.to_ascii_lowercase().contains("camera")
+            }) {
+                println!("BONE {} {pose:?}", bone.name);
+            }
+        }
+    }
+
+    #[test]
     fn installed_face_pixels_and_first_person_camera_visibility() {
         let Some(data) = std::env::var_os("SKYRIM_DATA") else {
             return;
@@ -2064,6 +2242,19 @@ mod npc_motion_tests {
             scale: 1.0,
             visible: true,
         }
+    }
+
+    #[test]
+    fn actor_body_heading_excludes_pitch_and_roll() {
+        let mut looking = placement();
+        looking.position = [17.0, 23.0, 41.0];
+        looking.scale = 1.08;
+        looking.rotation = [-1.2, 0.3, 0.7];
+        let heading = RefPlacement {
+            rotation: [0.0, 0.0, looking.rotation[2]],
+            ..looking
+        };
+        assert_eq!(super::npc_transform(looking), super::npc_transform(heading));
     }
 
     #[test]

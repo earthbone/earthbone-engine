@@ -1,5 +1,107 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Player view corrections, 2026-10-14
+
+The five reported symptoms have four causes. Camera height, body pitch and
+first-person placement do not share one cause. Existing first-person assembly
+already omits third-person head parts and hides the explicit third-person
+body. The first-person placement fault moves the remaining rig away from its
+camera attachment, including during forward movement.
+
+### Adult FaceGen normal updates
+
+Hulda and Ysolda use Nord race heads, Belethor uses a Breton head and Braith
+uses a Redguard child head. Their selected HDPT heads are `FemaleHeadNord`,
+`MaleHeadBreton` and `MaleHeadChild`. All four exported Skyrim.esm FaceGeom
+and FaceTint files load, alongside their diffuse maps and authored blank
+detail maps. None has an NPC `FTST` override. Nord race defaults `DFTM` and
+`DFTF` supply adult head textures, Breton has a `DFTF` default and the child
+has neither. Their exported NIF texture sets already carry those textures.
+
+The deciding field is BSLightingShaderProperty Shader Flags 1,
+`SLSF1_Model_Space_Normals`, bit `0x1000`. The three adult heads use it with
+`_msn` maps. Braith uses a tangent-space `_n` map without it. Texture upload
+released `face_tint`, then pose submission tested that released payload before
+updating the face shader's skin normal matrices. Adults therefore retained
+identity normal matrices. Uploaded shape metadata now retains that material
+requirement independently of the released texture bytes.
+
+The existing pixel fixture exercises Hulda but its blend probe removes
+skinning. The new `installed_adult_face_pixels_and_animated_normals` checks
+Hulda, Belethor, Ysolda and Braith at two animation times. It compares shader
+normal matrices with submitted skin poses and requires adult poses that differ
+from the former identity upload, in addition to checking colored face pixels.
+`installed_actor_view_source_survey` checks the selected records and assets.
+
+### Race head height
+
+The standing camera used the Mudcrab capsule's 100.8 units times the old 0.9
+eye fraction, placing the eye 90.72 units above the feet. The installed player
+race rig's `NPC Head [Head]` reference pose is 120.34358 units above the feet.
+Its first-person rig's `Camera1st [Cam1]` sits at 120.499954 units. Camera
+height now comes from the loaded race head bone and record-derived actor
+scale. Crouching retains the controller's standing-to-current height ratio.
+The camera tests cover a shorter capsule, scaled head height, crouching and
+invalid height inputs.
+
+### Body heading
+
+Body placement included the actor's pitch and roll, which also carry camera
+aiming. It now uses heading only in shared NPC placement, bound actor
+placement and weapon contact placement. Gameplay retains pitch for aiming.
+`actor_body_heading_excludes_pitch_and_roll` verifies that looking down cannot
+tilt the body transform.
+
+### First-person camera attachment
+
+PlayerNode already attaches the first-person node using the authored camera
+bone offset, but pose submission replaced that transform with the actor's
+world pose. First-person submission now uses the camera-owned node transform.
+`installed_first_person_camera_attachment_and_race_height` checks eye height,
+an upright body, hidden third-person surfaces, no first-person head parts and
+camera attachment before and after forward movement and looking down.
+
+### Sources and validation
+
+Local xEdit `Core/wbDefinitionsTES5.pas` and UESP `RACE.wikitext`,
+`NPC.wikitext`, `HDPT.wikitext` and `TXST.wikitext` supply record layouts.
+Nifly `src/Shaders.cpp` distinguishes FaceTint and SkinTint. OpenMW
+`apps/openmw/mwrender/esm4npcanimation.cpp` supplies race and NPC head
+selection, `npcanimation.cpp` separates first-person geometry, `camera.cpp`
+tracks skeleton camera or head nodes and `animation.cpp` separates head pitch.
+CommonLibSSE-NG `FirstPersonState.h` and `PlayerCharacter.h` declare separate
+first-person camera and geometry objects. Community Shaders
+`package/Shaders/Lighting.hlsl` supplies the existing FaceGen blend and
+model-space normal contract. These fixes reuse the existing parsers and rigs.
+They add no nodes, dependencies or saved state.
+
+The release build and headless import pass. All 535 host library tests pass
+with installed data unset. Package formatting and Clippy with all targets and
+warnings denied pass. The installed four-NPC source survey passes, reporting
+the heights above. The rendered adult regression passes with 3,295 to 3,748
+colored head pixels across its eight captures and correct normal matrices.
+The hosted player check passes at 123.9539 units above the feet, matching the
+120.34358-unit head bone times the player's 1.03 scale. Its largest attachment
+error is below 0.0000005 metres after movement. Both Godot processes exit zero.
+
+The original installed face/camera fixture also passes and exits zero.
+The workspace gate passes formatting, all three Clippy feature ranges, the
+logging check, comments, prose, TOML, Markdown, fuzz formatting and 55 Python
+runner tests. Cargo-deny and cargo-audit are absent and skipped. Workspace
+Rust test compilation reduces available NVMe space to 4.8 GB, so that run is
+interrupted with exit 143 before Rust test results. No disk-full error occurs.
+After external disk capacity becomes available, the complete gate rerun
+passes with exit zero, 9,837 Rust passes, 55 Python passes and 14 existing
+ignored tests. No check is removed or weakened. Reported Rust test time totals
+854.39 seconds, including nested release fixture builds. A separate warm
+workspace run with a 300-second limit exits 124 during the audio fixture's
+release-build step. The five-minute Tier 1 budget remains unmet. Changes remain
+unstaged pending the required diff approval, so the four backlog claims remain
+wip.
+Threaded gameplay omits the explicit player rigs and is outside the inline
+play path checked here. These checks do not establish complete first-person
+combat or skin subsurface and specular lighting.
+
 ## Character corrections, 2026-10-13
 
 The watched `735176dff` play path exposed three character integration bugs.

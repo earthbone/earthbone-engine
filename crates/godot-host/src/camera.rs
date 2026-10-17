@@ -197,8 +197,8 @@ pub struct CameraSettings {
     pub over_shoulder_combat_add_y: f32,
     /// Resting third person boom length before combat adds to it.
     pub boom_length: f32,
-    /// Eye height as a fraction of the capsule's current height, so crouching
-    /// lowers the view without a second constant.
+    /// Race head height divided by standing capsule height after the rig binds.
+    /// Current capsule height supplies crouching motion.
     pub eye_height_fraction: f32,
     /// `fMouseHeadingSensitivity`: radians of yaw per unit of mouse motion.
     pub mouse_sensitivity: f32,
@@ -287,6 +287,17 @@ impl CameraRig {
             pitch: 0.0,
             camera_yaw_offset: 0.0,
             combat: false,
+        }
+    }
+
+    /// Use the race rig's scaled head height while retaining controller crouch motion.
+    pub fn set_head_height(&mut self, head_height: f32, standing_capsule_height: f32) {
+        if head_height.is_finite()
+            && head_height > 0.0
+            && standing_capsule_height.is_finite()
+            && standing_capsule_height > 0.0
+        {
+            self.settings.eye_height_fraction = head_height / standing_capsule_height;
         }
     }
 
@@ -655,6 +666,28 @@ mod tests {
         let standing = rig.eye(feet(), 128.0, None).position.z;
         let crouched = rig.eye(feet(), 72.0, None).position.z;
         assert!(crouched < standing, "{crouched} vs {standing}");
+    }
+
+    #[test]
+    fn race_head_height_survives_shorter_collision_capsule_and_crouching() {
+        let mut rig = CameraRig::default();
+        let capsule = soe_physics::CharacterSettings::mudcrab();
+        rig.set_head_height(120.0 * 1.08, capsule.height);
+        let standing = rig.eye(feet(), capsule.height, None).position.z;
+        assert!((standing - 129.6).abs() < 0.001, "{standing}");
+        let crouching = rig.eye(feet(), capsule.crouch_height, None).position.z;
+        assert!((crouching - 129.6 * capsule.crouch_height / capsule.height).abs() < 0.001);
+    }
+
+    #[test]
+    fn invalid_race_head_height_keeps_the_last_camera_height() {
+        let mut rig = CameraRig::default();
+        rig.set_head_height(120.0, 100.8);
+        let expected = rig.eye(feet(), 100.8, None);
+        for (head, capsule) in [(f32::NAN, 100.8), (120.0, 0.0), (-1.0, 100.8)] {
+            rig.set_head_height(head, capsule);
+            assert_eq!(rig.eye(feet(), 100.8, None), expected);
+        }
     }
 
     #[test]
