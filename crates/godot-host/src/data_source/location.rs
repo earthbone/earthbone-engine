@@ -60,6 +60,8 @@ impl LocationPayload {
                 &surface.textures.terrain_noise,
             ]
             .into_iter()
+            .chain(surface.textures.water_noise.iter())
+            .chain([&surface.textures.water_flow])
             .flatten()
             {
                 if self.images.insert(std::sync::Arc::as_ptr(image) as usize) {
@@ -144,7 +146,17 @@ impl PreparedCell {
                     material.environment_mask.as_deref(),
                     textures.environment_mask.as_deref(),
                 ),
-            ] {
+            ]
+            .into_iter()
+            .chain(material.water.iter().flat_map(|water| {
+                (0..3)
+                    .map(|i| (0, water.noise_layer(i), textures.water_noise[i].as_deref()))
+                    .chain([(
+                        0,
+                        water.flow_texture.as_deref(),
+                        textures.water_flow.as_deref(),
+                    )])
+            })) {
                 let Some(texture) = texture else {
                     continue;
                 };
@@ -672,6 +684,43 @@ mod hst_08_tests {
             instance_transform: None,
             mesh_identity: None,
         }
+    }
+
+    #[test]
+    fn water_shader_location_budget_counts_all_water_images_once() {
+        let image = |bytes| {
+            Arc::new(TextureData::Rgba8(soe_dds::Image {
+                width: 1,
+                height: 1,
+                depth: 1,
+                rgba: vec![0; bytes],
+            }))
+        };
+        let mut first = surface(image(4));
+        first.textures.water_noise = [Some(image(8)), Some(image(12)), Some(image(16))];
+        first.textures.water_flow = Some(image(20));
+        let mut second = surface(Arc::clone(first.textures.diffuse.as_ref().unwrap()));
+        second.textures = first.textures.clone();
+        let mesh_bytes = first.arrays.mesh_byte_count() + second.arrays.mesh_byte_count();
+        let cell = LoadedCell {
+            stats: CellStats::default(),
+            surfaces: vec![first, second],
+        };
+        let expected = mesh_bytes + 4 + 8 + 12 + 16 + 20;
+        let mut payload = LocationPayload::default();
+        payload.add_cell(&cell);
+        assert_eq!(payload.bytes, expected);
+        let mut budget = LocationBudget {
+            limits: Some(LocationLimits {
+                payload_bytes: expected - 1,
+                primitives: usize::MAX,
+            }),
+            ..LocationBudget::default()
+        };
+        assert!(matches!(
+            budget.check_cell(&cell),
+            Err(DataSourceError::LocationBudget { payload_bytes, .. }) if payload_bytes == expected
+        ));
     }
 
     #[test]

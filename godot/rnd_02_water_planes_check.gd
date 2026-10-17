@@ -70,14 +70,15 @@ func _run(host, data: String) -> void:
 	_check(rid.is_valid(), "the water instance has a valid RID")
 
 	var material = plane["material"]
-	_check(material is StandardMaterial3D, "the water material is a StandardMaterial3D")
-	if not (material is StandardMaterial3D):
+	_check(material is ShaderMaterial, "the water material is a ShaderMaterial")
+	if not (material is ShaderMaterial):
 		return
-	var mat := material as StandardMaterial3D
+	var mat := material as ShaderMaterial
 	var shallow: Color = plane["shallow_color"]
 	var alpha: float = float(plane["opacity"]) / 255.0
-	_check(mat.albedo_color.is_equal_approx(Color(shallow.r, shallow.g, shallow.b, alpha)),
-		"the material albedo is the WATR shallow color at ANAM opacity")
-	if int(plane["opacity"]) < 255:
-		_check(mat.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA, "a translucent water type blends")
-	_check(mat.cull_mode == BaseMaterial3D.CULL_DISABLED, "the plane is visible from below")
+	_check(mat.get_shader_parameter("shallow_color").is_equal_approx(Color(shallow.r, shallow.g, shallow.b)),
+		"the material shallow color is the WATR shallow color")
+	_check(is_equal_approx(mat.get_shader_parameter("base_alpha"), alpha),
+		"the material base alpha is ANAM opacity")
+	_check(mat.shader.code.contains("ALPHA ="), "a translucent water type blends")
+	_check(mat.shader.code.contains("cull_disabled"), "the plane is visible from below")

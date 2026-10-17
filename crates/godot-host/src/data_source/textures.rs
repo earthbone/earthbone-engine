@@ -362,6 +362,19 @@ impl TextureCache {
 
     pub(super) fn resolve(&self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
         SurfaceTextures {
+            water_noise: std::array::from_fn(|i| {
+                material
+                    .water
+                    .as_ref()
+                    .and_then(|w| w.noise_layer(i))
+                    .and_then(|p| self.get_or_decode(vfs, p))
+            }),
+            water_flow: material
+                .water
+                .as_ref()
+                .filter(|w| w.flags & 8 != 0 && w.mesh.is_some())
+                .and_then(|w| w.flow_texture.as_deref())
+                .and_then(|p| self.get_or_decode(vfs, p)),
             terrain_noise: (material.landscape_lod_normals() && material.landscape_lod_noise)
                 .then(|| self.get_or_decode(vfs, "textures/terrain/noise.dds"))
                 .flatten(),

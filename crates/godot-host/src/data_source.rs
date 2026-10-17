@@ -272,6 +272,9 @@ pub struct SurfaceTextures {
     pub greyscale: Option<Arc<TextureData>>,
     /// Shared linear mask for BSLightingShaderType 18 landscape LOD.
     pub terrain_noise: Option<Arc<TextureData>>,
+    /// WATR noise normals and optional flow normals, with no checker fallback.
+    pub water_noise: [Option<Arc<TextureData>>; 3],
+    pub water_flow: Option<Arc<TextureData>>,
 }
 
 pub struct LoadedCell {
@@ -299,7 +302,17 @@ impl LoadedCell {
                     material.environment_mask.as_deref(),
                     textures.environment_mask.as_deref(),
                 ),
-            ] {
+            ]
+            .into_iter()
+            .chain(material.water.iter().flat_map(|water| {
+                (0..3)
+                    .map(|i| water.noise_layer(i))
+                    .zip(textures.water_noise.iter().map(Option::as_deref))
+                    .chain([(
+                        water.flow_texture.as_deref(),
+                        textures.water_flow.as_deref(),
+                    )])
+            })) {
                 if let (Some(path), Some(texture)) = (path, texture) {
                     inventory
                         .entry(soe_bsa::normalize(path))
@@ -1381,11 +1394,12 @@ impl DataSource {
         };
         let data = water_plane_mesh(footprint, height, material);
         let arrays = build_surface(&data, MeshOptions::default()).ok()?;
+        let textures = self.textures.resolve(&self.vfs, &arrays.material);
         Some(LoadedSurface {
             animation: None,
             reference: water_id.unwrap_or(cell_id),
             arrays,
-            textures: SurfaceTextures::default(),
+            textures,
             placement: soe_physics::Iso::IDENTITY,
             instance_transform: None,
             mesh_identity: None,
@@ -1489,6 +1503,17 @@ impl DataSource {
                 let mut data = mesh_data_from(shape, &combined);
                 if is_water_shape(&file.blocks, shape.block) {
                     data.material.water = water.clone();
+                    if let Some(water) = &mut data.material.water {
+                        water.mesh = water::mesh_inputs(&file, shape.block)?;
+                        if water
+                            .mesh
+                            .as_ref()
+                            .is_some_and(|mesh| mesh.water_flags & 512 != 0)
+                            && !shape.colors.is_empty()
+                        {
+                            data.colors = Some(shape.colors.clone());
+                        }
+                    }
                     data.material.alpha = AlphaMode::Blend;
                     data.material.double_sided = true;
                 }
@@ -2070,3 +2095,6 @@ mod rnd_24_tests;
 
 #[cfg(test)]
 mod rnd_39_tests;
+
+#[cfg(test)]
+mod water_shader_tests;

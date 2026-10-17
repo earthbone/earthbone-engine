@@ -365,6 +365,7 @@ impl DataSource {
                             ..crate::mesh::WaterMaterial::default()
                         }
                     });
+                    surface.textures = self.textures.resolve(&self.vfs, &surface.arrays.material);
                     surfaces.push(surface);
                 }
             }

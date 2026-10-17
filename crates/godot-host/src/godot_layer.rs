@@ -337,6 +337,8 @@ impl LodBlockProducts {
                         &textures.terrain_noise,
                     ]
                     .into_iter()
+                    .chain(textures.water_noise.iter())
+                    .chain([&textures.water_flow])
                     .flatten()
                     .map(|texture| texture.retained_bytes())
                     .sum::<usize>()
@@ -5814,7 +5816,7 @@ fn material_for(
         return existing.clone();
     }
     let material: Gd<Material> = if let Some(water) = &desc.water {
-        water_material(water).upcast()
+        water_material(water, textures, &mut cache.textures, &cache.shaders).upcast()
     } else if let Some(effect) = &desc.effect {
         nif_effect_material(desc, effect, textures, &mut cache.textures, &cache.shaders).upcast()
     } else if tree_anim_material(desc)
@@ -6036,26 +6038,90 @@ fn nif_effect_material(
     material
 }
 
-/// A water plane's material from its `WATR` shading data: the shallow
-/// color as albedo, `ANAM` opacity as its alpha, blended when below full,
-/// and visible from below as well as above since the camera can swim under
-/// it. Deep and reflection colors, the noise layers and the fog ranges wait
-/// for a water shader, `docs/godot-host.md` lists them.
-pub fn water_material(water: &crate::mesh::WaterMaterial) -> Gd<StandardMaterial3D> {
-    let mut mat = StandardMaterial3D::new_gd();
-    let [r, g, b] = water.shallow_color;
-    mat.set_albedo(Color::from_rgba(r, g, b, water.alpha()));
-    if water.opacity < u8::MAX {
-        mat.set_transparency(Transparency::ALPHA);
+/// WATR water through a shared shader, with neutral normals for missing assets.
+fn water_material(
+    water: &crate::mesh::WaterMaterial,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &ShaderCache,
+) -> Gd<ShaderMaterial> {
+    let shader = shader_for_code(shaders, include_str!("water.gdshader").to_owned());
+    let mut mat = ShaderMaterial::new_gd();
+    mat.set_shader(&shader);
+    let mut noise_bits = 0_i32;
+    for (i, data) in textures.water_noise.iter().enumerate() {
+        if let Some(texture) = data
+            .as_ref()
+            .and_then(|data| cached_texture(cache, water.noise_layer(i), data))
+        {
+            mat.set_shader_parameter(&format!("noise_{i}"), &texture.to_variant());
+            noise_bits |= 1 << i;
+        }
     }
-    mat.set_cull_mode(CullMode::DISABLED);
-    mat.set_roughness(WATER_ROUGHNESS);
+    mat.set_shader_parameter("has_noise", &noise_bits.to_variant());
+    mat.set_shader_parameter("blend_normals", &(water.flags & 16 != 0).to_variant());
+    if water.flags & 8 != 0 && water.mesh.is_some() {
+        if let Some(texture) = textures
+            .water_flow
+            .as_ref()
+            .and_then(|data| cached_texture(cache, water.flow_texture.as_deref(), data))
+        {
+            mat.set_shader_parameter("flow_normals", &texture.to_variant());
+            mat.set_shader_parameter("has_flow", &true.to_variant());
+        }
+    }
+    for (name, [r, g, b]) in [
+        ("shallow_color", water.shallow_color),
+        ("deep_color", water.deep_color),
+        ("reflection_color", water.reflection_color),
+    ] {
+        mat.set_shader_parameter(name, &Color::from_rgb(r, g, b).to_variant());
+    }
+    let p = &water.shading;
+    let near = p.fog_near * crate::units::METRES_PER_UNIT;
+    let far = (p.fog_far * crate::units::METRES_PER_UNIT).max(near + 0.001);
+    for (name, value) in [
+        ("base_alpha", water.alpha()),
+        ("fog_near", near),
+        ("fog_far", far),
+        ("fog_amount", p.fog_amount.clamp(0.0, 1.0)),
+        ("fresnel_amount", p.fresnel.clamp(0.0, 1.0)),
+        ("reflectivity", p.reflectivity.clamp(0.0, 1.0)),
+        ("reflection_magnitude", p.reflection_magnitude.max(0.0)),
+        ("sun_power", p.sun_specular_power.max(1.0)),
+        ("sun_magnitude", p.sun_specular_magnitude.max(0.0)),
+        ("sparkle_power", p.sparkle_power.max(1.0)),
+        ("sparkle_magnitude", p.sparkle_magnitude.max(0.0)),
+        ("flow_scale", p.flowmap_scale.max(0.001)),
+    ] {
+        mat.set_shader_parameter(name, &value.to_variant());
+    }
+    let [x, y, z] = p.uv_scale.map(|s| s.max(0.001));
+    mat.set_shader_parameter("noise_scale", &Vector3::new(x, y, z).to_variant());
+    let [x, y, z] = p.amplitude_scale;
+    mat.set_shader_parameter("amplitude", &Vector3::new(x, y, z).to_variant());
+    for (i, [x, y]) in p.normal_velocities().into_iter().enumerate() {
+        mat.set_shader_parameter(&format!("velocity_{i}"), &Vector2::new(x, y).to_variant());
+    }
+    if let Some(mesh) = &water.mesh {
+        mat.set_shader_parameter("mesh_uv", &(mesh.water_flags & 256 != 0).to_variant());
+        mat.set_shader_parameter("use_depth", &(mesh.water_flags & 4 != 0).to_variant());
+        mat.set_shader_parameter("use_reflection", &(mesh.water_flags & 64 != 0).to_variant());
+        mat.set_shader_parameter(
+            "vertex_alpha_depth",
+            &(mesh.water_flags & 512 != 0).to_variant(),
+        );
+        mat.set_shader_parameter(
+            "uv_offset",
+            &Vector2::new(mesh.uv_offset[0], mesh.uv_offset[1]).to_variant(),
+        );
+        mat.set_shader_parameter(
+            "uv_scale",
+            &Vector2::new(mesh.uv_scale[0], mesh.uv_scale[1]).to_variant(),
+        );
+    }
     mat
 }
-
-/// Low roughness keeps a sharp highlight, closer to calm water than the
-/// default matte finish.
-const WATER_ROUGHNESS: f32 = 0.05;
 
 /// Shader materials add authored cubemap reflection or mesh decal depth state.
 /// Community Shaders supplies the cubemap, red mask and normal alpha contract.

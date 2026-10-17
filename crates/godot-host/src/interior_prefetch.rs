@@ -492,6 +492,8 @@ mod tests {
                     glow: None,
                     greyscale: None,
                     terrain_noise: None,
+                    water_noise: [None, None, None],
+                    water_flow: None,
                 },
                 instance_transform: None,
                 mesh_identity: None,

@@ -188,10 +188,107 @@ pub struct WaterMaterial {
     pub shallow_color: [f32; 3],
     pub deep_color: [f32; 3],
     pub reflection_color: [f32; 3],
-    /// The first of WATR's three noise texture layers (NAM2). NAM3 and
-    /// NAM4 are not carried yet, nothing shades with noise until a water
-    /// shader exists.
+    /// The first of WATR's three noise texture layers (NAM2).
     pub noise_texture: Option<String>,
+    /// NAM2, NAM3 and NAM4, the three scrolling normal layers.
+    pub noise_layers: [Option<String>; 3],
+    /// NAM5, the flow normals texture used on BSWaterShaderProperty meshes.
+    pub flow_texture: Option<String>,
+    /// DNAM numeric shading constants, see `WaterShading`.
+    pub shading: WaterShading,
+    /// FNAM bits, including Enable Flowmap and Blend Normals.
+    pub flags: u8,
+    /// Authored NIF inputs, absent on generated cell planes.
+    pub mesh: Option<WaterMesh>,
+}
+
+/// The DNAM constants the water shader reads. xEdit supplies scalar defaults.
+/// Missing fog ranges and normal amplitudes use a visible surface fallback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WaterShading {
+    /// DNAM 16, sun specular power.
+    pub sun_specular_power: f32,
+    /// DNAM 20, reflectivity amount.
+    pub reflectivity: f32,
+    /// DNAM 24, fresnel amount.
+    pub fresnel: f32,
+    /// DNAM 32 and 36, above water fog near and far plane in game units.
+    pub fog_near: f32,
+    pub fog_far: f32,
+    /// DNAM 132, above water fog amount.
+    pub fog_amount: f32,
+    /// DNAM 100, 104 and 108 are wind direction per layer, 112 to 120 wind
+    /// speed per layer. Layer scroll velocity is speed along direction.
+    pub wind_direction: [f32; 3],
+    pub wind_speed: [f32; 3],
+    /// DNAM 172 to 180, UV scale per layer.
+    pub uv_scale: [f32; 3],
+    /// DNAM 184 to 192, amplitude scale per layer.
+    pub amplitude_scale: [f32; 3],
+    /// DNAM 196, reflection magnitude.
+    pub reflection_magnitude: f32,
+    /// DNAM 200, sun sparkle magnitude.
+    pub sparkle_magnitude: f32,
+    /// DNAM 204, sun specular magnitude.
+    pub sun_specular_magnitude: f32,
+    /// DNAM 224, sun sparkle power.
+    pub sparkle_power: f32,
+    /// DNAM 228, flow map scale.
+    pub flowmap_scale: f32,
+}
+
+impl Default for WaterShading {
+    fn default() -> Self {
+        Self {
+            sun_specular_power: 50.0,
+            reflectivity: 0.5,
+            fresnel: 0.02,
+            fog_near: 0.0,
+            fog_far: 1000.0,
+            fog_amount: 1.0,
+            wind_direction: [0.0; 3],
+            wind_speed: [0.0; 3],
+            uv_scale: [100.0; 3],
+            amplitude_scale: [1.0; 3],
+            reflection_magnitude: 1.0,
+            sparkle_magnitude: 1.0,
+            sun_specular_magnitude: 1.0,
+            sparkle_power: 1.0,
+            flowmap_scale: 1.0,
+        }
+    }
+}
+
+impl WaterShading {
+    /// Texture-space scroll per second. Spatial noise scale affects coordinates,
+    /// not the separate scroll term in Community Shaders Water.hlsl.
+    pub fn normal_velocities(&self) -> [[f32; 2]; 3] {
+        std::array::from_fn(|i| {
+            let (sin, cos) = self.wind_direction[i].to_radians().sin_cos();
+            [cos * self.wind_speed[i], sin * self.wind_speed[i]]
+        })
+    }
+}
+
+/// nif.xml's BSWaterShaderProperty inputs, retained at the host boundary.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WaterMesh {
+    pub flags1: u32,
+    pub flags2: u32,
+    pub water_flags: u32,
+    pub uv_offset: [f32; 2],
+    pub uv_scale: [f32; 2],
+}
+
+/// Bitwise identity for all water shading, texture and mesh inputs.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct WaterKey {
+    opacity: u8,
+    flags: u8,
+    values: Vec<u32>,
+    textures: [Option<String>; 3],
+    flow_texture: Option<String>,
+    mesh: Option<[u32; 7]>,
 }
 
 impl WaterMaterial {
@@ -200,13 +297,62 @@ impl WaterMaterial {
         f32::from(self.opacity) / 255.0
     }
 
-    fn key(&self) -> (u8, [u32; 9]) {
-        let mut bits = [0; 9];
-        let colors = [self.shallow_color, self.deep_color, self.reflection_color];
-        for (slot, value) in bits.iter_mut().zip(colors.iter().flatten()) {
-            *slot = value.to_bits();
+    /// Normal path for a layer, retaining the original layer-one accessor.
+    pub fn noise_layer(&self, layer: usize) -> Option<&str> {
+        self.noise_layers
+            .get(layer)
+            .and_then(Option::as_deref)
+            .or_else(|| {
+                (layer == 0)
+                    .then_some(self.noise_texture.as_deref())
+                    .flatten()
+            })
+    }
+
+    fn key(&self) -> WaterKey {
+        let p = &self.shading;
+        let values = self
+            .shallow_color
+            .into_iter()
+            .chain(self.deep_color)
+            .chain(self.reflection_color)
+            .chain([
+                p.sun_specular_power,
+                p.reflectivity,
+                p.fresnel,
+                p.fog_near,
+                p.fog_far,
+                p.fog_amount,
+                p.reflection_magnitude,
+                p.sparkle_magnitude,
+                p.sun_specular_magnitude,
+                p.sparkle_power,
+                p.flowmap_scale,
+            ])
+            .chain(p.wind_direction)
+            .chain(p.wind_speed)
+            .chain(p.uv_scale)
+            .chain(p.amplitude_scale)
+            .map(f32::to_bits)
+            .collect();
+        WaterKey {
+            opacity: self.opacity,
+            flags: self.flags,
+            values,
+            textures: std::array::from_fn(|i| self.noise_layer(i).map(soe_bsa::normalize)),
+            flow_texture: self.flow_texture.as_deref().map(soe_bsa::normalize),
+            mesh: self.mesh.as_ref().map(|m| {
+                [
+                    m.flags1,
+                    m.flags2,
+                    m.water_flags,
+                    m.uv_offset[0].to_bits(),
+                    m.uv_offset[1].to_bits(),
+                    m.uv_scale[0].to_bits(),
+                    m.uv_scale[1].to_bits(),
+                ]
+            }),
         }
-        (self.opacity, bits)
     }
 }
 
@@ -281,9 +427,8 @@ pub struct MaterialKey {
     alpha: AlphaMode,
     double_sided: bool,
     decal_depth: Option<(bool, bool)>,
-    /// Opacity, then the shallow, deep and reflection colors as float
-    /// bits, so two water types never share one material.
-    water: Option<(u8, [u32; 9])>,
+    /// All water constants and texture paths, including authored mesh inputs.
+    water: Option<WaterKey>,
     effect: Option<EffectKey>,
     refraction: Option<[u32; 9]>,
     texture_transform: Option<([u32; 6], String)>,
@@ -840,6 +985,124 @@ mod material_key_tests {
                 .abs()
                 < 1e-6
         );
+    }
+
+    #[test]
+    fn water_shader_wind_rates_do_not_slow_down_with_larger_noise_tiles() {
+        let shading = WaterShading {
+            wind_direction: [0.0, 90.0, 180.0],
+            wind_speed: [0.203, 0.065, 0.058],
+            uv_scale: [942.0, 2101.0, 3116.0],
+            ..WaterShading::default()
+        };
+        let velocities = shading.normal_velocities();
+        for (velocity, expected) in
+            velocities
+                .iter()
+                .zip([[0.203, 0.0], [0.0, 0.065], [-0.058, 0.0]])
+        {
+            assert!((velocity[0] - expected[0]).abs() < 0.000001);
+            assert!((velocity[1] - expected[1]).abs() < 0.000001);
+            assert!(
+                velocity[0].hypot(velocity[1]) * 0.5 > 0.02,
+                "all layers must move at least 0.02 UV in half a second"
+            );
+        }
+        let smaller_tiles = WaterShading {
+            uv_scale: [1.0; 3],
+            ..shading
+        };
+        assert_eq!(velocities, smaller_tiles.normal_velocities());
+    }
+
+    #[test]
+    fn water_shader_legacy_layer_one_path_has_the_same_cache_identity() {
+        let legacy = WaterMaterial {
+            noise_texture: Some("Textures\\Water\\Noise.dds".into()),
+            ..WaterMaterial::default()
+        };
+        let layers = WaterMaterial {
+            noise_layers: [Some("textures/water/noise.dds".into()), None, None],
+            ..WaterMaterial::default()
+        };
+        assert_eq!(legacy.noise_layer(0), legacy.noise_texture.as_deref());
+        assert_eq!(legacy.key(), layers.key());
+        assert_eq!(legacy.noise_layer(3), None);
+    }
+
+    #[test]
+    fn water_shader_cache_key_covers_shading_textures_and_mesh_inputs() {
+        let desc = |water| MaterialDesc {
+            water: Some(water),
+            ..MaterialDesc::default()
+        };
+        let base = WaterMaterial::default();
+        let key = MaterialKey::from(&desc(base.clone()));
+        let mut variants = Vec::new();
+        for i in 0..3 {
+            let mut material = base.clone();
+            material.noise_layers[i] = Some(format!("water/{i}.dds"));
+            variants.push(material);
+            for kind in 0..4 {
+                let mut material = base.clone();
+                match kind {
+                    0 => material.shading.wind_direction[i] += 1.0,
+                    1 => material.shading.wind_speed[i] += 1.0,
+                    2 => material.shading.uv_scale[i] += 1.0,
+                    _ => material.shading.amplitude_scale[i] += 1.0,
+                }
+                variants.push(material);
+            }
+        }
+        for kind in 0..13 {
+            let mut material = base.clone();
+            match kind {
+                0 => material.shading.sun_specular_power += 1.0,
+                1 => material.shading.reflectivity += 1.0,
+                2 => material.shading.fresnel += 1.0,
+                3 => material.shading.fog_near += 1.0,
+                4 => material.shading.fog_far += 1.0,
+                5 => material.shading.fog_amount += 1.0,
+                6 => material.shading.reflection_magnitude += 1.0,
+                7 => material.shading.sparkle_magnitude += 1.0,
+                8 => material.shading.sun_specular_magnitude += 1.0,
+                9 => material.shading.sparkle_power += 1.0,
+                10 => material.shading.flowmap_scale += 1.0,
+                11 => material.flags = 8,
+                _ => material.flow_texture = Some("flow.dds".into()),
+            }
+            variants.push(material);
+        }
+        let mesh = WaterMesh {
+            flags1: 8,
+            flags2: 0x21,
+            water_flags: 0x1C4,
+            uv_offset: [0.0; 2],
+            uv_scale: [1.0; 2],
+        };
+        let mut material = base.clone();
+        material.mesh = Some(mesh.clone());
+        let mesh_key = MaterialKey::from(&desc(material.clone()));
+        variants.push(material);
+        for kind in 0..7 {
+            let mut changed = mesh.clone();
+            match kind {
+                0 => changed.flags1 ^= 1,
+                1 => changed.flags2 ^= 1,
+                2 => changed.water_flags ^= 1,
+                3 => changed.uv_offset[0] += 1.0,
+                4 => changed.uv_offset[1] += 1.0,
+                5 => changed.uv_scale[0] += 1.0,
+                _ => changed.uv_scale[1] += 1.0,
+            }
+            let mut material = base.clone();
+            material.mesh = Some(changed);
+            assert_ne!(mesh_key, MaterialKey::from(&desc(material.clone())));
+            variants.push(material);
+        }
+        for variant in variants {
+            assert_ne!(key, MaterialKey::from(&desc(variant)));
+        }
     }
 
     #[test]
