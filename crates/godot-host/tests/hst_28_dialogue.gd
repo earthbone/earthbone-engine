@@ -178,6 +178,7 @@ func _run_hst_28() -> void:
     for node: Node in content.find_children("*", "Button", true, false) if content != null else []:
         labels.append((node as Button).text)
     print("hst_28 buttons: ", labels)
+    _check(labels.has("I'd like to rent a room. (10 gold)"), "room option substitutes its quest global before display")
     var topic_button: Button
     if not topics.is_empty():
         for node: Node in content.find_children("*", "Button", true, false):

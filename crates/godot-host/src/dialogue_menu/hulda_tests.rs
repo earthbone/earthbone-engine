@@ -8,6 +8,36 @@ use crate::data_source::DataSource;
 use soe_esm::{GlobalFormId, Tag};
 use soe_game::{conditions, Game};
 
+#[test]
+fn round4_freewalk_bannered_mare_room_prompt_replaces_room_cost() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open(std::path::Path::new(&data)).unwrap();
+    let mut game = source.localized_game().unwrap();
+    game.load_scripts_from_vfs(source.vfs());
+    game.start();
+    let cell = game.form("WhiterunBanneredMare").unwrap();
+    let speaker = game.form("HuldaRef").unwrap();
+    let player = game.player();
+    let position = game.world_mut().reference(speaker).unwrap().position;
+    game.change_cell(Some(cell));
+    {
+        let mut world = game.world_mut();
+        let reference = world.reference(player).unwrap();
+        reference.cell = Some(cell);
+        reference.position = position;
+    }
+    game.begin_player_dialogue(speaker).unwrap();
+    let entries = greeting_entries(&mut game).unwrap();
+    let room = entries
+        .iter()
+        .find(|entry| entry.label.contains("rent a room"))
+        .unwrap();
+    eprintln!("free walk Bannered Mare room prompt: {}", room.label);
+    assert_eq!(room.label, "I'd like to rent a room. (10 gold)");
+}
+
 fn report_info(game: &mut Game, speaker: GlobalFormId, info: GlobalFormId) {
     let player = game.player();
     let mut world = game.world_mut();

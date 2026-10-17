@@ -1,5 +1,26 @@
 # soe-game: the runtime form table and the first natives
 
+## Quest text replacement, DLG-22, 2026-10-17
+
+The free walk topic presenter reproduced the room prompt with a literal
+Global tag before this fix. World now expands quest text after localization.
+Dialogue choices and response lines, message notifications and boxes, book
+text and quest objectives share the resolver. Invalid tags stay literal and
+unfilled stored aliases display `[...]`. Book markup preserves unresolved
+tokens. The existing quest journal fields store QTGL values and alias targets
+at quest start, and UpdateCurrentInstanceGlobal refreshes the current value.
+No saved field, save version or dependency was added.
+
+Sources are the local xEdit QUST QTGL and alias flags, UESP MESG, RELA and
+ASTP layouts, and CommonLibSSE-NG Calendar.cpp. The local CK crawl lacks
+[Text Replacement](https://ck.uesp.net/wiki/Text_Replacement) and
+[Show Message](https://ck.uesp.net/wiki/Show_-_Message), so their MediaWiki API
+pages supplied the substitution and number-format rules. These describe
+behavior but provide no reusable Rust implementation. The resolver reads
+winning records and shared runtime state. It handles alias names, short
+names, race, pronouns, capitalization, relationship labels, global values,
+date and timer subtags, Name and BaseName, and Message.Show numeric slots.
+
 ## Race movement speeds, HST-40
 
 `movement::MovementType` reads the four directional walk/run pairs in MOVT

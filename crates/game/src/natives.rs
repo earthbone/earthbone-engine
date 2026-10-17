@@ -4418,10 +4418,8 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     // Show queues a message box or notification. Without a selected button,
     // notifications report -1 while queued message boxes report button 0.
     method!(vm, w, "Message", "Show", |world, call, me| {
-        let body = world
-            .description_of(me)
-            .or_else(|| world.name_of(me))
-            .unwrap_or_default();
+        let arguments: Vec<_> = (0..9).map(|index| call.arg(index).as_float()).collect();
+        let body = world.message_text(me, &arguments);
         let boxed = world
             .record(me)
             .and_then(|r| r.find(soe_esm::Tag::new(b"DNAM")))
@@ -4436,10 +4434,7 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         }
     });
     method!(vm, w, "Message", "ShowAsHelpMessage", |world, call, me| {
-        let body = world
-            .description_of(me)
-            .or_else(|| world.name_of(me))
-            .unwrap_or_default();
+        let body = world.message_text(me, &[]);
         world.show_help_message(&text(&call.arg(0)), body);
         none()
     });

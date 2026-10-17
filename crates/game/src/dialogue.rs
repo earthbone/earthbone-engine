@@ -1070,10 +1070,10 @@ impl Game {
                     if let Some((info, data)) = infos.first() {
                         let prompt = match (&data.prompt, &topic_data.name) {
                             (Some(text), _) => {
-                                Some(self.world.borrow().resolve_text(*info, Tag(*b"RNAM"), text))
+                                Some(self.world.borrow().display_text(*info, Tag(*b"RNAM"), text))
                             }
                             (None, Some(text)) => {
-                                Some(self.world.borrow().resolve_text(topic, Tag(*b"FULL"), text))
+                                Some(self.world.borrow().display_text(topic, Tag(*b"FULL"), text))
                             }
                             (None, None) => None,
                         };
@@ -1700,10 +1700,13 @@ impl Game {
                 world.resolve_from(response_info, raw)
             }
         };
-        let text = response
-            .text
-            .as_ref()
-            .map(|text| world.resolve_text(response_info, Tag(*b"NAM1"), text));
+        let text = response.text.as_ref().map(|text| {
+            world.replace_text(
+                topic,
+                Some(session.speaker),
+                &world.resolve_text(response_info, Tag(*b"NAM1"), text),
+            )
+        });
         Ok(Some(Line {
             topic,
             info,

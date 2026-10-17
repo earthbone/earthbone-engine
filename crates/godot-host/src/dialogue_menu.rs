@@ -371,7 +371,17 @@ mod tests {
     }
 
     fn game() -> Game {
+        game_with_question("Ask about the road")
+    }
+
+    fn game_with_question(question: &str) -> Game {
         let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(
+            Record::new(Tag(*b"GLOB"), 0x700)
+                .zsub(Tag(*b"EDID"), "RoomCost")
+                .sub(Tag(*b"FNAM"), b"s")
+                .sub(Tag(*b"FLTV"), 10f32.to_le_bytes()),
+        );
         for (form, name) in [(7, "Player"), (BASE, "Speaker")] {
             plugin.push_top(
                 Record::new(Tag(*b"NPC_"), form)
@@ -386,6 +396,7 @@ mod tests {
         );
         plugin.push_top(
             Record::new(Tag(*b"QUST"), QUEST)
+                .sub(Tag(*b"QTGL"), 0x700u32.to_le_bytes())
                 .sub(Tag(*b"DNAM"), vec![0; 12])
                 .sub(Tag(*b"NEXT"), [])
                 .sub(Tag(*b"INDX"), [0, 0, 0, 0]),
@@ -398,7 +409,7 @@ mod tests {
                 .sub(Tag(*b"SNAM"), TOPIC.to_le_bytes()),
         );
         let topic = Record::new(Tag(*b"DIAL"), TOPIC)
-            .zsub(Tag(*b"FULL"), "Ask about the road")
+            .zsub(Tag(*b"FULL"), question)
             .sub(Tag(*b"QNAM"), QUEST.to_le_bytes())
             .sub(Tag(*b"BNAM"), (TOPIC + 0x1000).to_le_bytes())
             .sub(Tag(*b"DATA"), [0, 0, 0, 0])
@@ -426,6 +437,15 @@ mod tests {
         let player = game.player();
         game.begin_dialogue(id(SPEAKER), player).unwrap();
         game
+    }
+
+    #[test]
+    fn round4_freewalk_topic_presenter_replaces_room_cost() {
+        let mut game = game_with_question("I'd like to rent a room. (<Global=RoomCost> gold)");
+        assert_eq!(
+            entries(&mut game).unwrap()[0].label,
+            "I'd like to rent a room. (10 gold)"
+        );
     }
 
     #[test]

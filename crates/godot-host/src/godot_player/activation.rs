@@ -49,7 +49,11 @@ impl PlayerNode {
         };
         let world = game.world();
         let title = world.name_of(book).unwrap_or_else(|| "Book".into());
-        let text = world.description_of(book).unwrap_or_default();
+        let text = world.replace_text(
+            book,
+            Some(book),
+            &world.description_of(book).unwrap_or_default(),
+        );
         drop(world);
         if !self.open_menu(GString::from(&format!("Book: {title}"))) {
             return false;
@@ -85,6 +89,25 @@ fn book_text(text: &str) -> String {
             "br" | "br/" | "br /" | "p" | "/p" | "pagebreak"
         ) {
             output.push('\n');
+        } else if !matches!(
+            tag.split_whitespace().next(),
+            Some(
+                "font"
+                    | "/font"
+                    | "b"
+                    | "/b"
+                    | "i"
+                    | "/i"
+                    | "u"
+                    | "/u"
+                    | "img"
+                    | "ul"
+                    | "/ul"
+                    | "li"
+                    | "/li"
+            )
+        ) {
+            output.push_str(&rest[start..=start + end]);
         }
         rest = &rest[start + end + 1..];
     }
@@ -224,6 +247,7 @@ mod tests {
             "A&B\nPage\nNext"
         );
         assert_eq!(book_text("A <unfinished"), "A <unfinished");
+        assert_eq!(book_text("Dear <Alias=Missing>"), "Dear <Alias=Missing>");
     }
 
     #[test]

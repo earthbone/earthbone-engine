@@ -283,9 +283,10 @@ impl World {
                     .ok()?
                     .quest?
             }
-            [b'P', b'A', b'C', b'K'] | [b'D', b'I', b'A', b'L'] | [b'D', b'L', b'B', b'R'] => {
-                rec.find(T(b"QNAM")).and_then(le_u32)?
-            }
+            [b'P', b'A', b'C', b'K']
+            | [b'D', b'I', b'A', b'L']
+            | [b'D', b'L', b'B', b'R']
+            | [b'M', b'E', b'S', b'G'] => rec.find(T(b"QNAM")).and_then(le_u32)?,
             _ => return None,
         };
         (raw != 0).then(|| self.order.resolve(rref.file, raw))
