@@ -10,12 +10,16 @@ const SHIELD: u32 = 0x800;
 const SWORD: u32 = 0x801;
 const GREATSWORD: u32 = 0x802;
 const TORCH: u32 = 0x803;
+const LEFT_HAND: u32 = 0x900;
+const RIGHT_HAND: u32 = 0x901;
+const EITHER_HAND: u32 = 0x902;
+const BOTH_HANDS: u32 = 0x903;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
-fn weapon(object: u32, animation: u8) -> Record {
+fn weapon(object: u32, animation: u8, slot: u32) -> Record {
     let mut dnam = vec![0; 100];
     dnam[0] = animation;
     dnam[76..80].copy_from_slice(&6_u32.to_le_bytes());
@@ -30,6 +34,30 @@ fn weapon(object: u32, animation: u8) -> Record {
             .concat(),
         )
         .sub(Tag(*b"DNAM"), dnam)
+        .sub(Tag(*b"ETYP"), slot.to_le_bytes())
+}
+
+/// Hand slots, the parents of the either and both slots, and the default hand objects.
+fn equipment(plugin: &mut Plugin) {
+    let parents = [LEFT_HAND.to_le_bytes(), RIGHT_HAND.to_le_bytes()].concat();
+    for slot in [LEFT_HAND, RIGHT_HAND] {
+        plugin.push_top(Record::new(Tag(*b"EQUP"), slot).sub(Tag(*b"DATA"), 0_u32.to_le_bytes()));
+    }
+    for (slot, all) in [(EITHER_HAND, 0_u32), (BOTH_HANDS, 1)] {
+        plugin.push_top(
+            Record::new(Tag(*b"EQUP"), slot)
+                .sub(Tag(*b"DATA"), all.to_le_bytes())
+                .sub(Tag(*b"PNAM"), parents.clone()),
+        );
+    }
+    let defaults = [
+        b"LHEQ".as_slice(),
+        &LEFT_HAND.to_le_bytes(),
+        b"RHEQ",
+        &RIGHT_HAND.to_le_bytes(),
+    ]
+    .concat();
+    plugin.push_top(Record::new(Tag(*b"DOBJ"), 0x904).sub(Tag(*b"DNAM"), defaults));
 }
 
 fn game() -> Game {
@@ -49,8 +77,9 @@ fn game() -> Game {
     let mut light = vec![0; 32];
     light[12..16].copy_from_slice(&2_u32.to_le_bytes());
     plugin.push_top(Record::new(Tag(*b"LIGH"), TORCH).sub(Tag(*b"DATA"), light));
-    plugin.push_top(weapon(SWORD, 1));
-    plugin.push_top(weapon(GREATSWORD, 5));
+    equipment(&mut plugin);
+    plugin.push_top(weapon(SWORD, 1, EITHER_HAND));
+    plugin.push_top(weapon(GREATSWORD, 5, BOTH_HANDS));
     let mut order = LoadOrder::new();
     order.add("Inv09.esm", plugin).unwrap();
     let mut game = Game::new(order);
