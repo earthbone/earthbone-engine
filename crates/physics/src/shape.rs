@@ -786,11 +786,14 @@ impl<'a> Walker<'a> {
                                 Error::Invalid("triangle strip mesh has too many vertices".into())
                             })?;
                             let local_vertex_count = data.vertices.len();
-                            vertices.extend(
-                                data.vertices.iter().map(|v| {
-                                    Vec3::new(v.x * scale.x, v.y * scale.y, v.z * scale.z)
-                                }),
-                            );
+                            vertices.extend(data.vertices.iter().map(|v| {
+                                // CONTEXT: NiGeometryData uses Creation units, unlike Havok primitives.
+                                Vec3::new(
+                                    v.x / UNITS_PER_METER * scale.x,
+                                    v.y / UNITS_PER_METER * scale.y,
+                                    v.z / UNITS_PER_METER * scale.z,
+                                )
+                            }));
                             for (index, triangle) in data.triangles.iter().enumerate() {
                                 if triangle
                                     .iter()
@@ -983,9 +986,8 @@ mod chunk_reference_tests {
 mod mopp_tests {
     use super::*;
 
-    #[test]
-    fn r4_mopp_metadata_does_not_resize_child_geometry() {
-        let header = Header {
+    fn header() -> Header {
+        Header {
             version: soe_nif::header::VERSION_20_2_0_7,
             user_version: 12,
             bs_version: soe_nif::header::BS_SKYRIM_SE,
@@ -998,7 +1000,12 @@ mod mopp_tests {
             block_sizes: Vec::new(),
             strings: Vec::new(),
             groups: Vec::new(),
-        };
+        }
+    }
+
+    #[test]
+    fn r4_mopp_metadata_does_not_resize_child_geometry() {
+        let header = header();
         for scale in [0.5_f32, 1.0, 70.0, 254.0] {
             let mut payload = 1_i32.to_le_bytes().to_vec();
             payload.extend_from_slice(&[0; 12]);
@@ -1035,5 +1042,50 @@ mod mopp_tests {
                 "MOPP metadata scale={scale} resized its child"
             );
         }
+    }
+    #[test]
+    fn r4_triangle_strip_vertices_enter_the_havok_tree_once() {
+        let header = header();
+        let mut payload = 7_u32.to_le_bytes().to_vec();
+        payload.extend_from_slice(&0.005_f32.to_le_bytes());
+        payload.extend_from_slice(&[0; 20]);
+        payload.extend_from_slice(&1_u32.to_le_bytes());
+        for value in [1.0_f32, 1.0, 1.0, 0.0] {
+            payload.extend_from_slice(&value.to_le_bytes());
+        }
+        for value in [1_u32, 1, 1, 1] {
+            payload.extend_from_slice(&value.to_le_bytes());
+        }
+        let blocks = [
+            Block::Collision {
+                type_name: "bhkNiTriStripsShape".into(),
+                data: payload,
+            },
+            Block::GeometryData(soe_nif::blocks::GeometryData {
+                vertices: vec![
+                    soe_nif::Vec3::new(1000.0, 0.0, 0.0),
+                    soe_nif::Vec3::new(0.0, 200.0, 0.0),
+                    soe_nif::Vec3::new(0.0, 0.0, 50.0),
+                ],
+                triangles: vec![[0, 1, 2]],
+                from_strips: true,
+                ..Default::default()
+            }),
+        ];
+        let mut walker = Walker {
+            header: &header,
+            blocks: &blocks,
+            out: Collected::default(),
+            seen: HashSet::new(),
+        };
+        let shape = walker
+            .shape(BlockRef(0), 0)
+            .expect("strips")
+            .expect("mesh")
+            .scaled(UNITS_PER_METER);
+        let bounds = shape.aabb(&Iso::IDENTITY);
+        assert!((bounds.max.x - (1000.0 + 0.005 * UNITS_PER_METER)).abs() < 0.001);
+        assert!((bounds.max.y - (200.0 + 0.005 * UNITS_PER_METER)).abs() < 0.001);
+        assert!((bounds.max.z - (50.0 + 0.005 * UNITS_PER_METER)).abs() < 0.001);
     }
 }

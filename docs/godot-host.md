@@ -10120,3 +10120,31 @@ reference cycle. The UI-20 import fixture fails before the fix when its
 manifest is removed between presentation and refresh, and passes afterward,
 including generation replacement. See [performance.md](performance.md) for
 trace capture and installed-route measurements.
+
+## South Whiterun collision, preview round 4
+
+The console-selected wall `00C8C1D` is the enabled fallen pine STAT
+`00013B33`, with no primitive, collision-layer override or enable parent.
+Its static NIF collision includes Creation-unit NiTriStripsData vertices.
+The physics collector applied the Havok-to-Creation conversion twice to those
+vertices, enlarging its horizontal bounds from about 1,968 units to 137,689.
+The shared collector now normalizes those vertices before assembling its
+mixed Havok shape tree. Both movement and Godot query bodies use that result.
+The tree remains solid at its authored placement.
+
+The installed library regression records the form, base, flags, shape types
+and bounds, then rejects hits along the formerly blocked southward rays.
+Before correction, rays at X 4,000, 8,000 and 12,000 hit the tree thousands
+of units north of its placement. All four sampled rays are clear afterward.
+`godot/r4_south_wall_test.gd` extends the free walk scene and checks the
+resident tree's host queries and a grounded southward walk. See
+[physics.md](physics.md) for local source paths and the mixed-unit rule.
+No per-reference node path or dependency is added.
+
+The package checks pass with 30 physics library, 17 synthetic physics and
+591 host library tests. Optional installed fixtures are separate from those
+counts. The installed wall regression passes with four clear rays and a
+1,968-unit horizontal span. Headless walkthrough confirmation exits zero
+with one movement body and one query body for the tree, four clear distant
+rays and a grounded 705-unit southward walk. The fixture starts at the named
+WhiterunExterior04 cell and streams the resident exterior around the player.

@@ -903,3 +903,27 @@ supplies the same operation without importing the GLB converter.
 with its wrapped form at metadata scales 0.5, 1, 70 and 254. Before correction,
 scale 0.5 reduced the radius to 1. The installed south Whiterun tree has scale
 1 here, so this separate correction does not explain that reported wall.
+
+## Creation-unit triangle strips, preview round 4
+
+`bhkNiTriStripsShape` references ordinary `NiTriStripsData` positions in
+Creation units. Havok capsules, radii and transform offsets remain metres.
+Collection normalizes strip positions to metres before assembling the shape
+tree, then converts the completed tree to Creation units once. Mixed lists
+therefore retain their capsule dimensions and transform offsets.
+
+The installed `00C8C1D` reference is an enabled STAT `00013B33`,
+`Landscape/Trees/TreePineForestUprooted01.nif`, scale 0.74, without XPRM,
+XTRI or XESP. Reference and base flags are zero. Its NIF uses static layer 1,
+zero mass and motion system 5. It combines triangle strips with transformed
+capsules. Converting strip positions a second time expanded its collision
+from the tree across a 137,689-unit horizontal span. Southward rays hit that
+shape thousands of units north of the actual tree.
+
+Sources read locally: xEdit `wbDefinitionsTES5.pas`, REFR and COLL,
+UESP `REFR.wikitext` and `COLL.wikitext`, nifxml `bhkNiTriStripsShape`,
+nifly `src/bhk.cpp`, OpenMW `components/nif/physics.cpp`, and Mudcrab
+`crates/converter/src/collision.rs`, `decode_ni_tri_strips`. Mudcrab explicitly
+keeps NiGeometryData positions in Creation units. Its GLB converter does not
+fit this engine's direct NIF path, so the existing collector owns the unit
+normalization. No reference exception, asset copy or dependency is added.

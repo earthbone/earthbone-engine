@@ -336,3 +336,86 @@ fn tst_19_loose_corridor_stays_above_the_inn_floor() {
         }
     }
 }
+
+#[test]
+fn r4_whiterun_south_wall_does_not_block_the_player() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open(std::path::Path::new(&data)).expect("data opens");
+    let id = GlobalFormId {
+        file: 0,
+        object: 0x0c8c1d,
+    };
+    let owner = source.order().winner_ref(id).expect("reported reference");
+    let record = source.order().record(owner);
+    let refr = Refr::from_record(record).expect("reference");
+    let base_id = source.order().resolve(owner.file, refr.base);
+    let base = source.order().winner(base_id).expect("base");
+    eprintln!("R4_WALL ref={id} tag={} flags={:08X} base={base_id} base_tag={} base_flags={:08X} model={:?} primitive={:?} parent={:?} xtri={:?} transform={:?} scale={:?} enabled={}", record.tag, record.flags, base.tag, base.flags, model_for(base), refr.primitive, refr.enable_parent, record.find(Tag::new(b"XTRI")), refr.transform, refr.scale, soe_game::World::authored_reference_enabled(source.order(), id));
+    let model = model_for(base).expect("tree model");
+    let file = crate::data_source::placed_model(
+        &source
+            .vfs()
+            .read(&format!("meshes/{model}"))
+            .expect("tree bytes"),
+    )
+    .expect("tree NIF");
+    for block in &file.blocks {
+        if let soe_nif::blocks::Block::Node(node) = block {
+            eprintln!(
+                "R4_WALL node={} transform={:?}",
+                node.av.name(),
+                node.av.transform
+            );
+        }
+        if let soe_nif::blocks::Block::Collision { type_name, data } = block {
+            let decoded =
+                soe_physics::bhk::decode(type_name, data, &file.header).expect("collision block");
+            match &decoded {
+                soe_physics::bhk::Bhk::ConvexVertices { vertices, .. } => eprintln!(
+                    "R4_WALL {type_name} bounds={:?}",
+                    soe_physics::Aabb::of_points(vertices.iter().copied())
+                ),
+                soe_physics::bhk::Bhk::CompressedMeshData(_) => {}
+                _ => eprintln!("R4_WALL {type_name} {decoded:?}"),
+            }
+        }
+    }
+    let colliders = source
+        .placed_reference_colliders(id)
+        .expect("reported collision");
+    for placed in &colliders {
+        eprintln!(
+            "R4_WALL layer={:?} motion={:?} mass={} bounds={:?}",
+            placed.collider.layer,
+            placed.collider.motion,
+            placed.collider.mass,
+            placed.collider.aabb()
+        );
+    }
+    let mut world = SimpleWorld::new();
+    for placed in &colliders {
+        world.add_static(&placed.collider);
+    }
+    for x in [0.0, 4000.0, 8000.0, 12000.0] {
+        let from = Vec3::new(x, -1000.0, -3000.0);
+        let to = Vec3::new(x, -12000.0, -3000.0);
+        let hit = world.raycast(from, to);
+        eprintln!("R4_WALL south_ray x={x} hit={hit:?}");
+        assert!(
+            hit.is_none(),
+            "fallen tree blocks a distant south walking ray at x={x}"
+        );
+    }
+    assert!(
+        !colliders.is_empty(),
+        "reported wall must resolve its authored shape"
+    );
+    assert!(
+        colliders
+            .iter()
+            .all(|p| (p.collider.aabb().max - p.collider.aabb().min).length() < 4096.0),
+        "fallen tree collision extends across the south walking route"
+    );
+}

@@ -692,9 +692,9 @@ fn fmt_09_strips_fixture_preserves_collision_triangles_and_winding() {
     let geometry = GeometryData {
         vertices: vec![
             soe_nif::Vec3::new(0.0, 0.0, 0.0),
-            soe_nif::Vec3::new(1.0, 0.0, 0.0),
-            soe_nif::Vec3::new(0.0, 1.0, 0.0),
-            soe_nif::Vec3::new(1.0, 1.0, 0.0),
+            soe_nif::Vec3::new(UNITS_PER_METER, 0.0, 0.0),
+            soe_nif::Vec3::new(0.0, UNITS_PER_METER, 0.0),
+            soe_nif::Vec3::new(UNITS_PER_METER, UNITS_PER_METER, 0.0),
         ],
         triangles: vec![[0, 1, 2], [2, 1, 3]],
         from_strips: true,
