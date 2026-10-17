@@ -1,5 +1,20 @@
 # soe-game: the runtime form table and the first natives
 
+## Patrol marker wait defaults, round 4
+
+The installed Whiterun free walk reports Patrol marker has no idle time
+for guards and Brenuin. Their REFR records omit the optional Patrol Data
+group. The reader accepted that omission for ACHR but rejected it for REFR.
+Both now use a zero wait when the group is absent. An explicit XPRD keeps
+its authored value, and malformed, negative or non-finite waits still fail.
+
+Local xEdit `wbDefinitionsTES5.pas`, its Patrol Data group, and UESP
+`REFR.wikitext` declare the optional group. Mutagen
+`Common Subrecords/Patrol.xml` and `Patrol_Generated.cs` give IdleTime its
+zero default. The existing reference and package readers remain in use.
+The focused absent-group regression fails before the correction and passes
+after it. Authored waits and malformed wait cases also pass.
+
 ## Grounded NAVM progress, round 4
 
 The free walk measurement in `godot/r4_npc_progress_test.gd` advances the

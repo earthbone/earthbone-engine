@@ -132,9 +132,7 @@ fn marker(world: &mut World, id: GlobalFormId) -> Result<Marker, &'static str> {
             _ => in_patrol = false,
         }
     }
-    let dwell = dwell
-        .or_else(|| (rec.tag == T(b"ACHR")).then_some(0.0))
-        .ok_or("Patrol marker has no idle time")?;
+    let dwell = dwell.unwrap_or(0.0);
     if !dwell.is_finite() || dwell < 0.0 {
         return Err("invalid Patrol idle time");
     }
@@ -710,4 +708,48 @@ pub(super) fn read(r: &mut Reader<'_>, has_mount: bool) -> Result<PatrolState, V
         dwell_until,
         mount,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    fn marker_world(wait: Option<Vec<u8>>) -> World {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(T(b"CELL"), 1).sub(b"DATA", [1, 0]));
+        plugin.push_top(Record::new(T(b"STAT"), 2).sub(b"EDID", b"XMarker\0"));
+        let mut reference = Record::new(T(b"REFR"), 3)
+            .sub(b"NAME", 2_u32.to_le_bytes())
+            .sub(b"DATA", [0; 24]);
+        reference.placement.cell = Some(1);
+        if let Some(wait) = wait {
+            reference = reference.sub(b"XPRD", wait);
+        }
+        plugin.push_top(reference);
+        let mut order = LoadOrder::new();
+        order.add("PatrolMarker.esm", plugin).unwrap();
+        World::new(order)
+    }
+
+    #[test]
+    fn patrol_reference_without_a_patrol_data_group_has_no_wait() {
+        let mut world = marker_world(None);
+        let marker = marker(&mut world, GlobalFormId { file: 0, object: 3 });
+        assert!(marker.is_ok_and(|marker| marker.dwell == 0.0));
+    }
+
+    #[test]
+    fn patrol_reference_preserves_authored_wait_and_rejects_malformed_wait() {
+        let id = GlobalFormId { file: 0, object: 3 };
+        let mut world = marker_world(Some(2.5_f32.to_le_bytes().to_vec()));
+        assert!(marker(&mut world, id).is_ok_and(|marker| marker.dwell == 2.5));
+        for wait in [
+            vec![0],
+            f32::NAN.to_le_bytes().to_vec(),
+            (-1.0_f32).to_le_bytes().to_vec(),
+        ] {
+            assert!(marker(&mut marker_world(Some(wait)), id).is_err());
+        }
+    }
 }
