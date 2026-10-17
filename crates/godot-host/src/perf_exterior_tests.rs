@@ -5,6 +5,81 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[test]
+fn prf_42_static_cell_updates_do_not_rebuild_the_resident_world_grid() {
+    use soe_physics::{Collider, Iso, Layer, MotionType, PhysicsWorld, Shape, SimpleWorld, Vec3};
+    use std::time::{Duration, Instant};
+
+    const LIMIT: Duration = Duration::from_millis(33);
+    fn terrain(repetitions: usize) -> Collider {
+        let vertices = (0..33)
+            .flat_map(|y| (0..33).map(move |x| Vec3::new(x as f32 * 128.0, y as f32 * 128.0, 0.0)))
+            .collect();
+        let mut triangles = Vec::new();
+        for _ in 0..repetitions {
+            for y in 0..32u32 {
+                for x in 0..32u32 {
+                    let sw = y * 33 + x;
+                    triangles.extend([[sw, sw + 1, sw + 34], [sw, sw + 34, sw + 33]]);
+                }
+            }
+        }
+        Collider {
+            node: soe_nif::BlockRef(0),
+            node_name: "streamed terrain".into(),
+            layer: Layer::STATIC,
+            motion: MotionType::Fixed,
+            mass: 0.0,
+            transform: Iso::IDENTITY,
+            shape: Shape::TriangleMesh {
+                radius: 0.0,
+                vertices,
+                triangles,
+                materials: Vec::new(),
+            },
+        }
+    }
+    let mut world = SimpleWorld::new();
+    let mut resident = terrain(10);
+    for y in 0..5 {
+        for x in 0..5 {
+            resident.transform.translation = Vec3::new(x as f32 * 4096.0, y as f32 * 4096.0, 0.0);
+            world.add_static(&resident);
+        }
+    }
+    assert_eq!(world.primitive_count(), 512_000);
+    world.step(0.0);
+    let mut arriving = terrain(1);
+    arriving.transform.translation = Vec3::new(-4096.0, 0.0, 0.0);
+    let from = Vec3::new(-2048.0, 2048.0, 100.0);
+    let to = Vec3::new(-2048.0, 2048.0, -100.0);
+    let start = Instant::now();
+    let body = world.add_static(&arriving);
+    world.step(0.0);
+    let added = start.elapsed();
+    assert_eq!(world.raycast(from, to).unwrap().body, body);
+    let start = Instant::now();
+    world.remove(body);
+    world.step(0.0);
+    let removed = start.elapsed();
+    assert!(world.raycast(from, to).is_none());
+    assert!(world
+        .raycast(
+            Vec3::new(2048.0, 2048.0, 100.0),
+            Vec3::new(2048.0, 2048.0, -100.0)
+        )
+        .is_some());
+    eprintln!(
+        "PRF42_STATIC_UPDATE primitives=512000 added_ms={:.3} removed_ms={:.3} limit_ms=33",
+        added.as_secs_f64() * 1000.0,
+        removed.as_secs_f64() * 1000.0
+    );
+    assert!(
+        added < LIMIT && removed < LIMIT,
+        "static-cell mutation revisited the resident world: add={added:?}, remove={removed:?}"
+    );
+}
+
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -43,6 +118,7 @@ fn prf_40_installed_exterior_uploads_and_physics_are_bounded() {
             .env("SKYRIM_DATA", &data)
             .env("SOE_PRF40_CELL", cell)
             .env("SOE_PRF40_REPORT", &report)
+            .env("XDG_DATA_HOME", directory.join(format!("{cell}-userdata")))
             .env("SOE_GODOT_TIMEOUT", "900")
             .env("DISPLAY", ":99")
             .env_remove("WAYLAND_DISPLAY")
@@ -69,6 +145,17 @@ fn prf_40_installed_exterior_uploads_and_physics_are_bounded() {
         );
         assert!(log.contains("prf_40_installed_exterior: PASS"));
         assert!(log.contains("WALKTHROUGH stopped: ready=true"));
+        let trace: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(report.with_extension("trace.json")).unwrap())
+                .unwrap();
+        assert!(
+            trace["traceEvents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| event["ph"] == "X"),
+            "{cell}: load trace contains no timed events"
+        );
         let row: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&report).unwrap()).unwrap();
         assert_eq!(row["frames"].as_array().unwrap().len(), 360);
@@ -85,6 +172,11 @@ fn prf_40_installed_exterior_uploads_and_physics_are_bounded() {
             row["upload"]["worst_ms"].as_f64().unwrap() < 33.0,
             "{cell}: upload breached 33 ms: {}",
             row["upload"]
+        );
+        assert!(
+            row["physics_ms_max"].as_f64().unwrap() < 33.0,
+            "{cell}: physics callback breached 33 ms: {}",
+            row["physics_ms_max"]
         );
         assert_eq!(
             row["pipelines"]["draw"].as_u64().unwrap(),

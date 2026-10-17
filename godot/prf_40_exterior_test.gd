@@ -133,6 +133,7 @@ func _start() -> void:
 		_check(output != null, "report opened")
 		if output != null:
 			output.store_string(JSON.stringify(results, "\t"))
+		_check(streamer.call("write_load_trace", path.get_basename() + ".trace.json"), "load trace exported")
 	var brief := results.duplicate()
 	for field in ["frames", "streaming_ms", "render_ms", "physics_ms"]:
 		brief.erase(field)

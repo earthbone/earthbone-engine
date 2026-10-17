@@ -227,9 +227,11 @@ resident block, without walking across its boundary.
 
 The threaded simulation is opt-in through `SOE_THREADED_SIMULATION=1`. The
 default `start_gameplay` path, which is the one the user plays, still runs the
-game inline in `physics_process` with Godot's catch-up ticks, so a slow frame is
-followed by up to eight physics callbacks and the spiral the row describes is
-still live there. The TST-18 gate above passes only on the draft path. The
+game inline in `physics_process`. At this checkpoint a slow frame could be
+followed by up to eight physics callbacks. PRF-40 now caps the default path at
+one callback per rendered frame, including inline game work. That bounds
+catch-up repetitions but does not move simulation onto its worker or bound
+one callback's duration. The TST-18 gate above passes only on the draft path. The
 default path is neither restructured nor measured by it, so the 2 ms main-thread
 clause cannot be read as the only open piece of PRF-37. Moving the default path
 onto the worker and measuring it with ordinary input are both still missing.
@@ -2713,3 +2715,76 @@ navigation is covered by the cold-start tests
 This gate measures the opt-in snapshot adapter. It does not establish complete
 playable-runtime integration or include startup and cell replacement in the
 steady-frame percentile window. The draft limits are listed above.
+
+### Exterior follow-up measurements, 2026-10-17
+
+The completed PRF-40 traversal now exports the existing Chrome load trace and
+writes Godot hitch dumps under a private `XDG_DATA_HOME`. This follows Godot's
+`data_paths.rst` user-data override and avoids the unwritable shared app-data
+path. Both traversals retained 360 frames, crossed a CELL boundary and exited
+successfully. Captures precede the incremental collision-grid change.
+
+| Measurement in ms | WhiterunExterior04 | WhiterunExterior01 |
+|---|---|---|
+| Streaming p50 | 11.185 | 7.283 |
+| Streaming p99 | 54.716 | 237.647 |
+| Streaming maximum | 98.876 | 246.575 |
+| Physics p50 | 1.022 | 1.070 |
+| Physics p99 | 269.995 | 373.884 |
+| Physics maximum | 275.523 | 383.831 |
+| Upload maximum | 24.830 | 24.290 |
+
+Each trace contains 65,536 timed events. The captures produced ten and fifteen
+hitch files respectively, with zero overwritten files. Foreground draw
+compilations were zero. Surface compilations were eight and six, and
+specializations were 36 and 34. Physics stayed at one step per rendered frame.
+These software Vulkan runs identify engine stalls, not hardware GPU FPS.
+
+The three principal engine costs after the initial upload fixes were the
+whole-world static-grid rebuild during physics, synchronous LOD cache joins
+during streaming, and indivisible resource upload calls. The grid rebuild is
+addressed in PRF-42. `CellStreamerNode::lod_cycle` still joins a requested cache job with
+`finish` on the main thread. PRF-41 retains that scope because making it
+asynchronous also requires pending readiness and old-coverage retirement.
+Treating a pending BTR as absent would lose coverage. Upload slices share an
+eight-ms deadline but one resource call can exceed it. Both observed maxima
+remain below the unchanged 33 ms upload gate.
+
+The additional PRF-42 mutation check fixes its 33 ms limit before measurement.
+Before the change, adding one 2,048-triangle tile to 512,000 resident primitives
+and stepping took 438.267 ms. Removing it and stepping took 437.403 ms.
+`SimpleWorld` now updates the edited body's grid entries immediately, preserving
+body identity, material results and insertion-order contact ties across storage
+compaction. Installed traversals additionally assert a 33 ms physics maximum.
+The consolidated task assigns the full workspace gate to the lead.
+
+The focused debug check after the change measured 2.256 ms for insertion and
+1.749 ms for removal, below the unchanged 33 ms limit. All physics unit and
+integration harnesses passed with four installed-data checks skipped.
+
+The installed confirmation passed both 360-frame traversals in 287.01 seconds.
+Both child processes exited zero with the normal walkthrough shutdown marker.
+Their traces and hitch files are retained in `target/prf40-after`. The earlier
+captures above are in `target/prf40-after/before-incremental-grid-2026-10-17`.
+
+| After incremental grid, ms | WhiterunExterior04 | WhiterunExterior01 |
+|---|---|---|
+| Physics p50 | 0.879 | 0.981 |
+| Physics p99 | 1.247 | 1.443 |
+| Physics maximum | 1.486 | 1.999 |
+| Streaming p50 | 10.506 | 8.049 |
+| Streaming p99 | 54.864 | 225.011 |
+| Streaming maximum | 78.115 | 231.159 |
+| Upload maximum | 19.672 | 23.942 |
+| Rendered-frame p50 | 257.402 | 374.479 |
+| Rendered-frame p99 | 352.972 | 627.224 |
+
+The physics maxima fell from 275.523 and 383.831 ms and satisfy the unchanged
+33 ms bound. Foreground draw compilations remained zero. Surface and background
+specialization counts were unchanged at eight and 36, then six and 34.
+Each frame used at most one physics step. The boundary crossings and horizontal
+displacements match the preceding captures. Exterior04 still ends ungrounded,
+so this result does not establish correct grounded movement there.
+Streaming still exceeds 33 ms. PRF-41 remains open, and no hardware GPU FPS or
+full workspace gate result is claimed. Package formatting, all-target Clippy
+for physics and godot-host, comment lint, prose lint and Markdown lint passed.
