@@ -565,31 +565,8 @@ impl<'f> Walker<'f> {
         if attrs & attr::SKINNED != 0 && mesh.skin.is_some() {
             mesh.bone_weights = vertices.iter().map(|v| v.bone_weights).collect();
             mesh.bone_indices = vertices.iter().map(|v| v.bone_indices).collect();
-            // A bone index stored inside a partition addresses that
-            // partition's own short bone list, not the skin instance's, and
-            // `Mesh::bone_indices` is documented as the latter. The legacy
-            // path has always mapped them through `part.bones`, this one
-            // copied them raw until 2026-09-18.
-            // Only when the vertices came from the partition. A shape that
-            // keeps its own vertex array carries skin-instance indices
-            // already, and remapping those would corrupt them.
-            let from_partition = partition.filter(|_| t.vertices.is_empty());
-            if let Some(p) = from_partition {
-                for part in &p.partitions {
-                    if part.bones.is_empty() {
-                        continue;
-                    }
-                    for &global in &part.vertex_map {
-                        let Some(slot) = mesh.bone_indices.get_mut(global as usize) else {
-                            continue;
-                        };
-                        for b in slot.iter_mut() {
-                            let mapped = part.bones.get(*b as usize).copied().unwrap_or(0);
-                            *b = u8::try_from(mapped).unwrap_or(0);
-                        }
-                    }
-                }
-            }
+            // SSE global vertex buffers store skin-instance indices. nifly's
+            // PrepareData copies them, and GetShapeBoneWeights uses them directly.
         }
         Ok(mesh)
     }
@@ -796,5 +773,121 @@ mod rnd_31_tests {
         assert_eq!(params.env_map_texture, "textures/effects/cube.dds");
         assert_eq!(params.normal_texture, "textures/effects/normal.dds");
         assert_eq!(params.env_mask_texture, "textures/effects/mask.dds");
+    }
+}
+
+#[cfg(test)]
+mod r4_global_skin_tests {
+    use crate::blocks::{
+        AvObject, Block, BsTriShape, Node, ObjectNet, Partition, SkinBone, SkinData, SkinInstance,
+        SkinPartition,
+    };
+    use crate::vertex::{attr, Vertex, VertexDesc};
+    use crate::{BlockRef, Header, NifFile, Vec3};
+
+    fn fixture(inline: bool) -> NifFile {
+        let vertices: Vec<_> = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+            .into_iter()
+            .enumerate()
+            .map(|(index, [x, y, z])| Vertex {
+                position: Vec3::new(x, y, z),
+                bone_indices: if index == 1 {
+                    [0, 0, 0, 0]
+                } else {
+                    [2, 0, 0, 0]
+                },
+                bone_weights: [1.0, 0.0, 0.0, 0.0],
+                ..Vertex::default()
+            })
+            .collect();
+        let desc = VertexDesc::from_attributes(attr::VERTEX | attr::SKINNED, 100);
+        let header = Header {
+            version: crate::header::VERSION_20_2_0_7,
+            user_version: 12,
+            bs_version: 100,
+            author: String::new(),
+            process_script: String::new(),
+            export_script: String::new(),
+            max_filepath: String::new(),
+            block_types: Vec::new(),
+            block_type_index: Vec::new(),
+            block_sizes: Vec::new(),
+            strings: Vec::new(),
+            groups: Vec::new(),
+        };
+        let mut blocks = vec![
+            Block::BsTriShape(BsTriShape {
+                skin: BlockRef(1),
+                shader: BlockRef(-1),
+                alpha: BlockRef(-1),
+                desc,
+                num_vertices: 3,
+                num_triangles: 1,
+                vertices: if inline { vertices.clone() } else { Vec::new() },
+                triangles: if inline { vec![[0, 1, 2]] } else { Vec::new() },
+                ..BsTriShape::default()
+            }),
+            Block::SkinInstance(SkinInstance {
+                data: BlockRef(2),
+                partition: BlockRef(3),
+                skeleton_root: BlockRef(4),
+                bones: vec![BlockRef(4), BlockRef(5), BlockRef(6)],
+                ..SkinInstance::default()
+            }),
+            Block::SkinData(SkinData {
+                bones: vec![SkinBone::default(); 3],
+                ..SkinData::default()
+            }),
+            Block::SkinPartition(SkinPartition {
+                desc,
+                vertices,
+                partitions: vec![Partition {
+                    bones: vec![2, 0],
+                    vertex_map: vec![0, 1, 2],
+                    triangles_copy: vec![[0, 1, 2]],
+                    ..Partition::default()
+                }],
+            }),
+        ];
+        for name in ["bone0", "bone1", "bone2"] {
+            blocks.push(Block::Node(Node {
+                av: AvObject {
+                    net: ObjectNet {
+                        name: name.into(),
+                        ..ObjectNet::default()
+                    },
+                    ..AvObject::default()
+                },
+                ..Node::default()
+            }));
+        }
+        NifFile {
+            header,
+            blocks,
+            roots: vec![BlockRef(0)],
+        }
+    }
+
+    fn check(inline: bool) {
+        let file = fixture(inline);
+        let meshes = file.meshes().unwrap();
+        assert_eq!(meshes.len(), 1);
+        let mesh = &meshes[0];
+        assert_eq!(
+            mesh.bone_indices,
+            vec![[2, 0, 0, 0], [0, 0, 0, 0], [2, 0, 0, 0]]
+        );
+        assert_eq!(mesh.skin.as_ref().unwrap().bones[2].name, "bone2");
+        assert_eq!(mesh.bone_weights, vec![[1.0, 0.0, 0.0, 0.0]; 3]);
+    }
+
+    #[test]
+    fn r4_sse_global_vertex_buffer_indices_ignore_the_partition_palette() {
+        check(false);
+    }
+
+    #[test]
+    fn r4_inline_skin_indices_remain_global() {
+        check(true);
     }
 }

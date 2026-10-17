@@ -202,8 +202,8 @@ pub struct ActorSurface {
     pub node_offset: [f32; 3],
     /// Body part partitions the shape is split into.
     pub partitions: usize,
-    /// Whether the partition-local bone index correction applied, see
-    /// [`partition_bone_indices`].
+    /// Whether a legacy bone-index repair was applied. SSE packed indices
+    /// already address the skin instance, so this observation stays false.
     pub remapped: bool,
 }
 
@@ -999,13 +999,6 @@ impl ActorAssets {
                 }
             }
             let partitions = partition_count(&file, mesh);
-            let remapped = match partition_bone_indices(&file, mesh) {
-                Some(fixed) => {
-                    arrays.bones = fixed;
-                    true
-                }
-                None => false,
-            };
             let map = BoneMap::build(&skin.bones, skeleton);
             out.push(ActorSurface {
                 name: mesh.name.clone(),
@@ -1025,7 +1018,7 @@ impl ActorAssets {
                     mesh.transform.translation.z,
                 ],
                 partitions,
-                remapped,
+                remapped: false,
             });
             if mesh.material.kind
                 == soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::FaceTint)
@@ -1586,94 +1579,6 @@ fn partition_count(file: &soe_nif::NifFile, mesh: &soe_nif::mesh::Mesh) -> usize
     }
 }
 
-/// Per-vertex bone indices resolved against the shape's own bone list, flat,
-/// four per vertex, for a Special Edition skinned shape.
-///
-/// This works around a defect in `crates/nif`, reported rather than fixed here
-/// because another fork owns that crate. A `NiSkinPartition` splits a shape
-/// into body parts, and a packed vertex's four bone indices address the
-/// **partition's** short bone list, not the skin instance's. The reader's
-/// legacy `NiTriShape` path maps them through `Partition::bones` and says so in
-/// its doc comment, but the `BSTriShape` path that Special Edition uses copies
-/// them straight off the vertex. The result renders: vertices in the first
-/// partition land on plausible bones and every later body part, arms and head
-/// among them, is weighted to whatever bone happens to sit at that index.
-///
-/// `None` when the shape is not laid out that way, leaving the reader's
-/// indices alone.
-///
-/// This reads the partition blocks directly rather than `mesh.bone_indices`,
-/// which is why it was correct while the mesh reader was not. The reader was
-/// fixed on 2026-09-18, measured over 400 actor meshes where 564 of 846
-/// partitions carry a reordering bone list, so the two now agree and this
-/// could be dropped in favour of `mesh.bone_indices`. Check they match on the
-/// same meshes before removing it, since only this one has ever been looked at
-/// on screen.
-fn partition_bone_indices(file: &soe_nif::NifFile, mesh: &soe_nif::mesh::Mesh) -> Option<Vec<i32>> {
-    use soe_nif::blocks::Block;
-
-    let Some(Block::BsTriShape(shape)) = file.blocks.get(mesh.block) else {
-        return None;
-    };
-    let Some(Block::SkinInstance(si)) = file.get(shape.skin) else {
-        return None;
-    };
-    let Some(Block::SkinPartition(part_block)) = file.get(si.partition) else {
-        return None;
-    };
-    if part_block.vertices.is_empty() || part_block.partitions.is_empty() {
-        return None;
-    }
-    let vertices = mesh.positions.len();
-    let mut out = vec![0i32; vertices * 4];
-    let mut seen = vec![false; vertices];
-    let mut claim = |at: usize, part: &soe_nif::blocks::Partition| {
-        if at >= vertices || seen[at] {
-            return;
-        }
-        let Some(vertex) = part_block.vertices.get(at) else {
-            return;
-        };
-        seen[at] = true;
-        for k in 0..4 {
-            let local = vertex.bone_indices[k] as usize;
-            let bone = part.bones.get(local).copied().unwrap_or(0);
-            out[at * 4 + k] = i32::from(bone);
-        }
-    };
-    for part in &part_block.partitions {
-        // Which vertices a partition owns is said two ways, and Special
-        // Edition shapes use either. `vertex_map` lists them directly. With a
-        // shared vertex buffer that map can be empty, and then the only
-        // record is the partition's own triangles in shape vertex indices.
-        if part.vertex_map.is_empty() {
-            for tri in &part.triangles_copy {
-                for &v in tri {
-                    claim(v as usize, part);
-                }
-            }
-        } else {
-            for &global in &part.vertex_map {
-                claim(global as usize, part);
-            }
-        }
-    }
-    // A vertex no partition claimed keeps whatever the reader gave it, which
-    // is the status quo rather than a new wrong answer.
-    let unclaimed = seen.iter().filter(|v| !**v).count();
-    if unclaimed == vertices {
-        return None;
-    }
-    for (at, claimed) in seen.iter().enumerate() {
-        if !claimed {
-            for k in 0..4 {
-                out[at * 4 + k] = i32::from(mesh.bone_indices[at][k]);
-            }
-        }
-    }
-    Some(out)
-}
-
 /// One `NIF` shape as a Godot-ready surface, skin data included.
 ///
 /// A skinned shape's vertices are already in the skin's bind space, so the
@@ -2019,6 +1924,270 @@ mod tests {
             "{log}"
         );
         println!("{log}");
+    }
+
+    #[test]
+    fn r4_creature_sse_indices_match_nifly_global_stream() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        for (object, path) in [
+            (0x033FA3, "meshes/actors/giant/character assets/giant02.nif"),
+            (
+                0x033FA6,
+                "meshes/actors/mammoth/character assets/mammothbranded.nif",
+            ),
+        ] {
+            let assets = ActorAssets::load_for_actor(
+                &mut world,
+                soe_esm::GlobalFormId { file: 0, object },
+                source.vfs(),
+            )
+            .unwrap();
+            let file = soe_nif::parse(&read(source.vfs(), path).unwrap()).unwrap();
+            let meshes = file.meshes().unwrap();
+            let surfaces =
+                ActorAssets::load_surfaces(source.vfs(), path, &assets.skeleton).unwrap();
+            for surface in surfaces {
+                let mesh = meshes
+                    .iter()
+                    .find(|mesh| mesh.name == surface.name)
+                    .unwrap();
+                let soe_nif::blocks::Block::BsTriShape(shape) = &file.blocks[mesh.block] else {
+                    panic!("installed creature uses SSE packed geometry")
+                };
+                let soe_nif::blocks::Block::SkinInstance(skin) = file.get(shape.skin).unwrap()
+                else {
+                    panic!("installed creature skin")
+                };
+                let soe_nif::blocks::Block::SkinPartition(partition) =
+                    file.get(skin.partition).unwrap()
+                else {
+                    panic!("installed creature partition")
+                };
+                let vertices = if shape.vertices.is_empty() {
+                    &partition.vertices
+                } else {
+                    &shape.vertices
+                };
+                let expected: Vec<_> = vertices
+                    .iter()
+                    .flat_map(|vertex| vertex.bone_indices.map(i32::from))
+                    .collect();
+                let mismatches = surface
+                    .arrays
+                    .bones
+                    .iter()
+                    .zip(&expected)
+                    .filter(|(a, b)| a != b)
+                    .count();
+                eprintln!(
+                    "R4 CREATURE raw stream path={path} shape={} mismatches={mismatches}",
+                    surface.name
+                );
+                assert_eq!(
+                    surface.arrays.bones, expected,
+                    "{path} {} preserves nifly's global vertex bone indices",
+                    surface.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn r4_creature_installed_camp_source_survey() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        creature_source_metadata(&directory);
+    }
+
+    fn creature_source_metadata(directory: &Path) {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        let camp = soe_esm::GlobalFormId {
+            file: 0,
+            object: 0x0C8E8B,
+        };
+        let owner = source.order().winner_ref(camp).unwrap();
+        let record = source.order().record(owner);
+        let reference = soe_esm::records::refr::Refr::from_record(record).unwrap();
+        let base = source
+            .order()
+            .winner(source.order().resolve(owner.file, reference.base))
+            .unwrap();
+        let center = reference.transform.unwrap().position;
+        eprintln!(
+            "R4 CAMP reference={camp} position={center:?} base={} tag={:?} subs={:?}",
+            base.editor_id().unwrap_or_default(),
+            base.tag,
+            base.subrecords
+        );
+        let camp_cell = world
+            .reference(camp)
+            .and_then(|reference| reference.cell)
+            .unwrap();
+        let camp_space = world.cell_coordinate_space(camp_cell);
+        let entry_cell = source
+            .cell_index()
+            .cells()
+            .filter_map(|(cell, _)| {
+                let grid = source.cell_index().grid_of(cell)?;
+                if grid.world != camp_space {
+                    return None;
+                }
+                let name = source.order().winner(cell)?.editor_id()?;
+                let distance = grid.x.abs_diff((center[0] / 4096.0).floor() as i32)
+                    + grid.y.abs_diff((center[1] / 4096.0).floor() as i32);
+                Some((distance, cell, name))
+            })
+            .min_by_key(|(distance, cell, _)| (*distance, *cell))
+            .unwrap()
+            .2;
+        let mut selected = Vec::new();
+        let mut candidates = Vec::new();
+        for (actor, _) in source.order().winners_of(soe_esm::tag::ACHR) {
+            let Some((Some(base_id), position, Some(cell))) = world
+                .reference(actor)
+                .map(|reference| (reference.base, reference.position, reference.cell))
+            else {
+                continue;
+            };
+            if world.cell_coordinate_space(cell) != camp_space {
+                continue;
+            }
+            let Some(base) = source.order().winner(base_id) else {
+                continue;
+            };
+            let name = base.editor_id().unwrap_or_default();
+            if !["giant", "mammoth", "wolf"]
+                .iter()
+                .any(|kind| name.to_ascii_lowercase().contains(kind))
+            {
+                continue;
+            }
+            let distance = (position[0] - center[0]).hypot(position[1] - center[1]);
+            candidates.push((distance, actor, name, position));
+        }
+        candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let mut races = std::collections::BTreeSet::new();
+        for (distance, actor, name, position) in candidates.into_iter().take(100) {
+            eprintln!("R4 CREATURE candidate={actor} name={name} position={position:?} distance={distance} enabled={}", soe_game::World::authored_reference_enabled(source.order(), actor));
+            if !soe_game::World::authored_reference_enabled(source.order(), actor) {
+                continue;
+            }
+            let Ok(appearance) = world.actor_appearance(actor) else {
+                continue;
+            };
+            let Some(race) = appearance.race else {
+                continue;
+            };
+            let race_name = world
+                .record(race)
+                .and_then(soe_esm::Record::editor_id)
+                .unwrap_or_default();
+            if !["GiantRace", "MammothRace", "WolfRace"].contains(&race_name.as_str())
+                || !races.insert(race_name.clone())
+            {
+                continue;
+            }
+            let assets = ActorAssets::load_for_actor(&mut world, actor, source.vfs()).unwrap();
+            eprintln!("R4 CREATURE assets={actor} race={race_name} skeleton={} nif_skeleton={} behavior={} bones={} surfaces={}", assets.skeleton_path, assets.skeleton_model_path, assets.behavior_path, assets.skeleton.bones.len(), assets.surfaces.len());
+            let surfaces: Vec<_> = assets.surfaces.iter().map(|surface| serde_json::json!({"name":surface.name,"bones":surface.skin.bones.len(),"vertices":surface.arrays.positions.len()})).collect();
+            let prefix = format!(
+                "{}/",
+                assets
+                    .skeleton_model_path
+                    .rsplit_once('/')
+                    .unwrap()
+                    .0
+                    .to_ascii_lowercase()
+            );
+            let mut paths: Vec<_> = source
+                .vfs()
+                .paths()
+                .filter(|path| {
+                    path.starts_with(&prefix)
+                        && Path::new(path)
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("nif"))
+                })
+                .collect();
+            paths.sort_unstable();
+            let mut variants = Vec::new();
+            for path in paths {
+                let Ok(parts) = ActorAssets::load_surfaces(source.vfs(), path, &assets.skeleton)
+                else {
+                    continue;
+                };
+                if parts.is_empty() {
+                    continue;
+                }
+                let shapes: Vec<_> = parts.iter().map(|part| serde_json::json!({"name":part.name,"bones":part.skin.bones.len(),"vertices":part.arrays.positions.len()})).collect();
+                variants.push(serde_json::json!({"path":path,"surfaces":shapes}));
+            }
+            selected.push(serde_json::json!({"file":actor.file,"object":actor.object,"race":race_name,"position":position,"entry_cell":entry_cell,"surfaces":surfaces,"variants":variants}));
+            for surface in &assets.surfaces {
+                eprintln!("R4 CREATURE surface={:?} vertices={} skin_bones={} index_bones={} remapped={} partitions={} missing={:?}", surface.name, surface.arrays.positions.len(), surface.skin.bones.len(), surface.arrays.bones.iter().max().map_or(0, |i| i+1), surface.remapped, surface.partitions, surface.map);
+            }
+        }
+        std::fs::create_dir_all(directory).unwrap();
+        std::fs::write(
+            directory.join("r4-creature-metadata.json"),
+            serde_json::to_vec_pretty(&selected).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            races.len() >= 2,
+            "at least two creature races near the camp"
+        );
+        assert!(races.contains("GiantRace"));
+        assert!(races.contains("WolfRace") || races.contains("MammothRace"));
+    }
+
+    #[test]
+    fn installed_creature_skinning_walkthrough() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let directory = root.join("target/r4-creature-regression");
+        creature_source_metadata(&directory);
+        let output = std::process::Command::new(binary)
+            .arg("--path")
+            .arg(root.join("godot"))
+            .args([
+                "--resolution",
+                "640x360",
+                "--script",
+                "r4_creature_probe.gd",
+            ])
+            .env("DISPLAY", ":99")
+            .env("SKYRIM_DATA", data)
+            .env("SOE_GODOT_TIMEOUT", "900")
+            .env(
+                "SOE_CREATURE_METADATA",
+                directory.join("r4-creature-metadata.json"),
+            )
+            .env("SOE_CHARACTER_OUTPUT", &directory)
+            .output()
+            .unwrap();
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::fs::write(directory.join("test.log"), &log).unwrap();
+        assert!(
+            output.status.success()
+                && log.contains("RESULT: PASS R4 creature probe")
+                && !log.contains("SCRIPT ERROR"),
+            "{log}"
+        );
     }
 
     #[test]

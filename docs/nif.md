@@ -163,12 +163,23 @@ array behavior follows the vanilla skeleton files covered by
   When the partition carries no weights, `NiSkinData`'s per-bone lists are
   used.
 - SSE BSTriShape: the shape's own data size is zero and the vertex buffer,
-  weights included, lives in the `NiSkinPartition` global buffer. Bone
-  indices must be mapped through each owning partition's bone list into
-  the skin instance. The earlier claim that these indices were global was
-  corrected by the actor-mesh survey recorded in `docs/status.md`: 564 of
-  846 partitions across 400 meshes reorder the bone list. Use the
-  `NiSkinPartition` bone tables declared in `nifxml/nif.xml`.
+  weights included, lives in the `NiSkinPartition` global buffer. Its bone
+  indices already address the skin instance. Preserve them as stored, just
+  as for an inline packed buffer. Nifly `src/NifFile.cpp::PrepareData` copies
+  the buffer without remapping, and `GetShapeBoneWeights` compares the
+  stored index directly with the skin bone index. Its LE-to-SSE optimizer
+  maps legacy partition-local indices once before writing that global buffer.
+  Nifly revision `134124c2b6e6` was read locally for this correction.
+
+The earlier 400-mesh survey found 564 reordered tables out of 846 partitions.
+Those counts describe the tables, they do not establish the meaning of the
+separate global vertex stream. Remapping that stream corrupted the giant's
+weighted bones. The round 4 live probe measured maximum triangle edge stretch
+of 30.17 times its bind length before this correction. Two new unit cases
+cover a reordered palette with packed and inline global indices. The existing
+LE partition-local test remains unchanged. OpenMW's local `nifloader.cpp`
+was also checked. Its legacy path uses NiSkinData influences and it explicitly
+leaves Skyrim SE packed skinning unsupported, so nifly supplies the SSE oracle.
 
 ## FaceGen head morphs
 

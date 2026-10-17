@@ -1,5 +1,38 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Creature skin indices, RND-52, 2026-10-17
+
+The live walkthrough starts in Bleakwind Basin and observes placed giant
+`0:033FA3` and mammoth `0:033FA6`. The giant uses the Giant race's 80-bone rig,
+not the human rig. Its gameplay outfit selects `giant02.nif`, whose three
+shapes carry 114 skin transforms. The test matches the live outfit against
+installed NIF variants, then measures uploaded poses at idle times zero and
+half a second. Its fixed bounds are three times bind length at the 99th
+percentile and eight times for every edge longer than one millimetre.
+Before the fix, giant p99 is 3.757 and maximum is 30.173 across 37706 edges.
+The mammoth control stays below 1.370 and 3.516 respectively.
+After the fix, giant p99 is 1.446 and maximum is 3.580 at both sampled
+poses. The mammoth measurements remain unchanged. The embedded scene passes
+and exits with status zero. The 400-file NIF survey also matches all 694 SSE
+streams, covering 420593 vertices, to their stored global bone indices.
+
+SSE's packed vertex stream already stores skin-instance bone indices. The
+reader and a second host override both applied a legacy partition palette to
+those global values. The giant's first heavy-cloth shape then differs from
+its stored stream in 13830 slots. Both remaps are removed. The host retains
+its old remapped-shape observation field at zero. Skeleton choice, bind
+transforms and four-weight packed records retain their authored values. The
+club is skinned with the giant mesh, so the same bone correction restores
+its association with the hand.
+
+The source contracts are nifly `src/NifFile.cpp::PrepareData`,
+`GetShapeBoneWeights` and its LE-to-SSE optimizer at revision `134124c2b6e6`.
+OpenMW `components/nifosg/nifloader.cpp` was checked for legacy weights and
+bind matrices. It does not implement Skyrim SE packed skinning. The NIF
+crate's reordered-palette unit case and the host's installed global-index
+case both fail before the change. No dependencies, scene nodes or saved
+state were added.
+
 ## Near tree placement fallback, RND-50, 2026-10-17
 
 The lone pine above the Whiterun plains comes from near tree geometry at the
@@ -4809,15 +4842,13 @@ saves `docs/images/skinned-{idle,walk}.png`.
 
 ### Two defects found, both closed
 
-**Bone indices.** A `NiSkinPartition` splits a shape into body parts, and a
-packed vertex's bone indices address the **partition's** short bone list rather
-than the skin instance's. The `nif` crate's legacy `NiTriShape` path maps them
-through `Partition::bones`, the `BSTriShape` path Special Edition uses copied
-them raw. `actor::partition_bone_indices` corrects it here by reading the
-partition blocks directly. The reader itself was fixed on master afterwards,
-measured over 400 actor meshes where 564 of 846 partitions carry a reordering
-bone list, so the two now agree and this copy could be dropped in favour of
-`mesh.bone_indices`.
+**Bone indices.** The former correction through `Partition::bones` was
+wrong for SSE global vertex buffers. Nifly `PrepareData` copies them unchanged
+and `GetShapeBoneWeights` uses their skin-instance indices directly. The
+400-mesh table survey did not measure that contract. Round 4 reproduces the
+giant's edge stretch by a factor of 30.17 and removes the host override along with the
+reader's SSE remap. LE partition-local weights still use their own palette.
+The renderer now uses the reader's canonical `mesh.bone_indices`.
 
 ### The bind pose, and why it hid at the pelvis
 
