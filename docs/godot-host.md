@@ -95,9 +95,11 @@ passes with exit zero, 9,837 Rust passes, 55 Python passes and 14 existing
 ignored tests. No check is removed or weakened. Reported Rust test time totals
 854.39 seconds, including nested release fixture builds. A separate warm
 workspace run with a 300-second limit exits 124 during the audio fixture's
-release-build step. The five-minute Tier 1 budget remains unmet. Changes remain
-unstaged pending the required diff approval, so the four backlog claims remain
-wip.
+release-build step. The five-minute Tier 1 budget remains unmet.
+
+The restart retains implementation commit `afab12a12` and includes the two
+Godot regression scripts and their UIDs, which the earlier commit omitted.
+HST-36 through HST-39 record the implementation and focused validation.
 Threaded gameplay omits the explicit player rigs and is outside the inline
 play path checked here. These checks do not establish complete first-person
 combat or skin subsurface and specular lighting.
