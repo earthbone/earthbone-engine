@@ -205,6 +205,7 @@ impl World {
             }
             self.invalidate_reference(id);
             self.refs.remove(&id);
+            self.harvested_at.remove(&id);
             self.actors.remove(&id);
             self.actor_templates.remove(&id);
             let _ = self.reference(id);

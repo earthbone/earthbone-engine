@@ -1256,6 +1256,7 @@ impl World {
         let previous_created_bases = std::mem::take(&mut self.created_base_records);
         let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
         let previous_follower_services = std::mem::take(&mut self.follower_services);
+        let previous_harvested_at = std::mem::take(&mut self.harvested_at);
         // Streams come from the TST-01 section. A save without it derives
         // them from the shared generator, as saves did before TST-01.
         let mut rng_streams = super::rng::derive_streams(rng);
@@ -1291,6 +1292,7 @@ impl World {
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
         let follower_services =
             std::mem::replace(&mut self.follower_services, previous_follower_services);
+        let harvested_at = std::mem::replace(&mut self.harvested_at, previous_harvested_at);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
         let vampire_lord_forms = std::mem::take(&mut self.vampire_lord_forms);
@@ -1498,6 +1500,7 @@ impl World {
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
         self.learned_enchantment_effects = learned_enchantment_effects;
+        self.harvested_at = harvested_at;
         self.detection_events.clear();
         self.follower_services = follower_services;
         self.settings = settings;

@@ -120,6 +120,8 @@ func _run_hst_28() -> void:
         _key(false)
         player.call("advance", 1.0 / 60.0)
     _check(player.call("is_menu_open"), "E opens dialogue")
+    await process_frame
+    _check(not prompt.is_visible_in_tree(), "activation prompt hides while dialogue is open")
     var state: Dictionary = player.call("dialogue_state")
     print("hst_28 greeting: ", state)
     _check(state.get("speaker_object", -1) == hulda.object, "conversation belongs to Hulda")
@@ -168,6 +170,25 @@ func _run_hst_28() -> void:
             if absf(weight) > 0.001: weights_seen = true
         if weights_seen: break
     _check(weights_seen, "voice clock drives Hulda head mouth morphs")
+    for _step in range(60):
+        player.call("advance", 1.0 / 60.0)
+    await process_frame
+    actor = _current_actor(hulda)
+    var observation: Dictionary = actor.call("play_path_observation")
+    var placement: Transform3D = observation.placement
+    var feet: Vector3 = player.call("position")
+    var listener := Vector3(feet.x, feet.z, -feet.y) * 0.0142875
+    var direction := listener - placement.origin
+    direction.y = 0
+    var forward := -placement.basis.z
+    forward.y = 0
+    _check(forward.normalized().dot(direction.normalized()) > 0.95, "speaker body faces listener within 18 degrees")
+    _check(actor.has_method("head_tracking_state"), "rendered actor supports head tracking")
+    if actor.has_method("head_tracking_state"):
+        var attention: Dictionary = actor.call("head_tracking_state")
+        print("hst_28 attention: ", attention, " facing_dot=", forward.normalized().dot(direction.normalized()), " prompt_visible=", prompt.is_visible_in_tree())
+        _check(attention.active, "conversation drives the head pose")
+        _check(absf(attention.yaw) <= deg_to_rad(60.0) and absf(attention.pitch) <= deg_to_rad(40.0), "head correction stays within its limits")
     print("hst_28 lips: ", actor.call("dialogue_mouth_state"))
     await _check_dialogue_rects()
     state = player.call("dialogue_state")
@@ -178,6 +199,12 @@ func _run_hst_28() -> void:
     for node: Node in content.find_children("*", "Button", true, false) if content != null else []:
         labels.append((node as Button).text)
     print("hst_28 buttons: ", labels)
+    _check(labels.has("I'd like to rent a room. (10 gold)"), "room option substitutes its quest global before display")
+    var heading := player.get_node("MenuLayer/DialogueSpeaker") as Label
+    _check(heading.text == "Hulda", "dialogue heading uses the speaker name")
+    _check(heading.get_global_rect().end.y <= content.get_global_rect().position.y, "speaker name heads the topic panel")
+    for topic: Dictionary in topics:
+        _check(topic.label != "%d:%06X" % [topic.file, topic.object], "topic button never displays a raw form id")
     var topic_button: Button
     if not topics.is_empty():
         for node: Node in content.find_children("*", "Button", true, false):

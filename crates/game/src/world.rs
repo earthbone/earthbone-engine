@@ -82,10 +82,12 @@ pub mod weather;
 pub use inventory_restore::InventoryRestoreReport;
 mod activator_restore;
 mod book_note_key_restore;
+mod harvest;
 pub mod image_space;
 mod item_save;
 mod list_restore;
 mod localization;
+pub use harvest::HarvestData;
 mod locks;
 mod lookup;
 pub mod magic;
@@ -98,6 +100,7 @@ mod performance;
 mod projectile_restore;
 pub mod shader_particles;
 pub mod sky;
+mod text_replacement;
 pub use npc_restore::NpcRestoreReport;
 mod record_change_restore;
 mod record_overrides;
@@ -908,6 +911,7 @@ pub struct World {
     attached_cells: std::collections::HashSet<GlobalFormId>,
     /// Cells marked by `Cell.Reset`, consumed the next time they are loaded.
     pub(crate) pending_cell_resets: std::collections::BTreeSet<GlobalFormId>,
+    harvested_at: BTreeMap<GlobalFormId, f64>,
     /// A cell whose detach events have fired and whose references are still
     /// resident, waiting for [`World::settle_unload`].
     ///
@@ -1295,6 +1299,7 @@ impl World {
             loaded_3d_references: std::collections::HashSet::new(),
             attached_cells: std::collections::HashSet::new(),
             pending_cell_resets: std::collections::BTreeSet::new(),
+            harvested_at: BTreeMap::new(),
             pending_unload: None,
             next_dynamic: 0x1000,
             player: None,

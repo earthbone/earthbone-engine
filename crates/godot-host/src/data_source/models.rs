@@ -101,6 +101,63 @@ mod tests {
     use super::*;
 
     #[test]
+    fn round4_plant_switch_draws_only_the_active_child() {
+        use crate::data_source::fixture::{quad, Buf, NifWriter, IDENTITY};
+        let mut writer = NifWriter::new(100);
+        let root = writer.reserve("NiSwitchNode");
+        let mut children = Vec::new();
+        let (vertices, triangles) = quad();
+        for name in ["Normal", "Harvested"] {
+            let shape = writer.bs_tri_shape(
+                name,
+                [0.0; 3],
+                -1,
+                -1,
+                -1,
+                soe_nif::vertex::attr::VERTEX,
+                &vertices,
+                &triangles,
+                true,
+            );
+            children.push(writer.add("BSTriShape", shape));
+        }
+        let mut node = Buf(writer.ni_node("Plant", [0.0; 3], IDENTITY, 1.0, &children));
+        node.u16(3).u32(1);
+        writer.fill(root, node.0);
+        writer.roots.push(root);
+        let file = soe_nif::parse(&writer.finish()).unwrap();
+        let meshes = file.meshes().unwrap();
+        assert_eq!(meshes.len(), 1, "a plant switch draws one state");
+        assert_eq!(meshes[0].name, "Harvested");
+        for active in [u32::MAX, 99] {
+            let mut no_selection = file.clone();
+            let soe_nif::blocks::Block::Node(node) = &mut no_selection.blocks[0] else {
+                panic!("switch node")
+            };
+            node.switch.as_mut().unwrap().active = active;
+            assert!(no_selection.meshes().unwrap().is_empty());
+        }
+        let mut node_only = file.clone();
+        node_only.blocks.truncate(1);
+        let soe_nif::blocks::Block::Node(node) = &mut node_only.blocks[0] else {
+            panic!("switch node")
+        };
+        node.children.clear();
+        let encoded = node_only.to_bytes().unwrap();
+        let decoded = soe_nif::parse(&encoded).unwrap();
+        let soe_nif::blocks::Block::Node(node) = &decoded.blocks[0] else {
+            panic!("switch node roundtrip")
+        };
+        assert_eq!(
+            node.switch,
+            Some(soe_nif::blocks::SwitchState {
+                flags: 3,
+                active: 1
+            })
+        );
+    }
+
+    #[test]
     fn static_furniture_container_and_door_models_share_selection() {
         for kind in [
             tag::STAT,

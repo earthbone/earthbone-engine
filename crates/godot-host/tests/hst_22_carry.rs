@@ -12,6 +12,83 @@ use soe_godot_host::data_source::DataSource;
 use soe_physics::{Collider, Iso, Layer, MotionType, Shape, Vec3};
 
 #[test]
+fn round4_bannered_mare_cup_baskets_lag_sag_and_swing() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+        return;
+    };
+    let source = DataSource::open(Path::new(&data)).unwrap();
+    let order = source.shared_order();
+    let cell = source.resolve_cell("WhiterunBanneredMare").unwrap();
+    let (placed, _) = source.placed_cell_colliders(cell).unwrap();
+    let mut references = serde_json::Map::new();
+    for (family, name) in [
+        ("cup", "GlazedCup01"),
+        ("basket", "Basket01"),
+        ("heavy", "Basket04"),
+    ] {
+        let reference = placed
+            .iter()
+            .find(|placed| {
+                let record = order.winner_ref(placed.reference).unwrap();
+                let refr = Refr::from_record(order.record(record)).unwrap();
+                let base = order.resolve(record.file, refr.base);
+                !placed.collider.is_static()
+                    && order
+                        .winner(base)
+                        .and_then(|record| record.editor_id())
+                        .as_deref()
+                        == Some(name)
+            })
+            .unwrap()
+            .reference;
+        references.insert(
+            family.into(),
+            serde_json::json!({"file": reference.file, "object": reference.object}),
+        );
+    }
+    drop(placed);
+    drop(order);
+    drop(source);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new(godot)
+        .args(["--headless", "--path"])
+        .arg(root.join("godot"))
+        .args(["--script", "round4_carry_mass_test.gd"])
+        .env("SKYRIM_DATA", data)
+        .env(
+            "SOE_R4_MASS_REFERENCES",
+            serde_json::Value::Object(references).to_string(),
+        )
+        .env_remove("SOE_CAPTURE_PATH")
+        .env_remove("SOE_AUD_11_TEST")
+        .env("SOE_THREADED_SIMULATION", "0")
+        .output()
+        .unwrap();
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(root.join("target/round4-carry-mass.log"), &log).unwrap();
+    let report = log
+        .lines()
+        .filter(|line| line.contains("round4_carry") || line.contains("SCRIPT ERROR"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        output.status.success()
+            && log.contains("PASS round4_carry")
+            && !log.contains("SCRIPT ERROR"),
+        "exit {:?}: {report}",
+        output.status.code()
+    );
+    eprintln!("{report}");
+}
+
+#[test]
 fn hst_22_dynamic_clutter_moves_while_fixed_keyframed_and_zero_mass_stay_static() {
     let mut collider = Collider {
         node: soe_nif::BlockRef::NONE,

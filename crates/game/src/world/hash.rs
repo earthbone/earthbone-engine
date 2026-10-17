@@ -693,6 +693,14 @@ impl World {
         // in a part of its own, because it describes that same set: a
         // transition changes both together.
         opt_form(&mut h, self.loaded_cell);
+        if !self.harvested_at.is_empty() {
+            h.str("INV-09");
+            h.len(self.harvested_at.len());
+            for (id, time) in &self.harvested_at {
+                form(&mut h, *id);
+                h.f64(*time);
+            }
+        }
         let refs = h.finish();
 
         let mut h = StateHasher::new();

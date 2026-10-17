@@ -1229,6 +1229,12 @@ impl World {
                 Some([b'F', b'U', b'R', b'N']) => {
                     self.activate_furniture(target, activator);
                 }
+                Some([b'F', b'L', b'O', b'R'] | [b'T', b'R', b'E', b'E']) => {
+                    if let Err(error) = self.harvest_reference(target, activator, alloc) {
+                        self.report_native_error("Harvest", error.to_string());
+                        process = false;
+                    }
+                }
                 Some([b'B', b'O', b'O', b'K'])
                     if base.is_some_and(|book| !self.book_can_be_taken(book)) => {}
                 _ if base.is_some_and(|base| self.is_inventory_base(base)) => {

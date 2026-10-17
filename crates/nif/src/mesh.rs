@@ -418,8 +418,14 @@ impl<'f> Walker<'f> {
         match block {
             Block::Node(n) => {
                 let t = parent.then(&n.av.transform);
-                for &child in &n.children {
-                    self.walk(child, &t)?;
+                if let Some(state) = n.switch {
+                    if let Some(&child) = n.children.get(state.active as usize) {
+                        self.walk(child, &t)?;
+                    }
+                } else {
+                    for &child in &n.children {
+                        self.walk(child, &t)?;
+                    }
                 }
             }
             Block::BsTriShape(t) => {

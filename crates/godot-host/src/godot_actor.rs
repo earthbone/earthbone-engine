@@ -209,6 +209,8 @@ pub struct SkinnedActorNode {
     camera_offset: Transform3D,
     camera_bone: Option<usize>,
     head_height: Option<f32>,
+    reference_head: Option<[f32; 4]>,
+    head_aim: Option<[f32; 2]>,
     vm: Option<Interpreter<'static>>,
     assets: Option<Arc<ActorAssets>>,
     presented_actor: Option<soe_esm::GlobalFormId>,
@@ -262,6 +264,8 @@ impl INode3D for SkinnedActorNode {
             camera_offset: Transform3D::IDENTITY,
             camera_bone: None,
             head_height: None,
+            reference_head: None,
+            head_aim: None,
             assets: None,
             vm: None,
             surfaces: Vec::new(),
@@ -369,6 +373,7 @@ impl SkinnedActorNode {
     fn cache_camera_offset(&mut self) {
         self.head_height = None;
         self.camera_bone = None;
+        self.reference_head = None;
         let Some(assets) = self.assets.as_deref() else {
             return;
         };
@@ -384,6 +389,11 @@ impl SkinnedActorNode {
             .and_then(|index| model.get(index))
             .map(|pose| pose.translation[2])
             .filter(|height| height.is_finite() && *height > 0.0);
+        self.reference_head = assets
+            .skeleton
+            .bone_index("NPC Head [Head]")
+            .and_then(|index| model.get(index))
+            .map(|pose| pose.rotation);
         self.camera_bone = assets
             .skeleton
             .bones
@@ -1012,6 +1022,7 @@ impl SkinnedActorNode {
             soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
             return;
         }
+        self.apply_head_tracking();
         self.push_pose();
         // Authored events follow the pose they belong to.
         let report_target = self
@@ -1036,6 +1047,61 @@ impl SkinnedActorNode {
             }
             self.signals().animation_event().emit(&GString::from(event));
         });
+    }
+
+    fn apply_head_tracking(&mut self) {
+        self.head_aim = None;
+        if self.first_person {
+            return;
+        }
+        let (Some(binding), Some(assets), Some(reference_head)) =
+            (&self.appearance, &self.assets, self.reference_head)
+        else {
+            return;
+        };
+        let target = {
+            let mut world = binding.world.borrow_mut();
+            if world.head_tracking(binding.actor) == Some(false) {
+                return;
+            }
+            let Some((target, _)) = world.actor_look_at(binding.actor) else {
+                return;
+            };
+            let Some((mut position, base, scale)) = world
+                .reference(target)
+                .map(|reference| (reference.position, reference.base, reference.scale))
+            else {
+                return;
+            };
+            let height = base
+                .and_then(|base| world.actor_controller_scale(base).ok())
+                .unwrap_or(1.0)
+                * scale
+                * 128.0;
+            position[2] += height;
+            position
+        };
+        let point = crate::units::SkyrimPos::new(target[0], target[1], target[2]).to_godot();
+        let local =
+            self.actor_placement().affine_inverse() * Vector3::new(point.x, point.y, point.z);
+        let local = crate::units::GodotPos::new(local.x, local.y, local.z).to_skyrim();
+        self.head_aim = crate::head_tracking::aim(
+            &assets.skeleton,
+            &mut self.model,
+            reference_head,
+            [local.x, local.y, local.z],
+        );
+    }
+
+    /// Rendered head correction after the authored animation pose.
+    #[func]
+    pub fn head_tracking_state(&self) -> VarDictionary {
+        let mut state = VarDictionary::new();
+        state.set("active", self.head_aim.is_some());
+        let [yaw, pitch] = self.head_aim.unwrap_or([0.0; 2]);
+        state.set("yaw", yaw);
+        state.set("pitch", pitch);
+        state
     }
 
     fn push_pose(&mut self) {
@@ -1418,6 +1484,7 @@ impl SkinnedActorNode {
             .ragdoll
             .as_ref()
             .map(|ragdoll| RagdollBoneMap::new(&borrowed.skeleton, ragdoll));
+        self.cache_camera_offset();
     }
 
     pub(crate) fn install_presented_actor(

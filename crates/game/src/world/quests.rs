@@ -181,6 +181,7 @@ impl World {
             return false;
         }
         drop(location_aliases);
+        self.snapshot_quest_text(id);
         let events = soe_trace::Span::new("game.quest_start_events", "game");
         let Some(q) = self.quest_state(id) else {
             return false;

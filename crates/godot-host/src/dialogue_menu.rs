@@ -31,9 +31,9 @@ pub fn layout(width: f32, height: f32) -> DialogueLayout {
         ]
     };
     DialogueLayout {
-        topics: rect(748.0, 304.5, 450.0, 335.0),
+        topics: rect(748.0, 340.5, 450.0, 299.0),
         subtitle: rect(248.55, 576.7, 800.0, 100.0),
-        speaker: rect(546.55, 435.85, 200.0, 32.0),
+        speaker: rect(748.0, 304.5, 450.0, 32.0),
         scale,
     }
 }
@@ -266,12 +266,14 @@ pub fn entries(game: &mut Game) -> Result<Vec<Entry>, Error> {
     Ok(choices
         .available
         .into_iter()
-        .map(|choice| Entry {
-            topic: choice.topic,
-            label: choice
-                .prompt
-                .or_else(|| world.name_of(choice.topic))
-                .unwrap_or_else(|| format!("{}", choice.topic)),
+        .filter_map(|choice| {
+            Some(Entry {
+                topic: choice.topic,
+                label: choice
+                    .prompt
+                    .or_else(|| world.name_of(choice.topic))
+                    .filter(|text| !text.trim().is_empty())?,
+            })
         })
         .collect())
 }
@@ -283,12 +285,14 @@ pub fn greeting_entries(game: &mut Game) -> Result<Vec<Entry>, Error> {
     Ok(choices
         .available
         .into_iter()
-        .map(|choice| Entry {
-            topic: choice.topic,
-            label: choice
-                .prompt
-                .or_else(|| world.name_of(choice.topic))
-                .unwrap_or_else(|| choice.topic.to_string()),
+        .filter_map(|choice| {
+            Some(Entry {
+                topic: choice.topic,
+                label: choice
+                    .prompt
+                    .or_else(|| world.name_of(choice.topic))
+                    .filter(|text| !text.trim().is_empty())?,
+            })
         })
         .collect())
 }
@@ -371,7 +375,17 @@ mod tests {
     }
 
     fn game() -> Game {
+        game_with_question("Ask about the road")
+    }
+
+    fn game_with_question(question: &str) -> Game {
         let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(
+            Record::new(Tag(*b"GLOB"), 0x700)
+                .zsub(Tag(*b"EDID"), "RoomCost")
+                .sub(Tag(*b"FNAM"), b"s")
+                .sub(Tag(*b"FLTV"), 10f32.to_le_bytes()),
+        );
         for (form, name) in [(7, "Player"), (BASE, "Speaker")] {
             plugin.push_top(
                 Record::new(Tag(*b"NPC_"), form)
@@ -386,6 +400,7 @@ mod tests {
         );
         plugin.push_top(
             Record::new(Tag(*b"QUST"), QUEST)
+                .sub(Tag(*b"QTGL"), 0x700u32.to_le_bytes())
                 .sub(Tag(*b"DNAM"), vec![0; 12])
                 .sub(Tag(*b"NEXT"), [])
                 .sub(Tag(*b"INDX"), [0, 0, 0, 0]),
@@ -398,12 +413,16 @@ mod tests {
                 .sub(Tag(*b"SNAM"), TOPIC.to_le_bytes()),
         );
         let topic = Record::new(Tag(*b"DIAL"), TOPIC)
-            .zsub(Tag(*b"FULL"), "Ask about the road")
             .sub(Tag(*b"QNAM"), QUEST.to_le_bytes())
             .sub(Tag(*b"BNAM"), (TOPIC + 0x1000).to_le_bytes())
             .sub(Tag(*b"DATA"), [0, 0, 0, 0])
             .sub(Tag(*b"SNAM"), *b"CUST")
             .sub(Tag(*b"PNAM"), 50.0f32.to_le_bytes());
+        let topic = if question.is_empty() {
+            topic
+        } else {
+            topic.zsub(Tag(*b"FULL"), question)
+        };
         let response = Record::new(Tag(*b"INFO"), INFO)
             .sub(Tag(*b"ENAM"), [0; 4])
             .sub(Tag(*b"TRDT"), [0; 24])
@@ -426,6 +445,56 @@ mod tests {
         let player = game.player();
         game.begin_dialogue(id(SPEAKER), player).unwrap();
         game
+    }
+
+    #[test]
+    fn round4_freewalk_conversation_tracks_the_listener_and_turns_the_speaker() {
+        let mut game = game();
+        let player = game.player();
+        {
+            let mut world = game.world_mut();
+            world.reference(player).unwrap().position = [100.0, 0.0, 0.0];
+            world.reference(id(SPEAKER)).unwrap().rotation[2] = std::f32::consts::PI;
+        }
+        for _ in 0..60 {
+            game.tick_menu_mode(1.0 / 60.0, true);
+        }
+        let mut world = game.world_mut();
+        assert_eq!(world.actor_look_at(id(SPEAKER)), Some((player, false)));
+        assert!(
+            (world.reference(id(SPEAKER)).unwrap().rotation[2] - std::f32::consts::FRAC_PI_2).abs()
+                < 0.05
+        );
+        drop(world);
+        game.close_dialogue();
+        assert_eq!(game.world_mut().actor_look_at(id(SPEAKER)), None);
+    }
+
+    #[test]
+    fn round4_freewalk_unnamed_topic_is_never_a_form_id_button() {
+        let mut game = game_with_question("");
+        assert!(
+            entries(&mut game).unwrap().is_empty(),
+            "unnamed topic must not become a raw FormID button"
+        );
+        assert!(greeting_entries(&mut game).unwrap().is_empty());
+    }
+
+    #[test]
+    fn round4_freewalk_speaker_name_is_a_heading_above_topics() {
+        let view = layout(1280.0, 720.0);
+        assert!(view.speaker[1] + view.speaker[3] <= view.topics[1]);
+        assert_eq!(view.speaker[0], view.topics[0]);
+        assert_eq!(view.speaker[2], view.topics[2]);
+    }
+
+    #[test]
+    fn round4_freewalk_topic_presenter_replaces_room_cost() {
+        let mut game = game_with_question("I'd like to rent a room. (<Global=RoomCost> gold)");
+        assert_eq!(
+            entries(&mut game).unwrap()[0].label,
+            "I'd like to rent a room. (10 gold)"
+        );
     }
 
     #[test]

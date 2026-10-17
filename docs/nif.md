@@ -1,5 +1,19 @@
 # soe-nif: Skyrim SE mesh reader
 
+## Switch-node state, FMT-31, 2026-10-17
+
+NiSwitchNode retains its flags and active-child index after the NiNode fields.
+Mesh extraction walks only that child. An invalid index or the all-bits-set
+sentinel draws no child. Serialization preserves the node type and both fields.
+The host fixture with normal and harvested children drew two meshes before
+this correction and draws the selected harvested mesh after it. The node-only
+write/read check also preserves flags 3 and active index 1.
+
+Sources read are `nifxml/nif.xml` NiSwitchNode and
+`nifly/src/Nodes.cpp` NiSwitchNode::Sync. The existing reader and writer are
+extended in place because the host already consumes their renderer-neutral
+mesh list.
+
 Crate `crates/nif`, library name `soe_nif`. Reads Gamebryo 20.2.0.7 files as
 Bethesda writes them and hands a renderer a flat list of meshes. The `gltf`
 dependency handles authoring glTF buffers and accessors for static mesh import.
@@ -74,7 +88,7 @@ all 5,687,572 source triangles.
   particle birth and death timing.
 - `mesh`: the neutral output, see below, and the scene walk that produces
   it. Cycle protection and a depth limit make the walk safe on any input.
-- `serialize`: writes Skyrim SE files containing `NiNode` blocks and opaque
+- `serialize`: writes Skyrim SE files containing `NiNode`, `NiSwitchNode` and opaque
   collision blocks, including the header tables, block sizes and root footer.
   It rejects other typed block kinds and strings outside Windows-1252.
 

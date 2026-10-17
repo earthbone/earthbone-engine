@@ -589,26 +589,36 @@ impl CellBodies {
         let Some(state) = server.body_get_direct_state(entry.body) else {
             return false;
         };
-        let position = state.get_transform() * anchor;
-        let velocity = state.get_linear_velocity();
+        let transform = state.get_transform();
+        let position = transform * anchor;
+        let offset = position - transform * state.get_center_of_mass_local();
+        let velocity = state.get_linear_velocity() + state.get_angular_velocity().cross(offset);
         let gravity = state.get_total_gravity();
         let mass = server
             .body_get_param(entry.body, BodyParameter::MASS)
             .try_to::<f32>()
             .unwrap_or(0.0);
         let vector = |v: Vector3| Vec3::new(v.x, v.y, v.z);
-        let Some(impulse) = crate::carry::spring_impulse(
+        let inverse_inertia = state.get_inverse_inertia_tensor();
+        // CONTEXT: The trace bounds the point constraint's rotational inverse mass.
+        // Jolt PointConstraintPart includes the same lever arm and inertia term.
+        let rotational_response = offset.length_squared()
+            * (inverse_inertia.col_a().x + inverse_inertia.col_b().y + inverse_inertia.col_c().z);
+        let Some(impulse) = crate::carry::grip_impulse_with_inertia(
             vector(target - position),
             vector(velocity),
             vector(gravity),
             mass,
+            1.0 / mass + rotational_response.max(0.0),
             delta,
             max_force,
         ) else {
             return false;
         };
         server
-            .body_apply_central_impulse(entry.body, Vector3::new(impulse.x, impulse.y, impulse.z));
+            .body_apply_impulse_ex(entry.body, Vector3::new(impulse.x, impulse.y, impulse.z))
+            .position(position - transform.origin)
+            .done();
         true
     }
 

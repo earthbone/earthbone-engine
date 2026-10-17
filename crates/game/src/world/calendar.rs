@@ -96,6 +96,7 @@ impl World {
         let mut calendar = self.calendar();
         let elapsed_hours = real_seconds.max(0.0) * self.clock.timescale * game_time_scale / 3600.0;
         self.clock.advance_scaled(real_seconds, game_time_scale);
+        self.expire_harvests();
         if elapsed_hours == 0.0 {
             return;
         }

@@ -11,7 +11,7 @@ use soe_esm::GlobalFormId;
 
 use super::PlayerNode;
 
-pub(super) fn prompt(game: &soe_game::Game) -> Option<(String, &'static str, bool)> {
+pub(super) fn prompt(game: &soe_game::Game) -> Option<(String, String, bool)> {
     let mut world = game.world_mut();
     let target = world.crosshair_reference()?;
     if !world.reference_enabled(target) || world.grabbed_reference().is_some() {
@@ -24,13 +24,17 @@ pub(super) fn prompt(game: &soe_game::Game) -> Option<(String, &'static str, boo
     let read_only = kind.as_bytes() == b"BOOK" && !world.book_can_be_taken(base);
     let name = world.name_of(target).filter(|name| !name.is_empty())?;
     let actor = world.player();
-    let stealing = item && !read_only && world.loose_item_is_stealing(target, actor);
+    let harvest = world.harvest_data(base).ok().flatten();
+    let stealing =
+        (item || harvest.is_some()) && !read_only && world.loose_item_is_stealing(target, actor);
     let action = if stealing {
-        "Steal"
+        "Steal".into()
+    } else if let Some(harvest) = harvest {
+        harvest.verb
     } else if read_only {
-        "Read"
+        "Read".into()
     } else if item {
-        "Take"
+        "Take".into()
     } else {
         match kind.as_bytes() {
             b"ACTI" => "Activate",
@@ -38,6 +42,7 @@ pub(super) fn prompt(game: &soe_game::Game) -> Option<(String, &'static str, boo
             b"DOOR" | b"CONT" => "Open",
             _ => return None,
         }
+        .into()
     };
     Some((name, action, stealing))
 }
@@ -49,7 +54,11 @@ impl PlayerNode {
         };
         let world = game.world();
         let title = world.name_of(book).unwrap_or_else(|| "Book".into());
-        let text = world.description_of(book).unwrap_or_default();
+        let text = world.replace_text(
+            book,
+            Some(book),
+            &world.description_of(book).unwrap_or_default(),
+        );
         drop(world);
         if !self.open_menu(GString::from(&format!("Book: {title}"))) {
             return false;
@@ -85,6 +94,25 @@ fn book_text(text: &str) -> String {
             "br" | "br/" | "br /" | "p" | "/p" | "pagebreak"
         ) {
             output.push('\n');
+        } else if !matches!(
+            tag.split_whitespace().next(),
+            Some(
+                "font"
+                    | "/font"
+                    | "b"
+                    | "/b"
+                    | "i"
+                    | "/i"
+                    | "u"
+                    | "/u"
+                    | "img"
+                    | "ul"
+                    | "/ul"
+                    | "li"
+                    | "/li"
+            )
+        ) {
+            output.push_str(&rest[start..=start + end]);
         }
         rest = &rest[start + end + 1..];
     }
@@ -214,7 +242,10 @@ mod tests {
             file: 0,
             object: 43,
         }));
-        assert_eq!(prompt(&game), Some(("Read me".into(), "Read", false)));
+        assert_eq!(
+            prompt(&game),
+            Some(("Read me".into(), "Read".into(), false))
+        );
     }
 
     #[test]
@@ -224,6 +255,7 @@ mod tests {
             "A&B\nPage\nNext"
         );
         assert_eq!(book_text("A <unfinished"), "A <unfinished");
+        assert_eq!(book_text("Dear <Alias=Missing>"), "Dear <Alias=Missing>");
     }
 
     #[test]
@@ -256,13 +288,19 @@ mod tests {
                 object: 43,
             };
             game.world_mut().set_crosshair_reference(Some(target));
-            assert_eq!(prompt(&game), Some(("Object name".into(), expected, false)));
+            assert_eq!(
+                prompt(&game),
+                Some(("Object name".into(), expected.into(), false))
+            );
             if kind != b"ACTI" && kind != b"FURN" {
                 game.world_mut().reference(target).unwrap().owner = Some(GlobalFormId {
                     file: 0,
                     object: 50,
                 });
-                assert_eq!(prompt(&game), Some(("Object name".into(), "Steal", true)));
+                assert_eq!(
+                    prompt(&game),
+                    Some(("Object name".into(), "Steal".into(), true))
+                );
             }
             game.world_mut()
                 .reference(target)
@@ -277,3 +315,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "activation/harvest_tests.rs"]
+mod harvest_tests;

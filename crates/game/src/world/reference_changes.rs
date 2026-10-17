@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, Weak};
 
 type Queue = Mutex<BTreeSet<GlobalFormId>>;
-type Presentation = (Option<RefPlacement>, Option<String>, bool);
+type Presentation = (Option<RefPlacement>, Option<String>, bool, bool);
 
 /// Independent host observer. Attaching references queues their initial state.
 #[derive(Default)]
@@ -110,6 +110,7 @@ impl ReferenceChanges {
                 world.ref_placement(id),
                 world.destruction_model(id),
                 world.reference_ref(id).is_some_and(|state| state.opened),
+                world.harvested(id),
             );
             if self.applied.get(&id) != Some(&current) {
                 self.applied.insert(id, current);

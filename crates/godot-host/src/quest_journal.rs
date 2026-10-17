@@ -54,7 +54,7 @@ pub fn entries(game: &Game) -> Vec<Entry> {
                     let text = definition
                         .text
                         .as_ref()
-                        .map(|text| world.resolve_text(id, soe_esm::Tag(*b"NNAM"), text))
+                        .map(|text| world.display_text(id, soe_esm::Tag(*b"NNAM"), text))
                         .unwrap_or_default();
                     Some(ObjectiveEntry {
                         index: definition.index,

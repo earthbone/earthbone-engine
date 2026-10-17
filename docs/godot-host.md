@@ -410,6 +410,44 @@ threaded simulation does not carry posture in its presentation snapshot, and
 NPC capsules do not yet shorten with sneak. Those paths, furniture entry and
 swimming remain outside this correction.
 
+## Conversation attention, DLG-24, 2026-10-17
+
+The activation HUD now hides its prompt for modal menus, the console and the
+main menu. The speaker label is the topic heading introduced by DLG-23.
+World derives the conversation look target from the active session without
+changing scripted look-at state. Game turns the speaker toward the listener
+at up to three radians per real second, including menu ticks. Closing the
+conversation removes that target.
+
+SkinnedActorNode corrects the animated head pose after graph evaluation. It
+rotates the head and descendants around the head pivot, with limits of 60
+degrees of yaw and 40 degrees of pitch. Other bones keep the authored pose.
+The listener target uses the existing NPC controller scale and a 128-unit
+head height. Creature-specific head offsets are not measured here.
+No per-reference nodes, saved fields or dependencies were added.
+
+Sources read are CK GetDialogueTarget and godotwind
+`src/core/animation/look_at_modifier.gd`. Godotwind puts look corrections after
+animation and converts the target into skeleton space. Its newer Godot
+modifier API does not fit the host API floor and server skinning path, so
+the same operation uses the existing Havok model pose buffer.
+The free walk conversation regression failed with no look target before the
+fix. Pose checks cover the pivot, descendants, other bones and angle limits.
+The installed hst_28 free walk scene now passes with the prompt hidden,
+body facing dot 0.99999994, head yaw -0.019756 and pitch 0.086884 radians.
+Voice, lip movement, topic selection, close behavior and all six viewport
+layout checks pass in the same run.
+
+## Dialogue headings, DLG-23, 2026-10-17
+
+An eligible DIAL without a prompt or FULL was rendered as its resolved FormID.
+The menu presenter now omits choices without display text. Dialogue execution
+keeps the record and its invisible continuation behavior. The name label reads
+the shared speaker reference as before and now sits above the topic panel.
+The former placement put the label over the actor. Two focused presenter and
+layout regressions failed before the fix. The walkthrough scene also checks
+the heading text and each displayed topic for leaked FormIDs.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and
@@ -10698,3 +10736,46 @@ pose within 20 seconds without advancing game days.
 The finished automatic walkthrough installs QASmoke in 907 ms with the console
 open, compared with the original 20 second stall. Its camera Environment has
 the destination ambient and fog values. The game-day clock remains paused.
+
+
+## Carry response at the grab point, HST-52, 2026-10-17
+
+The installed Bannered Mare survey finds a 0.8 kg glazed cup, 5 kg baskets,
+a 20 kg Basket04 and a 70 kg wooden bowl. All have inventory weight 0.5.
+The kettle has 68 kg Havok mass and inventory weight 2. Chairs, barrels and
+sacks sampled there have fixed zero-mass collision and stay static.
+Havok mass therefore drives this response, while record weight remains an
+inventory property.
+
+The existing implicit spring already gave heavier bodies more follow lag.
+Its full gravity compensation removed sag below the force ceiling, and its
+central impulse supplied no grab-point torque. The grip now has a bounded
+mass-dependent downward rest offset. A 0.2 kg hold settles 0.001782 m below
+the target, and a 5 kg hold settles 0.155173 m below it in the focused spring
+measurement. Both previously settled at zero sag. The existing light-body,
+gravity and force-limit assertions retain their thresholds.
+
+The host measures grab-point velocity, including angular velocity, and applies
+the impulse at that point. Its implicit denominator includes a conservative
+rotational inverse-mass bound from the lever arm and inverse inertia tensor.
+This follows Jolt `PointConstraintPart.h`. The existing PhysicsServer3D body
+continues to provide contact, inertia and gravity. The fZKeyMaxForce ceiling
+bounds the complete support force, so sufficiently heavy bodies fall.
+No per-reference nodes, dependencies or saved state were added.
+
+Other sources read are nif.xml `bhkRigidBodyCInfo2010`, CK OnGrab and OnRelease,
+UESP GMST and the installed fZKeyMaxForce value. Original-runtime playback was
+not run, following the round's prohibition on starting Skyrim.
+
+The installed Jolt free walk measurement passes with these results:
+
+| Body | Mass in kg | Follow lag after 0.25 s in m | Sag after 2 s in m | Edge-grab angular speed in rad/s |
+|---|---|---|---|---|
+| GlazedCup01 | 0.8 | 0.308751 | 0.024803 | Not sampled |
+| Basket01 | 5 | 0.517836 | 0.155418 | 4.168001 |
+| Basket04 | 20 | 0.897129 | 9.113815 | Not sampled |
+
+The original tankard acceptance also passes without threshold changes. It
+carries 2.087463 m, is blocked by a wall while held, retains momentum, lands,
+and is taken through the mapped Activate input. The installed carry library
+run passes all 13 checks and surveys 272 dynamic colliders from 0.2 to 84 kg.

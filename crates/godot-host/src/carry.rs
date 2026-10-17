@@ -64,11 +64,27 @@ impl ActivateHold {
     }
 }
 
-pub(crate) fn spring_impulse(
+const STIFFNESS: f32 = 200.0;
+const DAMPING: f32 = 40.0;
+
+#[cfg(test)]
+fn spring_impulse(
     error: Vec3,
     velocity: Vec3,
     gravity: Vec3,
     mass: f32,
+    delta: f32,
+    max_force: f32,
+) -> Option<Vec3> {
+    spring_impulse_with_inertia(error, velocity, gravity, mass, 1.0 / mass, delta, max_force)
+}
+
+fn spring_impulse_with_inertia(
+    error: Vec3,
+    velocity: Vec3,
+    gravity: Vec3,
+    mass: f32,
+    inverse_response_mass: f32,
     delta: f32,
     max_force: f32,
 ) -> Option<Vec3> {
@@ -77,6 +93,8 @@ pub(crate) fn spring_impulse(
         .all(|v| v.x.is_finite() && v.y.is_finite() && v.z.is_finite())
         || !mass.is_finite()
         || mass <= 0.0
+        || !inverse_response_mass.is_finite()
+        || inverse_response_mass <= 0.0
         || !delta.is_finite()
         || delta <= 0.0
         || !max_force.is_finite()
@@ -86,10 +104,8 @@ pub(crate) fn spring_impulse(
     }
     let delta = delta.min(1.0 / 30.0);
     // CONTEXT: Implicit spring and damping integration keeps light NIF bodies stable.
-    let stiffness = 200.0;
-    let damping = 40.0;
-    let denominator = 1.0 + (damping + stiffness * delta) * delta / mass;
-    let force = (error * stiffness - velocity * (damping + stiffness * delta))
+    let denominator = 1.0 + (DAMPING + STIFFNESS * delta) * delta * inverse_response_mass;
+    let force = (error * STIFFNESS - velocity * (DAMPING + STIFFNESS * delta))
         * (1.0 / denominator)
         - gravity * mass;
     let length = force.length();
@@ -106,8 +122,118 @@ pub(crate) fn spring_impulse(
 }
 
 #[cfg(test)]
+fn grip_impulse(
+    error: Vec3,
+    velocity: Vec3,
+    gravity: Vec3,
+    mass: f32,
+    delta: f32,
+    max_force: f32,
+) -> Option<Vec3> {
+    grip_impulse_with_inertia(error, velocity, gravity, mass, 1.0 / mass, delta, max_force)
+}
+
+pub(crate) fn grip_impulse_with_inertia(
+    error: Vec3,
+    velocity: Vec3,
+    gravity: Vec3,
+    mass: f32,
+    inverse_response_mass: f32,
+    delta: f32,
+    max_force: f32,
+) -> Option<Vec3> {
+    let strain = (mass / 2.0).min(1000.0).powi(2);
+    let sag_distance = 0.18 * strain / (1.0 + strain);
+    let sag = gravity * (sag_distance / gravity.length().max(0.001));
+    spring_impulse_with_inertia(
+        error + sag,
+        velocity,
+        gravity,
+        mass,
+        inverse_response_mass,
+        delta,
+        max_force,
+    )
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round4_carried_mass_produces_resting_sag_below_the_force_cap() {
+        let simulate = |mass| {
+            let delta = 1.0 / 120.0;
+            let gravity = -Vec3::Z * 9.8;
+            let mut position = Vec3::ZERO;
+            let mut velocity = Vec3::ZERO;
+            for _ in 0..1200 {
+                let impulse =
+                    grip_impulse(-position, velocity, gravity, mass, delta, 100.0).unwrap();
+                velocity = velocity + impulse * (1.0 / mass) + gravity * delta;
+                position = position + velocity * delta;
+            }
+            -position.z
+        };
+        let light = simulate(0.2);
+        let heavy = simulate(5.0);
+        eprintln!("Round 4 hold sag: 0.2 kg={light} m, 5 kg={heavy} m");
+        assert!(light < 0.02, "cup stays close to the hand");
+        assert!(
+            heavy > 0.15 && heavy < 0.35,
+            "heavier clutter sags without falling indefinitely"
+        );
+    }
+
+    #[test]
+    fn round4_bannered_mare_named_object_mass_and_weight_survey() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(std::path::Path::new(&data)).unwrap();
+        let cell = source.resolve_cell("WhiterunBanneredMare").unwrap();
+        let (placed, _) = source.placed_cell_colliders(cell).unwrap();
+        let game = source.localized_game().unwrap();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut masses = Vec::new();
+        for placed in placed {
+            let mut world = game.world_mut();
+            let base = world.base_of(placed.reference).unwrap();
+            let record = world.record(base).unwrap();
+            let name = record.editor_id().unwrap_or_default();
+            let lower = name.to_ascii_lowercase();
+            let Some(family) = [
+                "tankard", "cup", "basket", "barrel", "sack", "chair", "bowl", "plate", "kettle",
+            ]
+            .into_iter()
+            .find(|family| lower.contains(family) && !lower.contains("cupboard")) else {
+                continue;
+            };
+            if !seen.insert((family, base)) {
+                continue;
+            }
+            let weight = crate::item_card::ItemCard::read(&mut world, base)
+                .ok()
+                .map(|card| card.weight);
+            eprintln!("Round 4 Bannered Mare {family}: {name}, NIF mass={} kg, static={}, inventory weight={weight:?}", placed.collider.mass, placed.collider.is_static());
+            if !placed.collider.is_static() {
+                masses.push(placed.collider.mass);
+            }
+        }
+        assert!(
+            seen.iter().any(|(family, _)| *family == "basket")
+                && seen
+                    .iter()
+                    .any(|(family, _)| matches!(*family, "cup" | "tankard"))
+        );
+        assert!(masses.len() >= 2);
+        let min = masses.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = masses.iter().copied().fold(0.0, f32::max);
+        assert!(
+            max > min * 2.0,
+            "survey must cover distinct authored masses: {masses:?}"
+        );
+    }
 
     fn follow(mass: f32, max_force: f32, steps: usize) -> f32 {
         let delta = 1.0 / 120.0;

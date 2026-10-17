@@ -19,7 +19,8 @@
 //! ```
 //!
 //! nif.xml from the niftools project is the format authority this reader
-//! follows, and OpenMW's `components/nif` the worked example.
+//! follows, and OpenMW's `components/nif` the worked example. NiSwitchNode's
+//! flags and active child follow nif.xml and nifly Nodes.cpp::NiSwitchNode::Sync.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
@@ -131,7 +132,7 @@ impl NifFile {
 
     /// Serialize the supported Skyrim SE collision graph to NIF bytes.
     ///
-    /// This currently writes `NiNode` blocks and opaque Havok collision
+    /// This currently writes `NiNode`, `NiSwitchNode` and opaque Havok collision
     /// blocks, which is the graph produced by `soe-physics` collision export.
     /// Other parsed block types return `Error::UnsupportedWrite`.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
