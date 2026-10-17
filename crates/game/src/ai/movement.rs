@@ -9,6 +9,17 @@ use soe_esm::GlobalFormId;
 
 use super::{distance, AiState, Procedure, ARRIVAL_DISTANCE};
 
+/// Native NAVM planes can differ from the collision floor. Inside the shared
+/// controller's step-and-snap band, gravity owns height and progress uses XY.
+pub(super) fn waypoint_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
+    let settings = soe_physics::CharacterSettings::mudcrab();
+    if (to[2] - from[2]).abs() <= settings.step_height + settings.ground_snap {
+        (to[0] - from[0]).hypot(to[1] - from[1])
+    } else {
+        distance(from, to)
+    }
+}
+
 pub(super) fn follow(
     ai: &mut AiState,
     position: [f32; 3],
@@ -20,14 +31,7 @@ pub(super) fn follow(
     let mut budget = ai.speed * dt;
     while budget > 0.0 && !ai.path.is_empty() {
         let next = ai.path[0];
-        // CONTEXT: Native NAVM planes differ from the collision floor. The host
-        // resolves gravity, so a walking actor cannot reach a buried waypoint.
-        let settings = soe_physics::CharacterSettings::mudcrab();
-        let d = if (next[2] - pos[2]).abs() <= settings.step_height + settings.ground_snap {
-            (next[0] - pos[0]).hypot(next[1] - pos[1])
-        } else {
-            distance(pos, next)
-        };
+        let d = waypoint_distance(pos, next);
         if ai.procedure == Procedure::Patrol
             && ai.path.len() == 1
             && ai.radius > 0.0
@@ -98,6 +102,41 @@ mod tests {
             "route pinned to a NAVM height below the floor: {position:?}"
         );
         assert_eq!(ai.path, [[100.0, 0.0, 0.0]]);
+    }
+
+    #[test]
+    fn combat_route_advances_past_navmesh_points_below_the_collision_floor() {
+        use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"NPC_"), 0x802));
+        plugin.push_top(Record::new(Tag(*b"ACHR"), 0x810).sub(b"NAME", 0x802_u32.to_le_bytes()));
+        let mut order = LoadOrder::new();
+        order.add("CombatFloor.esm", plugin).unwrap();
+        let mut world = crate::World::new(order);
+        let actor = world.player();
+        let target = id(0x810);
+        world.actor(target).unwrap();
+        world.reference(target).unwrap().position = [100.0, 0.0, 8.0];
+        world.reference(actor).unwrap().position = [0.0, 0.0, 8.0];
+        let state = world.actor(actor).unwrap();
+        state.in_combat = true;
+        state.combat_target = Some(target);
+        state.ai = AiState {
+            speed: 80.1,
+            destination: Some([100.0, 0.0, 8.0]),
+            path: vec![[10.0, 0.0, 0.0], [100.0, 0.0, 8.0]],
+            ..AiState::default()
+        };
+        for _ in 0..60 {
+            super::super::pursue_combat_target(&mut world, actor, 1.0 / 60.0);
+            world.reference(actor).unwrap().position[2] = 8.0;
+        }
+        let position = world.reference(actor).unwrap().position;
+        assert!(
+            position[0] >= 75.0,
+            "combat route pinned to NAVM height: {position:?}"
+        );
+        assert_eq!(world.actor_ref(actor).unwrap().ai.path, [[100.0, 0.0, 8.0]]);
     }
 
     #[test]

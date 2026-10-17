@@ -3012,7 +3012,7 @@ fn pursue_combat_target_inner(world: &mut World, actor: GlobalFormId, dt: f32) {
     else {
         return;
     };
-    let remaining = distance(position, destination);
+    let remaining = movement::waypoint_distance(position, destination);
     let Some(state) = world.actor(actor) else {
         return;
     };
@@ -3044,7 +3044,7 @@ fn pursue_combat_target_inner(world: &mut World, actor: GlobalFormId, dt: f32) {
     let mut budget = speed * dt.max(0.0);
     while budget > 0.0 && !ai.path.is_empty() {
         let next = ai.path[0];
-        let d = distance(position, next);
+        let d = movement::waypoint_distance(position, next);
         if d <= budget {
             position = next;
             budget -= d;
@@ -3068,7 +3068,7 @@ fn pursue_combat_target_inner(world: &mut World, actor: GlobalFormId, dt: f32) {
             }
         }
     }
-    ai.arrived = distance(position, destination) <= COMBAT_ARRIVAL_DISTANCE;
+    ai.arrived = movement::waypoint_distance(position, destination) <= COMBAT_ARRIVAL_DISTANCE;
     if let Some(reference) = world.reference(actor) {
         reference.position = position;
         if cell.is_some() {

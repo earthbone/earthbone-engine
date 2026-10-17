@@ -1,5 +1,31 @@
 # soe-game: the runtime form table and the first natives
 
+## Combat NAVM progress, round 4
+
+The installed progress run after sandbox recovery leaves 11 actors stuck.
+Their diagnostics show active combat, with the next waypoint between 1.79
+and 15.19 units above or below their collision floor. The combat driver had
+its own spatial waypoint loop, separate from package movement. Both now use
+the same ground-plane comparison inside the shared step-and-snap height band.
+Combat arrival uses that comparison too. Target selection, chase distance
+and large vertical links keep their existing rules.
+
+The combat regression restores collision height after each simulated step.
+Before correction it pins at x=9.999734 after 60 steps, below the fixed
+75-unit minimum. The package regression and different-floor guard remain.
+The local OpenMW AiPackage walking comparison and Mudcrab controller tuning
+are the same sources as the package correction below. No saved state or
+new dependency is added.
+
+The corrected release exits zero in the unchanged free walk progress check,
+compared with 11 failures before this combat correction and 16 initially.
+Guard 0:0D0FF5 improves from 43.76 units and 21 blocked seconds to 647.18
+units and zero blocked seconds. Whiterun active routes stay below the
+five-second stuck bound. Ysolda travels 1,350.22 units and Nazeem 998.62.
+The 1,343 game library tests and strict all-target Clippy pass. The release
+build passes in 6 minutes 56 seconds. Combat hostility and warning policy
+remain CMB-40 and CMB-43, separate from waypoint progress.
+
 ## Collision-blocked sandbox choices, round 4
 
 The free walk keeps Hulda targeting the counter marker for 28 seconds after
