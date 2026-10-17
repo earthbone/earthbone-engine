@@ -14,8 +14,11 @@ func _configure_player() -> void:
 	player.set("capture_mouse", false)
 	player.set("auto_step", false)
 
-func _spawn_position(_streamer: Node3D) -> Vector3:
-	return Vector3(-125.0, -800.0, 120.0) if startup_radius < 0 else Vector3(0, 0, 500)
+func _spawn_position(streamer: Node3D) -> Vector3:
+	if startup_radius < 0:
+		return Vector3(-125.0, -800.0, 120.0)
+	var stats: Dictionary = streamer.call("last_stats")
+	return Vector3((int(stats.origin_x) + 0.5) * 4096.0, (int(stats.origin_y) + 0.5) * 4096.0, 500.0)
 
 func _process(delta: float) -> bool:
 	if loaded and not checked:
@@ -70,6 +73,8 @@ func _check_equipment() -> void:
 	system_overlay.hide()
 	player_body.set("playing", false)
 	player_arms.set("playing", false)
+	if startup_radius >= 0:
+		_check(not str(player.call("console_execute", "set gamehour to 12")).contains("error:"), "exterior fixture could not select noon")
 	for object in [0x12e49, 0x12e46, 0x12eb7, 0x12eb6]:
 		var result := str(player.call("console_execute", "player.additem %x 1" % object))
 		_check(not result.contains("error:"), "fixture additem: " + result)

@@ -18,13 +18,40 @@ and covered body partitions. No separate player equipment state is introduced.
 `hst_25_armor_test.gd` keeps the free walk startup, menu transaction, visible
 third-person change, first-person gauntlet and unequip restoration checks.
 
-The installed reader regression fails before the fallback and passes after it.
-Both headless and windowed free walk armor checks pass in Bannered Mare and
-WhiterunOrigin. Their windowed changes are 6,836 and 2,219 pixels. Both rigs
-restore their previous models after unequip. Package formatting, all-target
-Clippy and host library tests pass. No node, dependency or saved field is added.
-The first-person shadow, rig turning, NPC movement, hair and faces belong to
-other round 4 tasks.
+The same reproduction found that inventory weapon selection only marked the
+form equipped. It did not assign a hand, so the attachment renderer found no
+sword and the attack transaction failed. The presenter now uses the shared
+hand equipment transaction, with its selected hand. The host's earlier debug
+equip helper already used that transaction and therefore missed this defect.
+
+Shields previously stayed in the armor skin assembly and had no sheath path.
+Their INV-08-selected addon now supplies the movable shield model. It follows
+Shield when drawn and ShieldBack when sheathed. Weapon attachment waits for
+the authored weaponDraw or weaponSheathe event instead of moving on the R
+press. Those annotations join the existing graph trigger conversion. The
+render observation retains source models, selected attachment bones and the
+transforms submitted to RenderingServer. No scene nodes, dependencies or
+saved fields are added.
+
+Local CommonLibSSE-NG FixedStrings.h names weapon and shield attachment nodes.
+OpenMW npcanimation.cpp separates equipped-part selection and sheathed shield
+presentation. Nemesis animation data separates WeapEquip requests from the
+later weaponDraw and weaponSheathe markers. The existing host graph, NIF and
+server-resource paths are reused instead of linking either renderer.
+
+The vanilla skeleton contains WeaponBack and SHIELD but no ShieldBack. The
+local hdtSMP64 force-update list names ShieldBack among custom rig nodes. The
+host preserves a supplied ShieldBack. Without one, it adds a presentation child
+of the authored WeaponBack with an identity local pose. The synthetic anchor
+check verifies the resulting model transform and preservation of custom nodes.
+This fallback is host policy, not an authored vanilla shield attachment.
+
+The first equipment scene failed on the missing back anchor. After the
+correction, both rigs pass the draw and sheathe clip, attachment marker and
+visibility assertions. Ordinary mouse attacks select authored clips and emit
+HitFrame in both rigs. The equipment fixture captures both camera views on the
+private software-rendered display. The first-person shadow, rig turning, NPC
+movement, hair and faces belong to other round 4 tasks.
 
 ## Player view corrections, 2026-10-14
 

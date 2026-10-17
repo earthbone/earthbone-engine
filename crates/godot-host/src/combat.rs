@@ -45,7 +45,12 @@ pub fn contact_annotation_triggers(graph: &mut BehaviorGraph, clips: &ClipLibrar
         {
             if !matches!(
                 annotation.text.as_str(),
-                "HitFrame" | "preHitFrame" | "weaponSwing" | "attackStop"
+                "HitFrame"
+                    | "preHitFrame"
+                    | "weaponSwing"
+                    | "attackStop"
+                    | "weaponDraw"
+                    | "weaponSheathe"
             ) {
                 continue;
             }

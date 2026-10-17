@@ -167,6 +167,10 @@ pub enum ActorError {
 
 /// One skinned shape of a character, ready to upload.
 pub struct ActorSurface {
+    /// Winning addon slots used to route movable shields separately from body skin.
+    pub armor_slots: u32,
+    /// VFS source retained after texture payloads are released.
+    pub model_path: String,
     /// The shape's name in the `NIF`, for reporting.
     pub name: String,
     /// HDPT type when this is a selected head surface.
@@ -306,6 +310,24 @@ impl AppearanceCache {
             surfaces,
         }))
     }
+}
+
+fn shield_back_anchor(skeleton: &mut Skeleton) {
+    if skeleton.bone_index("ShieldBack").is_some() {
+        return;
+    }
+    let Some(back) = skeleton
+        .bone_index("WeaponBack")
+        .and_then(|index| i16::try_from(index).ok())
+    else {
+        return;
+    };
+    skeleton.bones.push(HkxBone {
+        name: "ShieldBack".into(),
+        lock_translation: false,
+    });
+    skeleton.parent_indices.push(back);
+    skeleton.reference_pose.push(soe_hkx::QsTransform::IDENTITY);
 }
 
 fn first_person_appearance(
@@ -546,6 +568,7 @@ impl ActorAssets {
             unresolved_references,
         };
         Self::extend_race_bones(vfs, &mut assets)?;
+        shield_back_anchor(&mut assets.skeleton);
         Ok(assets)
     }
 
@@ -610,6 +633,7 @@ impl ActorAssets {
         }
         assets.surfaces = Self::appearance_surfaces(vfs, appearance, &assets.skeleton)?;
         Self::extend_race_bones(vfs, &mut assets)?;
+        shield_back_anchor(&mut assets.skeleton);
         let bones: std::collections::BTreeSet<_> = assets
             .surfaces
             .iter()
@@ -816,14 +840,18 @@ impl ActorAssets {
                         .copied()
                         .find(|name| skeleton.bones.iter().any(|bone| bone.name == *name))
                 });
-            surfaces.extend(Self::load_attached_surfaces(
+            let mut selected = Self::load_attached_surfaces(
                 vfs,
                 &path,
                 skeleton,
                 part.authored_slots & !part.visible_slots,
                 attachment,
                 &[],
-            )?);
+            )?;
+            for surface in &mut selected {
+                surface.armor_slots = part.visible_slots;
+            }
+            surfaces.extend(selected);
         }
         let mut exported = if let Some(face) = &appearance.facegen {
             let path = format!(
@@ -1017,6 +1045,8 @@ impl ActorAssets {
             };
             let map = BoneMap::build(&skin.bones, skeleton);
             out.push(ActorSurface {
+                armor_slots: 0,
+                model_path: mesh_path.to_owned(),
                 name: mesh.name.clone(),
                 head_part_type: None,
                 face_tint: None,
@@ -1069,6 +1099,9 @@ impl ActorAssets {
             .iter()
             .map(|surface| surface.arrays.material.clone())
             .collect();
+        for surface in &mut out {
+            surface.model_path = mesh_path.to_owned();
+        }
         for (surface, textures) in
             out.iter_mut()
                 .zip(crate::data_source::resolve_material_textures(
@@ -1692,6 +1725,8 @@ fn rigid_surface(
     };
     let map = BoneMap::build(&skin.bones, skeleton);
     Ok(ActorSurface {
+        armor_slots: 0,
+        model_path: String::new(),
         name: mesh.name.clone(),
         head_part_type: None,
         face_tint: None,
@@ -1712,6 +1747,58 @@ fn rigid_surface(
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn hst_25_shield_back_fallback_uses_the_authored_back_anchor_and_preserves_custom_nodes() {
+        let mut skeleton = Skeleton {
+            name: "fixture".into(),
+            bones: vec![HkxBone {
+                name: "WeaponBack".into(),
+                lock_translation: false,
+            }],
+            parent_indices: vec![-1],
+            reference_pose: vec![soe_hkx::QsTransform {
+                translation: [2.0, -8.0, 90.0, 0.0],
+                ..soe_hkx::QsTransform::IDENTITY
+            }],
+            float_slots: Vec::new(),
+            reference_floats: Vec::new(),
+        };
+        shield_back_anchor(&mut skeleton);
+        let model = skeleton.to_model_space(&skeleton.reference_pose).unwrap();
+        assert_eq!(skeleton.bones[1].name, "ShieldBack");
+        assert_eq!(model[1], model[0]);
+        skeleton.reference_pose[1].translation[0] = 12.0;
+        let authored = skeleton.reference_pose.clone();
+        shield_back_anchor(&mut skeleton);
+        assert_eq!(skeleton.reference_pose, authored);
+        assert_eq!(skeleton.bones.len(), 2);
+    }
+
+    #[test]
+    fn hst_25_installed_skeleton_has_required_sheath_nodes() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        let player = world.player();
+        let assets = ActorAssets::load_for_actor(&mut world, player, source.vfs()).unwrap();
+        let bytes = source.vfs().read(&assets.skeleton_model_path).unwrap();
+        let file = soe_nif::parse(&bytes).unwrap();
+        let mut nodes = std::collections::BTreeMap::new();
+        let mut visited = std::collections::BTreeSet::new();
+        for root in &file.roots {
+            collect_rig_nodes(&file, *root, None, &mut visited, &mut nodes);
+        }
+        for name in nodes.keys() {
+            println!("HST-25 skeleton node {name}");
+        }
+        assert!(
+            assets.skeleton.bone_index("ShieldBack").is_some(),
+            "shield back attachment missing"
+        );
+    }
 
     #[test]
     fn hst_25_installed_inventory_gauntlets_have_first_person_geometry() {
@@ -1791,6 +1878,11 @@ mod tests {
     #[test]
     fn hst_25_walkthrough_inventory_armor() {
         inventory_scene("hst_25_armor_test.gd");
+    }
+
+    #[test]
+    fn hst_25_walkthrough_inventory_equipment() {
+        inventory_scene("hst_25_equipment_test.gd");
     }
 
     #[test]

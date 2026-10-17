@@ -22,6 +22,8 @@ struct Model {
 pub(super) struct Hands {
     paths: [Option<String>; 2],
     models: [Vec<Model>; 2],
+    last_poses: [Option<Transform3D>; 2],
+    visible: bool,
 }
 
 fn model_path(world: &soe_game::World, id: GlobalFormId) -> Option<String> {
@@ -62,6 +64,22 @@ pub(super) fn paths(
             }
             return model_path(world, weapon);
         }
+        if hand == Hand::Left && actor == world.player() {
+            world.equipped_shield(actor).ok().flatten()?;
+            let appearance = world.actor_appearance(actor).ok()?;
+            let shield = appearance
+                .parts
+                .iter()
+                .find(|part| part.visible_slots & (1 << 9) != 0)?;
+            return if first_person {
+                shield
+                    .first_person_model
+                    .clone()
+                    .or_else(|| shield.model.clone())
+            } else {
+                shield.model.clone()
+            };
+        }
         None
     })
 }
@@ -98,7 +116,9 @@ impl Hands {
         }
     }
 
-    pub(super) fn pose(&self, poses: [Option<Transform3D>; 2], visible: bool) {
+    pub(super) fn pose(&mut self, poses: [Option<Transform3D>; 2], visible: bool) {
+        self.last_poses = poses;
+        self.visible = visible;
         let mut server = RenderingServer::singleton();
         for (models, pose) in self.models.iter().zip(poses) {
             for model in models {
@@ -108,6 +128,26 @@ impl Hands {
                 }
             }
         }
+    }
+
+    pub(super) fn observation(&self, bones: [Option<&str>; 2]) -> Array<VarDictionary> {
+        let mut rows = Array::new();
+        for (index, bone) in bones.into_iter().enumerate() {
+            let Some(path) = &self.paths[index] else {
+                continue;
+            };
+            let mut row = VarDictionary::new();
+            row.set("left", index == 0);
+            row.set("model", path.as_str());
+            row.set("bone", bone.unwrap_or_default());
+            row.set("shapes", self.models[index].len() as i64);
+            row.set("visible", self.visible && self.last_poses[index].is_some());
+            if let Some(pose) = self.last_poses[index] {
+                row.set("pose", pose);
+            }
+            rows.push(&row);
+        }
+        rows
     }
 
     pub(super) fn count(&self) -> i64 {
@@ -125,5 +165,60 @@ impl Hands {
         self.clear_hand(0);
         self.clear_hand(1);
         self.paths = [None, None];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    #[test]
+    fn hst_25_inventory_shield_selects_the_sex_specific_addon_in_both_views() {
+        let id = |object| GlobalFormId { file: 0, object };
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"RACE"), 0x300));
+        plugin.push_top(
+            Record::new(Tag(*b"NPC_"), 7)
+                .zsub(Tag(*b"EDID"), "Player")
+                .sub(Tag(*b"RNAM"), 0x300_u32.to_le_bytes()),
+        );
+        plugin.push_top(
+            Record::new(Tag(*b"ARMA"), 0x301)
+                .sub(Tag(*b"BOD2"), (1_u32 << 9).to_le_bytes())
+                .sub(Tag(*b"RNAM"), 0x300_u32.to_le_bytes())
+                .sub(Tag(*b"DNAM"), [0; 12])
+                .zsub(Tag(*b"MOD2"), "armor/shield.nif")
+                .zsub(Tag(*b"MOD4"), "armor/1stpersonshield.nif"),
+        );
+        plugin.push_top(
+            Record::new(Tag(*b"ARMO"), 0x302)
+                .sub(
+                    Tag(*b"BOD2"),
+                    [(1_u32 << 9).to_le_bytes(), 0_u32.to_le_bytes()].concat(),
+                )
+                .sub(Tag(*b"DNAM"), 100_u32.to_le_bytes())
+                .sub(Tag(*b"MODL"), 0x301_u32.to_le_bytes()),
+        );
+        let mut order = LoadOrder::new();
+        order.add("Shield.esm", plugin).unwrap();
+        let mut game = soe_game::Game::new(order);
+        let player = game.player();
+        game.world_mut().add_item(player, id(0x302), 1);
+        assert!(crate::inventory_menu::toggle_equip(&mut game, id(0x302)));
+        let mut world = game.world_mut();
+        let appearance = world.actor_appearance(player).unwrap();
+        assert!(
+            !appearance.parts.is_empty(),
+            "fixture must resolve its equipped addon: {appearance:?}"
+        );
+        assert_eq!(
+            paths(&mut world, player, false)[0].as_deref(),
+            Some("armor/shield.nif")
+        );
+        assert_eq!(
+            paths(&mut world, player, true)[0].as_deref(),
+            Some("armor/1stpersonshield.nif")
+        );
     }
 }

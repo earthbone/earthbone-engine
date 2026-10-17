@@ -203,6 +203,8 @@ pub struct SkinnedActorNode {
     /// Load the first-person rig and armor addon models when binding a player.
     #[export]
     first_person: bool,
+    hands_drawn: bool,
+    player_equipment: bool,
     camera_offset: Transform3D,
     head_height: Option<f32>,
     vm: Option<Interpreter<'static>>,
@@ -255,6 +257,8 @@ impl INode3D for SkinnedActorNode {
             pose_us: 0.0,
             presented_appearance: None,
             first_person: false,
+            hands_drawn: false,
+            player_equipment: false,
             camera_offset: Transform3D::IDENTITY,
             head_height: None,
             assets: None,
@@ -397,51 +401,72 @@ impl SkinnedActorNode {
             });
     }
 
-    fn hand_poses(&self) -> [Option<Transform3D>; 2] {
-        let Some(binding) = &self.appearance else {
+    fn hand_bones(&self) -> [Option<&'static str>; 2] {
+        let (Some(binding), Some(assets)) = (&self.appearance, self.assets.as_deref()) else {
             return [None, None];
         };
-        let drawn = binding
-            .world
-            .borrow()
-            .actor_ref(binding.actor)
-            .is_some_and(|actor| actor.weapon_drawn);
-        if drawn {
-            return [
-                self.weapon_pose(Hand::Left).ok(),
-                self.weapon_pose(Hand::Right).ok(),
-            ];
-        }
-        if self.first_person {
+        if self.first_person && !self.hands_drawn {
             return [None, None];
         }
-        let Some(assets) = self.assets.as_deref() else {
-            return [None, None];
+        let mut world = binding.world.borrow_mut();
+        let drawn = if self.player_equipment {
+            self.hands_drawn
+        } else {
+            world
+                .actor_ref(binding.actor)
+                .is_some_and(|state| state.weapon_drawn)
         };
         [Hand::Left, Hand::Right].map(|hand| {
-            let bone = {
-                let mut world = binding.world.borrow_mut();
+            let candidates: &[&str] = if drawn {
                 if world.hand_spell(binding.actor, hand).is_some() {
-                    return None;
+                    match hand {
+                        Hand::Left => &["NPC L MagicNode [LMag]", "SHIELD", "Shield"],
+                        Hand::Right => &["NPC R MagicNode [RMag]", "WEAPON", "Weapon"],
+                    }
+                } else {
+                    crate::combat::weapon_bones(hand)
                 }
+            } else if hand == Hand::Left
+                && world
+                    .equipped_shield(binding.actor)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            {
+                &["ShieldBack"]
+            } else {
                 let weapon = world.hand_weapon(binding.actor, hand)?;
                 let weapon =
                     soe_game::combat::records::Weapon::from_record(world.record(weapon)?).ok()?;
                 match weapon.animation {
-                    1 => "WeaponSword",
-                    2 => "WeaponDagger",
-                    3 => "WeaponAxe",
-                    4 => "WeaponMace",
-                    5 | 6 => "WeaponBack",
-                    7 | 9 => "WeaponBow",
+                    1 => &["WeaponSword"],
+                    2 => &["WeaponDagger"],
+                    3 => &["WeaponAxe"],
+                    4 => &["WeaponMace"],
+                    5 | 6 => &["WeaponBack"],
+                    7 | 9 => &["WeaponBow"],
                     _ => return None,
                 }
             };
-            let index = assets.skeleton.bone_index(bone)?;
-            let pose = self.model.get(index)?;
-            Some(self.actor_placement() * to_transform3d(&Affine::from_qs(pose).to_godot()))
+            candidates
+                .iter()
+                .copied()
+                .find(|name| assets.skeleton.bone_index(name).is_some())
         })
     }
+
+    fn hand_poses(&self) -> [Option<Transform3D>; 2] {
+        let Some(assets) = self.assets.as_deref() else {
+            return [None, None];
+        };
+        let placement = self.actor_placement();
+        self.hand_bones().map(|bone| {
+            let index = assets.skeleton.bone_index(bone?)?;
+            let pose = self.model.get(index)?;
+            Some(placement * to_transform3d(&Affine::from_qs(pose).to_godot()))
+        })
+    }
+
     fn sync_hand_variables(&mut self) {
         let (Some(binding), Some(vm)) = (&self.appearance, &mut self.vm) else {
             return;
@@ -944,6 +969,13 @@ impl SkinnedActorNode {
             soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
             return;
         }
+        for event in &events {
+            match event.as_str() {
+                "weaponDraw" => self.hands_drawn = true,
+                "weaponSheathe" => self.hands_drawn = false,
+                _ => {}
+            }
+        }
         self.push_pose();
         // Authored events follow the pose they belong to.
         let report_target = self
@@ -984,8 +1016,10 @@ impl SkinnedActorNode {
             );
             self.hands.sync(&binding.source, paths, scenario);
         }
-        self.hands
-            .pose(self.hand_poses(), self.geometry_visible && !self.invisible);
+        self.hands.pose(
+            self.hand_poses(),
+            self.geometry_visible && !self.invisible && !self.presentation_hidden,
+        );
         self.stats.set("hand_shapes", self.hands.count());
         let expression_weights =
             self.facial_binding
@@ -1092,8 +1126,10 @@ impl SkinnedActorNode {
                 visible && !self.invisible && !self.presentation_hidden,
             );
         }
-        self.hands
-            .pose(self.hand_poses(), visible && !self.invisible);
+        self.hands.pose(
+            self.hand_poses(),
+            visible && !self.invisible && !self.presentation_hidden,
+        );
     }
 
     /// Whether the actor currently draws from animation or simulated bodies.
@@ -1132,6 +1168,8 @@ impl SkinnedActorNode {
         for ((surface, mesh), rids) in self.surfaces.iter().zip(&self.meshes).zip(&self.shapes) {
             let mut shape = VarDictionary::new();
             shape.set("name", surface.name.as_str());
+            shape.set("model", surface.model_path.as_str());
+            shape.set("slots", i64::from(surface.armor_slots));
             shape.set(
                 "head_part_type",
                 surface.head_part_type.map_or(-1, i64::from),
@@ -1145,6 +1183,8 @@ impl SkinnedActorNode {
             shapes.push(&shape);
         }
         row.set("shapes", &shapes);
+        row.set("hands", &self.hands.observation(self.hand_bones()));
+        row.set("hands_drawn", self.hands_drawn);
         row.set("poses", &self.uploaded_skin_poses());
         row.set("placement", self.actor_placement());
         row.set("head_height", self.head_height.unwrap_or(0.0));
@@ -1676,6 +1716,11 @@ impl SkinnedActorNode {
         .map_err(|error| error.to_string())?
         .ok_or("initial appearance was not prepared")?;
         self.invisible = world.borrow().is_invisible(actor);
+        self.player_equipment = actor == world.borrow_mut().player();
+        self.hands_drawn = world
+            .borrow()
+            .actor_ref(actor)
+            .is_some_and(|state| state.weapon_drawn);
         self.replace_surfaces(update.surfaces)?;
         let animation_cursor = {
             let world = world.borrow();
@@ -1808,7 +1853,10 @@ impl SkinnedActorNode {
             .map_err(|error| error.to_string())?;
         }
         self.free_rids();
-        self.surfaces = surfaces;
+        self.surfaces = surfaces
+            .into_iter()
+            .filter(|surface| !self.player_equipment || surface.armor_slots & (1 << 9) == 0)
+            .collect();
         self.upload_surfaces(scenario);
         self.update_surface_stats();
         self.push_pose();
