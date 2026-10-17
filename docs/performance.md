@@ -2788,3 +2788,7 @@ so this result does not establish correct grounded movement there.
 Streaming still exceeds 33 ms. PRF-41 remains open, and no hardware GPU FPS or
 full workspace gate result is claimed. Package formatting, all-target Clippy
 for physics and godot-host, comment lint, prose lint and Markdown lint passed.
+
+The 1.486 and 1.999 ms physics captures were subsequently archived under
+`target/prf40-after/after-grid-before-surface-handoff-2026-10-17` before
+confirming the per-surface Full LOD handoff on the shared upload path.
