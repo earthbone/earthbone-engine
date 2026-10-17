@@ -1,5 +1,22 @@
 # soe-hkx: Skyrim SE animation files and the behavior runtime design
 
+## Shared event delivery, ANM-63, 2026-10-17
+
+The linked graph is a directed graph with shared nodes. Event traversal visited
+each parent path and delivered one input repeatedly to shared modifiers. The
+furniture graph check took 156.53 seconds before a visitation buffer bounded
+each dispatch to one delivery per node. The same focused host checks then
+finished in 7.20 seconds. The expanded player, NPC and first-person checks hold
+each idle for 20 seconds and complete in 17.24 seconds, below their 60-second
+bound. These are debug test measurements with extracted vanilla assets.
+
+The buffer resets for each submitted or raised event and survives interpreter
+state transfers. A synthetic diamond checks that an every-two-events modifier
+counts one input once and still receives separate inputs in the same update.
+The local serde-hkx `hkbEventEveryNEventsModifier.json` declares its counter
+contract. This extends the existing per-update shared generation rule to event
+delivery. The full HKX library check passes 124 tests.
+
 ## Furniture nested transitions, ANM-62, 2026-10-17
 
 The interpreter parsed nested transition IDs but did not use them. The vanilla

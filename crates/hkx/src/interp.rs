@@ -1303,6 +1303,7 @@ pub struct Interpreter<'a> {
     pub character_properties: Variables,
     nodes: Vec<Runtime>,
     generated: Vec<Option<Output>>,
+    event_visited: Vec<bool>,
     bindings: Vec<ResolvedBinding>,
     bone_weight_masks: HashMap<u32, Vec<f32>>,
     conditions: HashMap<Condition, std::result::Result<Expression, ExpressionError>>,
@@ -1333,6 +1334,7 @@ pub struct InterpreterState {
     character_properties: Variables,
     nodes: Vec<Runtime>,
     generated: Vec<Option<Output>>,
+    event_visited: Vec<bool>,
     bindings: Vec<ResolvedBinding>,
     bone_weight_masks: HashMap<u32, Vec<f32>>,
     conditions: HashMap<Condition, std::result::Result<Expression, ExpressionError>>,
@@ -1377,6 +1379,7 @@ impl<'a> Interpreter<'a> {
             character_properties: state.character_properties,
             nodes: state.nodes,
             generated: state.generated,
+            event_visited: state.event_visited,
             bindings: state.bindings,
             bone_weight_masks: state.bone_weight_masks,
             conditions: state.conditions,
@@ -1406,6 +1409,7 @@ impl<'a> Interpreter<'a> {
             character_properties: self.character_properties,
             nodes: self.nodes,
             generated: self.generated,
+            event_visited: self.event_visited,
             bindings: self.bindings,
             bone_weight_masks: self.bone_weight_masks,
             conditions: self.conditions,
@@ -1471,6 +1475,7 @@ impl<'a> Interpreter<'a> {
             ),
             nodes,
             generated: vec![None; graph.nodes.len()],
+            event_visited: vec![false; graph.nodes.len()],
             bindings: Vec::new(),
             bone_weight_masks,
             conditions: HashMap::new(),
@@ -2057,6 +2062,7 @@ impl<'a> Interpreter<'a> {
             let pending = std::mem::take(&mut self.pending);
             for ev in pending {
                 self.handled.push(ev);
+                self.event_visited.fill(false);
                 self.handle_event(root, ev);
             }
             self.handle_conditions(root);
@@ -2075,6 +2081,7 @@ impl<'a> Interpreter<'a> {
                 let raised = std::mem::take(&mut self.raised);
                 for ev in raised {
                     self.handled.push(ev);
+                    self.event_visited.fill(false);
                     self.handle_event(root, ev);
                 }
             }
@@ -3367,7 +3374,7 @@ impl<'a> Interpreter<'a> {
     /// its current state names it. Highest priority wins, with authored order
     /// breaking ties. Otherwise the event goes on to the active children.
     fn handle_event(&mut self, id: NodeId, ev: Event) -> bool {
-        if !self.nodes[id.0].active {
+        if !self.nodes[id.0].active || std::mem::replace(&mut self.event_visited[id.0], true) {
             return false;
         }
         let graph = self.graph;
@@ -5195,6 +5202,92 @@ mod tests {
         while !bytes.len().is_multiple_of(4) {
             bytes.push(0);
         }
+    }
+
+    #[test]
+    fn r4_shared_event_modifier_receives_each_input_once() {
+        let node = |id, kind| Node {
+            id: NodeId(id),
+            offset: 0,
+            class: String::new(),
+            name: format!("node {id}"),
+            user_data: 0,
+            bindings: None,
+            kind,
+        };
+        let list = |children: &[usize]| NodeKind::ModifierList {
+            enable: true,
+            modifiers: children.iter().map(|id| Some(NodeId(*id))).collect(),
+        };
+        let graph = BehaviorGraph {
+            name: "shared event receiver".into(),
+            variable_mode: 0,
+            root: Some(NodeId(4)),
+            data: BehaviorGraphData {
+                event_names: vec!["input".into(), "output".into()],
+                ..Default::default()
+            },
+            nodes: vec![
+                node(0, list(&[1, 2])),
+                node(1, list(&[3])),
+                node(2, list(&[3])),
+                node(
+                    3,
+                    NodeKind::EveryNEventsModifier {
+                        enable: true,
+                        event_to_check_for: crate::behavior::EventProperty {
+                            id: 0,
+                            has_payload: false,
+                        },
+                        event_to_send: crate::behavior::EventProperty {
+                            id: 1,
+                            has_payload: false,
+                        },
+                        number_of_events_before_send: 2,
+                        minimum_number_of_events_before_send: 2,
+                        randomize_number_of_events: false,
+                    },
+                ),
+                node(
+                    4,
+                    NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(0)),
+                        generator: None,
+                    },
+                ),
+            ],
+        };
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.update(0.0);
+        assert!(vm.is_active(NodeId(3)));
+        vm.take_events();
+        vm.send_event(0);
+        vm.update(0.0);
+        assert!(
+            !vm.take_events().iter().any(|event| event.id == 1),
+            "shared parents counted one input twice"
+        );
+        vm.send_event(0);
+        vm.update(0.0);
+        assert_eq!(
+            vm.take_events()
+                .iter()
+                .filter(|event| event.id == 1)
+                .count(),
+            1
+        );
+        vm.send_event(0);
+        vm.send_event(0);
+        vm.update(0.0);
+        assert_eq!(
+            vm.take_events()
+                .iter()
+                .filter(|event| event.id == 1)
+                .count(),
+            1,
+            "separate submitted events must remain separate"
+        );
     }
 
     fn r4_nested_graph() -> BehaviorGraph {
