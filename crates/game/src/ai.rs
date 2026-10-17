@@ -218,6 +218,30 @@ pub struct AiState {
     pub completed: BTreeMap<GlobalFormId, u32>,
 }
 
+/// The AIDT an actor base resolves to and the NPCs that resolution read.
+#[derive(Clone)]
+pub(crate) struct AiDataEntry {
+    pub(crate) data: Option<crate::npc::AiData>,
+    pub(crate) chain: Vec<GlobalFormId>,
+}
+
+impl AiWorld {
+    pub(crate) fn ai_data_entry(&self, base: GlobalFormId) -> Option<AiDataEntry> {
+        self.ai_data.borrow().get(&base).cloned()
+    }
+
+    pub(crate) fn store_ai_data(
+        &self,
+        base: GlobalFormId,
+        data: Option<crate::npc::AiData>,
+        chain: Vec<GlobalFormId>,
+    ) {
+        self.ai_data
+            .borrow_mut()
+            .insert(base, AiDataEntry { data, chain });
+    }
+}
+
 /// Per-world record caches and transient planning requests. Nothing here is saved.
 #[derive(Default)]
 pub struct AiWorld {
@@ -225,6 +249,7 @@ pub struct AiWorld {
     pub metrics: metrics::Metrics,
     packages: std::cell::RefCell<BTreeMap<GlobalFormId, Option<Package>>>,
     trees: std::cell::RefCell<BTreeMap<GlobalFormId, std::sync::Arc<tree::Tree>>>,
+    ai_data: std::cell::RefCell<BTreeMap<GlobalFormId, AiDataEntry>>,
     nav: Option<NavGraph>,
     nav_doors: BTreeMap<u64, Option<NavDoor>>,
     nav_door_ids: std::collections::HashSet<GlobalFormId>,

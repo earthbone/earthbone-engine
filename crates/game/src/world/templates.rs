@@ -202,6 +202,40 @@ impl World {
         self.reference_component_source(actor, base, group)
     }
 
+    /// The AIDT of the NPC that supplies the AI data group for `actor`.
+    ///
+    /// A placed actor without a saved template choice resolves through its
+    /// base alone, so the answer is cached per base together with the NPCs
+    /// the template walk visited. The entry is dropped when any of them has
+    /// become a runtime record. This keeps the engagement check per frame
+    /// from counting a record lookup for every actor.
+    pub(crate) fn actor_ai_data(&mut self, actor: GlobalFormId) -> Option<crate::npc::AiData> {
+        use crate::npc::{template, AiData};
+        let parse = |world: &Self, owner: GlobalFormId| {
+            world
+                .record(owner)
+                .and_then(|record| record.find(soe_esm::Tag(*b"AIDT")))
+                .and_then(|bytes| AiData::from_bytes(bytes).ok())
+        };
+        if self.actor_templates.contains_key(&actor) {
+            let owner = self.actor_component_source(actor, template::AI_DATA).ok()?;
+            return parse(self, owner);
+        }
+        let base = self
+            .reference(actor)
+            .filter(|state| state.is_actor)
+            .and_then(|state| state.base)?;
+        if let Some(entry) = self.ai.ai_data_entry(base) {
+            if !entry.chain.iter().any(|id| self.has_runtime_record(*id)) {
+                return entry.data;
+            }
+        }
+        let (owner, _, chain) = self.npc_component_walk(base, template::AI_DATA).ok()?;
+        let data = parse(self, owner);
+        self.ai.store_ai_data(base, data, chain);
+        data
+    }
+
     /// Current sex retains a leveled actor's selected traits and private base.
     pub(crate) fn actor_female(&mut self, actor: GlobalFormId) -> Result<bool, Error> {
         let base = if self.actor_templates.contains_key(&actor) {

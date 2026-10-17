@@ -30,12 +30,7 @@ impl Policy {
         if aggression < 1.0 && world.is_calmed(actor) {
             return None;
         }
-        let data = world
-            .actor_component_source(actor, template::AI_DATA)
-            .ok()
-            .and_then(|owner| world.record(owner))
-            .and_then(|record| record.find(soe_esm::Tag(*b"AIDT")))
-            .and_then(|bytes| AiData::from_bytes(bytes).ok());
+        let data = world.actor_ai_data(actor);
         if aggression < 1.0 && !data.is_some_and(|data| data.aggro_radius) {
             return None;
         }

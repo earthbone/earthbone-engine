@@ -79,20 +79,33 @@ impl World {
         base: GlobalFormId,
         group: u16,
     ) -> Result<(GlobalFormId, Npc), Error> {
+        self.npc_component_walk(base, group)
+            .map(|(source, npc, _)| (source, npc))
+    }
+
+    /// The source NPC of one template group, its record and every NPC the
+    /// walk visited from `base` on.
+    pub(crate) fn npc_component_walk(
+        &self,
+        base: GlobalFormId,
+        group: u16,
+    ) -> Result<(GlobalFormId, Npc, Vec<GlobalFormId>), Error> {
         let mut current = base;
         let mut visited = BTreeSet::new();
+        let mut chain = Vec::new();
         loop {
             if !visited.insert(current) || visited.len() > 64 {
                 return Err(Error::Invalid(
                     "cyclic or excessive NPC template chain".into(),
                 ));
             }
+            chain.push(current);
             let npc = self.npc_record(current)?;
             let Some(raw) = npc
                 .template
                 .filter(|raw| *raw != 0 && npc.config.template_flags & group != 0)
             else {
-                return Ok((current, npc));
+                return Ok((current, npc, chain));
             };
             current = self
                 .resolve_from(current, raw)
