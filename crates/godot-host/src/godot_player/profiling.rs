@@ -68,6 +68,16 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Capture ordinary timed spans for a bounded diagnostic route.
+    #[func]
+    fn set_detailed_tracing(&mut self, enabled: bool) {
+        if enabled {
+            soe_trace::Trace::enable();
+        } else {
+            soe_trace::Trace::disable();
+        }
+    }
+
     /// Complete keys only after the physics step has applied their controls.
     #[func]
     fn profile_frame_presented(&mut self) {

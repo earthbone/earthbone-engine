@@ -270,9 +270,10 @@ Existing controller and large-world checks remain enabled.
 Statics are flattened to world-space primitives on insert: triangles
 (meshes, boxes and hulls through the face builder), spheres and capsules.
 A uniform grid of 256 unit cells is the broad phase. Inserts index only the
-new body. Removals erase that body and repair a moved storage slot in the
-affected grid cells. Candidate ordering follows body IDs so storage compaction
-preserves insertion-order collision ties. The character is a capsule with feet at `position`,
+new body. Each grid cell groups primitive indices by stable body ID. Removals
+erase only that body's buckets and update one storage lookup. Candidate
+ordering follows body IDs so storage compaction preserves insertion-order
+collision ties. The character is a capsule with feet at `position`,
 stepped by integrating gravity, moving, then resolving penetration up to
 six times against the closest point between the capsule axis and each
 nearby primitive (Ericson's segment-triangle, segment-segment and
@@ -862,9 +863,11 @@ step. The fixed 33 ms mutation test with 512,000 resident primitives measured
 438.267 ms for one arriving 2,048-triangle tile and 437.403 ms for its removal
 before the change. The test includes both mutation and the following step.
 
-The grid now updates with each edited body. A removal visits the primitive
-bounds of the removed body and the last body whose storage slot moves.
-It does not visit unrelated bodies or enumerate their combined empty bounds.
+The grid now updates with each edited body. PRF-50 replaces storage indices in
+the grid with stable body IDs. A removal visits the removed body's cached
+occupied cells and updates the moved body's lookup without visiting its
+primitives. Each cell groups primitives by body so bucket removal also avoids
+scanning overlapping survivors. It does not enumerate empty bounds.
 Rays see edits immediately. The regression compares incremental entries and
 ray hits with a full rebuild after removals, including negative coordinates,
 overlapping surfaces, body IDs, material IDs and insertion-order ties.
@@ -875,6 +878,33 @@ changed collision object's broad-phase AABB with `updateSingleAabb`. That
 per-object update contract informed this change. OpenMW's collision-object
 API cannot index the host's Rust primitives, so the existing uniform grid
 remains in use. No OpenMW code is ported.
+
+The grounded round-four traversal exposed a 211.036 ms controller removal
+when a large body survived. The focused 512,000-primitive survivor regression
+failed at 192.062 ms against a 33 ms limit before this correction. Stable IDs
+reduce that removal to 0.008 ms while preserving both removal and survivor
+ray queries. The first installed repeat still reaches 114.604 ms when removal
+filters shared cell lists. A second fixed-limit test with 512,000 overlapping
+survivor primitives fails at 41.316 ms. Per-body buckets reduce it to 0.009 ms.
+The installed bucket repeat still records a 210.814 ms removal outlier.
+A grounded repeat with inner spans identifies 847,016 occupied cells for one
+288-primitive body. Cell cleanup takes 247.324 ms and storage release takes
+0.494 ms. Stable handles alone cannot bound that body's spatial volume.
+Primitives spanning more than 4,096 grid cells now use one overflow entry.
+Queries filter those primitives by their exact bounds and retain body and
+primitive ordering. This follows Jolt BroadPhaseQuadTree's object-based
+large-body contract without porting its C++ body manager into SimpleWorld.
+The fixed 33 ms large-primitive regression fails at 596.619 ms before the
+change and passes at 0.019 ms afterward. It also verifies material identity,
+ray hits, rebuild and removal. An installed repeat lowers removal to 38.267
+and 53.786 ms but still visits 146,958 cells across moderate-sized primitives.
+A per-body cap now bounds their combined occupied cells as well. Dense meshes
+within that cap retain the normal primitive grid. The wide-body regression
+fails at 97.820 ms before the cap and passes at 0.016 ms afterward. It checks
+both ends of the body, material identity and removal. Installed confirmation
+of the per-body bound passes both grounded traversals. Worst removal across
+their traces is 0.595 ms, down from 247.823 ms before overflow indexing.
+All 32 physics library cases and all-target Clippy pass.
 
 The focused debug check after the change measured 2.256 ms for insertion and
 1.749 ms for removal, below the unchanged 33 ms limit. All physics unit and

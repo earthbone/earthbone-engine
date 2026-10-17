@@ -177,6 +177,16 @@ pub struct LodBuildWorker<T> {
     result: OnceLock<Result<Arc<T>, LodBuildError>>,
 }
 
+impl<T> Drop for LodBuildWorker<T> {
+    fn drop(&mut self) {
+        if let Ok(worker) = self.worker.get_mut() {
+            if let Some(worker) = worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+}
+
 impl<T> LodBuildWorker<T> {
     fn finish(&self) -> Result<Arc<T>, LodBuildError> {
         self.result
@@ -208,6 +218,20 @@ pub enum LodBuildRequest<T> {
 pub struct LodBuildError;
 
 impl<T> LodBuildRequest<T> {
+    /// Whether completion can be consumed without waiting for a worker.
+    pub fn is_ready(&self) -> bool {
+        match self {
+            Self::Ready(_) => true,
+            Self::Running { worker, .. } => {
+                worker.result.get().is_some()
+                    || worker
+                        .worker
+                        .try_lock()
+                        .is_ok_and(|job| job.as_ref().is_some_and(JoinHandle::is_finished))
+            }
+        }
+    }
+
     /// Join the worker and publish its complete result in the cache.
     pub fn finish(self, cache: &mut LodBuildCache<T>) -> Result<Arc<T>, LodBuildError> {
         match self {
@@ -265,6 +289,29 @@ pub fn silhouette_error_pixels(reference: [f32; 4], candidate: [f32; 4]) -> f32 
 #[cfg(test)]
 mod memory_tests {
     use super::*;
+
+    #[test]
+    fn walking_lod_poll_does_not_wait_for_asset_preparation() {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        const LIMIT: Duration = Duration::from_millis(33);
+        let (release, waiting) = mpsc::channel();
+        let key = LoadOrderHash::from_content_fingerprint([2; 32]);
+        let mut cache = LodBuildCache::default();
+        let request = cache.request(key, move || {
+            waiting.recv().unwrap();
+            vec![4_u8; 16]
+        });
+        let start = Instant::now();
+        let ready = request.is_ready();
+        let elapsed = start.elapsed();
+        release.send(()).unwrap();
+        assert!(!ready);
+        assert!(elapsed < LIMIT);
+        assert_eq!(&**request.finish(&mut cache).unwrap(), &[4; 16]);
+        assert!(cache.request(key, Vec::new).is_ready());
+    }
 
     #[test]
     fn completed_lod_cache_evicts_lru_and_reuses_a_live_arc_after_eviction() {

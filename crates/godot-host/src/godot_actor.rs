@@ -204,6 +204,7 @@ pub struct SkinnedActorNode {
     #[export]
     first_person: bool,
     camera_offset: Transform3D,
+    camera_bone: Option<usize>,
     head_height: Option<f32>,
     vm: Option<Interpreter<'static>>,
     assets: Option<Arc<ActorAssets>>,
@@ -256,6 +257,7 @@ impl INode3D for SkinnedActorNode {
             presented_appearance: None,
             first_person: false,
             camera_offset: Transform3D::IDENTITY,
+            camera_bone: None,
             head_height: None,
             assets: None,
             vm: None,
@@ -363,6 +365,7 @@ impl SkinnedActorNode {
 
     fn cache_camera_offset(&mut self) {
         self.head_height = None;
+        self.camera_bone = None;
         let Some(assets) = self.assets.as_deref() else {
             return;
         };
@@ -378,7 +381,7 @@ impl SkinnedActorNode {
             .and_then(|index| model.get(index))
             .map(|pose| pose.translation[2])
             .filter(|height| height.is_finite() && *height > 0.0);
-        self.camera_offset = assets
+        self.camera_bone = assets
             .skeleton
             .bones
             .iter()
@@ -390,7 +393,9 @@ impl SkinnedActorNode {
                     .bones
                     .iter()
                     .position(|bone| bone.name.to_ascii_lowercase().contains("camera"))
-            })
+            });
+        self.camera_offset = self
+            .camera_bone
             .and_then(|index| model.get(index))
             .map_or(Transform3D::IDENTITY, |pose| {
                 to_transform3d(&Affine::from_qs(pose).to_godot())
@@ -527,6 +532,14 @@ impl SkinnedActorNode {
 
     pub(crate) fn first_person_camera_offset(&self) -> Transform3D {
         self.camera_offset
+    }
+
+    fn animated_camera_offset(&self) -> Transform3D {
+        self.camera_bone
+            .and_then(|index| self.model.get(index))
+            .map_or(self.camera_offset, |pose| {
+                to_transform3d(&Affine::from_qs(pose).to_godot())
+            })
     }
 
     pub(crate) fn camera_head_height(&self) -> Option<f32> {
@@ -1148,7 +1161,16 @@ impl SkinnedActorNode {
         row.set("poses", &self.uploaded_skin_poses());
         row.set("placement", self.actor_placement());
         row.set("head_height", self.head_height.unwrap_or(0.0));
-        row.set("camera_offset", self.camera_offset);
+        row.set(
+            "camera_offset",
+            if self.first_person {
+                self.animated_camera_offset()
+            } else {
+                self.camera_offset
+            },
+        );
+        row.set("reference_camera_offset", self.camera_offset);
+        row.set("animated_camera_offset", self.animated_camera_offset());
         row
     }
 
@@ -1640,7 +1662,9 @@ impl SkinnedActorNode {
 
     fn actor_placement(&self) -> Transform3D {
         if self.first_person {
-            return self.base().get_global_transform();
+            return self.base().get_global_transform()
+                * self.camera_offset
+                * self.animated_camera_offset().affine_inverse();
         }
         if let Some(placement) = self.presented_placement {
             return placement_transform(placement);

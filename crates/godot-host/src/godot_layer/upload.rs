@@ -14,6 +14,7 @@ use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
 pub(crate) const SLICE_BUDGET: Duration = Duration::from_millis(8);
+pub(super) const LOD_SLICE_BUDGET: Duration = Duration::from_millis(2);
 
 #[derive(Default)]
 pub(crate) struct FrameBudget {
@@ -22,7 +23,7 @@ pub(crate) struct FrameBudget {
 }
 
 impl FrameBudget {
-    fn remaining(&mut self, frame: u64, limit: Duration) -> Duration {
+    pub(super) fn remaining(&mut self, frame: u64, limit: Duration) -> Duration {
         if self.frame != Some(frame) {
             self.frame = Some(frame);
             self.spent = Duration::ZERO;
@@ -30,7 +31,7 @@ impl FrameBudget {
         limit.saturating_sub(self.spent)
     }
 
-    fn charge(&mut self, elapsed: Duration) {
+    pub(super) fn charge(&mut self, elapsed: Duration) {
         self.spent = self.spent.saturating_add(elapsed);
     }
 }
@@ -53,7 +54,7 @@ pub(crate) struct Plan {
     pub(crate) largest_batch: usize,
 }
 
-fn base_tag(source: Option<&DataSource>, id: GlobalFormId) -> Option<soe_esm::Tag> {
+pub(crate) fn base_tag(source: Option<&DataSource>, id: GlobalFormId) -> Option<soe_esm::Tag> {
     let source = source?;
     let owner = source.order().winner_ref(id)?;
     let record = source.order().record(owner);

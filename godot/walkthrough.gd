@@ -134,7 +134,7 @@ func _start() -> void:
 	loading_phase = "Preparing rendering"
 	var rendering := {"error": "", "load_render_frames": 0, "load_render_ms": 0.0}
 	if DisplayServer.get_name() != "headless":
-		rendering = await Warmup.prepare()
+		rendering = await Warmup.prepare(streamer)
 		if not rendering.error.is_empty():
 			printerr("Could not prepare rendering: ", rendering.error)
 			quit(1)

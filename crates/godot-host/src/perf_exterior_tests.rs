@@ -90,6 +90,155 @@ fn root() -> PathBuf {
 }
 
 #[test]
+fn installed_tree_pipeline_material_survey() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = crate::data_source::DataSource::open_with_threads(Path::new(&data), 1).unwrap();
+    for model in [
+        "landscape/trees/treepineforest01.nif",
+        "landscape/trees/treeaspen01.nif",
+    ] {
+        let surfaces = source.item_preview_surfaces(model).unwrap();
+        assert!(!surfaces.is_empty());
+        for (arrays, _) in surfaces {
+            eprintln!(
+                "R4_TREE_MATERIAL model={model} vertices={} material={:?}",
+                arrays.positions.len(),
+                arrays.material
+            );
+        }
+    }
+}
+
+#[test]
+fn r4_installed_game_time_tracks_wall_time_through_the_inn_exit() {
+    r4_installed_route("r4_runtime_test.gd");
+}
+
+#[test]
+fn r4_installed_door_streaming_stays_below_thirty_three_ms() {
+    r4_installed_route("r4_streaming_test.gd");
+}
+
+#[test]
+fn r4_installed_tree_billboards_cover_the_medium_band() {
+    r4_installed_route("r4_tree_test.gd");
+}
+
+#[test]
+fn r4_installed_full_tree_pipelines_are_warm() {
+    r4_installed_route("r4_tree_pipeline_test.gd");
+}
+
+#[test]
+fn r4_installed_camera_interpolation_follows_wall_time() {
+    r4_player_view_route("r4_player_motion_test.gd", "R4_MOTION PASS");
+}
+
+#[test]
+fn r4_installed_first_person_animation_keeps_camera_heading() {
+    r4_player_view_route("r4_first_person_test.gd", "R4_FIRST_PERSON PASS");
+}
+
+fn r4_player_view_route(script: &str, marker: &str) {
+    let (Some(data), Some(godot)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_GODOT_BIN"),
+    ) else {
+        return;
+    };
+    let root = root();
+    let directory = root
+        .join("target/r4-runtime")
+        .join(script.trim_end_matches(".gd"));
+    std::fs::create_dir_all(&directory).unwrap();
+    let log = directory.join("run.log");
+    let errors = directory.join("run.err");
+    let status = Command::new(godot)
+        .arg("--path")
+        .arg(root.join("godot"))
+        .args(["--headless", "--script", script])
+        .env("SKYRIM_DATA", data)
+        .env_remove("SOE_THREADED_SIMULATION")
+        .env("SOE_R4_MOTION_REPORT", directory.join("motion.json"))
+        .stdin(Stdio::null())
+        .stdout(std::fs::File::create(&log).unwrap())
+        .stderr(std::fs::File::create(&errors).unwrap())
+        .status()
+        .unwrap();
+    let log = std::fs::read_to_string(log).unwrap();
+    let errors = std::fs::read_to_string(errors).unwrap();
+    assert!(status.success(), "{status}: {log}\n{errors}");
+    assert!(log.contains(marker), "{log}");
+    assert!(!errors.contains("SCRIPT ERROR"), "{errors}");
+}
+
+fn r4_installed_route(script: &str) {
+    let (Some(data), Some(godot)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_GODOT_BIN"),
+    ) else {
+        return;
+    };
+    let root = root();
+    let directory = root
+        .join("target/r4-runtime")
+        .join(script.trim_end_matches(".gd"));
+    std::fs::create_dir_all(&directory).unwrap();
+    let report = directory.join("clock.json");
+    let output = std::fs::File::create(directory.join("clock.log")).unwrap();
+    let errors = std::fs::File::create(directory.join("clock.err")).unwrap();
+    let status = Command::new(godot)
+        .arg("--path")
+        .arg(root.join("godot"))
+        .args(["--resolution", "640x360", "--script", script])
+        .env("SKYRIM_DATA", data)
+        .env("SOE_R4_REPORT", &report)
+        .env("SOE_GODOT_TIMEOUT", "600")
+        .env("DISPLAY", ":99")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("SOE_THREADED_SIMULATION")
+        .stdin(Stdio::null())
+        .stdout(output)
+        .stderr(errors)
+        .status()
+        .unwrap();
+    let log = std::fs::read_to_string(directory.join("clock.log")).unwrap();
+    let errors = std::fs::read_to_string(directory.join("clock.err")).unwrap();
+    assert!(status.success(), "{status}: {log}\n{errors}");
+    assert!(!errors.contains("SCRIPT ERROR:"), "{errors}");
+    assert!(log.contains("R4_RUNTIME PASS"), "{log}");
+    assert!(log.contains("WALKTHROUGH stopped: ready=true"), "{log}");
+    let row: serde_json::Value = serde_json::from_slice(&std::fs::read(&report).unwrap()).unwrap();
+    for phase in ["inn_20fps", "door_walk_60fps"] {
+        let ratio = row[phase]["ratio"].as_f64().unwrap();
+        assert!((ratio - 1.0).abs() < 0.05, "{phase}: {ratio}");
+        assert!(row[phase]["distance"].as_f64().unwrap() > 100.0);
+        println!(
+            "R4_CLOCK {phase} ratio={ratio} wall={} game={}",
+            row[phase]["wall"], row[phase]["game"]
+        );
+    }
+    if script == "r4_streaming_test.gd" {
+        let frames = row["door_walk_60fps"]["frames"].as_array().unwrap();
+        let worst = frames
+            .iter()
+            .map(|frame| frame["streaming_ms"].as_f64().unwrap())
+            .fold(0.0, f64::max);
+        assert!(worst < 33.0, "door streaming reached {worst} ms");
+    }
+    let trace: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(report.with_extension("trace.json")).unwrap())
+            .unwrap();
+    assert!(trace["traceEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["ph"] == "X"));
+}
+
+#[test]
 fn prf_40_installed_exterior_uploads_and_physics_are_bounded() {
     let (Some(data), Some(godot)) = (
         std::env::var_os("SKYRIM_DATA"),
@@ -177,6 +326,11 @@ fn prf_40_installed_exterior_uploads_and_physics_are_bounded() {
             row["physics_ms_max"].as_f64().unwrap() < 33.0,
             "{cell}: physics callback breached 33 ms: {}",
             row["physics_ms_max"]
+        );
+        assert!(
+            row["streaming_ms_max"].as_f64().unwrap() < 33.0,
+            "{cell}: streaming callback breached 33 ms: {}",
+            row["streaming_ms_max"]
         );
         assert_eq!(
             row["pipelines"]["draw"].as_u64().unwrap(),

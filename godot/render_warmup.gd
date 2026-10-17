@@ -62,9 +62,36 @@ func timed_out(now: int) -> bool:
 	return now - started >= TIMEOUT_USEC
 
 
-static func prepare() -> Dictionary:
+static func prepare(streamer: Node3D = null) -> Dictionary:
 	if DisplayServer.get_name() == "headless":
 		return {"error": "render warm-up requires a windowed renderer"}
+	var representatives: Array[RID] = []
+	var tree_report := {}
+	if streamer != null:
+		if not streamer.call("begin_tree_pipeline_warmup"):
+			return {"error": "could not start tree pipeline preparation"}
+		var started_at := Time.get_ticks_usec()
+		var state := 0
+		while state == 0:
+			await streamer.get_tree().process_frame
+			state = streamer.call("poll_tree_pipeline_warmup")
+			if Time.get_ticks_usec() - started_at > 120_000_000:
+				return {"error": "tree pipeline preparation exceeded 120 seconds"}
+		if state < 0:
+			return {"error": "tree pipeline preparation failed"}
+		tree_report = streamer.call("tree_pipeline_warmup_stats")
+		if not tree_report.failures.is_empty():
+			return {"error": "tree pipeline preparation: " + str(tree_report.failures)}
+		var view := streamer.get_viewport().get_camera_3d()
+		if view == null:
+			return {"error": "tree pipeline preparation needs the active camera"}
+		var meshes: Array = streamer.call("tree_pipeline_warmup_meshes")
+		for index in meshes.size():
+			var mesh: ArrayMesh = meshes[index]
+			var rid := RenderingServer.instance_create2(mesh.get_rid(), streamer.get_world_3d().get_scenario())
+			var local := Vector3((index % 8 - 4) * 0.008, (index / 8) * 0.008, -0.2)
+			RenderingServer.instance_set_transform(rid, view.global_transform * Transform3D(Basis.IDENTITY, local))
+			representatives.append(rid)
 	var wait = load("res://render_warmup.gd").new()
 	var prepare_started := Time.get_ticks_usec()
 	var before := snapshot()
@@ -90,6 +117,8 @@ static func prepare() -> Dictionary:
 		var counts := snapshot()
 		var ready: bool = wait.observe(now, counts)
 		if wait.timed_out(now):
+			for rid in representatives:
+				RenderingServer.free_rid(rid)
 			return {"error": "pipeline counters did not settle within 30 seconds"}
 		if ready:
 			var report := {
@@ -100,6 +129,9 @@ static func prepare() -> Dictionary:
 				"pipelines_before_render": named(before),
 				"pipelines_after_load": named(counts),
 			}
+			for rid in representatives:
+				RenderingServer.free_rid(rid)
+			report["tree_pipelines"] = tree_report
 			report.merge(timing_fields(prepare_started, first_drawn_frame, now))
 			return report
 	return {"error": "render warm-up interrupted"}

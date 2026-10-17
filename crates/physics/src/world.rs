@@ -20,15 +20,20 @@
 //! how shapes are produced or how the game layer moves a character.
 //! Jolt CharacterVirtual separates surface normals for slope and support from
 //! contact normals for penetration. This resolver uses the same distinction.
+//! Static edits follow OpenMW's per-object AABB update contract in
+//! apps/openmw/mwphysics/physicssystem.cpp. Stable body handles let the
+//! headless primitive grid keep that contract when storage slots move.
+//! Jolt BroadPhaseQuadTree tracks large bodies without enumerating their volume.
+//! Oversized primitives use a separate bucket here, retaining the Rust shapes.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::bhk::Layer;
 use crate::hull;
 use crate::math::{Aabb, Iso, Vec3};
 use crate::shape::{Collider, Shape};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BodyId(pub u32);
 
 /// Standing gravity in game units per second squared: 9.81 metres times
@@ -257,17 +262,23 @@ struct StaticBody {
     layer: Layer,
     prims: Vec<Prim>,
     materials: Vec<Option<u32>>,
+    cells: Vec<(i32, i32, i32)>,
 }
 
 const CELL: f32 = 256.0;
+const MAX_GRID_CELLS: usize = 4096;
+
+type StaticGridCell = BTreeMap<BodyId, Vec<usize>>;
 
 #[derive(Default)]
 pub struct SimpleWorld {
     next: u32,
     statics: Vec<StaticBody>,
+    static_index: HashMap<BodyId, usize>,
     characters: HashMap<BodyId, Character>,
-    /// Grid cell to (static index, prim index), updated with each body edit.
-    grid: HashMap<(i32, i32, i32), Vec<(usize, usize)>>,
+    /// Grid cell to stable body and primitive IDs, independent of storage slots.
+    grid: HashMap<(i32, i32, i32), StaticGridCell>,
+    oversized: StaticGridCell,
 }
 
 impl SimpleWorld {
@@ -300,20 +311,61 @@ impl SimpleWorld {
     }
 
     fn index_static(&mut self, si: usize) {
-        for (pi, p) in self.statics[si].prims.iter().enumerate() {
+        let id = self.statics[si].id;
+        let mut cells = BTreeSet::new();
+        let mut oversized_body = false;
+        'index: for (pi, p) in self.statics[si].prims.iter().enumerate() {
             let b = p.aabb();
             if b.is_empty() || !b.min.is_finite() || !b.max.is_finite() {
                 continue;
             }
+            if Self::cells(&b).take(MAX_GRID_CELLS + 1).count() > MAX_GRID_CELLS {
+                self.oversized.entry(id).or_default().push(pi);
+                continue;
+            }
             for c in Self::cells(&b) {
-                self.grid.entry(c).or_default().push((si, pi));
+                cells.insert(c);
+                if cells.len() > MAX_GRID_CELLS {
+                    oversized_body = true;
+                    break 'index;
+                }
+                self.grid
+                    .entry(c)
+                    .or_default()
+                    .entry(id)
+                    .or_default()
+                    .push(pi);
             }
         }
+        if oversized_body {
+            for cell in &cells {
+                if let Some(entries) = self.grid.get_mut(cell) {
+                    entries.remove(&id);
+                    if entries.is_empty() {
+                        self.grid.remove(cell);
+                    }
+                }
+            }
+            let primitives = self.statics[si]
+                .prims
+                .iter()
+                .enumerate()
+                .filter_map(|(index, primitive)| {
+                    let bounds = primitive.aabb();
+                    (!bounds.is_empty() && bounds.min.is_finite() && bounds.max.is_finite())
+                        .then_some(index)
+                })
+                .collect();
+            self.oversized.insert(id, primitives);
+            cells.clear();
+        }
+        self.statics[si].cells = cells.into_iter().collect();
     }
 
     #[cfg(test)]
     fn rebuild(&mut self) {
         self.grid.clear();
+        self.oversized.clear();
         for si in 0..self.statics.len() {
             self.index_static(si);
         }
@@ -324,14 +376,35 @@ impl SimpleWorld {
         let mut out = Vec::new();
         for c in Self::cells(aabb) {
             if let Some(list) = self.grid.get(&c) {
-                out.extend_from_slice(list);
+                for (&body, primitives) in list {
+                    out.extend(primitives.iter().map(|&primitive| (body, primitive)));
+                }
             }
         }
-        // CONTEXT: Compaction changes slots. Body IDs preserve insertion-order ties.
-        out.sort_unstable_by_key(|&(si, pi)| (self.statics[si].id.0, pi));
+        for (&body, primitives) in &self.oversized {
+            out.extend(primitives.iter().map(|&primitive| (body, primitive)));
+        }
+        out.sort_unstable();
         out.dedup();
-        out.retain(|&(si, pi)| self.statics[si].prims[pi].aabb().overlaps(aabb));
-        out
+        let mut cached = None;
+        out.into_iter()
+            .filter_map(|(id, pi)| {
+                let si = match cached {
+                    Some((previous, slot)) if previous == id => slot,
+                    _ => {
+                        let slot = self.static_index.get(&id).copied();
+                        debug_assert!(slot.is_some(), "grid body is resident");
+                        let slot = slot?;
+                        cached = Some((id, slot));
+                        slot
+                    }
+                };
+                self.statics[si].prims[pi]
+                    .aabb()
+                    .overlaps(aabb)
+                    .then_some((si, pi))
+            })
+            .collect()
     }
 
     /// Pushes a capsule out of everything it overlaps, reporting where it
@@ -653,45 +726,49 @@ impl PhysicsWorld for SimpleWorld {
             layer: collider.layer,
             prims,
             materials,
+            cells: Vec::new(),
         });
-        self.index_static(self.statics.len() - 1);
+        let slot = self.statics.len() - 1;
+        self.static_index.insert(id, slot);
+        self.index_static(slot);
         id
     }
 
     fn remove(&mut self, id: BodyId) {
+        let _span =
+            soe_trace::Span::with_payload("physics.static_remove", "physics", u64::from(id.0));
         if self.characters.remove(&id).is_some() {
             return;
         }
-        let Some(index) = self.statics.iter().position(|body| body.id == id) else {
+        let Some(index) = self.static_index.remove(&id) else {
             return;
         };
-        let last = self.statics.len() - 1;
-        let mut touched = BTreeSet::new();
-        for body in [Some(index), (last != index).then_some(last)]
-            .into_iter()
-            .flatten()
-        {
-            for primitive in &self.statics[body].prims {
-                let bounds = primitive.aabb();
-                if !bounds.is_empty() && bounds.min.is_finite() && bounds.max.is_finite() {
-                    touched.extend(Self::cells(&bounds));
-                }
-            }
+        self.oversized.remove(&id);
+        let removed = self.statics.swap_remove(index);
+        if let Some(moved) = self.statics.get(index) {
+            self.static_index.insert(moved.id, index);
         }
-        self.statics.swap_remove(index);
-        for cell in touched {
+        let cells_span = soe_trace::Span::with_payload(
+            "physics.static_remove_cells",
+            "physics",
+            removed.cells.len() as u64,
+        );
+        for &cell in &removed.cells {
             if let Some(entries) = self.grid.get_mut(&cell) {
-                entries.retain(|(body, _)| *body != index);
-                for (body, _) in entries.iter_mut() {
-                    if *body == last {
-                        *body = index;
-                    }
-                }
+                entries.remove(&id);
                 if entries.is_empty() {
                     self.grid.remove(&cell);
                 }
             }
         }
+        drop(cells_span);
+        let storage_span = soe_trace::Span::with_payload(
+            "physics.static_remove_storage",
+            "physics",
+            removed.prims.len() as u64,
+        );
+        drop(removed);
+        drop(storage_span);
     }
 
     fn create_character(&mut self, settings: CharacterSettings, position: Vec3) -> BodyId {
@@ -1177,6 +1254,212 @@ mod tests {
     use super::*;
 
     #[test]
+    fn prf_50_removing_a_wide_body_bounds_total_occupied_cells() {
+        use std::time::{Duration, Instant};
+
+        const LIMIT: Duration = Duration::from_millis(33);
+        let mut vertices = Vec::new();
+        let mut triangles = Vec::new();
+        for index in 0..288 {
+            let x = index as f32 * CELL * 16.0;
+            let first = vertices.len() as u32;
+            vertices.extend([
+                Vec3::new(x, 0.0, 0.0),
+                Vec3::new(x + CELL * 7.0, CELL * 7.0, 0.0),
+                Vec3::new(x, 0.0, CELL * 7.0),
+            ]);
+            triangles.push([first, first + 1, first + 2]);
+        }
+        let body = Collider {
+            node: soe_nif::BlockRef(0),
+            node_name: "wide streamed body".into(),
+            layer: Layer::STATIC,
+            motion: crate::MotionType::Fixed,
+            mass: 0.0,
+            transform: Iso::IDENTITY,
+            shape: Shape::TriangleMesh {
+                radius: 0.0,
+                vertices,
+                triangles,
+                materials: vec![Some(7); 288],
+            },
+        };
+        let mut world = SimpleWorld::new();
+        let departing = world.add_static(&body);
+        let ray = (Vec3::new(128.0, 0.0, 128.0), Vec3::new(0.0, 128.0, 128.0));
+        assert_eq!(world.raycast(ray.0, ray.1).unwrap().body, departing);
+        assert!(world.grid.len() <= MAX_GRID_CELLS);
+        world.rebuild();
+        let offset = Vec3::new(287.0 * CELL * 16.0, 0.0, 0.0);
+        let far = world.raycast(ray.0 + offset, ray.1 + offset).unwrap();
+        assert_eq!(far.body, departing);
+        assert_eq!(far.material, Some(7));
+        let started = Instant::now();
+        world.remove(departing);
+        let elapsed = started.elapsed();
+        eprintln!(
+            "PRF50_WIDE_REMOVE removed_ms={:.3} limit_ms=33",
+            elapsed.as_secs_f64() * 1000.0
+        );
+        assert!(
+            elapsed < LIMIT,
+            "body cleanup visited its combined volume: {elapsed:?}"
+        );
+        assert!(world.raycast(ray.0, ray.1).is_none());
+    }
+
+    #[test]
+    fn prf_50_removing_a_large_primitive_does_not_visit_its_empty_volume() {
+        use std::time::{Duration, Instant};
+
+        const LIMIT: Duration = Duration::from_millis(33);
+        let floor = Collider {
+            node: soe_nif::BlockRef(0),
+            node_name: "large streamed triangle".into(),
+            layer: Layer::STATIC,
+            motion: crate::MotionType::Fixed,
+            mass: 0.0,
+            transform: Iso::IDENTITY,
+            shape: Shape::TriangleMesh {
+                radius: 0.0,
+                vertices: vec![
+                    Vec3::ZERO,
+                    Vec3::new(CELL * 92.0, CELL * 92.0, 0.0),
+                    Vec3::new(0.0, 0.0, CELL * 100.0),
+                ],
+                triangles: vec![[0, 1, 2]],
+                materials: vec![Some(7)],
+            },
+        };
+        let mut world = SimpleWorld::new();
+        let departing = world.add_static(&floor);
+        let ray = (Vec3::new(128.0, 0.0, 128.0), Vec3::new(0.0, 128.0, 128.0));
+        let hit = world.raycast(ray.0, ray.1).unwrap();
+        assert_eq!(hit.body, departing);
+        assert_eq!(hit.material, Some(7));
+        assert!(world.grid.len() <= MAX_GRID_CELLS);
+        assert_eq!(world.oversized[&departing], vec![0]);
+        world.rebuild();
+        assert_eq!(world.raycast(ray.0, ray.1).unwrap().body, departing);
+        let started = Instant::now();
+        world.remove(departing);
+        let elapsed = started.elapsed();
+        eprintln!(
+            "PRF50_LARGE_REMOVE removed_ms={:.3} limit_ms=33",
+            elapsed.as_secs_f64() * 1000.0
+        );
+        assert!(
+            elapsed < LIMIT,
+            "removal enumerated empty volume: {elapsed:?}"
+        );
+        assert!(world.raycast(ray.0, ray.1).is_none());
+    }
+
+    #[test]
+    fn prf_50_removing_an_overlapping_body_does_not_scan_survivor_primitives() {
+        use std::time::{Duration, Instant};
+
+        const LIMIT: Duration = Duration::from_millis(33);
+        let mut floor = Collider {
+            node: soe_nif::BlockRef(0),
+            node_name: "overlapping streamed floor".into(),
+            layer: Layer::STATIC,
+            motion: crate::MotionType::Fixed,
+            mass: 0.0,
+            transform: Iso::IDENTITY,
+            shape: Shape::TriangleMesh {
+                radius: 0.0,
+                vertices: vec![
+                    Vec3::ZERO,
+                    Vec3::new(800.0, 0.0, 0.0),
+                    Vec3::new(0.0, 800.0, 0.0),
+                ],
+                triangles: vec![[0, 1, 2]; 512_000],
+                materials: Vec::new(),
+            },
+        };
+        let mut world = SimpleWorld::new();
+        let survivor = world.add_static(&floor);
+        if let Shape::TriangleMesh { triangles, .. } = &mut floor.shape {
+            triangles.truncate(1);
+        }
+        let departing = world.add_static(&floor);
+        let started = Instant::now();
+        world.remove(departing);
+        let elapsed = started.elapsed();
+        eprintln!(
+            "PRF50_OVERLAP_REMOVE survivor_primitives=512000 removed_ms={:.3} limit_ms=33",
+            elapsed.as_secs_f64() * 1000.0
+        );
+        assert!(
+            elapsed < LIMIT,
+            "removal scanned overlapping survivors: {elapsed:?}"
+        );
+        assert_eq!(world.static_count(), 1);
+        assert_eq!(
+            world
+                .raycast(Vec3::new(1.0, 1.0, 64.0), Vec3::new(1.0, 1.0, -64.0))
+                .unwrap()
+                .body,
+            survivor
+        );
+    }
+
+    #[test]
+    fn prf_50_removing_a_small_body_does_not_reindex_a_large_survivor() {
+        use std::time::{Duration, Instant};
+
+        const LIMIT: Duration = Duration::from_millis(33);
+        let floor = |x: f32, count: usize| Collider {
+            node: soe_nif::BlockRef(0),
+            node_name: "streamed floor".into(),
+            layer: Layer::STATIC,
+            motion: crate::MotionType::Fixed,
+            mass: 0.0,
+            transform: Iso::IDENTITY,
+            shape: Shape::TriangleMesh {
+                radius: 0.0,
+                vertices: vec![
+                    Vec3::new(x, 0.0, 0.0),
+                    Vec3::new(x + 200.0, 0.0, 0.0),
+                    Vec3::new(x, 200.0, 0.0),
+                ],
+                triangles: vec![[0, 1, 2]; count],
+                materials: Vec::new(),
+            },
+        };
+        let mut world = SimpleWorld::new();
+        let departing = world.add_static(&floor(-10_000.0, 1));
+        let survivor = world.add_static(&floor(0.0, 512_000));
+        assert_eq!(world.primitive_count(), 512_001);
+        let start = Instant::now();
+        world.remove(departing);
+        let removed = start.elapsed();
+        eprintln!(
+            "PRF50_STATIC_REMOVE survivor_primitives=512000 removed_ms={:.3} limit_ms=33",
+            removed.as_secs_f64() * 1000.0
+        );
+        assert!(
+            removed < LIMIT,
+            "removal reindexed an unrelated survivor: {removed:?}"
+        );
+        assert_eq!(world.static_count(), 1);
+        assert!(world
+            .raycast(
+                Vec3::new(-9_990.0, 1.0, 64.0),
+                Vec3::new(-9_990.0, 1.0, -64.0)
+            )
+            .is_none());
+        assert_eq!(
+            world
+                .raycast(Vec3::new(1.0, 1.0, 64.0), Vec3::new(1.0, 1.0, -64.0))
+                .unwrap()
+                .body,
+            survivor
+        );
+    }
+
+    #[test]
     fn streamed_grid_edits_preserve_rays_materials_and_insertion_order() {
         fn floor(x: f32, material: u32) -> Collider {
             Collider {
@@ -1206,11 +1489,15 @@ mod tests {
             let before = queries.map(|x| ray(world, x));
             let mut incremental = world.grid.clone();
             for entries in incremental.values_mut() {
-                entries.sort_unstable();
+                for primitives in entries.values_mut() {
+                    primitives.sort_unstable();
+                }
             }
             world.rebuild();
             for entries in world.grid.values_mut() {
-                entries.sort_unstable();
+                for primitives in entries.values_mut() {
+                    primitives.sort_unstable();
+                }
             }
             assert_eq!(incremental, world.grid);
             assert_eq!(before, queries.map(|x| ray(world, x)));

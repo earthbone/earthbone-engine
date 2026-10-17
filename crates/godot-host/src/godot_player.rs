@@ -148,6 +148,7 @@ pub struct PlayerNode {
     detection_stage_usec: [i64; 4],
     automatic_detection: detection::AutomaticDetection,
     automatic_physics_step: bool,
+    runtime_clock: crate::runtime_clock::RuntimeClock,
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
@@ -317,6 +318,7 @@ impl INode3D for PlayerNode {
             detection_stage_usec: [0; 4],
             automatic_detection: detection::AutomaticDetection::default(),
             automatic_physics_step: false,
+            runtime_clock: crate::runtime_clock::RuntimeClock::default(),
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
             driver: Driver::new(),
@@ -627,6 +629,14 @@ impl INode3D for PlayerNode {
 
     fn physics_process(&mut self, delta: f64) {
         self.physics_ticks_since_process = self.physics_ticks_since_process.saturating_add(1);
+        let active = self.auto_step
+            && !self.location_preparing
+            && !self.menu.is_open()
+            && !self.console.open
+            && !self.main_menu.is_active();
+        let delta = self
+            .runtime_clock
+            .sample(std::time::Instant::now(), active, delta);
         if self.auto_step {
             let frame = Engine::singleton().get_process_frames();
             if !self.location_preparing {
@@ -654,6 +664,15 @@ impl INode3D for PlayerNode {
         self.poll_interface_cache();
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         if !self.location_preparing {
+            if self.auto_step {
+                let elapsed =
+                    self.host_frame.finish().system_ns[soe_trace::System::Streaming as usize];
+                if let Some(streamer) = &mut self.game_streamer {
+                    streamer
+                        .bind_mut()
+                        .charge_streaming_budget(Duration::from_nanos(elapsed));
+                }
+            }
             if self.auto_step && self.game.is_some() && !self.advance_exterior() {
                 self.auto_step = false;
             }
@@ -717,8 +736,10 @@ impl INode3D for PlayerNode {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
             self.rig.look(dx, dy);
-            let fraction = Engine::singleton().get_physics_interpolation_fraction() as f32;
-            let (feet, height) = self.motion.sample(fraction);
+            let delay = Duration::from_secs_f64(
+                1.0 / f64::from(Engine::singleton().get_physics_ticks_per_second()),
+            );
+            let (feet, height) = self.motion.sample_at(std::time::Instant::now(), delay);
             self.update_camera_shake(delta as f32);
             self.place_camera(feet, height);
         }
@@ -1567,7 +1588,7 @@ impl PlayerNode {
         }
         self.advance_door_fade(delta);
 
-        self.motion.step(self.feet(), self.capsule_height());
+        self.record_camera_motion();
         if !self.auto_step {
             self.update_camera();
         }
@@ -3020,6 +3041,15 @@ impl PlayerNode {
         self.place_camera(self.feet(), self.capsule_height());
     }
 
+    fn record_camera_motion(&mut self) {
+        let now = self
+            .automatic_physics_step
+            .then(|| self.runtime_clock.tick_time())
+            .flatten()
+            .unwrap_or_else(std::time::Instant::now);
+        self.motion.step_at(self.feet(), self.capsule_height(), now);
+    }
+
     fn update_camera_shake(&mut self, delta: f32) {
         let offsets = if let Some((elapsed, duration, strength)) = self.camera_shake {
             let next = elapsed + delta.max(0.0);
@@ -3047,6 +3077,7 @@ impl PlayerNode {
     }
 
     fn place_camera(&mut self, feet: Vec3, height: f32) {
+        let _span = soe_trace::Span::new("host.camera_place", "host");
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _phase = crate::scene_timing::Scope::new(soe_trace::System::Input);
         if self.camera.is_none() {

@@ -10,6 +10,7 @@ use soe_papyrus::{Opcode::*, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct LocationInstall {
+    presentation_started: bool,
     destination: GlobalFormId,
     location: Option<crate::data_source::LoadedLocation>,
     query: crate::godot_physics::CellBodies,
@@ -688,9 +689,8 @@ impl PlayerNode {
         installed
     }
 
-    /// One inline game tick per rendered frame bounds recovery after a hitch.
-    /// Godot drops overdue ticks instead of repeating all gameplay work. Below
-    /// 60 FPS this slows simulation, as documented by class_engine.rst.
+    /// One gameplay callback per rendered frame avoids repeated VM and AI work.
+    /// RuntimeClock supplies wall time and the capsule substeps collision.
     const CATCHUP_STEP_CAP: i32 = 1;
 
     fn cap_catchup_steps(&mut self) {
@@ -1252,6 +1252,7 @@ impl PlayerNode {
     }
     fn prefetch_nearby_interior(&mut self, delta: f64) {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
+        let _span = soe_trace::Span::new("host.prefetch_select", "host");
         use crate::interior_prefetch::{APPROACH_RADIUS, SELECTION_INTERVAL};
         self.interior_prefetch.poll();
         self.interior_prefetch_elapsed += delta.max(0.0);
@@ -1432,6 +1433,7 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_game_pose(&mut self) -> bool {
+        let _span = soe_trace::Span::new("host.sync_game_pose", "host");
         let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Gameplay);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         self.location_preparing = false;
@@ -1496,6 +1498,7 @@ impl PlayerNode {
                             return false;
                         };
                         LocationInstall {
+                            presentation_started: false,
                             destination: cell,
                             location: Some(location),
                             query: crate::godot_physics::CellBodies::default(),
@@ -1512,22 +1515,64 @@ impl PlayerNode {
                     return false;
                 }
                 pending.frame = Some(frame);
+                let frame_started = std::time::Instant::now();
                 let Some(location) = pending.location.as_ref() else {
                     return false;
                 };
+                let Some(streamer) = self.game_streamer.as_mut() else {
+                    return false;
+                };
+                {
+                    let mut node = streamer.bind_mut();
+                    if !pending.presentation_started {
+                        if !node.begin_location_replace() {
+                            return false;
+                        }
+                        pending.presentation_started = true;
+                    }
+                    if let Some((_, world_editor_id)) =
+                        worldspace.and_then(|world| source.lod_worldspace(world))
+                    {
+                        let focus = crate::streaming::CellCoord::containing(
+                            crate::units::SkyrimPos::new(position[0], position[1], position[2]),
+                        );
+                        if !node.walking_lod_matches(&world_editor_id) {
+                            if !node.begin_walking_lod(
+                                &world_editor_id,
+                                focus,
+                                self.exterior_lod_full_res_radius
+                                    .max(super::exterior::config().unload_radius),
+                                self.exterior_lod_radius,
+                                self.exterior_lod_byte_budget,
+                            ) {
+                                return false;
+                            }
+                        } else if node.update_tree_lod(focus.x, focus.y) < 0 {
+                            return false;
+                        }
+                    }
+                }
+                if frame_started.elapsed() >= std::time::Duration::from_millis(8) {
+                    self.location_install = Some(pending);
+                    self.location_preparing = true;
+                    return false;
+                }
                 if pending.placed < location.collision.placed.len() {
                     let Some(space) = self.base().get_world_3d().map(|world| world.get_space())
                     else {
                         return false;
                     };
-                    let end = (pending.placed + 32).min(location.collision.placed.len());
-                    pending
-                        .query
-                        .append(crate::godot_physics::add_placed_query_statics(
-                            space,
-                            &location.collision.placed[pending.placed..end],
-                        ));
-                    pending.placed = end;
+                    while pending.placed < location.collision.placed.len()
+                        && frame_started.elapsed() < std::time::Duration::from_millis(8)
+                    {
+                        pending
+                            .query
+                            .append(crate::godot_physics::add_placed_query_statics(
+                                space,
+                                std::slice::from_ref(&location.collision.placed[pending.placed]),
+                            ));
+                        pending.placed += 1;
+                    }
                     self.location_install = Some(pending);
                     self.location_preparing = true;
                     return false;
@@ -1538,12 +1583,6 @@ impl PlayerNode {
                     return false;
                 };
                 let mut node = streamer.bind_mut();
-                if pending.cells == 0
-                    && !node.location_upload_pending()
-                    && !node.begin_location_replace()
-                {
-                    return false;
-                }
                 let Some((id, loaded)) = location.cells.get(pending.cells) else {
                     return false;
                 };
@@ -1702,7 +1741,9 @@ impl PlayerNode {
                     world: worldspace,
                     planner: planner.clone(),
                     cells: location.collision_cells,
-                    lod_started: false,
+                    lod_started: source
+                        .lod_worldspace(worldspace)
+                        .is_some_and(|(_, name)| streamer.bind().walking_lod_matches(&name)),
                     pending: super::exterior::Pending::default(),
                 });
             }

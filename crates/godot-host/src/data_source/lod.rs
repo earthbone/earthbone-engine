@@ -29,6 +29,8 @@ use crate::units::CELL_UNITS;
 #[derive(Clone)]
 pub struct LoadedLodBlock {
     pub surfaces: Vec<LoadedSurface>,
+    /// Source cells for tree surfaces, in surface order. Empty for other LOD kinds.
+    pub tree_cells: Vec<CellCoord>,
     pub approx_bytes: u64,
     /// Number of winning references whose authored LOD mesh contributed.
     pub authored_references: usize,
@@ -114,13 +116,24 @@ impl DataSource {
         let types = crate::tree_lod::read_types(&list)?;
         let atlas =
             format!("textures/terrain/{world_editor_id}/trees/{world_editor_id}treelod.dds");
-        let mesh = crate::tree_lod::build_billboards(&types, &references, &atlas)?;
-        let arrays = build_surface(&mesh, MeshOptions::default())?;
-        let approx_bytes = (arrays.positions.len() * 32 + arrays.indices.len() * 4) as u64;
-        let triangles = arrays.triangle_count();
-        let textures = self.textures.resolve(&self.vfs, &arrays.material);
-        Ok(Some(LoadedLodBlock {
-            surfaces: vec![LoadedSurface {
+        let count = references.len();
+        let mut surfaces = Vec::new();
+        let mut tree_cells = Vec::new();
+        let mut approx_bytes = 0;
+        let mut triangles = 0;
+        for (cell, references) in crate::tree_lod::cell_groups(references) {
+            let _span = soe_trace::Span::with_payload(
+                "host.tree_billboard_build",
+                "host",
+                references.len() as u64,
+            );
+            let mesh = crate::tree_lod::build_billboards(&types, &references, &atlas)?;
+            let arrays = build_surface(&mesh, MeshOptions::default())?;
+            approx_bytes += arrays.mesh_byte_count() as u64;
+            triangles += arrays.triangle_count();
+            let textures = self.textures.resolve(&self.vfs, &arrays.material);
+            tree_cells.push(cell);
+            surfaces.push(LoadedSurface {
                 animation: None,
                 reference: world,
                 arrays,
@@ -128,9 +141,13 @@ impl DataSource {
                 placement: soe_physics::Iso::IDENTITY,
                 instance_transform: None,
                 mesh_identity: None,
-            }],
+            });
+        }
+        Ok(Some(LoadedLodBlock {
+            surfaces,
+            tree_cells,
             approx_bytes,
-            authored_references: references.len(),
+            authored_references: count,
             triangles,
             source_triangles: triangles,
             source_approx_bytes: approx_bytes,
@@ -385,6 +402,7 @@ impl DataSource {
         let meshes = file.meshes()?;
         if meshes.is_empty() {
             return Ok(LoadedLodBlock {
+                tree_cells: Vec::new(),
                 surfaces: Vec::new(),
                 approx_bytes: 0,
                 authored_references: 0,
@@ -421,6 +439,7 @@ impl DataSource {
             });
         }
         Ok(LoadedLodBlock {
+            tree_cells: Vec::new(),
             surfaces,
             approx_bytes,
             authored_references: 0,
@@ -475,6 +494,7 @@ impl DataSource {
             });
         }
         Ok(Some(LoadedLodBlock {
+            tree_cells: Vec::new(),
             surfaces,
             approx_bytes,
             authored_references: 0,
@@ -666,6 +686,7 @@ impl DataSource {
             return Ok(None);
         }
         Ok(Some(LoadedLodBlock {
+            tree_cells: Vec::new(),
             surfaces,
             approx_bytes,
             authored_references,

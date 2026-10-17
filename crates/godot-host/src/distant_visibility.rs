@@ -8,6 +8,8 @@
 
 use soe_esm::GlobalFormId;
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::sync::Arc;
+use std::thread::JoinHandle;
 
 /// Selection works in Skyrim XYZ units, independent of camera heading.
 #[derive(Debug, Clone)]
@@ -119,6 +121,12 @@ pub struct Selector {
 }
 
 impl Selector {
+    /// A changed terrain snapshot cannot prove previously drawn references hidden.
+    pub fn preserve_uncertain(&mut self, selected: &[GlobalFormId]) {
+        for id in selected {
+            self.resident.insert(*id, Residency::default());
+        }
+    }
     /// Cheap movement, terrain, pending admission and deferred release test.
     pub fn needs_evaluation(&self, eye: [f32; 3], revision: u64) -> bool {
         self.revision != revision
@@ -193,6 +201,82 @@ pub struct TerrainHeights {
     triangles: Vec<[[f32; 3]; 3]>,
     near: HashMap<crate::streaming::CellCoord, Vec<f32>>,
     near_hidden: HashMap<crate::streaming::CellCoord, u32>,
+}
+
+/// Uploaded height indices retained independently of a later scene replacement.
+pub struct TerrainSnapshot {
+    pub near: Arc<TerrainHeights>,
+    pub blocks: HashMap<crate::terrain_lod::LodBlockCoord, Vec<Arc<TerrainHeights>>>,
+    pub anchor: crate::streaming::CellCoord,
+}
+
+impl TerrainSnapshot {
+    pub fn sample(&self, x: f32, y: f32) -> Option<f32> {
+        use crate::streaming::CellCoord;
+        use crate::terrain_lod::{LodBlockCoord, LodLevel};
+        let cell = CellCoord::new((x / 4096.0).floor() as i32, (y / 4096.0).floor() as i32);
+        let near = self.near.sample(x, y);
+        if near.is_some() || self.near.near.contains_key(&cell) {
+            return near;
+        }
+        for level in [LodLevel::L4, LodLevel::L8, LodLevel::L16, LodLevel::L32] {
+            let block = LodBlockCoord::containing_from(cell, level, self.anchor);
+            if let Some(indices) = self.blocks.get(&block) {
+                for heights in indices {
+                    if let Some(height) = heights.sample(x, y) {
+                        return Some(height);
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+/// The same selector state and admitted IDs returned by a completed worker.
+pub struct Selection {
+    pub selector: Selector,
+    pub selected: Vec<GlobalFormId>,
+    pub revision: u64,
+}
+
+/// Evaluate the existing selector on one background thread.
+///
+/// # Errors
+/// Returns the operating system error if the thread cannot be started.
+pub fn spawn_selection(
+    mut selector: Selector,
+    candidates: Vec<Candidate>,
+    eye: [f32; 3],
+    revision: u64,
+    height: impl Fn(f32, f32) -> Option<f32> + Send + 'static,
+) -> std::io::Result<JoinHandle<Selection>> {
+    std::thread::Builder::new()
+        .name("distant-select".into())
+        .spawn(move || {
+            let _span = soe_trace::Span::new("host.distant_select_worker", "host");
+            let selected = selector.update(&candidates, eye, revision, height);
+            Selection {
+                selector,
+                selected,
+                revision,
+            }
+        })
+}
+
+/// Poll without waiting for visibility work that has not finished yet.
+pub fn poll_selection(
+    worker: &mut Option<JoinHandle<Selection>>,
+) -> Option<Result<Selection, String>> {
+    if !worker.as_ref().is_some_and(JoinHandle::is_finished) {
+        return None;
+    }
+    let worker = worker.take()?;
+    Some(
+        worker
+            .join()
+            .map_err(|_| "distant visibility worker panicked".into()),
+    )
 }
 
 impl TerrainHeights {
@@ -318,6 +402,53 @@ impl TerrainHeights {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn visibility_poll_does_not_wait_for_height_queries() {
+        use super::*;
+        use std::time::{Duration, Instant};
+
+        const LIMIT: Duration = Duration::from_millis(33);
+        let (release, gate) = std::sync::mpsc::channel();
+        let first = std::cell::Cell::new(true);
+        let candidate = Candidate {
+            id: GlobalFormId { file: 0, object: 1 },
+            min: [1024.0, 0.0, 0.0],
+            max: [1536.0, 512.0, 512.0],
+        };
+        let mut worker = Some(
+            spawn_selection(
+                Selector::default(),
+                vec![candidate],
+                [0.0, 0.0, 100.0],
+                1,
+                move |_, _| {
+                    if first.replace(false) {
+                        gate.recv().unwrap();
+                    }
+                    None
+                },
+            )
+            .unwrap(),
+        );
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(80));
+            release.send(()).unwrap();
+        });
+        let start = Instant::now();
+        let pending = poll_selection(&mut worker);
+        let elapsed = start.elapsed();
+        releaser.join().unwrap();
+        let completed = worker.take().unwrap().join().unwrap();
+        assert!(pending.is_none());
+        assert!(
+            elapsed < LIMIT,
+            "visibility polling blocked for {elapsed:?}"
+        );
+        assert_eq!(
+            completed.selected,
+            vec![GlobalFormId { file: 0, object: 1 }]
+        );
+    }
+    #[test]
     fn hidden_land_heights_do_not_occlude_or_fall_back_to_distant_terrain() {
         use super::TerrainHeights;
         use crate::streaming::CellCoord;
@@ -390,6 +521,75 @@ mod tests {
     #[test]
     fn missing_terrain_is_visible() {
         assert!(candidate(200).visible([0.0, 0.0, 100.0], &|_, _| None));
+    }
+
+    #[test]
+    fn background_selection_matches_the_existing_ridge_and_admission_rules() {
+        let mut direct = Selector::default();
+        let mut threaded = Selector::default();
+        for (revision, top, eye, count) in [
+            (1, 200, [0.0, 0.0, 100.0], 0),
+            (2, 2000, [0.0, 0.0, 100.0], 8),
+            (2, 2000, [0.0, 0.0, 100.0], 12),
+            (3, 200, [600.0, 0.0, 100.0], 12),
+        ] {
+            let candidates: Vec<_> = (0..12)
+                .map(|index| {
+                    let mut row = candidate(top);
+                    row.id.object += index;
+                    row
+                })
+                .collect();
+            let expected = direct.update(&candidates, eye, revision, ridge);
+            let result = spawn_selection(threaded, candidates, eye, revision, ridge)
+                .unwrap()
+                .join()
+                .unwrap();
+            assert_eq!(result.selected, expected);
+            assert_eq!(result.selected.len(), count);
+            assert_eq!(result.revision, revision);
+            threaded = result.selector;
+        }
+    }
+
+    #[test]
+    fn height_snapshot_retains_indices_and_keeps_hidden_near_terrain_unblocked() {
+        use crate::streaming::CellCoord;
+        use crate::terrain_lod::{LodBlockCoord, LodLevel};
+        let mut far = TerrainHeights::default();
+        far.insert(
+            &[
+                [-60.0, 10.0, 60.0],
+                [0.0, 10.0, 60.0],
+                [0.0, 10.0, 0.0],
+                [-60.0, 10.0, 0.0],
+            ],
+            &[0, 1, 2, 0, 2, 3],
+        );
+        let far = Arc::new(far);
+        let cell = CellCoord::new(-1, -1);
+        let mut near = TerrainHeights::default();
+        near.set_near(&HashMap::from([(cell, vec![2.0; 33 * 33])]));
+        near.set_near_hidden(HashMap::from([(cell, 15)]));
+        let snapshot = TerrainSnapshot {
+            near: Arc::new(near),
+            blocks: HashMap::from([(
+                LodBlockCoord {
+                    level: LodLevel::L4,
+                    x: -4,
+                    y: -4,
+                },
+                vec![Arc::clone(&far)],
+            )]),
+            anchor: CellCoord::new(-96, -64),
+        };
+        drop(far);
+        let height = snapshot.blocks.values().next().unwrap()[0]
+            .sample(-3000.0, -3000.0)
+            .unwrap();
+        assert!((height - 700.0).abs() < 0.01);
+        assert_eq!(snapshot.sample(-3000.0, -3000.0), None);
+        assert_eq!(snapshot.sample(100_000.0, 100_000.0), None);
     }
     #[test]
     fn hidden_reference_survives_until_three_observations_and_thirty_frames() {

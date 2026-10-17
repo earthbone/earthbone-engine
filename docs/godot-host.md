@@ -1,5 +1,122 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Round 4 runtime timing, 2026-10-17
+
+PRF-48 corrects the automatic World and player-controller clock. One capped
+Godot physics callback now supplies monotonic wall time, and the existing
+capsule controller substeps long movement intervals. Manual `advance(delta)`
+retains explicit time. Menus, console and location preparation do not build
+automatic catch-up debt. The free-walk inn and door regression passes its
+5 percent clock tolerance, with ratios 1.01291 and 0.99948. This supersedes
+the slow-simulation behavior described in the earlier PRF-45 checkpoint.
+
+PRF-46 passes both grounded traversals at 27.641 and 29.606 ms worst streaming,
+with unchanged 33 ms limits and radius 96 distant coverage. The door route
+passes at 26.374 ms during preparation and 26.909 ms while walking, with clock
+ratios 1.00184 and 1.00193. CPU preparation is polled without blocking, and
+uploads, collision publication, retirement and lifecycle entry use separate
+bounded stages. Tree pipelines remain warm under both mesh instance paths.
+The longer PRF-40 fixture now queries collision support before walking and
+requires a grounded finish. Its former below-floor start could pass travel
+checks while falling. Both corrected routes finish grounded. Total software
+renderer frame times still exceed 33 ms. See [performance.md](performance.md)
+for source paths, measurements and the real GPU validation limit.
+
+The RND-47 free-walk survey found 715 missing trees among 850 archived trees
+outside near cells within eight cells. Whole-block exclusion discarded every
+tree in a 4 by 4 block when one cell had near detail. The correction
+groups billboard surfaces by physical source cell and masks only resident near
+cells. xEdit `Core/wbLOD.pas` supplies the LST atlas rectangles and BTT placed
+references. UESP TREE describes the near model. Mudcrab streaming/lod.rs
+supplies the ready-coverage handoff rule. The archive bytes and reference
+identities keep their existing meaning. Publication uses server RIDs per cell,
+with no node per tree. The installed survey reaches zero missing trees out of
+850 and finds no drawn billboard cell with near render batches. Early door
+preparation lets tree workers fill the medium band before walking resumes.
+The source-block registration path also masks individual cells instead of
+discarding a whole archived block.
+
+The repeated survey still finds zero missing out of 850 archived trees and
+no near-cell duplicates. It retains 190 archived blocks as 2,131 source-cell
+instance RIDs, with 103,792 triangles and 7,888,192 tracked geometry bytes.
+These are server resources, not scene nodes. The trace builds 26,352 tree
+billboards in 84.848 ms on workers, 3.22 microseconds per tree in aggregate.
+The largest source-cell build is 12.813 ms. Shared atlas upload is 3.540 ms.
+The combined check still fails its separate streaming limit during door
+preparation at 44.174 ms. Walking streaming is 29.069 ms.
+
+PRF-50 corrects a further static-grid compaction stall. Removing a small body
+visited every primitive of a large surviving body. Stable grid body IDs remove
+that dependency. PRF-51 evaluates distant visibility against immutable height
+indices on a worker, retaining displayed references while a result is pending.
+An obsolete snapshot cannot remove uncertain coverage. Installed confirmation
+peaks at 0.051 ms for main-thread selection and 0.595 ms for controller removal.
+Query hull preparation now joins the existing cell worker, preserving compound
+shapes and leaving server calls on the main thread.
+
+PRF-49 prepares the load order's winning TREE material and vertex layouts on a
+worker. The loading screen draws small representatives using production NIF
+and BTT builders and keeps their materials and shaders alive across cell
+retirement. Private placeholder textures avoid filling the real texture cache
+with warmup pixels. No scene node per tree is added. The first pine and aspen
+probe previously added three surface pipelines each. The installed probe now reports zero mesh, surface and draw compilations
+for both models and exits zero. Retained representatives cost 25,668 mesh
+bytes across 155 meshes for 261 winning TREE models.
+
+## Render-frame camera clock, PRF-53, 2026-10-17
+
+The walkthrough reproduction uses ten physics callbacks per second and a
+120 FPS render limit. It samples after node processing, since SceneTree's
+process_frame signal precedes PlayerNode's camera placement. The fixed
+acceptance permits speed errors above 25 percent during less than 25 percent
+of sampled wall time, fewer than ten percent stationary samples, and requires
+movement and at least sixty render samples. The corrected baseline fails with
+38.5 percent speed-error time over 161 samples at a mean 5.303 metres per
+second. Sampling before node processing observes transient physics placement
+and does not establish rendered jitter.
+
+Godot's interpolation fraction follows its fixed-step clock. PRF-48 advances
+the controller on monotonic wall time instead, so stalls can leave that
+fraction behind and then catch it up on short frames. CameraMotion now retains
+timestamped controller poses and samples one physics interval behind the same
+wall clock. Older intervals remain available through closely spaced callbacks.
+It clamps to completed poses and retains the existing entry and teleport
+resets. Mouse heading stays on the render frame. Godot's local advanced
+physics interpolation guide supplies the manual position and live mouse-look
+contract. A focused case verifies an older interpolation interval survives a
+short callback. Installed confirmation passes in both scenes. The inn records
+9.01 percent speed-error time over 162 samples, down from the 38.5 percent
+baseline. The exterior records 23.35 percent over 64 samples. Stationary sample
+fractions are 4.94 and 3.13 percent, below the fixed ten percent limit.
+The fixture samples for at least 1.5 seconds and gathers at least sixty
+render samples. Its exterior route reaches the flat plaza before testing
+constant speed, since stair descent changes physical horizontal speed.
+
+## Animated first person attachment, HST-41, 2026-10-17
+
+The walkthrough first person fixture walks forward, left, backward and right
+while holding the camera heading. It observes the current animated camera bone
+after node processing, with a fixed one-degree heading limit. The reference
+pose attachment check alone cannot detect rotation inside the skeleton.
+The new baseline moves in all four directions but reaches 179.858 degrees of
+heading error while MT_WalkForward and MT_RunForward clips are active.
+
+First person submission now expresses the complete posed skeleton relative to
+its current animated camera bone. PlayerNode still places the reference camera
+attachment, and the race-derived eye height stays fixed. The current bone
+inverse removes locomotion root turning while preserving hand movement relative
+to that bone. The selected camera bone index is cached with the rig, including
+the existing custom-name fallback. The renderer observation exposes reference
+and animated offsets separately. OpenMW camera.cpp tracks first person position
+separately from animation, and CommonLibSSE-NG FirstPersonState.h declares its
+camera object independently of player geometry. Existing skeleton and transform
+math supplies this change. No node, dependency or saved field is added.
+Installed confirmation passes all four inn directions with 0.0000071 degrees
+of worst heading error and an exterior forward segment with 0.0000025 degrees.
+The exterior segment moves 331 units and finishes grounded. The earlier
+camera-height, hidden-body and camera-attachment fixture also passes. The
+separate exterior obstruction remains outside this row.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and
