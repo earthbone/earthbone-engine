@@ -128,6 +128,7 @@ fn graph_with_masks_and_pointer_binding(
             b.set_i32(sm, 72, -1);
             b.set_i32(sm, 104, 0);
             b.set_i32(sm, 108, -1);
+            b.set_i32(sm, 124, -1);
             b.set_i8(sm, 133, 32);
 
             let effect = b.object("hkbBlendingTransitionEffect", 144);

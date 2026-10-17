@@ -1,5 +1,33 @@
 # soe-hkx: Skyrim SE animation files and the behavior runtime design
 
+## State synchronization correction, ANM-61, 2026-10-17
+
+The interpreter read `syncVariableIndex` for `START_STATE_MODE_SYNC` but never
+published state changes to it. In the installed human behavior, SneakStart
+entered `sneakmtidle.hkx` while `iIsInSneak` stayed zero. Starting movement
+then initialized `MT_LocomotionType_Behavior` in its standing state and played
+`mt_walkforward.hkx`. State entry now writes its state ID to the authored
+sync variable before activating child generators.
+
+The local serde-hkx `hkbStateMachine` table and CommonLibSSE-NG
+`include/RE/H/hkbStateMachine.h` declare the sync index and current state.
+The local Nemesis vanilla `Nemesis_mt_behavior.xml` names `iIsInSneak` as
+the shared sync variable of idle and locomotion machines. Publishing the state
+on entry is inferred from those shared machines and checked with the installed
+graph. The field layout and parser are unchanged.
+
+`r4_state_entry_publishes_sync_variable` failed with state 1 and sync value 0
+before this correction. It checks enter and exit through authored events.
+The host's extracted graph check now plays `sneakmtidle.hkx`,
+`sneakwalk_forward.hkx` and `sneakrun_forward.hkx` for player third person,
+first person and NPC inputs, then returns to ordinary idle on SneakStop.
+No asset is stored in the repository.
+
+The shared synthetic locomotion graph now sets its unused sync index to -1.
+It previously left zero there, pointing at Speed. Enabling state publication
+exposed that fixture error in the game animation timing checks. Their
+playhead and furniture-event assertions are unchanged.
+
 The 2026-10-13 character correction generates a shared graph node once per
 interpreter update and reuses its output across parent branches. Previously,
 Hulda's vanilla `MT_Idle.HKX` playhead advanced three times per update, playing

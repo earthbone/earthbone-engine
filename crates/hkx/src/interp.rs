@@ -3334,6 +3334,9 @@ impl<'a> Interpreter<'a> {
         };
         self.nodes[id.0].previous_state = from;
         self.nodes[id.0].current_state = Some(state);
+        if let Ok(index) = usize::try_from(sm.sync_variable_index) {
+            self.variables.set_word(index, state);
+        }
         self.nodes[id.0].time_in_state = 0.0;
         self.nodes[id.0].delayed = None;
         self.nodes[id.0].intervals = info
@@ -4720,6 +4723,71 @@ fn update_interval_event(interval: &TimeInterval, open: &mut bool, event: i32) {
     }
     if interval.exit_event_id == event {
         *open = false;
+    }
+}
+
+#[cfg(test)]
+mod state_sync_tests {
+    use super::*;
+    use crate::writer::PackfileBuilder;
+    use crate::Packfile;
+
+    #[test]
+    fn r4_state_entry_publishes_sync_variable() {
+        let mut builder = PackfileBuilder::new();
+        let container = builder.object("hkRootLevelContainer", 16);
+        let graph = builder.object("hkbBehaviorGraph", 304);
+        let variants = builder.array_structs(container, 0, 24, 1);
+        builder.string(variants, 0, "hkbBehaviorGraph");
+        builder.string(variants, 8, "hkbBehaviorGraph");
+        builder.ptr(variants, 16, graph);
+        let data = builder.object("hkbBehaviorGraphData", 128);
+        let strings = builder.object("hkbBehaviorGraphStringData", 80);
+        let values = builder.object("hkbVariableValueSet", 64);
+        builder.ptr(graph, 136, data);
+        builder.ptr(data, 120, strings);
+        builder.ptr(data, 112, values);
+        builder.array_strings(strings, 16, &["SneakStart", "SneakStop"]);
+        builder.array_strings(strings, 48, &["iIsInSneak"]);
+        let infos = builder.array_structs(data, 32, 6, 1);
+        builder.set_i8(infos, 4, 3);
+        builder.array_i32(values, 16, &[0]);
+        let machine = builder.object("hkbStateMachine", 264);
+        builder.ptr(graph, 128, machine);
+        builder.set_i32(machine, 72, -1);
+        builder.set_i32(machine, 108, -1);
+        builder.set_i32(machine, 112, -1);
+        builder.set_i32(machine, 116, -1);
+        builder.set_i32(machine, 120, -1);
+        builder.set_i32(machine, 124, 0);
+        let mut states = Vec::new();
+        for state in [0, 1] {
+            let info = builder.object("hkbStateMachineStateInfo", 120);
+            builder.set_i32(info, 104, state);
+            builder.set_bool(info, 112, true);
+            let transitions = builder.object("hkbStateMachineTransitionInfoArray", 32);
+            builder.ptr(info, 80, transitions);
+            let transition = builder.array_structs(transitions, 16, 72, 1);
+            builder.set_i32(transition, 48, state);
+            builder.set_i32(transition, 52, 1 - state);
+            builder.set_i32(transition, 56, -1);
+            builder.set_i32(transition, 60, -1);
+            states.push(info);
+        }
+        builder.array_ptrs(machine, 144, &states);
+        let bytes = builder.finish();
+        let graph = BehaviorGraph::from_packfile(&Packfile::parse(&bytes).unwrap()).unwrap();
+        let library = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &library, Vec::new());
+        vm.update(0.0);
+        assert_eq!(vm.variables.word(0), Some(0));
+        assert!(vm.send_event_named("SneakStart"));
+        vm.update(0.0);
+        assert_eq!(vm.current_state(graph.root.unwrap()), Some(1));
+        assert_eq!(vm.variables.word(0), Some(1));
+        assert!(vm.send_event_named("SneakStop"));
+        vm.update(0.0);
+        assert_eq!(vm.variables.word(0), Some(0));
     }
 }
 
