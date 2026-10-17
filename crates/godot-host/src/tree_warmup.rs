@@ -152,6 +152,7 @@ fn placeholder(texture: Option<&Arc<TextureData>>) -> Option<Arc<TextureData>> {
 
 fn placeholders(textures: &SurfaceTextures) -> SurfaceTextures {
     SurfaceTextures {
+        terrain: None,
         diffuse: placeholder(textures.diffuse.as_ref()),
         normal: placeholder(textures.normal.as_ref()),
         glow: placeholder(textures.glow.as_ref()),

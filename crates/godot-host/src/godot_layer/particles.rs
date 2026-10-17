@@ -513,6 +513,7 @@ mod tests {
             rotation: [0.0; 4],
             random_rotation_sign: false,
             drag: [0.0; 3],
+            lod: None,
             unsupported: Vec::new(),
         }
     }

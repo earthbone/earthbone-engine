@@ -102,7 +102,7 @@ struct FacialBinding {
 }
 
 /// Visibility margin in metres around first person arm instances.
-const FIRST_PERSON_CULL_MARGIN: f64 = 10_000.0;
+const FIRST_PERSON_CULL_MARGIN: f32 = 10_000.0;
 
 #[derive(Debug, PartialEq, Eq)]
 enum HostMagicReport<T> {

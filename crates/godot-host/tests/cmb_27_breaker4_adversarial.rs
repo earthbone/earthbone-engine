@@ -80,7 +80,7 @@ fn cmb_27_authored_graph_receives_world_magnitude_and_returns_without_health_cha
         .expect("active shared World deadline starts the graph reaction");
     assert_eq!(event, StaggerGraphEvent::Start);
     assert_eq!(magnitude, 1.75);
-    assert!(send_stagger_start(&mut vm, magnitude));
+    assert!(send_stagger_start(&mut vm, magnitude, None));
     assert_eq!(vm.variables.real(magnitude_index), Some(1.75));
     let reaction_played = (0..90).any(|_| {
         vm.update(1.0 / 60.0);
