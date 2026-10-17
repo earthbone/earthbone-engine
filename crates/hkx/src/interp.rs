@@ -1333,6 +1333,7 @@ pub struct Interpreter<'a> {
     foot_ik_ground_targets: Vec<FootIkGroundTarget>,
     frame: u64,
     condition_frames: Vec<u64>,
+    update_timings: UpdateTimings,
 }
 
 /// Interpreter state retained between ticks without borrowing graph assets.
@@ -1408,6 +1409,7 @@ impl<'a> Interpreter<'a> {
             foot_ik_ground_targets: state.foot_ik_ground_targets,
             frame: state.frame,
             condition_frames: state.condition_frames,
+            update_timings: state.update_timings,
         }
     }
 
@@ -1438,6 +1440,7 @@ impl<'a> Interpreter<'a> {
             foot_ik_ground_targets: self.foot_ik_ground_targets,
             frame: self.frame,
             condition_frames: self.condition_frames,
+            update_timings: self.update_timings,
         }
     }
 

@@ -366,10 +366,7 @@ impl PlayerNode {
             let sets = game.world_mut().footstep_sets(actor)?;
             let material = match material {
                 Some(hash) => steps.material(hash)?,
-                None => match terrain {
-                    Some(material) => Some(material),
-                    None => steps.default_object(*b"DLMT")?,
-                },
+                None => steps.default_object(*b"DLMT")?,
             };
             let Some(material) = material else {
                 return Ok(Vec::new());
