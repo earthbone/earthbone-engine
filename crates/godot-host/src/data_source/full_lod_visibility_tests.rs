@@ -685,3 +685,143 @@ fn distant_occlusion_keeps_a_partly_visible_object() {
         "{stderr}"
     );
 }
+
+#[cfg(feature = "godot")]
+#[test]
+fn whiterun_lod_installed_authored_hidden_land_has_no_triangles_or_collision() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open_with_threads(Path::new(&data), 1).unwrap();
+    let (city, _) = source.resolve_world("WhiterunWorld").unwrap();
+    let order = source.shared_order();
+    let coordinates = [
+        (5, -3),
+        (7, -1),
+        (6, -1),
+        (6, -2),
+        (5, -2),
+        (6, -3),
+        (5, -1),
+    ]
+    .map(|(x, y)| crate::streaming::CellCoord::new(x, y));
+    let cells = source.prepare_grid_cells(city, &coordinates).unwrap();
+    assert_eq!(cells.len(), coordinates.len());
+    for cell in cells {
+        let record = order.winner(cell.id).unwrap();
+        let grid = soe_esm::records::cell::Cell::from_record(record, false)
+            .unwrap()
+            .grid
+            .unwrap();
+        let hidden = grid.flags.unwrap_or(0) & 15;
+        assert_ne!(hidden, 0);
+        let terrain = cell
+            .loaded
+            .surfaces
+            .iter()
+            .find(|s| {
+                s.arrays
+                    .material
+                    .diffuse
+                    .as_deref()
+                    .is_some_and(|p| p.starts_with("terrain:"))
+            })
+            .unwrap();
+        let expected = (4 - hidden.count_ones()) as usize * 512;
+        eprintln!(
+            "WHITERUN_HIDDEN grid={},{} mask={hidden:x} triangles={} expected={expected}",
+            grid.x,
+            grid.y,
+            terrain.arrays.triangle_count()
+        );
+        assert_eq!(
+            terrain.arrays.triangle_count(),
+            expected,
+            "authored hidden LAND at {},{}",
+            grid.x,
+            grid.y
+        );
+        let colliders: Vec<_> = cell
+            .colliders
+            .iter()
+            .filter(|c| c.reference == terrain.reference)
+            .collect();
+        assert_eq!(colliders.len(), usize::from(expected > 0));
+        for collider in colliders {
+            let soe_physics::Shape::TriangleMesh { triangles, .. } = &collider.collider.shape
+            else {
+                panic!("LAND collider must be a triangle mesh")
+            };
+            assert_eq!(triangles.len(), expected);
+            assert!(expected > 0, "fully hidden LAND must not create a collider");
+        }
+    }
+}
+
+#[test]
+fn whiterun_lod_installed_object_geometry_extents() {
+    use crate::streaming::CellCoord;
+    use crate::terrain_lod::{bto_path, LodKind, TerrainLodConfig, TerrainLodStreamer};
+    use std::collections::{BTreeMap, HashSet};
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open_with_threads(Path::new(&data), 1).unwrap();
+    let (city, _) = source.resolve_world("WhiterunWorld").unwrap();
+    let (_, name) = source.lod_worldspace(city).unwrap();
+    let full: Vec<_> = source
+        .cell_index()
+        .cells()
+        .filter_map(|(id, _)| {
+            let grid = source.cell_index().grid_of(id)?;
+            (grid.world == city).then_some(CellCoord::new(grid.x, grid.y))
+        })
+        .collect();
+    let full_set: HashSet<_> = full.iter().copied().collect();
+    let focus = CellCoord::new(6, -1);
+    let mut planner = TerrainLodStreamer::with_catalog(
+        TerrainLodConfig {
+            full_res_radius: 2,
+            lod_radius: 96,
+            ..Default::default()
+        },
+        source.lod_settings(&name).unwrap().unwrap().sw_cell,
+        source.scenery_lod_blocks(&name, LodKind::Object),
+    )
+    .unwrap();
+    planner.set_full_cells(&full);
+    let blocks = planner.settle(focus).load;
+    let mut intrusions = BTreeMap::new();
+    let mut triangles = 0;
+    let mut nearby = 0;
+    for block in &blocks {
+        let file = soe_nif::parse(&source.vfs().read(&bto_path(&name, *block)).unwrap()).unwrap();
+        for mesh in file.meshes().unwrap() {
+            for indices in mesh.indices.as_chunks::<3>().0 {
+                triangles += 1;
+                let points = indices.map(|i| {
+                    mesh.transform.apply(soe_nif::Vec3::new(
+                        mesh.positions[i as usize][0],
+                        mesh.positions[i as usize][1],
+                        mesh.positions[i as usize][2],
+                    ))
+                });
+                let x = points.iter().map(|p| p.x).sum::<f32>() / 3.0;
+                let y = points.iter().map(|p| p.y).sum::<f32>() / 3.0;
+                let cell = CellCoord::new((x / 4096.0).floor() as i32, (y / 4096.0).floor() as i32);
+                if full_set.contains(&cell) {
+                    *intrusions
+                        .entry((block.level.cells(), block.x, block.y, cell.x, cell.y))
+                        .or_insert(0usize) += 1;
+                    nearby += usize::from(cell.ring_distance(focus) <= 2);
+                }
+            }
+        }
+    }
+    eprintln!("WHITERUN_OBJECT_EXTENTS cells={} blocks={} triangles={triangles} near_pond_intrusions={nearby} intrusions={intrusions:?}", full.len(), blocks.len());
+    assert!(triangles > 0);
+    assert_eq!(
+        nearby, 0,
+        "baked object LOD reaches the player's loaded near cells"
+    );
+}

@@ -49,6 +49,7 @@ impl CellStreamerNode {
                 "object"
             };
             let mut row = surface_row(instance.rid, &mesh, bounds, kind);
+            row.set("cell", instance.cell.to_string().as_str());
             let references: PackedStringArray = match &instance.table {
                 BatchTable::Triangles(members) => members
                     .iter()

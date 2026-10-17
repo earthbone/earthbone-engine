@@ -4148,7 +4148,10 @@ impl CellStreamerNode {
                 .as_deref()
                 .is_some_and(|path| path.starts_with("terrain:"))
             {
-                server.instance_set_visible(instance.rid, visible);
+                server.instance_set_visible(
+                    instance.rid,
+                    visible && !instance.arrays.indices.is_empty(),
+                );
             }
         }
     }
@@ -4171,6 +4174,17 @@ impl CellStreamerNode {
             }
         }
         meshes
+    }
+
+    /// Uploaded BTR meshes after loaded-cell clipping and edge joining.
+    #[func]
+    pub fn terrain_lod_meshes(&self) -> Array<Gd<ArrayMesh>> {
+        self.terrain_lod
+            .iter()
+            .flat_map(|lod| lod.blocks.values())
+            .flatten()
+            .map(|instance| instance.mesh.clone())
+            .collect()
     }
 
     /// Toggle distant object instances while retaining their residency.
@@ -4355,7 +4369,17 @@ impl CellStreamerNode {
         totals: &mut StreamTotals,
         world: Option<&soe_game::World>,
     ) {
-        self.rendered_cells.insert(cell);
+        let visible = self.visible_cell(cell, loaded, world);
+        self.register_cell(cell, &visible);
+        self.add_cell(cell, &visible, scenario, totals);
+    }
+
+    fn visible_cell(
+        &self,
+        cell: GlobalFormId,
+        loaded: &LoadedCell,
+        world: Option<&soe_game::World>,
+    ) -> LoadedCell {
         let enabled = |id| world.is_none_or(|world| world.reference_enabled(id));
         let mut visible = LoadedCell {
             stats: loaded.stats.clone(),
@@ -4378,11 +4402,18 @@ impl CellStreamerNode {
         };
         if let Some(source) = &self.data_source {
             visible.stats.reference_counts = source.reference_counts(cell, &visible, world);
+        }
+        visible
+    }
+
+    fn register_cell(&mut self, cell: GlobalFormId, loaded: &LoadedCell) {
+        self.rendered_cells.insert(cell);
+        if let Some(source) = &self.data_source {
             if let Some(grid) = source.cell_index().grid_of(cell) {
                 self.exterior_cells
                     .insert(CellCoord::new(grid.x, grid.y), cell);
             }
-            let drawn: std::collections::HashSet<_> = visible
+            let drawn: std::collections::HashSet<_> = loaded
                 .surfaces
                 .iter()
                 .map(|surface| surface.reference)
@@ -4421,7 +4452,31 @@ impl CellStreamerNode {
                 }
             }
         }
-        self.add_cell(cell, &visible, scenario, totals);
+        self.exclude_loaded_object_lod();
+    }
+
+    fn exclude_loaded_object_lod(&mut self) {
+        let cells: Vec<_> = self.exterior_cells.keys().copied().collect();
+        let mut server = RenderingServer::singleton();
+        for lod in [&mut self.object_lod, &mut self.tree_lod]
+            .into_iter()
+            .flatten()
+        {
+            lod.streamer.set_full_cells(&cells);
+            let overlaps: Vec<_> = lod
+                .blocks
+                .keys()
+                .copied()
+                .filter(|block| cells.iter().any(|cell| block.ring_distance(*cell) == 0))
+                .collect();
+            for block in overlaps {
+                lod.streamer.mark_unloaded(block);
+                for instance in lod.blocks.remove(&block).into_iter().flatten() {
+                    crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
+                }
+                lod.last_step.released += 1;
+            }
+        }
     }
 
     fn sync_deferred_references(&mut self, world: &soe_game::World, changed: &[GlobalFormId]) {
@@ -4756,7 +4811,11 @@ impl CellStreamerNode {
         });
         self.reference_index_dirty = true;
         let render_kind = self.console_render_kind(&table, &arrays.material);
-        server.instance_set_visible(rid, self.console_visibility[render_kind]);
+        // CONTEXT: Fully hidden LAND retains its height grid for the LOD handoff.
+        server.instance_set_visible(
+            rid,
+            self.console_visibility[render_kind] && !arrays.indices.is_empty(),
+        );
         self.instances.push(Instance {
             render_kind,
             animation: None,
@@ -5040,12 +5099,7 @@ impl CellStreamerNode {
             lod.source_fingerprint = source_fingerprint;
         }
         if !matches!(kind, LodStream::Terrain) {
-            let full_cells: Vec<_> = self
-                .instances
-                .iter()
-                .filter_map(|instance| source.cell_index().grid_of(instance.cell))
-                .map(|grid| CellCoord::new(grid.x, grid.y))
-                .collect();
+            let full_cells: Vec<_> = self.exterior_cells.keys().copied().collect();
             lod.streamer.set_full_cells(&full_cells);
         }
         let mut built = std::collections::HashMap::new();
@@ -5218,6 +5272,14 @@ impl CellStreamerNode {
             let mut heights = crate::distant_visibility::TerrainHeights::default();
             if let Some(lod) = &self.terrain_lod {
                 heights.set_near(&lod.near_heights);
+                heights.set_near_hidden(
+                    self.exterior_cells
+                        .iter()
+                        .map(|(coord, cell)| {
+                            (*coord, source.terrain_hidden_quadrants(*cell).unwrap_or(15))
+                        })
+                        .collect(),
+                );
             }
             self.distant.heights = heights;
             self.distant.terrain_revision = terrain_revision;
@@ -6430,7 +6492,13 @@ fn mesh_surface_arrays(surface: &SurfaceArrays) -> VarArray {
         arrays.set(ArrayType::BONES.ord() as usize, &bones.to_variant());
         arrays.set(ArrayType::WEIGHTS.ord() as usize, &weights.to_variant());
     }
-    let indices: PackedInt32Array = surface.indices.iter().copied().collect();
+    // CONTEXT: Godot rejects empty indexed buffers. A zero-area face retains
+    // fully hidden LAND's height grid without drawing its unindexed vertices.
+    let indices: PackedInt32Array = if surface.indices.is_empty() {
+        PackedInt32Array::from(&[0, 0, 0])
+    } else {
+        surface.indices.iter().copied().collect()
+    };
     arrays.set(ArrayType::INDEX.ord() as usize, &indices.to_variant());
     arrays
 }

@@ -3280,6 +3280,103 @@ normal view stands 1.7 metres above the installed LAND centre sample and looks
 south across the plains. Captures and logs are written under
 `godot/.godot/rnd-29-*`.
 
+## Whiterun terrain masks and resident LOD, RND-42 and RND-43
+
+WhiterunWorld inherits Tamriel LOD through PNAM Use LOD Data. Its cell
+coordinates stay in that same grid. Seven winning Whiterun CELL records hide
+LAND quadrants through XCLC's low four bits. The pond's cell (6, -1) and the
+cell (5, -2) hide all four. The renderer previously ignored these bits and
+submitted inherited full-resolution LAND through the city's authored ground.
+Hiding BTR in an installed Plains District capture left that nearby ground
+unchanged.
+
+LAND construction now omits those quadrants from its triangle list. The seven
+installed cells remove 9,216 triangles, with both fully hidden cells at zero.
+Collision uses the same list and omits fully hidden LAND bodies. The 33 by 33 height
+samples remain available for the loaded-cell LOD mask and edge joining.
+A fully hidden LAND resource retains its existing server instance, kept
+invisible even after a terrain visibility toggle. Godot requires a nonempty
+index buffer, so this invisible resource carries one zero-area GPU face.
+The logical mesh has no triangles. Hidden quadrants supply no Full LOD
+visibility blocker, while their samples still mask BTR. This retains the
+uploaded height inspection contract without adding scene nodes. Object and tree LOD
+exclude installed exterior cells, including cells with no visible batches.
+
+The raw parent BTR survey found 4,941 triangle centroids inside a 25-cell grid.
+Of these, 2,679 lay above sampled LAND, with a maximum excess of 11.77 metres.
+Cell clipping removed every overlap. A small vertical offset would not
+replace that coverage mask. The initial live walkthrough also found zero BTR
+triangle intersections and zero duplicate nominal BTO blocks under 113
+loaded city cells. The corrected live regression passed at the inn exit,
+pond, inside gate and outside gate in 356 seconds. The elevated capture
+repeat passed in 331.57 seconds. City probes retained 113
+LAND resources and 743,097 BTR triangles. Outside the gate there were 25 LAND
+resources and 617,462 BTR triangles. All four probes had zero BTR triangle
+intersections with loaded cells and zero nominal BTO blocks covering drawn
+near-reference cells.
+
+The BTO survey inspected 1,001,342 triangles in 163 selected parent chunks.
+None had a centroid in the pond's near grid. Some distant geometry extends outside its
+nominal chunk. The outside-gate live probe found one such triangle in cell
+(6, -4). BTO does not retain each source reference's FormID, so the live
+resident-object assertion checks chunk exclusion, not per-triangle identity.
+Tamriel's separately placed Whiterun city LOD references appeared outside
+the gate and were absent from all three city probes. Those initial captures did not
+reproduce the reported coarse wall or rock overlay.
+The capture controls hide BTR, BTO and placed city LOD independently.
+An installed asset survey inspected 40 city wall meshes, 20 mountain meshes
+and all 45 Whiterun terrain meshes. None contained `BSLODTriShape`,
+`NiLODNode` or `NiSwitchNode` embedded LOD selectors.
+
+The 2026-10-17 continuation reproduced stale object LOD with an empty child
+CELL at (8, 0). Before correction, parent BTO block `4:8:0` retained one
+instance and one triangle immediately after the CELL installed. Object and
+tree LOD derived their mask from visible batches, which omitted empty cells,
+and waited for another LOD update to release old chunks. Registration now
+sets the mask from installed exterior CELL coordinates and retires overlapping
+blocks before returning. The same registration runs when sliced publication
+finishes. Pending terrain resources supply no acknowledged near coverage.
+The synthetic regression also requires LOD to return after the cell unloads.
+
+The combined release continuation passed all four `whiterun_lod` integration
+checks in 488.89 seconds on 2026-10-17. The Godot child exited zero and printed
+its shutdown marker. Plains, pond, inside walls, outside walls and a six-cell
+exterior move all had zero BTR intersections, zero above-LAND samples, zero
+nominal BTO overlap and no duplicate resident Full LOD references. The three
+city probes retained 113 LAND resources. Both exterior probes retained 25.
+The walking probe had 633,198 BTR triangles and 758 BTO triangle centroids
+inside near cells despite disjoint nominal blocks. RND-44 tracks mapping
+those overhangs to source references before changing object LOD geometry.
+The original coarse wall or rock overlay remains unreproduced. Pixel controls
+include animation noise, including 2,793 changed pixels outside the walls
+where zero LAND triangles were restored. Acceptance uses geometry and
+residency, not those pixel differences. The full workspace gate is assigned
+to the lead by the consolidated task.
+
+The unchanged persistent Full LOD test passed its scene checks, including
+1,203 mountain silhouette pixels against the threshold of 500, 325 eligible
+drawn models and zero retained parent-world models on city return. Its Rust
+test failed the unchanged six-GiB peak RSS limit at 17.736 GiB. The previous
+residency verification also failed that limit, as recorded in
+`docs/full-lod-residency.md`. This run does not establish whether the mask
+change increased peak memory. RND-40 and RND-41 remain unfinished.
+
+One full lint run exited zero with 9,836 Rust tests passed, 14 ignored and
+55 performance-runner contracts passed. Cargo-deny and cargo-audit were
+absent. Summed Rust harness time was 432.39 seconds, above the 300-second
+Tier 1 target. A repeat exited 101 with 9,823 passed and one failure in the
+unchanged trace test
+`prf_29_budget_log_and_dump_name_the_same_slowest_asset_and_cause`.
+Its subscriber buffer lacked the expected report. RND-42 remained `wip`
+at that checkpoint. The consolidated task leaves the workspace gate to the lead.
+
+Sources are UESP `CELL.wikitext` XCLC quadrant flags, `WRLD.wikitext` parent
+flags, xEdit `Core/wbLOD.pas` persistent-reference exclusions and LAND quadrant
+ordering. OpenMW `components/terrain/quadtreeworld.cpp` refines chunks at the
+active grid. Mudcrab `crates/engine/src/streaming/lod.rs` chooses ready terrain
+by cell and quadrant. Those readiness contracts were compared with the host's
+existing BTR clipper. No Mudcrab code was ported.
+
 ## Walkthrough terrain coverage, RND-35
 
 `godot/rnd_35_walkthrough_lod_capture.gd` inherits the production walkthrough,

@@ -49,7 +49,10 @@ impl CellStreamerNode {
         let mut server = RenderingServer::singleton();
         for instance in &self.instances {
             if instance.render_kind == kind {
-                server.instance_set_visible(instance.rid, visible);
+                server.instance_set_visible(
+                    instance.rid,
+                    visible && !instance.arrays.indices.is_empty(),
+                );
             }
         }
         if kind == 2 {
