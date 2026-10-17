@@ -9419,6 +9419,33 @@ has not passed. NORDIC also exposes a native cache rejection: a sprite
 declares 250 frames but contains 200. The exporter reads only import envelopes
 and JPEXS can render this input, while the native converter still rejects it.
 
+The UI-30 follow-up preserves explicit End tags and accepts closed short
+sprites while retaining both frame counts. A read-only envelope survey of
+NORDIC 2.4.1 found four such sprites across its 35 movies, including the
+bottom-bar rejection above. The new converter check requires all 35 to parse
+and retains the four measured sprite mismatches. Its art-cache path also
+retains the loading menu's closed one-of-two-frame root. The strict parser
+keeps its root-count rejection. The HUD's actionless matrix record is
+validated and retained as a diagnostic, following JPEXS's display-list
+behavior for an occupied depth. Existing truncated-input and
+unterminated-sprite assertions are unchanged. Details and the Ruffle source
+reference are in [swf-convert.md](swf-convert.md).
+
+Before the art-policy split, ten unchanged adversarial checks and the new
+closed-sprite and matrix regressions pass. That survey stops at the loading
+menu's root mismatch. A separate read-only envelope survey confirms it is
+the only root mismatch in the 35-movie fixture. The final combined test,
+clippy and cargo-format retries were canceled with exit 130 while waiting
+in the run wrapper's resource guards. They produced no final-policy result.
+Direct rustfmt passes. The missing-Java live retry was also canceled while
+waiting for the shared installed-test slot, without a notice result.
+
+The release build and Godot import pass for UI-20's preceding font fixes,
+but that build predates the final UI-30 conversion changes. UI-30 remains
+in progress for the final-policy checks, a rebuilt extension and the
+inventory, container, magic, map, journal and HUD theme captures. No art or
+source from the installs was added to the checkout.
+
 The exporter promotes the existing tempfile dependency from test scope to
 runtime scope. Cargo tree shows no newly resolved package. It remains the
 small temporary-directory utility already used by the converter.

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use soe_bsa::{Source, Vfs};
 
-use crate::{convert, resource, Error};
+use crate::{convert_art, resource, Error};
 
 const FORMAT: &str = "soe-interface-3";
 
@@ -307,7 +307,7 @@ pub fn build_cache(
         let movie_dir = digest(path.as_bytes());
         let output = pending.path().join(&movie_dir);
         let converted = (|| {
-            let movie = convert(&data)?;
+            let movie = convert_art(&data)?;
             resource::write(&movie, &output)?;
             if movie.action_blocks > 0 {
                 decompiler.export(&data, &output.join("as2-reference"))?;

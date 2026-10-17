@@ -85,3 +85,35 @@ Godot 4.4.1's ResourceSaver and `get_font_style` confirm that representation.
 The earlier string `font_style` and unsupported `font_italic` property did not
 preserve those flags. The writer now emits the numeric field with the existing
 family, weight, metrics and glyph atlas data. No dependency was added.
+
+UI-30 preserves explicit End tags in the bounded reader. A nonempty sprite
+closed by End may contain fewer frames than declared. Its timeline retains
+the declared count and the actual display lists without padding. Strict
+`convert` still rejects root frame mismatches. The cache uses `convert_art`,
+which also retains closed short roots. NORDIC's loading menu declares two
+root frames but closes after one. Excess frames, truncated payloads and
+unterminated short timelines remain errors in both paths. The existing
+malformed-input assertions are unchanged.
+
+The local NORDIC 2.4.1 survey found four closed short sprites: loading menu
+IDs 4 and 50 at 438 of 466 and 150 of 300 frames, journal ID 281 at 81 of 90,
+and bottom-bar ID 24 at 200 of 250. The corpus has no Ruffle runtime clone.
+[Ruffle's MovieClip preloader](https://github.com/ruffle-rs/ruffle/blob/master/core/src/display_object/movie_clip.rs)
+was read on 2026-10-17. It finishes on End or the bounded stream and retains
+separate loaded and declared frame information. The native converter uses
+the narrower closed-short-sprite case needed by these fixtures. It does not
+run ActionScript or copy the runtime implementation. The existing resource
+writer remains the output path.
+
+NORDIC's HUD sprite 874 also contains one matrix-only PlaceObject2 with both
+action bits clear. Its depth is already occupied. The local CommonLib
+`GFxPlaceObject2.h` confirms the flag layout. Ruffle 0.3 rejects that action
+combination, while
+[JPEXS's timeline](https://github.com/jindrapetrik/jpexs-decompiler/blob/master/libsrc/ffdec_lib/src/com/jpexs/decompiler/flash/timeline/Timeline.java)
+ignores it on an occupied depth. The converter validates its complete matrix
+through Ruffle with a temporary move flag, then retains tag 26 as a diagnostic
+without changing the display list. It accepts only the matrix-only form.
+The temporary buffer's 29-byte bound follows the flag and depth fields plus
+the matrix's maximum 203 bits. Truncated and trailing data remain errors.
+The regression uses authored synthetic transforms and checks that the prior
+placement survives. No installed layout bytes are included in the test.

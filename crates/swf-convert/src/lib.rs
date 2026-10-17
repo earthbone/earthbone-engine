@@ -17,7 +17,7 @@ mod java;
 mod resource;
 
 pub use cache::{build_cache, Cache, Decompiler};
-pub use convert::{convert, Font, Frame, Glyph, Instance, Movie, TextField, Timeline};
+pub use convert::{convert, convert_art, Font, Frame, Glyph, Instance, Movie, TextField, Timeline};
 pub use geometry::{Mesh, Paint, Surface};
 pub use java::find_java;
 pub use resource::write_art;
