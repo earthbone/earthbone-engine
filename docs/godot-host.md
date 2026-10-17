@@ -5980,8 +5980,9 @@ requires 360 changed offsets and visible compass ink, and retains a generated
 capture and process logs under `target/ui-29`.
 
 On 2026-10-17, the camera-rig check, all 532 host library tests and four
-focused HUD checks pass. Host clippy passes with all targets. The live
-windowed check awaits the release build and shared installed-test slot.
+focused HUD checks pass. Host clippy passes with all targets. The release
+extension build and Godot project import pass. The live windowed check has
+not started because another job holds the shared installed-test slot.
 UI-29 remains in progress until that result is available.
 
 ### MCM registration and declared pages, UI-05
