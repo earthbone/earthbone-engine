@@ -23,8 +23,14 @@ func _check_fire() -> void:
 	if not streamer.has_method("nif_particle_count") or int(streamer.call("nif_particle_count")) == 0:
 		failures += 1
 		printerr("FAIL: the central campfire requires live flame and smoke particles")
-	var camera := root.get_viewport().get_camera_3d()
-	camera.reparent(root)
+	player.set_process(false)
+	player.set_physics_process(false)
+	var old_camera := root.get_camera_3d()
+	var camera := Camera3D.new()
+	camera.environment = old_camera.environment
+	camera.attributes = old_camera.attributes
+	root.add_child(camera)
+	camera.make_current()
 	var bounds := AABB()
 	var first := true
 	for row: Dictionary in streamer.call("nif_surfaces"):
@@ -37,6 +43,9 @@ func _check_fire() -> void:
 		if material != null:
 			for parameter in ["source_texture", "distortion_texture", "palette_texture", "base_color", "base_scale", "falloff"]:
 				print("R4 ", parameter, "=", material.get_shader_parameter(parameter))
+		if row.effect and str(row.source).contains("glowslightflash") and (int(row.flags1) & 16) != 0:
+			failures += 1
+			printerr("FAIL: the central radial glow has an inferred palette")
 		if row.effect:
 			bounds = row.bounds if first else bounds.merge(row.bounds)
 			first = false
@@ -62,7 +71,12 @@ func _check_fire() -> void:
 		await process_frame
 		RenderingServer.force_draw(false)
 	var image := root.get_texture().get_image()
-	image.save_png("res://../target/r4_fire_%s.png" % OS.get_environment("SOE_R4_PHASE"))
+	var output := OS.get_environment("SOE_R4_OUTPUT")
+	if output.is_empty():
+		output = "res://../target"
+	if image.save_png(output + "/r4_fire_%s.png" % OS.get_environment("SOE_R4_PHASE")) != OK:
+		failures += 1
+		printerr("FAIL: hearth capture could not be saved")
 	var warm := 0
 	var white := 0
 	for y in range(image.get_height() / 4, image.get_height() * 3 / 4):
@@ -76,6 +90,10 @@ func _check_fire() -> void:
 	if warm < 100 or white > image.get_width() * image.get_height() / 100:
 		failures += 1
 		printerr("FAIL: hearth requires visible warm flames and less than one percent white coverage")
+	# CONTEXT: Readback and pixel analysis must leave the frame timing sample.
+	var settle_until := Time.get_ticks_msec() + 2000
+	while Time.get_ticks_msec() < settle_until:
+		await process_frame
 	var cpu_ms: Array[float] = []
 	var frame_ms: Array[float] = []
 	var previous := Time.get_ticks_usec()

@@ -207,6 +207,63 @@ fn r4_installed_light_material_survey() {
         return;
     };
     let source = DataSource::open(Path::new(&directory)).unwrap();
+    if let Some(output) = std::env::var_os("SOE_R4_ASSET_FIXTURE") {
+        let output = Path::new(&output);
+        std::fs::create_dir_all(output).unwrap();
+        assert!(
+            !std::fs::canonicalize(output)
+                .unwrap()
+                .starts_with(std::fs::canonicalize(&directory).unwrap()),
+            "asset fixture must not overwrite the installed Data directory"
+        );
+        for name in super::BASE_MASTERS {
+            std::fs::write(
+                output.join(name),
+                Plugin::new(FileHeader::default()).to_bytes(),
+            )
+            .unwrap();
+        }
+        for model in [
+            "clutter/woodfires/campfire01burning.nif",
+            "clutter/woodfires/fireplacewood01burning.nif",
+            "clutter/candles/candlehornwall01.nif",
+            "clutter/candles/candlehornchandelier01.nif",
+            "architecture/whiterun/wrinteriors/wrintwallstr01wina.nif",
+        ] {
+            let path = format!("meshes/{model}");
+            let bytes = source.vfs.read(&path).unwrap();
+            let file = soe_nif::parse(&bytes).unwrap();
+            let mut textures = std::collections::BTreeSet::new();
+            for mesh in file.meshes().unwrap() {
+                textures.extend(
+                    mesh.material
+                        .textures
+                        .into_iter()
+                        .filter(|path| !path.is_empty()),
+                );
+            }
+            for block in &file.blocks {
+                if let soe_nif::blocks::Block::EffectShader(shader) = block {
+                    textures.extend(
+                        [
+                            shader.source_texture.clone(),
+                            shader.greyscale_texture.clone(),
+                        ]
+                        .into_iter()
+                        .filter(|path| !path.is_empty()),
+                    );
+                }
+            }
+            for texture in textures {
+                let path = output.join(soe_bsa::normalize(&texture));
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, source.vfs.read(&texture).unwrap()).unwrap();
+            }
+            let path = output.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+    }
     let cell = source.resolve_cell("WhiterunBanneredMare").unwrap();
     let mut models = std::collections::BTreeSet::new();
     for id in source.cell_index().references(cell) {

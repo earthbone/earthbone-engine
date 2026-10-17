@@ -28,6 +28,23 @@ The release build waits on its own shared lock. These results establish the
 surface equation correction, without certifying the complete Round 4 scene.
 The existing shader path adds no reference nodes, dependency or saved state.
 
+### Reproducing the asset captures
+
+Run the installed `r4_installed_light_material_survey` library test with
+`SKYRIM_DATA` set and `SOE_R4_ASSET_FIXTURE` naming a separate output
+directory. It writes five empty masters, the two burning wood models,
+the horn sconce and chandelier, a Whiterun window wall, and their source
+textures. The output cannot be the installed Data directory or its child.
+No game asset is tracked. Set `SOE_R4_EMISSION_FIXTURE` to that output's
+absolute path for `godot/r4_asset_light_test.gd`. `SOE_R4_OUTPUT` selects
+where to save captures and `SOE_R4_PHASE` labels them.
+
+The installed exporter passes. The window-only preview fixture clips 866
+pixels against the predeclared 655-pixel limit, while the corrected surface
+clips zero with the same mesh, camera and lighting. The permanent asset
+regression retains that case. This validates the shared emission equation,
+not the still-missing external-emittance response to time and weather.
+
 ## Central campfire glow, RND-52, 2026-10-17
 
 The central Bannered Mare fire is `Campfire01Burning`, reference `0:05D691`
@@ -4141,9 +4158,9 @@ Godot's emission operator and energy multiplier. The NIF reader already
 retains these fields. Only its independent test writer needed an emission
 parameter. No format parser or new dependency was added.
 
-The standard material uses Godot's multiply emission operator when a glow
-texture is bound, and color-only emission otherwise. The decal
-shader receives the same color, multiplier and sRGB texture. Material and
+RND-49 routes emitting ordinary surfaces through the shared lighting shader.
+It multiplies emission by diffuse color and by a glow map when one is bound.
+The decal shader receives the same color, multiplier and sRGB texture. Material and
 batch keys include all three so shared diffuse maps cannot combine distinct
 emission states. The existing VFS and source texture cache resolve and share
 glow maps, including loose-file overrides. Production geometry still uses
@@ -8483,14 +8500,16 @@ source alpha once, so low-alpha flame texels do not fill the effect mesh hull.
 Blended effects keep depth writes disabled. Greyscale color
 and alpha lookups retain the authored palette flags, and falloff remains part
 of the opacity calculation. For a fire NIF with an authored greyscale color
-palette, an additive effect layer without its own palette path inherits the
-first sibling color palette and enables palette-color sampling. Existing
-palette assignments remain unchanged.
+palette, an additive effect layer without vertex colors or its own palette
+path inherits the first sibling color palette and enables palette-color
+sampling. RND-52 preserves authored vertex-colored effects and existing
+palette assignments.
 
 The installed Bannered Mare survey finds `FireplaceWood01Burning` with an
 additive greyscale-palette surface and a separate palette surface with view
-falloff. It also finds the placed `Campfire01Burning` effect, whose unpaletted
-additive layer inherits the sibling `GradFireExplosion` color palette. The
+falloff. It also finds the placed `Campfire01Burning` effect. Its ember layers
+retain authored palettes, while RND-52 preserves the central radial glow
+without a palette. The
 Godot capture entry point `godot/rnd_33_hearth_test.gd` extends the RND-38
 hearth check, which starts `godot/walkthrough.gd`. It selects every resident
 `FireplaceWood01Burning` effect and distortion layer from uploaded
