@@ -5,6 +5,9 @@
 //! Installed host counter checks with a current, imported release extension.
 //! The same script also checks Cargo's extension in an isolated project.
 
+#[path = "common/prepared_extension.rs"]
+mod prepared_extension;
+
 #[test]
 fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
     let Some(data) = std::env::var_os("SKYRIM_DATA") else {
@@ -14,18 +17,8 @@ fn prf_14_godot_counts_live_render_instances_and_resets_work_windows() {
         return;
     };
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    // CONTEXT: Cargo test does not refresh the release library Godot loads.
-    let build = std::process::Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args(["build", "-p", "soe-godot-host", "--release"])
-        .output()
-        .expect("release extension build starts");
-    assert!(
-        build.status.success(),
-        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
+    // CONTEXT: Prepare the shared release library once before running host fixtures.
+    let _ = prepared_extension::require(&workspace);
     let release_project = workspace.join("godot");
     // CONTEXT: A fresh checkout needs an import to register its GDExtension.
     let import = std::process::Command::new(&godot)

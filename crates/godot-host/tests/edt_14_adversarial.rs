@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[path = "common/prepared_extension.rs"]
+mod prepared_extension;
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -17,19 +20,8 @@ fn edt_14_gizmo_bridge_edits_record_undoes_proxy_and_saves_restored_pose() {
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = workspace.join("godot");
-    // CONTEXT: Cargo test does not refresh the release library Godot loads.
-    let build = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
-        .arg(workspace.join("target"))
-        .output()
-        .expect("release extension build starts");
-    assert!(
-        build.status.success(),
-        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
+    // CONTEXT: Prepare the shared release library once before running host fixtures.
+    let _ = prepared_extension::require(&workspace);
     let fixture = tempfile::tempdir().unwrap();
     let base = fixture.path().join("Base.esm");
     let patch = fixture.path().join("Patch.esp");

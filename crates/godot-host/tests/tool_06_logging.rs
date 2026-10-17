@@ -2,7 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Live GlobalScope routing and UI controls on Godot 4.4 or later.
-//! Set SOE_GODOT_BIN to run this test, which builds the release extension.
+//! Set SOE_GODOT_BIN to run this test, using a prepared release extension.
+
+#[path = "common/prepared_extension.rs"]
+mod prepared_extension;
 
 use std::path::Path;
 use std::process::Command;
@@ -13,19 +16,8 @@ fn tool_06_godot_routing_and_editor_debugger() {
         return;
     };
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    // CONTEXT: Cargo test does not refresh the release library Godot loads.
-    let build = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
-        .arg(workspace.join("target"))
-        .output()
-        .expect("release extension build starts");
-    assert!(
-        build.status.success(),
-        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
+    // CONTEXT: Prepare the shared release library once before running host fixtures.
+    let _ = prepared_extension::require(&workspace);
     let project = workspace.join("godot");
     // CONTEXT: A fresh checkout needs an import to register its GDExtension.
     let import = Command::new(&binary)

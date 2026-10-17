@@ -372,3 +372,28 @@ coverage results, not completion targets. Synthetic tests prove shared-script
 isolation, alias and inherited-body attribution, deleted-attachment filtering,
 missing scripts and malformed VMAD diagnostics. The VM tests verify that
 coverage does not change save bytes or simulation hashes.
+
+## Prepared Godot extension
+
+When SOE_GODOT_BIN is set, host fixtures use a release extension built before
+Cargo starts their test run. Prepare it once after the production sources
+change, then run the gate:
+
+```sh
+cargo build -p soe-godot-host --release --lib --features scr-24-test,cmb-37-test
+./tools/lint.sh
+```
+
+The two feature flags expose the existing synthetic effect and destruction
+drivers. They do not change the free-walk scene. Fifteen runners formerly
+started release builds inside their Cargo tests. The preview3 gate spent more
+than a minute in the first audio-fade runner before Godot started. Release
+artifact timestamps show HKX and game compilation during that wait. Captured
+child output hid the build progress. This did not establish a lock cycle.
+The combat runner also requested a different feature set from the others.
+
+Those runners now require the prepared library to exist and be newer than
+workspace manifests, the lockfile and crate production sources. A missing
+or stale library fails with a preparation message. Every scene assertion and
+budget remains in place. Tests never replace a library while Godot may have
+it loaded. The common audio helper uses the same prepared artifact path.

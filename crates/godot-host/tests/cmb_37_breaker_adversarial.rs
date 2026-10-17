@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+#[path = "common/prepared_extension.rs"]
+mod prepared_extension;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -16,25 +19,7 @@ fn cmb_37_installed_destruction_stage_creates_host_model_instances() {
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let extension = workspace.join("target/release/libsoe_godot_host.so");
-    let build = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args([
-            "build",
-            "-p",
-            "soe-godot-host",
-            "--release",
-            "--features",
-            "cmb-37-test",
-            "--target-dir",
-        ])
-        .arg(workspace.join("target"))
-        .output()
-        .expect("release extension build starts");
-    assert!(
-        build.status.success(),
-        "release extension build failed\n{}",
-        String::from_utf8_lossy(&build.stderr)
-    );
+    let _ = prepared_extension::require(&workspace);
     assert!(extension.exists(), "release GDExtension was not built");
     let import = Command::new(&godot)
         .args(["--headless", "--path"])

@@ -2,7 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Runs the dialogue voice path in Godot and captures samples from its mixer.
-//! Set `SOE_GODOT_BIN` to enable this test, which builds the release extension.
+//! Set `SOE_GODOT_BIN` to enable this test, using a prepared release extension.
+
+#[path = "common/prepared_extension.rs"]
+mod prepared_extension;
 
 use soe_audio::{fuz, SoundSource};
 use soe_bsa::{write_bsa, BsaFile, BsaVersion, Vfs};
@@ -204,20 +207,9 @@ fn godot_binary() -> Option<PathBuf> {
         })
 }
 
-fn build_release_extension(workspace: &Path) {
-    // CONTEXT: Cargo test does not refresh the release library Godot loads.
-    let build = Command::new(env!("CARGO"))
-        .current_dir(workspace)
-        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
-        .arg(workspace.join("target"))
-        .output()
-        .expect("release extension build starts");
-    assert!(
-        build.status.success(),
-        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
+fn require_release_extension(workspace: &Path) {
+    // CONTEXT: Prepare the shared release library once before running host fixtures.
+    let _ = prepared_extension::require(workspace);
 }
 
 fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>, headless: bool) {
@@ -230,7 +222,7 @@ fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>, headless: bool) {
         return;
     };
 
-    build_release_extension(&workspace);
+    require_release_extension(&workspace);
 
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
@@ -296,7 +288,7 @@ fn tst_17_godot_script_quits_on_missing_fixture() {
         eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
         return;
     };
-    build_release_extension(&workspace);
+    require_release_extension(&workspace);
     let child = Command::new(godot)
         .arg("--headless")
         .args(["--path"])

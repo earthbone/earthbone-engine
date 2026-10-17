@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[path = "common/prepared_extension.rs"]
+mod prepared_extension;
+
 use soe_audio::fuz;
 use soe_bsa::{write_bsa, BsaFile, BsaVersion};
 use soe_esm::{
@@ -177,19 +180,8 @@ fn dlg_11_voice_child_global_position_remains_at_speaker_under_moved_parent() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest.join("../..");
     let project = workspace.join("godot");
-    // CONTEXT: Cargo test does not refresh the release library Godot loads.
-    let build = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
-        .arg(workspace.join("target"))
-        .output()
-        .expect("release extension build starts");
-    assert!(
-        build.status.success(),
-        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
+    // CONTEXT: Prepare the shared release library once before running host fixtures.
+    let _ = prepared_extension::require(&workspace);
 
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");

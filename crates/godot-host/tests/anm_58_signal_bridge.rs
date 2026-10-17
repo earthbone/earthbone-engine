@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+#[path = "common/prepared_extension.rs"]
+mod prepared_extension;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -20,19 +23,8 @@ fn anm_58_godot_signal_resumes_papyrus_wait_and_unload_returns_false() {
     };
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest.join("../..");
-    // CONTEXT: Cargo test does not refresh the release library Godot loads.
-    let build = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
-        .arg(workspace.join("target"))
-        .output()
-        .expect("release extension build starts");
-    assert!(
-        build.status.success(),
-        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
+    // CONTEXT: Prepare the shared release library once before running host fixtures.
+    let _ = prepared_extension::require(&workspace);
 
     let output = Command::new(godot)
         .args([
