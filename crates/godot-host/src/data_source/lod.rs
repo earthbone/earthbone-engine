@@ -28,6 +28,8 @@ use crate::units::CELL_UNITS;
 /// made before the read.
 #[derive(Clone)]
 pub struct LoadedLodBlock {
+    /// SSE BTO source-cell segments, aligned with surfaces. Empty for other inputs.
+    pub object_segments: Vec<Vec<soe_nif::blocks::GeometrySegment>>,
     pub surfaces: Vec<LoadedSurface>,
     /// Source cells for tree surfaces, in surface order. Empty for other LOD kinds.
     pub tree_cells: Vec<CellCoord>,
@@ -43,6 +45,21 @@ pub struct LoadedLodBlock {
     /// References whose full model was simplified because its MNAM mesh was
     /// absent or unavailable.
     pub simplified_references: usize,
+}
+
+impl LoadedLodBlock {
+    #[cfg(feature = "godot")]
+    pub(crate) fn object_segment_bytes(&self) -> usize {
+        self.object_segments.capacity()
+            * std::mem::size_of::<Vec<soe_nif::blocks::GeometrySegment>>()
+            + self
+                .object_segments
+                .iter()
+                .map(|segments| {
+                    segments.capacity() * std::mem::size_of::<soe_nif::blocks::GeometrySegment>()
+                })
+                .sum::<usize>()
+    }
 }
 
 impl DataSource {
@@ -144,6 +161,7 @@ impl DataSource {
             });
         }
         Ok(Some(LoadedLodBlock {
+            object_segments: Vec::new(),
             surfaces,
             tree_cells,
             approx_bytes,
@@ -403,6 +421,7 @@ impl DataSource {
         if meshes.is_empty() {
             return Ok(LoadedLodBlock {
                 tree_cells: Vec::new(),
+                object_segments: Vec::new(),
                 surfaces: Vec::new(),
                 approx_bytes: 0,
                 authored_references: 0,
@@ -440,6 +459,7 @@ impl DataSource {
         }
         Ok(LoadedLodBlock {
             tree_cells: Vec::new(),
+            object_segments: Vec::new(),
             surfaces,
             approx_bytes,
             authored_references: 0,
@@ -495,6 +515,13 @@ impl DataSource {
         }
         Ok(Some(LoadedLodBlock {
             tree_cells: Vec::new(),
+            object_segments: meshes
+                .iter()
+                .map(|mesh| match file.blocks.get(mesh.block) {
+                    Some(soe_nif::blocks::Block::BsTriShape(shape)) => shape.segments.clone(),
+                    _ => Vec::new(),
+                })
+                .collect(),
             surfaces,
             approx_bytes,
             authored_references: 0,
@@ -687,6 +714,7 @@ impl DataSource {
         }
         Ok(Some(LoadedLodBlock {
             tree_cells: Vec::new(),
+            object_segments: Vec::new(),
             surfaces,
             approx_bytes,
             authored_references,

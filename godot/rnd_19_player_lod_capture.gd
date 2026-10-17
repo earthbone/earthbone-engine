@@ -1,6 +1,7 @@
 extends SceneTree
 
 ## RND-19 gameplay LOD handoff, world changes and an installed mountain capture.
+const LodObservation := preload("res://lod_observation.gd")
 const CELL := "WhiterunBanneredMare"
 const TERRAIN_PIXEL_THRESHOLD := 500
 var failures := 0
@@ -32,11 +33,14 @@ func _lod_contract(player: Node3D, streamer: Node3D, radius: int) -> void:
 			var origin := Vector2i(int(values[1]), int(values[2]))
 			var nearest := Vector2i(clampi(focus.x, origin.x, origin.x + span - 1), clampi(focus.y, origin.y, origin.y + span - 1))
 			_check(maxi(absi(nearest.x - focus.x), absi(nearest.y - focus.y)) <= radius, kind + " exceeds LOD radius")
+		if kind != "terrain":
+			var full := LodObservation.coverage(stats)
 			for id in near:
 				if cells.has(id):
 					var coord: Vector2i = cells[id]
-					if kind == "object":
-						_check(not (coord.x >= origin.x and coord.x < origin.x + span and coord.y >= origin.y and coord.y < origin.y + span), kind + " double draws full cell " + id)
+					if maxi(absi(coord.x - focus.x), absi(coord.y - focus.y)) <= 2 or player.call("detection_worldspace") == stats.get("world", ""):
+						_check(full.has(coord), kind + " full cell lacks its replacement mask " + id)
+			_check(LodObservation.overlaps(streamer, kind, full) == 0, kind + " source cells overlap full models")
 	_check(not String(streamer.call("terrain_lod_stats").get("covered_cells", "")).is_empty(), "terrain handoff has no loaded cell mask")
 
 func _move(player: Node3D, reference: Dictionary, offset: Vector3) -> void:

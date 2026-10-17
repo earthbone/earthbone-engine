@@ -2,6 +2,7 @@
 extends "res://walkthrough.gd"
 
 ## RND-42 checks the submitted scenery at the Plains District and city walls.
+const LodObservation := preload("res://lod_observation.gd")
 const CELL_METRES := 4096.0 * 0.0142875
 var failures := 0
 var reference_cells: Dictionary
@@ -70,6 +71,8 @@ func _check_handoff(force: bool = false) -> void:
 		return
 	last_checked_coverage = covered
 	var full := {}
+	for text: String in String(streamer.call("object_lod_stats").get("covered_cells", "")).split(" ", false):
+		full[Vector2i(int(text.get_slice(":", 0)), int(text.get_slice(":", 1)))] = true
 	var distant := {}
 	var near_references := {}
 	for reference: String in streamer.call("distant_references"):
@@ -81,7 +84,9 @@ func _check_handoff(force: bool = false) -> void:
 		if not exterior_cells.has(owner):
 			continue
 		var coordinate: Array = exterior_cells[owner]
-		full[Vector2i(int(coordinate[0]), int(coordinate[1]))] = true
+		# CONTEXT: Remote inherited LAND replaces ground without replacing parent objects.
+		if surface.kind != "terrain":
+			full[Vector2i(int(coordinate[0]), int(coordinate[1]))] = true
 		for reference: String in surface.get("references", PackedStringArray()):
 			near_references[reference] = true
 			_check(not distant.has(reference), "handoff duplicates Full LOD reference " + reference)
@@ -101,16 +106,9 @@ func _check_handoff(force: bool = false) -> void:
 			_check(masked, "old Full LOD member remains drawable " + references[index] + " multimesh=" + str(multi != null))
 			if masked:
 				masked_full_lod_members += 1
-	var duplicates := 0
-	for kind in ["object_lod_stats", "tree_lod_stats"]:
-		var stats: Dictionary = streamer.call(kind)
-		for text: String in String(stats.get("blocks", "")).split(" ", false):
-			var parts := text.split(":")
-			var span := int(parts[0])
-			var x := int(parts[1])
-			var y := int(parts[2])
-			for cell: Vector2i in full:
-				duplicates += int(cell.x >= x and cell.x < x + span and cell.y >= y and cell.y < y + span)
+	var duplicates := LodObservation.overlaps(streamer, "object", full)
+	var tree_full := LodObservation.coverage(streamer.call("tree_lod_stats"))
+	duplicates += LodObservation.overlaps(streamer, "tree", tree_full)
 	_check(duplicates == 0, "handoff duplicate LOD blocks=" + str(duplicates))
 	print("WHITERUN_LOD_HANDOFF full_cells=", full.size(), " duplicate_blocks=", duplicates)
 
@@ -200,16 +198,8 @@ func _coverage(label: String) -> void:
 			if reference_cells.has(reference) and not distant.has(reference):
 				var coordinate: Array = reference_cells[reference]
 				drawn[Vector2i(int(coordinate[0]), int(coordinate[1]))] = true
-	var duplicate_blocks := 0
 	var objects: Dictionary = streamer.call("object_lod_stats")
-	for text: String in String(objects.get("blocks", "")).split(" ", false):
-		var parts := text.split(":")
-		var span := int(parts[0])
-		var x := int(parts[1])
-		var y := int(parts[2])
-		for cell: Vector2i in drawn:
-			if cell.x >= x and cell.x < x + span and cell.y >= y and cell.y < y + span:
-				duplicate_blocks += 1
+	var duplicate_blocks := LodObservation.overlaps(streamer, "object", drawn)
 	var object_intrusions := 0
 	var intrusive_cells := {}
 	for surface: Dictionary in streamer.call("play_path_surfaces"):

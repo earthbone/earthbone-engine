@@ -23,7 +23,8 @@ everything after it.
 Block families with trailing fields the mesh path does not need are read as
 their base type and skipped to their recorded end: the NiNode family
 (`BSFadeNode`, `BSMultiBoundNode`, `NiSwitchNode`, ...) and the BSTriShape
-family (`BSSubIndexTriShape`). `BSDynamicTriShape` is read as a `BsTriShape`
+family. SSE `BSSubIndexTriShape` retains its trailing source-cell segment
+table as `BsTriShape::segments`. `BSDynamicTriShape` is read as a `BsTriShape`
 and exposes its full precision dynamic positions as `dynamic_positions`, one
 `[f32; 4]` per vertex. Its dynamic data byte size must equal 16 times the
 shape's vertex count. This follows `BSDynamicTriShape` in
@@ -38,8 +39,25 @@ declared by nif.xml. Ordinary `NiTriShape` and `NiTriStrips` blocks use
 
 `BSSegmentedTriShape` is read through its `NiTriShape` geometry prefix. Its
 segment table is skipped with the trailing fields, while the mesh output keeps
-the complete triangle list and shape name. Object LOD rendering currently
-draws that full list for each selected BTO block.
+the complete triangle list and shape name. This legacy table remains outside
+the SSE renderer path.
+
+SSE BTO source-cell ranges follow nifly `src/Geometry.cpp`,
+`BSSubIndexTriShape::Sync` and `BSGeometrySegmentData::Sync`, and AnvilLOD
+`src/AnvilLOD.Meshes/BtoBuilder.cs`, `WriteShape`. Each entry retains its byte
+flags, index offset and triangle count. Empty entries retain their ordinal.
+Offsets count indices rather than triangles. Unaligned offsets, overlapping
+or incomplete ranges and ranges past the triangle buffer return a typed error.
+The host uses the LOD4
+x-major cell order to replace one cell without removing adjacent mountain
+statics. Fallout 4 segmentation and legacy LE segment tables are unchanged.
+`tests/object_lod_segments.rs` checks empty cells, index units and malformed
+ranges. No source mesh is simplified.
+The corrected reader also parses all 1,078 BTO files in both installed base
+mesh archives with no errors, including all 717 Tamriel blocks. This CPU
+survey uses the existing archive extractor and NIF dump tool. The SKYRIM_DATA
+gated survey also passes all 1,078 files, retaining 2,392 segmented shapes and
+all 5,687,572 source triangles.
 
 ## Layers
 

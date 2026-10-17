@@ -1,6 +1,7 @@
 extends SceneTree
 
 ## RND-28 gameplay scenery handoff, world changes and an installed mountain silhouette.
+const LodObservation := preload("res://lod_observation.gd")
 const CELL := "WhiterunBanneredMare"
 const MOUNTAIN_SKY_PIXEL_THRESHOLD := 500
 const TREE_PIXEL_THRESHOLD := 25
@@ -33,11 +34,14 @@ func _lod_contract(player: Node3D, streamer: Node3D, radius: int) -> void:
 			var origin := Vector2i(int(values[1]), int(values[2]))
 			var nearest := Vector2i(clampi(focus.x, origin.x, origin.x + span - 1), clampi(focus.y, origin.y, origin.y + span - 1))
 			_check(maxi(absi(nearest.x - focus.x), absi(nearest.y - focus.y)) <= radius, kind + " exceeds LOD radius")
-			if kind != "terrain":
-				for id in near:
-					if cells.has(id):
-						var coord: Vector2i = cells[id]
-						_check(not (coord.x >= origin.x and coord.x < origin.x + span and coord.y >= origin.y and coord.y < origin.y + span), kind + " block covers full cell " + id)
+		if kind != "terrain":
+			var full := LodObservation.coverage(stats)
+			for id in near:
+				if cells.has(id):
+					var coord: Vector2i = cells[id]
+					if maxi(absi(coord.x - focus.x), absi(coord.y - focus.y)) <= 2 or player.call("detection_worldspace") == stats.get("world", ""):
+						_check(full.has(coord), kind + " full cell lacks its replacement mask " + id)
+			_check(LodObservation.overlaps(streamer, kind, full) == 0, kind + " source cells overlap full models")
 
 func _move(player: Node3D, reference: Dictionary, offset: Vector3) -> void:
 	_check(player.call("queue_player_input", {"action": "move_to", "file": reference.file, "object": reference.object, "offset": offset, "match_rotation": false}), "queue player movement")

@@ -113,6 +113,16 @@ pub struct BsTriShape {
     /// Full precision dynamic positions from `BSDynamicTriShape`, including
     /// each source `Vector4`'s fourth component.
     pub dynamic_positions: Vec<[f32; 4]>,
+    /// SSE BSSubIndexTriShape source-cell ranges, from nifly Geometry.cpp.
+    pub segments: Vec<GeometrySegment>,
+}
+
+/// An authored SSE object LOD segment. The offset counts indices, not triangles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeometrySegment {
+    pub flags: u8,
+    pub first_index: u32,
+    pub triangles: u32,
 }
 
 /// BSLightingShaderType values for Skyrim.
@@ -930,6 +940,7 @@ fn read_bs_tri_shape(s: &mut Stream<'_>, c: &Ctx<'_>, dynamic: bool) -> Result<B
         vertices: Vec::new(),
         triangles: Vec::new(),
         dynamic_positions: Vec::new(),
+        segments: Vec::new(),
     };
     if data_size > 0 {
         t.vertices = read_vertices(s, c, desc, num_vertices as usize)?;
@@ -1281,7 +1292,51 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
             Kind::TriShapeData => Block::GeometryData(read_geometry_data(s, &c, false)?),
             Kind::TriStripsData => Block::GeometryData(read_geometry_data(s, &c, true)?),
             Kind::BsTriShape => {
-                Block::BsTriShape(read_bs_tri_shape(s, &c, type_name == "BSDynamicTriShape")?)
+                let mut shape = read_bs_tri_shape(s, &c, type_name == "BSDynamicTriShape")?;
+                if type_name == "BSSubIndexTriShape" && h.bs_version == BS_SKYRIM_SE {
+                    let count = s.counted(9)?;
+                    for _ in 0..count {
+                        let segment = GeometrySegment {
+                            flags: s.u8()?,
+                            first_index: s.u32()?,
+                            triangles: s.u32()?,
+                        };
+                        let end = u64::from(segment.first_index) + u64::from(segment.triangles) * 3;
+                        if !segment.first_index.is_multiple_of(3)
+                            || end > u64::from(shape.num_triangles) * 3
+                        {
+                            return Err(c.invalid("object LOD segment outside triangle buffer"));
+                        }
+                        shape.segments.push(segment);
+                    }
+                    if count > 0 {
+                        let mut ranges: Vec<_> = shape
+                            .segments
+                            .iter()
+                            .filter(|segment| segment.triangles > 0)
+                            .map(|segment| {
+                                (
+                                    segment.first_index,
+                                    segment.first_index + segment.triangles * 3,
+                                )
+                            })
+                            .collect();
+                        ranges.sort_unstable();
+                        let mut end = 0;
+                        for (first, next) in ranges {
+                            if first != end {
+                                return Err(c.invalid("object LOD segments overlap or leave a gap"));
+                            }
+                            end = next;
+                        }
+                        if end != shape.num_triangles * 3 {
+                            return Err(
+                                c.invalid("object LOD segments do not cover triangle buffer")
+                            );
+                        }
+                    }
+                }
+                Block::BsTriShape(shape)
             }
             Kind::LightingShader => Block::LightingShader(read_lighting_shader(s, &c)?),
             Kind::EffectShader => Block::EffectShader(read_effect_shader(s, &c)?),
