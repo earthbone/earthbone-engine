@@ -1,5 +1,31 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Round 4 player equipment, HST-25
+
+The free walk inventory reproduction equips iron armor, gauntlets, a sword and
+shield through `item_menu_activate`. Before correction, third-person armor
+changed 6,841 pixels and unequipping restored the original models. Equipping
+gauntlets removed the first-person hand mesh. The installed IronGlovesAA has
+MOD2 and MOD3 but no MOD4 or MOD5. First-person selection replaced its model
+with None while still hiding the skin hands. Both initial loading and live
+refresh now retain the biped model when a separate first-person model is
+absent and apply the race's first-person biped mask.
+
+The local `uesp-modfileformat/ARMA.wikitext` states the model fallback.
+`TES5Edit/Core/wbDefinitionsTES5.pas` supplies ARMA model tags and RACE biped
+flags. Existing INV-08 selection supplies race matching, sex, addon priority
+and covered body partitions. No separate player equipment state is introduced.
+`hst_25_armor_test.gd` keeps the free walk startup, menu transaction, visible
+third-person change, first-person gauntlet and unequip restoration checks.
+
+The installed reader regression fails before the fallback and passes after it.
+Both headless and windowed free walk armor checks pass in Bannered Mare and
+WhiterunOrigin. Their windowed changes are 6,836 and 2,219 pixels. Both rigs
+restore their previous models after unequip. Package formatting, all-target
+Clippy and host library tests pass. No node, dependency or saved field is added.
+The first-person shadow, rig turning, NPC movement, hair and faces belong to
+other round 4 tasks.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and

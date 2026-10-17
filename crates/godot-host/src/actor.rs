@@ -277,12 +277,7 @@ impl AppearanceCache {
         vfs: &Vfs,
         skeleton: &Skeleton,
     ) -> Result<Option<AppearanceUpdate>, ActorError> {
-        let mut appearance = world.actor_appearance(actor)?;
-        for part in &mut appearance.parts {
-            part.model.clone_from(&part.first_person_model);
-        }
-        appearance.head_parts.clear();
-        appearance.facegen = None;
+        let appearance = first_person_appearance(world, actor)?;
         self.prepare_appearance(appearance, vfs, skeleton)
     }
 
@@ -311,6 +306,38 @@ impl AppearanceCache {
             surfaces,
         }))
     }
+}
+
+fn first_person_appearance(
+    world: &mut soe_game::World,
+    actor: soe_esm::GlobalFormId,
+) -> Result<soe_game::appearance::ActorAppearance, ActorError> {
+    let mut appearance = world.actor_appearance(actor)?;
+    let slots = appearance
+        .race
+        .and_then(|race| world.record(race))
+        .and_then(|record| {
+            record
+                .find(soe_esm::Tag(*b"BOD2"))
+                .or_else(|| record.find(soe_esm::Tag(*b"BODT")))
+        })
+        .map(|bytes| {
+            let mut fields =
+                soe_esm::cursor::Fields::new(soe_esm::Tag(*b"RACE"), soe_esm::Tag(*b"BOD2"), bytes);
+            fields.u32()
+        })
+        .transpose()?
+        .unwrap_or(u32::MAX);
+    for part in &mut appearance.parts {
+        part.visible_slots &= slots;
+        if let Some(first) = &part.first_person_model {
+            part.model = Some(first.clone());
+        }
+    }
+    appearance.parts.retain(|part| part.visible_slots != 0);
+    appearance.head_parts.clear();
+    appearance.facegen = None;
+    Ok(appearance)
 }
 
 fn read(vfs: &Vfs, path: &str) -> Result<Vec<u8>, ActorError> {
@@ -500,12 +527,7 @@ impl ActorAssets {
         let (mut graph, unresolved_references) = Self::load_graph(vfs, &behavior_path)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph, &root);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
-        let mut appearance = world.actor_appearance(actor)?;
-        for part in &mut appearance.parts {
-            part.model.clone_from(&part.first_person_model);
-        }
-        appearance.head_parts.clear();
-        appearance.facegen = None;
+        let appearance = first_person_appearance(world, actor)?;
         let surfaces = Self::appearance_surfaces(vfs, &appearance, &skeleton)?;
         let mut assets = ActorAssets {
             skeleton,
@@ -1690,6 +1712,86 @@ fn rigid_surface(
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn hst_25_installed_inventory_gauntlets_have_first_person_geometry() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut game = source.localized_game().unwrap();
+        let player = game.player();
+        let gauntlets = soe_esm::GlobalFormId {
+            file: 0,
+            object: 0x12e46,
+        };
+        game.world_mut().add_item(player, gauntlets, 1);
+        assert!(crate::inventory_menu::toggle_equip(&mut game, gauntlets));
+        let mut world = game.world_mut();
+        let appearance = world.actor_appearance(player).unwrap();
+        println!("HST-25 gauntlets {appearance:?}");
+        let first =
+            ActorAssets::load_player_first_person(&mut world, player, source.vfs()).unwrap();
+        let names: Vec<_> = first
+            .surfaces
+            .iter()
+            .map(|surface| surface.name.as_str())
+            .collect();
+        assert!(
+            names
+                .iter()
+                .any(|name| name.to_ascii_lowercase().contains("gauntlet")),
+            "first person gauntlets missing: {names:?}"
+        );
+    }
+
+    fn inventory_scene(script: &str) {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let binary =
+            std::env::var_os("SOE_GODOT_BIN").expect("installed equipment check requires Godot");
+        let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for headless in [true, false] {
+            let mut command = std::process::Command::new(&binary);
+            if headless {
+                command.arg("--headless");
+            }
+            let output = command
+                .arg("--path")
+                .arg(workspace.join("godot"))
+                .args(["--resolution", "640x360", "--script", script])
+                .env("SKYRIM_DATA", &data)
+                .env("DISPLAY", ":99")
+                .env("SOE_INTERFACE_CACHE", "/tmp/soe-equipment-no-interface")
+                .env_remove("SOE_CAPTURE_PATH")
+                .env_remove("SOE_THREADED_SIMULATION")
+                .output()
+                .unwrap();
+            let log = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            std::fs::write(
+                workspace.join(format!("target/{script}-{headless}.log")),
+                &log,
+            )
+            .unwrap();
+            assert!(
+                output.status.success()
+                    && log.contains("RESULT: PASS HST-25 inventory equipment")
+                    && !log.contains("SCRIPT ERROR"),
+                "{script} headless={headless} {}: {log}",
+                output.status
+            );
+        }
+    }
+
+    #[test]
+    fn hst_25_walkthrough_inventory_armor() {
+        inventory_scene("hst_25_armor_test.gd");
+    }
 
     #[test]
     fn first_person_load_does_not_prepare_third_person_assets() {
