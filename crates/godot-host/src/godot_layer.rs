@@ -3900,6 +3900,20 @@ impl CellStreamerNode {
         self.collision.movable_poses()
     }
 
+    /// Measure the production carry drive on one resident body in an isolated test region.
+    #[func]
+    pub fn debug_pull_reference(
+        &self,
+        file: i32,
+        object: i64,
+        anchor: Vector3,
+        target: Vector3,
+        delta: f32,
+    ) -> bool {
+        script_reference(file, object)
+            .is_some_and(|reference| self.spring_carry(reference, anchor, target, delta, 100.0))
+    }
+
     /// Hold one resident movable reference under host-controlled motion.
     #[func]
     pub fn telekinesis_grab_reference(&mut self, file: i32, object: i64) -> bool {
