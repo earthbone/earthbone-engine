@@ -630,7 +630,8 @@ malformed or partial file should still produce a readable snapshot.
 - Actors (`SceneActor`): alias ID, flags and behavior flags.
 - Actions (`SceneAction`): type, name, alias ID, index, flags, start and end
   phase, plus `SceneActionData`, the type-specific union. Dialogue actions
-  keep their topic FormID, Package actions their ordered package FormIDs,
+  keep their topic FormID and signed HTID headtracking alias, Package actions
+  their ordered package FormIDs,
   Timer actions their duration. SNAM is the shared start-phase index for
   every action type, and a Timer action carries a second SNAM after it for
   the type-specific duration float, as UESP's SCEN page notes. On a Timer
@@ -654,8 +655,8 @@ transition is driven by a field only the next section defines, per
 
 Unused, pre-SE leftover subrecords inside phases and actions (SCHR, SCDA,
 SCTX, SCRO, a leftover QNAM) are read past and dropped, as is a second CK
-scripting leftover block after Actions and before PNAM. HTID, DMAX, DMIN,
-DEMO and DEVA, the head-tracking and looping extras on Dialogue actions, are
+scripting leftover block after Actions and before PNAM. DMAX, DMIN,
+DEMO and DEVA, the looping and emotion extras on Dialogue actions, are
 not decoded. A SCEN with an unclosed phase, actor or action group at record
 end (a truncated file, since the three lists have no length prefix to
 validate against) still surfaces that last, partial entry: the reader flushes

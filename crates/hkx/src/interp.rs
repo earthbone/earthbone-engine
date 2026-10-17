@@ -778,6 +778,7 @@ struct IntervalState {
 struct Runtime {
     active: bool,
     local_time: f32,
+    clip_sampled: bool,
     synchronized_time: Option<f32>,
     at_end: bool,
     /// Loops completed, for acyclic triggers.
@@ -1313,6 +1314,37 @@ pub struct Interpreter<'a> {
     ragdoll_contacts: Vec<RagdollContact>,
     raised: Vec<Event>,
     handled: Vec<Event>,
+    annotation_events: Vec<i32>,
+    changes: Vec<StateChange>,
+    unsupported: Unsupported,
+    output: Output,
+    expression_random_state: u64,
+    character_position: Option<[f32; 3]>,
+    foot_ik_ground_targets: Vec<FootIkGroundTarget>,
+    frame: u64,
+    condition_frames: Vec<u64>,
+}
+
+/// Interpreter state retained between ticks without borrowing graph assets.
+/// Rebind it to the same graph and clip library before the next update.
+pub struct InterpreterState {
+    reference_pose: Vec<QsTransform>,
+    variables: Variables,
+    character_properties: Variables,
+    nodes: Vec<Runtime>,
+    generated: Vec<Option<Output>>,
+    bindings: Vec<ResolvedBinding>,
+    bone_weight_masks: HashMap<u32, Vec<f32>>,
+    conditions: HashMap<Condition, std::result::Result<Expression, ExpressionError>>,
+    expressions: Vec<Option<Vec<std::result::Result<Expression, ExpressionError>>>>,
+    /// Modifier nodes in this frame's authored traversal order. Output
+    /// bindings publish in this order rather than arena allocation order.
+    modifier_order: Vec<NodeId>,
+    pending: Vec<Event>,
+    ragdoll_contacts: Vec<RagdollContact>,
+    raised: Vec<Event>,
+    handled: Vec<Event>,
+    annotation_events: Vec<i32>,
     changes: Vec<StateChange>,
     unsupported: Unsupported,
     output: Output,
@@ -1331,6 +1363,70 @@ const MAX_EVENT_ROUNDS: usize = 8;
 const MAX_MODIFIER_LIST_DEPTH: usize = 64;
 
 impl<'a> Interpreter<'a> {
+    /// Rebind saved runtime state to the graph and clips that created it.
+    pub fn from_state(
+        graph: &'a BehaviorGraph,
+        clips: &'a ClipLibrary,
+        state: InterpreterState,
+    ) -> Self {
+        Self {
+            graph,
+            clips,
+            reference_pose: state.reference_pose,
+            variables: state.variables,
+            character_properties: state.character_properties,
+            nodes: state.nodes,
+            generated: state.generated,
+            bindings: state.bindings,
+            bone_weight_masks: state.bone_weight_masks,
+            conditions: state.conditions,
+            expressions: state.expressions,
+            modifier_order: state.modifier_order,
+            pending: state.pending,
+            ragdoll_contacts: state.ragdoll_contacts,
+            raised: state.raised,
+            handled: state.handled,
+            annotation_events: state.annotation_events,
+            changes: state.changes,
+            unsupported: state.unsupported,
+            output: state.output,
+            expression_random_state: state.expression_random_state,
+            character_position: state.character_position,
+            foot_ik_ground_targets: state.foot_ik_ground_targets,
+            frame: state.frame,
+            condition_frames: state.condition_frames,
+        }
+    }
+
+    /// Preserve playheads, pending events and variables without asset lifetimes.
+    pub fn into_state(self) -> InterpreterState {
+        InterpreterState {
+            reference_pose: self.reference_pose,
+            variables: self.variables,
+            character_properties: self.character_properties,
+            nodes: self.nodes,
+            generated: self.generated,
+            bindings: self.bindings,
+            bone_weight_masks: self.bone_weight_masks,
+            conditions: self.conditions,
+            expressions: self.expressions,
+            modifier_order: self.modifier_order,
+            pending: self.pending,
+            ragdoll_contacts: self.ragdoll_contacts,
+            raised: self.raised,
+            handled: self.handled,
+            annotation_events: self.annotation_events,
+            changes: self.changes,
+            unsupported: self.unsupported,
+            output: self.output,
+            expression_random_state: self.expression_random_state,
+            character_position: self.character_position,
+            foot_ik_ground_targets: self.foot_ik_ground_targets,
+            frame: self.frame,
+            condition_frames: self.condition_frames,
+        }
+    }
+
     /// Resolve every binding and size the run-time arena. The reference
     /// pose sets the bone count of every output.
     pub fn new(
@@ -1384,6 +1480,7 @@ impl<'a> Interpreter<'a> {
             ragdoll_contacts: Vec::new(),
             raised: Vec::new(),
             handled: Vec::new(),
+            annotation_events: Vec::new(),
             changes: Vec::new(),
             unsupported: Unsupported::default(),
             output: Output {
@@ -1773,6 +1870,11 @@ impl<'a> Interpreter<'a> {
         std::mem::take(&mut self.handled)
     }
 
+    /// Drain IDs emitted by annotation triggers in the last update.
+    pub fn take_annotation_events(&mut self) -> Vec<i32> {
+        std::mem::take(&mut self.annotation_events)
+    }
+
     /// Queue an event for the next update.
     pub fn send_event(&mut self, id: i32) {
         self.pending.push(Event { id });
@@ -1946,6 +2048,7 @@ impl<'a> Interpreter<'a> {
     pub fn update(&mut self, dt: f32) -> &Output {
         self.frame += 1;
         self.generated.fill(None);
+        self.annotation_events.clear();
         self.apply_bindings();
         if let Some(root) = self.graph.root {
             if !self.nodes[root.0].active {
@@ -3005,6 +3108,7 @@ impl<'a> Interpreter<'a> {
             NodeKind::Clip(c) => {
                 let rt = &mut self.nodes[id.0];
                 rt.local_time = c.start_time.max(0.0);
+                rt.clip_sampled = false;
                 rt.at_end = false;
                 rt.passes = 0;
             }
@@ -4197,6 +4301,8 @@ impl<'a> Interpreter<'a> {
         let rt = &mut self.nodes[id.0];
         let speed = rt.playback_speed.unwrap_or(clip.playback_speed);
         let previous = rt.local_time;
+        let first_sample = !rt.clip_sampled;
+        rt.clip_sampled = true;
         let mut wrapped = false;
         if let Some(time) = rt.synchronized_time {
             rt.local_time = time.min(duration);
@@ -4260,15 +4366,20 @@ impl<'a> Interpreter<'a> {
             let crossed = if wrapped {
                 at > previous || at <= now
             } else {
-                previous < at && at <= now
+                (first_sample && previous == at) || (previous < at && at <= now)
             };
-            let first_pass = passes == 0 || (wrapped && passes == 1 && at > previous);
+            let first_pass = (first_sample && previous == at)
+                || passes == 0
+                || (wrapped && passes == 1 && at > previous);
             if crossed && (!t.acyclic || first_pass) {
-                fired.push(t.event.id);
+                fired.push((t.event.id, t.is_annotation));
             }
         }
-        for e in fired {
-            self.raise(e);
+        for (event, annotation) in fired {
+            self.raise(event);
+            if annotation {
+                self.annotation_events.push(event);
+            }
         }
         let mut pose = self.reference_pose.clone();
         source.sample_into(now + clip.crop_start_amount_local_time, &mut pose);
@@ -5109,6 +5220,77 @@ mod tests {
         assert_eq!(second.nodes[0].synchronized_time, None);
     }
 
+    fn clip_start_graph() -> BehaviorGraph {
+        use crate::behavior::{ClipTrigger, EventInfo, EventProperty};
+        BehaviorGraph {
+            name: "opening".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                event_names: vec!["Begin".into()],
+                event_infos: vec![EventInfo { flags: 0 }],
+                ..BehaviorGraphData::default()
+            },
+            nodes: vec![Node {
+                id: NodeId(0),
+                offset: 0,
+                class: "hkbClipGenerator".into(),
+                name: "OpeningAnim".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::Clip(ClipGenerator {
+                    animation_name: "modifier-pose".into(),
+                    playback_speed: 1.0,
+                    triggers: vec![ClipTrigger {
+                        local_time: 0.0,
+                        event: EventProperty {
+                            id: 0,
+                            has_payload: false,
+                        },
+                        relative_to_end_of_clip: false,
+                        acyclic: false,
+                        is_annotation: false,
+                    }],
+                    ..ClipGenerator::default()
+                }),
+            }],
+        }
+    }
+
+    #[test]
+    fn ply_03_clip_start_trigger_fires_once_per_activation_even_at_zero_delta() {
+        let graph = clip_start_graph();
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        vm.update(0.0);
+        assert_eq!(vm.take_events().len(), 1);
+        vm.update(0.0);
+        assert!(vm.take_events().is_empty());
+        vm.update(0.1);
+        assert!(vm.take_events().is_empty());
+        vm.deactivate(NodeId(0));
+        vm.update(0.0);
+        assert_eq!(vm.take_events().len(), 1);
+    }
+
+    #[test]
+    fn ply_03_acyclic_start_trigger_survives_a_first_step_past_the_loop_end() {
+        let mut graph = clip_start_graph();
+        let NodeKind::Clip(clip) = &mut graph.nodes[0].kind else {
+            panic!("clip");
+        };
+        clip.mode = 1;
+        clip.triggers[0].acyclic = true;
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        vm.update(1.5);
+        assert_eq!(vm.take_events().len(), 1);
+        vm.update(1.0);
+        assert!(vm.take_events().is_empty());
+    }
+
     /// One transform track at a non-reference x position. This is encoded as
     /// a spline clip so the wrapper test exercises the normal sampling path.
     fn modifier_generator_clip() -> Clip {
@@ -5222,6 +5404,10 @@ mod tests {
         );
         vm.update(0.125);
         assert_eq!(vm.clip_time(NodeId(1)), Some(0.25));
+        let mut vm = Interpreter::from_state(&graph, &clips, vm.into_state());
+        vm.update(0.125);
+        assert_eq!(vm.clip_time(NodeId(1)), Some(0.375));
+        assert!(vm.take_events().is_empty());
     }
 
     fn anm_14_rotation_graph(enable: bool) -> BehaviorGraph {

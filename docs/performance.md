@@ -2076,6 +2076,95 @@ limits are unchanged.
 
 ## Detection neighborhoods, PRF-31
 
+### Integration query parameter reuse, loop round 3, 2026-10-14
+
+The preceding installed integration run exceeded the unchanged 2,000-microsecond
+limit once across 424 walk samples, at 2,064 microseconds. Observation and sight
+construction took 1,031 microseconds in that update, body synchronization 273,
+light construction 23 and world evaluation 679.
+
+Endpoint overlap queries now retain their parameter objects by actor,
+with a separate object for region overlap queries. Exclusions are
+uploaded when body RIDs change, and collision masks refresh when changed.
+Parameters for actors whose bodies have left the query are dropped. Region
+exclusions use sorted RIDs so unchanged membership retains the same parameters.
+Every sample still updates endpoint transforms and sphere radii and rebuilds
+overlap results, clear regions and reciprocal visibility. No reference node,
+saved state or dependency is added.
+
+The local Godot `classes/class_physicsshapequeryparameters3d.rst` documents
+RID exclusions and query shape ownership. The existing Godot query path fits
+this work, so it remains the source of overlap and ray results. This continues
+PRF-31's complete detection budget and the existing AI-70 camera and CMB-32
+sound source contracts. The ray-equivalence fixture now compares repeated
+samples and samples after capsule movement with fresh Godot rays.
+
+Parameter reuse alone still failed the walk with three updates above the
+limit across 414 samples, at a maximum of 2,436 microseconds. The initial
+sample also failed at 2,052 microseconds. Repeated and moved ray-equivalence
+samples passed with zero mismatches.
+
+The follow-up expands scenery-query regions to contain endpoint spheres.
+An endpoint sphere wholly inside one currently clear box can omit its own
+Godot sphere query only when it also misses every other excluded capsule.
+The capsule proof uses an enlarged radius and closest points on each upright
+capsule's axis, following local Jolt `Geometry/ClosestPoint.h`. The existing
+generated host capsules supply their geometry. These small CPU witnesses
+fit the current Godot adapter without adding a second physics world.
+Uncertain endpoints keep their independent sphere queries. The four covering
+queries still reject unknown one-sided geometry before either proof runs.
+The installed ray comparison requires the endpoint batch proof to be exercised.
+Three new library tests cover full-volume containment, capsule sides and end
+caps, membership changes and invalid geometry. Clear-path proofs also require
+every synchronized capsule to have valid geometry, otherwise Godot handles
+the ray.
+
+That walk still failed once across 422 samples, at 4,445 microseconds. World
+evaluation accounted for 3,156 microseconds in that sample, compared with 213
+in the first walking sample. Detection senses also used mutable actor access
+for already built actors, marking unchanged references for translation and
+invalidating enable, contact and light caches on every batch. The newer PRF-31
+and PRF-34 indexes need those invalidations only when reference state changes.
+Their mutation hooks remain intact, and CMB-32's sense reader now uses existing
+actor state through read-only access, with lazy construction on first use.
+The unchanged-reference regression fails on the prior code and requires 60
+subsequent batches to retain cached enable entries without translation candidates.
+PRF-34 commit `8251cb028` added the mutable-reference invalidation in
+`World::reference`, reached through `World::actor` by the detection reader.
+
+The corrected reader still failed two of 424 windowed software Forward+
+samples, with a 3,429-microsecond maximum. The same exact installed test
+under the windowed compatibility renderer passed all 640 samples, with a
+1,775-microsecond maximum. The initial exterior sample took 1,191 microseconds
+for 870 observations and 32 bodies. City movement reached 782.0 game units
+and Tamriel movement reached 1,222.2. Both phases retained resident actors,
+sound observations, collision-guided movement and matching camera displacement.
+
+The CPU detection fixture now selects that windowed renderer explicitly.
+It retains the 640 by 360 window, both 30-second phases and every original
+2,000-microsecond and movement assertion. PRF-34's newer budget separates
+engine main-thread work from Godot rendering. This fixture uses the same
+physics and detection entry point while reducing software rendering load.
+The software Forward+ failure above remains a failed measurement, and this
+test supplies no Forward+ rendering performance acceptance.
+
+The final ordinary launcher run passes all 732 samples, with a maximum of
+1,596 microseconds and zero updates above the unchanged budget. The initial
+sample takes 1,468 microseconds for 870 observations and 32 bodies. City
+movement reaches 876.8 game units and Tamriel movement reaches 1,266.1.
+The local Godot `tutorials/rendering/renderers.rst` documents the renderer
+choices. This uses the host's existing renderer option without changing
+the gameplay project configuration or physics backend.
+
+Debug checks pass 241 game library tests, 443 host library tests, 11 shared
+detection integration tests and five sound-event integration tests. The
+unchanged-reference regression fails before the read correction and passes
+after it. Both packages pass formatting and all-targets clippy with warnings
+denied. Release builds and the headless project import pass. Installed checks
+use SKYRIM_DATA, optimization level 1 and one exact test on one thread.
+
+### Detection membership and route correction, 2026-10-11
+
 The 2026-10-11 follow-up removes another whole-reference scan from actor
 selection. Contact queries retain sorted actor FormIDs and recheck membership
 only for invalidated references. Prefetch prepares that index, and native-save
@@ -2151,19 +2240,175 @@ and independent sound-source positions on their own query paths.
 
 The host collision builder enables two-sided mesh collision. Its prepared
 body index follows creation, replacement, removal and cell ownership changes.
-Four covering sphere queries check for other geometry before reciprocal reuse.
+Four covering shape queries check for other geometry before reciprocal reuse.
 Their centers surround the endpoint volume, so an intersecting one-sided
 triangle is seen from its front by at least one query. Any unclassified body
 hit returns the batch to independent rays. This guard follows Godot 4.4's
 [Jolt double-sided shape implementation](https://github.com/godotengine/godot/blob/4.4/modules/jolt_physics/shapes/jolt_custom_double_sided_shape.cpp),
-which can override the requested ray back-face mode. One temporary sphere
-shape serves the checks and is freed before observations are evaluated.
+which can override the requested ray back-face mode. Query parameters and
+shapes are reused by the player and freed when it leaves the tree.
 
 Observation construction reuses the exact distance calculated for range
 membership. World validates each actor identity and death state once per
 batch, retaining observation order, reference-target validation and atomic
 pool updates. A separate unit check changes death state between batches and
 requires the next batch to reject it without changing detection state.
+
+### Integration loop round 1, 2026-10-13
+
+The PRF-31 sight setup reuses the already selected actor identities rather
+than cloning the placements and rebuilding their neighborhood a second time.
+Capsule occlusion first rejects bodies whose bounds miss the segment before
+the target's outer bounds. The existing interior-sphere witness remains the
+final rejection test, following local Jolt `Jolt/Geometry/RaySphere.h`.
+Verification mode reports setup time and independent ray count alongside its
+comparison with Godot's original queries. AI-70's camera origin and CMB-32's
+separate sound source and owner remain part of the observation contract.
+The manual walk hook updates the camera after moving its capsule. Its walking
+check requires matching horizontal camera and capsule displacement within
+one centimetre on every sample, retaining the 2,000-microsecond detection limit.
+
+An optimized standalone comparison uses the 36-actor fixture from
+`prf_31_occlusion_rejections_match_nearest_capsule_raycasts`. All 1,260 ordered
+pairs return the same answers before and after the bounds check. Five runs of
+1,000 sweeps take 149,727 to 150,607 microseconds before and 56,609 to 57,747
+after. Both versions reject 816 pairs per sweep. These are capsule-helper
+measurements, separate from the complete Godot detection budget.
+
+The focused debug library checks report 20 passes. The walk target reports
+four passes, including three installed cases that return early with game data
+unset. The release build, headless project import, package formatting and
+all-targets clippy with warnings denied pass. The installed ray comparison
+was cancelled with exit status 130 after more than 40 minutes without a
+result while the shared installed slot remained occupied. A separate exact
+windowed timing attempt also waited without a result and was cancelled with
+status 1. Installed ray equivalence and the full 2,000-microsecond budget
+remain unverified for this patch. The recorded earlier budget failures remain
+failed measurements.
+
+### Integration loop round 1, attempt 2, 2026-10-14
+
+The merged rerun recorded 33 updates above 2,000 microseconds across 374
+walk samples. Its worst update took 3,817 microseconds, including 3,087 in
+observation construction and sight. Whiterun and Tamriel movement both passed.
+A separate installed ray comparison checked 515 shortcut decisions with zero
+mismatches. That baseline used 355 independent rays and spent 270 to 298
+microseconds preparing sight queries.
+
+The follow-up retains PRF-31's whole-update budget, AI-70's camera origin and
+CMB-32's separate sound source and owner. Observation construction reuses a
+sorted target buffer, preserving FormID order and the strongest sound event
+with the existing latest-event tie rule.
+
+Pair validation uses a membership set without iterating it. Combat indexing
+retains a unique target or a marker for several targets. Observation order,
+per-pair Alert and busy modifiers and atomic pool replacement remain the same.
+Matching target and sound distances share the same attenuation result.
+Controller scale reuses the terminal NPC parsed while resolving its Traits
+template group, including its race link. Current records, template-cycle
+checks and CMB-33's race, sex and height sources are retained.
+
+Four covering boxes with tetrahedral centers rule out unknown one-sided
+geometry in the eye volume. Each box contains the whole volume and scales
+its height with the volume's height.
+Godot box overlap queries test clusters of eye positions for scenery. An
+obstructed cluster splits along its widest axis and retries, with at most 16
+box queries per update. Only the synchronized static capsules are excluded.
+Clear regions can prove visibility when their continuous coverage contains
+the whole segment, the target point lies inside its capsule and every third
+capsule's enlarged shape misses the complete segment. Any gap in region coverage
+keeps the original ray query. Other rays keep the existing occlusion witness
+and Godot query paths.
+Each ray's region intervals are calculated once, sorted in a fixed buffer and
+checked for continuous coverage. This avoids repeating slab divisions as the
+coverage frontier advances.
+Capsule witnesses use the finite cylinder and both end spheres, with smaller
+radii for blocked paths and larger radii for clear paths. The old three-sphere
+sampling left cylinder gaps and missed clear paths through box corners.
+Reusable query resources keep the covering exclusion set until its RID list
+changes. All geometry queries and visibility results are rebuilt each update.
+The three query shapes are released by PlayerNode's exit callback.
+All region proofs are rebuilt on each update. No world state is duplicated.
+
+The local Jolt `Jolt/Geometry/RayAABox.h` supplies the slab intersection model,
+alongside `RayCapsule.h`, `RayCylinder.h` and the generated controller capsule.
+CommonLibSSE-NG `src/RE/T/TESNPC.cpp::GetHeight` supplies CMB-33's existing
+race, sex and NPC-height contract. The local Godot
+`godot-docs/classes/class_physicsdirectspacestate3d.rst` documents the overlap
+query. Jolt `Jolt/Physics/Collision/CollideConvexVsTriangles.cpp` and
+`CollideSphereVsTriangles.cpp` explain why the one-sided geometry guard must
+remain before an empty box can prove clear sight. The small conservative
+helpers avoid building a second physics world and leave uncertain geometry
+to Godot.
+
+The final installed comparison checks 764 shortcut decisions with zero
+mismatches, including 402 reciprocal lookups. Clear-region witnesses handle
+248 rays, leaving 106 independent queries, compared with 355 at the merged
+baseline. The separate one-sided obstruction check passes after query reuse.
+The exact windowed walk passes all 378 samples across Whiterun and Tamriel
+with a maximum of 1,925 microseconds and no over-budget updates. The initial
+exterior sample takes 1,901 microseconds for 870 pairs and 32 resident bodies.
+City movement reaches 316.1 game units and Tamriel movement reaches 904.1.
+The earlier follow-up measurements still failed, including one update of
+2,208 microseconds before query reuse. These measurements retain the original
+2,000-microsecond limit.
+
+Debug library checks pass 440 host and 240 game tests. The six PRF-31
+adversarial targets pass 15 tests. The shared-detection, sound-event and
+controller-scale game integration filters pass 11, five and five tests.
+The release build, initial headless project import, formatting and all-targets
+clippy with warnings denied pass. The installed checks set SKYRIM_DATA and
+CARGO_PROFILE_DEV_OPT_LEVEL=1 and run one exact test on one thread.
+The workspace lint gate is excluded by the integration-fixer instructions.
+
+### Integration capsule sampling correction, 2026-10-14
+
+The next installed integration pass failed PRF-31's unchanged two millisecond
+walk limit on two of 390 updates, with a maximum of 2,209 microseconds.
+The capsule clear-path helper now rejects capsules outside the segment's
+bounds before testing slabs, and computes inverse direction once per segment.
+Capsule intersections reject radial misses before testing end spheres, with a
+finite cylinder shortcut for the remaining interior hits. The local Jolt
+`Jolt/Geometry/RayAABox.h` supplies the inverse-direction model, and
+`Jolt/Geometry/RayCapsule.h` supplies the radial rejection model.
+The existing enlarged bounds, zero-direction handling and exact capsule
+intersection remain in use. This follows PRF-31's whole-update budget while
+retaining CMB-32's directional sight and separate sound source and owner.
+Geometry and sight results still belong to one update, with no saved state,
+dependency or reference node added.
+
+The reusable query parameters retain combined exclusions until either source
+RID list or actor membership changes. Copied source arrays detect edits to
+Godot's shared array storage. Changed membership marks the covering query
+dirty. Actor RIDs are sorted when rebuilding the list. An unchanged sample
+neither rebuilds the list nor uploads it to Godot.
+
+HST-23 added NPC loading and animation through PlayerNode's render callback,
+independently of `auto_step`. The manual detection fixture now disables that
+callback and checks that no NPC visuals or loads start. The window, scenery,
+resident actor bodies, sounds, controller movement and camera remain active.
+This preserves the harness's existing omission of AI and VM ticks. It does
+not measure HST-23's NPC rendering budget.
+
+The first geometry optimization still failed the walk, including four
+over-budget updates and a 2,475 microsecond maximum. Disabling automatic
+presentation after that still left one over-budget update at 2,190
+microseconds. After exclusion reuse and radial rejection, the exact installed
+windowed walk passed all 424
+updates across both worldspaces, with a maximum of 1,801 microseconds and zero
+over-budget updates. The initial exterior sample took 1,541 microseconds for
+870 pairs and 32 bodies. City movement reached 417.6 game units and Tamriel
+movement reached 952.8. These are wall-clock measurements on the private
+software Vulkan display, with the original 2,000 microsecond limit.
+
+The installed occlusion comparison passed 764 shortcut decisions with zero
+mismatches, including 402 reciprocal lookups. The exact one-sided obstruction
+check also passed. Each installed case ran separately with development
+optimization level 1 and one test thread, after the release build and project
+import. Debug validation passed 440 library tests, five adversarial tests and
+the walk route check. The three installed runners skipped with data unset
+during the debug target run. Package all-target Clippy with warnings denied
+and formatting passed. The workspace lint gate was excluded from this repair.
 
 ### Follow-up local verification
 

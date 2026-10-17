@@ -185,7 +185,7 @@ impl PlayerNode {
         self.advance_detection(elapsed, Motion::Still)
     }
 
-    /// Walk the host capsule and stream its exterior before a detection sample.
+    /// Walk the host capsule and camera, then stream before a detection sample.
     /// This harness holds NPC placements fixed and omits AI planning and VM
     /// ticks, while using the complete gameplay detection entry point.
     #[func]
@@ -213,6 +213,7 @@ impl PlayerNode {
         if !self.advance_exterior() {
             return -1;
         }
+        self.update_camera();
         self.advance_detection(elapsed, Motion::Walking)
     }
 
@@ -434,10 +435,12 @@ impl PlayerNode {
         drop(shared);
         let started = std::time::Instant::now();
         let mut spaces = None;
+        let mut participants = std::collections::HashSet::new();
         let Some(actors) = self.sync_actor_bodies_and_contacts_with(|world, mut actors| {
             actors.retain(|actor| world.actor_ref(actor.actor).is_none_or(|state| !state.dead));
             let frame = crate::detection::DetectionSpaces::new(world, &actors, &events, range);
-            let candidates = frame.candidate_actors(actors, &events);
+            let (candidates, nearby) = frame.candidate_actors_with_neighbors(actors, &events);
+            participants = nearby;
             spaces = Some(frame);
             candidates
         }) else {
@@ -464,16 +467,14 @@ impl PlayerNode {
         let lights = crate::detection::LightSamples::new(&world, &cells);
         self.detection_stage_usec[1] = started.elapsed().as_micros() as i64;
         let started = std::time::Instant::now();
-        let Ok(mut rays) = ContactRays::new(space, &owners) else {
+        let queries = self
+            .detection_queries
+            .get_or_insert_with(crate::godot_combat::DetectionQueries::new);
+        let Ok(mut rays) = ContactRays::with_query(space, &owners, queries.ray.clone()) else {
             return -1;
         };
         let capsules = self.actor_bodies.sight_capsules();
         let occlusion = crate::detection::ActorOcclusion::new(&capsules);
-        let participants: std::collections::HashSet<_> = spaces
-            .candidate_actors(actors.clone(), &[])
-            .iter()
-            .map(|actor| actor.actor)
-            .collect();
         let symmetric_capsules: Vec<_> = capsules
             .iter()
             .copied()
@@ -482,25 +483,23 @@ impl PlayerNode {
                     && !self.melee_bodies.values().any(|owner| owner == actor)
             })
             .collect();
-        let mut trusted = self
-            .query_collision
-            .sight_exclusions()
-            .map(Array::duplicate_shallow)
-            .unwrap_or_default();
-        if let Some(streamer) = &self.game_streamer {
-            let streamer = streamer.bind();
-            if let Some(exclusions) = streamer.sight_exclusions() {
-                trusted.extend_array(exclusions);
-            }
-        }
-        for &body in self.actor_bodies.owners().keys() {
-            trusted.push(body);
-        }
-        let mut symmetry = rays.sight_symmetry(&symmetric_capsules, &trusted);
+        let streamer = self.game_streamer.as_ref().map(|streamer| streamer.bind());
+        queries.set_exclusions(
+            self.query_collision.sight_exclusions(),
+            streamer
+                .as_ref()
+                .and_then(|streamer| streamer.sight_exclusions()),
+            self.actor_bodies.owners(),
+        );
+        drop(streamer);
+        let mut symmetry = rays.sight_symmetry(&symmetric_capsules, queries);
         let verify_occlusion = std::env::var_os("SOE_VERIFY_DETECTION_OCCLUSION").is_some();
         let mut verified = 0;
         let mut reciprocal_verified = 0;
         let mut mismatches = 0;
+        let setup_usec = started.elapsed().as_micros();
+        let mut independent = 0;
+        let mut clear = 0;
         let observations = spaces.observations(
             &actors,
             &events,
@@ -524,20 +523,30 @@ impl PlayerNode {
                 let reuse = symmetry.lookup(observer.actor, target.actor, from, to);
                 let cached = reuse.cached();
                 let shortcut = cached.or_else(|| {
-                    (!self
+                    if self
                         .melee_bodies
                         .values()
                         .any(|&actor| actor == target.actor)
-                        && occlusion.blocked(
-                            observer.actor,
-                            target.actor,
-                            skyrim(from),
-                            skyrim(to),
-                        ))
-                    .then_some(false)
+                    {
+                        return None;
+                    }
+                    let start = skyrim(from);
+                    let end = skyrim(to);
+                    if symmetry.scenery_clear(from, to)
+                        && occlusion.clear(observer.actor, target.actor, start, end)
+                    {
+                        clear += 1;
+                        Some(true)
+                    } else {
+                        occlusion
+                            .blocked(observer.actor, target.actor, start, end)
+                            .then_some(false)
+                    }
                 });
-                let visible = shortcut
-                    .unwrap_or_else(|| rays.visible(observer.actor, target.actor, from, to));
+                let visible = shortcut.unwrap_or_else(|| {
+                    independent += 1;
+                    rays.visible(observer.actor, target.actor, from, to)
+                });
                 if verify_occlusion && shortcut.is_some() {
                     verified += 1;
                     reciprocal_verified += usize::from(cached.is_some());
@@ -552,6 +561,11 @@ impl PlayerNode {
         );
         self.detection_stage_usec[2] = started.elapsed().as_micros() as i64;
         if verify_occlusion {
+            let regions = symmetry.clear_region_count();
+            let batch_heads = symmetry.batch_head_count();
+            godot_print!(
+                "PRF31 sight setup_us={setup_usec} independent={independent} clear={clear} regions={regions} batch_heads={batch_heads}"
+            );
             godot_print!("PRF31 occlusion checked={verified} mismatches={mismatches}");
             godot_print!("PRF31 reciprocal checked={reciprocal_verified}");
             if mismatches != 0 {

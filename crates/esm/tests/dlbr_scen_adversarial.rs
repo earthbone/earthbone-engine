@@ -22,6 +22,31 @@ fn words(values: &[u32]) -> Vec<u8> {
         .collect()
 }
 
+#[test]
+fn scene_dialogue_keeps_signed_headtracking_alias_and_null_topic() {
+    for alias in [-1i32, 12] {
+        let record = Record::new(b"SCEN", 1)
+            .sub(b"ANAM", 0u16.to_le_bytes())
+            .sub(b"DATA", 0u32.to_le_bytes())
+            .sub(b"HTID", alias.to_le_bytes())
+            .sub(b"ANAM", []);
+        let scene = Scene::from_record(&record).unwrap();
+        assert_eq!(scene.actions[0].headtrack_alias, Some(alias));
+        assert_eq!(
+            scene.actions[0].data,
+            SceneActionData::Dialogue { topic: Some(0) }
+        );
+    }
+}
+
+#[test]
+fn scene_dialogue_rejects_a_truncated_headtracking_alias() {
+    let record = Record::new(b"SCEN", 1)
+        .sub(b"ANAM", 0u16.to_le_bytes())
+        .sub(b"HTID", [0; 3]);
+    assert!(Scene::from_record(&record).is_err());
+}
+
 fn condition(flags: u8, comparison: u32, function: u16, param: u32) -> Vec<u8> {
     let mut bytes = vec![flags, 0xaa, 0xbb, 0xcc];
     bytes.extend(comparison.to_le_bytes());

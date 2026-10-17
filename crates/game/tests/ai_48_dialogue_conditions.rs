@@ -123,10 +123,10 @@ fn game() -> Game {
 fn ai_48_implemented_dialogue_and_scene_predicates_match_runtime_state() {
     let mut game = game();
     let actor = id(ACTOR);
-    let scene = condition(550, [SCENE, 0], 1.0);
+    let scene = condition(550, [SCENE, 1], 1.0);
     assert!(conditions::supports_function(550));
     assert_eq!(
-        evaluate(&game, actor, &condition(550, [SCENE, 0], 0.0)),
+        evaluate(&game, actor, &condition(550, [SCENE, 1], 0.0)),
         Ok(true)
     );
     let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
@@ -134,12 +134,12 @@ fn ai_48_implemented_dialogue_and_scene_predicates_match_runtime_state() {
     assert!(game.world_mut().complete_scene_action(id(SCENE), 0));
     assert_eq!(evaluate(&game, actor, &scene), Ok(true));
     assert_eq!(
-        evaluate(&game, actor, &condition(550, [SCENE, 0], 0.0)),
+        evaluate(&game, actor, &condition(550, [SCENE, 1], 0.0)),
         Ok(false)
     );
     assert_eq!(
-        evaluate(&game, actor, &condition(550, [SCENE, 1], 1.0)),
-        Err(conditions::Error::Parameter(550, 1))
+        evaluate(&game, actor, &condition(550, [SCENE, 0], 1.0)),
+        Err(conditions::Error::Parameter(550, 0))
     );
     assert_eq!(
         evaluate(&game, actor, &condition(550, [0xfff, 0], 1.0)),
@@ -234,6 +234,143 @@ fn ai_48_functions_without_a_usable_local_contract_report_diagnostics() {
 }
 
 #[test]
+fn ai_48_vanilla_condition_550_uses_authored_action_ids() {
+    use soe_esm::records::gameplay::Scene;
+
+    let Some(order) = crate::common::installed::load_order(&[
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ]) else {
+        return;
+    };
+    let mut game = Game::from_shared_order(order.clone());
+    let mut missing = Vec::new();
+    let mut count = 0;
+    let mut different_slots = 0;
+    let mut outside_slots = 0;
+    let mut owners: Vec<_> = order.winners().collect();
+    owners.sort_by_key(|(id, _)| *id);
+    for (owner, source) in owners {
+        let record = order.record(source);
+        let mut predicates = Vec::new();
+        for sub in &record.subrecords {
+            Condition::push(record, sub, &mut predicates).unwrap();
+        }
+        for predicate in predicates.iter().filter(|c| c.function == 550) {
+            let scene_id = order.resolve(source.file, predicate.parameters[0]);
+            let scene = Scene::from_record(order.winner(scene_id).unwrap()).unwrap();
+            let action_id = predicate.parameters[1];
+            let Some(slot) = scene
+                .actions
+                .iter()
+                .position(|action| action.index == Some(action_id))
+            else {
+                missing.push((
+                    owner.file,
+                    owner.object,
+                    scene_id.file,
+                    scene_id.object,
+                    action_id,
+                ));
+                let mut query = predicate.clone();
+                query.flags = 0;
+                query.run_on = 0;
+                assert_eq!(
+                    evaluate_installed(&mut game, owner, &query),
+                    Err(conditions::Error::Parameter(550, action_id)),
+                    "dangling action in {owner}"
+                );
+                continue;
+            };
+            count += 1;
+            different_slots += usize::from(slot != action_id as usize);
+            outside_slots += usize::from(action_id as usize >= scene.actions.len());
+            let mut query = predicate.clone();
+            query.flags = 0;
+            query.run_on = 0;
+            query.comparison = Comparison::Number(0.0);
+            assert_eq!(
+                evaluate_installed(&mut game, owner, &query),
+                Ok(true),
+                "{owner} action {action_id}"
+            );
+        }
+    }
+    println!("condition550 total={count} different_slots={different_slots} outside_slots={outside_slots}");
+    assert_eq!(
+        missing,
+        [
+            (0, 0x080b7c, 0, 0x080b7c, 7),
+            (0, 0x0d0594, 0, 0x0d0594, 48),
+            (0, 0x0d07c3, 0, 0x0d07b5, 4),
+            (0, 0x0d07c4, 0, 0x0d07b5, 4),
+            (0, 0x0d45ed, 0, 0x0d45ed, 4),
+            (2, 0x0034f5, 2, 0x0034f5, 0),
+        ],
+        "the vanilla corpus has these six dangling authored action references"
+    );
+    assert!(count > 0, "the five masters must exercise condition 550");
+    assert!(
+        different_slots > 0,
+        "the corpus must distinguish action IDs from slots"
+    );
+    assert!(
+        outside_slots > 0,
+        "the corpus must reject a slot-based interpretation"
+    );
+}
+
+fn evaluate_installed(
+    game: &mut Game,
+    owner: GlobalFormId,
+    query: &Condition,
+) -> Result<bool, conditions::Error> {
+    let subject = game.player();
+    conditions::evaluate_one(
+        &mut game.world_mut(),
+        &game.vm,
+        conditions::Context {
+            owner,
+            subject,
+            target: None,
+            quest: None,
+            tempering_enchanted: None,
+            light_level: None,
+            skill_use: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+        },
+        query,
+    )
+}
+
+#[test]
+fn ai_48_condition_550_resolves_sparse_authored_id_before_reading_completion() {
+    let game = game();
+    let mut allocate = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+    assert!(game.world_mut().start_scene(id(SCENE), &mut allocate));
+    assert_eq!(
+        evaluate(&game, id(ACTOR), &condition(550, [SCENE, 1], 1.0)),
+        Ok(false)
+    );
+    assert!(game.world_mut().complete_scene_action(id(SCENE), 0));
+    assert_eq!(
+        evaluate(&game, id(ACTOR), &condition(550, [SCENE, 1], 1.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(ACTOR), &condition(550, [SCENE, 0], 1.0)),
+        Err(conditions::Error::Parameter(550, 0))
+    );
+}
+
+#[test]
 fn ui_31_voice_condition_accepts_lists_and_rejects_wrong_members() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
@@ -278,7 +415,11 @@ fn ui_31_voice_condition_accepts_lists_and_rejects_wrong_members() {
         reference.flags = flag;
         assert_eq!(
             evaluate(&game, id(ACTOR), &reference),
-            Err(conditions::Error::Flags(flag))
+            Err(if flag == 2 {
+                conditions::Error::Target(5)
+            } else {
+                conditions::Error::Flags(flag)
+            })
         );
     }
     assert_eq!(

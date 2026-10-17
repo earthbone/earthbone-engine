@@ -5515,14 +5515,19 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
-    // PlayIdle sends an idle to the actor's graph, the same delivery an
-    // animation event takes, named after the idle's editor id.
     method!(vm, w, "Actor", "PlayIdle", |world, call, me| {
         let Some(idle) = world.form_arg(&call.arg(0)) else {
             return b(false);
         };
-        let name = world.editor_id(idle).unwrap_or_default();
-        world.animation_event(me, &name, alloc!(call));
+        if world.tag_of(idle) != Some(Tag(*b"IDLE"))
+            || world.actor(me).is_none_or(|actor| actor.ai_disabled)
+        {
+            return b(false);
+        }
+        let Some(name) = world.editor_id(idle) else {
+            return b(false);
+        };
+        world.request_animation(me, &name);
         b(true)
     });
     method!(vm, w, "Actor", "PlayIdleWithTarget", |world, call, me| {

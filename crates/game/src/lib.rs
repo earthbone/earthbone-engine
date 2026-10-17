@@ -25,6 +25,7 @@
 pub mod actor_values;
 pub mod ai;
 pub mod ambience;
+pub mod anim_driver;
 pub mod appearance;
 pub mod barter;
 pub mod class;
@@ -193,6 +194,7 @@ pub struct Game {
     mcm_registered: Vec<GlobalFormId>,
     mcm_active: Option<GlobalFormId>,
     mcm_bridge: Rc<RefCell<mcm::Bridge>>,
+    headless_animations: Option<anim_driver::Driver>,
     /// Actors that were in greeting range on the previous gameplay tick.
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
     /// Hands currently held by direct player or scripted cast input.
@@ -304,6 +306,7 @@ impl Game {
             mcm_registered: Vec::new(),
             mcm_active: None,
             mcm_bridge,
+            headless_animations: None,
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
             wasm_mods: WasmMods::new(),
@@ -658,6 +661,11 @@ impl Game {
         self.run_until_idle(64);
     }
 
+    /// Drive behavior graphs from Papyrus requests in headless runs.
+    pub fn set_headless_animations(&mut self, driver: anim_driver::Driver) {
+        self.headless_animations = Some(driver);
+    }
+
     /// Drain host graph events after a host frame and deliver them in order.
     pub fn deliver_animation_reports(&mut self) {
         let notices = self.world.borrow_mut().take_animation_host_notices();
@@ -866,7 +874,13 @@ impl Game {
                 Pending::Event { object, name, args } => {
                     if matches!(
                         name.as_str(),
-                        "OnCellAttach" | "OnCellLoad" | "OnLoad" | "OnCellDetach" | "OnUnload"
+                        "OnCellAttach"
+                            | "OnCellLoad"
+                            | "OnLoad"
+                            | "OnCellDetach"
+                            | "OnUnload"
+                            | "OnTriggerEnter"
+                            | "OnTriggerLeave"
                     ) {
                         let reference = self.world.borrow().form_of(object);
                         if let Some(reference) = reference {
@@ -1463,7 +1477,7 @@ impl Game {
         threads
     }
 
-    /// Updates trigger membership after an actor movement step and runs the
+    /// Updates point trigger membership after an actor movement step and runs the
     /// resulting `OnTriggerEnter` or `OnTriggerLeave` handlers.
     pub fn update_trigger_actor_position(
         &mut self,
@@ -1474,6 +1488,26 @@ impl Game {
     ) {
         let vm = &mut self.vm;
         self.world.borrow_mut().update_trigger_actor_position(
+            actor,
+            cell,
+            from,
+            to,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
+    }
+
+    /// Updates trigger membership for a generated capsule and settles its events.
+    /// Hosts using a generated contact body can select this query explicitly.
+    pub fn update_trigger_actor_body(
+        &mut self,
+        actor: GlobalFormId,
+        cell: Option<GlobalFormId>,
+        from: [f32; 3],
+        to: [f32; 3],
+    ) {
+        let vm = &mut self.vm;
+        self.world.borrow_mut().update_trigger_actor_body(
             actor,
             cell,
             from,
@@ -1717,6 +1751,12 @@ impl Game {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
             self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         }
+        if let Some(mut driver) = self.headless_animations.take() {
+            driver.step(self, if menu_mode { 0.0 } else { real_seconds as f32 });
+            self.headless_animations = Some(driver);
+            self.deliver_animation_reports();
+        }
+
         self.run_until_idle(64);
         if !menu_mode {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);

@@ -419,3 +419,10 @@ runtime's selected spells. `tests/prg_21_capture.rs` compares a saved
 `Papyrus.0.log` when `SOE_PROBE_CAPTURE` names its directory.
 `tests/ply_07_schedule.rs` covers complete 24-hour tables, named actor identity,
 row-level differences, partial log parsing and the installed Eorlund record.
+
+The PLY-03 follow-up moves the comparison graph evaluator into
+`soe_game::anim_driver`. This crate retains a small adapter from Probe
+configuration and graph errors. The host's path, variable-name and report
+reinjection tests now run in the game crate. The direct HKX and BSA
+dependencies move out with the driver. The comparison still uses its
+authored graph and does not install the record-selected checkpoint driver.

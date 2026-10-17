@@ -132,9 +132,7 @@ fn marker(world: &mut World, id: GlobalFormId) -> Result<Marker, &'static str> {
             _ => in_patrol = false,
         }
     }
-    let dwell = dwell
-        .or_else(|| (rec.tag == T(b"ACHR")).then_some(0.0))
-        .ok_or("Patrol marker has no idle time")?;
+    let dwell = dwell.unwrap_or_default();
     if !dwell.is_finite() || dwell < 0.0 {
         return Err("invalid Patrol idle time");
     }

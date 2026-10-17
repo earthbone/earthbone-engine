@@ -4,7 +4,7 @@
 //! Sound sources are indexed separately from their owning actor, following
 //! CK CreateDetectionEvent. Grid entries are rebuilt from current placements.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use soe_esm::GlobalFormId;
 use soe_game::detection::{DetectionEvent, Motion, Observation};
@@ -88,9 +88,18 @@ impl DetectionSpaces {
         actors: Vec<ContactActor>,
         events: &[DetectionEvent],
     ) -> Vec<ContactActor> {
+        self.candidate_actors_with_neighbors(actors, events).0
+    }
+
+    /// Retain nearby pair participants separately from actors kept for sounds.
+    pub(crate) fn candidate_actors_with_neighbors(
+        &self,
+        actors: Vec<ContactActor>,
+        events: &[DetectionEvent],
+    ) -> (Vec<ContactActor>, HashSet<GlobalFormId>) {
         let range = self.range;
         if !range.is_finite() || range <= 0.0 {
-            return Vec::new();
+            return (Vec::new(), HashSet::new());
         }
         let mut grid: HashMap<Bucket, Vec<usize>> = HashMap::new();
         for (i, actor) in actors.iter().enumerate() {
@@ -110,6 +119,11 @@ impl DetectionSpaces {
                     })
             });
         }
+        let nearby = actors
+            .iter()
+            .zip(&keep)
+            .filter_map(|(actor, &keep)| keep.then_some(actor.actor))
+            .collect();
         for event in events {
             if let Some(i) = actors.iter().position(|actor| actor.actor == event.owner) {
                 keep[i] = true;
@@ -126,11 +140,12 @@ impl DetectionSpaces {
                 }
             }
         }
-        actors
+        let candidates = actors
             .into_iter()
             .zip(keep)
             .filter_map(|(actor, keep)| keep.then_some(actor))
-            .collect()
+            .collect();
+        (candidates, nearby)
     }
 
     /// Ordered nearby actor pairs and sounds within detection range. Sight and
@@ -166,8 +181,9 @@ impl DetectionSpaces {
         }
         let mut levels = BTreeMap::new();
         let mut out = Vec::new();
+        let mut targets = Vec::with_capacity(actors.len());
         for observer in actors {
-            let mut targets: BTreeMap<GlobalFormId, TargetSample<'_>> = BTreeMap::new();
+            targets.clear();
             for key in neighbors(bucket(observer.position, range)) {
                 if let Some(indices) = actor_grid.get(&(self.space(observer.cell), key)) {
                     for &i in indices {
@@ -177,12 +193,27 @@ impl DetectionSpaces {
                         }
                         let distance = length(sub(observer.position, target.position));
                         if distance <= range {
-                            let sample = targets.entry(target.actor).or_default();
-                            sample.nearby = Some(target);
-                            sample.nearby_distance = distance;
+                            targets.push((
+                                target.actor,
+                                TargetSample {
+                                    nearby: Some(target),
+                                    nearby_distance: distance,
+                                    sound: None,
+                                },
+                            ));
                         }
                     }
                 }
+            }
+            targets.sort_by_key(|(id, _)| *id);
+            targets.dedup_by(|current, previous| {
+                if current.0 != previous.0 {
+                    return false;
+                }
+                std::mem::swap(&mut current.1, &mut previous.1);
+                true
+            });
+            for key in neighbors(bucket(observer.position, range)) {
                 if let Some(indices) = event_grid.get(&(self.space(observer.cell), key)) {
                     for &i in indices {
                         let event = &events[i];
@@ -191,7 +222,15 @@ impl DetectionSpaces {
                         {
                             continue;
                         }
-                        let sound = &mut targets.entry(event.owner).or_default().sound;
+                        let index = match targets.binary_search_by_key(&event.owner, |(id, _)| *id)
+                        {
+                            Ok(index) => index,
+                            Err(index) => {
+                                targets.insert(index, (event.owner, TargetSample::default()));
+                                index
+                            }
+                        };
+                        let sound = &mut targets[index].1.sound;
                         if sound.is_none_or(|(previous_index, previous)| {
                             event.sound_level > previous.sound_level
                                 || (event.sound_level == previous.sound_level && i > previous_index)
@@ -201,7 +240,7 @@ impl DetectionSpaces {
                     }
                 }
             }
-            for (id, sample) in targets {
+            for &(id, ref sample) in &targets {
                 let nearby = sample.nearby;
                 let sound = sample.sound.map(|(_, event)| event);
                 let source = sound.map(|event| ContactActor {

@@ -3628,10 +3628,8 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "soe-bsa",
  "soe-esm",
  "soe-game",
- "soe-hkx",
  "soe-papyrus",
  "tempfile",
  "thiserror 2.0.20",

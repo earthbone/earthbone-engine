@@ -563,6 +563,13 @@ and each target's Sneak, invisibility, movement noise and worn armor weight.
 Actor identity and liveness are validated once per identity within a batch,
 then read afresh on the next batch. Input validation still follows observation
 order and completes before any pool or LOS state changes.
+Already built actors use read-only state access for these senses. Lazy actor
+construction still occurs on first use. Detection reads retain PRF-31's contact
+and light membership indexes and PRF-34's cached enable state, avoiding the
+mutable-reference invalidations that CMB-32's original actor access triggered.
+The `prf_31_detection_reads_preserve_unchanged_reference_caches` regression
+requires 60 batches to retain cached enable entries and leave the translation
+candidate set empty. It failed before that access correction.
 An observer's combat awareness is indexed once per batch. Alert and busy
 modifiers remain specific to each pair. Previously known pairs absent from a
 batch receive a negative value, the lesser of the base detection value and
@@ -831,7 +838,9 @@ each tick and moves toward its next waypoint. It retains waypoint cell ownership
 delivers cell and trigger events, checks surface samples within 0.25 units,
 and fails on missing paths, interrupted movement or timeout. Load-door crossings
 use activation steps. Navigation adds no collision host or reference nodes.
-The runner does not consume host obstacle shapes or simulate a physics capsule.
+The runner does not consume host obstacle shapes or simulate capsule movement.
+Its movement updates retain point trigger queries. The capsule query API and
+its installed measurements are described under the PLY-03 follow-up below.
 
 Actions use the shared PLY-01 executor and advance 1/60 second, including gameplay
 rejections. Unresolved form names fail before execution. `talk` activates an
@@ -980,12 +989,245 @@ DLG-09's phase advancement API. The game tick does not call either API.
 The first route also bypasses the tower progression. The six PLY-03 successor
 comparisons retain their complete stage histories and remain required.
 
+The headless route runner accepts `play-scene <scene> <phase> <max-ticks>`.
+It presents the active scene's dialogue through DLG-18, ticks package and timer
+actions through DLG-19, and advances through DLG-09 after required actions and
+phase conditions pass. Each presented response appears in the route trace.
+Playback rejects an inactive scene, a missing speaker and a phase outside the
+record, and stops at its authored tick bound. It never sets quest stages or
+marks dialogue actions complete directly. The second Helgen route plays the
+saved keep scene from phase 5 to phase 7, whose installed fragment sets stage
+174. Its separate second-pair acceptance test retains the complete quest and
+inventory comparison.
+
+SAV-30 restores a scene's phase without action execution state. DLG-19 now starts unfinished
+package and timer actions spanning that phase, including actions that began
+earlier, and leaves completed timers complete without restarting their
+deadlines. Native saves still retain existing started actions and deadlines.
+The phase ranges and CTDA placement follow local UESP `SCEN.wikitext` and
+xEdit `TES5Edit/Core/wbDefinitionsTES5.pas`, `wbRecord(SCEN)`. These changes
+use existing scene state and add no saved section or dependency.
+
+The 2026-10-13 debug check passes 4,265 integration tests and 239 library
+tests, with four existing integration ignores. Formatting and game-only
+all-target clippy pass. The installed keep scene has no phase conditions
+between phases 5 and 7. Its required actions are Hadvar's phase-5 line,
+Ralof's phase-6 line and two packages starting in phase 4. The installed
+replay check stayed queued behind the shared installed-test lock, so the
+second pair is not verified here. The first pair still requires the tower
+progression that its route bypasses. All six full checkpoint assertions
+remain in place.
+
+The 2026-10-14 integration repair separates DLG-18's assigned scene lines from
+DLG-06's player walk-away check. Scene dialogue uses the player as a listener
+placeholder. A tick used the player distance to finish Hadvar's line and close
+its session before the headless presenter acknowledged it. The range check now
+retains a session matching an unfinished dialogue action in its active phase.
+Stopped scenes and other conversations still use the distance check. Synthetic
+tests use an explicit 500-unit GMST and verify distant scene playback and
+closure after stopping the scene. No saved field or dependency is added.
+
+The installed `ply_03_second_route_reaches_its_successor_checkpoint` now passes
+the full quest and inventory comparison. All six acceptance tests that include
+the first pair still fail on its 16 earlier completed stages. PLY-03's original
+`ce2addfd5` was a partial implementation, and `915d66cb8` retained that gap.
+The source saves MQ101DragonAttackScene1 at phase 2. A diagnostic presenting it
+through DLG-18 fails on the topic-zero headtracking action named Look at Ralof.
+Local xEdit's SCEN definition permits NULL dialogue topics and declares HTID
+as the headtracking actor. This action needs its own presentation path, and the
+tower sequence also waits for package actions and the End_Tower_Smash animation
+event. The diagnostic only read the external save. The existing route fixtures,
+complete stage-history assertions and tick bounds remain unchanged.
+
+Validation passes 4,267 debug integration tests and 240 library tests, with
+four existing integration ignores. Game-only all-target clippy and formatting
+pass. Each of the six installed acceptance tests was rerun alone on one thread
+and still reports only the first pair's completed-stage mismatch. The separate
+second-pair installed acceptance test passes.
+
+The follow-up integration repair decodes SCEN HTID and accepts NULL dialogue
+topics for headtracking actions. Local xEdit's `wbRecord(SCEN)` allows a NULL
+DATA topic and defines HTID as a signed actor alias. CommonLibSSE-NG's
+`include/RE/B/BGSSceneActionDialogue.h` names the same fields. Active scene
+headtracking derives its target from the quest's aliases and phase bounds.
+Script-forced look-at targets retain precedence. Leaving an action's phase range
+or stopping the scene removes its derived target. NULL-topic presentation completes through
+DLG-18 without opening a spoken conversation. These changes add no saved fields.
+
+AI-48's `401a2e4ff` used a scene action slot for CTDA 550.
+SCR-44's newer `3113ec8b6` added the native action-ID query over SCEN INAM.
+The condition now follows that query. The older AI-48 fixtures use their authored
+action ID 1 and reject slot 0. In the installed tower scene, action ID 12 is
+slot 7. The former slot lookup held phase 2 after all its actions completed.
+The first route now presents the saved phase, walks to the tower door, waits for
+the authored stage-20 trigger and presents phase 3's line to reach phase 4.
+It returns along the entry path before continuing the original courtyard
+markers. Direct navigation from the tower door to the first courtyard marker
+alternated between two positions until its 3,600-tick limit. The return
+breadcrumb completes that leg with the existing bounds.
+The complete successor comparison and existing wait bounds remain required.
+
+The next tower diagnostic rejects navigation to `MQ101DASetStage25`: its trigger
+center is more than 128 units from NAVM. A route must select a surface point
+within the trigger volume. The installed `mq101alduinscript.OnUpdate` retries
+the smash idle. Its `OnAnimationEvent` sets AlduinSmashDone only after
+End_Tower_Smash. The retry does not supply that graph event. Later tower
+movement and animation playback are not established by the entry repair.
+
+Validation passes 4,271 debug integration tests with four existing ignores,
+240 game library tests, 50 ESM library tests and eight SCEN parser checks.
+Formatting and all-target clippy pass for both touched crates. The installed
+tower-entry regression reaches stage 160 after returning to the courtyard,
+and the second route passes its full checkpoint comparison. Each of the six
+installed acceptance tests still reports one differing field on the first
+pair: MQ101DragonAttack lacks stages 22, 25, 35, 40, 50, 100, 103, 105, 120,
+130, 151, 155, 158, 162 and 168. Stage 20 now matches. All compared quest flags,
+other stage fields and player item quantities match. Each installed test ran
+alone on one thread. The checkpoint assertions and tick limits are unchanged.
+
+The next integration repair walks the tower stairs through the installed
+stage-25, stage-35 and stage-40 trigger volumes. The marker points are NAVM
+triangle centers inside each XPRM volume. The stage-25 trigger center itself
+is more than 128 units above the nearest surface. The route returns through
+the same stairs and tower entry before continuing its courtyard markers.
+The first route still passes every step and reaches its endpoint in 2,430
+ticks. Its completed-stage gap falls from 15 stages to nine: 22, 100, 103,
+105, 120, 155, 158, 162 and 168. Quest flags and player inventory still match.
+The full checkpoint comparison remains required.
+
+`Actor.PlayIdle` now queues an animation request through HST-10, as
+SCR-15's paired-idle path already does. The earlier native from `1f656ad8b`
+reported the idle's editor ID directly as a Papyrus animation event and never
+requested playback. ANM-58's newer graph-report contract keeps requests and
+reported events separate. The older native test follows that contract and
+checks that a later graph report reaches the reference. Wrong form types and
+disabled actor AI reject playback, following the local CK
+`PlayIdle_-_Actor.wikitext`. No saved field or dependency is added.
+
+The installed tower regression requires stages 20, 25, 35, 40 and 50 from
+their trigger fragments and an Alduin smash playback request. It rejects a
+fabricated End_Tower_Smash event. Completing the tower scene remains outside
+that regression. A diagnostic requesting phase 14 after stage 40 times out
+at conditional phase advancement. Headless graph playback and the remaining
+scene progression are not established by the stair and request corrections.
+PLY-03 remains open and its six complete successor comparisons still fail.
+
+Validation passes 4,273 debug integration tests with four existing ignores,
+240 library tests, formatting and game-only all-target clippy. The installed
+tower regression and the separate second-pair comparison pass. Each of the
+six installed acceptance tests ran alone on one thread and reports the same
+nine missing stages on the first pair. All routes still pass their gameplay
+steps and retain their full checkpoint assertions and existing tick bounds.
+
 The comparison uses the existing ESS world importer. The local CommonLib
 `include/RE/T/TESQuest.h` defines the quest flag bits and the CK
 `Quest_Script.wikitext` defines highest completed stage queries. The installed
 MQ101 and MQ101DragonAttack PEX fragments and VMAD properties identify the
 Helgen actions used by the authored routes. No assets or saves are copied into
 the repository and no dependency is added.
+
+The round-3 headless presenter skips subsequent SCEN phases whose start
+conditions are false. It waits on the current phase's completion conditions.
+Skipped phases dispatch neither their actions nor their fragments. Package
+actions spanning the current phase retain their state, and timers retain
+their original deadline when entering their ending phase. The earlier
+headless presenter from `e58219e29` treated the next phase's start conditions
+as a wait.
+This prevented the tower scene from leaving phase 5 once stage 40 was done.
+The phase rules follow the CK
+[scene documentation mirror](https://tesck.ru/index.php/Категория:Сцены).
+The phase and callback layouts follow local xEdit `wbRecord(SCEN)` and
+`wbVMADFragmentedSCEN`. Synthetic checks require skipped callbacks to stay
+absent, a spanning timer to keep its deadline and completion conditions to
+retain their timeout behavior.
+
+GetDistance accepts CTDA's use-aliases flag and resolves its reference
+parameter through the owning quest. Unknown and unfilled aliases return
+typed errors. Other alias-flagged functions and package-data parameters
+remain unsupported. The local sources are xEdit `wbDefinitionsCommon.pas`
+and Mutagen's Skyrim `Condition.cs`, which identifies bit 1 as
+`ParametersUseAliases`. This fixes the tower's phase-20 distance condition.
+
+The first route now presents the tower scene through phase 20 within its
+existing 600-tick bound. The installed regression records stages 22 and 105,
+rejects the skipped stage-30 fragment and requires no invented
+End_Tower_Smash event. Phase 14 uses its authored five-second fallback timer.
+The first successor comparison still lacks stages 100, 103, 120, 155, 158,
+162 and 168. The route still bypasses the tower jump and subsequent inn
+progression. These are PLY-03's unfinished acceptance scope, retained from
+`ce2addfd5` and `915d66cb8`. All checkpoint fields and route bounds remain
+required. DLG-09, DLG-18 and DLG-19 supply phase and action execution, and
+ANM-58 still requires reported animation events to come from graph playback.
+No saved state, section or dependency is added.
+
+Validation passes 4,276 debug integration tests with four existing ignores,
+241 library tests, game-only all-target clippy and package formatting.
+The installed tower-phase regression passes within the authored bound.
+Each of the six complete successor tests still fails only on the first
+pair's seven missing stages. The separate second-pair comparison passes.
+Every installed test ran individually on one thread.
+
+The second round-3 repair retains a route's NAVM corridor until the graph
+revision changes. Replanning every tick could alternate between two points
+near a corner. Door changes still invalidate the corridor before movement.
+The local source is Recast's
+`DetourCrowd/Source/DetourPathCorridor.cpp`, which retains a corridor while
+advancing its position. This runner uses the existing Rust path rather than
+Detour's separate mesh representation. The synthetic checks bound a two-triangle
+route to two path-node expansions and require a closing door to stop movement.
+Surface checks, speeds and authored tick bounds remain required.
+
+HST-14 now includes persistent XPRM volumes overlapping an exterior grid cell.
+The per-cell cache from `cf2c2f23e` scanned only that cell's own children.
+It missed `dunCGSetStage155REF`, filed under Tamriel's persistent cell 0xD74.
+Persistent actor parents also resolve to the physical grid cell when testing
+movement, so temporary volumes can see those actors. Rotated box extents and
+sphere bounds select candidate cells. Actual occupancy still uses the original
+volume test. Cross-world matches are rejected, and trigger queries use
+RND-17's effective enable-parent state. The existing CellIndex supplies the
+world and cell identities. Local UESP `WRLD.wikitext` and xEdit's XPRM fields
+supply the record hierarchy and volume layout.
+
+Loading an exterior cell prepares its overlapping persistent trigger geometry
+and queues OnLoad when that geometry becomes available. Another attached cell
+retains a volume spanning their boundary. Leaving its last attached cell queues
+OnUnload. Movement also prepares newly enabled persistent volumes. Enabling or
+disabling loaded references queues these geometry lifecycle events at the
+existing loaded-3D transition. The event pump binds scripts before trigger
+delivery. Local CK `OnLoad_-_ObjectReference.wikitext` and
+`OnUnload_-_ObjectReference.wikitext` describe geometry lifetime separately from
+the parent cell. The installed `dunCGPlayerInSquareTriggerScript.OnLoad`
+initializes the quest variable used by its crossing handlers. Checkpoint startup
+now uses the existing cell-load path before gameplay. It still binds fresh
+scripts and does not import saved VM variables or execution.
+
+`finish-scene <scene> <max-ticks>` presents an active scene until its normal end,
+using the same required actions, conditions and phase callbacks as play-scene.
+An inactive scene is rejected, and a timeout retains its unfinished actions.
+The synthetic regression requires its end fragment once, after the timer ends.
+The first route now crosses the persistent stage-155 volume, finishes Alduin's
+scene for stage 162 and presents Hadvar's wall scene for stage 158. Stage 170's
+installed fragment stops that wall scene and records stage 168 through its
+end callback. These operations follow DLG-09, DLG-18 and DLG-19 rather than
+setting stages in the route runner.
+
+The installed first-pair comparison now completes gameplay without VM errors.
+Its only differing field is MQ101DragonAttack's completed stages, missing
+100, 103 and 120. The tower wall's `dragonTowerWallScript.OnAnimationEvent`
+sets stage 103 on its authored Begin event, whose quest fragment also sets
+100. That wall playback and the inn traversal remain unimplemented in this
+headless route. ANM-58 still requires reported events to come from playback.
+The six complete successor assertions retain those stages, all quest flags,
+player inventory and the existing tick bounds. No saved field, section,
+dependency, host node, game asset or save file is added.
+
+Validation passes 4,281 debug integration tests with four existing ignores,
+241 library tests, game-only all-target clippy, package formatting and prose
+lint. The installed road-scene regression, full second-pair comparison and
+PRF-11's 3,600-frame eight-millisecond AI check pass. Each of the six assigned
+successor tests still fails only on the first pair's three missing stages.
+Every installed test ran individually on one thread with development
+optimization level 1. The full workspace gate was not run for this repair.
 
 Placed-reference binding inherits the base form's VMAD scripts and property
 values before applying reference overrides. Removed scripts stay unattached,
@@ -7645,9 +7887,10 @@ GetDialogueEmotion (434) and GetDialogueEmotionValue (435) require a reference
 subject, then read the emotion type and 0 to 100 value from the current response
 of the active dialogue INFO for its speaker. They return zero when that
 reference has no current response.
-IsSceneActionComplete (550) resolves its SCEN and action slot and reads the
-scene's completed-action set for the current phase. IsInFavorState (635) reads
-the actor's existing `doing_favor` flag. Invalid scene slots and non-actor
+IsSceneActionComplete (550) resolves its SCEN and action ID through the action's
+INAM index, following SCR-44's native query. It reads the corresponding slot in
+the scene's completed-action set for the current phase. IsInFavorState (635) reads
+the actor's existing `doing_favor` flag. Invalid action IDs and non-actor
 favor subjects return typed errors.
 
 GetNoRumors (320), IsTalkingActivatorActor (370), IsScenePackageRunning (429)
@@ -7666,9 +7909,27 @@ emotion fields. The condition-name sources give no further semantics for the
 four diagnosed functions.
 
 `ai_48_dialogue_conditions` checks positive and negative response emotion,
-scene action and favor values, invalid actors and slots, and explicit errors
+scene action and favor values, invalid actors and action IDs, and explicit errors
 for the four conditions without a usable local contract. No saved state or
 save version changed.
+
+The preview3 integration survey reads all CTDA subrecords in the five winning
+vanilla masters. Of 914 condition-550 uses, 908 name existing SCEN INAM IDs.
+Every one differs from its action-list position, and 247 exceed the list bounds.
+Six uses name absent IDs, which the evaluator reports as parameter errors.
+The survey pins those six owner, scene and action identities and evaluates
+all other queries against stopped scenes. A separate sparse-ID regression
+fails on preview3's former slot lookup and passes with the authored-ID query.
+The local CK dump has no IsSceneActionComplete or IsActionComplete page.
+Requests to the live CK pages returned access errors. The contract evidence
+is the vanilla record survey, xEdit's Scene and Integer parameter declaration,
+and UESP SCEN's INAM action-number field, rather than an unavailable CK page.
+
+GetDistance's reference parameter also accepts round 3's filled quest-alias
+selector. Missing quest context remains an explicit target error. The
+package-data selector stays unsupported. Preview3's selector bits remain
+irrelevant to parameter types that xEdit does not treat as selectors, including
+voice-type lists and form identity.
 
 ## Compatibility condition batch AI-42
 
@@ -11474,3 +11735,206 @@ a catalog entry. The final release build passed, and its installed headless
 walkthrough test passed in 13.73 seconds with exit status zero. The final gate
 recorded 6,264 Rust passes before the same twelve AI failures, with exit status
 101. The game library and integration counts stayed at 1,277 and 4,241 passes.
+
+## Headless behavior graphs, PLY-03
+
+`anim_driver::Host` is the graph evaluator moved from `soe-probe`. The probe
+keeps its configuration and error adapter and calls that host. Headless
+checkpoint loading installs `anim_driver::Driver`, which consumes each new
+animation request once and advances active graphs on gameplay ticks. Graph
+reports use `Game::report_animation_event`, including registered Papyrus
+listeners and latent waits. A ready headless graph marks its enabled reference
+loaded and delivers OnLoad before its first event. Lazy binding includes the
+base form's scripts, so an OnLoad animation listener sees the first clip trigger.
+Repeated ticks do not repeat OnLoad. Disabling a reference or unloading its
+cell stops its graph. Readiness is established once per instance, so a later
+tick cannot reload a graph whose cell has left memory.
+
+An IDLE request carries its editor ID. The driver resolves the winning IDLE
+and sends its ENAM event. Actor graph projects come from
+`World::actor_animation_rig`. For objects, the base MODL names the NIF and
+BSBehaviorGraphExtraData names the project. The existing HKX project and
+character readers select the behavior file and skeleton. Archives follow
+load order and loose files override them. Missing active clips and unknown
+graph events or variables produce a headless animation diagnostic.
+
+Decoded clip annotations become timed graph triggers unless clip flag 16
+forbids conversion. Authored triggers at the same event and local time take
+precedence. A trigger at the initial playhead fires once on activation,
+including an update with zero elapsed time. Later ticks do not repeat it.
+The driver retains the existing interpreter state between ticks without
+leaking assets or adding an engine save field. World restoration drops active
+graph instances and advances the request cursor past old requests. Cached
+assets remain available, while saved event history is never injected as input.
+
+An annotation reaches another graph only when the idle supplies an explicit
+partner or the actor has a recorded furniture relationship, and that graph
+names the event. A reserved furniture marker or a unique FURN reference in
+the current package supplies the furniture relationship. Delivery queues a
+request on that reference and evaluates it with zero additional elapsed time
+in the same tick. Up to eight rounds bound chains of script and graph
+requests. Other references receive no broadcast.
+
+The installed MQ101 scene establishes an authored relationship: scene
+0:0D0594 assigns Alduin package 0:06CF55 in phases 5 through 14. That package's
+SingleRef target is wall reference 0:06CF54. Its base 0:06CF46 names the
+ImpTowerWallCollapse01 NIF and sets dragonTowerWallScript.myEvent to Begin.
+The wall's Behavior00 graph enters OpeningAnim on Open and fires Begin at
+local time zero. The script sets stage 103, whose Fragment_297 sets stage 100.
+Stage 40's Fragment_309 requests Dragon_AlduinTowerSmashBite. Its ENAM is
+PerchTowerAttackSmashBite, and its clip has an Open annotation at 0.4 seconds
+and authored End_Tower_Smash triggers. The installed smash generator has
+flags zero, allowing annotation conversion. Its End_Tower_Smash and
+to_Perch_Idle triggers fire 0.002 seconds before clip end.
+
+An isolated installed-asset diagnostic loads the winning records into a fresh
+world and requests Open on wall 0:06CF54. The driver resolves its NIF,
+project, character, skeleton, behavior and clip, marks the reference loaded
+and reports Open followed by Begin. This world restores no save and loads
+no installed PEX definitions. The synthetic OnLoad listener test covers script delivery.
+
+Sources read for this change were local CK PlayIdle, PlayIdleWithTarget,
+OnAnimationEvent, OnLoad and OnTriggerEnter pages, UESP IDLE.wikitext, xEdit
+wbDefinitionsTES5.pas IDLE, FURN and PACK definitions, nifxml/nif.xml
+BSBehaviorGraphExtraData and serde-hkx/assets/classes/hkbClipGenerator.json.
+The NIF reader retains this extra-data block as opaque bytes, so the driver
+reads its fixed-string index using the declared NIF layout. The profile
+archive association in `crates/profile/src/lib.rs`, the Godot actor project
+resolver and the probe animation host supplied the loading
+and graph-variable paths. Installed winning records, NIF, HKX and PEX files
+were read in place. No game asset or save is part of the change.
+
+The baseline installed replay has no Open or End_Tower_Smash from Alduin.
+At stage 40 he has package 0:0D67AF, dunCGAlduinAShoutStrafeSquarePkg,
+from scene phase 4. Its first Patrol target is 0:0D67B1, whose optional
+patrol-data group is absent. Patrol now accepts such markers with zero dwell.
+Malformed, negative and non-finite explicit dwell values still fail. The
+sources are xEdit's REFR Patrol group and Mutagen's PlacedObject.xml,
+Patrol.xml and Patrol_Generated.cs. The latter initializes idle time to zero.
+
+Ordinary gameplay ticks update scene actions but do not advance scene phases.
+The route's play-scene commands advance them. The stage-40 idle request arrives
+while phase 4 still owns Alduin's package, before phases 5 through 14 assign
+the wall package. His graph remains on its ground path. The driver does not
+reconstruct saved Havok graph state or synthesize a furniture-entry event.
+IDLE 0:0680F7 supplies EnterPerchTowerAttackInstant under the DragonTowerAttack
+furniture branch, conditioned on IsEnteringInteractionQuick. The condition
+evaluator does not support that function, and neither host has a generic
+furniture-entry animation bridge. These are separate interaction and scene
+execution limits. The graph-load hook covers the wall's listener once a
+record-linked annotation requests its graph.
+
+The route's 1900 navigation samples have no point or point-sweep crossing
+of either stage-120 box. Its closest sample to 0:0CD6AC is at
+[16235.515, -83631.625, 8444.988], about 299 units below the box. For
+0:0ED5FC it passes [17179.012, -83443.68, 8393.669], only 19.47 units
+outside the rotated side. Both records use enable parent 0:0F7E82,
+dunCGPostTriggerCleanupMarker, whose record starts disabled. Fragment_232
+enables that parent at stage 10, and Fragment_275 disables it at stage 200.
+The checkpoint importer already applies saved enable-mask changes, so these
+authored calls alone do not establish an import failure.
+
+The 2026-10-17 diagnostic replay repeats those 1900 samples and both zero
+crossing counts. The two triggers and their enable parent are disabled both
+at checkpoint load and after the route. The replay still reaches stage 192.
+Patrol now has a valid procedure, but Alduin emits neither Open nor
+End_Tower_Smash, and the wall receives no graph request. That driver validation
+used the actor's footpoint and point sweep. The capsule follow-up below adds
+an explicit body query. The parent's saved enable state still needs separate
+verification.
+
+The existing ESS reader finds parent 0:0F7E82 with saved form-flag words
+`0x040B, 0x0040` in checkpoint 01 and `0x0409, 0x0040` in checkpoint 02.
+The current importer XORs the first word with the winning record's `0x0C00`,
+leaving the initially-disabled bit set. xEdit names the two fields but does
+not establish their runtime operation. FallrimTools preserves them without
+applying them. This observation supplies a real-save case for the existing
+[SAV-54 evidence gap](save.md#reference-mask-implementation-and-evidence-sav-54).
+It does not justify changing the flag operation in this driver patch.
+
+Checks on 2026-10-17 pass 253 game library tests, 440 HKX tests, 55 probe
+tests and 22 Patrol integration tests. Eight HST-14 trigger-delivery tests
+also pass, including gated cases that return early without installed data.
+Optional installed-data and capture gates were unset for those crate runs.
+Formatting and all-target clippy pass for game, HKX and probe. Eleven game driver tests include the three moved
+probe checks and eight graph, script, timing, request and lifecycle checks.
+The HKX change supplies the state ownership and initial trigger handling
+needed by the shared game driver, without a second interpreter.
+
+The full installed PLY-03 run on 2026-10-17 completes with 33 passes and
+six failures out of 39 selected tests, exit status 101. Every failure reports
+the same first-pair done-stage difference: stages 100, 103 and 120 are absent.
+Quest flags and player inventory match. The second pair matches its successor
+without a field difference. The tower entry, fallback timer and stairs
+regressions pass. No assertion, route or replay event was changed.
+PLY-03 remains open. The lead's workspace gate was not run, as requested.
+
+### Capsule trigger follow-up
+
+`World::update_trigger_actor_body` and `Game::update_trigger_actor_body` place
+the existing generated contact capsule at the actor's feet, with race, NPC
+and reference scale resolved through `actor_controller_scale`. Box contacts
+use the distance from the capsule axis to the rotated box, so a rounded
+corner cannot enter merely because the capsule's bounding box touches it.
+Sphere contacts use the combined radii and the nearest point on the capsule
+axis. A bounded convex distance minimum detects complete crossings between
+outside endpoints. Existing membership bookkeeping delivers enter and leave
+once per crossing and continues to reject disabled triggers and dead actors.
+
+`World::update_trigger_actor_position` retains its point-query contract for
+callers without body geometry. The NPC package driver and Game movement
+bridge, including headless navigation, retain point queries. Body dispatch
+is explicit. No host node, saved field, asset dependency or second physics
+engine is added. This path uses the generated contact capsule rather than loading
+an authored skeleton collision phantom. Host controller dimensions and
+crouching are not passed into this query.
+
+The local sources read were CK `OnTriggerEnter` for collision-volume event
+semantics, Jolt `Geometry/AABox.h` for clamped point distance and
+`Physics/Collision/Shape/CapsuleShape.cpp` for the capsule ends and axis. The
+existing `soe-physics::generated_controller_shape` and game contact-scale
+resolver supply dimensions. Jolt's code is C++, and the existing Rust physics
+crate has no public capsule-volume distance query. The small distance query
+here leaves collision response in the existing physics implementations.
+
+The installed IDLE hierarchy was also checked against its decoded records.
+IDLE 0:0680F6 tests the interaction target's base against 0:06CF46, and its
+child 0:0680F7 tests IsEnteringInteractionQuick before sending
+EnterPerchTowerAttackInstant. Package 0:06CF55 inherits template 0:0E1E97,
+whose procedure is Sit. In the dragon graph, PerchTowerAttackSmashBite has
+transition flags 0x0100, not a global wildcard. Sending it from the ground
+state cannot substitute for entering the perch. The step-by-step replay
+keeps Alduin's phase-4 Patrol package until after stage 40, and he remains
+thousands of units from the wall. The follow-up does not inject an entry
+event or change scene completion conditions.
+
+The installed capsule survey passes on 2026-10-17. Neither trigger contains
+a route footpoint. The generated player capsule touches 0:0ED5FC at five
+route samples and never touches 0:0CD6AC. Both triggers are disabled after
+the route. Their XESP flag words are zero, so both follow their parent's
+enable state without inversion. This confirms a body-overlap gap in the old
+query and an enable state blocker independent of that geometry. The route
+and its assertions are unchanged, and the survey injects no trigger or animation event.
+
+Scoped checks pass game all-target clippy, game formatting, 259 game library
+tests, 55 probe tests and 10 trigger integration checks. Installed-data gates
+were unset for these crate runs. The separate installed capsule survey runs
+one test with both data variables set and passes in 142.73 seconds.
+
+The first integration of the generated capsule into every Game movement
+query produced 34 passes and seven failures in the installed PLY-03 suite.
+Six failures retain the checkpoint's missing stages 100, 103 and 120. The
+additional tower-entry failure found stage 50 where the route requires
+stage 20. The capsule query therefore remains an explicit API. Automatic
+adoption needs collision-body dimensions and stance that agree with the
+gameplay path. The point-query behavior and every assertion are retained.
+
+The corrected installed run passes all 15 selected library checks, including
+the repeated capsule survey, and reports 35 passes and six failures among
+41 integration checks, exit status 101. The tower-entry regression passes.
+Each checkpoint failure retains one done-stage difference, missing 100,
+103 and 120. Quest flags and player inventory match. The second checkpoint
+pair has no differing field. Final scoped checks pass formatting, all-target
+clippy, 259 game library tests, 10 trigger checks and 55 probe tests. PLY-03
+remains in progress for furniture entry, saved enable state and agreement
+between trigger queries and the actor's collision body.

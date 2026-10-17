@@ -1646,3 +1646,23 @@ Verification on 2026-10-13 passes all 116 HKX library tests, the five-test
 HST-25 debug target with installed inputs unset, and both exact installed
 HST-25 player checks on one thread. Scoped clippy with all targets passes for
 HKX and the Godot host. The release extension and Godot import also pass.
+
+## Interpreter state between ticks
+
+`Interpreter::into_state` and `Interpreter::from_state` let asset-owning
+callers retain playheads, variables, pending events and transition state
+without borrowing across ticks. Rebind to the same graph and clip library
+that created the state. This is transient runtime state, not serialized data.
+
+Clip sampling includes a trigger at its initial local playhead exactly once
+per activation, even when elapsed time is zero. An acyclic start trigger also
+fires when the first update passes the clip's loop end. Subsequent samples
+at the same time and later loops do not repeat that acyclic trigger.
+Annotation triggers retain their origin for callers that route paired events.
+The annotation conversion flag follows the local serde-hkx
+`hkbClipGenerator.json` declaration.
+
+The preview3 integration retains the per-frame generated-output cache through
+`InterpreterState` as well. Rebinding preserves its allocation, while each
+update clears the cache and annotation-event list before generating output.
+This combines preview3's shared-node sampling with the headless tick driver.

@@ -21,9 +21,193 @@ const CHECKPOINTS: [&str; 3] = [
     "03 Followed Ralof.ess",
 ];
 
+#[test]
+fn ply_03_saved_tower_scene_presents_headtracking_and_reaches_the_entry_trigger() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 tower entry");
+        return;
+    };
+    let mut game = play::load_world_checkpoint(
+        &PathBuf::from(data),
+        &save_path(&PathBuf::from(corpus), CHECKPOINTS[0]),
+    )
+    .unwrap();
+    let scene = GlobalFormId {
+        file: 0,
+        object: 0xd0594,
+    };
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    assert_eq!(game.world().scene_phase(scene), Some(2));
+    let (speaker, target) = {
+        let mut world = game.world_mut();
+        (
+            world.alias_ref(quest, 13).unwrap(),
+            world.alias_ref(quest, 12).unwrap(),
+        )
+    };
+    assert_eq!(
+        game.world_mut().actor_look_at(speaker),
+        Some((target, false))
+    );
+    let route = Route::parse(
+        "play-scene Skyrim.esm:d0594 3 600\n\
+         navigate Skyrim.esm:10757b 600 3600\n\
+         wait-stage MQ101DragonAttack 20 600\n\
+         play-scene Skyrim.esm:d0594 4 600\n\
+         expect-stage MQ101DragonAttack 20\n\
+         navigate-marker Skyrim.esm:982b 15636.233 -81284.97 8205.542 600 3600\n\
+         navigate-marker Skyrim.esm:982a 17970.816 -80446.69 8234.532 600 3600\n\
+         wait-stage MQ101DragonAttack 160 60\n\
+         expect-no-vm-error",
+    )
+    .unwrap();
+    let report = play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    assert_eq!(game.world().scene_phase(scene), Some(4));
+    assert!(game.world().quest(quest).unwrap().done.contains(&20));
+    assert!(game.world().quest(quest).unwrap().done.contains(&160));
+    assert!(game.world_mut().actor_look_at(speaker).is_none());
+}
+
 fn save_path(root: &Path, name: &str) -> PathBuf {
     root.join("Main Quest + Dawnguard(Vampire) + Dragonborn")
         .join(name)
+}
+
+#[test]
+fn ply_03_persistent_road_trigger_and_scene_ends_record_their_stages() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 road scenes");
+        return;
+    };
+    let mut game = play::load_world_checkpoint(
+        &PathBuf::from(data),
+        &save_path(&PathBuf::from(corpus), CHECKPOINTS[0]),
+    )
+    .unwrap();
+    let route = Route::parse(ROUTES[0]).unwrap();
+    let report = play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    for stage in [155, 158, 162, 168] {
+        assert!(game.world().quest(quest).unwrap().done.contains(&stage));
+    }
+}
+
+#[test]
+fn ply_03_saved_tower_scene_skips_optional_phases_and_runs_the_fallback_timer() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 tower phases");
+        return;
+    };
+    let mut game = play::load_world_checkpoint(
+        &PathBuf::from(data),
+        &save_path(&PathBuf::from(corpus), CHECKPOINTS[0]),
+    )
+    .unwrap();
+    let mut route = Route::parse(ROUTES[0]).unwrap();
+    let end = route
+        .steps
+        .iter()
+        .position(|(_, step)| matches!(step, play::Step::PlayScene { phase: 20, .. }))
+        .unwrap();
+    route.steps.truncate(end + 1);
+    let report = play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    assert_eq!(
+        game.world().scene_phase(GlobalFormId {
+            file: 0,
+            object: 0xd0594
+        }),
+        Some(20)
+    );
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    for stage in [22, 40, 105] {
+        assert!(game.world().quest(quest).unwrap().done.contains(&stage));
+    }
+    assert!(!game.world().quest(quest).unwrap().done.contains(&30));
+    assert!(!game
+        .world()
+        .animation_events
+        .iter()
+        .any(|(_, event)| event == "End_Tower_Smash"));
+}
+
+#[test]
+fn ply_03_saved_tower_stairs_fire_triggers_and_request_the_smash_idle() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 tower stairs");
+        return;
+    };
+    let mut game = play::load_world_checkpoint(
+        &PathBuf::from(data),
+        &save_path(&PathBuf::from(corpus), CHECKPOINTS[0]),
+    )
+    .unwrap();
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    let alduin = game.world_mut().alias_ref(quest, 30).unwrap();
+    let idle = game
+        .world()
+        .editor_id(GlobalFormId {
+            file: 0,
+            object: 0x107a96,
+        })
+        .unwrap();
+    let mut route = Route::parse(ROUTES[0]).unwrap();
+    let smash = route
+        .steps
+        .iter()
+        .position(|(_, step)| {
+            matches!(step, play::Step::WaitStage { quest, stage: 40, .. }
+                if quest == "MQ101DragonAttack")
+        })
+        .unwrap();
+    route.steps.truncate(smash + 1);
+    let report = play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    for stage in [20, 25, 35, 40, 50] {
+        assert!(game.world().quest(quest).unwrap().done.contains(&stage));
+    }
+    assert!(
+        game.world()
+            .animation_requests
+            .iter()
+            .any(|request| request.target == alduin && request.animation == idle),
+        "expected {idle} on {alduin}, requests {:?}, AI disabled {:?}",
+        game.world().animation_requests,
+        game.world()
+            .actor_ref(alduin)
+            .map(|actor| actor.ai_disabled)
+    );
+    assert!(!game
+        .world()
+        .animation_events
+        .iter()
+        .any(|(source, event)| { *source == alduin && event == "End_Tower_Smash" }));
 }
 
 #[test]
@@ -477,4 +661,24 @@ fn ply_03_saved_keep_scene_phase_start_runs_stage_174_fragment() {
         "{:?}",
         game.vm.log.entries
     );
+}
+
+#[test]
+fn ply_03_second_route_reaches_its_successor_checkpoint() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 second pair");
+        return;
+    };
+    let data = PathBuf::from(data);
+    let corpus = PathBuf::from(corpus);
+    let mut replay =
+        play::load_world_checkpoint(&data, &save_path(&corpus, CHECKPOINTS[1])).unwrap();
+    let mut successor =
+        play::load_world_checkpoint(&data, &save_path(&corpus, CHECKPOINTS[2])).unwrap();
+    let route = Route::parse(ROUTES[1]).unwrap();
+    let report = play::run_to_checkpoint(&mut replay, &route, &mut successor).unwrap();
+    assert!(report.passed(), "{}", report.format());
 }

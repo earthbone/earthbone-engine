@@ -558,10 +558,11 @@ fn evaluate_one_with_vm_for_caller(
         1,
     );
     soe_trace::count(soe_trace::Operation::Conditions, 1);
-    // CONTEXT: xEdit's parameter deciders apply selectors only to reference,
-    // actor and package parameters. Other parameter types retain their meaning.
+    // CONTEXT: xEdit applies selectors to reference, actor and package parameters.
+    // GetDistance supports a filled quest alias, but not a package-data selector.
     if c.flags & 0x0a != 0
         && (!supports_function(c.function) || parameter_selectors_apply(c.function))
+        && (c.function != 1 || c.flags & 0x08 != 0)
     {
         return Err(Error::Flags(c.flags & 0x1f));
     }
@@ -1229,7 +1230,12 @@ fn function_value(
             return Err(Error::UnavailableContract(c.function));
         }
         1 => {
-            let other = resolve_reference(world, context.owner, raw)?;
+            let other = if c.flags & 0x02 != 0 {
+                let quest = context.quest.ok_or(Error::Target(5))?;
+                world.alias_ref(quest, raw).ok_or(Error::Target(5))?
+            } else {
+                resolve_reference(world, context.owner, raw)?
+            };
             world.distance(subject, other)
         }
         577 => {
@@ -2280,11 +2286,20 @@ fn function_value(
         }
         550 => {
             let scene = resolve(world, context.owner, raw, Some(*b"SCEN"))?;
-            let slot = c.parameters[1];
-            let Some(completed) = world.scene_action_slot_complete(scene, slot) else {
-                return Err(Error::Parameter(c.function, slot));
-            };
-            boolean(completed)
+            let action = c.parameters[1];
+            let definition = soe_esm::records::gameplay::Scene::from_record(
+                world.record(scene).ok_or(Error::Form(scene))?,
+            )
+            .map_err(|_| Error::Form(scene))?;
+            if !definition
+                .actions
+                .iter()
+                .any(|entry| entry.index == Some(action))
+            {
+                return Err(Error::Parameter(c.function, action));
+            }
+            let action = i32::try_from(action).map_err(|_| Error::Parameter(c.function, action))?;
+            boolean(world.scene_action_complete(scene, action))
         }
         635 => {
             no_parameter(c)?;
@@ -4266,6 +4281,33 @@ mod ai_condition_tests {
         let mut invalid = missing;
         invalid.parameter_3 = 99;
         assert_eq!(evaluate(&game, id(0x900), &invalid), Err(Error::Target(5)));
+    }
+
+    #[test]
+    fn ply_03_distance_parameter_resolves_a_filled_quest_alias() {
+        let game = fixture();
+        game.world_mut().reference(id(0x900)).unwrap().position = [0.0; 3];
+        game.world_mut().reference(id(0x901)).unwrap().position = [3.0, 4.0, 0.0];
+        let mut predicate = condition_full(1, 7, 0, 5.0);
+        predicate.flags = 0x02;
+        assert_eq!(
+            evaluate(&game, id(0x900), &predicate),
+            Err(Error::Target(5))
+        );
+        assert!(game.world_mut().force_alias(id(0x840), 7, Some(id(0x901))));
+        assert_eq!(evaluate(&game, id(0x900), &predicate), Ok(true));
+        game.world_mut().reference(id(0x901)).unwrap().position = [6.0, 8.0, 0.0];
+        assert_eq!(evaluate(&game, id(0x900), &predicate), Ok(false));
+        predicate.parameters[0] = 99;
+        assert_eq!(
+            evaluate(&game, id(0x900), &predicate),
+            Err(Error::Target(5))
+        );
+        predicate.flags |= 0x08;
+        assert_eq!(
+            evaluate(&game, id(0x900), &predicate),
+            Err(Error::Flags(0x0a))
+        );
     }
 
     #[test]

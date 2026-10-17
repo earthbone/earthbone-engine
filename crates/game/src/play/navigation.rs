@@ -4,6 +4,8 @@
 //! Detour findStraightPath supplies the corridor model. CK PathToReference
 //! requires failure when a route cannot be built. This runner has no fallback
 //! teleport. Spatial scopes follow the existing cell/worldspace form identities.
+//! Retained corridors follow DetourCrowd's DetourPathCorridor. Graph revision
+//! changes invalidate them before further movement.
 
 use soe_esm::{records::navm::NavMesh, GlobalFormId, Tag};
 use soe_navmesh::{vanilla::Builder, NavGraph, NodeId};
@@ -287,6 +289,11 @@ pub(super) fn navigate(
     }
     let mut position = from_surface;
     let mut cell = from_cell;
+    let mut path = graph
+        .find_path_between(position, to)
+        .ok_or("no walkable NAVM path")?;
+    let mut revision = graph.query_revision();
+    let mut waypoint = 1;
     for elapsed in 0..=max_ticks {
         let (live_cell, live_position) = game
             .world_mut()
@@ -305,13 +312,17 @@ pub(super) fn navigate(
             break;
         }
         refresh_doors(game, &mut graph);
-        let path = graph
-            .find_path_between(position, to)
-            .ok_or("no walkable NAVM path")?;
+        if graph.query_revision() != revision {
+            path = graph
+                .find_path_between(position, to)
+                .ok_or("no walkable NAVM path")?;
+            revision = graph.query_revision();
+            waypoint = 1;
+        }
         let mut budget = speed * STEP_SECONDS as f32;
         let mut next_position = position;
         let mut next_cell = cell;
-        for (point, node) in path.points.iter().zip(&path.point_nodes).skip(1) {
+        for (point, node) in path.points.iter().zip(&path.point_nodes).skip(waypoint) {
             let segment = distance(next_position, *point);
             if segment > budget {
                 let fraction = budget / segment;
@@ -321,6 +332,7 @@ pub(super) fn navigate(
                 break;
             }
             next_position = *point;
+            waypoint += 1;
             budget -= segment;
             next_cell = *cells
                 .get(node.mesh as usize)

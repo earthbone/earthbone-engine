@@ -115,6 +115,202 @@ fn hst_14_box_enter_leave_and_count_change_once_per_crossing() {
 }
 
 #[test]
+fn ply_03_body_overlap_delivers_enter_once_and_leaves_after_the_capsule_clears() {
+    let mut world = make_world(xprm([10.0; 3], 1));
+    let mut next_object = 0;
+    let mut movement = |world: &mut World, from, to| {
+        world.update_trigger_actor_body(id(ACTOR), Some(id(CELL)), from, to, &mut |_, _| {
+            next_object += 1;
+            soe_papyrus::ObjectId(next_object)
+        });
+    };
+    movement(&mut world, [-100.0, 0.0, -50.0], [30.0, 0.0, -50.0]);
+    assert_eq!(world.trigger_object_count(id(TRIGGER)), Some(1));
+    assert_eq!(event_names(&world), ["OnTriggerEnter"]);
+    movement(&mut world, [30.0, 0.0, -50.0], [31.0, 0.0, -50.0]);
+    assert_eq!(event_names(&world), ["OnTriggerEnter"]);
+    movement(&mut world, [31.0, 0.0, -50.0], [100.0, 0.0, -50.0]);
+    assert_eq!(world.trigger_object_count(id(TRIGGER)), Some(0));
+    assert_eq!(event_names(&world), ["OnTriggerEnter", "OnTriggerLeave"]);
+}
+
+#[test]
+fn ply_03_body_sweep_delivers_a_complete_crossing_between_outside_endpoints() {
+    let mut world = make_world(xprm([1.0; 3], 1));
+    let mut next_object = 0;
+    world.update_trigger_actor_body(
+        id(ACTOR),
+        Some(id(CELL)),
+        [-100.0, 20.0, -50.0],
+        [100.0, 20.0, -50.0],
+        &mut |_, _| {
+            next_object += 1;
+            soe_papyrus::ObjectId(next_object)
+        },
+    );
+    assert_eq!(event_names(&world), ["OnTriggerEnter", "OnTriggerLeave"]);
+    assert_eq!(world.trigger_object_count(id(TRIGGER)), Some(0));
+}
+
+#[test]
+fn hst_14_persistent_trigger_crosses_grid_cells_and_binds_before_script_delivery() {
+    use soe_esm::GroupKind;
+    use soe_game::vmad::{ScriptEntry, Vmad};
+    use soe_game::Game;
+    use soe_papyrus::asm::{i, ident, none, s, FunctionBuilder, ScriptBuilder};
+    use soe_papyrus::Opcode::{CallStatic, Return};
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(T(b"WRLD"), 0x200));
+    plugin.push_top(Record::new(T(b"WRLD"), 0x201));
+    let mut persistent = Record::new(T(b"CELL"), 0x211).sub(T(b"DATA"), [0]);
+    persistent.placement.world = Some(0x200);
+    persistent.placement.group = Some(GroupKind::WorldChildren(0x200));
+    plugin.push_top(persistent);
+    for (cell, world, x) in [(CELL, 0x200, 0i32), (0x212, 0x200, 1), (0x213, 0x201, 1)] {
+        let mut record = Record::new(T(b"CELL"), cell)
+            .sub(T(b"DATA"), [0])
+            .sub(T(b"XCLC"), [x.to_le_bytes(), 0i32.to_le_bytes()].concat());
+        record.placement.world = Some(world);
+        plugin.push_top(record);
+    }
+    let vmad = Vmad {
+        scripts: vec![ScriptEntry::new("PersistentTrigger")],
+        ..Vmad::default()
+    };
+    let mut trigger = trigger_record(TRIGGER, [4096.0, 100.0, 0.0], xprm([10.0; 3], 1))
+        .sub(T(b"VMAD"), vmad.write(T(b"REFR")));
+    trigger.placement.cell = Some(0x211);
+    trigger.placement.world = Some(0x200);
+    trigger.placement.group = Some(GroupKind::CellPersistent(0x211));
+    trigger.flags |= 0x400;
+    plugin.push_top(trigger);
+    let mut temporary = trigger_record(TRIGGER + 1, [4090.0, 100.0, 0.0], xprm([5.0; 3], 1));
+    temporary.placement.world = Some(0x200);
+    plugin.push_top(temporary);
+    plugin.push_top(Record::new(T(b"ACTI"), 0x410));
+    plugin.push_top(Record::new(T(b"NPC_"), ACTOR_BASE));
+    plugin.push_top(actor_record());
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    order.build_cell_index();
+    let mut game = Game::new(order);
+    let mut script = ScriptBuilder::new("PersistentTrigger", "ObjectReference");
+    for event in ["OnTriggerEnter", "OnTriggerLeave", "OnLoad", "OnUnload"] {
+        let mut function = FunctionBuilder::new(event, "None");
+        if event.starts_with("OnTrigger") {
+            function = function.param("actor", "ObjectReference");
+        }
+        script = script.function(
+            function
+                .local("unused", "None")
+                .ins(
+                    CallStatic,
+                    vec![s("Debug"), s("Trace"), ident("unused"), s(event), i(0)],
+                )
+                .ins(Return, vec![none()])
+                .build(),
+        );
+    }
+    game.load_script(&script.bytes()).unwrap();
+    game.load_cell(id(CELL));
+    game.run_until_idle(64);
+    assert_eq!(
+        game.vm
+            .log
+            .entries
+            .iter()
+            .filter(|entry| entry.message == "OnLoad")
+            .count(),
+        1
+    );
+    game.update_trigger_actor_position(
+        id(ACTOR),
+        Some(id(0x211)),
+        [4070.0, 100.0, 0.0],
+        [4090.0, 100.0, 0.0],
+    );
+    game.run_until_idle(64);
+    assert_eq!(game.world().trigger_object_count(id(TRIGGER)), Some(1));
+    assert_eq!(game.world().trigger_object_count(id(TRIGGER + 1)), Some(1));
+    assert_eq!(
+        game.vm
+            .log
+            .entries
+            .iter()
+            .filter(|entry| entry.message == "OnTriggerEnter")
+            .count(),
+        1
+    );
+    game.update_trigger_actor_position(
+        id(ACTOR),
+        Some(id(0x212)),
+        [4090.0, 100.0, 0.0],
+        [4100.0, 100.0, 0.0],
+    );
+    game.run_until_idle(64);
+    assert_eq!(game.world().trigger_object_count(id(TRIGGER)), Some(1));
+    assert_eq!(
+        game.vm
+            .log
+            .entries
+            .iter()
+            .filter(|entry| entry.message == "OnTriggerEnter")
+            .count(),
+        1
+    );
+    game.update_trigger_actor_position(
+        id(ACTOR),
+        Some(id(0x213)),
+        [4100.0, 100.0, 0.0],
+        [4100.0, 100.0, 0.0],
+    );
+    game.run_until_idle(64);
+    assert_eq!(game.world().trigger_object_count(id(TRIGGER)), Some(0));
+    assert_eq!(
+        game.vm
+            .log
+            .entries
+            .iter()
+            .filter(|entry| entry.message == "OnTriggerLeave")
+            .count(),
+        1
+    );
+    game.load_cell(id(0x212));
+    game.world_mut().unload_cell(id(CELL));
+    game.run_until_idle(64);
+    assert_eq!(
+        game.vm
+            .log
+            .entries
+            .iter()
+            .filter(|entry| entry.message == "OnLoad")
+            .count(),
+        1
+    );
+    assert_eq!(
+        game.vm
+            .log
+            .entries
+            .iter()
+            .filter(|entry| entry.message == "OnUnload")
+            .count(),
+        0
+    );
+    game.world_mut().unload_cell(id(0x212));
+    game.run_until_idle(64);
+    assert_eq!(
+        game.vm
+            .log
+            .entries
+            .iter()
+            .filter(|entry| entry.message == "OnUnload")
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn hst_14_sphere_and_non_trigger_primitive_are_distinguished() {
     let mut world = make_world(xprm([5.0, 5.0, 5.0], 2));
     movement(&mut world, [10.0, 0.0, 0.0], [0.0, 0.0, 0.0]);

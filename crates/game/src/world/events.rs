@@ -445,6 +445,19 @@ impl World {
         self.finish_animation_waits(source, None);
     }
 
+    /// A headless graph is ready for animation requests and script listeners.
+    pub(crate) fn animation_graph_loaded(&mut self, source: GlobalFormId) -> bool {
+        if !self.reference_enabled(source) || !self.loaded_3d_references.insert(source) {
+            return false;
+        }
+        self.commonlib_object_loaded(source, true);
+        self.pending.push(Pending::ReferenceEvent {
+            reference: source,
+            name: "OnLoad".into(),
+        });
+        true
+    }
+
     /// Resolve waits when a reference becomes disabled.
     pub fn set_reference_enabled(&mut self, source: GlobalFormId, enabled: bool) {
         let cell = if let Some(reference) = self.reference(source) {
@@ -459,9 +472,17 @@ impl World {
             });
             if cell_is_loaded && self.loaded_3d_references.insert(source) {
                 self.commonlib_object_loaded(source, true);
+                self.pending.push(Pending::ReferenceEvent {
+                    reference: source,
+                    name: "OnLoad".into(),
+                });
             }
         } else if self.loaded_3d_references.remove(&source) {
             self.commonlib_object_loaded(source, false);
+            self.pending.push(Pending::ReferenceEvent {
+                reference: source,
+                name: "OnUnload".into(),
+            });
         }
         if !enabled {
             self.finish_animation_waits(source, None);
@@ -789,6 +810,18 @@ impl World {
     /// Advance once every action ending in the current phase has completed.
     /// A scene with no remaining phase ends and raises `OnEnd`.
     pub fn advance_scene_phase(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
+        let Some(phase) = self.scene_phase(id) else {
+            return false;
+        };
+        self.advance_scene_phase_to(id, phase + 1, alloc)
+    }
+
+    pub(crate) fn advance_scene_phase_to(
+        &mut self,
+        id: GlobalFormId,
+        next: u32,
+        alloc: Alloc<'_>,
+    ) -> bool {
         let Some(run) = self.scene_runs.get(&id) else {
             return false;
         };
@@ -800,6 +833,9 @@ impl World {
         let Ok(scene) = Scene::from_record(record) else {
             return false;
         };
+        if next <= phase || next as usize > scene.phases.len() {
+            return false;
+        }
         let required: Vec<u32> = scene
             .actions
             .iter()
@@ -816,7 +852,7 @@ impl World {
         let mut ending = Vec::new();
         for (slot, action) in scene.actions.iter().enumerate() {
             let slot = slot as u32;
-            if action.end_phase != Some(phase)
+            if action.end_phase.is_none_or(|end| end >= next)
                 || !matches!(action.data, SceneActionData::Package { .. })
                 || !self
                     .scene_runs
@@ -857,7 +893,6 @@ impl World {
             }
         }
         self.scene_fragment(id, SceneBoundary::PhaseEnd(phase), alloc);
-        let next = phase + 1;
         if next as usize >= scene.phases.len() {
             return self.stop_scene(id, alloc);
         }
@@ -873,7 +908,13 @@ impl World {
                 scene
                     .actions
                     .get(*slot as usize)
-                    .is_some_and(|action| action.end_phase.is_some_and(|end| end > next))
+                    .is_some_and(|action| action.end_phase.is_some_and(|end| end >= next))
+            });
+            run.timer_deadlines.retain(|slot, _| {
+                scene
+                    .actions
+                    .get(*slot as usize)
+                    .is_some_and(|action| action.end_phase.is_some_and(|end| end >= next))
             });
             self.scene_fragment(id, SceneBoundary::PhaseStart(next), alloc);
             true
@@ -900,7 +941,15 @@ impl World {
                     .scene_runs
                     .get(&id)
                     .is_some_and(|run| run.started_actions.contains(&slot));
-                if action.start_phase == Some(phase) && !started {
+                let completed = self
+                    .scene_runs
+                    .get(&id)
+                    .is_some_and(|run| run.completed_actions.contains(&slot));
+                if action.start_phase.is_some_and(|start| start <= phase)
+                    && action.end_phase.is_some_and(|end| phase <= end)
+                    && !started
+                    && !completed
+                {
                     match &action.data {
                         SceneActionData::Package { packages } => {
                             let actor =

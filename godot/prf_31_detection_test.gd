@@ -26,6 +26,9 @@ func prf_31_gate_walk_keeps_detection_under_two_ms() -> void:
 	player.set("capture_mouse", false)
 	player.set("auto_step", false)
 	root.add_child(player)
+	# HST-23 presents and animates NPCs from the render callback independently
+	# of auto_step. This fixture drives only the capsule, camera and detection.
+	player.set_process(false)
 	_check(player.call("use_streamer_data", streamer), "shared data")
 	_check(player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) > 0, "entry")
 	_check(player.call("start_gameplay"), "gameplay")
@@ -60,9 +63,16 @@ func prf_31_gate_walk_keeps_detection_under_two_ms() -> void:
 	var pairs: int = player.call("sample_detection", 1.0 / 60.0)
 	var elapsed := Time.get_ticks_usec() - started
 	_check(pairs > 0, "resident exterior observations")
+	var visuals: Dictionary = player.call("npc_visual_counts")
+	_check(visuals.drawn == 0 and visuals.pending == 0, "manual detection omits NPC presentation")
 	print("PRF31 exterior cell=", player.call("gameplay_cell"), " actors=", actors, " pairs=", pairs, " detection_us=", elapsed)
 	print("PRF31 stages sync/light/observations/evaluation=", player.call("detection_stage_times"))
 	print("PRF31 resident body placements=", player.call("contact_actor_bodies"))
+	if OS.get_environment("SOE_VERIFY_DETECTION_OCCLUSION") == "1":
+		for sample in range(3):
+			await physics_frame
+			_check(player.call("sample_detection", 0.0) > 0, "reused query ray equivalence sample " + str(sample))
+			_check(player.call("sample_detection_walk", 1.0 / 60.0, Vector3(1, 0, 0)) > 0, "moved query ray equivalence sample " + str(sample))
 	if OS.get_environment("PRF_31_BASELINE") != "1":
 		_check(elapsed <= DETECTION_BUDGET_US, "detection exceeded 2 ms")
 		await _walk_gate(player)
@@ -118,6 +128,12 @@ func _walk_gate(player: Node3D) -> void:
 		var phase_stages := PackedInt64Array([0, 0, 0, 0])
 		var facing: Vector2 = player.call("facing")
 		var route = WalkRoute.new(facing.x, player.call("position"))
+		var phase_start: Vector3 = player.call("position")
+		var camera: Camera3D = player.get_viewport().get_camera_3d()
+		_check(camera != null, "walk has a live camera")
+		if camera == null:
+			return
+		var camera_start := camera.global_position
 		while Time.get_ticks_usec() - started < 30000000:
 			await physics_frame
 			var direction: Vector3 = route.direction()
@@ -136,6 +152,9 @@ func _walk_gate(player: Node3D) -> void:
 				phase_stages[stage] += stages[stage]
 			cells[player.call("gameplay_cell")] = true
 			var position: Vector3 = player.call("position")
+			var camera_delta := Vector2(camera.global_position.x - camera_start.x, camera.global_position.z - camera_start.z)
+			var feet_delta := Vector2(position.x - phase_start.x, phase_start.y - position.y) * 0.0142875
+			_check(camera_delta.distance_to(feet_delta) < 0.01, "camera follows capsule on frame " + str(frame))
 			route.update(position, 1.0 / 60.0)
 			if phase == 0:
 				city_movement = maxf(city_movement, Vector2(position.x, position.y).distance_to(Vector2(city_start.x, city_start.y)))
