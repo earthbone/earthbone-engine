@@ -1,5 +1,26 @@
 # soe-game: the runtime form table and the first natives
 
+## Package sneak posture, AI-96, 2026-10-17
+
+The package decoder already exposed PKDT `AlwaysSneak`, but the AI driver
+never applied it. Changing packages now updates the shared actor sneak field,
+including clearing it when leaving the package. Package movement selects the
+same actor movement profile's sneak walk or sneak run rates while the actor
+is sneaking and outside swimming. Native StartSneaking uses this same field.
+The inline host visual observes it through HST-52 and plays the vanilla graph.
+
+Mutagen `Mutagen.Bethesda.Skyrim/Records/Major Records/Package.cs` names the
+`0x00020000` flag, matching the existing package decoder. The CK
+`StartSneaking_-_Actor` page describes the shared actor posture. Existing
+record-backed movement profiles resolve SNMV and speed multipliers, so no
+second speed table is introduced.
+
+Both `r4_package_sneak` regressions failed before the change. Package entry
+left the actor standing, and the synthetic actor used 375 units/s instead of
+its fallback sneak walk rate of 110. Entry, package change, package exit and
+both sneak gaits now pass. The extracted host graph checks player and NPC
+inputs, while full-scene NPC package playback remains unverified.
+
 ## Race movement speeds, HST-40
 
 `movement::MovementType` reads the four directional walk/run pairs in MOVT

@@ -44,6 +44,7 @@ pub mod door_fade;
 pub mod effect_shader;
 pub mod facegen;
 pub mod facial;
+mod furniture;
 pub mod heap_tuning;
 pub mod hud;
 pub mod image_space;
@@ -71,6 +72,8 @@ mod object_lod;
 pub mod objective_map;
 pub mod quest_journal;
 pub mod quick_loot;
+#[cfg(test)]
+mod r4_sources;
 pub mod race_menu;
 pub mod ragdoll;
 #[cfg(feature = "godot")]
@@ -80,6 +83,7 @@ mod runtime_clock;
 pub mod save_recovery;
 pub mod skinned;
 pub mod streaming;
+mod swimming;
 pub mod terrain;
 pub mod terrain_lod;
 pub mod terrain_lod_generate;

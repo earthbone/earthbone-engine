@@ -599,6 +599,7 @@ pub struct InputState {
     pub sneak_held: bool,
     /// Edge triggered, true only on the frame the key went down.
     pub jump_pressed: bool,
+    pub jump_held: bool,
     pub sneak_pressed: bool,
     pub activate_pressed: bool,
     pub grab_pressed: bool,
@@ -645,6 +646,7 @@ impl InputState {
             walk: now(Action::Walk),
             sneak_held: now(Action::Sneak),
             jump_pressed: pressed(Action::Jump),
+            jump_held: now(Action::Jump),
             sneak_pressed: pressed(Action::Sneak),
             activate_pressed: pressed(Action::Activate),
             grab_pressed: pressed(Action::Grab),

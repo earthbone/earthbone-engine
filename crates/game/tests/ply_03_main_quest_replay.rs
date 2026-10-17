@@ -81,6 +81,45 @@ fn save_path(root: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
+fn ply_03_furniture_playback_records_stages_100_and_103() {
+    let (Some(data), Some(corpus)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping PLY-03 furniture entry");
+        return;
+    };
+    let mut game = play::load_world_checkpoint(
+        &PathBuf::from(data),
+        &save_path(&PathBuf::from(corpus), CHECKPOINTS[0]),
+    )
+    .unwrap();
+    let mut route = Route::parse(ROUTES[0]).unwrap();
+    let end = route
+        .steps
+        .iter()
+        .position(|(_, step)| matches!(step, play::Step::PlayScene { phase: 20, .. }))
+        .unwrap();
+    route.steps.truncate(end + 1);
+    let report = play::run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+    let quest = GlobalFormId {
+        file: 0,
+        object: 0xd0593,
+    };
+    let world = game.world();
+    let stages = &world.quest(quest).unwrap().done;
+    assert!(
+        stages.contains(&100),
+        "furniture playback did not record stage 100: {stages:?}"
+    );
+    assert!(
+        stages.contains(&103),
+        "furniture playback did not record stage 103: {stages:?}"
+    );
+}
+
+#[test]
 fn ply_03_persistent_road_trigger_and_scene_ends_record_their_stages() {
     let (Some(data), Some(corpus)) = (
         std::env::var_os("SKYRIM_DATA"),

@@ -28,7 +28,7 @@ use soe_hkx::pose::to_model_space_into;
 use soe_hkx::QsTransform;
 
 use crate::actor::{ActorAssets, ActorSurface};
-use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
+use crate::animation_dispatch::{report_graph_events, AnimationEventCursor, SneakGraphState};
 use crate::data_source::DataSource;
 use crate::godot_layer::actor_array_mesh_from;
 use crate::godot_ragdoll::LiveRagdoll;
@@ -83,6 +83,9 @@ struct AppearanceBinding {
     cache: crate::actor::AppearanceCache,
     stagger: StaggerTracker,
     animation_cursor: AnimationEventCursor,
+    sneak_graph: SneakGraphState,
+    furniture: crate::furniture::ActorUse,
+    swim_graph: crate::animation_dispatch::SwimGraphState,
     mouth_targets: Vec<String>,
 }
 
@@ -481,19 +484,8 @@ impl SkinnedActorNode {
             .is_some_and(|actor| actor.weapon_drawn);
         vm.variables
             .set_by_name("IsAttackReady", f32::from(u8::from(ready)));
-        vm.variables
-            .set_by_name("IsFirstPerson", f32::from(u8::from(self.first_person)));
-        vm.variables
-            .set_by_name("i1stPerson", f32::from(u8::from(!self.first_person)));
         let player = binding.actor == world.player();
-        vm.variables
-            .set_by_name("IsPlayer", f32::from(u8::from(player)));
-        vm.variables
-            .set_by_name("iIsPlayer", f32::from(u8::from(player)));
-        vm.variables
-            .set_by_name("IsNPC", f32::from(u8::from(!player)));
-        vm.character_properties
-            .set_by_name("IsThirdPerson", f32::from(u8::from(!self.first_person)));
+        crate::animation_dispatch::set_actor_view(vm, self.first_person, player);
     }
 
     /// Request the spell's authored start or release phase for one hand.
@@ -543,8 +535,36 @@ impl SkinnedActorNode {
     }
 
     pub(crate) fn camera_head_height(&self) -> Option<f32> {
-        self.head_height
+        let furniture = self.appearance.as_ref().is_some_and(|binding| {
+            binding
+                .world
+                .borrow()
+                .furniture_seat(binding.actor)
+                .is_some()
+        });
+        let animated = furniture
+            .then(|| {
+                self.assets
+                    .as_ref()
+                    .and_then(|assets| assets.skeleton.bone_index("NPC Head [Head]"))
+                    .and_then(|index| self.model.get(index))
+                    .map(|pose| pose.translation[2])
+            })
+            .flatten();
+        animated
+            .or(self.head_height)
             .map(|height| height * self.actor_placement().basis.col_b().length())
+    }
+
+    pub(crate) fn posed_head_height(&self) -> Option<f32> {
+        let index = self
+            .assets
+            .as_ref()?
+            .skeleton
+            .bone_index("NPC Head [Head]")?;
+        let height =
+            self.model.get(index)?.translation[2] * self.actor_placement().basis.col_b().length();
+        (height.is_finite() && height > 0.0).then_some(height)
     }
     /// Load the vanilla human character from `data_dir` and put `mesh_path`
     /// on its skeleton. Returns false and logs on failure.
@@ -837,7 +857,6 @@ impl SkinnedActorNode {
     #[func]
     #[allow(clippy::needless_pass_by_value)]
     pub fn send_graph_event(&mut self, name: GString) -> bool {
-        self.sync_hand_variables();
         self.vm
             .as_mut()
             .is_some_and(|vm| vm.send_event_named(&name.to_string()))
@@ -925,6 +944,24 @@ impl SkinnedActorNode {
         let stagger_event = self.take_stagger_event();
         let requests = self.take_animation_requests();
         self.sync_hand_variables();
+        let mut furniture_events = Vec::new();
+        if let (Some(binding), Some(vm)) = (&mut self.appearance, &mut self.vm) {
+            if !self.first_person {
+                match binding.furniture.sync(
+                    &mut binding.world.borrow_mut(),
+                    binding.source.vfs(),
+                    binding.actor,
+                    vm,
+                ) {
+                    Ok(events) => furniture_events = events,
+                    Err(error) => {
+                        soe_trace::warn!(target: "host::actor", system = "host::actor", "furniture: {error}");
+                    }
+                }
+            }
+        }
+        self.sync_hand_variables();
+        self.sync_sneak_posture();
         let (Some(assets), Some(vm)) = (self.assets.as_deref(), self.vm.as_mut()) else {
             return;
         };
@@ -938,10 +975,28 @@ impl SkinnedActorNode {
             None => {}
         }
         let _span = soe_trace::Span::new("host.actor_tick", "host");
-        for request in requests {
+        for request in furniture_events.into_iter().chain(requests) {
             vm.send_event_named(&request);
         }
         vm.update(delta);
+        if let Some(binding) = &mut self.appearance {
+            if !self.first_person {
+                if let Some(value) = vm
+                    .variables
+                    .index("isInFurniture")
+                    .and_then(|index| vm.variables.word(index))
+                {
+                    if let Some(reference) = binding.world.borrow_mut().reference(binding.actor) {
+                        reference
+                            .anim_ints
+                            .insert("isinfurniture".to_owned(), value);
+                    }
+                }
+                binding
+                    .furniture
+                    .finish(&mut binding.world.borrow_mut(), binding.actor, vm);
+            }
+        }
         if let Some(clock) = self.debug_clock.as_mut() {
             clock.observe(vm, assets, delta);
         }
@@ -1332,6 +1387,11 @@ impl SkinnedActorNode {
     fn install_rig(&mut self, assets: Arc<ActorAssets>) {
         let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::ActorGraph);
         self.vm = None;
+        if let Some(binding) = &mut self.appearance {
+            binding.sneak_graph = SneakGraphState::default();
+            binding.swim_graph = crate::animation_dispatch::SwimGraphState::default();
+            binding.furniture = crate::furniture::ActorUse::default();
+        }
         self.assets = Some(assets);
         let Some(owner) = &self.assets else { return };
         // SAFETY: Arc keeps its allocation stationary. Only this private
@@ -1420,6 +1480,9 @@ impl SkinnedActorNode {
             cache: crate::actor::AppearanceCache::default(),
             stagger: StaggerTracker::default(),
             animation_cursor,
+            sneak_graph: SneakGraphState::default(),
+            furniture: crate::furniture::ActorUse::default(),
+            swim_graph: crate::animation_dispatch::SwimGraphState::default(),
             mouth_targets,
         });
     }
@@ -1754,6 +1817,9 @@ impl SkinnedActorNode {
             cache,
             stagger: StaggerTracker::default(),
             animation_cursor,
+            sneak_graph: SneakGraphState::default(),
+            furniture: crate::furniture::ActorUse::default(),
+            swim_graph: crate::animation_dispatch::SwimGraphState::default(),
             mouth_targets: Vec::new(),
         });
         self.facial_binding = Some(FacialBinding { world, actor });
@@ -1847,6 +1913,21 @@ impl SkinnedActorNode {
         if let Err(error) = self.replace_surfaces(update.surfaces) {
             soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode appearance: {error}");
         }
+    }
+
+    fn sync_sneak_posture(&mut self) {
+        let (Some(binding), Some(vm)) = (&mut self.appearance, &mut self.vm) else {
+            return;
+        };
+        let world = binding.world.borrow();
+        let sneaking = world
+            .actor_ref(binding.actor)
+            .is_some_and(|actor| actor.sneaking && !actor.swimming);
+        binding.sneak_graph.apply(vm, sneaking);
+        let swimming = world
+            .actor_ref(binding.actor)
+            .is_some_and(|actor| actor.swimming);
+        binding.swim_graph.apply(vm, swimming);
     }
 
     fn take_animation_requests(&mut self) -> Vec<String> {

@@ -373,6 +373,43 @@ Their queued calls were stopped with exit 130. The memory cause and the longer
 handoff remain unverified, and the row remains in progress. The full workspace
 gate is excluded by this task.
 
+## Sneak posture bridge, HST-52 draft, 2026-10-17
+
+The free walk controller toggled its own sneak flag and shortened the capsule,
+but sent only speed and move events to the player graphs. The rendered body
+therefore kept its standing posture. Ctrl now updates the shared actor's
+`sneaking` field. Each inline bound actor visual reads that field and sends
+`SneakStart` or `SneakStop` once when posture changes.
+The same visual path serves the player body, first-person rig and inline NPCs.
+Native changes to the shared posture feed back into the controller on its next
+movement update. The existing capsule ratio lowers both camera modes.
+
+The event names come from the installed human master behavior and the local
+Nemesis vanilla behavior XML. CK `StartSneaking_-_Actor` describes the shared
+actor posture. OpenMW `apps/openmw/mwmechanics/character.cpp` selects sneak
+idle and movement from actor stance and suppresses sneak during swimming.
+This host keeps its existing HKX interpreter instead of OpenMW's animation
+group player, so authored behavior transitions still select the clips.
+No new parser, dependency, saved section or scene node is added.
+
+`r4_sneak_test.gd` starts the Bannered Mare free walk scene, toggles Ctrl,
+records both rigs' active clips, checks walk and run, checks camera lowering
+in both views and writes rendered standing and crouched frames when available.
+The extracted graph regression exercises human third person, first person
+and NPC inputs through `SOE_HKX_DIR`. The installed graph case uses
+`SKYRIM_DATA`. A skipped data-gated check is not play evidence.
+Both full-scene probes stayed queued for the shared installed-data slot.
+They were stopped with exit 130 before loading a scene. No gameplay capture,
+before-scene failure or after-scene pass was obtained, and no release library
+was replaced. `r4_furniture_test.gd` also passes syntax checking but has not
+run its chair assertions. These source changes do not establish that round 4
+passes in play.
+
+AI-96 applies the package's AlwaysSneak flag to the shared posture. The opt-in
+threaded simulation does not carry posture in its presentation snapshot, and
+NPC capsules do not yet shorten with sneak. Those paths, furniture entry and
+swimming remain outside this correction.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and

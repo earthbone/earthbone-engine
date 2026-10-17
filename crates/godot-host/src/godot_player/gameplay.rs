@@ -25,6 +25,7 @@ impl Drop for LocationInstall {
     }
 }
 
+#[cfg(test)]
 fn should_stand_from_furniture(world: &mut soe_game::World, player: GlobalFormId) -> bool {
     world
         .furniture_seat(player)
@@ -54,6 +55,60 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    pub(super) fn hold_player_furniture(&mut self, input: &crate::input::InputState) -> bool {
+        let pose = self.game.as_ref().and_then(|game| {
+            let mut world = game.world_mut();
+            let player = world.player();
+            world.furniture_seat(player)?;
+            if input.is_moving() || input.jump_pressed {
+                world.request_furniture_exit(player);
+            }
+            world.ref_placement(player)
+        });
+        let Some(pose) = pose else {
+            if let Some(mode) = self.furniture_camera_restore.take() {
+                self.rig.mode = mode;
+            }
+            return false;
+        };
+        if self.furniture_camera_restore.is_none() {
+            self.furniture_camera_restore = Some(self.rig.mode);
+            self.rig.set_facing(pose.rotation[2], 0.0);
+        }
+        self.rig.mode = crate::camera::CameraMode::Third;
+        let limit = self
+            .camera_state
+            .sitting_rotation_degrees()
+            .abs()
+            .max(90.0)
+            .to_radians();
+        let relative = (self.rig.yaw() - pose.rotation[2] + std::f32::consts::PI)
+            .rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        self.rig.set_facing(
+            pose.rotation[2] + relative.clamp(-limit, limit),
+            self.rig.pitch(),
+        );
+        let feet = Vec3::new(pose.position[0], pose.position[1], pose.position[2]);
+        if let Some(world) = &mut self.world {
+            let settings = self
+                .character
+                .and_then(|id| world.character(id))
+                .map_or_else(CharacterSettings::mudcrab, |body| body.settings);
+            if self
+                .character
+                .and_then(|id| world.character(id))
+                .is_none_or(|body| (body.position - feet).length() > 0.01)
+            {
+                if let Some(id) = self.character.take() {
+                    world.remove(id);
+                }
+                self.character = Some(world.create_character(settings, feet));
+            }
+        }
+        true
+    }
+
     /// Invoke a character-generation cache native for host integration checks.
     pub(super) fn invoke_chargen_native_for_check(&mut self, name: &GString) -> bool {
         let name = name.to_string();
@@ -768,12 +823,11 @@ impl PlayerNode {
                 if let Some(actor) = world.actor(player) {
                     actor.sprinting = sprinting;
                 }
-                if let Some(reference) = world.reference(player) {
-                    reference.position = [feet.x, feet.y, feet.z];
-                    reference.rotation = rotation;
-                }
-                if should_stand_from_furniture(&mut world, player) {
-                    world.stand_from_furniture(player);
+                if world.furniture_seat(player).is_none() {
+                    if let Some(reference) = world.reference(player) {
+                        reference.position = [feet.x, feet.y, feet.z];
+                        reference.rotation = rotation;
+                    }
                 }
                 let look = self.rig.look_direction();
                 world.camera_look = [look.x, look.y, look.z];
@@ -1356,7 +1410,11 @@ impl PlayerNode {
             let player = game.player();
             if game.world_mut().can_sleep_at_furniture(target) {
                 let activated = game.activate_deferred(target, player);
-                return activated && game.sleep_player_at_furniture(target, 8.0, false);
+                return activated
+                    && game
+                        .world_mut()
+                        .reserve_furniture_animation_marker(target, player, 2)
+                        .is_some();
             }
             let (container, blocked) = {
                 let mut world = game.world_mut();

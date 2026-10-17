@@ -164,6 +164,46 @@ pub(crate) fn evaluate_without_vm(
     evaluate_with_vm(world, None, context, conditions)
 }
 
+/// Furniture idle selection supplies marker inputs before its graph is active.
+pub(crate) fn evaluate_furniture(
+    world: &mut World,
+    context: Context,
+    conditions: &[Condition],
+    animation: u16,
+    entry: u16,
+) -> Result<bool, Error> {
+    let mut any = false;
+    for (index, condition) in conditions.iter().enumerate() {
+        if !any {
+            any = if matches!(condition.function, 159 | 613 | 614 | 631) {
+                if condition.run_on != 0 || condition.parameters[1] != 0 {
+                    return Err(Error::Target(condition.run_on));
+                }
+                let actual = match condition.function {
+                    159 => 2.0,
+                    631 => 0.0,
+                    613 => boolean(u32::from(animation) == condition.parameters[0]),
+                    _ => boolean(u32::from(entry) << 16 == condition.parameters[0]),
+                };
+                compare(
+                    actual,
+                    expected_value(world, context.owner, condition)?,
+                    condition,
+                )?
+            } else {
+                evaluate_one_with_vm(world, None, context, condition)?
+            };
+        }
+        if !condition.or_with_next() || index + 1 == conditions.len() {
+            if !any {
+                return Ok(false);
+            }
+            any = false;
+        }
+    }
+    Ok(true)
+}
+
 fn evaluate_with_vm(
     world: &mut World,
     lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,

@@ -380,6 +380,25 @@ pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
 }
 
 pub(crate) fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {
+    if world.actor_ref(actor).is_some_and(|state| state.swimming) {
+        let movement = world.actor_swim_movement(actor);
+        return if matches!(preferred, speed::RUN | speed::FAST_WALK) {
+            movement.run.forward
+        } else {
+            movement.walk.forward
+        };
+    }
+    if world
+        .actor_ref(actor)
+        .is_some_and(|state| state.sneaking && !state.swimming)
+    {
+        let gait = if matches!(preferred, speed::RUN | speed::FAST_WALK) {
+            crate::movement::Gait::SneakRun
+        } else {
+            crate::movement::Gait::SneakWalk
+        };
+        return world.actor_movement(actor).speed(gait, 0.0, 1.0);
+    }
     let Some((race, multiplier, encumbered)) = world.movement_modifiers(actor) else {
         return movement_input(preferred).2;
     };
@@ -1151,6 +1170,10 @@ fn switch_to_inner(
     if chosen.map(|c| c.package) == current {
         return current;
     }
+    let sneaking = chosen
+        .and_then(|candidate| package(world, candidate.package))
+        .is_some_and(|package| package.has_flag(flags::ALWAYS_SNEAK));
+    world.actor(actor)?.sneaking = sneaking;
     if let Some(old) = current {
         if package(world, old).is_some_and(|p| p.has_flag(flags::UNLOCK_DOORS_ON_CHANGE)) {
             unlock_cell_doors(world, actor, alloc);
@@ -1185,8 +1208,8 @@ fn switch_to_inner(
         .map(|r| r.position)
         .unwrap_or_default();
     let mut ai = std::mem::take(&mut world.actor(actor)?.ai);
-    if ai.procedure == Procedure::Sit {
-        world.stand_from_furniture(actor);
+    if world.furniture_seat(actor).is_some() {
+        world.leave_furniture(actor);
     }
     ai.package = chosen.map(|c| c.package);
     ai.alias = chosen.and_then(|c| c.alias);
@@ -1386,8 +1409,8 @@ fn begin_procedure_inner(
         .reference(actor)
         .map(|r| (r.position, r.cell))
         .unwrap_or_default();
-    if ai.procedure == Procedure::Sit {
-        world.stand_from_furniture(actor);
+    if world.furniture_seat(actor).is_some() {
+        world.leave_furniture(actor);
     }
     ai.procedure = procedure;
     ai.destination = None;
@@ -1995,6 +2018,18 @@ fn sandbox_marker(
     }
     if tag == Some(T(b"FURN"))
         && measure_phase(world, Phase::MarkerBed, |world| is_bed(world, reference))
+    {
+        return false;
+    }
+    if tag == Some(T(b"FURN"))
+        && world.record(base).is_some_and(|record| {
+            record.find(T(b"FNAM")).is_some_and(|data| {
+                data.len() >= 2 && u16::from_le_bytes([data[0], data[1]]) & 2 != 0
+            }) || record.find(T(b"MNAM")).is_some_and(|data| {
+                data.len() >= 4
+                    && u32::from_le_bytes([data[0], data[1], data[2], data[3]]) & 0x0200_0000 != 0
+            })
+        })
     {
         return false;
     }
@@ -3136,6 +3171,13 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
 }
 
 fn step_inner(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) -> Option<Phase> {
+    if world
+        .actor_ref(actor)
+        .is_some_and(|state| state.sit_wants_to_stand)
+        && world.leave_furniture(actor)
+    {
+        return None;
+    }
     let (position, cell) = world.reference_ref(actor).map(|r| (r.position, r.cell))?;
     let mut ai = world
         .loaded_actor_mut(actor)
@@ -3341,8 +3383,10 @@ fn step_procedure(
     if ai.arrived {
         match ai.procedure {
             Procedure::Sandbox if hours >= ai.dwell_until => {
-                ai.arrived = false;
-                ai.destination = None;
+                if !world.leave_furniture(actor) {
+                    ai.arrived = false;
+                    ai.destination = None;
+                }
             }
             Procedure::Sleep => ai.sleeping = true,
             _ => {}
@@ -3399,8 +3443,18 @@ fn step_procedure(
             let pick =
                 world.random_int_for(crate::world::RngStream::Ai, 0, markers.len() as i32 - 1)
                     as usize;
+            let marker = markers[pick];
+            if world.base_of(marker).and_then(|base| world.tag_of(base)) == Some(T(b"FURN"))
+                && world.reserve_furniture_use_marker(marker, actor).is_none()
+            {
+                ai.destination = None;
+                if let Some(state) = world.loaded_actor_mut(actor) {
+                    state.ai = ai;
+                }
+                return;
+            }
             world
-                .reference(markers[pick])
+                .reference(marker)
                 .map(|s| s.position)
                 .unwrap_or(center)
         };
@@ -3510,9 +3564,6 @@ fn step_procedure(
                     + f64::from(world.random_float_for(crate::world::RngStream::Ai, 0.1, 0.4));
             }
             if matches!(ai.procedure, Procedure::Travel | Procedure::Flee) {
-                tree::succeeded(world, &mut ai);
-            } else if ai.procedure == Procedure::Sit {
-                world.stand_from_furniture(actor);
                 tree::succeeded(world, &mut ai);
             }
             if ai.procedure == Procedure::ForceGreet {
@@ -4446,6 +4497,55 @@ fn read_tree_state_version(r: &mut Reader<'_>, version: u16) -> Result<Option<Tr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn r4_package_sneak_enters_and_leaves_shared_actor_posture() {
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        let mut general = [0; 12];
+        general[..4].copy_from_slice(&flags::ALWAYS_SNEAK.to_le_bytes());
+        plugin.push_top(soe_esm::Record::new(T(b"PACK"), 1).sub(T(b"PKDT"), general));
+        plugin.push_top(soe_esm::Record::new(T(b"PACK"), 2).sub(T(b"PKDT"), [0; 12]));
+        let mut order = soe_esm::LoadOrder::new();
+        order.add("sneak.esp", plugin).unwrap();
+        let mut world = World::new(order);
+        let actor = world.player();
+        let mut next = 1;
+        let mut alloc = |_: &str, _: &str| {
+            let id = soe_papyrus::ObjectId(next);
+            next += 1;
+            id
+        };
+        for (object, expected) in [(1, true), (2, false), (1, true)] {
+            switch_to(
+                &mut world,
+                actor,
+                Some(Candidate {
+                    package: GlobalFormId { file: 0, object },
+                    alias: None,
+                }),
+                &mut alloc,
+            );
+            assert_eq!(world.actor_ref(actor).unwrap().sneaking, expected);
+        }
+        switch_to(&mut world, actor, None, &mut alloc);
+        assert!(!world.actor_ref(actor).unwrap().sneaking);
+    }
+
+    #[test]
+    fn r4_package_sneak_movement_uses_shared_walk_and_run_rates() {
+        let mut world = World::new(soe_esm::LoadOrder::new());
+        let actor = world.player();
+        world.actor(actor).unwrap().sneaking = true;
+        let profile = world.actor_movement(actor);
+        assert_eq!(
+            movement_speed(&mut world, actor, speed::WALK),
+            profile.speed(crate::movement::Gait::SneakWalk, 0.0, 1.0)
+        );
+        assert_eq!(
+            movement_speed(&mut world, actor, speed::RUN),
+            profile.speed(crate::movement::Gait::SneakRun, 0.0, 1.0)
+        );
+    }
 
     #[test]
     fn scr_14_keep_offset_rotates_body_space_and_rejects_non_finite_target() {

@@ -294,6 +294,72 @@ impl SimpleWorld {
         self.statics.iter().map(|s| s.prims.len()).sum()
     }
 
+    /// Move a submerged capsule with surface buoyancy and no walking gravity.
+    /// Water height and immersion depth are supplied by the form-backed host.
+    /// Returns false for missing bodies or invalid input, without changing state.
+    pub fn step_swimming(
+        &mut self,
+        id: BodyId,
+        desired: Vec3,
+        water_height: f32,
+        depth: f32,
+        dt: f32,
+    ) -> bool {
+        if !desired.is_finite()
+            || !desired.length().is_finite()
+            || !water_height.is_finite()
+            || !depth.is_finite()
+            || depth <= 0.0
+            || !dt.is_finite()
+            || !(0.0..=1.0).contains(&dt)
+            || dt == 0.0
+        {
+            return false;
+        }
+        let Some(mut body) = self.characters.get(&id).copied() else {
+            return false;
+        };
+        let surface = water_height - depth;
+        if !surface.is_finite() {
+            return false;
+        }
+        let steps = (dt * 60.0).ceil().max(1.0) as usize;
+        let delta = dt / steps as f32;
+        body.crouching = false;
+        body.jump_requested = false;
+        body.jump_active = false;
+        for _ in 0..steps {
+            let wish = Vec3::new(desired.x, desired.y, 0.0);
+            let difference = wish - body.horizontal_velocity;
+            let limit = body.settings.horizontal_acceleration * delta;
+            let horizontal = if difference.length() <= limit {
+                wish
+            } else {
+                body.horizontal_velocity + difference.normalized() * limit
+            };
+            let vertical = if desired.z.abs() > 0.01 {
+                desired.z
+            } else {
+                ((surface - body.position.z) * 4.0).clamp(-90.0, 90.0)
+            };
+            let mut velocity = Vec3::new(horizontal.x, horizontal.y, vertical);
+            let mut position = body.position + velocity * delta;
+            if velocity.z > 0.0 && position.z > surface {
+                position.z = surface.max(body.position.z);
+                velocity.z = 0.0;
+            }
+            let (position, velocity, grounded, _) =
+                self.resolve(position, velocity, &body.settings, body.height());
+            body.position = position;
+            body.velocity = velocity;
+            body.horizontal_velocity = Vec3::new(velocity.x, velocity.y, 0.0);
+            body.vertical_velocity = velocity.z;
+            body.on_ground = grounded;
+        }
+        self.characters.insert(id, body);
+        true
+    }
+
     fn cells(aabb: &Aabb) -> impl Iterator<Item = (i32, i32, i32)> {
         let lo = (
             (aabb.min.x / CELL).floor() as i32,
@@ -706,6 +772,62 @@ impl SimpleWorld {
 /// Horizontal distance, which is what decides whether a walk made progress.
 fn flat_distance(a: Vec3, b: Vec3) -> f32 {
     Vec3::new(a.x - b.x, a.y - b.y, 0.0).length()
+}
+
+#[cfg(test)]
+mod swimming_tests {
+    use super::*;
+
+    #[test]
+    fn r4_swim_buoyancy_holds_surface_depth_and_diving_can_surface() {
+        let mut world = SimpleWorld::new();
+        let id = world.create_character(CharacterSettings::mudcrab(), Vec3::new(0.0, 0.0, 800.0));
+        for _ in 0..300 {
+            assert!(world.step_swimming(id, Vec3::ZERO, 1000.0, 80.0, 1.0 / 60.0));
+        }
+        assert!((world.character(id).unwrap().position.z - 920.0).abs() < 0.01);
+        assert!(!world.character(id).unwrap().on_ground);
+        for _ in 0..60 {
+            world.step_swimming(id, Vec3::new(100.0, 0.0, -80.0), 1000.0, 80.0, 1.0 / 60.0);
+        }
+        let submerged = world.character(id).unwrap().position;
+        assert!(submerged.x > 90.0 && submerged.z < 841.0);
+        for _ in 0..120 {
+            world.step_swimming(id, Vec3::new(0.0, 0.0, 80.0), 1000.0, 80.0, 1.0 / 60.0);
+        }
+        assert!((world.character(id).unwrap().position.z - 920.0).abs() < 0.01);
+        world.step_character(id, 1.0 / 60.0);
+        assert!(
+            world.character(id).unwrap().position.z < 920.0,
+            "leaving swimming restores gravity"
+        );
+    }
+
+    #[test]
+    fn r4_swim_keeps_wall_collision_and_rejects_invalid_input() {
+        let mut world = SimpleWorld::new();
+        world.add_static(&Collider {
+            node: soe_nif::types::BlockRef(0),
+            node_name: "swim wall".into(),
+            layer: Layer::STATIC,
+            motion: crate::MotionType::Fixed,
+            mass: 0.0,
+            transform: Iso::translation(Vec3::new(100.0, 0.0, 1000.0)),
+            shape: Shape::Box {
+                half_extents: Vec3::new(10.0, 500.0, 500.0),
+            },
+        });
+        let id = world.create_character(CharacterSettings::mudcrab(), Vec3::new(0.0, 0.0, 920.0));
+        for _ in 0..120 {
+            world.step_swimming(id, Vec3::new(180.0, 0.0, 0.0), 1000.0, 80.0, 1.0 / 60.0);
+        }
+        assert!(world.character(id).unwrap().position.x < 63.0);
+        let before = *world.character(id).unwrap();
+        for invalid in [f32::NAN, f32::INFINITY, -1.0] {
+            assert!(!world.step_swimming(id, Vec3::ZERO, 1000.0, invalid, 1.0 / 60.0));
+            assert_eq!(*world.character(id).unwrap(), before);
+        }
+    }
 }
 
 impl PhysicsWorld for SimpleWorld {

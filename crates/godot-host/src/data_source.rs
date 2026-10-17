@@ -1364,18 +1364,7 @@ impl DataSource {
         if !view.has_water() {
             return None;
         }
-        let cell_height = view.water_height.filter(|h| water::is_recorded_height(*h));
-        let world_water = match (view.grid, view.world) {
-            (Some(_), Some(raw)) => {
-                water::world_water(&self.order, self.order.resolve(rref.file, raw))
-            }
-            _ => water::WorldWater::default(),
-        };
-        let height = cell_height.or(world_water.height)?;
-        let water_id = view
-            .water
-            .map(|raw| self.order.resolve(rref.file, raw))
-            .or(world_water.water);
+        let (height, water_id) = self.cell_water(cell_id)?;
         let material = water_id
             .and_then(|id| self.order.winner(id))
             .map(water_material_from);

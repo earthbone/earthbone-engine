@@ -1,5 +1,65 @@
 # soe-hkx: Skyrim SE animation files and the behavior runtime design
 
+## Shared event delivery, ANM-63, 2026-10-17
+
+The linked graph is a directed graph with shared nodes. Event traversal visited
+each parent path and delivered one input repeatedly to shared modifiers. The
+furniture graph check took 156.53 seconds before a visitation buffer bounded
+each dispatch to one delivery per node. The same focused host checks then
+finished in 7.20 seconds. The expanded player, NPC and first-person checks hold
+each idle for 20 seconds and complete in 17.24 seconds, below their 60-second
+bound. These are debug test measurements with extracted vanilla assets.
+
+The buffer resets for each submitted or raised event and survives interpreter
+state transfers. A synthetic diamond checks that an every-two-events modifier
+counts one input once and still receives separate inputs in the same update.
+The local serde-hkx `hkbEventEveryNEventsModifier.json` declares its counter
+contract. This extends the existing per-update shared generation rule to event
+delivery. The full HKX library check passes 124 tests.
+
+## Furniture nested transitions, ANM-62, 2026-10-17
+
+The interpreter parsed nested transition IDs but did not use them. The vanilla
+furniture branch consequently selected the anvil state for cooking, alchemy
+and enchanting events. Transitions now check an authored nested source and
+activate the authored nested destination through generator wrappers. A local
+wildcard can change a child state while retaining its parent state.
+
+The local serde-hkx `assets/classes/hkbStateMachineTransitionInfo.json`
+declares the IDs and validity flags. Nemesis's vanilla `Nemesis_mt_behavior.xml`
+uses them to select furniture states. Three synthetic tests cover destination
+entry through a wrapper, source filtering and a child change within one parent.
+The host's extracted vanilla graph test checks the distinct chair, bed, forge,
+cooking, alchemy and enchanting clips through entry, a hold and exit.
+
+## State synchronization correction, ANM-61, 2026-10-17
+
+The interpreter read `syncVariableIndex` for `START_STATE_MODE_SYNC` but never
+published state changes to it. In the installed human behavior, SneakStart
+entered `sneakmtidle.hkx` while `iIsInSneak` stayed zero. Starting movement
+then initialized `MT_LocomotionType_Behavior` in its standing state and played
+`mt_walkforward.hkx`. State entry now writes its state ID to the authored
+sync variable before activating child generators.
+
+The local serde-hkx `hkbStateMachine` table and CommonLibSSE-NG
+`include/RE/H/hkbStateMachine.h` declare the sync index and current state.
+The local Nemesis vanilla `Nemesis_mt_behavior.xml` names `iIsInSneak` as
+the shared sync variable of idle and locomotion machines. Publishing the state
+on entry is inferred from those shared machines and checked with the installed
+graph. The field layout and parser are unchanged.
+
+`r4_state_entry_publishes_sync_variable` failed with state 1 and sync value 0
+before this correction. It checks enter and exit through authored events.
+The host's extracted graph check now plays `sneakmtidle.hkx`,
+`sneakwalk_forward.hkx` and `sneakrun_forward.hkx` for player third person,
+first person and NPC inputs, then returns to ordinary idle on SneakStop.
+No asset is stored in the repository.
+
+The shared synthetic locomotion graph now sets its unused sync index to -1.
+It previously left zero there, pointing at Speed. Enabling state publication
+exposed that fixture error in the game animation timing checks. Their
+playhead and furniture-event assertions are unchanged.
+
 The 2026-10-13 character correction generates a shared graph node once per
 interpreter update and reuses its output across parent branches. Previously,
 Hulda's vanilla `MT_Idle.HKX` playhead advanced three times per update, playing
