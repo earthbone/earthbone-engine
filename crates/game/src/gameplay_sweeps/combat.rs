@@ -19,7 +19,6 @@ use soe_esm::{GlobalFormId, LoadOrder, Tag};
 use super::magic::{bases, scene, Bases, Scene};
 use super::{cause_key, near, report, row, selected, visual_check, Options, Outcome};
 use crate::combat::{HitResult, MeleeHit};
-use crate::with_world;
 
 const UNARMED_ATTACK: GlobalFormId = GlobalFormId {
     file: 0,

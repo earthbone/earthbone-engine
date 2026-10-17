@@ -916,7 +916,12 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
 /// `Some(true)` for LockDoors and `Some(false)` for UnlockDoors. Both finish
 /// in the tick they start, like a UseMagic that cast.
 fn door_procedure(branch: &Branch) -> Option<bool> {
-    match branch.procedure.as_deref().map(str::to_ascii_lowercase).as_deref() {
+    match branch
+        .procedure
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("lockdoors") => Some(true),
         Some("unlockdoors") => Some(false),
         _ => None,

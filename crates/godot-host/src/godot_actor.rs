@@ -1184,7 +1184,6 @@ impl SkinnedActorNode {
         });
     }
 
-
     fn apply_head_tracking(&mut self) {
         self.head_aim = None;
         if self.first_person {
@@ -1242,7 +1241,6 @@ impl SkinnedActorNode {
 
     pub(crate) fn take_contacts(&mut self) -> Vec<PoseContact> {
         std::mem::take(&mut self.contacts)
-
     }
 
     fn push_pose(&mut self) {

@@ -15,7 +15,6 @@ use serde_json::{json, Value as Json};
 use soe_esm::{GlobalFormId, LoadOrder, Tag};
 
 use super::{cause_key, fresh_game, near, report, row, selected, visual_check, Options, Outcome};
-use crate::with_world;
 
 const MGEF_DETRIMENTAL: u32 = 1 << 2;
 const ALCH_POISON: u32 = 1 << 17;
@@ -310,9 +309,10 @@ pub fn check_ingestible(order: &Arc<LoadOrder>, id: GlobalFormId) -> Outcome {
         }
         let now = snapshot(&mut game, player, value);
         let (delta, want) = match expected {
-            Expected::Current(want) => (now.current - start.current, want),
+            Expected::Current(want) | Expected::PerSecond(want) => {
+                (now.current - start.current, want)
+            }
             Expected::Max(want) => (now.maximum - start.maximum, want),
-            Expected::PerSecond(want) => (now.current - start.current, want),
         };
         let slack = if matches!(expected, Expected::PerSecond(_)) {
             want.abs() * 0.5 + 1.0

@@ -45,14 +45,14 @@ use crate::units::{
 use soe_physics::{Iso, Vec3};
 
 mod object_animation;
-mod record_lights;
 pub(crate) mod particles;
+mod record_lights;
 
 mod console_pick;
 mod console_render;
 mod distant_upload;
-mod pipeline_warmup;
 pub(crate) mod picking;
+mod pipeline_warmup;
 mod play_path;
 pub(crate) mod upload;
 

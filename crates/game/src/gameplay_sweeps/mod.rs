@@ -206,6 +206,7 @@ pub fn visual_check(name: &str, records: &[String]) -> Json {
 
 /// The sweep report: rows, counts and the pending visual checks.
 #[must_use]
+#[allow(clippy::needless_pass_by_value)]
 pub fn report(kind: &str, oracle: &str, rows: Vec<Json>, visual: Vec<Json>) -> Json {
     let counts = counts(&rows);
     json!({"schema":1,"sweep":kind,"oracle":oracle,"counts":counts,

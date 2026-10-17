@@ -22,8 +22,12 @@ fn weapon(object: u32, animation: u8) -> Record {
     Record::new(Tag(*b"WEAP"), object)
         .sub(
             Tag(*b"DATA"),
-            [&0_u32.to_le_bytes()[..], &1.0_f32.to_le_bytes()[..], &10_u16.to_le_bytes()[..]]
-                .concat(),
+            [
+                &0_u32.to_le_bytes()[..],
+                &1.0_f32.to_le_bytes()[..],
+                &10_u16.to_le_bytes()[..],
+            ]
+            .concat(),
         )
         .sub(Tag(*b"DNAM"), dnam)
 }
@@ -32,9 +36,15 @@ fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
         Record::new(Tag(*b"ARMO"), SHIELD)
-            .sub(Tag(*b"DATA"), [20_i32.to_le_bytes(), 1.0_f32.to_le_bytes()].concat())
+            .sub(
+                Tag(*b"DATA"),
+                [20_i32.to_le_bytes(), 1.0_f32.to_le_bytes()].concat(),
+            )
             .sub(Tag(*b"DNAM"), 100_u32.to_le_bytes())
-            .sub(Tag(*b"BOD2"), [(1_u32 << 9).to_le_bytes(), 2_u32.to_le_bytes()].concat()),
+            .sub(
+                Tag(*b"BOD2"),
+                [(1_u32 << 9).to_le_bytes(), 2_u32.to_le_bytes()].concat(),
+            ),
     );
     let mut light = vec![0; 32];
     light[12..16].copy_from_slice(&2_u32.to_le_bytes());
@@ -60,9 +70,14 @@ fn inv_09_a_two_handed_weapon_removes_the_shield() {
     let mut world = game.world_mut();
     world.equip_item(player, id(SHIELD)).unwrap();
     assert_eq!(world.equipped_shield(player).unwrap(), Some(id(SHIELD)));
-    world.equip_hand_weapon(player, Hand::Right, id(GREATSWORD)).unwrap();
+    world
+        .equip_hand_weapon(player, Hand::Right, id(GREATSWORD))
+        .unwrap();
     assert_eq!(world.equipped_shield(player).unwrap(), None);
-    assert_eq!(world.actor(player).unwrap().right_weapon, Some(id(GREATSWORD)));
+    assert_eq!(
+        world.actor(player).unwrap().right_weapon,
+        Some(id(GREATSWORD))
+    );
 }
 
 #[test]
@@ -70,7 +85,9 @@ fn inv_09_a_shield_puts_a_two_handed_weapon_away() {
     let mut game = game();
     let player = game.player();
     let mut world = game.world_mut();
-    world.equip_hand_weapon(player, Hand::Right, id(GREATSWORD)).unwrap();
+    world
+        .equip_hand_weapon(player, Hand::Right, id(GREATSWORD))
+        .unwrap();
     world.equip_item(player, id(SHIELD)).unwrap();
     assert_eq!(world.equipped_shield(player).unwrap(), Some(id(SHIELD)));
     assert_eq!(world.actor(player).unwrap().right_weapon, None);
@@ -82,7 +99,9 @@ fn inv_09_a_one_handed_weapon_keeps_the_shield() {
     let player = game.player();
     let mut world = game.world_mut();
     world.equip_item(player, id(SHIELD)).unwrap();
-    world.equip_hand_weapon(player, Hand::Right, id(SWORD)).unwrap();
+    world
+        .equip_hand_weapon(player, Hand::Right, id(SWORD))
+        .unwrap();
     assert_eq!(world.equipped_shield(player).unwrap(), Some(id(SHIELD)));
     assert_eq!(world.actor(player).unwrap().right_weapon, Some(id(SWORD)));
 }

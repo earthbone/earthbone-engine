@@ -71,9 +71,9 @@ pub mod nif_refraction;
 pub mod nordic_theme;
 pub mod npc_grounding;
 pub mod object_animation;
+pub mod object_behavior;
 #[cfg(any(feature = "godot", test))]
 mod object_lod;
-pub mod object_behavior;
 pub mod objective_map;
 pub mod quest_journal;
 pub mod quick_loot;

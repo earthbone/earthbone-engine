@@ -19,7 +19,6 @@ use soe_esm::{GlobalFormId, LoadOrder, Tag};
 use super::consumables::{expected_change, plan_of, EffectPlan, Expected};
 use super::{cause_key, fresh_game, near, report, row, selected, visual_check, Options, Outcome};
 use crate::combat::MeleeHit;
-use crate::with_world;
 use crate::Game;
 
 /// Game units in one foot, the unit of an effect's area (UESP Units).
@@ -194,7 +193,7 @@ pub fn check_spell(
     let mut scene = scene(order, bases);
     let (player, game) = (scene.player, &mut scene.game);
     let target = match target_kind {
-        Target::Itself => player,
+        Target::Itself | Target::Space => player,
         Target::Npc => scene.npc,
         Target::Creature => match scene.creature {
             Some(id) => id,
@@ -207,7 +206,6 @@ pub fn check_spell(
             }
         },
         Target::Object => scene.object,
-        Target::Space => player,
     };
     let (definition, plans) = {
         let world = game.world();
@@ -512,7 +510,7 @@ fn resistance_failure(
 /// Spells a tome teaches, from BOOK flag 0x04 and the DATA spell field.
 #[must_use]
 pub fn tome_spells(order: &Arc<LoadOrder>, options: &Options) -> Vec<(GlobalFormId, String)> {
-    let mut game = fresh_game(order);
+    let game = fresh_game(order);
     let world = game.world_mut();
     let mut spells: Vec<GlobalFormId> = Vec::new();
     for (book, record) in order.winners_of(Tag(*b"BOOK")) {
@@ -791,7 +789,7 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
     for (spell, name) in tome_spells(order, options) {
         eprintln!("magic sweep: spell {spell} {name}");
         let delivery = {
-            let mut game = fresh_game(order);
+            let game = fresh_game(order);
             let world = game.world_mut();
             world.spell(spell).map(|s| s.data.delivery).unwrap_or(9)
         };
@@ -815,7 +813,7 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
             &check_scroll(order, &bases, scroll),
         ));
     }
-    let mut game = fresh_game(order);
+    let game = fresh_game(order);
     for (weapon, name) in selected(order, Tag(*b"WEAP"), options) {
         if enchantment_of(&game, weapon).is_none() {
             continue;
