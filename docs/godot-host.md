@@ -1,5 +1,37 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Near tree placement fallback, RND-50, 2026-10-17
+
+The lone pine above the Whiterun plains comes from near tree geometry at the
+world origin. It remains when BTT billboards, BTO object LOD and Full LOD are
+hidden. The free walk panorama records 40 unplaced pine surfaces near the
+origin, including `0:0C8BB0` and `0:0C8BF6`. Their other shapes use the expected
+world placements. Several unplaced shapes overlap to look like one sky tree.
+The fixed sky region contains 45 non-sky pixels before the fix, above its
+three-pixel limit. The corrected embedded release records zero origin pine
+surfaces and zero pixels in that region. The six-view tree-only component
+check also records zero detached trees and exits successfully.
+
+`DataSource` keeps instancing candidates in model space. The upload plan
+rejects skinned shapes and groups below the instancing threshold, then sends
+them to ordinary batching. That fallback discarded the instance transform.
+It now bakes the pending transform into positions, normals, tangents and
+bounds before making the ordinary mesh. Existing MultiMesh groups retain
+their shared geometry. Triangle ownership and the original reference pose
+remain available for later movement updates. No per-reference nodes or
+saved fields were added.
+
+The regression exercises rotation, scale, translation and tangent handedness
+for skinned and short-group fallbacks, with batching enabled and disabled.
+It fails before the fix with vertices near zero instead of the requested
+world position. The live panorama checks the world-origin surfaces and the
+floating-tree region. Its component controls hide tree geometry only, since
+removing Full LOD mountains also exposes sky beneath ordinary rocky peaks. An installed survey checks BTT heights against LAND
+and reports the representative pine's NIF shape skinning. xEdit
+`Core/wbLOD.pas` supplies BTT world-coordinate and reference fields. The
+existing `cell_occluder_mesh` transform and `units::GodotTransform` define
+the host placement convention. No external code was copied.
+
 ## Animated water materials, RND-49, 2026-10-17
 
 The free walk uses the object animation path for the Whiterun stair river
