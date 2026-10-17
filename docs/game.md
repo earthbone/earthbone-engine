@@ -1,5 +1,52 @@
 # soe-game: the runtime form table and the first natives
 
+## Localized game settings, FMT-32, 2026-10-17
+
+String GMST DATA fields in localized plugins hold STRINGS identifiers. World
+resolves them through the winning record's plugin table before returning a
+Papyrus string. Live script overrides retain priority. Inline strings in
+nonlocalized plugins and numeric settings keep their existing interpretation.
+
+The installed lavender prompt exposed the fault as an action labelled
+`¯d` instead of Harvest. The focused regression reproduces the same bytes
+and checks winning-plugin text, a live override, a missing-table placeholder,
+and unchanged float and integer settings. Text replacement's pronoun and
+calendar labels use this same game-setting lookup.
+
+Sources read are xEdit `wbDefinitionsTES5.pas` GMST DATA's wbLString branch
+and UESP `GMST.wikitext`. The existing localized text resolver supplies the
+lookup. No parser, dependency or saved field was added.
+
+## Flora and tree activation, INV-09, 2026-10-17
+
+World reads FLOR and TREE production from winning PFIG, PFPC and SNAM fields.
+Activation uses PFPC's spring, summer, fall and winter bytes against the live
+calendar. A failed seasonal roll still harvests the plant. A successful roll
+receives the ingredient or resolved LVLI contents through the inventory
+transaction helper. Owned plants retain the same NPC or faction ownership
+checks and stolen stack metadata as loose items. Sound requests use the
+harvested reference as their positional source.
+
+Harvest timestamps live in World, ordered by resolved reference FormID. The
+INV-09 named world section saves them with SAVE_VERSION still 37. Loading
+validates the section before committing it, and a missing section starts empty.
+Expired timestamps invalidate reference presentation. Respawn intervals read
+iHoursToRespawnCell and the cleared-location variant, with 240 and 720 hour
+fallbacks. Explicit cell resets also clear temporary references' harvest state.
+
+Sources read are xEdit `wbDefinitionsTES5.pas` FLOR and TREE, UESP's local
+`FLOR.wikitext` and `TREE.wikitext`, CK Flora, and SKSE64's
+`PapyrusObjectReference.cpp` IsHarvested and SetHarvested. The existing plugin
+reader supplies the fields and the existing loot and LVLI paths supply receipt.
+The model state follows nif.xml and nifly, documented under FMT-31 in
+`docs/nif.md`.
+
+The regressions check FLOR and TREE ingredient rows in the inventory menu,
+repeat prevention, all four seasons, zero chance, ownership, sound, save/load,
+rejected-load rollback and the render observer notification. The observer test
+failed after harvesting initially because placement alone did not change.
+Its presentation comparison now includes harvested state.
+
 ## Quest text replacement, DLG-22, 2026-10-17
 
 The free walk topic presenter reproduced the room prompt with a literal

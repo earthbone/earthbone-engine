@@ -1294,6 +1294,15 @@ impl DataSource {
         self.stream_model(reference, model, SurfacePlayback::Frozen)
     }
 
+    /// Build the authored harvested switch children at the reference's placement.
+    pub fn stream_harvested_model(
+        &self,
+        reference: GlobalFormId,
+        model: &str,
+    ) -> Result<LoadedCell, DataSourceError> {
+        self.stream_model(reference, model, SurfacePlayback::Harvested)
+    }
+
     fn stream_model(
         &self,
         reference: GlobalFormId,
@@ -1458,7 +1467,7 @@ impl DataSource {
         let _span = soe_trace::Span::new("host.static", "host");
         let path = format!("meshes/{model}");
         let bytes = self.vfs.read(&path)?;
-        let file = {
+        let mut file = {
             let _parse = soe_trace::LoadMeasure::new(
                 soe_trace::LoadStage::NifParse,
                 &soe_bsa::normalize(&path),
@@ -1468,6 +1477,15 @@ impl DataSource {
             placed_model(&bytes)?
         };
         let _build = soe_trace::LoadScope::new("mesh_build", soe_trace::LoadCause::CpuBuild, path);
+        if playback == SurfacePlayback::Harvested {
+            for block in &mut file.blocks {
+                if let soe_nif::blocks::Block::Node(node) = block {
+                    if let Some(state) = node.switch.as_mut() {
+                        state.active = 1;
+                    }
+                }
+            }
+        }
         let marker_blocks = editor_marker_shape_blocks(&file);
         let water = base.and_then(|base| self.placed_water_material(base));
         let nonvisual_blocks = nonvisual_shape_indices(&file.blocks, water.is_some());
@@ -1695,6 +1713,7 @@ fn archive_paths(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SurfacePlayback {
     Frozen,
+    Harvested,
     Live,
 }
 

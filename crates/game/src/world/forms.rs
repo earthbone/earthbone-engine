@@ -14,7 +14,6 @@ use super::{
     LocationState, World, T,
 };
 use crate::crime::CrimeValues;
-use crate::quest::zstring;
 
 pub(super) fn add_saved_form_list_entries(
     items: &mut Vec<GlobalFormId>,
@@ -694,7 +693,11 @@ impl World {
             Some(b'f') if data.len() >= 4 => Value::Float(le_f32(data)),
             Some(b'i' | b'u') if data.len() >= 4 => Value::Int(le_u32(data)? as i32),
             Some(b'b') if data.len() >= 4 => Value::Bool(le_u32(data)? != 0),
-            Some(b's') => Value::string(&zstring(data)),
+            Some(b's') => Value::string(&self.resolve_text(
+                id,
+                T(b"DATA"),
+                &super::text(data, self.record_text_localized(id, T(b"DATA"))),
+            )),
             _ => return None,
         })
     }

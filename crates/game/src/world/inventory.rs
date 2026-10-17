@@ -7,7 +7,7 @@
 //! CommonLib ExtraSoul supplies the per-instance filled soul level.
 
 use super::{Alloc, Handle, Pending, World, T};
-use crate::inventory::{Bundle, Error, Extra, Field, Selection, Stack, StackSource};
+use crate::inventory::{Bundle, Error, Extra, Field, Inventory, Selection, Stack, StackSource};
 use soe_esm::{GlobalFormId, Record, Tag};
 use soe_papyrus::{ObjectId, Value};
 
@@ -341,6 +341,12 @@ impl World {
         }
         self.record(item).is_some_and(|record| {
             !record.is_deleted()
+                && (record.tag.as_bytes() != b"LIGH"
+                    || record
+                        .find(T(b"DATA"))
+                        .and_then(|data| data.get(12..16))
+                        .and_then(super::le_u32)
+                        .is_some_and(|flags| flags & 2 != 0))
                 && matches!(
                     record.tag.as_bytes(),
                     b"ALCH"
@@ -468,38 +474,51 @@ impl World {
         count: i32,
         alloc: Alloc<'_>,
     ) -> bool {
-        if count <= 0 {
+        if count <= 0 || self.reference(holder).is_none() {
             return false;
         }
-        let Some(reference) = self.reference(holder) else {
-            return false;
-        };
-        let mut updated = reference.inventory.clone();
         let previous_rng = self.rng_streams;
-        let Ok(mut selected) =
+        let Ok(selected) =
             self.roll_leveled_inventory_context(list, level, count, Some(self.player_level))
         else {
             return false;
         };
+        if self
+            .receive_created_items(holder, selected, None, alloc)
+            .is_none()
+        {
+            self.rng_streams = previous_rng;
+            return false;
+        }
+        true
+    }
+
+    pub(super) fn receive_created_items(
+        &mut self,
+        holder: GlobalFormId,
+        mut selected: Inventory,
+        owner: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Option<Vec<(GlobalFormId, i32)>> {
+        let mut updated = self.reference(holder)?.inventory.clone();
         let changes: Vec<_> = selected
             .iter()
             .map(|(item, count)| (*item, count))
             .collect();
         for &(item, count) in &changes {
-            if updated.receive(item, selected.take(item, count)).is_err() {
-                self.rng_streams = previous_rng;
-                return false;
+            if !self.is_inventory_base(item) {
+                return None;
             }
+            let mut bundle = selected.take(item, count);
+            bundle.inherit_owner(owner);
+            updated.receive(item, bundle).ok()?;
         }
-        let Some(reference) = self.reference(holder) else {
-            self.rng_streams = previous_rng;
-            return false;
-        };
+        let reference = self.reference(holder)?;
         reference.inventory = updated;
-        for (item, count) in changes {
+        for &(item, count) in &changes {
             self.inventory_event(holder, item, count, None, alloc);
         }
-        true
+        Some(changes)
     }
 
     /// Add a stack through the script-facing path, with checked quantity and events.

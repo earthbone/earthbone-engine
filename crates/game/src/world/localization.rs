@@ -151,6 +151,79 @@ mod tests {
     }
 
     #[test]
+    fn round4_localized_game_settings_use_winning_tables_and_preserve_live_overrides() {
+        let mut plugin = Plugin::new(FileHeader {
+            flags: flags::LOCALIZED,
+            ..FileHeader::default()
+        });
+        plugin.push_top(
+            Record::new(Tag(*b"GMST"), 0x800)
+                .zsub(Tag(*b"EDID"), "sHarvest")
+                .sub(Tag(*b"DATA"), 0x64afu32.to_le_bytes()),
+        );
+        plugin.push_top(
+            Record::new(Tag(*b"GMST"), 0x801)
+                .zsub(Tag(*b"EDID"), "fSetting")
+                .sub(Tag(*b"DATA"), 2.5f32.to_le_bytes()),
+        );
+        plugin.push_top(
+            Record::new(Tag(*b"GMST"), 0x802)
+                .zsub(Tag(*b"EDID"), "iSetting")
+                .sub(Tag(*b"DATA"), 7i32.to_le_bytes()),
+        );
+        let mut override_plugin = Plugin::new(FileHeader {
+            flags: flags::LOCALIZED,
+            masters: vec!["Settings.esm".into()],
+            ..FileHeader::default()
+        });
+        override_plugin.push_top(
+            Record::new(Tag(*b"GMST"), 0x800)
+                .zsub(Tag(*b"EDID"), "sHarvest")
+                .sub(Tag(*b"DATA"), 0x64afu32.to_le_bytes()),
+        );
+        let mut order = LoadOrder::new();
+        order.add("Settings.esm", plugin).unwrap();
+        order.add("Override.esp", override_plugin).unwrap();
+        let mut world = World::new(order);
+        for (file, word) in [(0, b"Harvest".as_slice()), (1, b"Gather".as_slice())] {
+            world.localized_strings.insert(
+                (file, StringTableKind::Plain),
+                StringTable::parse(
+                    &table(StringTableKind::Plain, 0x64af, word),
+                    StringTableKind::Plain,
+                    "english",
+                )
+                .unwrap(),
+            );
+        }
+        assert_eq!(
+            world.game_setting("sHarvest"),
+            Some(soe_papyrus::Value::string("Gather"))
+        );
+        assert_eq!(
+            world.game_setting("fSetting"),
+            Some(soe_papyrus::Value::Float(2.5))
+        );
+        assert_eq!(
+            world.game_setting("iSetting"),
+            Some(soe_papyrus::Value::Int(7))
+        );
+        world
+            .settings
+            .insert("sharvest".into(), soe_papyrus::Value::string("Pick"));
+        assert_eq!(
+            world.game_setting("sHarvest"),
+            Some(soe_papyrus::Value::string("Pick"))
+        );
+        world.settings.clear();
+        world.localized_strings.remove(&(1, StringTableKind::Plain));
+        assert_eq!(
+            world.game_setting("sHarvest"),
+            Some(soe_papyrus::Value::string("<string 25775>"))
+        );
+    }
+
+    #[test]
     fn localized_dialogue_and_messages_use_their_winning_plugin_tables() {
         let root = std::env::temp_dir().join(format!(
             "soe-localization-{}-{}",

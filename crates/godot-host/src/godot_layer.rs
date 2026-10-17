@@ -238,7 +238,7 @@ pub struct CellStreamerNode {
     reference_index: std::collections::HashMap<GlobalFormId, Vec<(usize, usize)>>,
     resident_references: std::collections::BTreeMap<GlobalFormId, GlobalFormId>,
     reference_index_dirty: bool,
-    ref_cache: std::collections::HashMap<GlobalFormId, (bool, Iso, Option<String>)>,
+    ref_cache: std::collections::HashMap<GlobalFormId, (bool, Iso, Option<ModelVariant>)>,
     deferred_references: std::collections::BTreeMap<GlobalFormId, GlobalFormId>,
     doors: std::collections::BTreeMap<GlobalFormId, crate::godot_door::ResidentDoor>,
     /// Replacement meshes for references with an active DEST model stage.
@@ -358,10 +358,32 @@ struct LodInstance {
     heights: Option<crate::distant_visibility::TerrainHeights>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ModelVariant {
+    path: String,
+    harvested: bool,
+}
+
+fn reference_model(world: &soe_game::World, reference: GlobalFormId) -> Option<ModelVariant> {
+    world
+        .destruction_model(reference)
+        .map(|path| ModelVariant {
+            path,
+            harvested: false,
+        })
+        .or_else(|| {
+            world.harvested_model(reference).map(|path| ModelVariant {
+                path,
+                harvested: true,
+            })
+        })
+}
+
 /// Stage-specific meshes drawn in place of a reference's base geometry.
 struct DestructionOverlay {
     cell: GlobalFormId,
     model: String,
+    harvested: bool,
     instances: Vec<LodInstance>,
 }
 
@@ -1026,11 +1048,15 @@ impl CellStreamerNode {
             if !changed.contains(reference) {
                 continue;
             }
-            let model = world.destruction_model(*reference);
+            let model = reference_model(world, *reference);
             if self
                 .destruction_models
                 .get(reference)
-                .is_some_and(|overlay| overlay.model == model.as_deref().unwrap_or_default())
+                .is_some_and(|overlay| {
+                    model.as_ref().is_some_and(|model| {
+                        overlay.model == model.path && overlay.harvested == model.harvested
+                    })
+                })
             {
                 continue;
             }
@@ -1040,10 +1066,14 @@ impl CellStreamerNode {
             let Some(model) = model else {
                 continue;
             };
-            let loaded = match source.stream_destruction_model(*reference, &model) {
+            let loaded = match if model.harvested {
+                source.stream_harvested_model(*reference, &model.path)
+            } else {
+                source.stream_destruction_model(*reference, &model.path)
+            } {
                 Ok(loaded) => loaded,
                 Err(error) => {
-                    soe_trace::error!(target: "host::layer", system = "host::layer", "destruction model {model} for {reference}: {error}");
+                    soe_trace::error!(target: "host::layer", system = "host::layer", "reference model {} for {reference}: {error}", model.path);
                     continue;
                 }
             };
@@ -1079,7 +1109,8 @@ impl CellStreamerNode {
                 *reference,
                 DestructionOverlay {
                     cell: *cell,
-                    model,
+                    model: model.path,
+                    harvested: model.harvested,
                     instances,
                 },
             );
@@ -1901,7 +1932,7 @@ impl CellStreamerNode {
                 continue;
             };
             let iso = Iso::placement(placement.position, placement.rotation, placement.scale);
-            let model = world.destruction_model(reference);
+            let model = reference_model(world, reference);
             let visible = placement.visible && model.is_none();
             let key = (visible, iso, model);
             if self.ref_cache.get(&reference) != Some(&key) {
@@ -1926,7 +1957,7 @@ impl CellStreamerNode {
                 changed.contains(id)
                     && world.ref_placement(*id).is_none_or(|placement| {
                         !placement.visible
-                            || world.destruction_model(*id).is_some()
+                            || reference_model(world, *id).is_some()
                             || Iso::placement(
                                 placement.position,
                                 placement.rotation,
@@ -1982,7 +2013,7 @@ impl CellStreamerNode {
                                         publishing.contains_rid(instance.rid)
                                     })
                                     && self.console_visibility[instance.render_kind]
-                                    && world.destruction_model(member.reference).is_none(),
+                                    && reference_model(world, member.reference).is_none(),
                             );
                             for name in animation
                                 .events
