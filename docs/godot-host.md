@@ -1,5 +1,42 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## NPC route progress, round 4, 2026-10-17
+
+`r4_npc_progress_test.gd` extends the free walk, using its installed data,
+package driver, cell transition and collision controller. It measures each
+actor for 30 simulation seconds in the Bannered Mare and Whiterun. The fixed
+check flags five seconds without progress on an active route and requires
+at least 64 units of movement. The initial run fails with 16 findings.
+
+Grounded waypoints used spatial distance even when NAVM height differed from
+the collision floor. Scoped NPC routes also used the point funnel without
+the controller's radius. The game corrections and local OpenMW, Mudcrab and
+Recast sources are documented in [game.md](game.md#grounded-navm-progress-round-4).
+The same release scene measurement after both corrections gives:
+
+| Actor | Travel before, units | Travel after, units | Longest blocked interval before, seconds | After, seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Adrianne | 28.76 | 139.13 | 22 | 0 |
+| Nazeem | 40.20 | 540.14 | 27 | 1 |
+| Ysolda | 20.97 | 669.64 | 27 | 19 |
+| Hulda | 39.95 | 39.95 | 28 | 28 |
+
+The complete check still fails with 14 findings. Hulda targets the counter
+lean marker at (307.824, -466.927, 64.747). Collision stops her at
+(319.236, -466.927, 68.339), outside the four-unit arrival tolerance.
+Other findings include failed sandbox destinations, unsupported Patrol
+markers without idle times, unsupported simultaneous procedures and routes
+to another interior. Replanning does not cure a collision-blocked endpoint.
+These results do not establish complete NPC package execution.
+
+Validation passes 1,338 game and 585 host library tests, package formatting
+and both packages' all-target Clippy checks with warnings denied. The release
+build passes in 7 minutes 45 seconds. Both installed progress runs exit one,
+preserving the failing full-scene check. The height regression fails before
+at x=9.9997 units, then passes its 75-unit minimum. The corner regression
+fails at zero clearance, then passes its unchanged 28-unit minimum.
+No node path, dependency or saved field is added.
+
 ## Tree pipeline warmup, PRF-49, 2026-10-17
 
 PRF-49 prepares the load order's winning TREE material and vertex layouts on a

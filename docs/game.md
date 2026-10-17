@@ -25,6 +25,18 @@ reproduces a collision floor eight units above a route point. Corner
 clearance, unreachable furniture origins and unsupported package procedures
 are separate findings in the scene measurement.
 
+NPC requests also resmooth completed corridors with the existing portal
+inset. Clearance includes the shared Mudcrab capsule radius and collision
+margin, scaled by the live NPC, race and reference height. Scope changes
+invalidate pending paths when that clearance changes. Unscoped point
+queries keep their original geometry. The scoped request test
+`npc_package_route_keeps_capsule_clear_of_an_inner_corner` measured zero
+clearance before this connection, against its fixed 28-unit minimum.
+Recast's `RecastDemo/Source/Sample_SoloMesh.cpp` erodes walkable space by
+agent radius before the point funnel. OpenMW `AiPackage::pathTo` supplies
+agent bounds to its navigator. The engine reuses the existing inset from
+AI-95 instead of replacing native NAVM geometry or adding a dependency.
+
 ## Race movement speeds, HST-40
 
 `movement::MovementType` reads the four directional walk/run pairs in MOVT
