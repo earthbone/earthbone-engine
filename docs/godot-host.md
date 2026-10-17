@@ -1,5 +1,45 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Round 4 NPC handover
+
+Branch `lead/r4-npc` starts at `77317179a`. The installed NPC progress check
+improves from 16 failures to zero. The alternating-frame walking clock
+improves from 0.03 to 0.32 seconds and passes. The giant timing probe passes
+before and after, so the reported sustained slowdown remains unverified.
+All installed processes were tracked through their exit status.
+
+| Commit | Result | Validation at the milestone |
+| --- | --- | --- |
+| `dbc2c408d` | Grounded package waypoint progress | 1,338 game and 585 host library passes, scoped fmt and Clippy pass |
+| `cbd073d39` | Capsule clearance for scoped corridors | Same combined checks, installed progress improves to 14 failures |
+| `990c70146` | Zero wait for omitted Patrol Data | Absent-group regression fails before and passes after, installed missing-idle errors fall to zero |
+| `081f66937` | Retry failed and blocked sandbox choices | 1,342 game, 590 host and 117 hkx library passes, scoped fmt and Clippy pass, Hulda blocked time falls from 28 seconds to one |
+| `0f015312f` | Grounded combat waypoint progress | 1,343 game, 590 host and 117 hkx library passes, scoped fmt and Clippy pass, installed progress exits zero |
+| `e93ca3758` | Simulation motion and interpolated NPC placement | Same combined checks, installed walking clock exits zero |
+| `f9ae8f8ca` | Pose-stage and giant source diagnostics | Same final checks, installed giant and source probes exit zero |
+
+Library and Clippy counts above describe the combined working tree checked
+at each milestone. Installed-data library cases skip when their variables
+are unset. The separate installed scene probes and source survey use real
+data. No workspace test run or full lint gate was run, as the round forbids
+both. Git commits returned zero and advanced the branch despite a read-only
+packed-refs maintenance warning. The branch is left for the lead to merge.
+
+Files changed are `BACKLOG.csv`, the three crate docs, and these source groups:
+
+- Game: `ai.rs`, `ai/movement.rs`, `ai/navigation.rs`, `ai/markers.rs` and `ai/patrol.rs`.
+- Host: `actor.rs`, `actor/presentation.rs`, `actor/r4_survey.rs`, `godot_actor.rs`, `godot_player/npcs.rs` and `npc_grounding.rs`.
+- Animation: `hkx/src/interp.rs`.
+- Godot: `r4_npc_progress_test.gd`, `r4_npc_clock_test.gd`, `r4_giant_profile_test.gd` and their UID files.
+
+The sections below credit local OpenMW, Mudcrab, Recast, Godot, xEdit, UESP,
+Mutagen, CommonLib and serde-hkx sources and explain the retained tooling.
+No dependency, saved field or actor node was added. Open scopes are the
+hostility and giant warning/distance policies, the unreproduced rendered
+slowdown and the captured forearm deformation. Unsupported package execution
+also leaves actors without an active route outside this progress check.
+Those limits are recorded in the backlog and in the measurements below.
+
 ## NPC render clock, round 4
 
 The inline presenter derived Speed from consecutive render-frame positions.
