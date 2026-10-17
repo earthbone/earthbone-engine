@@ -136,6 +136,11 @@ fn r4_installed_camera_interpolation_follows_wall_time() {
     r4_player_view_route("r4_player_motion_test.gd", "R4_MOTION PASS");
 }
 
+#[test]
+fn r4_installed_first_person_animation_keeps_camera_heading() {
+    r4_player_view_route("r4_first_person_test.gd", "R4_FIRST_PERSON PASS");
+}
+
 fn r4_player_view_route(script: &str, marker: &str) {
     let (Some(data), Some(godot)) = (
         std::env::var_os("SKYRIM_DATA"),

@@ -92,6 +92,31 @@ The fixture samples for at least 1.5 seconds and gathers at least sixty
 render samples. Its exterior route reaches the flat plaza before testing
 constant speed, since stair descent changes physical horizontal speed.
 
+## Animated first person attachment, HST-41, 2026-10-17
+
+The walkthrough first person fixture walks forward, left, backward and right
+while holding the camera heading. It observes the current animated camera bone
+after node processing, with a fixed one-degree heading limit. The reference
+pose attachment check alone cannot detect rotation inside the skeleton.
+The new baseline moves in all four directions but reaches 179.858 degrees of
+heading error while MT_WalkForward and MT_RunForward clips are active.
+
+First person submission now expresses the complete posed skeleton relative to
+its current animated camera bone. PlayerNode still places the reference camera
+attachment, and the race-derived eye height stays fixed. The current bone
+inverse removes locomotion root turning while preserving hand movement relative
+to that bone. The selected camera bone index is cached with the rig, including
+the existing custom-name fallback. The renderer observation exposes reference
+and animated offsets separately. OpenMW camera.cpp tracks first person position
+separately from animation, and CommonLibSSE-NG FirstPersonState.h declares its
+camera object independently of player geometry. Existing skeleton and transform
+math supplies this change. No node, dependency or saved field is added.
+Installed confirmation passes all four inn directions with 0.0000071 degrees
+of worst heading error and an exterior forward segment with 0.0000025 degrees.
+The exterior segment moves 331 units and finishes grounded. The earlier
+camera-height, hidden-body and camera-attachment fixture also passes. The
+separate exterior obstruction remains outside this row.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and
