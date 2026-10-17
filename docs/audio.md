@@ -1,5 +1,29 @@
 # soe-audio: voice and sound
 
+## Round 4 contact selection, 2026-10-17
+
+The free walk location builder discarded LAND collision materials. Its dirt
+fixture returned no material instead of hash 3106094762 before the change.
+Terrain triangles now retain the strongest composited LAND texture material
+at their centre. LTEX MNAM resolves a MATT in the defining plugin's namespace,
+and MATT MNAM supplies the same Havok hash as static collision. The default
+landscape material applies only to an unpainted base. Parent-world LAND keeps
+its original record identity and hidden quadrants keep their existing holes.
+
+The implementation reads local xEdit LAND, LTEX, MATT, WATR, FSTS, FSTP and
+IPCT definitions and the UESP LAND, LTEX, FSTP, FSTS and IPCT pages. OpenMW's
+`components/esm4/loadltex.cpp` confirms Skyrim's MNAM material link.
+OpenMW's terrain renderer does not supply this host's collision metadata.
+Nifly's `src/bhk.cpp` retains authored primitive and compressed-mesh materials,
+which the existing static collision path already reads. The local mudcrab
+tree has no footstep implementation to reuse.
+
+The six-material location-ray fixture, alpha-overlay fixture and submerged
+contact fixture pass. The installed Whiterun location survey retains multiple
+painted materials with different descriptors. The host library passes 594
+checks with installed-data gates unset, and all-target clippy and formatting
+pass. The full installed surface route remains unverified.
+
 `crates/audio` reads what vanilla ships and decodes what a mod author may ship instead, into one
 `Pcm` buffer of interleaved floats. It does not play anything. Playback belongs to the Godot
 host through `AudioServer` and `AudioStreamPlayer3D` for positional attenuation. The engine does not link a second device backend.

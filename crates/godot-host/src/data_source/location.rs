@@ -476,7 +476,8 @@ impl DataSource {
                     transform: Iso::IDENTITY,
                     shape: Shape::TriangleMesh {
                         radius: 0.0,
-                        materials: Vec::new(),
+                        materials: self
+                            .land_triangle_materials(surface.reference, &arrays.indices)?,
                         vertices: arrays
                             .positions
                             .iter()

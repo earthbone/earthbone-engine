@@ -48,7 +48,10 @@ use crate::mesh::{
 #[cfg(feature = "godot")]
 mod chargen;
 mod exterior;
+#[cfg(test)]
+mod footstep_tests;
 mod grass;
+mod land_material;
 mod location;
 mod lod;
 mod models;
