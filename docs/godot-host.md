@@ -53,6 +53,14 @@ HitFrame in both rigs. The equipment fixture captures both camera views on the
 private software-rendered display. The first-person shadow, rig turning, NPC
 movement, hair and faces belong to other round 4 tasks.
 
+Only the visible player rig supplies combat contacts. Previously all contacts
+came from the third-person graph even while the first-person graph was shown.
+The scene uses a controlled collider for a resident actor to check that its
+health changes at the selected rig's authored marker once. Third-person health
+changes from 1000 to 992.3, then first-person health changes from 992.3 to 984.6.
+Before the contact-source correction, the first-person hit left health at 992.3.
+The fixture checks contact timing, not normal actor collision geometry.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and

@@ -2,6 +2,11 @@ extends "res://hst_25_armor_test.gd"
 
 ## Weapon readiness and contact through the free walk inventory and input routes.
 var graph_events := [[], []]
+var contact_target: Dictionary = {}
+var contact_body: StaticBody3D
+var contact_health := 0.0
+var contact_seen := false
+var contact_after := 0.0
 
 func _check_weapons() -> void:
 	await _toggle(0x12eb7)
@@ -20,6 +25,7 @@ func _check_weapons() -> void:
 	if DisplayServer.get_name() != "headless":
 		await _capture("sheathed")
 	await _proof_both_views()
+	await _check_spell_replacement()
 
 func _animation(name: String, view: int) -> void:
 	graph_events[view].append(name)
@@ -63,6 +69,7 @@ func _attachments(visual: Node3D, first: bool, drawn: bool) -> void:
 	print("HST-25 equipment attachments first=", first, " drawn=", drawn, " ", hands)
 
 func _proof_both_views() -> void:
+	_setup_contact_fixture()
 	player_body.connect("animation_event", _animation.bind(0))
 	player_arms.connect("animation_event", _animation.bind(1))
 	for first in [false, true]:
@@ -79,6 +86,8 @@ func _proof_both_views() -> void:
 		if DisplayServer.get_name() != "headless":
 			await _capture("first_drawn" if first else "third_drawn")
 		graph_events = [[], []]
+		contact_seen = false
+		contact_health = _health()
 		var before: Array = visual.call("uploaded_skin_poses")
 		Input.action_press("Right Attack/Block")
 		player.call("advance", 0.1)
@@ -93,12 +102,70 @@ func _proof_both_views() -> void:
 				for clip in rig.call("active_clips"):
 					attacks[index] = attacks[index] or "attack" in str(clip).to_lower()
 			moved = moved or before != visual.call("uploaded_skin_poses")
+			if contact_seen and contact_after == contact_health:
+				contact_after = _health()
 			await process_frame
 		_check(attacks[0] and attacks[1], "mouse attack did not select both authored attack clips")
 		_check(moved, "mouse attack did not move the selected rig")
+		_check(contact_seen and contact_after < contact_health, "authored hit frame did not apply shared combat damage")
+		_check(is_equal_approx(_health(), contact_after), "attack applied damage more than once")
+		print("HST-25 contact first=", first, " health=", contact_health, " -> ", _health())
 		_check("HitFrame" in graph_events[0] and "HitFrame" in graph_events[1], "mouse attack did not emit both hit markers")
 		print("HST-25 equipment mouse attack clips=", attacks, " events=", graph_events)
 		await _ready(false)
 		_attachments(visual, first, false)
 		if DisplayServer.get_name() != "headless":
 			await _capture("first_sheathed" if first else "third_sheathed")
+
+func _health() -> float:
+	if contact_target.is_empty(): return 0.0
+	return float(player.call("gameplay_actor_value", contact_target.file, contact_target.object, "health"))
+
+func _setup_contact_fixture() -> void:
+	for row: Dictionary in player.call("play_path_references"):
+		if row.kind == "NPC_" and row.file == 0 and row.base_file == 0 and float(player.call("gameplay_actor_value", row.file, row.object, "health")) > 0:
+			contact_target = row
+			break
+	_check(not contact_target.is_empty(), "no resident actor for the contact fixture")
+	if contact_target.is_empty(): return
+	for command in ["setessential %x 0" % contact_target.base_object, "setprotected %x 0" % contact_target.base_object, "prid %x" % contact_target.object, "setav health 1000"]:
+		_check(not str(player.call("console_execute", command)).contains("error:"), "contact fixture command failed: " + command)
+	contact_body = StaticBody3D.new()
+	var collision := CollisionShape3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = 0.4
+	collision.shape = sphere
+	contact_body.add_child(collision)
+	get_root().add_child(contact_body)
+	contact_body.position = Vector3(10000, 10000, 10000)
+	_check(player.call("register_melee_body", contact_body.get_rid(), contact_target.file, contact_target.object), "contact collider did not bind to the resident actor")
+	for visual in [player_body, player_arms]:
+		for connection: Dictionary in visual.get_signal_connection_list("weapon_contact"):
+			var callback: Callable = connection.callable
+			if callback.get_object() == player:
+				visual.disconnect("weapon_contact", callback)
+				visual.connect("weapon_contact", _contact_fixture.bind(visual == player_arms))
+				visual.connect("weapon_contact", callback)
+
+func _contact_fixture(event: String, left: bool, pose: Transform3D, first: bool) -> void:
+	if event != "HitFrame" or left or first == bool(player.call("is_third_person")): return
+	if contact_body == null: return
+	if not contact_seen:
+		_check(is_equal_approx(_health(), contact_health), "damage preceded the authored hit marker")
+		contact_seen = true
+		contact_after = contact_health
+	PhysicsServer3D.body_set_state(contact_body.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, Transform3D(Basis.IDENTITY, pose.origin))
+
+func _check_spell_replacement() -> void:
+	await _toggle(0x12eb7)
+	_check(not str(player.call("console_execute", "player.addspell 12fcd")).contains("error:"), "Flames fixture could not be learned")
+	_check(player.call("equip_player_spell", 0, 0x12fcd, false), "Flames could not occupy the right hand")
+	await _toggle(0x12eb7)
+	var sword := false
+	for hand: Dictionary in player_arms.call("play_path_observation").get("hands", []):
+		if not hand.left:
+			sword = "sword" in str(hand.model).to_lower()
+	_check(sword, "inventory sword did not replace the right hand spell model")
+	player.call("unequip_player_hand", false)
+	player.call("unequip_player_hand", false)
+	await _toggle(0x12eb7)

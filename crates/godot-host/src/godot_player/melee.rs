@@ -12,6 +12,17 @@ use super::PlayerNode;
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    fn active_weapon_contact(&mut self, name: &str, hand: Hand, pose: Transform3D) -> bool {
+        if self
+            .melee_contact
+            .armed()
+            .is_none_or(|(_, armed)| armed != hand)
+        {
+            return false;
+        }
+        self.melee_bone_contact(name.into(), pose)
+    }
+
     pub(super) fn route_weapon_input(&mut self, input: &crate::input::InputState, delta: f32) {
         for (index, hand, pressed, held) in [
             (
@@ -134,15 +145,34 @@ impl PlayerNode {
         left_hand: bool,
         pose: Transform3D,
     ) -> bool {
-        let hand = if left_hand { Hand::Left } else { Hand::Right };
-        if self
-            .melee_contact
-            .armed()
-            .is_none_or(|(_, armed)| armed != hand)
+        if self.first_person_appearance.is_some()
+            && self.rig.mode != crate::camera::CameraMode::Third
         {
             return false;
         }
-        self.melee_bone_contact(name, pose)
+        self.active_weapon_contact(
+            &String::from(name),
+            if left_hand { Hand::Left } else { Hand::Right },
+            pose,
+        )
+    }
+
+    /// Submit contacts from the visible first-person graph once per attack.
+    #[func]
+    pub fn first_person_weapon_contact(
+        &mut self,
+        name: GString,
+        left_hand: bool,
+        pose: Transform3D,
+    ) -> bool {
+        if self.rig.mode == crate::camera::CameraMode::Third {
+            return false;
+        }
+        self.active_weapon_contact(
+            &String::from(name),
+            if left_hand { Hand::Left } else { Hand::Right },
+            pose,
+        )
     }
 
     /// Change the shared player's weapon-ready state and request its authored transition.

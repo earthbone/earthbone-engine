@@ -1027,6 +1027,10 @@ impl PlayerNode {
         match appearance {
             Ok(()) => {
                 if is_player && visual.bind().is_first_person() {
+                    let callable = self.base().callable("first_person_weapon_contact");
+                    if !visual.is_connected("weapon_contact", &callable) {
+                        visual.connect("weapon_contact", &callable);
+                    }
                     self.first_person_appearance = Some(visual);
                     self.sync_camera_controls();
                     self.update_camera();
