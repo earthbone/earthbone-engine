@@ -5870,10 +5870,10 @@ stores without writing into the user's Godot save directory.
 
 ## Native menu framework
 
-The HUD uses one CanvasLayer with three ProgressBars and a compass Label.
+The HUD uses one CanvasLayer with three ProgressBars and a clipped compass Control.
 PlayerNode refreshes it each process frame from the shared Game and its camera
 yaw. Health, magicka and stamina read their current and modified maximum actor
-values, then clamp the fill fraction to 0 through 1. The compass tape centers
+values, then clamp the fill fraction to 0 through 1. The compass description centers
 the nearest 45 degree cardinal or intercardinal direction under the heading.
 These are Godot-native controls. SkyUI's `MeterWidget` and `MiniMapWidget`
 informed the meter percentage and player-angle behavior, and CK
@@ -5954,6 +5954,35 @@ UI-21 documents the public API and license boundary for SKSE Menu Framework
 and dMenu style ImGui pages, and compares host rendering options. Those
 frameworks are not implemented by the native menu framework described here.
 See [ui-frameworks.md](ui-frameworks.md) for the research and proposed rows.
+
+### Continuous camera compass, UI-29
+
+The native compass is a clipped, repeated strip with cardinal and intercardinal
+labels, five-degree ticks and a fixed center marker. Camera yaw moves the strip
+two pixels per degree. Its 720 pixel period repeats at north, including when
+yaw crosses zero or makes several turns. The existing rounded heading string
+is retained for accessibility and diagnostics. It does not place the strip.
+The global HUD gains no placed-reference nodes. Status meters sit below the
+strip so they do not overlap at a 640 by 360 viewport.
+
+The local vanilla and SkyUI HUDMenu `SetCompassAngle` callback interpolates
+the strip position across a full turn. That protocol was read in the external
+UI-23 decompilation. The native drawing uses independently authored geometry
+and Godot's default font, without mod art or layouts. Existing camera units
+and Skyrim yaw conventions supply the heading. World compass targets and
+cell NorthMarker adjustments remain outside this rotation change.
+
+`ui_29_camera_degree_steps_move_the_strip_continuously` sets the camera rig
+in one-degree steps over two turns. The allowed step error is 0.001 pixels.
+`ui_29_windowed_camera_degree_steps_move_the_rendered_strip` exercises the
+live PlayerNode and Control over 361 headings with the same tolerance,
+requires 360 changed offsets and visible compass ink, and retains a generated
+capture and process logs under `target/ui-29`.
+
+On 2026-10-17, the camera-rig check, all 532 host library tests and four
+focused HUD checks pass. Host clippy passes with all targets. The live
+windowed check awaits the release build and shared installed-test slot.
+UI-29 remains in progress until that result is available.
 
 ### MCM registration and declared pages, UI-05
 
@@ -6104,8 +6133,8 @@ Generated window captures and logs are retained under `target/ui-13`.
 
 On 2026-10-17, 29 protocol checks pass, including the installed original
 SkyUI framework and state callbacks. Game and host library runs report 1334
-and 531 passes. The native-window check and the final clippy rerun remain
-queued on shared resources. UI-13 remains in progress until they complete.
+and 531 passes. Both crates pass clippy with all targets. The native-window
+check still awaits the shared installed-test slot, so UI-13 remains in progress.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host

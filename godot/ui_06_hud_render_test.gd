@@ -66,9 +66,9 @@ func _run() -> void:
 			"%s label produced no viewport pixels" % expected[index])
 		_check(bar != null and _region_has_ink(frame, bar),
 			"%s meter produced no viewport pixels" % expected[index])
-	var compass := hud.get_node("Compass") as Label
+	var compass := hud.get_node("Compass") as Control
 	_check(compass != null and compass.is_visible_in_tree(), "compass was not rendered")
-	_check(compass != null and compass.text.contains("[N]"),
+	_check(compass != null and str(compass.get("heading_text")).contains("[N]"),
 		"north heading was not rendered under the compass center")
 	_check(compass != null and _region_has_ink(frame, compass),
 		"compass produced no viewport pixels")

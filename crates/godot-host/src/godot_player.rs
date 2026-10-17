@@ -2632,6 +2632,9 @@ impl PlayerNode {
     pub fn set_facing(&mut self, yaw: f32, pitch: f32) {
         self.rig.set_facing(yaw, pitch);
         self.update_camera();
+        if let Some(view) = self.hud_view.as_mut() {
+            view.set_heading(self.rig.yaw());
+        }
     }
 
     /// Read the camera controls currently applied from Game natives.
