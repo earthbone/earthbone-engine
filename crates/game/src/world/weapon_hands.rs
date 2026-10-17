@@ -130,6 +130,11 @@ impl World {
                 }
             }
         }
+        if hand == Hand::Left || both_hands {
+            if let Some(shield) = self.equipped_shield(actor)? {
+                self.unequip_item(actor, shield)?;
+            }
+        }
         let state = self.actor(actor).ok_or(Error::Actor(actor))?;
         for old in [state.left_weapon, state.right_weapon]
             .into_iter()
@@ -142,6 +147,25 @@ impl World {
         state.left_weapon = left;
         state.right_weapon = right;
         state.equipped.insert(item);
+        Ok(())
+    }
+
+    /// Put away the right-hand weapon when it needs both hands (two-handed
+    /// weapons, bows and crossbows), so a shield can take the left hand.
+    ///
+    /// # Errors
+    /// Missing actor or malformed weapon.
+    pub(super) fn release_two_handed_weapon(&mut self, actor: GlobalFormId) -> Result<(), Error> {
+        let Some(weapon) = self.actor(actor).ok_or(Error::Actor(actor))?.right_weapon else {
+            return Ok(());
+        };
+        let slots = self.weapon_hand_slots(weapon)?;
+        if slots & (1 << 2) == 0 && slots & (1 << 3) != 0 {
+            let state = self.actor(actor).ok_or(Error::Actor(actor))?;
+            state.equipped.remove(&weapon);
+            state.right_weapon = None;
+            state.left_weapon = None;
+        }
         Ok(())
     }
 

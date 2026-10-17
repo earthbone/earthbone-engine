@@ -157,6 +157,9 @@ impl World {
         }) {
             return Ok(());
         }
+        if armor.is_some_and(|armor| armor.slots & (1 << 9) != 0) {
+            self.release_two_handed_weapon(actor)?;
+        }
         let reference = self.reference(actor).ok_or(Error::Actor(actor))?;
         if reference.inventory.count(item) == 0 {
             reference.inventory.add(item, 1)?;

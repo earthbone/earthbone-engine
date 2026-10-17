@@ -666,6 +666,8 @@ mod cmb_37_breaker_adversarial;
 mod cmb_37_destruction;
 #[path = "cmb_40_projectile_hit.rs"]
 mod cmb_40_projectile_hit;
+#[path = "inv_09_shield_conflicts.rs"]
+mod inv_09_shield_conflicts;
 
 #[path = "cmb_37_breaker3_adversarial.rs"]
 mod cmb_37_breaker3_adversarial;
