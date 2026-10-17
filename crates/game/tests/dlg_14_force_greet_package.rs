@@ -25,15 +25,17 @@ fn fixture(force_greet_topic: bool) -> Game {
 
 fn fixture_with_inputs(force_greet_topic: bool, inputs: &[u8]) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
+    let mut acbs = vec![0; 24];
+    acbs[14..16].copy_from_slice(&100_u16.to_le_bytes());
     plugin.push_top(
         Record::new(T(b"NPC_"), 7)
             .zsub(T(b"EDID"), "Player")
-            .sub(T(b"ACBS"), vec![0; 24]),
+            .sub(T(b"ACBS"), acbs.clone()),
     );
     plugin.push_top(
         Record::new(T(b"NPC_"), BASE)
             .zsub(T(b"EDID"), "Greeter")
-            .sub(T(b"ACBS"), vec![0; 24])
+            .sub(T(b"ACBS"), acbs)
             .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
     let mut placement = vec![0; 24];

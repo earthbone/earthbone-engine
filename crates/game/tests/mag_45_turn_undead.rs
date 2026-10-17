@@ -36,10 +36,12 @@ fn actor(form: u32, base: u32, position: [f32; 3]) -> Record {
 
 fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(T(b"NPC_"), HUMAN_BASE).sub(T(b"ACBS"), vec![0; 24]));
+    let mut acbs = vec![0; 24];
+    acbs[14..16].copy_from_slice(&100_u16.to_le_bytes());
+    plugin.push_top(Record::new(T(b"NPC_"), HUMAN_BASE).sub(T(b"ACBS"), acbs.clone()));
     plugin.push_top(
         Record::new(T(b"NPC_"), UNDEAD_BASE)
-            .sub(T(b"ACBS"), vec![0; 24])
+            .sub(T(b"ACBS"), acbs)
             .sub(T(b"KWDA"), UNDEAD_KEYWORD.to_le_bytes()),
     );
     plugin.push_top(Record::new(T(b"KYWD"), UNDEAD_KEYWORD).zsub(T(b"EDID"), "ActorTypeUndead"));

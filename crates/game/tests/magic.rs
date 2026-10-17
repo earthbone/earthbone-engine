@@ -371,7 +371,9 @@ fn plugin_with_positions(
     positions: &[(u32, [f32; 3])],
 ) -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(T(b"NPC_"), 0x500).sub(T(b"ACBS"), vec![0; 24]));
+    let mut acbs = vec![0; 24];
+    acbs[14..16].copy_from_slice(&100_u16.to_le_bytes());
+    plugin.push_top(Record::new(T(b"NPC_"), 0x500).sub(T(b"ACBS"), acbs));
     let mut summon_acbs = vec![0; 24];
     put(&mut summon_acbs, 0, 0x4000);
     plugin.push_top(

@@ -850,3 +850,10 @@ floor. Walking contact can redirect velocity upward, but that correction no
 longer becomes a later airborne ascent request. Actual jumps retain their
 independent vertical request. The focused checks pass 27 physics library,
 15 character, two large-world and 17 synthetic cases with unchanged assertions.
+
+## MOVT speed ownership, HST-36
+
+The movement constants in `world.rs` remain fallback rates for callers
+without MOVT records. Gameplay supplies directional race movement rates and
+live actor modifiers from `soe-game`, documented in [game.md](game.md).
+The capsule still consumes a direction and speed without reading game forms.

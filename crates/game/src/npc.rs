@@ -63,7 +63,7 @@ pub const SKILLS: [&str; 18] = [
     "Enchanting",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
     pub flags: u32,
     pub magicka_offset: i16,
@@ -78,6 +78,24 @@ pub struct Config {
     pub template_flags: u16,
     pub health_offset: i16,
     pub bleedout: u16,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            flags: 0,
+            magicka_offset: 0,
+            stamina_offset: 0,
+            level: 0,
+            calc_min: 0,
+            calc_max: 0,
+            speed: 100,
+            disposition: 0,
+            template_flags: 0,
+            health_offset: 0,
+            bleedout: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

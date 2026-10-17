@@ -1,5 +1,59 @@
 # soe-game: the runtime form table and the first natives
 
+## Race movement speeds, HST-36
+
+`movement::MovementType` reads the four directional walk/run pairs in MOVT
+SPED, accepting the documented 40-byte and 44-byte forms. `actor_movement`
+resolves WKMV, RNMV, SPMV and SNMV from the live actor's race through winning
+load-order records. Matching MTYP/SPED positive overrides replace individual
+rates. Zero override fields retain the movement type's rate, matching the
+existing package reader. Zero MOVT directional rates remain valid.
+
+Absent or null race links use DOBJ's DMWL, DMRN, DMSP and DMSN entries through
+the existing sparse default-object reader. NordRace has no explicit movement
+links in Skyrim.esm or Update.esm. Its defaults are NPC_Default_MT for walk/run,
+AIControlledNPC_Sprinting_MT for sprint and NPC_Sneaking_MT for sneak. Their
+forward rates are 80.1 walk, 370 run, 500 sprint and 47.2/222 sneak walk/run.
+Missing NPC configuration defaults SpeedMult to 100. Authored zero still stops
+movement. The old zero Config default was invisible until movement applied it.
+
+The host selects walk, run, sprint or either sneak rate from this view.
+Directional components blend after input normalization, so diagonals do not
+exceed their fastest authored component. SpeedMult applies as a percentage,
+including an explicit zero. AI retains its authored Walk, FastWalk, Jog and
+Run field selection, shares the override reader and applies the same live
+multiplier. Each scheduled actor step refreshes that rate before steering.
+Its existing forward-prefix fixtures remain supported. Dialogue and flee
+fixtures now encode SpeedMult 100 instead of zero, with every assertion
+retained.
+
+CarryWeight and an explicit InventoryWeight come from the existing actor-value
+store. When InventoryWeight has no explicit entry, carried weight is derived
+from shared inventory quantities and winning item DATA fields in FormID order.
+Weapon and armor weights follow the existing template resolvers. Exceeding CarryWeight
+limits gaits to walking and prevents the host sprint signal. Weight below the
+limit adds no invented continuous penalty. Quest-item weight exemptions and
+equipment-specific perk penalties are outside this movement correction.
+
+Sources read locally are `TES5Edit/Core/wbDefinitionsTES5.pas`, MOVT, RACE
+and inventory DATA layouts, `uesp-modfileformat/MOVT.wikitext` and
+`RACE.wikitext` and `DOBJ.wikitext`, Mutagen's Skyrim `MovementType.xml` and `Race.xml`,
+CommonLibSSE-NG `Movement.h`, and `uesp-skyrim-console/Console.wikitext`
+for SpeedMult percentages. The local CK `IsOverEncumbered_-_Actor.wikitext`
+confirms the InventoryWeight and CarryWeight comparison. OpenMW's ESM4 corpus names MOVT but supplies no
+MOVT loader to reuse. The existing Rust record and package readers are kept.
+The local CK corpus lacks the requested movement and SpeedMult pages, and
+direct retrieval of those CK pages failed. Bethesda's
+[encumbrance guidance](https://help.bethesda.net/app/answers/detail/a_id/16579/~/my-skyrim-character-is-moving-very-slowly-and-cannot-sprint-or-move-faster.)
+supplies the carry-limit contract.
+
+`tests/movement.rs` covers synthetic decoding, malformed fields, directional
+gaits, race overrides, actor-value changes and live inventory changes.
+`installed_nord_movt_run_and_sprint_exceed_walk_with_dlc`, gated on SKYRIM_DATA,
+loads Skyrim, Update and all three DLC masters. It checks the new player's
+Nord race, NPC_Default_MT and the race's sprint rate. No saved field or
+dependency is added.
+
 ## Nearby load-door destinations, HST-31
 
 `nearby_load_destination` selects both interior and exterior XTEL destinations

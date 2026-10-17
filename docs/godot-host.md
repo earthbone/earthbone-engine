@@ -1,5 +1,34 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Player MOVT rates, HST-36
+
+PlayerNode gives the input driver the player's live race movement view from
+`soe-game`. The inline path reads World directly. The threaded path consumes
+the same derived view in each simulation snapshot, including SpeedMult and
+carry-limit changes. Forward, backward and strafe rates come from MOVT rather
+than the old fixed 160-unit walk, 180-unit jog and 375-unit sprint.
+
+Shift inverts always-run, Caps Lock toggles it and Left Alt selects sprint.
+Sneaking takes precedence and uses the sneak MOVT walk/run pair. Encumbrance
+limits movement to walking and clears the sprint signal. Stick magnitude
+scales the selected directional rate without increasing diagonal speed.
+The standalone `Driver::update` API retains its historical fallback profile
+for callers without a load order. Gameplay uses `update_with_movement`.
+
+Input tests cover those key-driven gait choices in all four directions and
+the encumbered sprint signal. A zero sprint strafe rate removes that velocity
+component even under diagonal input. Source layouts and the installed record check
+are documented in [game.md](game.md). The existing PC controlmap bindings
+and Godot key translation are retained. No reference node or dependency is
+added. Interactive walking and sprint stamina consumption were not measured.
+
+Validation passes 1,898 library cases across game, host and physics, plus
+4,285 game integration cases with four existing ignored cases and all six
+host patrol regressions. Formatting and Clippy with all features, all targets
+and warnings denied pass for the touched crates. The installed movement
+suite checks ten cases with DLC masters. Nord's forward rates are 80.1 walk,
+370 run, 500 sprint and 47.2/222 sneak. The workspace gate remains with the lead.
+
 ## Character corrections, 2026-10-13
 
 The watched `735176dff` play path exposed three character integration bugs.
