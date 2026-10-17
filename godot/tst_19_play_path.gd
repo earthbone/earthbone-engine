@@ -293,7 +293,7 @@ func _activate(reference: Dictionary) -> bool:
 	return player.call("activate_reference", reference.file, reference.object)
 
 func _settle_location() -> bool:
-	while not finished and player.call("is_location_preparing"):
+	while not finished and (player.call("is_load_door_pending") or player.call("is_location_preparing")):
 		await process_frame
 	var ready: bool = not finished and player.call("gameplay_location_ready")
 	if not ready:
@@ -842,6 +842,9 @@ func _swing_doors() -> void:
 				states += 1
 				if pixels < Checks.MIN_DRAWN_PIXELS or not state.get("visible", false):
 					missing += 1
+					if not output_directory.is_empty():
+						shown.save_png(output_directory.path_join("door-missing-%d-%d.png" % [_cycle, _sample]))
+						control.save_png(output_directory.path_join("door-control-%d-%d.png" % [_cycle, _sample]))
 				_check("doors.states", pixels >= Checks.MIN_DRAWN_PIXELS and state.get("visible", false), {"fraction": state.get("fraction", -1.0), "opened": state.get("opened", false), "pixels": pixels})
 	_check("doors.states", states == 10 and missing == 0, {"states": states, "missing": missing})
 

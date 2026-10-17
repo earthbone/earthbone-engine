@@ -10081,3 +10081,9 @@ UI-39 places the response in `MenuLayer/DialogueSubtitle`, outside that list.
 The route now checks this visible label, requires nonempty text and compares
 it to the active dialogue record state. Voice playback remains a separate
 required observation.
+
+The exit probe also waits for `is_load_door_pending` before checking location
+readiness. The authored open animation precedes destination preparation, so
+waiting only for preparation checked the original inn cell and ended the
+route early. Required destination and route assertions remain unchanged.
+Failed door-state pixel checks now retain both comparison frames.
