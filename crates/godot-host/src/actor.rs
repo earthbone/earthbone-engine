@@ -165,6 +165,14 @@ pub enum ActorError {
     },
 }
 
+/// Authored face highlights, with a separate mask on model-space-normal heads.
+pub struct FaceLighting {
+    pub color: [f32; 3],
+    pub strength: f32,
+    pub glossiness: f32,
+    pub mask: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
+}
+
 /// One skinned shape of a character, ready to upload.
 pub struct ActorSurface {
     /// The shape's name in the `NIF`, for reporting.
@@ -175,7 +183,9 @@ pub struct ActorSurface {
     pub face_tint: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
     /// Authored FaceGen detail map from texture slot 3.
     pub face_detail: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
-    /// Authored SkinTint or HairTint RGB multiplier.
+    /// NIF specular settings and optional texture slot 7.
+    pub face_lighting: Option<FaceLighting>,
+    /// Authored SkinTint multiplier. HairTint is resolved into vertex colours.
     pub tint_color: Option<[f32; 3]>,
     pub arrays: SurfaceArrays,
     /// Expression blend-shape deltas in the order uploaded to Godot.
@@ -192,8 +202,8 @@ pub struct ActorSurface {
     pub node_offset: [f32; 3],
     /// Body part partitions the shape is split into.
     pub partitions: usize,
-    /// Whether the partition-local bone index correction applied, see
-    /// [`partition_bone_indices`].
+    /// Whether a legacy bone-index repair was applied. SSE packed indices
+    /// already address the skin instance, so this observation stays false.
     pub remapped: bool,
 }
 
@@ -203,6 +213,9 @@ impl ActorSurface {
         self.textures = SurfaceTextures::default();
         self.face_tint = None;
         self.face_detail = None;
+        if let Some(lighting) = &mut self.face_lighting {
+            lighting.mask = None;
+        }
     }
 }
 
@@ -987,19 +1000,13 @@ impl ActorAssets {
                 }
             }
             let partitions = partition_count(&file, mesh);
-            let remapped = match partition_bone_indices(&file, mesh) {
-                Some(fixed) => {
-                    arrays.bones = fixed;
-                    true
-                }
-                None => false,
-            };
             let map = BoneMap::build(&skin.bones, skeleton);
             out.push(ActorSurface {
                 name: mesh.name.clone(),
                 head_part_type: None,
                 face_tint: None,
                 face_detail: None,
+                face_lighting: None,
                 tint_color: authored_tint(mesh),
                 arrays,
                 expression_shapes,
@@ -1012,11 +1019,37 @@ impl ActorAssets {
                     mesh.transform.translation.z,
                 ],
                 partitions,
-                remapped,
+                remapped: false,
             });
             if mesh.material.kind
                 == soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::FaceTint)
             {
+                let mask = mesh.material.backlight().and_then(|path| {
+                    let textures = crate::data_source::resolve_material_textures(
+                        vfs,
+                        &[crate::mesh::MaterialDesc {
+                            normal: Some(path.to_owned()),
+                            ..Default::default()
+                        }],
+                    );
+                    textures
+                        .into_iter()
+                        .next()
+                        .and_then(|textures| textures.normal)
+                        .map(|data| (path.to_owned(), data))
+                });
+                if let Some(surface) = out.last_mut() {
+                    surface.face_lighting = Some(FaceLighting {
+                        color: mesh.material.specular_color,
+                        strength: if mesh.material.flags1 & soe_nif::blocks::flags1::SPECULAR != 0 {
+                            mesh.material.specular_strength
+                        } else {
+                            0.0
+                        },
+                        glossiness: mesh.material.glossiness,
+                        mask,
+                    });
+                }
                 if let Some(path) = mesh
                     .material
                     .textures
@@ -1070,8 +1103,7 @@ impl ActorAssets {
 
 fn authored_tint(mesh: &soe_nif::Mesh) -> Option<[f32; 3]> {
     match &mesh.material.extra {
-        soe_nif::blocks::ShaderExtra::SkinTint(color)
-        | soe_nif::blocks::ShaderExtra::HairTint(color) => Some(*color),
+        soe_nif::blocks::ShaderExtra::SkinTint(color) => Some(*color),
         _ => None,
     }
 }
@@ -1547,94 +1579,6 @@ fn partition_count(file: &soe_nif::NifFile, mesh: &soe_nif::mesh::Mesh) -> usize
     }
 }
 
-/// Per-vertex bone indices resolved against the shape's own bone list, flat,
-/// four per vertex, for a Special Edition skinned shape.
-///
-/// This works around a defect in `crates/nif`, reported rather than fixed here
-/// because another fork owns that crate. A `NiSkinPartition` splits a shape
-/// into body parts, and a packed vertex's four bone indices address the
-/// **partition's** short bone list, not the skin instance's. The reader's
-/// legacy `NiTriShape` path maps them through `Partition::bones` and says so in
-/// its doc comment, but the `BSTriShape` path that Special Edition uses copies
-/// them straight off the vertex. The result renders: vertices in the first
-/// partition land on plausible bones and every later body part, arms and head
-/// among them, is weighted to whatever bone happens to sit at that index.
-///
-/// `None` when the shape is not laid out that way, leaving the reader's
-/// indices alone.
-///
-/// This reads the partition blocks directly rather than `mesh.bone_indices`,
-/// which is why it was correct while the mesh reader was not. The reader was
-/// fixed on 2026-09-18, measured over 400 actor meshes where 564 of 846
-/// partitions carry a reordering bone list, so the two now agree and this
-/// could be dropped in favour of `mesh.bone_indices`. Check they match on the
-/// same meshes before removing it, since only this one has ever been looked at
-/// on screen.
-fn partition_bone_indices(file: &soe_nif::NifFile, mesh: &soe_nif::mesh::Mesh) -> Option<Vec<i32>> {
-    use soe_nif::blocks::Block;
-
-    let Some(Block::BsTriShape(shape)) = file.blocks.get(mesh.block) else {
-        return None;
-    };
-    let Some(Block::SkinInstance(si)) = file.get(shape.skin) else {
-        return None;
-    };
-    let Some(Block::SkinPartition(part_block)) = file.get(si.partition) else {
-        return None;
-    };
-    if part_block.vertices.is_empty() || part_block.partitions.is_empty() {
-        return None;
-    }
-    let vertices = mesh.positions.len();
-    let mut out = vec![0i32; vertices * 4];
-    let mut seen = vec![false; vertices];
-    let mut claim = |at: usize, part: &soe_nif::blocks::Partition| {
-        if at >= vertices || seen[at] {
-            return;
-        }
-        let Some(vertex) = part_block.vertices.get(at) else {
-            return;
-        };
-        seen[at] = true;
-        for k in 0..4 {
-            let local = vertex.bone_indices[k] as usize;
-            let bone = part.bones.get(local).copied().unwrap_or(0);
-            out[at * 4 + k] = i32::from(bone);
-        }
-    };
-    for part in &part_block.partitions {
-        // Which vertices a partition owns is said two ways, and Special
-        // Edition shapes use either. `vertex_map` lists them directly. With a
-        // shared vertex buffer that map can be empty, and then the only
-        // record is the partition's own triangles in shape vertex indices.
-        if part.vertex_map.is_empty() {
-            for tri in &part.triangles_copy {
-                for &v in tri {
-                    claim(v as usize, part);
-                }
-            }
-        } else {
-            for &global in &part.vertex_map {
-                claim(global as usize, part);
-            }
-        }
-    }
-    // A vertex no partition claimed keeps whatever the reader gave it, which
-    // is the status quo rather than a new wrong answer.
-    let unclaimed = seen.iter().filter(|v| !**v).count();
-    if unclaimed == vertices {
-        return None;
-    }
-    for (at, claimed) in seen.iter().enumerate() {
-        if !claimed {
-            for k in 0..4 {
-                out[at * 4 + k] = i32::from(mesh.bone_indices[at][k]);
-            }
-        }
-    }
-    Some(out)
-}
-
 /// One `NIF` shape as a Godot-ready surface, skin data included.
 ///
 /// A skinned shape's vertices are already in the skin's bind space, so the
@@ -1675,6 +1619,7 @@ fn rigid_surface(
         head_part_type: None,
         face_tint: None,
         face_detail: None,
+        face_lighting: None,
         tint_color: authored_tint(mesh),
         arrays,
         expression_shapes: Vec::new(),
@@ -1801,6 +1746,300 @@ mod tests {
     }
 
     #[test]
+    fn installed_exported_head_parts_match_selected_geometry() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        let mut oracle = serde_json::Map::new();
+        let mut wrong_colors = 0;
+        for name in [
+            "Hulda",
+            "Mikael",
+            "Sinmir",
+            "Ysolda",
+            "Belethor",
+            "Saadia",
+            "CarlottaValentia",
+            "AdrianneAvenicci",
+            "OlavaTheFeeble",
+            "Eorlund",
+            "Nazeem",
+        ] {
+            let actor = match name {
+                "Eorlund" => soe_esm::GlobalFormId {
+                    file: 0,
+                    object: 108163,
+                },
+                "Nazeem" => soe_esm::GlobalFormId {
+                    file: 0,
+                    object: 108196,
+                },
+                _ => {
+                    let base = world.form(name).unwrap();
+                    world.references_of_base(base, 1)[0]
+                }
+            };
+            let appearance = world.actor_appearance(actor).unwrap();
+            let face = appearance.facegen.as_ref().unwrap();
+            let path = format!(
+                "meshes/actors/character/facegendata/facegeom/{}/{:08X}.nif",
+                face.plugin, face.object
+            );
+            let file = soe_nif::parse(&source.vfs().read(&path).unwrap()).unwrap();
+            let mut meshes = file.meshes().unwrap();
+            for mesh in &mut meshes {
+                if let Some(soe_nif::blocks::Block::BsTriShape(shape)) = file.blocks.get(mesh.block)
+                {
+                    apply_dynamic_positions(shape, &mut mesh.positions).unwrap();
+                }
+            }
+            for mesh in &meshes {
+                if let soe_nif::blocks::ShaderExtra::HairTint(tint) = mesh.material.extra {
+                    let expected: Vec<[f32; 4]> = mesh
+                        .positions
+                        .iter()
+                        .enumerate()
+                        .map(|(index, _)| {
+                            let color = mesh.colors.get(index).copied().unwrap_or([1.0; 4]);
+                            let weight = if mesh.material.vertex_colors {
+                                color[1]
+                            } else {
+                                1.0
+                            };
+                            let rgb = tint.map(|channel| 1.0 + (channel - 1.0) * weight);
+                            [
+                                rgb[0],
+                                rgb[1],
+                                rgb[2],
+                                if mesh.material.vertex_alpha {
+                                    color[3]
+                                } else {
+                                    1.0
+                                },
+                            ]
+                        })
+                        .collect();
+                    oracle.insert(
+                        format!("{}:{}:{}", actor.file, actor.object, mesh.name),
+                        serde_json::json!(expected),
+                    );
+                }
+            }
+            let assets = ActorAssets::load_for_actor(&mut world, actor, source.vfs()).unwrap();
+            println!(
+                "HEAD_SOURCE {name} parts={:?} exports={:?}",
+                appearance
+                    .head_parts
+                    .iter()
+                    .map(|p| (&p.name, p.part_type, &p.model))
+                    .collect::<Vec<_>>(),
+                meshes
+                    .iter()
+                    .map(|m| (&m.name, m.positions.len()))
+                    .collect::<Vec<_>>()
+            );
+            for surface in assets
+                .surfaces
+                .iter()
+                .filter(|s| s.head_part_type.is_some())
+            {
+                let mesh = meshes
+                    .iter()
+                    .find(|m| m.name.eq_ignore_ascii_case(&surface.name))
+                    .unwrap();
+                let expected = surface_of(mesh).unwrap();
+                println!(
+                    "HEAD_SOURCE {name} {} type={:?} vertices={} bones={:?}",
+                    surface.name,
+                    surface.head_part_type,
+                    surface.arrays.positions.len(),
+                    surface
+                        .skin
+                        .bones
+                        .iter()
+                        .map(|b| &b.name)
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    surface.arrays.positions, expected.positions,
+                    "{name} {} uses exported positions",
+                    surface.name
+                );
+                assert!(surface.map.unmatched.is_empty());
+                if let Some(expected) =
+                    oracle.get(&format!("{}:{}:{}", actor.file, actor.object, surface.name))
+                {
+                    let expected: Vec<[f32; 4]> = serde_json::from_value(expected.clone()).unwrap();
+                    let wrong = surface
+                        .arrays
+                        .colors
+                        .iter()
+                        .zip(&expected)
+                        .filter(|(a, b)| a.iter().zip(*b).any(|(a, b)| (a - b).abs() > 0.00001))
+                        .count();
+                    println!(
+                        "HEAD_TINT_ERROR {name} {} wrong={wrong}/{}",
+                        surface.name,
+                        expected.len()
+                    );
+                    wrong_colors +=
+                        wrong + expected.len().saturating_sub(surface.arrays.colors.len());
+                }
+            }
+        }
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/r4-hair-reference.json");
+        std::fs::write(path, serde_json::to_vec(&oracle).unwrap()).unwrap();
+        assert_eq!(
+            wrong_colors, 0,
+            "HairTint green weights become RGB tint for both hair layers"
+        );
+    }
+
+    #[test]
+    fn installed_streamed_hair_matches_facegen_colours() {
+        if std::env::var_os("SKYRIM_DATA").is_none() {
+            return;
+        }
+        installed_exported_head_parts_match_selected_geometry();
+        let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for exterior in [false, true] {
+            let directory = workspace.join(if exterior {
+                "target/r4-hair-exterior"
+            } else {
+                "target/r4-hair-inn"
+            });
+            std::fs::create_dir_all(&directory).unwrap();
+            let output = std::process::Command::new(&binary)
+                .arg("--path")
+                .arg(workspace.join("godot"))
+                .args(["--resolution", "960x720", "--script", "r4_hair_probe.gd"])
+                .env("DISPLAY", ":99")
+                .env("SOE_CHARACTER_OUTPUT", &directory)
+                .env("SOE_HAIR_EXTERIOR", if exterior { "1" } else { "0" })
+                .output()
+                .unwrap();
+            let log = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            std::fs::write(directory.join("test.log"), &log).unwrap();
+            assert!(
+                output.status.success()
+                    && log.contains("RESULT: PASS R4 hair")
+                    && !log.contains("SCRIPT ERROR"),
+                "{log}"
+            );
+        }
+    }
+
+    #[test]
+    fn installed_face_model_normals_agree_with_head_geometry() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        for name in ["Hulda", "Belethor", "Braith"] {
+            let base = world.form(name).unwrap();
+            let actor = world.references_of_base(base, 1)[0];
+            let assets = ActorAssets::load_for_actor(&mut world, actor, source.vfs()).unwrap();
+            for head in assets
+                .surfaces
+                .iter()
+                .filter(|s| s.head_part_type == Some(1))
+            {
+                let bytes = source
+                    .vfs()
+                    .read(head.arrays.material.normal.as_ref().unwrap())
+                    .unwrap();
+                let image = soe_dds::Dds::parse(&bytes).unwrap().decode(0, 0).unwrap();
+                let mut sum = 0.0;
+                for (normal, uv) in head.arrays.normals.iter().zip(&head.arrays.uvs) {
+                    let x = ((uv[0] * image.width as f32) as usize).min(image.width as usize - 1);
+                    let y = ((uv[1] * image.height as f32) as usize).min(image.height as usize - 1);
+                    let at = (y * image.width as usize + x) * 4;
+                    let packed = &image.rgba[at..at + 3];
+                    let decoded = [
+                        f32::from(packed[0]) / 127.5 - 1.0,
+                        f32::from(packed[1]) / 127.5 - 1.0,
+                        1.0 - f32::from(packed[2]) / 127.5,
+                    ];
+                    sum += normal.iter().zip(decoded).map(|(a, b)| a * b).sum::<f32>();
+                }
+                let agreement = sum / head.arrays.normals.len() as f32;
+                println!("FACE_NORMAL {name} agreement={agreement}");
+                let appearance = world.actor_appearance(actor).unwrap();
+                let face = appearance.facegen.unwrap();
+                let path = format!(
+                    "meshes/actors/character/facegendata/facegeom/{}/{:08X}.nif",
+                    face.plugin, face.object
+                );
+                let bytes = source.vfs().read(&path).unwrap();
+                let file = soe_nif::parse(&bytes).unwrap();
+                let heads = file.meshes().unwrap();
+                println!(
+                    "FACE_AUTHORED {name} {:?}",
+                    heads
+                        .iter()
+                        .find(|mesh| mesh.name == head.name)
+                        .unwrap()
+                        .material
+                );
+
+                if name != "Braith" {
+                    assert!(
+                        agreement > 0.7,
+                        "{name} model-space normal agreement={agreement}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn installed_streamed_face_skin_pixels() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let directory = workspace.join("target/r4-streamed-faces");
+        std::fs::create_dir_all(&directory).unwrap();
+        let output = std::process::Command::new(binary)
+            .arg("--path")
+            .arg(workspace.join("godot"))
+            .args([
+                "--resolution",
+                "640x360",
+                "--script",
+                "r4_streamed_face_test.gd",
+            ])
+            .env("SKYRIM_DATA", data)
+            .env("DISPLAY", ":99")
+            .env("SOE_CHARACTER_OUTPUT", &directory)
+            .output()
+            .unwrap();
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::fs::write(directory.join("test.log"), &log).unwrap();
+        assert!(
+            output.status.success()
+                && log.contains("RESULT: PASS R4 streamed face")
+                && !log.contains("SCRIPT ERROR"),
+            "{log}"
+        );
+        println!("{log}");
+    }
+
+    #[test]
     fn installed_adult_face_pixels_and_animated_normals() {
         let Some(data) = std::env::var_os("SKYRIM_DATA") else {
             return;
@@ -1877,6 +2116,270 @@ mod tests {
             "{log}"
         );
         println!("{log}");
+    }
+
+    #[test]
+    fn r4_creature_sse_indices_match_nifly_global_stream() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        for (object, path) in [
+            (0x033FA3, "meshes/actors/giant/character assets/giant02.nif"),
+            (
+                0x033FA6,
+                "meshes/actors/mammoth/character assets/mammothbranded.nif",
+            ),
+        ] {
+            let assets = ActorAssets::load_for_actor(
+                &mut world,
+                soe_esm::GlobalFormId { file: 0, object },
+                source.vfs(),
+            )
+            .unwrap();
+            let file = soe_nif::parse(&read(source.vfs(), path).unwrap()).unwrap();
+            let meshes = file.meshes().unwrap();
+            let surfaces =
+                ActorAssets::load_surfaces(source.vfs(), path, &assets.skeleton).unwrap();
+            for surface in surfaces {
+                let mesh = meshes
+                    .iter()
+                    .find(|mesh| mesh.name == surface.name)
+                    .unwrap();
+                let soe_nif::blocks::Block::BsTriShape(shape) = &file.blocks[mesh.block] else {
+                    panic!("installed creature uses SSE packed geometry")
+                };
+                let soe_nif::blocks::Block::SkinInstance(skin) = file.get(shape.skin).unwrap()
+                else {
+                    panic!("installed creature skin")
+                };
+                let soe_nif::blocks::Block::SkinPartition(partition) =
+                    file.get(skin.partition).unwrap()
+                else {
+                    panic!("installed creature partition")
+                };
+                let vertices = if shape.vertices.is_empty() {
+                    &partition.vertices
+                } else {
+                    &shape.vertices
+                };
+                let expected: Vec<_> = vertices
+                    .iter()
+                    .flat_map(|vertex| vertex.bone_indices.map(i32::from))
+                    .collect();
+                let mismatches = surface
+                    .arrays
+                    .bones
+                    .iter()
+                    .zip(&expected)
+                    .filter(|(a, b)| a != b)
+                    .count();
+                eprintln!(
+                    "R4 CREATURE raw stream path={path} shape={} mismatches={mismatches}",
+                    surface.name
+                );
+                assert_eq!(
+                    surface.arrays.bones, expected,
+                    "{path} {} preserves nifly's global vertex bone indices",
+                    surface.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn r4_creature_installed_camp_source_survey() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        creature_source_metadata(&directory);
+    }
+
+    fn creature_source_metadata(directory: &Path) {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        let camp = soe_esm::GlobalFormId {
+            file: 0,
+            object: 0x0C8E8B,
+        };
+        let owner = source.order().winner_ref(camp).unwrap();
+        let record = source.order().record(owner);
+        let reference = soe_esm::records::refr::Refr::from_record(record).unwrap();
+        let base = source
+            .order()
+            .winner(source.order().resolve(owner.file, reference.base))
+            .unwrap();
+        let center = reference.transform.unwrap().position;
+        eprintln!(
+            "R4 CAMP reference={camp} position={center:?} base={} tag={:?} subs={:?}",
+            base.editor_id().unwrap_or_default(),
+            base.tag,
+            base.subrecords
+        );
+        let camp_cell = world
+            .reference(camp)
+            .and_then(|reference| reference.cell)
+            .unwrap();
+        let camp_space = world.cell_coordinate_space(camp_cell);
+        let entry_cell = source
+            .cell_index()
+            .cells()
+            .filter_map(|(cell, _)| {
+                let grid = source.cell_index().grid_of(cell)?;
+                if grid.world != camp_space {
+                    return None;
+                }
+                let name = source.order().winner(cell)?.editor_id()?;
+                let distance = grid.x.abs_diff((center[0] / 4096.0).floor() as i32)
+                    + grid.y.abs_diff((center[1] / 4096.0).floor() as i32);
+                Some((distance, cell, name))
+            })
+            .min_by_key(|(distance, cell, _)| (*distance, *cell))
+            .unwrap()
+            .2;
+        let mut selected = Vec::new();
+        let mut candidates = Vec::new();
+        for (actor, _) in source.order().winners_of(soe_esm::tag::ACHR) {
+            let Some((Some(base_id), position, Some(cell))) = world
+                .reference(actor)
+                .map(|reference| (reference.base, reference.position, reference.cell))
+            else {
+                continue;
+            };
+            if world.cell_coordinate_space(cell) != camp_space {
+                continue;
+            }
+            let Some(base) = source.order().winner(base_id) else {
+                continue;
+            };
+            let name = base.editor_id().unwrap_or_default();
+            if !["giant", "mammoth", "wolf"]
+                .iter()
+                .any(|kind| name.to_ascii_lowercase().contains(kind))
+            {
+                continue;
+            }
+            let distance = (position[0] - center[0]).hypot(position[1] - center[1]);
+            candidates.push((distance, actor, name, position));
+        }
+        candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let mut races = std::collections::BTreeSet::new();
+        for (distance, actor, name, position) in candidates.into_iter().take(100) {
+            eprintln!("R4 CREATURE candidate={actor} name={name} position={position:?} distance={distance} enabled={}", soe_game::World::authored_reference_enabled(source.order(), actor));
+            if !soe_game::World::authored_reference_enabled(source.order(), actor) {
+                continue;
+            }
+            let Ok(appearance) = world.actor_appearance(actor) else {
+                continue;
+            };
+            let Some(race) = appearance.race else {
+                continue;
+            };
+            let race_name = world
+                .record(race)
+                .and_then(soe_esm::Record::editor_id)
+                .unwrap_or_default();
+            if !["GiantRace", "MammothRace", "WolfRace"].contains(&race_name.as_str())
+                || !races.insert(race_name.clone())
+            {
+                continue;
+            }
+            let assets = ActorAssets::load_for_actor(&mut world, actor, source.vfs()).unwrap();
+            eprintln!("R4 CREATURE assets={actor} race={race_name} skeleton={} nif_skeleton={} behavior={} bones={} surfaces={}", assets.skeleton_path, assets.skeleton_model_path, assets.behavior_path, assets.skeleton.bones.len(), assets.surfaces.len());
+            let surfaces: Vec<_> = assets.surfaces.iter().map(|surface| serde_json::json!({"name":surface.name,"bones":surface.skin.bones.len(),"vertices":surface.arrays.positions.len()})).collect();
+            let prefix = format!(
+                "{}/",
+                assets
+                    .skeleton_model_path
+                    .rsplit_once('/')
+                    .unwrap()
+                    .0
+                    .to_ascii_lowercase()
+            );
+            let mut paths: Vec<_> = source
+                .vfs()
+                .paths()
+                .filter(|path| {
+                    path.starts_with(&prefix)
+                        && Path::new(path)
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("nif"))
+                })
+                .collect();
+            paths.sort_unstable();
+            let mut variants = Vec::new();
+            for path in paths {
+                let Ok(parts) = ActorAssets::load_surfaces(source.vfs(), path, &assets.skeleton)
+                else {
+                    continue;
+                };
+                if parts.is_empty() {
+                    continue;
+                }
+                let shapes: Vec<_> = parts.iter().map(|part| serde_json::json!({"name":part.name,"bones":part.skin.bones.len(),"vertices":part.arrays.positions.len()})).collect();
+                variants.push(serde_json::json!({"path":path,"surfaces":shapes}));
+            }
+            selected.push(serde_json::json!({"file":actor.file,"object":actor.object,"race":race_name,"position":position,"entry_cell":entry_cell,"surfaces":surfaces,"variants":variants}));
+            for surface in &assets.surfaces {
+                eprintln!("R4 CREATURE surface={:?} vertices={} skin_bones={} index_bones={} remapped={} partitions={} missing={:?}", surface.name, surface.arrays.positions.len(), surface.skin.bones.len(), surface.arrays.bones.iter().max().map_or(0, |i| i+1), surface.remapped, surface.partitions, surface.map);
+            }
+        }
+        std::fs::create_dir_all(directory).unwrap();
+        std::fs::write(
+            directory.join("r4-creature-metadata.json"),
+            serde_json::to_vec_pretty(&selected).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            races.len() >= 2,
+            "at least two creature races near the camp"
+        );
+        assert!(races.contains("GiantRace"));
+        assert!(races.contains("WolfRace") || races.contains("MammothRace"));
+    }
+
+    #[test]
+    fn installed_creature_skinning_walkthrough() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let directory = root.join("target/r4-creature-regression");
+        creature_source_metadata(&directory);
+        let output = std::process::Command::new(binary)
+            .arg("--path")
+            .arg(root.join("godot"))
+            .args([
+                "--resolution",
+                "640x360",
+                "--script",
+                "r4_creature_probe.gd",
+            ])
+            .env("DISPLAY", ":99")
+            .env("SKYRIM_DATA", data)
+            .env("SOE_GODOT_TIMEOUT", "900")
+            .env(
+                "SOE_CREATURE_METADATA",
+                directory.join("r4-creature-metadata.json"),
+            )
+            .env("SOE_CHARACTER_OUTPUT", &directory)
+            .output()
+            .unwrap();
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::fs::write(directory.join("test.log"), &log).unwrap();
+        assert!(
+            output.status.success()
+                && log.contains("RESULT: PASS R4 creature probe")
+                && !log.contains("SCRIPT ERROR"),
+            "{log}"
+        );
     }
 
     #[test]
@@ -2478,6 +2981,41 @@ mod tests {
     }
 
     #[test]
+    fn installed_adult_npcs_draw_exactly_one_hair_and_one_hairline() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        for name in ["Hulda", "Ysolda", "Mikael", "Saadia", "CarlottaValentia"] {
+            let base = world.form(name).unwrap();
+            let actor = world.references_of_base(base, 1)[0];
+            let assets = ActorAssets::load_for_actor(&mut world, actor, source.vfs()).unwrap();
+            let hair: Vec<_> = assets
+                .surfaces
+                .iter()
+                .filter(|s| s.head_part_type == Some(3))
+                .map(|s| s.name.clone())
+                .collect();
+            assert!(hair.len() <= 1, "{name} draws {hair:?} as hair");
+            let lower = |s: &&ActorSurface| s.name.to_ascii_lowercase();
+            let hairlike: Vec<_> = assets
+                .surfaces
+                .iter()
+                .filter(|s| {
+                    let n = lower(s);
+                    n.contains("hair") && !n.contains("hairline")
+                })
+                .map(|s| s.name.clone())
+                .collect();
+            assert!(
+                hairlike.len() <= 1,
+                "{name} has several hair shapes {hairlike:?}, a head part was added next to the FaceGen hair"
+            );
+        }
+    }
+
+    #[test]
     fn hst_23_installed_hulda_head_and_idle_pose() {
         let Some(data) = std::env::var_os("SKYRIM_DATA") else {
             return;
@@ -2643,6 +3181,52 @@ mod tests {
     }
 
     #[test]
+    fn hair_tint_uses_green_weight_and_retains_alpha_on_both_attachment_paths() {
+        let (skeleton, mut mesh) = rigid_shield_fixture();
+        mesh.material.kind =
+            soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::HairTint);
+        mesh.material.extra = soe_nif::blocks::ShaderExtra::HairTint([0.2, 0.4, 0.6]);
+        mesh.material.vertex_colors = true;
+        mesh.material.vertex_alpha = true;
+        mesh.material.flags2 |= soe_nif::blocks::flags2::VERTEX_COLORS;
+        mesh.colors = vec![
+            [0.1, 0.0, 0.9, 0.25],
+            [0.9, 0.5, 0.1, 0.5],
+            [1.0, 1.0, 0.0, 0.75],
+        ];
+        let skinned = surface_of(&mesh).unwrap();
+        let rigid = rigid_surface(&mesh, "SHIELD", &skeleton).unwrap();
+        assert!(skinned.material.vertex_colors_srgb);
+        let mut ordinary = skinned.material.clone();
+        ordinary.vertex_colors_srgb = false;
+        assert_ne!(
+            crate::mesh::MaterialKey::from(&skinned.material),
+            crate::mesh::MaterialKey::from(&ordinary)
+        );
+        let expected = [
+            [1.0, 1.0, 1.0, 0.25],
+            [0.6, 0.7, 0.8, 0.5],
+            [0.2, 0.4, 0.6, 0.75],
+        ];
+        for colors in [&skinned.colors, &rigid.arrays.colors] {
+            for (actual, expected) in colors.iter().zip(expected) {
+                for (actual, expected) in actual.iter().zip(expected) {
+                    assert!((actual - expected).abs() < 0.00001, "{colors:?}");
+                }
+            }
+        }
+        assert!(
+            rigid.tint_color.is_none(),
+            "HairTint is not multiplied a second time"
+        );
+        mesh.material.vertex_colors = false;
+        mesh.material.vertex_alpha = false;
+        mesh.material.flags2 &= !soe_nif::blocks::flags2::VERTEX_COLORS;
+        let arrays = surface_of(&mesh).unwrap();
+        assert_eq!(arrays.colors, vec![[0.2, 0.4, 0.6, 1.0]; 3]);
+    }
+
+    #[test]
     fn uploaded_actor_images_release_with_face_detail_and_keep_geometry() {
         let (skeleton, mesh) = rigid_shield_fixture();
         let mut surface = rigid_surface(&mesh, "SHIELD", &skeleton).unwrap();
@@ -2655,7 +3239,13 @@ mod tests {
         let released = std::sync::Arc::downgrade(&image);
         surface.textures.diffuse = Some(std::sync::Arc::clone(&image));
         surface.face_tint = Some(("tint.dds".into(), std::sync::Arc::clone(&image)));
-        surface.face_detail = Some(("detail.dds".into(), image));
+        surface.face_detail = Some(("detail.dds".into(), std::sync::Arc::clone(&image)));
+        surface.face_lighting = Some(FaceLighting {
+            color: [0.2, 0.3, 0.4],
+            strength: 0.7,
+            glossiness: 25.0,
+            mask: Some(("specular.dds".into(), image)),
+        });
         let geometry = surface.arrays.positions.clone();
         let before = crate::skinned::skinning_transforms(
             &surface.map,
@@ -2664,6 +3254,11 @@ mod tests {
         )
         .unwrap();
         surface.release_uploaded_images();
+        let lighting = surface.face_lighting.as_ref().unwrap();
+        assert!(lighting.mask.is_none());
+        assert_eq!(lighting.color, [0.2, 0.3, 0.4]);
+        assert_eq!(lighting.strength, 0.7);
+        assert_eq!(lighting.glossiness, 25.0);
         assert!(
             released.upgrade().is_none(),
             "upload-only face detail kept the image alive"

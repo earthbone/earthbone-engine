@@ -1052,3 +1052,170 @@ fn whiterun_lod_installed_bto_overhangs_have_no_resident_source() {
         "resident full-detail objects are duplicated"
     );
 }
+
+#[test]
+fn installed_native_terrain_walkthrough() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let directory = root.join("target/r4-terrain-regression");
+    std::fs::create_dir_all(&directory).unwrap();
+    let output = std::process::Command::new(binary)
+        .arg("--path")
+        .arg(root.join("godot"))
+        .args(["--resolution", "640x360", "--script", "r4_terrain_probe.gd"])
+        .env("DISPLAY", ":99")
+        .env("SKYRIM_DATA", data)
+        .env("SOE_GODOT_TIMEOUT", "600")
+        .env("SOE_CHARACTER_OUTPUT", &directory)
+        .output()
+        .unwrap();
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(directory.join("test.log"), &log).unwrap();
+    assert!(
+        output.status.success()
+            && log.contains("RESULT: PASS R4 terrain probe")
+            && !log.contains("SCRIPT ERROR"),
+        "{log}"
+    );
+    println!("{log}");
+}
+
+#[test]
+fn r4_tree_installed_whiterun_billboard_placement_survey() {
+    use crate::terrain_lod::{btt_path, LodKind};
+    use soe_esm::records::land::Land;
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open_with_threads(Path::new(&data), 2).unwrap();
+    let (world, name) = source.resolve_world("Tamriel").unwrap();
+    let pine = id(0x0C8BB0);
+    let owner = source.order.winner_ref(pine).unwrap();
+    let reference = Refr::from_record(source.order.record(owner)).unwrap();
+    let base = source
+        .order
+        .winner(source.order.resolve(owner.file, reference.base))
+        .unwrap();
+    let model = models::render_model_for(base).unwrap();
+    let file = placed_model(&source.vfs.read(&format!("meshes/{model}")).unwrap()).unwrap();
+    let meshes = file.meshes().unwrap();
+    assert!(meshes.len() > 1);
+    for mesh in meshes {
+        eprintln!(
+            "R4 TREE PINE ref={pine} position={:?} shape={} skin={} weights={} flags={:#x}/{:#x}",
+            reference.transform.unwrap().position,
+            mesh.name,
+            mesh.skin.is_some(),
+            mesh.bone_indices.len(),
+            mesh.material.flags1,
+            mesh.material.flags2
+        );
+    }
+    let mut heights = HashMap::new();
+    let mut candidates = Vec::new();
+    let mut trees = 0;
+    for block in source.scenery_lod_blocks(&name, LodKind::Tree) {
+        if block.x > 24
+            || block.x + block.level.cells() < -8
+            || block.y > 16
+            || block.y + block.level.cells() < -24
+        {
+            continue;
+        }
+        let bytes = source.vfs.read(&btt_path(&name, block)).unwrap();
+        for tree in crate::tree_lod::read_references(&bytes).unwrap() {
+            let [x, y, z] = tree.position;
+            if (x - 30000.0).hypot(y + 5000.0) > 50000.0 {
+                continue;
+            }
+            let grid = ((x / 4096.0).floor() as i32, (y / 4096.0).floor() as i32);
+            let land = heights.entry(grid).or_insert_with(|| {
+                let cell = source.cell_index().exterior_cell(world, grid.0, grid.1)?;
+                let id = source.cell_index().land(cell)?;
+                Land::from_record(source.order.winner(id)?)
+                    .ok()?
+                    .heights
+                    .map(|h| h.decode())
+            });
+            let Some(land) = land else {
+                continue;
+            };
+            let col = ((x.rem_euclid(4096.0) / 128.0).round() as usize).min(32);
+            let row = ((y.rem_euclid(4096.0) / 128.0).round() as usize).min(32);
+            let gap = z - land[row * 33 + col];
+            trees += 1;
+            if gap > 500.0 {
+                candidates.push((gap, tree));
+            }
+        }
+    }
+    candidates.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (gap, tree) in candidates.iter().take(25) {
+        eprintln!(
+            "R4 TREE BTT gap={gap} ref={:08X} position={:?} type={} scale={}",
+            tree.raw_form_id, tree.position, tree.tree_type, tree.scale
+        );
+    }
+    eprintln!(
+        "R4 TREE SURVEY trees={trees} gaps_above_500={}",
+        candidates.len()
+    );
+    assert!(trees > 1000);
+    for candidate in source.distant_candidates(world) {
+        let owner = source.order.winner_ref(candidate.id).unwrap();
+        let record = source.order.record(owner);
+        let reference = Refr::from_record(record).unwrap();
+        let base = source
+            .order
+            .winner(source.order.resolve(owner.file, reference.base))
+            .unwrap();
+        let Some(model) = models::render_model_for(base) else {
+            continue;
+        };
+        if !model.to_ascii_lowercase().contains("tree") {
+            continue;
+        }
+        let position = reference.transform.unwrap().position;
+        eprintln!("R4 TREE FULL reference={} base={} model={model} position={position:?} flags={:#x} enabled={}", candidate.id, base.editor_id().unwrap_or_default(), record.flags, soe_game::World::authored_reference_enabled(&source.order, candidate.id));
+    }
+}
+
+#[test]
+fn installed_tree_placement_walkthrough() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let directory = root.join("target/r4-tree-regression");
+    std::fs::create_dir_all(&directory).unwrap();
+    let output = std::process::Command::new(binary)
+        .arg("--path")
+        .arg(root.join("godot"))
+        .args(["--resolution", "640x360", "--script", "r4_tree_probe.gd"])
+        .env("DISPLAY", ":99")
+        .env("SKYRIM_DATA", data)
+        .env("SOE_GODOT_TIMEOUT", "900")
+        .env("SOE_CHARACTER_OUTPUT", &directory)
+        .output()
+        .unwrap();
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(directory.join("test.log"), &log).unwrap();
+    assert!(
+        output.status.success()
+            && log.contains("RESULT: PASS R4 tree probe")
+            && !log.contains("SCRIPT ERROR"),
+        "{log}"
+    );
+}

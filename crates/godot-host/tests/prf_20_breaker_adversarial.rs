@@ -65,6 +65,7 @@ fn prf_20_breaker_texture_inventory_counts_distinct_assets_and_all_cubemap_faces
         mesh_identity: None,
     });
     let cell = LoadedCell {
+        particles: Vec::new(),
         stats: CellStats::default(),
         surfaces: surfaces.into(),
     };

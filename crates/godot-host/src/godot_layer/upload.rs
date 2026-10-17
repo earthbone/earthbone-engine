@@ -37,6 +37,7 @@ impl FrameBudget {
 }
 
 enum Unit {
+    Particle(Box<crate::data_source::LoadedParticle>),
     Door(GlobalFormId, Vec<LoadedSurface>),
     Animated(Box<LoadedSurface>),
     Multi(Box<InstanceGroup>),
@@ -83,15 +84,64 @@ pub(super) fn render_kind(
     }
 }
 
+/// A rejected instance must carry its placement into the ordinary mesh path.
+fn placed_fallback(surface: &LoadedSurface) -> LoadedSurface {
+    let mut placed = surface.clone();
+    let Some(transform) = placed.instance_transform.take() else {
+        return placed;
+    };
+    placed.mesh_identity = None;
+    let rotate = |v: [f32; 3]| -> [f32; 3] {
+        std::array::from_fn(|r| (0..3).map(|c| transform.basis[r][c] * v[c]).sum())
+    };
+    let direction = |v| {
+        let value = rotate(v);
+        let length = value.iter().map(|v| v * v).sum::<f32>().sqrt();
+        if length > 0.0 {
+            value.map(|v| v / length)
+        } else {
+            value
+        }
+    };
+    let origin = [transform.origin.x, transform.origin.y, transform.origin.z];
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for point in &mut placed.arrays.positions {
+        let rotated = rotate(*point);
+        *point = std::array::from_fn(|i| rotated[i] + origin[i]);
+        for i in 0..3 {
+            min[i] = min[i].min(point[i]);
+            max[i] = max[i].max(point[i]);
+        }
+    }
+    if !placed.arrays.positions.is_empty() {
+        placed.arrays.bounds.min = crate::units::GodotPos::new(min[0], min[1], min[2]);
+        placed.arrays.bounds.max = crate::units::GodotPos::new(max[0], max[1], max[2]);
+    }
+    for normal in &mut placed.arrays.normals {
+        *normal = direction(*normal);
+    }
+    for tangent in placed.arrays.tangents.as_chunks_mut::<4>().0 {
+        let rotated = direction([tangent[0], tangent[1], tangent[2]]);
+        tangent[..3].copy_from_slice(&rotated);
+    }
+    placed
+}
+
 impl Plan {
     pub(crate) fn new(
         source: Option<&DataSource>,
         cell: GlobalFormId,
         surfaces: &[LoadedSurface],
         batch: bool,
+        particles: &[crate::data_source::LoadedParticle],
     ) -> Self {
         let _span = soe_trace::Span::new("host.prepare_upload", "host");
-        let mut units = VecDeque::new();
+        let mut units: VecDeque<_> = particles
+            .iter()
+            .cloned()
+            .map(|p| Unit::Particle(Box::new(p)))
+            .collect();
         let mut doors = BTreeMap::<GlobalFormId, Vec<LoadedSurface>>::new();
         let mut groups = BTreeMap::<usize, Vec<LoadedSurface>>::new();
         for surface in surfaces {
@@ -137,7 +187,7 @@ impl Plan {
             let remainder: Vec<_> = remainder
                 .into_iter()
                 .filter(|i| ordinary[*i].animation.is_none())
-                .map(|i| ordinary[i].clone())
+                .map(|i| placed_fallback(&ordinary[i]))
                 .collect();
             if batch {
                 let (batches, stats) = batch_surfaces(&remainder);
@@ -227,6 +277,10 @@ impl CellStreamerNode {
                 break;
             };
             match unit {
+                Unit::Particle(particle) => {
+                    self.add_nif_particle(cell, &particle, scenario);
+                    totals.instances += 1;
+                }
                 Unit::Door(id, surfaces) => {
                     self.hide_resident_distant_references(cell, [id]);
                     self.add_door(cell, id, &surfaces, scenario);
@@ -304,6 +358,7 @@ impl CellStreamerNode {
             cell,
             &loaded.surfaces,
             self.batch_surfaces,
+            &loaded.particles,
         )
     }
 }
@@ -367,6 +422,7 @@ mod tests {
             },
             &surfaces,
             true,
+            &[],
         );
         assert_eq!(plan.units.len(), 1);
         assert_eq!(plan.largest_batch, surfaces.len());
@@ -397,7 +453,7 @@ mod tests {
             file: 0,
             object: 100,
         };
-        let plan = Plan::new(None, id, &surfaces, true);
+        let plan = Plan::new(None, id, &surfaces, true, &[]);
         assert_eq!(plan.units.len(), 1);
         let Some(Unit::Multi(group)) = plan.units.front() else {
             panic!("repeated models must instance")
@@ -407,8 +463,67 @@ mod tests {
             assert_eq!(surface.reference, member.reference);
         }
         let surfaces: Vec<_> = (1..=8).map(surface).collect();
-        let plan = Plan::new(None, id, &surfaces, false);
+        let plan = Plan::new(None, id, &surfaces, false, &[]);
         assert_eq!(plan.units.len(), surfaces.len());
         assert!(plan.units.iter().all(|unit| matches!(unit, Unit::Mesh(_))));
+    }
+    #[test]
+    fn r4_tree_fallback_upload_keeps_rotation_scale_and_world_position() {
+        for skinned in [false, true] {
+            for batch in [false, true] {
+                let mut input = surface(1);
+                input.mesh_identity = Some(std::sync::Arc::from("tree:0"));
+                input.instance_transform = Some(crate::units::GodotTransform {
+                    basis: [[0.0, 0.0, 2.0], [0.0, 2.0, 0.0], [-2.0, 0.0, 0.0]],
+                    origin: crate::units::GodotPos::new(100.0, -50.0, 200.0),
+                });
+                input.arrays.normals = vec![[1.0, 0.0, 0.0]; 3];
+                input.arrays.tangents = [1.0, 0.0, 0.0, -1.0].repeat(3);
+                if skinned {
+                    input.arrays.bones = vec![0; 12];
+                    input.arrays.weights = [1.0, 0.0, 0.0, 0.0].repeat(3);
+                }
+                let expected: Vec<_> = input
+                    .arrays
+                    .positions
+                    .iter()
+                    .map(|p| [100.0 + 2.0 * p[2], -50.0 + 2.0 * p[1], 200.0 - 2.0 * p[0]])
+                    .collect();
+                let plan = Plan::new(
+                    None,
+                    GlobalFormId {
+                        file: 0,
+                        object: 100,
+                    },
+                    &[input],
+                    batch,
+                    &[],
+                );
+                let Some(Unit::Mesh(mesh)) = plan.units.front() else {
+                    panic!("single tree must use mesh fallback")
+                };
+                assert_eq!(
+                    mesh.arrays.positions, expected,
+                    "skinned={skinned} batch={batch}"
+                );
+                assert!(mesh.arrays.normals.iter().all(|n| *n == [0.0, 0.0, -1.0]));
+                assert!(mesh
+                    .arrays
+                    .tangents
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|t| *t == [0.0, 0.0, -1.0, -1.0]));
+                assert_eq!(
+                    mesh.arrays.bounds.min.x,
+                    100.0 - 2.0 * crate::units::METRES_PER_UNIT * 70.0
+                );
+                assert_eq!(mesh.arrays.bounds.max.z, 200.0);
+                assert_eq!(
+                    mesh.members[0].reference,
+                    GlobalFormId { file: 0, object: 1 }
+                );
+            }
+        }
     }
 }

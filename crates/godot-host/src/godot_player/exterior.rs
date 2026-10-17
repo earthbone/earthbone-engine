@@ -561,6 +561,7 @@ impl PlayerNode {
                                             cell.id,
                                             &cell.loaded.surfaces,
                                             batch,
+                                            &cell.loaded.particles,
                                         );
                                         let _span = soe_trace::Span::new(
                                             "host.exterior_occluder_prepare",

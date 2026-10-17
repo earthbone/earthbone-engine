@@ -12,6 +12,9 @@ use crate::stream::Stream;
 use crate::types::{BlockRef, Transform};
 use crate::NifFile;
 
+mod render;
+pub use render::{render_emitters, RenderEmitter, Volume};
+
 /// A parsed emitter and the controller that supplies its births per second.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Emitter {
@@ -129,6 +132,14 @@ impl Timeline {
         }
     }
 
+    /// Advance existing particles while a hidden source cannot create births.
+    pub fn advance_disabled(&mut self, delta: f32) {
+        let active = self.emitter.rate.time.flags.active;
+        self.emitter.rate.time.flags.active = false;
+        self.advance(delta);
+        self.emitter.rate.time.flags.active = active;
+    }
+
     fn advance_slice(&mut self, end: f32) {
         let delta = end - self.elapsed;
         let rate = self.emitter.rate.at(self.elapsed + delta * 0.5);
@@ -196,6 +207,9 @@ struct System {
     transform: Transform,
     data: BlockRef,
     modifiers: Vec<BlockRef>,
+    shader: BlockRef,
+    alpha: BlockRef,
+    world_space: bool,
 }
 
 fn raw<'a>(file: &'a NifFile, reference: BlockRef, kind: &str) -> Option<&'a [u8]> {
@@ -222,20 +236,23 @@ fn system(file: &NifFile, bytes: &[u8]) -> Result<System> {
     let _collision = s.block_ref()?;
     let _bound = s.bound()?;
     let _skin = s.block_ref()?;
-    let _shader = s.block_ref()?;
-    let _alpha = s.block_ref()?;
+    let shader = s.block_ref()?;
+    let alpha = s.block_ref()?;
     let _vertex_desc = s.u64()?;
     for _ in 0..4 {
         s.u16()?;
     }
     let data = s.block_ref()?;
-    let _world_space = s.bool()?;
+    let world_space = s.bool()?;
     let modifiers = s.block_refs()?;
     Ok(System {
         name,
         transform,
         data,
         modifiers,
+        shader,
+        alpha,
+        world_space,
     })
 }
 

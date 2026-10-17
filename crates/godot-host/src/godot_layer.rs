@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use godot::classes::base_material_3d::{
-    CullMode, EmissionOperator, Feature, TextureParam, Transparency,
+    CullMode, EmissionOperator, Feature, Flags, TextureParam, Transparency,
 };
 use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, BlendShapeMode, PrimitiveType};
@@ -46,6 +46,7 @@ use soe_physics::{Iso, Vec3};
 
 mod object_animation;
 mod record_lights;
+pub(crate) mod particles;
 
 mod console_pick;
 mod console_render;
@@ -204,6 +205,7 @@ pub struct CellStreamerNode {
     spell_art: std::collections::BTreeMap<GlobalFormId, SpellArtResources>,
     /// Active SPGD layers, each rendered as one server-side MultiMesh.
     shader_particles: std::collections::BTreeMap<GlobalFormId, ShaderParticleInstance>,
+    nif_particles: std::collections::BTreeMap<(GlobalFormId, usize), particles::ResidentParticle>,
     /// Point lights for active magic effects that placed LIGH references.
     runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     placed_lights: std::collections::BTreeMap<GlobalFormId, record_lights::PlacedLight>,
@@ -955,6 +957,7 @@ impl INode3D for CellStreamerNode {
             visual_effects: std::collections::BTreeMap::new(),
             spell_art: std::collections::BTreeMap::new(),
             shader_particles: std::collections::BTreeMap::new(),
+            nif_particles: std::collections::BTreeMap::new(),
             runtime_lights: std::collections::HashMap::new(),
             placed_lights: std::collections::BTreeMap::new(),
             light_seconds: 0.0,
@@ -1034,8 +1037,19 @@ impl INode3D for CellStreamerNode {
         self.reference_index_dirty = true;
     }
 
+    fn on_notification(&mut self, what: godot::classes::notify::Node3DNotification) {
+        use godot::classes::notify::Node3DNotification;
+        let speed = match what {
+            Node3DNotification::PAUSED | Node3DNotification::DISABLED => 0.0,
+            Node3DNotification::UNPAUSED | Node3DNotification::ENABLED => 1.0,
+            _ => return,
+        };
+        self.pause_nif_particles(speed);
+    }
+
     fn process(&mut self, delta: f64) {
         self.animate_record_lights(delta);
+        self.advance_nif_particles(delta as f32);
         self.advance_object_animations(delta as f32);
         self.advance_doors(delta as f32);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
@@ -1744,6 +1758,8 @@ impl CellStreamerNode {
             }
         });
         self.reference_index_dirty = true;
+        self.nif_particles
+            .retain(|_, p| !departed.contains(&p.cell));
         let instances = std::mem::take(&mut self.instances);
         self.instances.reserve(instances.len());
         for instance in instances {
@@ -2021,6 +2037,7 @@ impl CellStreamerNode {
         }
         let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _phase = crate::scene_timing::Scope::new(soe_trace::System::Streaming);
+        self.sync_nif_particle_placements(world);
         self.refresh_reference_index(world);
         let mut changed_references = self.reference_changes.changed(world);
         self.sync_deferred_references(world, &changed_references);
@@ -2294,6 +2311,13 @@ impl CellStreamerNode {
                 if !self.reference_changes.is_watched(reference) {
                     self.reference_changes.watch(world, reference);
                 }
+            }
+        }
+        for particle in self.nif_particles.values() {
+            self.resident_references
+                .insert(particle.reference, particle.cell);
+            if !self.reference_changes.is_watched(particle.reference) {
+                self.reference_changes.watch(world, particle.reference);
             }
         }
         for (&reference, door) in &self.doors {
@@ -3650,7 +3674,7 @@ impl CellStreamerNode {
     /// Bounds are in Godot metres. Inspection does not rebuild model resources.
     #[func]
     pub fn nif_surfaces(&self) -> Array<VarDictionary> {
-        let mut out = Array::new();
+        let mut out = self.nif_particle_surfaces();
         for instance in &self.instances {
             let desc = &instance.arrays.material;
             let effect = desc.effect.as_ref();
@@ -3966,6 +3990,7 @@ impl CellStreamerNode {
                     self.distant.near_hidden.remove(id) && self.distant.surfaces.contains_key(id);
             }
         }
+        self.nif_particles.retain(|_, p| p.cell != owner);
         self.rendered_cells.remove(&owner);
         self.free_record_lights(Some(owner));
         self.free_doors(&[owner]);
@@ -4843,6 +4868,12 @@ impl CellStreamerNode {
     ) -> LoadedCell {
         let enabled = |id| world.is_none_or(|world| world.reference_enabled(id));
         let mut visible = LoadedCell {
+            particles: loaded
+                .particles
+                .iter()
+                .filter(|p| enabled(p.reference))
+                .cloned()
+                .collect(),
             stats: loaded.stats.clone(),
             surfaces: loaded
                 .surfaces
@@ -4883,6 +4914,7 @@ impl CellStreamerNode {
                 .surfaces
                 .iter()
                 .map(|surface| surface.reference)
+                .chain(loaded.particles.iter().map(|p| p.reference))
                 .collect();
             let references = if source
                 .cell_index()
@@ -5431,6 +5463,7 @@ impl CellStreamerNode {
     }
 
     fn free_instances(&mut self) {
+        self.nif_particles.clear();
         self.free_console_borders();
         self.rendered_cells.clear();
         self.reference_index_dirty = true;
@@ -6130,7 +6163,11 @@ impl CellStreamerNode {
         };
         self.add_cell(
             owner,
-            &LoadedCell { stats, surfaces },
+            &LoadedCell {
+                stats,
+                surfaces,
+                particles: Vec::new(),
+            },
             scenario,
             &mut StreamTotals::default(),
         );
@@ -6512,7 +6549,9 @@ fn material_for(
     if let Some(existing) = cache.materials.get(&key) {
         return existing.clone();
     }
-    let material: Gd<Material> = if let Some(water) = &desc.water {
+    let material: Gd<Material> = if let Some(terrain) = &textures.terrain {
+        terrain_material(terrain, desc, &mut cache.textures, &cache.shaders)
+    } else if let Some(water) = &desc.water {
         water_material(water, textures, &mut cache.textures, &cache.shaders).upcast()
     } else if let Some(effect) = &desc.effect {
         nif_effect_material(desc, effect, textures, &mut cache.textures, &cache.shaders).upcast()
@@ -6550,6 +6589,82 @@ fn material_for(
     };
     cache.materials.insert(key, material.clone());
     material
+}
+
+fn terrain_material(
+    terrain: &crate::data_source::TerrainTextures,
+    desc: &MaterialDesc,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &ShaderCache,
+) -> Gd<Material> {
+    let mut next: Option<Gd<Material>> = None;
+    for (q, quadrant) in terrain.quadrants.iter().enumerate().rev() {
+        if quadrant.layers.is_empty() {
+            continue;
+        }
+        let mut uniforms = String::new();
+        for i in 0..quadrant.layers.len() {
+            uniforms.push_str(&format!("uniform sampler2D layer_{i} : source_color, filter_linear_mipmap_anisotropic, repeat_enable;\n"));
+        }
+        for i in 0..quadrant.weights.len() {
+            uniforms.push_str(&format!(
+                "uniform sampler2D weights_{i} : filter_linear, repeat_disable;\n"
+            ));
+        }
+        let mut blend = String::new();
+        for i in 1..quadrant.layers.len() {
+            let mask = (i - 1) / 4;
+            let channel = ["r", "g", "b", "a"][(i - 1) % 4];
+            blend.push_str(&format!("color = mix(color, texture(layer_{i}, uv * 4.0).rgb, texture(weights_{mask}, weights_uv).{channel});\n"));
+        }
+        let shader = shader_for_code(
+            shaders,
+            include_str!("terrain.gdshader")
+                .replace("LAYER_UNIFORMS", &uniforms)
+                .replace("LAYER_BLEND", &blend)
+                .replace(
+                    "WEIGHT_SIDE",
+                    &format!("{}.0", soe_esm::records::land::ALPHA_GRID_SIDE),
+                ),
+        );
+        let mut material = ShaderMaterial::new_gd();
+        material.set_shader(&shader);
+        material.set_shader_parameter(
+            "quadrant",
+            &Vector2::new((q % 2) as f32, (q / 2) as f32).to_variant(),
+        );
+        for (i, (path, image)) in quadrant.layers.iter().enumerate() {
+            if let Some(texture) = cached_texture(cache, Some(path), image) {
+                material.set_shader_parameter(&format!("layer_{i}"), &texture.to_variant());
+            }
+        }
+        for (i, image) in quadrant.weights.iter().enumerate() {
+            let path = format!(
+                "{}:weights:{q}:{i}",
+                desc.diffuse.as_deref().unwrap_or("terrain")
+            );
+            if let Some(texture) = cached_texture(cache, Some(&path), image) {
+                material.set_shader_parameter(&format!("weights_{i}"), &texture.to_variant());
+            }
+        }
+        if let Some(pass) = &next {
+            material.set_next_pass(pass);
+        }
+        next = Some(material.upcast());
+    }
+    // CONTEXT: The opaque base preserves the full LAND shadow and depth surface.
+    // Detail passes sort after it and share its original mesh and CELL masks.
+    let mut base = StandardMaterial3D::new_gd();
+    if let Some((path, image)) = terrain.quadrants.first().and_then(|q| q.layers.first()) {
+        if let Some(texture) = cached_texture(cache, Some(path), image) {
+            base.set_texture(TextureParam::ALBEDO, &texture);
+        }
+    }
+    base.set_render_priority(-1);
+    if let Some(pass) = &next {
+        base.set_next_pass(pass);
+    }
+    base.upcast()
 }
 
 fn tree_material(
@@ -6935,19 +7050,21 @@ pub(crate) fn decal_shader(desc: &MaterialDesc) -> String {
         .map_or(&[][..], |t| t.controllers.as_slice());
     let functions = crate::nif_effect_animation::functions(tracks);
     let animation = crate::nif_effect_animation::assignments(tracks, false);
-    let vertex_color = if desc.texture_transform.is_some()
-        && desc.shader_flags_2 & soe_nif::blocks::flags2::VERTEX_COLORS != 0
-    {
+    let vertex_color = if desc.uses_vertex_colors() {
         "COLOR.rgb"
     } else {
         "vec3(1.0)"
     };
-    let vertex_alpha = if desc.texture_transform.is_some()
-        && desc.shader_flags_1 & soe_nif::blocks::flags1::VERTEX_ALPHA != 0
-    {
+    let vertex_alpha = if desc.uses_vertex_colors() {
         "COLOR.a"
     } else {
         "1.0"
+    };
+    let vertex_conversion = if desc.vertex_colors_srgb {
+        "vec3 vertex_color_to_linear(vec3 color) { return mix(pow((color + vec3(0.055)) / 1.055, vec3(2.4)), color / 12.92, lessThan(color, vec3(0.04045))); }
+void vertex() { COLOR.rgb = vertex_color_to_linear(COLOR.rgb); }"
+    } else {
+        ""
     };
     format!(
         "shader_type spatial;
@@ -6969,6 +7086,7 @@ uniform float uv_rotation = 0.0;
 uniform float material_alpha = 1.0;
 uniform float animation_time = -1.0;
 {functions}
+{vertex_conversion}
 void fragment() {{
     vec2 animated_offset = uv_offset;
     vec2 animated_scale = uv_scale;
@@ -7087,6 +7205,14 @@ pub(crate) fn face_material_from(
     let shader = shader_for_code(
         shaders,
         include_str!("facegen.gdshader")
+            .replace(
+                "FACE_SPECULAR_ENABLED",
+                if material.shader_flags_1 & soe_nif::blocks::flags1::MODEL_SPACE_NORMALS != 0 {
+                    "1"
+                } else {
+                    "0"
+                },
+            )
             .replace("BONE_COUNT", &surface.map.len().max(1).to_string())
             .replace(
                 "CULL_MODE",
@@ -7119,6 +7245,20 @@ pub(crate) fn face_material_from(
             mat.set_shader_parameter("has_normal", &true.to_variant());
         }
     }
+    if let Some(lighting) = &surface.face_lighting {
+        mat.set_shader_parameter(
+            "specular_color",
+            &Vector3::from_array(lighting.color).to_variant(),
+        );
+        mat.set_shader_parameter("specular_strength", &lighting.strength.to_variant());
+        mat.set_shader_parameter("glossiness", &lighting.glossiness.to_variant());
+        if let Some((path, data)) = &lighting.mask {
+            if let Some(texture) = cached_texture(cache, Some(path), data) {
+                mat.set_shader_parameter("specular_map", &texture.to_variant());
+                mat.set_shader_parameter("has_specular_map", &true.to_variant());
+            }
+        }
+    }
     mat.set_shader_parameter(
         "model_space_normals",
         &(material.shader_flags_1 & soe_nif::blocks::flags1::MODEL_SPACE_NORMALS != 0).to_variant(),
@@ -7136,6 +7276,11 @@ fn material_with_textures(
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
 ) -> Gd<StandardMaterial3D> {
     let mut mat = StandardMaterial3D::new_gd();
+    mat.set_flag(
+        Flags::ALBEDO_FROM_VERTEX_COLOR,
+        material.uses_vertex_colors(),
+    );
+    mat.set_flag(Flags::SRGB_VERTEX_COLOR, material.vertex_colors_srgb);
 
     if let Some(tex) = albedo_texture(cache, material, textures) {
         mat.set_texture(TextureParam::ALBEDO, &tex);

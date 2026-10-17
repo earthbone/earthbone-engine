@@ -141,3 +141,80 @@ fn water_shader_missing_and_corrupt_noise_never_uses_checker_albedo() {
         "missing noise preserves the WATR fallback"
     );
 }
+
+#[test]
+fn water_shader_installed_stair_river_materials() {
+    let Some(directory) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open_with_threads(Path::new(&directory), 2).unwrap();
+    let reference = GlobalFormId {
+        file: 0,
+        object: 0x090D35,
+    };
+    let loaded = source.stream_reference(reference).unwrap();
+    assert_eq!(loaded.surfaces.len(), 2);
+    let mut waters = 0;
+    let mut overlays = 0;
+    for surface in loaded.surfaces {
+        assert!(
+            surface.animation.is_some(),
+            "the river uses the animated path"
+        );
+        let material = &surface.arrays.material;
+        if let Some(water) = &material.water {
+            waters += 1;
+            assert_eq!(water.opacity, 0);
+            assert!(water.shallow_color[1] > water.shallow_color[0]);
+            assert!(surface.textures.water_noise.iter().all(Option::is_some));
+            assert!(surface.arrays.colors.iter().any(|c| c[3] == 0.0));
+            assert!(surface.arrays.colors.iter().all(|c| c[3] < 0.2));
+            assert_ne!(water.mesh.as_ref().unwrap().water_flags & 512, 0);
+        } else {
+            overlays += 1;
+            let effect = material
+                .effect
+                .as_ref()
+                .expect("whitewater is an effect overlay");
+            assert_eq!(
+                material.diffuse.as_deref(),
+                Some("textures/effects/fxwhitewater01.dds")
+            );
+            assert!(effect.blend.is_some());
+        }
+    }
+    assert_eq!((waters, overlays), (1, 1));
+}
+
+#[test]
+fn installed_animated_water_walkthrough() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let directory = root.join("target/r4-water-regression");
+    std::fs::create_dir_all(&directory).unwrap();
+    let output = std::process::Command::new(binary)
+        .arg("--path")
+        .arg(root.join("godot"))
+        .args(["--resolution", "640x360", "--script", "r4_water_probe.gd"])
+        .env("DISPLAY", ":99")
+        .env("SKYRIM_DATA", data)
+        .env("SOE_GODOT_TIMEOUT", "600")
+        .env("SOE_CHARACTER_OUTPUT", &directory)
+        .output()
+        .unwrap();
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(directory.join("test.log"), &log).unwrap();
+    assert!(
+        output.status.success()
+            && log.contains("RESULT: PASS R4 water probe")
+            && !log.contains("SCRIPT ERROR"),
+        "{log}"
+    );
+}

@@ -45,6 +45,7 @@ use crate::mesh::{
     WaterMaterial,
 };
 
+mod alternate_textures;
 #[cfg(feature = "godot")]
 mod chargen;
 mod exterior;
@@ -255,6 +256,11 @@ pub struct LoadedSurface {
     pub mesh_identity: Option<Arc<str>>,
 }
 
+/// Native diffuse tiles and packed LAND alpha grids for one quadrant.
+pub type TerrainQuadrantTextures = terrain_texture::TerrainQuadrantTextures<TextureData>;
+/// Quadrant material passes share the original cell mesh and its collision.
+pub type TerrainTextures = terrain_texture::TerrainTextures<TextureData>;
+
 /// A surface's 2D textures and environment cubemap, ready to upload. A failed
 /// named diffuse uses the checker. Other slots remain `None` when absent or
 /// unreadable, with failed reads counted in `CellStats`. `Arc` because a texture shared
@@ -262,6 +268,7 @@ pub struct LoadedSurface {
 /// and cloned out of `TextureCache` cheaply for every surface that uses it.
 #[derive(Debug, Clone, Default)]
 pub struct SurfaceTextures {
+    pub terrain: Option<Arc<TerrainTextures>>,
     pub environment: Option<Arc<TextureData>>,
     pub environment_mask: Option<Arc<TextureData>>,
     pub diffuse: Option<Arc<TextureData>>,
@@ -278,7 +285,33 @@ pub struct SurfaceTextures {
     pub water_flow: Option<Arc<TextureData>>,
 }
 
+impl SurfaceTextures {
+    pub(crate) fn terrain_images(&self) -> impl Iterator<Item = &Arc<TextureData>> {
+        self.terrain
+            .iter()
+            .flat_map(|terrain| terrain.quadrants.iter())
+            .flat_map(|quadrant| {
+                quadrant
+                    .layers
+                    .iter()
+                    .map(|(_, image)| image)
+                    .chain(quadrant.weights.iter())
+            })
+    }
+}
+
+/// Source particle resources prepared on the same workers as model surfaces.
+#[derive(Clone)]
+pub struct LoadedParticle {
+    pub reference: GlobalFormId,
+    pub emitter: Arc<soe_nif::particle::RenderEmitter>,
+    pub material: MaterialDesc,
+    pub textures: SurfaceTextures,
+    pub placement: NifTransform,
+}
+
 pub struct LoadedCell {
+    pub particles: Vec<LoadedParticle>,
     pub stats: CellStats,
     pub surfaces: Vec<LoadedSurface>,
 }
@@ -288,9 +321,30 @@ impl LoadedCell {
     /// terrain and complete cubemap faces. Shared cells each report their usage.
     pub fn texture_inventory(&self) -> std::collections::BTreeMap<String, usize> {
         let mut inventory = std::collections::BTreeMap::new();
-        for surface in &self.surfaces {
-            let material = &surface.arrays.material;
-            let textures = &surface.textures;
+        for (material, textures) in self
+            .surfaces
+            .iter()
+            .map(|s| (&s.arrays.material, &s.textures))
+            .chain(self.particles.iter().map(|p| (&p.material, &p.textures)))
+        {
+            if let Some(terrain) = &textures.terrain {
+                for (q, quadrant) in terrain.quadrants.iter().enumerate() {
+                    for (path, image) in &quadrant.layers {
+                        inventory
+                            .entry(soe_bsa::normalize(path))
+                            .or_insert_with(|| image.payload_bytes());
+                    }
+                    for (i, image) in quadrant.weights.iter().enumerate() {
+                        inventory.insert(
+                            format!(
+                                "{}:weights:{q}:{i}",
+                                material.diffuse.as_deref().unwrap_or("terrain")
+                            ),
+                            image.payload_bytes(),
+                        );
+                    }
+                }
+            }
             for (path, texture) in [
                 (material.diffuse.as_deref(), textures.diffuse.as_deref()),
                 (material.normal.as_deref(), textures.normal.as_deref()),
@@ -1162,10 +1216,12 @@ impl DataSource {
         let results = self.build_all(&work, &model_counts)?;
         let after = self.textures.counters();
         let mut surfaces = Vec::new();
+        let mut particles = Vec::new();
         let mut texture_sets = HashSet::new();
         for ((model, refr, reference), result) in work.iter().zip(results) {
             match result {
                 Ok(LoadedStatic::Surfaces {
+                    particles: prepared_particles,
                     built,
                     marker_shapes_filtered,
                     marker_only,
@@ -1175,7 +1231,7 @@ impl DataSource {
                     stats.editor_markers_filtered += marker_shapes_filtered;
                     stats.editor_marker_only_models += usize::from(marker_only);
                     stats.meshes_parsed += 1;
-                    if built.is_empty() {
+                    if built.is_empty() && prepared_particles.is_empty() {
                         stats.reference_skips.insert(
                             *reference,
                             if marker_only {
@@ -1185,6 +1241,15 @@ impl DataSource {
                             },
                         );
                     }
+                    particles.extend(prepared_particles.into_iter().map(
+                        |(emitter, material, textures)| LoadedParticle {
+                            reference: *reference,
+                            emitter,
+                            material,
+                            textures,
+                            placement: placement_transform(refr),
+                        },
+                    ));
                     let placement = placement_iso(refr);
                     let identity_base = instance_transform.is_some().then(|| model.to_lowercase());
                     for (shape_index, (arrays, textures)) in built.into_iter().enumerate() {
@@ -1249,7 +1314,11 @@ impl DataSource {
                 surfaces.push(water);
             }
         }
-        let mut loaded = LoadedCell { stats, surfaces };
+        let mut loaded = LoadedCell {
+            particles,
+            stats,
+            surfaces,
+        };
         loaded.refresh_texture_inventory();
         loaded.stats.reference_counts = self.reference_counts(cell_id, &loaded, None);
         for (kind, counts) in &loaded.stats.reference_counts {
@@ -1273,6 +1342,7 @@ impl DataSource {
         let record = self.order.record(winner);
         if models::is_editor_reference(record) {
             return Ok(LoadedCell {
+                particles: Vec::new(),
                 stats: CellStats::default(),
                 surfaces: Vec::new(),
             });
@@ -1284,6 +1354,7 @@ impl DataSource {
             .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
         let Some(model) = models::render_model_for(base) else {
             return Ok(LoadedCell {
+                particles: Vec::new(),
                 stats: CellStats::default(),
                 surfaces: Vec::new(),
             });
@@ -1324,6 +1395,7 @@ impl DataSource {
         let base = self.order.resolve(winner.file, refr.base);
         let loaded = self.load_object_surfaces(model, &refr, false, playback, Some(base))?;
         let LoadedStatic::Surfaces {
+            particles: prepared_particles,
             built,
             marker_shapes_filtered,
             marker_only,
@@ -1353,7 +1425,21 @@ impl DataSource {
                 }
             })
             .collect();
-        Ok(LoadedCell { stats, surfaces })
+        let particles = prepared_particles
+            .into_iter()
+            .map(|(emitter, material, textures)| LoadedParticle {
+                reference,
+                emitter,
+                material,
+                textures,
+                placement: placement_transform(&refr),
+            })
+            .collect();
+        Ok(LoadedCell {
+            particles,
+            stats,
+            surfaces,
+        })
     }
 
     /// The cell's water plane, built from its own `CELL` record rather than
@@ -1493,6 +1579,9 @@ impl DataSource {
         let instancing = instancing && !animated;
         let mut animations = Vec::new();
         let mut meshes = file.meshes()?;
+        if let Some(base) = base {
+            alternate_textures::apply(&self.order, base, model, &mut meshes)?;
+        }
         let marker_shapes_filtered = meshes
             .iter()
             .filter(|mesh| marker_blocks.contains(&mesh.block))
@@ -1576,7 +1665,16 @@ impl DataSource {
                 refr_transform.scale,
             )
         });
+        let mut particles = Vec::new();
+        if playback == SurfacePlayback::Live && base.is_some() {
+            for emitter in soe_nif::particle::render_emitters(&file)? {
+                let material = particle_material(&emitter);
+                let textures = self.textures.resolve(&self.vfs, &material);
+                particles.push((Arc::new(emitter), material, textures));
+            }
+        }
         Ok(LoadedStatic::Surfaces {
+            particles,
             built: out,
             animations,
             marker_shapes_filtered,
@@ -1719,6 +1817,11 @@ type BuiltStatic = Result<LoadedStatic, DataSourceError>;
 
 enum LoadedStatic {
     Surfaces {
+        particles: Vec<(
+            Arc<soe_nif::particle::RenderEmitter>,
+            MaterialDesc,
+            SurfaceTextures,
+        )>,
         built: Vec<(SurfaceArrays, SurfaceTextures)>,
         animations: Vec<Option<crate::object_animation::AnimatedSurface>>,
         marker_shapes_filtered: usize,
@@ -1946,18 +2049,50 @@ pub(crate) fn mesh_data_from(shape: &NifMesh, combined: &NifTransform) -> MeshDa
             .collect()
     });
     let bone_weights = (!shape.bone_weights.is_empty()).then(|| shape.bone_weights.clone());
+    let hair_tint = match shape.material.extra {
+        soe_nif::blocks::ShaderExtra::HairTint(tint) => Some(tint),
+        _ => None,
+    };
     MeshData {
         positions,
         normals,
         tangents,
         uvs,
-        colors: shape.material.effect.as_ref().map(|_| {
-            if shape.colors.is_empty() {
-                vec![[1.0; 4]; shape.positions.len()]
-            } else {
-                shape.colors.clone()
-            }
-        }),
+        colors: (hair_tint.is_some()
+            || shape.material.effect.is_some()
+            || (shape.material.flags2 & soe_nif::blocks::flags2::TREE_ANIM == 0
+                && (shape.material.vertex_colors || shape.material.vertex_alpha)))
+            .then(|| {
+                let mut colors = if shape.colors.is_empty() {
+                    vec![[1.0; 4]; shape.positions.len()]
+                } else {
+                    shape.colors.clone()
+                };
+                if shape.material.effect.is_none() {
+                    for color in &mut colors {
+                        if !shape.material.vertex_colors {
+                            color[..3].fill(1.0);
+                        }
+                        if !shape.material.vertex_alpha {
+                            color[3] = 1.0;
+                        }
+                    }
+                }
+                // CONTEXT: HairTint uses green as a tint weight, not RGB albedo.
+                if let Some(tint) = hair_tint {
+                    for (index, color) in colors.iter_mut().enumerate() {
+                        let weight = if shape.material.vertex_colors {
+                            shape.colors.get(index).map_or(1.0, |color| color[1])
+                        } else {
+                            1.0
+                        };
+                        for (channel, tint) in color[..3].iter_mut().zip(tint) {
+                            *channel = (1.0 - weight) + tint * weight;
+                        }
+                    }
+                }
+                colors
+            }),
         indices: shape.indices.clone(),
         bone_indices,
         bone_weights,
@@ -1995,6 +2130,7 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
             m.kind,
             soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::LodLandscapeNoise)
         ),
+        vertex_colors_srgb: matches!(m.extra, soe_nif::blocks::ShaderExtra::HairTint(_)),
         alpha,
         double_sided: m.double_sided,
         water: None,
@@ -2117,3 +2253,32 @@ mod rnd_39_tests;
 
 #[cfg(test)]
 mod water_shader_tests;
+
+#[cfg(test)]
+mod r4_camp_tests;
+
+pub(crate) fn particle_material(emitter: &soe_nif::particle::RenderEmitter) -> MaterialDesc {
+    let mesh = NifMesh {
+        name: emitter.timing.system_name.clone(),
+        block: emitter.block,
+        transform: NifTransform::IDENTITY,
+        bound: soe_nif::types::Bound::default(),
+        positions: Vec::new(),
+        normals: Vec::new(),
+        tangents: Vec::new(),
+        uvs: Vec::new(),
+        uv_sets: Vec::new(),
+        colors: Vec::new(),
+        indices: Vec::new(),
+        bone_weights: Vec::new(),
+        bone_indices: Vec::new(),
+        skin: None,
+        material: emitter.material.clone(),
+    };
+    let mut material = material_desc_from(&mesh);
+    // Particle colour carries alpha whenever the source enables vertex colours.
+    // Community Shaders Effect.hlsl multiplies all four channels under VC.
+    material.shader_flags_1 |= soe_nif::blocks::flags1::VERTEX_ALPHA;
+    material.shader_flags_2 |= soe_nif::blocks::flags2::VERTEX_COLORS;
+    material
+}

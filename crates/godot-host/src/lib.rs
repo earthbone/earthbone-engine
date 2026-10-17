@@ -17,6 +17,8 @@ mod allocations;
 
 #[cfg(all(test, feature = "godot"))]
 mod perf_exterior_tests;
+#[cfg(test)]
+mod r4_fire_tests;
 
 pub mod actor;
 pub mod animated_static;

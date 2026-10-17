@@ -45,6 +45,7 @@ impl AssetMemory {
         .chain(textures.water_noise.iter())
         .chain([&textures.water_flow])
         .flatten()
+        .chain(textures.terrain_images())
         {
             self.image(image);
         }
@@ -81,6 +82,36 @@ impl AssetMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terrain_tiles_and_weights_are_counted_once_per_allocation() {
+        let tile = Arc::new(TextureData::Rgba8(soe_dds::Image {
+            width: 2,
+            height: 2,
+            depth: 1,
+            rgba: vec![128; 16],
+        }));
+        let weight = Arc::new(TextureData::Rgba8(soe_dds::Image {
+            width: 1,
+            height: 1,
+            depth: 1,
+            rgba: vec![255; 4],
+        }));
+        let textures = SurfaceTextures {
+            terrain: Some(Arc::new(crate::data_source::TerrainTextures {
+                quadrants: std::array::from_fn(|_| crate::data_source::TerrainQuadrantTextures {
+                    layers: vec![("tile.dds".into(), Arc::clone(&tile))],
+                    weights: vec![Arc::clone(&weight)],
+                }),
+            })),
+            ..Default::default()
+        };
+        let mut report = AssetMemory::default();
+        report.textures(&textures);
+        report.textures(&textures);
+        assert_eq!(report.values["cpu_image_count"], 2);
+        assert_eq!(report.values["cpu_image_bytes"], 20);
+    }
 
     #[test]
     fn shared_image_payload_is_counted_once_per_allocation() {

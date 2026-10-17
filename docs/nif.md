@@ -73,6 +73,40 @@ survey uses the existing archive extractor and NIF dump tool. The SKYRIM_DATA
 gated survey also passes all 1,078 files, retaining 2,392 segmented shapes and
 all 5,687,572 source triangles.
 
+## Particle render fields, RND-60 and RND-61, 2026-10-17
+
+`particle::render_emitters` adds renderer input beside the timing-only emitter
+API. It retains the effect material and alpha property, emitter-node placement,
+velocity and volume parameters, radius variation, simple colour fields,
+scale samples, rotation and atlas frame fields. The NiPSysData atlas stores
+U offset, U width, V offset and V height. Its particle geometry omits vertex
+payloads in Bethesda 20.2, even when the presence flags are set.
+
+Layouts follow local nifly `src/Particles.cpp`, `src/Geometry.cpp`, and
+nif.xml. xEdit's `wbDataFormatNif.pas` confirms the modifier field groups.
+OpenMW `components/nifosg/particle.cpp` supplies the older normalized-age colour
+and grow/fade contract. The local mudcrab reader declares Bethesda modifier
+types but leaves their bodies empty. NifSkope's upstream
+[src/gl/glparticles.cpp](https://github.com/niftools/nifskope/blob/develop/src/gl/glparticles.cpp)
+was also checked. Its controller path covers the older particle family and
+supplies no Bethesda execution oracle. These readers are references, rather
+than dependencies linked into this crate.
+
+The source survey uses the existing BSA extractor to retain one NIF under
+target. Set SOE_NIF_SAMPLES to that extraction root to run the format survey.
+It reports three giant-fire systems. Smoke has 64 atlas entries and 220 scale
+samples, fireball 32 and 60, and sparks 16 and 200. Their base velocities are
+0, 60 and 45 game units per second. The independent synthetic fixture checks
+material links, cylinder dimensions, velocity, radius variation, quota,
+grow/fade values and colour keys. Malformed volume and nonfinite motion are
+rejected. Hidden-source timing permits existing deaths without hidden births.
+
+The strict installed modifier assertion still fails on BSPSysLODModifier.
+RND-61 owns distance LOD and animated force execution. Declared simple-colour,
+scale and atlas fields permit a host to draw the effects, but the current
+host interpretation does not establish exact original-engine motion or atlas
+timing. The source assertion remains in place to keep that gap observable.
+
 ## Layers
 
 - `stream`: bounds-checked little-endian reads. Every count that sizes an
@@ -195,12 +229,23 @@ array behavior follows the vanilla skeleton files covered by
   When the partition carries no weights, `NiSkinData`'s per-bone lists are
   used.
 - SSE BSTriShape: the shape's own data size is zero and the vertex buffer,
-  weights included, lives in the `NiSkinPartition` global buffer. Bone
-  indices must be mapped through each owning partition's bone list into
-  the skin instance. The earlier claim that these indices were global was
-  corrected by the actor-mesh survey recorded in `docs/status.md`: 564 of
-  846 partitions across 400 meshes reorder the bone list. Use the
-  `NiSkinPartition` bone tables declared in `nifxml/nif.xml`.
+  weights included, lives in the `NiSkinPartition` global buffer. Its bone
+  indices already address the skin instance. Preserve them as stored, just
+  as for an inline packed buffer. Nifly `src/NifFile.cpp::PrepareData` copies
+  the buffer without remapping, and `GetShapeBoneWeights` compares the
+  stored index directly with the skin bone index. Its LE-to-SSE optimizer
+  maps legacy partition-local indices once before writing that global buffer.
+  Nifly revision `134124c2b6e6` was read locally for this correction.
+
+The earlier 400-mesh survey found 564 reordered tables out of 846 partitions.
+Those counts describe the tables, they do not establish the meaning of the
+separate global vertex stream. Remapping that stream corrupted the giant's
+weighted bones. The round 4 live probe measured maximum triangle edge stretch
+of 30.17 times its bind length before this correction. Two new unit cases
+cover a reordered palette with packed and inline global indices. The existing
+LE partition-local test remains unchanged. OpenMW's local `nifloader.cpp`
+was also checked. Its legacy path uses NiSkinData influences and it explicitly
+leaves Skyrim SE packed skinning unsupported, so nifly supplies the SSE oracle.
 
 ## FaceGen head morphs
 

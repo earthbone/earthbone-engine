@@ -391,6 +391,7 @@ mod tests {
             cells: vec![(
                 CELL,
                 LoadedCell {
+                    particles: Vec::new(),
                     stats: crate::data_source::CellStats::default(),
                     surfaces: Vec::new(),
                 },
@@ -485,6 +486,7 @@ mod tests {
                 arrays,
                 placement: soe_physics::Iso::IDENTITY,
                 textures: crate::data_source::SurfaceTextures {
+                    terrain: None,
                     diffuse: Some(Arc::clone(&texture)),
                     normal: Some(texture),
                     environment: None,

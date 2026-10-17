@@ -358,7 +358,7 @@ impl DataSource {
         out
     }
 
-    fn terrain_diffuse(&self, land_id: GlobalFormId, land: &Land) -> soe_dds::Image {
+    fn terrain_diffuse(&self, land_id: GlobalFormId, land: &Land) -> super::TerrainTextures {
         let land_ref = self.order.winner_ref(land_id);
         let mut image_for = |raw_ltex: u32| {
             let path = if raw_ltex == 0 {
@@ -385,17 +385,19 @@ impl DataSource {
                 }
                 diffuse
             };
-            self.textures.decode_rgba(&self.vfs, &path)
+            let path = super::textures::texture_path(&path);
+            self.textures
+                .get_or_decode(&self.vfs, &path)
+                .map(|image| (path, image))
         };
-        super::terrain_texture::bake(land, &mut image_for)
+        super::terrain_texture::prepare(land, &mut image_for, super::TextureData::Rgba8)
     }
 
     /// Streams every cell of the block around `editor_id` and appends each
     /// cell's terrain as one more surface, so the Godot layer treats land like
     /// any other geometry. A cell without its own `LAND` takes the parent
     /// worldspace's at the same grid position when the worldspace inherits
-    /// land data. LAND quadrant base and alpha layers are sampled into one
-    /// RGBA albedo texture per terrain cell.
+    /// land data. Native LAND tiles and separate alpha grids share the cell mesh.
     pub fn stream_exterior(
         &self,
         editor_id: &str,
@@ -526,7 +528,7 @@ impl DataSource {
                                 reference: *land_id,
                                 arrays,
                                 textures: SurfaceTextures {
-                                    diffuse: Some(Arc::new(super::TextureData::Rgba8(diffuse))),
+                                    terrain: Some(Arc::new(diffuse)),
                                     ..SurfaceTextures::default()
                                 },
                                 placement: soe_physics::Iso::IDENTITY,

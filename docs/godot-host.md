@@ -448,6 +448,464 @@ The former placement put the label over the actor. Two focused presenter and
 layout regressions failed before the fix. The walkthrough scene also checks
 the heading text and each displayed topic for leaked FormIDs.
 
+## Exported NPC hairline colours, RND-57, 2026-10-17
+
+The free walk close captures reproduce a pale strip through Hulda's crown and
+mismatched hair layers on Mikael, Adrianne, Eorlund, Ysolda and Nazeem.
+The strip comes from the exported hairline drawn with a different tint from
+the outer hair. On the RTX 5070 Ti and private display :99, the stable inn
+baseline differs from the authored-colour control on 13443 of 44950 pixels
+for Hulda's front view and 15845 of 52755 for Mikael. Saadia's three views
+are a passing control. Exterior front-view differences are 12922 of 60722
+for Adrianne, 4957 of 87587 for Eorlund, 12845 of 53635 for Ysolda and
+24613 of 24632 for Nazeem. The old extension fails eighteen views. The
+corrected extension matches all twenty-one views with zero differing pixels.
+The three-percent limit and 1000-pixel minimum retain their baseline values.
+
+Paired captures freeze the sky, shader clock, actor poses and exposure.
+The unchanged-frame calibration is zero in every final view, before and
+after the fix. Without this freeze, the moving exterior changes 14814 pixels
+between captures with no material change. That drift caused an earlier
+exterior comparison to fail after its uploaded colours already matched.
+
+The source survey checks eleven NPCs against their defining-plugin FaceGeom
+files. Selected head, hair and HNAM hairline vertices match the exports and
+all selected bones map to the race rig. Hair and head use the same authored
+head and spine bind transforms and actor placement. Live Hulda and Mikael
+both have scale 1.03 on every head part. The loader already applies dynamic
+FaceGen positions and includes the HDPT extra parts. Those paths do not need
+replacement for this reproduction.
+
+The material fault has two parts. HairTint uses vertex green as its tint
+weight, but ordinary RGB multiplication lost that meaning. Actor upload then
+applied the uniform tint only to StandardMaterial3D. The DECAL shader used by
+hairlines and brows retained the untinted texture. Preparing packed tint
+colours from the authored green weight gives both material paths the same
+input. Packed sRGB conversion happens before interpolation, with material
+identity retaining that encoding. SkinTint keeps its existing uniform path.
+The synthetic test preserves independent alpha and covers disabled colour
+flags and both rigid and skinned attachment paths. The nine-NPC baseline
+source comparison has 10152 wrong colour entries. The expanded eleven-NPC
+comparison matches the corrected colours and exported positions.
+
+`installed_streamed_hair_matches_facegen_colours` generates an external source
+oracle and runs `r4_hair_probe.gd` in the inn and through its real door into
+Whiterun. It samples three views per adult, with hair-hidden controls and a
+reference using the NIF's tint and green weights on the same resident mesh.
+The oracle and PNGs stay under target. Game assets are not committed.
+
+Local nifly `src/NifFile.cpp::PrepareData` supplies the dynamic-position
+contract. Its `src/Shaders.cpp` retains HairTint RGB. OpenMW
+`apps/openmw/mwrender/esm4npcanimation.cpp` supplies HDPT and covered-hair
+selection, but has no exported FaceGeom assembly in that path.
+xEdit's HDPT HNAM and the UESP HDPT page define attached extra parts.
+Community Shaders `package/Shaders/Lighting.hlsl` supplies the HairTint
+vertex-green rule. Godot's BaseMaterial3D reference defines the sRGB vertex
+flag. These are references for the existing Rust assembly and material paths.
+This change adds no dependencies, saved state, scene nodes or rendering passes.
+
+## First person report investigation, RND-51, 2026-10-17
+
+The retained `r4_first_person_probe.gd` and UID still fail the original
+sheathed visibility assertion. `MT_Idle.HKX` puts the hand geometry below the
+camera and yields zero foreground pixels. On the RTX 5070 Ti at private
+:99, raised unarmed hands yield 22302 visible pixels, sword 20774, exterior
+21371 and downward view 20741. Physical R input yields 1964. An expanded
+source-resolved equipment survey also sees greatsword 2525, right-hand Flames
+2090 and dual Flames 2972. Each compares production visibility against a
+hidden capture inside a geometry mask and restores shadow settings.
+
+Bow, crossbow and staff setup fails before rendering. The game hand-assignment
+path rejects their non-melee animation types. Pixels measured after a failed
+equip belong to the preceding pose and are not evidence for those weapons.
+The probe retains the equip failures and skips those mislabeled captures.
+
+The first person rig, skin poses and equipped melee model are present.
+Camera mask 1048575 includes the geometry. Actor upload uses the default
+shadow mode. No readied shadow-only failure was reproduced in the tested
+states. RND-51 remains blocked on the screenshot's matching equipment and
+ready state. The probe's zero-pixel sheathed assertion remains unchanged.
+
+## Neutral FaceGen RGB and GPU walking, RND-58 and RND-59, 2026-10-17
+
+`r4_face_rgb_probe.gd` measures the production face shader with neutral,
+unshaded output at four UV samples on Hulda, Mikael, Saadia and Lucia.
+A CPU calculation follows the authored diffuse, tint and detail textures and
+Community Shaders `Lighting.hlsl` FaceGen equation. Other head parts are
+hidden while measuring the head material, since blended brows and hairlines
+would otherwise contaminate the sampled colour. The fixed limit is two
+bytes per channel with at least 500 covered pixels. All sixteen cases pass
+on the old extension, with maximum error 0.003712 and about 30000 pixels per
+head. This verifies neutral albedo arithmetic. It does not compare original
+game lighting, subsurface response or tonemapping. No face shader change was
+needed for this measurement.
+
+`r4_gpu_walk_probe.gd` holds actual movement input along the collision-guided
+free walk route. RenderingServer GPU timing is separate from process timing
+and wall time. Each 1920 by 1080 location has 600 positive GPU samples over
+at least ten seconds and movement over 100 Skyrim units. The fixed p99 limit
+is 16.67 ms. RTX 5070 Ti results on private :99 are 0.722 ms in the inn,
+6.994 ms in Whiterun and 2.306 ms on the plains. These baseline measurements
+include the five-pass terrain material. GPU rendering passes the limit.
+
+Whole-frame walking is still slow. Wall-frame p99 is 68.446, 153.772 and
+400.599 ms respectively. Process p99 is 66.430, 174.097 and 496.743 ms.
+Those measurements do not establish 60 FPS playback. CPU frame work remains within the open PRF-37 and PRF-38 scopes. The probe records GPU, render CPU, process and wall
+samples separately in an external JSON artifact. Godot's local
+`class_renderingserver.rst` documents the measured render-time units as ms.
+The probes add no dependencies, saved state or production nodes.
+
+## Streamed NIF particle births, RND-60, 2026-10-17
+
+The private hardware free-walk baseline has zero particle systems for giant
+fire reference `0:040911`, with zero smoke and spark pixels. Cell preparation
+previously read only mesh shapes. The standalone RND-14 timing node was not
+part of that path. NIF particle assets now travel beside prepared surfaces,
+including their decoded textures, reference placement and source timing.
+Upload uses Godot particle RIDs and draw-pass meshes. It adds no scene nodes.
+Cell retirement, location clear and exit release these resources. Hidden
+sources advance deaths without births. Scene pause updates native speed through the node notifications.
+
+The birth timeline retains the source controller, visibility keys, lifetime
+variation and live quota. Native shader simulation advances each submitted
+birth's age and position. In particular, the 42-particle spark quota bounds
+accepted births below the nominal rate of 60 per second. Renderer inspection
+reports submitted births, source time, live count and capacity.
+
+The giant fire supplies nominal rates 24, 3 and 60, with maximum lifetimes
+4.605834, 1.4 and 4 seconds. `r4_emission_probe.gd` requires three resident
+systems and visible smoke and sparks. Its original 20-pixel minimum, upper
+rate bound and 4.8-second expiry limit remain. Before the finished-renderer
+run, a lower bound was added at 80 percent of the smaller of nominal births
+and capacity. Rates are checked against the same sampled source interval,
+including frames needed for image readback. The marker materials retain
+texture alpha and lifetime colour alpha while identifying each system.
+
+The generated shaders were checked separately on the RTX 5070 Ti. Four manual
+births show 821 smoke marker pixels, 812 fireball and 2304 spark pixels,
+then zero after expiry. The release build passes. The finished free-walk
+capture is blocked by a shared test-lock deadlock in another checkout, so
+live source pacing and expiry are not yet confirmed. RND-60 remains blocked.
+
+The strict source survey remains failing on BSPSysLODModifier. It has not
+been weakened. RND-61 separately tracks distance LOD and animated forces.
+Baked scale samples, colour percentages and atlas frame fields are retained,
+but their host sampling is an interpretation awaiting original-engine parity
+controls. Velocity aspect and system-scale interactions also remain unverified.
+The current result must not be read as full NIF particle execution parity.
+
+Local nifly `Particles.cpp` and `Geometry.cpp` supply the layouts. OpenMW's
+particle renderer is OSG-specific and does not execute these Bethesda modifier
+families. Community Shaders `Effect.hlsl` multiplies all four vertex-colour
+channels under VC, which the particle material now preserves. NifSkope's
+upstream particle implementation was checked for missing execution semantics,
+as recorded in docs/nif.md. Godot's particle shader and RenderingServer
+references supply manual emission and resource lifetime. No dependencies or
+saved fields were added.
+
+## Giant camp fire clock, RND-54, 2026-10-17
+
+The live fire is reference `0:040911`, model
+`Clutter/Giant/GiantCampfire01Burning.nif`. Its `Flames` shape uses
+`FXFireScrollTile02.dds`. The standalone V-offset controller has frequency
+one, start zero and stop 1.3000001 seconds. Its two quadratic keys form a
+linear zero-to-one scroll, or 0.769231 texture repeats per second. This NIF
+has no controller sequences. The source survey also reads the three particle
+emitters, with rates 24, 3 and 60 births per second and base lifetimes of
+3.666667, 1 and 3.333333 seconds. The pixel regression measures the flame
+mesh's UV clock, rather than claiming smoke or spark emission parity.
+
+The host updates UV properties from an object playback clock, but the
+generated shader evaluated its copy of those tracks from Godot's global
+`TIME`. The two clocks could disagree during stalls or explicit steps.
+The runtime now binds `animation_time` to the same elapsed seconds sampled
+by the CPU. Effect and lighting UV tracks receive this clock. The controller
+frequency, keys and period retain their authored values. Normal processing
+advances each surface once. The other advance entry point is the explicit
+capture step. No new clock state, scene nodes, dependencies or saved fields
+were added.
+
+The live probe reads the production flame shader's V-offset function from
+the resident material and displays its result on the same mesh. It calibrates
+linear colour readback at phase 0.5, requires 100 sampled pixels and permits
+phase error at most 0.025. Other fire layers are hidden during readback,
+since their additive glow contaminated the first calibration attempt.
+Before the fix, the valid isolated capture has 125 sampled pixels and errors
+0.650359, 0.034223, 0.474995 and 0.011933 at four quarter-second steps.
+After the fix the errors are 0.002842, 0.000322, 0.001267 and 0.002029,
+with the same pixel count. The scene passes and exits with status zero.
+
+Local OpenMW `components/nifosg/controller.cpp::ControllerFunction`, nifly
+`src/Animation.cpp` and nif.xml's `NiTimeController` and
+`NiControllerSequence` definitions supply the seconds, frequency and cycle
+contracts. Existing NIF parsing already retains those values. This change
+connects the two host consumers of that data without copying an external
+implementation. The authored source survey and all 602 host library cases
+pass, with package Clippy over all targets.
+
+## Lighting paint vertex masks, RND-55, 2026-10-17
+
+The MODS correction selects the obelisk's mountain texture, but two paint
+overlays still cover it with brown. Hiding only `giantpaint.dds` in the live
+camp scene exposes the expected mountain surface. The stronger live test
+fails because both uploaded lighting meshes lack colour arrays and the
+ordinary paint material does not read vertex colour. The installed source
+check finds 189 authored colours on `AlphaPaint03`, with alpha 0.129412,
+and zero uploaded colours.
+
+The mesh adapter formerly retained colours only for effect shaders. It now
+also retains the enabled RGB and alpha channels on lighting geometry. A
+disabled channel becomes white or opaque, preventing unused alpha from
+hiding a surface that uses RGB tint. Missing enabled colours use white, following
+OpenMW's NIF loader fallback. Standard materials enable vertex albedo, and
+the existing lighting/decal shader reads the same prepared RGBA data without
+requiring a UV controller. The material cache distinguishes coloured and
+uncoloured materials that share textures. Existing batch keys already include
+colour-array presence. No additional passes, scene nodes, dependencies or
+saved fields were added. Existing mesh byte counts include the colour data.
+`TREE_ANIM` is excluded from this ordinary lighting path. Community Shaders
+`package/Shaders/Lighting.hlsl` uses tree alpha for wind and excludes it from
+opacity. The first live capture exposed that distinction by losing nearby
+canopies. A paired tree-hide capture guards 700 canopy pixels in a fixed sky
+region. The existing tree upload and wind shader remain a separate scope,
+tracked as RND-56. The corrected pine region is 50 by 80 pixels at image
+position (80, 20), with the seven central trunk columns excluded. It retains
+the original 700-pixel budget. The earlier region missed the dense canopy
+even in the old correct capture. The corrected control measures 2484 pixels
+before this change and 288 in the intermediate regression.
+The final embedded capture passes with 2450 canopy pixels. Both paint batches
+retain alpha masks and the selected mountain material stays resident. The
+scene exits with status zero. The installed colour comparison and host
+library cases pass, with package Clippy over all targets.
+
+Nifly `src/Shaders.cpp::HasVertexColors` and `HasVertexAlpha`, with the matching
+flags in `include/Shaders.hpp`, establish the separate channel switches.
+OpenMW `components/nifosg/nifloader.cpp` supplies the missing-colour fallback.
+No external implementation was copied. The installed assertion compares all
+three obelisk colour streams with the NIF, and the small fixture checks RGB,
+alpha, both channels and an absent colour stream against material identity.
+
+## Giant camp texture swap, RND-53, 2026-10-17
+
+Reference `0:0C8E8B` uses base `GiantObeliskBlue02_MountainSlab` and model
+`Clutter/Giant/GiantObeliskBlue02.nif`. Its MODS entry selects geometry name
+`GiantObeliskBlue02:2`, geometry index two and TXST `0:0A9293`,
+`LandscapeMountainSlab`. The host ignored MODS and rendered the NIF's
+`giantrock01.dds`. The live free walk baseline has zero mountain-slab
+materials and 20207 pixels contributed by the obelisk batches.
+After the fix, the same scene records one selected mountain-slab material
+and 18998 contributed pixels. Its assertion passes and the process exits
+with status zero. The diffuse and normal source check also passes.
+The captured rock changes little because its lighting paint overlays lose
+their vertex masks. That separate cause is tracked as RND-55. The MODS
+assertion proves the selected material, rather than claiming pixel parity.
+
+The generic MODL loader now resolves MODS in the winning base record's
+namespace and reads the winning TXST. It applies the swap before filtering
+helper geometry and building materials. Both geometry selectors must match.
+TXST paths gain the Data texture root when absent. The TXST slot order is
+mapped to the NIF slot order, including the environment mask and glow slots.
+Existing batch and material keys retain the resulting texture paths, keeping
+different swaps of a shared model apart. Replacement destruction models keep
+their own textures. No scene nodes, dependencies or saved fields were added.
+
+The layout comes from local xEdit `Core/wbDefinitionsCommon.pas` function
+`wbAlternateTexture` and `Core/wbDefinitionsTES5.pas` TXST definition.
+CommonLib `TESModelTextureSwap.h` confirms the two selectors. UESP TXST and
+Mudcrab's converter extractor were also read. The converter does not resolve
+winning runtime records, so this small adapter uses the existing ESM cursor
+and load-order table. No external implementation was copied. Synthetic tests
+cover a base override, a separate winning TXST override, all eight slots,
+shared-name geometry, material identity and truncated or trailing MODS data.
+The installed source check also retains both paint overlays and resolves
+the selected diffuse and normal textures through the VFS.
+
+## Creature skin indices, RND-52, 2026-10-17
+
+The live walkthrough starts in Bleakwind Basin and observes placed giant
+`0:033FA3` and mammoth `0:033FA6`. The giant uses the Giant race's 80-bone rig,
+not the human rig. Its gameplay outfit selects `giant02.nif`, whose three
+shapes carry 114 skin transforms. The test matches the live outfit against
+installed NIF variants, then measures uploaded poses at idle times zero and
+half a second. Its fixed bounds are three times bind length at the 99th
+percentile and eight times for every edge longer than one millimetre.
+Before the fix, giant p99 is 3.757 and maximum is 30.173 across 37706 edges.
+The mammoth control stays below 1.370 and 3.516 respectively.
+After the fix, giant p99 is 1.446 and maximum is 3.580 at both sampled
+poses. The mammoth measurements remain unchanged. The embedded scene passes
+and exits with status zero. The 400-file NIF survey also matches all 694 SSE
+streams, covering 420593 vertices, to their stored global bone indices.
+
+SSE's packed vertex stream already stores skin-instance bone indices. The
+reader and a second host override both applied a legacy partition palette to
+those global values. The giant's first heavy-cloth shape then differs from
+its stored stream in 13830 slots. Both remaps are removed. The host retains
+its old remapped-shape observation field at zero. Skeleton choice, bind
+transforms and four-weight packed records retain their authored values. The
+club is skinned with the giant mesh, so the same bone correction restores
+its association with the hand.
+
+The source contracts are nifly `src/NifFile.cpp::PrepareData`,
+`GetShapeBoneWeights` and its LE-to-SSE optimizer at revision `134124c2b6e6`.
+OpenMW `components/nifosg/nifloader.cpp` was checked for legacy weights and
+bind matrices. It does not implement Skyrim SE packed skinning. The NIF
+crate's reordered-palette unit case and the host's installed global-index
+case both fail before the change. No dependencies, scene nodes or saved
+state were added.
+
+## Near tree placement fallback, RND-50, 2026-10-17
+
+The lone pine above the Whiterun plains comes from near tree geometry at the
+world origin. It remains when BTT billboards, BTO object LOD and Full LOD are
+hidden. The free walk panorama records 40 unplaced pine surfaces near the
+origin, including `0:0C8BB0` and `0:0C8BF6`. Their other shapes use the expected
+world placements. Several unplaced shapes overlap to look like one sky tree.
+The fixed sky region contains 45 non-sky pixels before the fix, above its
+three-pixel limit. The corrected embedded release records zero origin pine
+surfaces and zero pixels in that region. The six-view tree-only component
+check also records zero detached trees and exits successfully.
+
+`DataSource` keeps instancing candidates in model space. The upload plan
+rejects skinned shapes and groups below the instancing threshold, then sends
+them to ordinary batching. That fallback discarded the instance transform.
+It now bakes the pending transform into positions, normals, tangents and
+bounds before making the ordinary mesh. Existing MultiMesh groups retain
+their shared geometry. Triangle ownership and the original reference pose
+remain available for later movement updates. No per-reference nodes or
+saved fields were added.
+
+The regression exercises rotation, scale, translation and tangent handedness
+for skinned and short-group fallbacks, with batching enabled and disabled.
+It fails before the fix with vertices near zero instead of the requested
+world position. The live panorama checks the world-origin surfaces and the
+floating-tree region. Its component controls hide tree geometry only, since
+removing Full LOD mountains also exposes sky beneath ordinary rocky peaks. An installed survey checks BTT heights against LAND
+and reports the representative pine's NIF shape skinning. xEdit
+`Core/wbLOD.pas` supplies BTT world-coordinate and reference fields. The
+existing `cell_occluder_mesh` transform and `units::GodotTransform` define
+the host placement convention. No external code was copied.
+
+## Animated water materials, RND-49, 2026-10-17
+
+The free walk uses the object animation path for the Whiterun stair river
+`0:090D35`, model `WRStairsWater01River01.nif`. Its two shapes have a WATR
+surface and an effect foam overlay. The static material selector handled WATR,
+but the animated selector sent the water shape to the generic decal shader.
+With no diffuse texture, that shader drew white. The animation path now uses
+the same WATR material builder and keeps its authored UV scale, offset and
+opacity when updating material controllers. The foam retains its own shader.
+
+The local xEdit WATR definition, nif.xml BSWaterShaderProperty flags,
+Community Shaders `package/Shaders/Effect.hlsl` and OpenMW
+`files/shaders/compatibility/bs/nolighting.frag` supply the material contracts.
+No external implementation was copied. No dependencies, saved fields or scene
+nodes were added.
+
+`r4_water_probe.gd` enters the real free walk exterior from the Bannered Mare,
+inspects the streamed river and samples its contribution against a hidden
+capture. The threshold requires at least 100 affected pixels, less than half
+neutral bright pixels and exactly one WATR material. Before the fix, 116867
+of 173210 affected pixels were white and neither surface had WATR uniforms.
+After the fix, 34017 of 167259 affected pixels were white, with the foam
+still present, and the capture exited successfully. The water surface exposes
+its green WATR colors, three normals and zero base opacity. Separate layer
+captures keep the authored foam visible for diagnosis.
+The installed material check also verifies all three normal textures, the
+water depth alpha range and the animated status of both shapes.
+
+## Near LAND texture detail, round 4
+
+The walkthrough terrain probe exits the Bannered Mare and moves to the
+Whiterun pond route. It aims at a nearby submitted LAND triangle and captures
+normal rendering, all LOD hidden and LAND hidden. The blurred ground stays
+when terrain, object, tree and Full LOD are hidden. Hiding LAND removes it.
+The lower-half difference counts are 913 pixels without LOD and 28,256 pixels
+without LAND. Its 256 by 256 diffuse fails the fixed native-detail check.
+
+The near terrain used a CPU composite with only 128 pixels per quadrant,
+including all four texture repeats. Each native tile was reduced to 32 pixels
+before the renderer sampled it. This was the source of the blurred surface,
+rather than an overlapping terrain LOD height or a residency handoff.
+
+LAND now keeps the original DDS payloads and samples its ordered layers in a
+quadrant shader. Separate 17 by 17 RGBA images pack four alpha grids each.
+The one cell mesh, triangle indices, CELL masks and collider stay intact.
+An opaque base pass preserves the full terrain shadow and depth surface.
+Four detail passes use Godot's next-pass material chain. They share shader
+resources and native texture uploads. This adds four material passes per
+LAND instance, with no node or renderer-server instance added. Real GPU cost
+has not been measured.
+
+Native image payloads and generated weights participate in the existing
+streaming budget, texture inventory and memory attribution. The former
+CPU-decoded image cache is no longer needed. Its historical counters report
+zero. The CPU compositor remains a test reference. The installed seven-cell
+Whiterun mask check retains its triangle and one-collider assertions.
+
+Local xEdit LAND/TXST, UESP LAND and OpenMW
+`components/terrain/material.cpp` supply layouts and separate detail textures
+from blend weights. OpenMW's OSG state sets do not fit the stock Godot host,
+so this uses Godot's existing material passes and texture upload cache.
+Mudcrab `crates/engine/src/streaming/lod.rs` supplies the per-quadrant LOD
+readiness comparison. The LOD-off reproduction rules out that path here.
+No dependency or saved state is added.
+
+The five-pass synthetic viewport check matches all four quadrant colors with
+zero pixel error, including a fifth overlay in a second packed alpha map.
+Package formatting and all-target Clippy pass. All 585 library cases pass
+with installed variables unset. The embedded release walkthrough passes and
+exits zero. At the same LAND triangle the diffuse is now 1024 by 1024, with
+five material passes and the original 1,089 vertices. The LOD-off image keeps
+the fine texture. Difference counts are 965 pixels without LOD and 28,098
+without LAND. The final installed mask check passes all seven cells again.
+
+## Streamed adult face highlights, round 4
+
+The round 4 probe extends `godot/walkthrough.gd` and samples resident Hulda,
+Mikael, Sinmir and Lucia in the Bannered Mare. It uses the player's IMGS
+camera environment and the scene's existing lights. Paired captures hide only
+the head in its shader, excluding the helmet and beard from skin samples.
+Fixed acceptance requires
+500 warm pixels and mean red above blue by 0.03 in the central face region.
+Preview3 fails all three adults while Lucia passes. Hulda's mean is
+RGB 0.1763, 0.1596, 0.1534, Mikael has 330 warm pixels and Sinmir has 290.
+Lucia has 5,155 warm pixels.
+
+The streamed upload has its diffuse, tint, detail and normal textures and
+animated normal matrices. An installed geometry comparison gives adult normal
+agreement 0.839 for Hulda and 0.863 for Belethor. Disabling normal mapping does
+not restore color. Disabling default specular changes a sampled Hulda pixel
+from RGB 0.1255, 0.1098, 0.1020 to 0.1176, 0.0784, 0.0627.
+The former fixture used independent lighting and accepted warm pixels across
+the whole viewport, so it did not reject this neutral reflection over skin.
+
+The face material omitted the NIF specular settings and slot 7 mask, leaving
+Godot's unmasked default specular response. Adult model-space-normal heads use
+`femalehead_s.dds` or `malehead_s.dds`. Child heads retain their existing
+material lighting.
+The upload now retains the authored specular enablement, color, strength,
+glossiness and mask. Its direct-light shader samples that mask and replaces
+the unmasked environment reflection. Upload image release also clears the
+mask payload and preserves its numeric settings.
+
+The corrected shader control passes all four residents. Hulda has 5,000 warm
+pixels, Mikael 5,730, Sinmir 1,452 and Lucia 5,153. Their red-minus-blue means
+are 0.0931, 0.0881, 0.0655 and 0.0881. Lucia's mean RGB remains
+0.2027, 0.1335, 0.1146, close to the original 0.1999, 0.1324, 0.1138.
+Package formatting and all-target Clippy pass. The library suite passes 582
+cases with installed variables unset. The independent installed source survey
+also passes. The embedded release shader passes the same four residents on private :99
+with software Vulkan. The Godot process exits zero. The first candidate
+release exposed the diffuse-light error and the helmet sampling error, which
+were corrected before the final library-only release.
+
+Nifly `src/Shaders.cpp` and the local NIF material reader provide the shader
+and slot definitions. Community Shaders `package/Shaders/Lighting.hlsl`
+provides the model-space-normal specular texture contract, separate from the
+existing FaceGen blend. Godot's local `spatial_shader.rst` supplies light-stage
+inputs and the light-color normalization. No dependency, saved state or new
+node path is added. Full subsurface lighting remains outside this change.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and
@@ -5104,15 +5562,13 @@ saves `docs/images/skinned-{idle,walk}.png`.
 
 ### Two defects found, both closed
 
-**Bone indices.** A `NiSkinPartition` splits a shape into body parts, and a
-packed vertex's bone indices address the **partition's** short bone list rather
-than the skin instance's. The `nif` crate's legacy `NiTriShape` path maps them
-through `Partition::bones`, the `BSTriShape` path Special Edition uses copied
-them raw. `actor::partition_bone_indices` corrects it here by reading the
-partition blocks directly. The reader itself was fixed on master afterwards,
-measured over 400 actor meshes where 564 of 846 partitions carry a reordering
-bone list, so the two now agree and this copy could be dropped in favour of
-`mesh.bone_indices`.
+**Bone indices.** The former correction through `Partition::bones` was
+wrong for SSE global vertex buffers. Nifly `PrepareData` copies them unchanged
+and `GetShapeBoneWeights` uses their skin-instance indices directly. The
+400-mesh table survey did not measure that contract. Round 4 reproduces the
+giant's edge stretch by a factor of 30.17 and removes the host override along with the
+reader's SSE remap. LE partition-local weights still use their own palette.
+The renderer now uses the reader's canonical `mesh.bone_indices`.
 
 ### The bind pose, and why it hid at the pelvis
 

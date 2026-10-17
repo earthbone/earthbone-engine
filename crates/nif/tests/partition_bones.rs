@@ -3,12 +3,10 @@
 
 //! Does a skin partition's bone list actually reorder anything?
 //!
-//! A bone index stored in a partition addresses that partition's own short
-//! bone list, and `Mesh::bone_indices` is documented as addressing the skin
-//! instance's. The Special Edition path copied them raw until 2026-09-18,
-//! which is a defect whether or not it changes a picture. This measures how
-//! much it changed: where a partition's bone list is the identity the old
-//! code happened to be right, and everywhere else it was wrong.
+//! These tables can reorder even though SSE's separate global vertex stream
+//! already carries skin-instance indices. This survey counts table layouts,
+//! it does not infer the vertex stream's index space from those counts.
+//! Nifly's PrepareData and GetShapeBoneWeights establish that contract.
 //!
 //! Gated on `SKYRIM_DATA`, reads character meshes out of the mesh archive.
 
@@ -53,6 +51,7 @@ fn partition_bone_lists_are_measured_not_assumed() {
     }
 
     let (mut skinned, mut parts, mut identity, mut reordered, mut widest) = (0, 0, 0, 0, 0usize);
+    let (mut global_streams, mut global_vertices) = (0, 0);
     for name in &names {
         let Ok(bytes) = archive.read(name) else {
             continue;
@@ -87,14 +86,44 @@ fn partition_bone_lists_are_measured_not_assumed() {
         if has_partition {
             skinned += 1;
         }
+        if let Ok(meshes) = nif.meshes() {
+            for mesh in meshes {
+                if mesh.bone_indices.is_empty() {
+                    continue;
+                }
+                let Some(Block::BsTriShape(shape)) = nif.blocks.get(mesh.block) else {
+                    continue;
+                };
+                let vertices = if shape.vertices.is_empty() {
+                    let Some(Block::SkinInstance(skin)) = nif.get(shape.skin) else {
+                        continue;
+                    };
+                    let Some(Block::SkinPartition(partition)) = nif.get(skin.partition) else {
+                        continue;
+                    };
+                    &partition.vertices
+                } else {
+                    &shape.vertices
+                };
+                let stored: Vec<_> = vertices.iter().map(|vertex| vertex.bone_indices).collect();
+                assert_eq!(
+                    mesh.bone_indices, stored,
+                    "{name} keeps nifly's global SSE indices"
+                );
+                global_streams += 1;
+                global_vertices += vertices.len();
+            }
+        }
     }
 
     eprintln!("partition bone lists over {} actor meshes:", names.len());
     eprintln!("  meshes with a skin partition  {skinned}");
     eprintln!("  partitions with a bone list   {parts}");
-    eprintln!("  identity, old code was right  {identity}");
-    eprintln!("  reordered, old code was wrong {reordered}");
+    eprintln!("  identity bone tables         {identity}");
+    eprintln!("  reordered bone tables       {reordered}");
     eprintln!("  widest bone list              {widest}");
+    eprintln!("  global streams matched         {global_streams}, vertices={global_vertices}");
+    assert!(global_streams > 0);
 
     assert!(
         parts > 0,

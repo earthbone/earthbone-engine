@@ -94,6 +94,9 @@ struct FacialBinding {
     actor: soe_esm::GlobalFormId,
 }
 
+/// Visibility margin in metres around first person arm instances.
+const FIRST_PERSON_CULL_MARGIN: f64 = 10_000.0;
+
 #[derive(Debug, PartialEq, Eq)]
 enum HostMagicReport<T> {
     Invalid,
@@ -725,6 +728,14 @@ impl SkinnedActorNode {
                 self.geometry_visible && !self.invisible && !self.presentation_hidden,
             );
             server.instance_attach_skeleton(instance, skeleton);
+            if self.first_person {
+                // The arms follow the camera through bone poses while the
+                // mesh bounds stay where the bind pose put them. A stale box
+                // fails the camera frustum and occlusion test but still
+                // overlaps the larger shadow frustums, which draws the arms as
+                // a shadow only. The margin keeps the box around the camera.
+                server.instance_set_extra_visibility_margin(instance, FIRST_PERSON_CULL_MARGIN);
+            }
             self.shapes.push(ShapeRids {
                 instance,
                 skeleton,
@@ -785,6 +796,13 @@ impl SkinnedActorNode {
             }
             if let Some((_, detail)) = &surface.face_detail {
                 report.image(detail);
+            }
+            if let Some((_, mask)) = surface
+                .face_lighting
+                .as_ref()
+                .and_then(|lighting| lighting.mask.as_ref())
+            {
+                report.image(mask);
             }
         }
         report.add("mesh_count", self.meshes.len());

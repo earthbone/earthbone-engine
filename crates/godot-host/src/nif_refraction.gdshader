@@ -2,6 +2,7 @@ shader_type spatial;
 render_mode unshaded, fog_disabled, depth_draw_never, blend_mix, $CULL$DEPTH_TEST;
 uniform sampler2D distortion_texture : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_linear;
+const float REFRACTION_ALPHA_GAIN = 40.0;
 uniform float strength = 0.0;
 uniform float base_alpha = 1.0;
 uniform vec2 uv_offset = vec2(0.0);
@@ -16,5 +17,9 @@ void fragment() {
     if (opacity < 0.1) { discard; }
     vec2 offset = (distortion.rg * 2.0 - 1.0) * opacity * strength * 0.14;
     ALBEDO = textureLod(screen_texture, clamp(SCREEN_UV + offset, vec2(0.0), vec2(1.0)), 0.0).rgb;
-    ALPHA = 1.0;
+    // The screen copy holds opaque geometry only, so an opaque write here
+    // would erase the transparent flames and smoke drawn before this quad and
+    // wash the pit out. Blend by how far the pixel actually moves, which keeps
+    // a near zero distortion invisible.
+    ALPHA = clamp(length(offset) * REFRACTION_ALPHA_GAIN, 0.0, 1.0);
 }
