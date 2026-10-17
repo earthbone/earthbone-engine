@@ -9261,3 +9261,26 @@ get_parsed_text after add_text, following the local Godot class documentation.
 The text property does not represent that appended tag stack. Both diagnostic
 report-content requirements remain. The inn admission limit stays at 384 MiB,
 with live texture sharing restoring its 297,001,596-byte payload.
+
+## Item menu verification, UI-20, 2026-10-17
+
+The native item presenter keeps the equipment column heading empty and names
+its tooltip. The TYPE column reserves enough width for Ingredients at the
+scene test font size. Item rows reuse the existing card name resolver and
+omit unresolved description-table markers such as `<string 0>`. A localized
+record fixture covers the missing-table case. The scene runner retains its
+built-in and installed SkyUI captures and logs under `target/ui-20`.
+
+SkyUI Community remains the behavior reference, including
+`ItemMenus/InventoryLists.as`, `ItemMenu.as`, `InventoryMenu.as`,
+`MagicMenu.as`, `Common/skyui/filter/SortFilter.as` and `NameFilter.as`.
+The implementation is project code. No reference source or installed art is
+bundled by this change. Existing sort, search, category, tab and card checks
+exercise the native behavior, including missing values and accent folding.
+
+UI-20 remains unfinished. The presenter allocates native container bounds and
+uses its own control theme. It does not resolve imported font aliases from
+fontconfig or place controls from the converted display lists. The retained
+capture therefore cannot establish SkyUI chrome or authored element positions.
+A loaded icon source is evidence of asset resolution only. Imported movie and
+font binding plus passing layout and chrome comparisons are still required.

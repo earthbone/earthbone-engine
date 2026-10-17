@@ -79,7 +79,7 @@ pub fn item(game: &Game, form: GlobalFormId, count: i32) -> Row {
     };
     Row {
         form,
-        name: world.name_of(form).unwrap_or_else(|| form.to_string()),
+        name: crate::item_card::display_name(&world, form),
         category: category.into(),
         icon: icon.into(),
         count,
@@ -101,7 +101,10 @@ pub fn item(game: &Game, form: GlobalFormId, count: i32) -> Row {
                 Some(u32::from_le_bytes(bytes) as f32 / 100.0)
             }),
         cost: None,
-        description: world.description_of(form).unwrap_or_default(),
+        description: world
+            .description_of(form)
+            .filter(|text| !text.starts_with("<string "))
+            .unwrap_or_default(),
     }
 }
 
@@ -189,4 +192,35 @@ pub fn trade(
     };
     game.trade_vendor_item(faction, merchant, item, count, side)
         .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ui_20_missing_localization_never_displays_table_debug_markers() {
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader {
+            flags: soe_esm::plugin::flags::LOCALIZED,
+            ..Default::default()
+        });
+        plugin.push_top(
+            Record::new(Tag(*b"MISC"), 0x800)
+                .sub(Tag(*b"FULL"), 1_u32.to_le_bytes())
+                .sub(Tag(*b"DESC"), 0_u32.to_le_bytes()),
+        );
+        let mut order = soe_esm::LoadOrder::new();
+        order.add("MissingStrings.esm", plugin).unwrap();
+        let game = Game::new(order);
+        let row = item(
+            &game,
+            GlobalFormId {
+                file: 0,
+                object: 0x800,
+            },
+            1,
+        );
+        assert_eq!(row.name, "Unnamed item");
+        assert!(row.description.is_empty());
+    }
 }

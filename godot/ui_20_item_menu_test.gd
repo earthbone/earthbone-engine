@@ -30,6 +30,7 @@ func run() -> void:
 	await process_frame
 	print("UI-20 rows ", ids(menu), " category=", menu.category, " side=", menu.side)
 	check(menu.column_order() == ["equipped", "icon", "name", "category", "weight", "value"], "default column order")
+	check(menu.header.get_node("equipped").text.is_empty() and menu.header.get_node("equipped").tooltip_text == "Equipped", "equipment column has a named tooltip")
 	check(ids(menu) == ["2", "3", "4", "1"], "case insensitive name order")
 	menu.sort_by("weight")
 	print("UI-20 weight descending ", ids(menu))
@@ -54,6 +55,8 @@ func run() -> void:
 	check(category_rect.end.x <= list_rect.position.x, "category column left of item list")
 	check(list_rect.end.x <= card_rect.position.x, "item card right of columns")
 	check(root.get_visible_rect().encloses(card_rect), "card inside viewport")
+	var type_font: Font = menu.get_theme_default_font()
+	check(menu._cell_width("category") >= type_font.get_string_size("Ingredients", HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x, "type column fits full category names")
 	if not OS.get_environment("SOE_INTERFACE_CACHE").is_empty():
 		var found := false
 		for button in menu.rows.get_children():

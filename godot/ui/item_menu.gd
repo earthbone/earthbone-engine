@@ -11,7 +11,7 @@ const DefaultTheme = preload("res://ui/theme/theme.gd")
 const INVENTORY_CATEGORIES = ["All", "Weapons", "Apparel", "Potions", "Scrolls", "Food", "Ingredients", "Books", "Keys", "Misc"]
 const FAVORITE_CATEGORIES = ["All", "Gear", "Aid", "Magic"]
 const MAGIC_CATEGORIES = ["All", "Spells"]
-const LABELS = {"equipped": "E", "icon": "", "name": "NAME", "category": "TYPE", "weight": "WGT", "value": "VAL", "ratio": "V/W", "damage": "DMG", "armor": "ARM", "cost": "COST"}
+const LABELS = {"equipped": "", "icon": "", "name": "NAME", "category": "TYPE", "weight": "WGT", "value": "VAL", "ratio": "V/W", "damage": "DMG", "armor": "ARM", "cost": "COST"}
 
 var mode := "inventory"
 var source_rows: Array = []
@@ -261,6 +261,8 @@ func column_order() -> Array:
 	return order
 
 func _cell_width(key: String) -> float:
+	if key == "category":
+		return 76.0
 	return 20.0 if key in ["equipped", "icon"] else 34.0
 
 func _cell(control: Control, key: String) -> void:
@@ -320,6 +322,7 @@ func refresh() -> void:
 			title += " ▼" if descending else " ▲"
 		var button := _button(title, header, sort_by.bind(str(key)))
 		button.name = str(key)
+		button.tooltip_text = "Equipped" if key == "equipped" else str(LABELS[key])
 		button.custom_minimum_size.x = _cell_width(key)
 		if key == "name":
 			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL

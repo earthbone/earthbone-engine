@@ -162,7 +162,10 @@ fn run_scene(cache: Option<&std::path::Path>) {
         ],
         None,
     );
-    let capture = project.path().join("scene.png");
+    let captures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-20");
+    std::fs::create_dir_all(&captures).unwrap();
+    let label = if cache.is_some() { "skyui" } else { "builtin" };
+    let capture = captures.join(format!("{label}.png"));
     let output = Command::new(godot)
         .args(["--path"])
         .arg(project.path())
@@ -181,6 +184,11 @@ fn run_scene(cache: Option<&std::path::Path>) {
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
+    std::fs::write(
+        captures.join(format!("{label}.log")),
+        format!("{stdout}\n{stderr}"),
+    )
+    .unwrap();
     assert!(
         output.status.success()
             && stdout.contains("UI-20 PASS")
