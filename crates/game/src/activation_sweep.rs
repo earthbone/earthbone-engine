@@ -129,6 +129,7 @@ pub fn selected_cells(order: &LoadOrder, index: &CellIndex, all: bool) -> Vec<Gl
 /// Load the five vanilla masters through the existing plugin cache reader.
 pub fn installed_order(data: &Path) -> Result<Arc<LoadOrder>, String> {
     let mut order = LoadOrder::new();
+    let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/soe-plugin-cache/sweep");
     for name in [
         "Skyrim.esm",
         "Update.esm",
@@ -136,12 +137,9 @@ pub fn installed_order(data: &Path) -> Result<Arc<LoadOrder>, String> {
         "HearthFires.esm",
         "Dragonborn.esm",
     ] {
-        let plugin = soe_esm::read_plugin_cached(
-            data.join(name),
-            Path::new("target/soe-plugin-cache/sweep"),
-        )
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+        let plugin = soe_esm::read_plugin_cached(data.join(name), &cache)
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
         order.add(name, plugin).map_err(|e| e.to_string())?;
     }
     Ok(Arc::new(order))
@@ -322,6 +320,20 @@ pub fn run_cell(
     game.change_cell(Some(cell));
     game.run_until_idle(64);
     let mut rows = Vec::new();
+    let initial_errors: Vec<_> = game
+        .vm
+        .log
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry.message.starts_with("Headless animation ")
+                || entry.message.contains("error:")
+                || entry.message.contains("ERROR")
+                || entry.message.contains("has no function")
+        })
+        .map(|entry| entry.message.clone())
+        .collect();
+    let initial_native_errors = game.world().native_errors.clone();
     let mut excluded = Vec::new();
     let mut assets = BTreeMap::new();
     for target in ids.iter().copied() {
@@ -498,6 +510,7 @@ pub fn run_cell(
     }
     Ok(
         json!({"cell":label(order,cell),"references":rows,"excluded":excluded,
+        "initial":{"papyrus_errors":initial_errors,"native_errors":initial_native_errors},
         "scripts_loaded":loaded.scripts_loaded,"script_load_errors":loaded.scripts_failed,
         "missing_scripts":bind.scripts_missing.iter().map(|(s,id)|json!([s,id.to_string()])).collect::<Vec<_>>()}),
     )

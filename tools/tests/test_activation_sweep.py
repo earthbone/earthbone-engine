@@ -67,3 +67,20 @@ class ActivationReportTests(unittest.TestCase):
         SWEEP.merge_host(cell, {"cell": {"id": "0:000011"}, "complete": True, "references": [observation]}, 0, "ACTIVATION_SWEEP complete", 1.0)
         self.assertFalse(cell["host"]["complete"])
         self.assertEqual(row["status"], "error")
+
+    def test_same_failure_in_primary_and_visual_counts_one_reference(self):
+        row = {"base_type": "ACTI", "status": "error", "cause": "host_run_incomplete", "visual": {"causes": ["host_run_incomplete"]}}
+        counts = SWEEP.summary({"cells": [{"references": [row]}]})
+        self.assertEqual(counts["by_failure_cause"]["host_run_incomplete"], 1)
+
+    def test_concurrent_script_error_does_not_hide_failed_harvest(self):
+        row = {"base_type": "FLOR", "status": "error", "cause": "papyrus_error", "before": {"inventory": 0}, "after": {"inventory": 0}}
+        self.assertEqual(SWEEP.reference_causes(row), ["harvest_default_missing", "papyrus_error"])
+
+    def test_startup_error_fails_run_without_blame_on_first_activation(self):
+        row = {"status": "pass"}
+        cell = {"cell": {"id": "0:000010"}, "references": [row], "host": {"complete": True, "initial": {"papyrus_errors": ["bootstrap receiver missing"]}}}
+        report = {"complete": True, "cells": [cell]}
+        self.assertTrue(SWEEP.report_failed(report))
+        self.assertEqual(row["status"], "pass")
+        self.assertEqual(SWEEP.cell_failures(report)[0]["cause"], "startup_papyrus_error")

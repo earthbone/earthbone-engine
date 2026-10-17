@@ -41,16 +41,19 @@ installed-slot Godot wrapper. Per-cell input, output and logs stay under
 `target/activation-sweep`. A missing completion or reference result fails.
 Completion is checked independently from object success. Binding errors retain
 their model and fail the matching references. Error histories are recorded as
-per-activation deltas, with startup errors stored once. Routine authored trace
-text is excluded. A report from a different cell cannot satisfy a visit.
+per-activation deltas, with startup errors stored once. Each cause counts a
+reference once, even when primary and visual causes match. Independent harvest
+and furniture contracts remain visible alongside concurrent script errors.
+Routine authored trace text is excluded. Startup, script-load and attachment
+errors have separate cell counts and also fail the run. A report from a different cell cannot satisfy a visit.
 
-The first before report has 51 cells and 3,131 activations. The expanded after
-survey has 68 cells and 3,277 activations, including more Whiterun exterior
-cells. Its state classifier and archive ordering also changed. Aggregate
+The first before report has 51 cells and 3,131 activations. The graph-only intermediate state survey has 68 cells and 3,277 activations,
+including more Whiterun exterior cells. Final combined counts are in the
+after report. Its state classifier and archive ordering also changed. Aggregate
 pass counts across these revisions are diagnostic totals, not a controlled
 improvement rate. The controlled QASmoke observation is nine matching Dwemer
-buttons without motion before and nine with motion after. The full after
-survey uses the graph-fix build, with child dispatch checked separately.
+buttons without motion before and nine with motion after. The graph-only intermediate run retains separate observations under target.
+The final after survey uses the combined graph, child-dispatch and sound fix.
 
 This is a contract survey from CK Activate, OnActivate, PlayAnimation and
 PlayGamebryoAnimation, installed records and authored animation assets. It

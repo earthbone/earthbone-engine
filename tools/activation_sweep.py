@@ -29,26 +29,33 @@ def installed_slot():
         yield (lock.fileno(),)
 
 
+def reference_causes(row):
+    causes = {row["cause"]} if row["status"] != "pass" else set()
+    for message in row.get("logs", []) + row.get("visual", {}).get("papyrus_errors", []):
+        site = re.search(r"\(([\w.]+)(?: line| instruction)", message)
+        if site:
+            causes.add("papyrus:" + site.group(1))
+        if message.startswith("Headless animation "):
+            causes.add("headless_animation_error")
+    if row.get("pending_animation_waits", 0):
+        causes.add("animation_wait_not_completed")
+    before, after = row.get("before", {}), row.get("after", {})
+    if row.get("base_type") in ("FLOR", "TREE") and "inventory" in before and before["inventory"] == after.get("inventory"):
+        causes.add("harvest_default_missing")
+    if row.get("base_type") == "FURN" and "state_contract" in row and not row["state_contract"]:
+        causes.add("furniture_entry_missing")
+    causes.update(row.get("visual", {}).get("causes", []))
+    return sorted(causes)
+
+
 def summary(report):
     types = collections.defaultdict(collections.Counter)
     causes = collections.Counter()
     for cell in report["cells"]:
         for row in cell["references"]:
             types[row["base_type"]][row["status"]] += 1
-            if row["status"] != "pass":
-                causes[row["cause"]] += 1
-            sites = set()
-            for message in row.get("logs", []):
-                site = re.search(r"\(([\w.]+)(?: line| instruction)", message)
-                if site:
-                    sites.add("papyrus:" + site.group(1))
-            causes.update(sites)
-            if any(message.startswith("Headless animation ") for message in row.get("logs", [])) and row["cause"] != "headless_animation_error":
-                causes["headless_animation_error"] += 1
-            if row.get("pending_animation_waits", 0) and row["cause"] != "animation_wait_not_completed":
-                causes["animation_wait_not_completed"] += 1
-            for cause in row.get("visual", {}).get("causes", []):
-                causes[cause] += 1
+            row["failure_causes"] = reference_causes(row)
+            causes.update(row["failure_causes"])
     return {"by_base_type": dict(types), "by_failure_cause": dict(causes)}
 
 
@@ -85,12 +92,36 @@ def read_host(path):
         return {}, str(error)
 
 
+def cell_failures(report):
+    failures = []
+    for cell in report["cells"]:
+        for origin, initial in [("game", cell.get("initial", {})), ("host", cell.get("host", {}).get("initial", {}))]:
+            for cause, values in [("startup_papyrus_error", initial.get("papyrus_errors", [])),
+                                  ("startup_native_error", initial.get("native_errors", []))]:
+                if values:
+                    failures.append({"cell": cell["cell"], "cause": cause, "count": len(values), "origin": origin})
+        for cause, values in [("script_load_error", cell.get("script_load_errors", [])),
+                              ("script_attachment_missing", cell.get("missing_scripts", []))]:
+            if values:
+                failures.append({"cell": cell["cell"], "cause": cause, "count": len(values), "origin": "game"})
+    return failures
+
+
+def report_failed(report):
+    return not report.get("complete", False) or not report["cells"] or bool(cell_failures(report)) or any(
+        (bool(cell["references"]) and not cell.get("host", {}).get("complete", False))
+        or bool(cell.get("host", {}).get("behavior_errors"))
+        or any(row["status"] != "pass" for row in cell["references"]) for cell in report["cells"])
+
+
 def write_report(path, report):
     for cell in report["cells"]:
         for row in cell["references"]:
             row["logs"] = [message for message in row.get("logs", []) if any(
                 word in message.lower() for word in ("error", "cannot", "unsupported", "missing", "unknown", "headless animation", "has no function"))]
     report["counts"] = summary(report)
+    report["cell_failures"] = cell_failures(report)
+    report["cell_failure_counts"] = dict(collections.Counter(cause for _, cause in {(row["cell"]["id"], row["cause"]) for row in report["cell_failures"]}))
     path.write_text(json.dumps(report, indent=2) + "\n")
     lines = ["# Activation sweep", "", report["oracle"], "",
              "A pass covers the stated observation. Unknown script effects and missing host runs fail.", "",
@@ -102,7 +133,10 @@ def write_report(path, report):
     lines += ["", "| Failure cause | References |", "| --- | ---: |"]
     for cause, count in sorted(report["counts"]["by_failure_cause"].items()):
         lines.append(f"| {cause} | {count} |")
-    lines += ["", f"Cells: {len(report['cells'])}. Host complete: "
+    lines += ["", "Cell failures are counted separately from reference outcomes.", ""]
+    for cause, count in sorted(report["cell_failure_counts"].items()):
+        lines.append(f"{cause}: {count} cells.")
+    lines += ["", f"Cells: {len(report['cells'])}. Required host visits: {sum(bool(c['references']) for c in report['cells'])}. Host complete: "
               f"{sum(c.get('host', {}).get('complete', False) for c in report['cells'])}.", "",
               "Fresh world per cell, sequential activation within each cell, three simulated seconds per reference.",
               "The host uses the walkthrough activation entry point. Target selection rays and full vanilla script effects need separate oracles.",
@@ -219,8 +253,7 @@ def main():
     if not args.headless_only:
         host_pass(report, args, work)
     write_report(args.report, report)
-    return int(not report.get("complete", False) or not report["cells"] or any((bool(cell["references"]) and not cell.get("host", {}).get("complete", False))
-               or any(row["status"] != "pass" for row in cell["references"]) for cell in report["cells"]))
+    return int(report_failed(report))
 
 
 if __name__ == "__main__":
