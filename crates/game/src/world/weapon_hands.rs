@@ -121,6 +121,15 @@ impl World {
         item: GlobalFormId,
     ) -> Result<(), Error> {
         let (left, right) = self.hand_weapon_assignment(actor, hand, item, 0)?;
+        let slots = self.weapon_hand_slots(item)?;
+        let both_hands = hand == Hand::Right && slots & (1 << 2) == 0 && slots & (1 << 3) != 0;
+        for spell_hand in [Hand::Left, Hand::Right] {
+            if spell_hand == hand || both_hands {
+                if let Some(spell) = self.hand_spell(actor, spell_hand) {
+                    self.unequip_hand_spell(actor, spell_hand, spell)?;
+                }
+            }
+        }
         let state = self.actor(actor).ok_or(Error::Actor(actor))?;
         for old in [state.left_weapon, state.right_weapon]
             .into_iter()

@@ -232,6 +232,7 @@ mod tests {
         );
         plugin.push_top(Record::new(Tag(*b"MISC"), 0x104).zsub(Tag(*b"FULL"), "Gold"));
         plugin.push_top(Record::new(Tag(*b"KYWD"), 0x200));
+        plugin.push_top(Record::new(Tag(*b"SPEL"), 0x400).sub(Tag(*b"SPIT"), [0; 36]));
         plugin.push_top(
             Record::new(Tag(*b"FLST"), 0x201)
                 .sub(Tag(*b"LNAM"), 0x200_u32.to_le_bytes())
@@ -333,6 +334,31 @@ mod tests {
                 .hand_weapon(player, soe_game::combat::Hand::Right),
             Some(id(0x100))
         );
+    }
+
+    #[test]
+    fn hst_25_inventory_weapon_replaces_a_previous_spell_in_its_hand() {
+        let mut game = game();
+        let player = game.player();
+        {
+            let mut world = game.world_mut();
+            world.add_item(player, id(0x100), 1);
+            let actor = world.actor(player).unwrap();
+            actor.spells.insert(id(0x400));
+            actor.right_spell = Some(id(0x400));
+            actor.equipped.insert(id(0x400));
+        }
+        assert!(toggle_equip(&mut game, id(0x100)));
+        let world = game.world();
+        assert_eq!(
+            world.hand_spell(player, soe_game::combat::Hand::Right),
+            None
+        );
+        assert!(!world
+            .actor_ref(player)
+            .unwrap()
+            .equipped
+            .contains(&id(0x400)));
     }
 
     #[test]

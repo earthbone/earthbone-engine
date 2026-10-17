@@ -1,5 +1,14 @@
 # soe-game: the runtime form table and the first natives
 
+## Weapon and spell hand selection, HST-25
+
+The shared weapon transaction clears the previous spell in the selected hand,
+or both spells when the weapon occupies both hands. Without this, inventory
+weapon selection left the spell selected and the hand renderer kept its spell
+model. The inventory hand-replacement regression fails with that stale spell
+and passes when weapon selection clears it through the existing spell
+unequip transaction. This reuses the saved hand fields.
+
 ## Race movement speeds, HST-40
 
 `movement::MovementType` reads the four directional walk/run pairs in MOVT
