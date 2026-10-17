@@ -4223,6 +4223,7 @@ impl<'a> Interpreter<'a> {
         let rt = &mut self.nodes[id.0];
         let speed = rt.playback_speed.unwrap_or(clip.playback_speed);
         let previous = rt.local_time;
+        let entered = std::mem::take(&mut rt.activated_this_frame);
         let mut wrapped = false;
         if let Some(time) = rt.synchronized_time {
             rt.local_time = time.min(duration);
@@ -4283,7 +4284,9 @@ impl<'a> Interpreter<'a> {
             } else {
                 t.local_time
             };
-            let crossed = if wrapped {
+            let crossed = if entered && at == previous {
+                true
+            } else if wrapped {
                 at > previous || at <= now
             } else {
                 previous < at && at <= now
@@ -5182,6 +5185,81 @@ mod tests {
             extracted_motion: None,
         };
         Clip::from_parts("modifier-pose", animation, &[0]).unwrap()
+    }
+
+    fn entry_trigger_graph(start: f32) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "entry triggers".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![Node {
+                id: NodeId(0),
+                offset: 0,
+                class: "hkbClipGenerator".into(),
+                name: "entry".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::Clip(ClipGenerator {
+                    animation_name: "modifier-pose".into(),
+                    playback_speed: 1.0,
+                    start_time: start,
+                    triggers: [0.0, 0.1, 0.25]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(id, time)| crate::behavior::ClipTrigger {
+                            local_time: time,
+                            event: crate::behavior::EventProperty {
+                                id: id as i32,
+                                has_payload: false,
+                            },
+                            relative_to_end_of_clip: false,
+                            acyclic: false,
+                            is_annotation: true,
+                        })
+                        .collect(),
+                    ..Default::default()
+                }),
+            }],
+        }
+    }
+
+    #[test]
+    fn clip_entry_fires_a_zero_time_marker_once_even_without_a_time_step() {
+        let graph = entry_trigger_graph(0.0);
+        let mut clips = ClipLibrary::default();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        vm.update(0.0);
+        assert_eq!(
+            vm.take_events()
+                .iter()
+                .filter(|event| event.id == 0)
+                .count(),
+            1
+        );
+        vm.update(0.0);
+        assert!(vm.take_events().is_empty());
+        vm.update(0.125);
+        assert_eq!(
+            vm.take_events()
+                .iter()
+                .filter(|event| event.id == 1)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn clip_entry_at_a_nonzero_start_skips_earlier_markers_and_fires_the_start_marker() {
+        let graph = entry_trigger_graph(0.25);
+        let mut clips = ClipLibrary::default();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        vm.update(0.0);
+        let events = vm.take_events();
+        assert_eq!(events.iter().filter(|event| event.id == 2).count(), 1);
+        assert!(events.iter().all(|event| event.id == 2));
     }
 
     #[test]
