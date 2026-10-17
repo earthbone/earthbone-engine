@@ -1,5 +1,52 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Streamed adult face highlights, round 4
+
+The round 4 probe extends `godot/walkthrough.gd` and samples resident Hulda,
+Mikael, Sinmir and Lucia in the Bannered Mare. It uses the player's IMGS
+camera environment and the scene's existing lights. Paired captures hide only
+the head in its shader, excluding the helmet and beard from skin samples.
+Fixed acceptance requires
+500 warm pixels and mean red above blue by 0.03 in the central face region.
+Preview3 fails all three adults while Lucia passes. Hulda's mean is
+RGB 0.1763, 0.1596, 0.1534, Mikael has 330 warm pixels and Sinmir has 290.
+Lucia has 5,155 warm pixels.
+
+The streamed upload has its diffuse, tint, detail and normal textures and
+animated normal matrices. An installed geometry comparison gives adult normal
+agreement 0.839 for Hulda and 0.863 for Belethor. Disabling normal mapping does
+not restore color. Disabling default specular changes a sampled Hulda pixel
+from RGB 0.1255, 0.1098, 0.1020 to 0.1176, 0.0784, 0.0627.
+The former fixture used independent lighting and accepted warm pixels across
+the whole viewport, so it did not reject this neutral reflection over skin.
+
+The face material omitted the NIF specular settings and slot 7 mask, leaving
+Godot's unmasked default specular response. Adult model-space-normal heads use
+`femalehead_s.dds` or `malehead_s.dds`. Child heads retain their existing
+material lighting.
+The upload now retains the authored specular enablement, color, strength,
+glossiness and mask. Its direct-light shader samples that mask and replaces
+the unmasked environment reflection. Upload image release also clears the
+mask payload and preserves its numeric settings.
+
+The corrected shader control passes all four residents. Hulda has 5,000 warm
+pixels, Mikael 5,730, Sinmir 1,452 and Lucia 5,153. Their red-minus-blue means
+are 0.0931, 0.0881, 0.0655 and 0.0881. Lucia's mean RGB remains
+0.2027, 0.1335, 0.1146, close to the original 0.1999, 0.1324, 0.1138.
+Package formatting and all-target Clippy pass. The library suite passes 582
+cases with installed variables unset. The independent installed source survey
+also passes. The embedded release shader passes the same four residents on private :99
+with software Vulkan. The Godot process exits zero. The first candidate
+release exposed the diffuse-light error and the helmet sampling error, which
+were corrected before the final library-only release.
+
+Nifly `src/Shaders.cpp` and the local NIF material reader provide the shader
+and slot definitions. Community Shaders `package/Shaders/Lighting.hlsl`
+provides the model-space-normal specular texture contract, separate from the
+existing FaceGen blend. Godot's local `spatial_shader.rst` supplies light-stage
+inputs and the light-color normalization. No dependency, saved state or new
+node path is added. Full subsurface lighting remains outside this change.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and

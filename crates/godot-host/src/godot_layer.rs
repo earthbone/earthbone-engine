@@ -6389,6 +6389,14 @@ pub(crate) fn face_material_from(
     let shader = shader_for_code(
         shaders,
         include_str!("facegen.gdshader")
+            .replace(
+                "FACE_SPECULAR_ENABLED",
+                if material.shader_flags_1 & soe_nif::blocks::flags1::MODEL_SPACE_NORMALS != 0 {
+                    "1"
+                } else {
+                    "0"
+                },
+            )
             .replace("BONE_COUNT", &surface.map.len().max(1).to_string())
             .replace(
                 "CULL_MODE",
@@ -6419,6 +6427,20 @@ pub(crate) fn face_material_from(
         if let Some(texture) = cached_texture(cache, material.normal.as_deref(), normal) {
             mat.set_shader_parameter("normal_map", &texture.to_variant());
             mat.set_shader_parameter("has_normal", &true.to_variant());
+        }
+    }
+    if let Some(lighting) = &surface.face_lighting {
+        mat.set_shader_parameter(
+            "specular_color",
+            &Vector3::from_array(lighting.color).to_variant(),
+        );
+        mat.set_shader_parameter("specular_strength", &lighting.strength.to_variant());
+        mat.set_shader_parameter("glossiness", &lighting.glossiness.to_variant());
+        if let Some((path, data)) = &lighting.mask {
+            if let Some(texture) = cached_texture(cache, Some(path), data) {
+                mat.set_shader_parameter("specular_map", &texture.to_variant());
+                mat.set_shader_parameter("has_specular_map", &true.to_variant());
+            }
         }
     }
     mat.set_shader_parameter(

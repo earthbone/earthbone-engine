@@ -165,6 +165,14 @@ pub enum ActorError {
     },
 }
 
+/// Authored face highlights, with a separate mask on model-space-normal heads.
+pub struct FaceLighting {
+    pub color: [f32; 3],
+    pub strength: f32,
+    pub glossiness: f32,
+    pub mask: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
+}
+
 /// One skinned shape of a character, ready to upload.
 pub struct ActorSurface {
     /// The shape's name in the `NIF`, for reporting.
@@ -175,6 +183,8 @@ pub struct ActorSurface {
     pub face_tint: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
     /// Authored FaceGen detail map from texture slot 3.
     pub face_detail: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
+    /// NIF specular settings and optional texture slot 7.
+    pub face_lighting: Option<FaceLighting>,
     /// Authored SkinTint or HairTint RGB multiplier.
     pub tint_color: Option<[f32; 3]>,
     pub arrays: SurfaceArrays,
@@ -203,6 +213,9 @@ impl ActorSurface {
         self.textures = SurfaceTextures::default();
         self.face_tint = None;
         self.face_detail = None;
+        if let Some(lighting) = &mut self.face_lighting {
+            lighting.mask = None;
+        }
     }
 }
 
@@ -999,6 +1012,7 @@ impl ActorAssets {
                 head_part_type: None,
                 face_tint: None,
                 face_detail: None,
+                face_lighting: None,
                 tint_color: authored_tint(mesh),
                 arrays,
                 expression_shapes,
@@ -1016,6 +1030,32 @@ impl ActorAssets {
             if mesh.material.kind
                 == soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::FaceTint)
             {
+                let mask = mesh.material.backlight().and_then(|path| {
+                    let textures = crate::data_source::resolve_material_textures(
+                        vfs,
+                        &[crate::mesh::MaterialDesc {
+                            normal: Some(path.to_owned()),
+                            ..Default::default()
+                        }],
+                    );
+                    textures
+                        .into_iter()
+                        .next()
+                        .and_then(|textures| textures.normal)
+                        .map(|data| (path.to_owned(), data))
+                });
+                if let Some(surface) = out.last_mut() {
+                    surface.face_lighting = Some(FaceLighting {
+                        color: mesh.material.specular_color,
+                        strength: if mesh.material.flags1 & soe_nif::blocks::flags1::SPECULAR != 0 {
+                            mesh.material.specular_strength
+                        } else {
+                            0.0
+                        },
+                        glossiness: mesh.material.glossiness,
+                        mask,
+                    });
+                }
                 if let Some(path) = mesh
                     .material
                     .textures
@@ -1674,6 +1714,7 @@ fn rigid_surface(
         head_part_type: None,
         face_tint: None,
         face_detail: None,
+        face_lighting: None,
         tint_color: authored_tint(mesh),
         arrays,
         expression_shapes: Vec::new(),
@@ -1797,6 +1838,108 @@ mod tests {
         );
         assert!(!vfs.exists("meshes/actors/fixture/characters/missing-third-skeleton.hkx"));
         assert!(!vfs.exists("meshes/actors/fixture/behaviors/missing-third-graph.hkx"));
+    }
+
+    #[test]
+    fn installed_face_model_normals_agree_with_head_geometry() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        for name in ["Hulda", "Belethor", "Braith"] {
+            let base = world.form(name).unwrap();
+            let actor = world.references_of_base(base, 1)[0];
+            let assets = ActorAssets::load_for_actor(&mut world, actor, source.vfs()).unwrap();
+            for head in assets
+                .surfaces
+                .iter()
+                .filter(|s| s.head_part_type == Some(1))
+            {
+                let bytes = source
+                    .vfs()
+                    .read(head.arrays.material.normal.as_ref().unwrap())
+                    .unwrap();
+                let image = soe_dds::Dds::parse(&bytes).unwrap().decode(0, 0).unwrap();
+                let mut sum = 0.0;
+                for (normal, uv) in head.arrays.normals.iter().zip(&head.arrays.uvs) {
+                    let x = ((uv[0] * image.width as f32) as usize).min(image.width as usize - 1);
+                    let y = ((uv[1] * image.height as f32) as usize).min(image.height as usize - 1);
+                    let at = (y * image.width as usize + x) * 4;
+                    let packed = &image.rgba[at..at + 3];
+                    let decoded = [
+                        f32::from(packed[0]) / 127.5 - 1.0,
+                        f32::from(packed[1]) / 127.5 - 1.0,
+                        1.0 - f32::from(packed[2]) / 127.5,
+                    ];
+                    sum += normal.iter().zip(decoded).map(|(a, b)| a * b).sum::<f32>();
+                }
+                let agreement = sum / head.arrays.normals.len() as f32;
+                println!("FACE_NORMAL {name} agreement={agreement}");
+                let appearance = world.actor_appearance(actor).unwrap();
+                let face = appearance.facegen.unwrap();
+                let path = format!(
+                    "meshes/actors/character/facegendata/facegeom/{}/{:08X}.nif",
+                    face.plugin, face.object
+                );
+                let bytes = source.vfs().read(&path).unwrap();
+                let file = soe_nif::parse(&bytes).unwrap();
+                let heads = file.meshes().unwrap();
+                println!(
+                    "FACE_AUTHORED {name} {:?}",
+                    heads
+                        .iter()
+                        .find(|mesh| mesh.name == head.name)
+                        .unwrap()
+                        .material
+                );
+
+                if name != "Braith" {
+                    assert!(
+                        agreement > 0.7,
+                        "{name} model-space normal agreement={agreement}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn installed_streamed_face_skin_pixels() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let directory = workspace.join("target/r4-streamed-faces");
+        std::fs::create_dir_all(&directory).unwrap();
+        let output = std::process::Command::new(binary)
+            .arg("--path")
+            .arg(workspace.join("godot"))
+            .args([
+                "--resolution",
+                "640x360",
+                "--script",
+                "r4_streamed_face_test.gd",
+            ])
+            .env("SKYRIM_DATA", data)
+            .env("DISPLAY", ":99")
+            .env("SOE_CHARACTER_OUTPUT", &directory)
+            .output()
+            .unwrap();
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::fs::write(directory.join("test.log"), &log).unwrap();
+        assert!(
+            output.status.success()
+                && log.contains("RESULT: PASS R4 streamed face")
+                && !log.contains("SCRIPT ERROR"),
+            "{log}"
+        );
+        println!("{log}");
     }
 
     #[test]
@@ -2295,7 +2438,13 @@ mod tests {
         let released = std::sync::Arc::downgrade(&image);
         surface.textures.diffuse = Some(std::sync::Arc::clone(&image));
         surface.face_tint = Some(("tint.dds".into(), std::sync::Arc::clone(&image)));
-        surface.face_detail = Some(("detail.dds".into(), image));
+        surface.face_detail = Some(("detail.dds".into(), std::sync::Arc::clone(&image)));
+        surface.face_lighting = Some(FaceLighting {
+            color: [0.2, 0.3, 0.4],
+            strength: 0.7,
+            glossiness: 25.0,
+            mask: Some(("specular.dds".into(), image)),
+        });
         let geometry = surface.arrays.positions.clone();
         let before = crate::skinned::skinning_transforms(
             &surface.map,
@@ -2304,6 +2453,11 @@ mod tests {
         )
         .unwrap();
         surface.release_uploaded_images();
+        let lighting = surface.face_lighting.as_ref().unwrap();
+        assert!(lighting.mask.is_none());
+        assert_eq!(lighting.color, [0.2, 0.3, 0.4]);
+        assert_eq!(lighting.strength, 0.7);
+        assert_eq!(lighting.glossiness, 25.0);
         assert!(
             released.upgrade().is_none(),
             "upload-only face detail kept the image alive"

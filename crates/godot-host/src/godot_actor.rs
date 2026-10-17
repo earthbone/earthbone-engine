@@ -713,6 +713,13 @@ impl SkinnedActorNode {
             if let Some((_, detail)) = &surface.face_detail {
                 report.image(detail);
             }
+            if let Some((_, mask)) = surface
+                .face_lighting
+                .as_ref()
+                .and_then(|lighting| lighting.mask.as_ref())
+            {
+                report.image(mask);
+            }
         }
         report.add("mesh_count", self.meshes.len());
         report.add("material_count", self.materials.len());
