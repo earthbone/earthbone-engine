@@ -1,5 +1,7 @@
 extends SceneTree
 
+const LodObservation := preload("res://lod_observation.gd")
+
 ## RND-10 live renderer check. It streams a full-resolution exterior cell,
 ## then real BTR terrain and BTO object LOD around that block's focus. Each
 ## path must create RenderingServer instances. Terrain masks loaded LAND
@@ -15,18 +17,11 @@ func _check(ok: bool, message: String) -> void:
 func _initialize() -> void:
 	call_deferred("_run")
 
-func _blocks_are_disjoint(encoded: String, cells: Array[Vector2i]) -> bool:
-	for entry in encoded.split(" ", false):
-		var values := entry.split(":")
-		if values.size() != 3:
-			return false
-		var span := int(values[0])
-		var x := int(values[1])
-		var y := int(values[2])
-		for cell in cells:
-			if cell.x >= x and cell.x < x + span and cell.y >= y and cell.y < y + span:
-				return false
-	return true
+func _blocks_are_disjoint(streamer: Node3D, near: Array[Vector2i]) -> bool:
+	var cells := {}
+	for cell in near:
+		cells[cell] = true
+	return LodObservation.overlaps(streamer, "object", cells) == 0
 
 func _run() -> void:
 	var data := OS.get_environment("SKYRIM_DATA")
@@ -88,8 +83,8 @@ func _run() -> void:
 	var objects: Dictionary = streamer.call("object_lod_stats")
 	_check(object_count > 0, "no real object LOD block became resident")
 	_check(int(objects.get("instances", 0)) > 0, "object LOD created no RenderingServer instances")
-	_check(_blocks_are_disjoint(String(objects.get("blocks", "")), near_cells),
-		"an object LOD block covers a full-resolution cell, so both levels would draw it")
+	_check(_blocks_are_disjoint(streamer, near_cells),
+		"object LOD source cells overlap full-resolution models")
 
 	print("RND-10 renderer: focus=", focus, " nearest_BTO_distance=", selected_distance,
 		" near_instances=", near_instances,

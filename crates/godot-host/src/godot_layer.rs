@@ -303,6 +303,7 @@ struct TerrainLodState {
     blocks: std::collections::HashMap<LodBlockCoord, Vec<LodInstance>>,
     last_step: LodStepCounts,
     source_surfaces: std::collections::HashMap<LodBlockCoord, Vec<LoadedSurface>>,
+    object_sources: std::collections::HashMap<LodBlockCoord, crate::data_source::LoadedLodBlock>,
     near_heights: std::collections::HashMap<CellCoord, Vec<f32>>,
     revision: u64,
     debug_material: Option<Gd<StandardMaterial3D>>,
@@ -323,25 +324,31 @@ impl LodBlockProducts {
         [&self.object, &self.terrain, &self.tree]
             .into_iter()
             .filter_map(|product| product.as_ref().ok().and_then(Option::as_ref))
-            .flat_map(|block| &block.surfaces)
-            .map(|surface| {
-                let textures = &surface.textures;
-                surface.arrays.allocation_bytes()
-                    + [
-                        &textures.diffuse,
-                        &textures.normal,
-                        &textures.glow,
-                        &textures.greyscale,
-                        &textures.environment,
-                        &textures.environment_mask,
-                        &textures.terrain_noise,
-                    ]
-                    .into_iter()
-                    .chain(textures.water_noise.iter())
-                    .chain([&textures.water_flow])
-                    .flatten()
-                    .map(|texture| texture.retained_bytes())
-                    .sum::<usize>()
+            .map(|block| {
+                block.object_segment_bytes()
+                    + block
+                        .surfaces
+                        .iter()
+                        .map(|surface| {
+                            let textures = &surface.textures;
+                            surface.arrays.allocation_bytes()
+                                + [
+                                    &textures.diffuse,
+                                    &textures.normal,
+                                    &textures.glow,
+                                    &textures.greyscale,
+                                    &textures.environment,
+                                    &textures.environment_mask,
+                                    &textures.terrain_noise,
+                                ]
+                                .into_iter()
+                                .chain(textures.water_noise.iter())
+                                .chain([&textures.water_flow])
+                                .flatten()
+                                .map(|texture| texture.retained_bytes())
+                                .sum::<usize>()
+                        })
+                        .sum::<usize>()
             })
             .sum()
     }
@@ -350,6 +357,7 @@ impl LodBlockProducts {
 /// One drawn LOD surface. The mesh is held so the instance's mesh RID stays
 /// valid while it draws.
 struct LodInstance {
+    object_cells: Vec<CellCoord>,
     rid: Rid,
     mesh: Gd<ArrayMesh>,
     triangles: usize,
@@ -415,11 +423,12 @@ fn lod_stats(lod: Option<&TerrainLodState>) -> VarDictionary {
     d.set("resident", lod.streamer.resident_count() as i64);
     d.set("absent", lod.streamer.absent_count() as i64);
     d.set("blocks", lod_block_list(lod).as_str());
-    let mut covered: Vec<_> = lod
-        .near_heights
-        .keys()
-        .map(|cell| (cell.x, cell.y))
-        .collect();
+    let coverage: Vec<_> = if lod.near_heights.is_empty() {
+        lod.streamer.full_cells().to_vec()
+    } else {
+        lod.near_heights.keys().copied().collect()
+    };
+    let mut covered: Vec<_> = coverage.iter().map(|cell| (cell.x, cell.y)).collect();
     covered.sort_unstable();
     d.set(
         "covered_cells",
@@ -1067,6 +1076,7 @@ impl CellStreamerNode {
                     server.instance_geometry_set_material_override(rid, material.get_rid());
                 });
                 instances.push(LodInstance {
+                    object_cells: Vec::new(),
                     rid,
                     mesh,
                     triangles: surface.arrays.triangle_count(),
@@ -3285,6 +3295,13 @@ impl CellStreamerNode {
                 report.mesh(&surface.arrays);
                 report.textures(&surface.textures);
             }
+            for block in lod.object_sources.values() {
+                for surface in &block.surfaces {
+                    report.mesh(&surface.arrays);
+                    report.textures(&surface.textures);
+                }
+                report.add("object_lod_segment_bytes", block.object_segment_bytes());
+            }
         }
         for products in self.lod_build_cache.values() {
             report.add("lod_cache_entries", 1);
@@ -3792,6 +3809,7 @@ impl CellStreamerNode {
             .iter()
             .map(|i| i.bounds)
             .reduce(crate::batch::merge_bounds);
+        self.exclude_loaded_object_lod(None);
         self.materials.prune_unused();
         self.refresh_console_borders();
         count as i32
@@ -4614,35 +4632,224 @@ impl CellStreamerNode {
                 }
             }
         }
-        self.exclude_loaded_object_lod();
+        self.exclude_loaded_object_lod(Some((cell, loaded)));
         self.hide_resident_distant_references(
             cell,
             loaded.surfaces.iter().map(|surface| surface.reference),
         );
     }
 
-    fn exclude_loaded_object_lod(&mut self) {
-        let cells: Vec<_> = self.exterior_cells.keys().copied().collect();
+    fn exclude_loaded_object_lod(&mut self, incoming: Option<(GlobalFormId, &LoadedCell)>) {
+        if let Some(lod) = &self.object_lod {
+            let focus = lod.focus;
+            let cells = self.object_lod_coverage_cells(focus, lod.config.full_res_radius, incoming);
+            self.sync_object_lod_mask(focus, &cells);
+        }
+        let Some(lod) = &self.tree_lod else { return };
+        let cells = self.object_lod_coverage_cells(lod.focus, lod.config.full_res_radius, incoming);
+        let Some(lod) = &mut self.tree_lod else {
+            return;
+        };
+        lod.streamer.set_full_cells(&cells);
+        let overlaps: Vec<_> = lod
+            .blocks
+            .keys()
+            .copied()
+            .filter(|block| cells.iter().any(|cell| block.ring_distance(*cell) == 0))
+            .collect();
         let mut server = RenderingServer::singleton();
-        for lod in [&mut self.object_lod, &mut self.tree_lod]
-            .into_iter()
-            .flatten()
-        {
-            lod.streamer.set_full_cells(&cells);
-            let overlaps: Vec<_> = lod
-                .blocks
+        for block in overlaps {
+            lod.streamer.mark_unloaded(block);
+            for instance in lod.blocks.remove(&block).into_iter().flatten() {
+                crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
+            }
+            lod.last_step.released += 1;
+        }
+    }
+
+    fn masked_object_lod_instances(
+        &mut self,
+        block: LodBlockCoord,
+        source: &crate::data_source::LoadedLodBlock,
+        full: &[CellCoord],
+        scenario: Rid,
+    ) -> Vec<LodInstance> {
+        source
+            .surfaces
+            .iter()
+            .enumerate()
+            .filter_map(|(index, surface)| {
+                let segments = source
+                    .object_segments
+                    .get(index)
+                    .map_or(&[][..], Vec::as_slice);
+                let (surface, cells) =
+                    crate::object_lod::mask_surface(surface, segments, block, full)?;
+                let mut instance = self.lod_instance(&surface, scenario);
+                instance.object_cells = cells;
+                Some(instance)
+            })
+            .collect()
+    }
+
+    fn sync_object_lod_mask(&mut self, focus: CellCoord, cells: &[CellCoord]) {
+        let Some(scenario) = self.scenario() else {
+            return;
+        };
+        let Some(mut lod) = self.object_lod.take() else {
+            return;
+        };
+        let before = lod.streamer.full_cells().to_vec();
+        lod.streamer.set_full_cells(cells);
+        let full = lod.streamer.full_cells().to_vec();
+        lod.focus = focus;
+        if before != full {
+            let changed: Vec<_> = before
+                .iter()
+                .chain(&full)
+                .filter(|cell| before.contains(cell) != full.contains(cell))
+                .copied()
+                .collect();
+            let mut blocks: Vec<_> = lod
+                .object_sources
                 .keys()
                 .copied()
-                .filter(|block| cells.iter().any(|cell| block.ring_distance(*cell) == 0))
+                .filter(|block| changed.iter().any(|cell| block.ring_distance(*cell) == 0))
                 .collect();
-            for block in overlaps {
-                lod.streamer.mark_unloaded(block);
-                for instance in lod.blocks.remove(&block).into_iter().flatten() {
-                    crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
+            blocks.sort_unstable_by_key(|block| (block.level.cells(), block.x, block.y));
+            let mut server = RenderingServer::singleton();
+            for block in blocks {
+                let instances = self.masked_object_lod_instances(
+                    block,
+                    &lod.object_sources[&block],
+                    &full,
+                    scenario,
+                );
+                for instance in &instances {
+                    server.instance_set_visible(instance.rid, self.lod_visibility[1]);
                 }
-                lod.last_step.released += 1;
+                for instance in lod.blocks.remove(&block).into_iter().flatten() {
+                    server.free_rid(instance.rid);
+                }
+                if instances.is_empty() {
+                    lod.object_sources.remove(&block);
+                    lod.streamer.mark_absent(block);
+                } else {
+                    lod.blocks.insert(block, instances);
+                }
+            }
+            lod.revision = lod.revision.wrapping_add(1);
+            lod.last_step.released += enforce_terrain_lod_budget(&mut lod);
+        }
+        self.object_lod = Some(lod);
+    }
+
+    fn object_lod_coverage_cells(
+        &self,
+        focus: CellCoord,
+        radius: i32,
+        incoming: Option<(GlobalFormId, &LoadedCell)>,
+    ) -> Vec<CellCoord> {
+        let is_object = |material: &MaterialDesc| {
+            material.water.is_none()
+                && !material
+                    .diffuse
+                    .as_deref()
+                    .is_some_and(|path| path.starts_with("terrain:"))
+        };
+        let mut modeled: std::collections::HashSet<_> = self
+            .instances
+            .iter()
+            .filter(|instance| is_object(&instance.arrays.material))
+            .map(|instance| instance.cell)
+            .chain(self.doors.values().map(|door| door.cell))
+            .collect();
+        if let Some((cell, loaded)) = incoming {
+            if loaded
+                .surfaces
+                .iter()
+                .any(|surface| is_object(&surface.arrays.material))
+            {
+                modeled.insert(cell);
             }
         }
+        let mut persistent_cells = std::collections::HashSet::new();
+        if let Some(source) = &self.data_source {
+            let small_persistent = |cell| {
+                source
+                    .cell_index()
+                    .persistent_cell_world(cell)
+                    .is_some_and(|world| source.is_small_world(world))
+            };
+            let mut references = std::collections::BTreeSet::new();
+            if let Some((_, loaded)) = incoming.filter(|(cell, _)| small_persistent(*cell)) {
+                references.extend(
+                    loaded
+                        .surfaces
+                        .iter()
+                        .filter(|surface| is_object(&surface.arrays.material))
+                        .map(|surface| surface.reference),
+                );
+            }
+            for instance in self.instances.iter().filter(|instance| {
+                modeled.contains(&instance.cell) && small_persistent(instance.cell)
+            }) {
+                match &instance.table {
+                    BatchTable::Triangles(members) => {
+                        references.extend(members.iter().map(|m| m.reference));
+                    }
+                    BatchTable::Instances(members) => references.extend(members),
+                }
+            }
+            references.extend(
+                self.doors
+                    .iter()
+                    .filter(|(_, door)| small_persistent(door.cell))
+                    .map(|(id, _)| *id),
+            );
+            for reference in references {
+                let position = self
+                    .ref_cache
+                    .get(&reference)
+                    .map(|(_, pose, _)| {
+                        [pose.translation.x, pose.translation.y, pose.translation.z]
+                    })
+                    .or_else(|| {
+                        source
+                            .order()
+                            .winner(reference)
+                            .filter(|record| record.tag == soe_esm::tag::REFR)
+                            .and_then(|record| {
+                                soe_esm::records::refr::Refr::from_record(record).ok()
+                            })
+                            .and_then(|view| view.transform)
+                            .map(|pose| pose.position)
+                    });
+                if let Some(position) = position {
+                    persistent_cells.insert(CellCoord::new(
+                        (position[0] / crate::units::CELL_UNITS).floor() as i32,
+                        (position[1] / crate::units::CELL_UNITS).floor() as i32,
+                    ));
+                }
+            }
+        }
+        self.exterior_cells
+            .iter()
+            .filter_map(|(&coord, &cell)| {
+                // CONTEXT: Small worlds retain remote marker cells. Inherited LAND
+                // there replaces ground, not the parent's mountain and cliff models.
+                let remote_small_world = self.data_source.as_ref().is_some_and(|source| {
+                    source
+                        .cell_index()
+                        .grid_of(cell)
+                        .is_some_and(|grid| source.is_small_world(grid.world))
+                }) && coord.ring_distance(focus) > radius;
+                (!remote_small_world
+                    || modeled.contains(&cell)
+                    || persistent_cells.contains(&coord))
+                .then_some(coord)
+            })
+            .collect()
     }
 
     fn sync_deferred_references(&mut self, world: &soe_game::World, changed: &[GlobalFormId]) {
@@ -5113,7 +5320,7 @@ impl CellStreamerNode {
             }
         };
         let lod = TerrainLodState {
-            streamer: if matches!(kind, LodStream::Terrain) {
+            streamer: if matches!(kind, LodStream::Terrain | LodStream::Object) {
                 streamer.with_cell_handoff()
             } else {
                 streamer
@@ -5126,6 +5333,7 @@ impl CellStreamerNode {
             blocks: std::collections::HashMap::new(),
             last_step: LodStepCounts::default(),
             source_surfaces: std::collections::HashMap::new(),
+            object_sources: std::collections::HashMap::new(),
             near_heights: std::collections::HashMap::new(),
             revision: 1,
             debug_material: None,
@@ -5169,6 +5377,12 @@ impl CellStreamerNode {
         if matches!(kind, LodStream::Terrain) {
             self.sync_terrain_lod_join();
         }
+        if matches!(kind, LodStream::Object) {
+            let cells = self.object_lod.as_ref().map(|lod| {
+                self.object_lod_coverage_cells(focus, lod.config.full_res_radius, None)
+            })?;
+            self.sync_object_lod_mask(focus, &cells);
+        }
         let mut lod = match kind {
             LodStream::Terrain => self.terrain_lod.take(),
             LodStream::Object => self.object_lod.take(),
@@ -5182,6 +5396,7 @@ impl CellStreamerNode {
             }
             lod.blocks.clear();
             lod.source_surfaces.clear();
+            lod.object_sources.clear();
             let catalog_kind = match kind {
                 LodStream::Terrain => crate::terrain_lod::LodKind::Terrain,
                 LodStream::Object => crate::terrain_lod::LodKind::Object,
@@ -5193,7 +5408,7 @@ impl CellStreamerNode {
                 source.scenery_lod_blocks(&lod.world_editor_id, catalog_kind),
             )
             .ok()?;
-            lod.streamer = if matches!(kind, LodStream::Terrain) {
+            lod.streamer = if matches!(kind, LodStream::Terrain | LodStream::Object) {
                 streamer.with_cell_handoff()
             } else {
                 streamer
@@ -5201,7 +5416,8 @@ impl CellStreamerNode {
             lod.source_fingerprint = source_fingerprint;
         }
         if !matches!(kind, LodStream::Terrain) {
-            let full_cells: Vec<_> = self.exterior_cells.keys().copied().collect();
+            let full_cells =
+                self.object_lod_coverage_cells(focus, lod.config.full_res_radius, None);
             lod.streamer.set_full_cells(&full_cells);
         }
         let mut built = std::collections::HashMap::new();
@@ -5286,6 +5502,7 @@ impl CellStreamerNode {
         for block in step.released() {
             built.remove(&block);
             lod.source_surfaces.remove(&block);
+            lod.object_sources.remove(&block);
             for instance in lod.blocks.remove(&block).into_iter().flatten() {
                 crate::scene_timing::rendering_server(|| server.free_rid(instance.rid));
                 drop(instance.mesh);
@@ -5306,6 +5523,13 @@ impl CellStreamerNode {
         for (block, loaded) in built {
             let instances = if matches!(kind, LodStream::Terrain) {
                 self.joined_lod_instances(block, &loaded.surfaces, &lod.near_heights, scenario)
+            } else if matches!(kind, LodStream::Object) {
+                self.masked_object_lod_instances(
+                    block,
+                    &loaded,
+                    lod.streamer.full_cells(),
+                    scenario,
+                )
             } else {
                 loaded
                     .surfaces
@@ -5315,6 +5539,16 @@ impl CellStreamerNode {
             };
             if matches!(kind, LodStream::Terrain) {
                 lod.source_surfaces.insert(block, loaded.surfaces);
+            } else if matches!(kind, LodStream::Object) {
+                if instances.is_empty() {
+                    lod.streamer.mark_absent(block);
+                } else {
+                    let mut source = loaded;
+                    for surface in &mut source.surfaces {
+                        surface.textures = SurfaceTextures::default();
+                    }
+                    lod.object_sources.insert(block, source);
+                }
             }
             if let Some(material) = &lod.debug_material {
                 for instance in &instances {
@@ -5328,7 +5562,7 @@ impl CellStreamerNode {
             }
             lod.blocks.insert(block, instances);
         }
-        let joined_evictions = if matches!(kind, LodStream::Terrain) {
+        let joined_evictions = if matches!(kind, LodStream::Terrain | LodStream::Object) {
             enforce_terrain_lod_budget(&mut lod)
         } else {
             0
@@ -5693,6 +5927,7 @@ impl CellStreamerNode {
             server.instance_set_transform(rid, Transform3D::IDENTITY);
         });
         LodInstance {
+            object_cells: Vec::new(),
             rid,
             mesh,
             triangles: surface.arrays.triangle_count(),
@@ -5741,10 +5976,28 @@ fn enforce_terrain_lod_budget(lod: &mut TerrainLodState) -> usize {
             .sum();
         lod.streamer.record_bytes(block, source + uploaded);
     }
+    for (&block, source) in &lod.object_sources {
+        let source_bytes: usize = source
+            .surfaces
+            .iter()
+            .map(|s| s.arrays.allocation_bytes())
+            .sum();
+        let segment_bytes = source.object_segment_bytes();
+        let uploaded: u64 = lod
+            .blocks
+            .get(&block)
+            .into_iter()
+            .flatten()
+            .map(|instance| instance.bytes)
+            .sum();
+        lod.streamer
+            .record_bytes(block, source_bytes as u64 + segment_bytes as u64 + uploaded);
+    }
     let evicted = lod.streamer.evict_to_budget(lod.focus);
     let mut server = RenderingServer::singleton();
     for block in &evicted {
         lod.source_surfaces.remove(block);
+        lod.object_sources.remove(block);
         for instance in lod.blocks.remove(block).into_iter().flatten() {
             server.free_rid(instance.rid);
         }

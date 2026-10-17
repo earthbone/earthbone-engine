@@ -1,5 +1,126 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Mountain source-cell coverage, RND-49, 2026-10-17
+
+Screenshot `39-mountain-lod.png` from preview `586d22c0b` shows a coarse
+medium ridge in front of sharper far mountains. The regression extends
+`godot/walkthrough.gd`, starts in the Bannered Mare and takes its authored
+exit to Whiterun. The south-facing capture reproduces the coarse ridge.
+The camera is at Godot metres `(366.7553, -31.97263, 109.0556)`, elevated
+above the inn exit to inspect the mountains over the roofs.
+
+Before correction, the object band containing Tamriel cell `(12, -10)` is
+absent while the farther band at `(12, -18)` is level 4. The assertion fails
+and Godot exits 1. Representation controls show the medium mountains as a
+patchwork of inherited LAND and BTR. Their BTO statics are absent. The far
+range retains BTO. The near band is missing geometry rather than drawing a
+numerically inverted LOD level. Its archived `tamriel.4.12.-12.bto` has
+11,703 triangles, including 8,297 using `mountainslab02.dds`. The sampled
+farther `tamriel.4.12.-20.bto` has 10,580 triangles. The control with Godot
+occlusion disabled does not restore missing object geometry.
+
+Whiterun's small-world policy retains every authored child CELL, including
+remote marker cells. These remote cells may draw inherited parent LAND
+without supplying parent mountain statics. Treating all of them as complete
+object replacements removed the parent BTO. The object and tree mask now
+counts the near grid and actual city model coverage. Persistent city models
+contribute their physical cells. Remote inherited ground alone does not
+replace parent object geometry. All authored city cells and their terrain
+remain resident. LAND quadrant hiding and BTR clipping are unchanged.
+
+A second coverage fault removed an entire BTO when one cell acquired full
+models. The source-cell segment table was discarded by the NIF reader.
+SSE LOD4 now retains that table. The object streamer keeps intersecting
+blocks and masks source-cell index ranges, retaining every other segment
+and its original vertices, materials and texture coordinates. Geometry
+crossing a loaded-cell boundary remains when its source reference is outside
+that grid. A fully masked block has no drawable instance and returns when
+coverage changes. Unsegmented inputs retain whole-block exclusion because
+they do not provide source ownership. Tree masking retains its whole-block
+path. No per-reference node, dependency or saved field is added.
+
+Source arrays retained for masking are charged alongside GPU uploads under
+the existing residency limit. Their segment allocations are included in cache
+and memory reports. CPU texture payloads in that retained source are released
+after upload. Full LOD's radius 96, eight-reference admission cap, six GiB
+process limit and upload allowance are unchanged.
+
+`lod_band_surfaces` exposes live RIDs, source paths, source cells, block levels,
+triangle counts, material texture paths and meshes for scene inspection.
+The walkthrough records uploaded texture dimensions and captures each cardinal
+view, a no-occlusion control and a representation view. Terrain levels 4, 8,
+16 and 32 are green, yellow, red and blue. Object levels mix those colors
+with cyan. Full models and loaded LAND are grey. The source inventory records
+BTR and BTO counts and diffuse/normal dimensions at all four levels, plus
+mountain and cliff STAT full-model and MNAM mesh counts. MNAM is authoritative
+for `_lod_0`, `_lod_1` and `_lod_2` paths at levels 4, 8 and 16. No mesh-level
+order or texture-upload resolution change is needed to restore the missing
+mountains. Automatic terrain-normal mip sampling remains a separate parity
+limitation, rather than a substitute for the missing object layer.
+
+The installed source inventory covers 494 mountain/cliff STAT records and
+185 distinct meshes. For example, MountainPeak01 has 5,113 full-model
+triangles and MNAM slot counts of 945, 658 and 77. Its third slot names
+`MountainPeak01_LOD_3.nif`. MountainPeak02 has 5,572 full-model triangles
+and slot counts of 1,061, 485 and 131. Filename suffixes alone therefore
+cannot select a level. These are source mesh counts, not an assertion that
+each full model is resident in the captured city view.
+
+The following source blocks contain the two sampled directions. Counts cover
+whole archived blocks, whose footprints grow with level, rather than identical
+pieces of a mountain. BTR counts below include only the textured ground
+surface. Diffuse and normal dimensions match in every listed textured surface.
+
+| Level | Medium BTR triangles | Far BTR triangles | Medium BTO triangles | Far BTO triangles | BTR maps | BTO maps |
+| --- | --- | --- | --- | --- | --- | --- |
+| 4 | 2,048 | 2,068 | 11,703 | 10,580 | 256 by 256 | 2048 atlas and 4096 mountain |
+| 8 | 2,056 | 2,056 | 12,905 | 12,888 | 256 by 256 | 2048 atlas |
+| 16 | 2,078 | 2,083 | 20,323 | 12,112 | 256 by 256 | 2048 atlas |
+| 32 | 2,694 | 2,694 | absent | absent | 256 by 256 | absent |
+
+The level 32 entries refer to the same block. Raw inventories and scene logs
+are written under `target/r4-lod`. The representation captures distinguish
+loaded LAND from BTR and object LOD, which is necessary because small-world
+terrain patches can occur beyond the normal near grid.
+
+The synthetic Godot regression fails on preview3 too. Loading a remote marker
+cell removes both mountain patches, and loading one real model fails to retain
+its neighbor. Its model placement check passes. The corrected check requires
+an unchanged RID after marker installation, one retained neighboring segment,
+matching full-model bounds and complete restoration on retirement. Existing
+zero-overlap checks inspect source-cell ranges rather than nominal block
+rectangles. Their duplicate-reference, terrain intersection and budget
+assertions remain. Source-cell masking unit checks retain crossing geometry
+and restore the original arrays on unload.
+
+Local sources read first were xEdit `Core/wbLOD.pas`, `wbGetLODMeshName` and
+its block layout, nifly `src/Geometry.cpp`, `BSSubIndexTriShape::Sync` and
+`BSGeometrySegmentData::Sync`, AnvilLOD
+`src/AnvilLOD.Meshes/BtoBuilder.cs`, `WriteShape`, and Mudcrab
+`docs/research/lod-dyndolod-mapping.md`. The fixed source-cell index ranges
+fit the existing RID renderer. AnvilLOD's generator and Mudcrab's GLB pipeline
+are not imported. The online primary references are
+[How LOD Works](https://dyndolod.info/How-LOD-Works),
+[Object LOD](https://dyndolod.info/Help/Object-LOD) and
+[xLODGen](https://dyndolod.info/Help/xLODGen). They distinguish full models,
+object LOD and terrain LOD, document the three object levels and four terrain
+levels, and explain HD repeating mountain textures in nearby object LOD.
+
+Focused validation currently passes 591 host library cases, nine NIF library
+cases, the two synthetic segment cases and the synthetic Godot handoff with
+both debug and release extensions. Clippy with all targets, package formatting,
+Godot script import and prose checks pass. The installed archive survey passes
+all 1,078 BTO files, 2,392 segmented shapes and 5,687,572 triangles. One release
+build is complete. The release walkthrough confirms level 4 for both sampled
+bands, 11,703 medium triangles and 10,580 far triangles, with 4096-wide textures
+in both. Its worst steady object update is 0.94 ms against 33 ms. The overall
+check fails because peak process RSS under llvmpipe is 9,852.34 MiB against
+6,144 MiB. This limit is unchanged. An available preview-library control and
+the longer walking handoff could not start behind the shared installed slot.
+Their queued calls were stopped with exit 130. The memory cause and the longer
+handoff remain unverified, and the row remains in progress. The full workspace
+gate is excluded by this task.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and

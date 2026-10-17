@@ -185,7 +185,7 @@ pub fn select_lod_blocks(
     full_res_radius: i32,
     lod_radius: i32,
 ) -> Vec<LodBlockCoord> {
-    select_lod_blocks_excluding(catalog, focus, full_res_radius, lod_radius, &[])
+    select_lod_blocks_excluding(catalog, focus, full_res_radius, lod_radius, &[], false)
 }
 
 fn select_lod_blocks_excluding(
@@ -194,6 +194,7 @@ fn select_lod_blocks_excluding(
     full_res_radius: i32,
     lod_radius: i32,
     full_cells: &[CellCoord],
+    cell_handoff: bool,
 ) -> Vec<LodBlockCoord> {
     let mut blocks = catalog.to_vec();
     blocks.sort_unstable_by_key(|b| (std::cmp::Reverse(b.level.cells()), b.x, b.y));
@@ -219,7 +220,7 @@ fn select_lod_blocks_excluding(
             && blocks
                 .iter()
                 .any(|child| child.level.cells() < block.level.cells() && contains(*block, *child));
-        if distance > full_res_radius && !full_overlap && !refine {
+        if distance > full_res_radius && (cell_handoff || !full_overlap) && !refine {
             selected.push(*block);
         }
     }
@@ -434,11 +435,19 @@ impl TerrainLodStreamer {
         if self.full_cells != cells {
             self.full_cells = cells;
             self.selected = None;
+            if self.cell_handoff {
+                self.absent.clear();
+            }
         }
     }
 
+    /// Cells whose object or tree models replace archived scenery.
+    pub fn full_cells(&self) -> &[CellCoord] {
+        &self.full_cells
+    }
+
     /// Keep blocks touching near cells for a renderer that masks individual cells.
-    /// Object LOD retains the default whole-block exclusion.
+    /// The renderer must omit loaded cells from each retained block.
     pub fn with_cell_handoff(mut self) -> Self {
         self.cell_handoff = true;
         self
@@ -549,6 +558,7 @@ impl TerrainLodStreamer {
                     },
                     r,
                     &self.full_cells,
+                    self.cell_handoff,
                 )
             });
         }

@@ -18,6 +18,71 @@ fn surface_row(rid: Rid, mesh: &Gd<ArrayMesh>, bounds: Aabb, kind: &str) -> VarD
 
 #[godot_api(secondary)]
 impl CellStreamerNode {
+    /// Resident scenery meshes with their authored block level and triangle count.
+    /// The returned resources are the meshes currently submitted to the server.
+    /// Filter by terrain, object or tree, or pass an empty string for all kinds.
+    #[func]
+    pub fn lod_band_surfaces(&self, requested: GString) -> Array<VarDictionary> {
+        let requested: String = requested.into();
+        let mut rows = Array::new();
+        let materials: std::collections::HashMap<_, _> = self
+            .materials
+            .materials
+            .iter()
+            .map(|(key, material)| {
+                (
+                    material.get_rid(),
+                    (
+                        key.diffuse.as_deref().unwrap_or_default(),
+                        key.normal.as_deref().unwrap_or_default(),
+                    ),
+                )
+            })
+            .collect();
+        for (kind, lod) in [
+            ("terrain", &self.terrain_lod),
+            ("object", &self.object_lod),
+            ("tree", &self.tree_lod),
+        ] {
+            if !requested.is_empty() && requested != kind {
+                continue;
+            }
+            let Some(lod) = lod else { continue };
+            let mut blocks: Vec<_> = lod.blocks.iter().collect();
+            blocks.sort_by_key(|(coord, _)| (coord.level.cells(), coord.x, coord.y));
+            for (coord, instances) in blocks {
+                for instance in instances {
+                    let mut row =
+                        surface_row(instance.rid, &instance.mesh, instance.mesh.get_aabb(), kind);
+                    row.set("level", coord.level.cells());
+                    row.set("x", coord.x);
+                    row.set("y", coord.y);
+                    row.set("triangles", instance.triangles as i64);
+                    let cells: PackedStringArray = instance
+                        .object_cells
+                        .iter()
+                        .map(|cell| GString::from(format!("{}:{}", cell.x, cell.y).as_str()))
+                        .collect();
+                    row.set("source_cells", &cells);
+                    let path = match kind {
+                        "terrain" => crate::terrain_lod::btr_path(&lod.world_editor_id, *coord),
+                        "object" => crate::terrain_lod::bto_path(&lod.world_editor_id, *coord),
+                        _ => crate::terrain_lod::btt_path(&lod.world_editor_id, *coord),
+                    };
+                    row.set("source", path.as_str());
+                    if let Some(material) = instance.mesh.surface_get_material(0) {
+                        if let Some((diffuse, normal)) = materials.get(&material.get_rid()) {
+                            row.set("diffuse", *diffuse);
+                            row.set("normal", *normal);
+                        }
+                    }
+                    rows.push(&row);
+                }
+            }
+        }
+        rows
+    }
+
     /// Uploaded batches, doors and object LOD with bounds and reference IDs.
     /// Pixel controls can temporarily hide the returned RenderingServer RID.
     #[func]
