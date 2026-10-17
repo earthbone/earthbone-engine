@@ -133,6 +133,14 @@ impl RuntimeSurface {
             material
                 .set_shader_parameter("uv_scale", &Vector2::new(scale[0], scale[1]).to_variant());
             material.set_shader_parameter("uv_rotation", &uv_rotation.to_variant());
+            if desc.effect.is_some()
+                || (desc.texture_transform.is_some() && desc.refraction.is_none())
+            {
+                material.set_shader_parameter(
+                    "animation_time",
+                    &self.clock.elapsed_seconds().to_variant(),
+                );
+            }
             if desc.water.is_some() {
                 material.set_shader_parameter("base_alpha", &alpha.to_variant());
             } else if let Some(effect) = &desc.effect {

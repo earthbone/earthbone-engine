@@ -1,5 +1,64 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## First person report investigation, RND-51, 2026-10-17
+
+The local walkthrough probe sees zero foreground pixels in the sheathed
+`MT_Idle.HKX` pose. Its hand geometry is below the camera. Readied unarmed
+hands contribute 22434 pixels, the sword case 22519, the exterior case 19703
+and the downward view 19371. A physical R-key event selects `1HM_Idle` and
+`1HM_Equip` and contributes 1954 pixels. These counts compare visible and
+hidden captures inside a geometry mask. The first capture retains production
+shadow settings, and the probe restores them after its mask capture.
+
+The race's first person rig, skin poses and equipped model are present. The
+camera mask is 1048575. The actor upload uses Godot's default shadow mode,
+with no shadows-only or private visibility-layer assignment. The reported
+readied shadow-only failure has not been reproduced with this profile.
+RND-51 is blocked on identifying the screenshot's weapon-ready state or a
+matching readied reproduction. The failing local probe remains uncommitted
+at `godot/r4_first_person_probe.gd`. It still fails its sheathed visibility
+assertion and has not been weakened to produce a passing result.
+
+## Giant camp fire clock, RND-54, 2026-10-17
+
+The live fire is reference `0:040911`, model
+`Clutter/Giant/GiantCampfire01Burning.nif`. Its `Flames` shape uses
+`FXFireScrollTile02.dds`. The standalone V-offset controller has frequency
+one, start zero and stop 1.3000001 seconds. Its two quadratic keys form a
+linear zero-to-one scroll, or 0.769231 texture repeats per second. This NIF
+has no controller sequences. The source survey also reads the three particle
+emitters, with rates 24, 3 and 60 births per second and base lifetimes of
+3.666667, 1 and 3.333333 seconds. The pixel regression measures the flame
+mesh's UV clock, rather than claiming smoke or spark emission parity.
+
+The host updates UV properties from an object playback clock, but the
+generated shader evaluated its copy of those tracks from Godot's global
+`TIME`. The two clocks could disagree during stalls or explicit steps.
+The runtime now binds `animation_time` to the same elapsed seconds sampled
+by the CPU. Effect and lighting UV tracks receive this clock. The controller
+frequency, keys and period retain their authored values. Normal processing
+advances each surface once. The other advance entry point is the explicit
+capture step. No new clock state, scene nodes, dependencies or saved fields
+were added.
+
+The live probe reads the production flame shader's V-offset function from
+the resident material and displays its result on the same mesh. It calibrates
+linear colour readback at phase 0.5, requires 100 sampled pixels and permits
+phase error at most 0.025. Other fire layers are hidden during readback,
+since their additive glow contaminated the first calibration attempt.
+Before the fix, the valid isolated capture has 125 sampled pixels and errors
+0.650359, 0.034223, 0.474995 and 0.011933 at four quarter-second steps.
+After the fix the errors are 0.002842, 0.000322, 0.001267 and 0.002029,
+with the same pixel count. The scene passes and exits with status zero.
+
+Local OpenMW `components/nifosg/controller.cpp::ControllerFunction`, nifly
+`src/Animation.cpp` and nif.xml's `NiTimeController` and
+`NiControllerSequence` definitions supply the seconds, frequency and cycle
+contracts. Existing NIF parsing already retains those values. This change
+connects the two host consumers of that data without copying an external
+implementation. The authored source survey and all 602 host library cases
+pass, with package Clippy over all targets.
+
 ## Lighting paint vertex masks, RND-55, 2026-10-17
 
 The MODS correction selects the obelisk's mountain texture, but two paint

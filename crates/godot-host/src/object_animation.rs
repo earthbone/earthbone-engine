@@ -100,6 +100,11 @@ pub(crate) struct ObjectAnimationClock {
 
 #[cfg(any(feature = "godot", test))]
 impl ObjectAnimationClock {
+    /// The elapsed seconds used by both CPU tracks and generated shader tracks.
+    pub(crate) fn elapsed_seconds(&self) -> f32 {
+        self.elapsed as f32
+    }
+
     pub(crate) fn reset(&mut self) {
         self.elapsed = 0.0;
     }
@@ -113,7 +118,7 @@ impl ObjectAnimationClock {
         if delta.is_finite() && delta > 0.0 {
             self.elapsed = (self.elapsed + f64::from(delta)).min(f64::from(f32::MAX));
         }
-        asset.sample(self.elapsed as f32, sequence)
+        asset.sample(self.elapsed_seconds(), sequence)
     }
 }
 
