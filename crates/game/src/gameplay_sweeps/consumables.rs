@@ -474,7 +474,7 @@ pub fn visual_checks(order: &LoadOrder) -> Vec<Json> {
 pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
     let mut rows = Vec::new();
     for (id, name) in selected(order, Tag(*b"ALCH"), options) {
-        eprintln!("consumable sweep: {id} {name}");
+        soe_trace::info!(target: "game::sweep", system = "game", "consumable sweep: {id} {name}");
         rows.push(row(
             order,
             id,
@@ -484,7 +484,7 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
         ));
     }
     for (id, name) in selected(order, Tag(*b"INGR"), options) {
-        eprintln!("consumable sweep: {id} {name}");
+        soe_trace::info!(target: "game::sweep", system = "game", "consumable sweep: {id} {name}");
         rows.push(row(order, id, "INGR", "eat", &check_ingredient(order, id)));
     }
     report(

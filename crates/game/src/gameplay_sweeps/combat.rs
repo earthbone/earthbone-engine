@@ -517,7 +517,7 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
     };
     let mut rows = Vec::new();
     for (weapon, name) in selected(order, Tag(*b"WEAP"), options) {
-        eprintln!("combat sweep: weapon {weapon} {name}");
+        soe_trace::info!(target: "game::sweep", system = "game", "combat sweep: weapon {weapon} {name}");
         let class = {
             let scene = scene(order, &bases);
             animation(&scene, weapon)

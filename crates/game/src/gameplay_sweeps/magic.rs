@@ -787,7 +787,7 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
     };
     let mut rows = Vec::new();
     for (spell, name) in tome_spells(order, options) {
-        eprintln!("magic sweep: spell {spell} {name}");
+        soe_trace::info!(target: "game::sweep", system = "game", "magic sweep: spell {spell} {name}");
         let delivery = {
             let game = fresh_game(order);
             let world = game.world_mut();
@@ -804,7 +804,7 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
         }
     }
     for (scroll, name) in selected(order, Tag(*b"SCRL"), options) {
-        eprintln!("magic sweep: scroll {scroll} {name}");
+        soe_trace::info!(target: "game::sweep", system = "game", "magic sweep: scroll {scroll} {name}");
         rows.push(row(
             order,
             scroll,
@@ -818,7 +818,7 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
         if enchantment_of(&game, weapon).is_none() {
             continue;
         }
-        eprintln!("magic sweep: weapon {weapon} {name}");
+        soe_trace::info!(target: "game::sweep", system = "game", "magic sweep: weapon {weapon} {name}");
         let case = if animation_type(&game, weapon) == Some(8) {
             "staff"
         } else {
@@ -839,7 +839,7 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
         if enchantment_of(&game, armor).is_none() {
             continue;
         }
-        eprintln!("magic sweep: armor {armor} {name}");
+        soe_trace::info!(target: "game::sweep", system = "game", "magic sweep: armor {armor} {name}");
         rows.push(row(
             order,
             armor,
@@ -849,7 +849,7 @@ pub fn run(order: &Arc<LoadOrder>, options: &Options) -> Json {
         ));
     }
     for (shout, name) in selected(order, Tag(*b"SHOU"), options) {
-        eprintln!("magic sweep: shout {shout} {name}");
+        soe_trace::info!(target: "game::sweep", system = "game", "magic sweep: shout {shout} {name}");
         rows.push(row(
             order,
             shout,

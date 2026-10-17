@@ -46,6 +46,7 @@ pub mod door_fade;
 pub mod effect_shader;
 pub mod facegen;
 pub mod facial;
+#[cfg(any(feature = "godot", test))]
 mod furniture;
 #[cfg(any(feature = "godot", test))]
 mod head_tracking;
@@ -90,6 +91,7 @@ pub mod skinned;
 #[cfg(feature = "godot")]
 mod sound_decode;
 pub mod streaming;
+#[cfg(any(feature = "godot", test))]
 mod swimming;
 pub mod terrain;
 pub mod terrain_lod;
