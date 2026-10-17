@@ -279,6 +279,7 @@ enum LodStream {
 #[derive(Default)]
 struct DistantState {
     worker: Option<distant_upload::Worker>,
+    selection: Option<std::thread::JoinHandle<crate::distant_visibility::Selection>>,
     publishing: Option<distant_upload::Publishing>,
     world: Option<GlobalFormId>,
     selector: crate::distant_visibility::Selector,
@@ -293,6 +294,9 @@ struct DistantState {
 impl Drop for DistantState {
     fn drop(&mut self) {
         if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        if let Some(worker) = self.selection.take() {
             let _ = worker.join();
         }
     }
@@ -5667,74 +5671,117 @@ impl CellStreamerNode {
             self.distant.world = Some(world_id);
         }
         if progressive {
+            let frame = godot::classes::Engine::singleton().get_process_frames();
+            if self
+                .upload_clock
+                .remaining(frame, upload::SLICE_BUDGET)
+                .is_zero()
+            {
+                return true;
+            }
             match self.poll_distant_upload(owner) {
                 Ok(true) => return true,
                 Err(()) => return false,
                 Ok(false) => {}
             }
         }
-        let terrain_revision = self.terrain_lod.as_ref().map_or(0, |lod| lod.revision);
-        if self.distant.terrain_revision != terrain_revision {
-            let mut heights = crate::distant_visibility::TerrainHeights::default();
-            if let Some(lod) = &self.terrain_lod {
-                heights.set_near(&lod.near_heights);
-                heights.set_near_hidden(
-                    self.exterior_cells
-                        .iter()
-                        .map(|(coord, cell)| {
-                            (*coord, source.terrain_hidden_quadrants(*cell).unwrap_or(15))
-                        })
-                        .collect(),
-                );
-            }
-            self.distant.heights = Arc::new(heights);
-            self.distant.terrain_revision = terrain_revision;
-            self.distant.revision = self.distant.revision.wrapping_add(1);
-        }
-        if !self
-            .distant
-            .selector
-            .needs_evaluation(eye, self.distant.revision)
-        {
-            self.distant
-                .selector
-                .update(&[], eye, self.distant.revision, |_, _| None);
-            return true;
-        }
-        let candidates: Vec<_> = source
-            .distant_candidates(world_id)
-            .into_iter()
-            .filter(|candidate| {
-                if self.distant.near_hidden.contains(&candidate.id)
-                    || !world.reference_enabled(candidate.id)
-                {
+        let ready = if progressive && self.distant.selection.is_some() {
+            let Some(result) =
+                crate::distant_visibility::poll_selection(&mut self.distant.selection)
+            else {
+                return true;
+            };
+            let mut result = match result {
+                Ok(result) => result,
+                Err(error) => {
+                    soe_trace::error!(target: "host::distant", system = "cell_streaming", "{error}");
                     return false;
                 }
-                let Some(record) = source.order().winner(candidate.id) else {
-                    return false;
-                };
-                let Ok(reference) = soe_esm::records::refr::Refr::from_record(record) else {
-                    return false;
-                };
-                let Some(transform) = reference.transform else {
-                    return false;
-                };
-                let grid = CellCoord::new(
-                    (transform.position[0] / crate::units::CELL_UNITS).floor() as i32,
-                    (transform.position[1] / crate::units::CELL_UNITS).floor() as i32,
-                );
-                !self.exterior_cells.contains_key(&grid)
-            })
-            .collect();
-        let selected =
-            self.distant
+            };
+            let terrain_revision = self.terrain_lod.as_ref().map_or(0, |lod| lod.revision);
+            if result.revision != self.distant.revision
+                || terrain_revision != self.distant.terrain_revision
+            {
+                result
+                    .selected
+                    .extend(self.distant.surfaces.keys().copied());
+                result.selected.sort_unstable();
+                result.selected.dedup();
+                result.selector.preserve_uncertain(&result.selected);
+            }
+            self.distant.selector = result.selector;
+            Some(result.selected)
+        } else {
+            None
+        };
+        let selected = if let Some(mut selected) = ready {
+            selected.retain(|id| self.distant_reference_available(*id, world));
+            selected
+        } else {
+            let terrain_revision = self.terrain_lod.as_ref().map_or(0, |lod| lod.revision);
+            if self.distant.terrain_revision != terrain_revision {
+                let mut heights = crate::distant_visibility::TerrainHeights::default();
+                if let Some(lod) = &self.terrain_lod {
+                    heights.set_near(&lod.near_heights);
+                    heights.set_near_hidden(
+                        self.exterior_cells
+                            .iter()
+                            .map(|(coord, cell)| {
+                                (*coord, source.terrain_hidden_quadrants(*cell).unwrap_or(15))
+                            })
+                            .collect(),
+                    );
+                }
+                self.distant.heights = Arc::new(heights);
+                self.distant.terrain_revision = terrain_revision;
+                self.distant.revision = self.distant.revision.wrapping_add(1);
+            }
+            if !self
+                .distant
                 .selector
-                .update(&candidates, eye, self.distant.revision, |x, y| {
-                    self.distant
-                        .heights
-                        .sample(x, y)
-                        .or_else(|| terrain_height(self.terrain_lod.as_ref(), x, y))
-                });
+                .needs_evaluation(eye, self.distant.revision)
+            {
+                self.distant
+                    .selector
+                    .update(&[], eye, self.distant.revision, |_, _| None);
+                return true;
+            }
+            let candidates_span = soe_trace::Span::new("host.distant_candidates", "host");
+            let candidates: Vec<_> = source
+                .distant_candidates(world_id)
+                .into_iter()
+                .filter(|candidate| self.distant_reference_available(candidate.id, world))
+                .collect();
+            drop(candidates_span);
+            let snapshot =
+                terrain_snapshot(self.terrain_lod.as_ref(), Arc::clone(&self.distant.heights));
+            let selection_span = soe_trace::Span::new("host.distant_selection", "host");
+            if progressive {
+                let selector = std::mem::take(&mut self.distant.selector);
+                match crate::distant_visibility::spawn_selection(
+                    selector,
+                    candidates,
+                    eye,
+                    self.distant.revision,
+                    move |x, y| snapshot.sample(x, y),
+                ) {
+                    Ok(worker) => self.distant.selection = Some(worker),
+                    Err(error) => {
+                        soe_trace::error!(target: "host::distant", system = "cell_streaming", "distant selection worker: {error}");
+                        return false;
+                    }
+                }
+                return true;
+            }
+            let selected =
+                self.distant
+                    .selector
+                    .update(&candidates, eye, self.distant.revision, |x, y| {
+                        snapshot.sample(x, y)
+                    });
+            drop(selection_span);
+            selected
+        };
         let additions: Vec<_> = selected
             .iter()
             .copied()
@@ -5797,6 +5844,29 @@ impl CellStreamerNode {
         self.reference_index_dirty = true;
         self.materials.prune_unused();
         true
+    }
+
+    fn distant_reference_available(&self, id: GlobalFormId, world: &soe_game::World) -> bool {
+        if self.distant.near_hidden.contains(&id) || !world.reference_enabled(id) {
+            return false;
+        }
+        let Some(source) = &self.data_source else {
+            return false;
+        };
+        let Some(record) = source.order().winner(id) else {
+            return false;
+        };
+        let Ok(reference) = soe_esm::records::refr::Refr::from_record(record) else {
+            return false;
+        };
+        let Some(transform) = reference.transform else {
+            return false;
+        };
+        let grid = CellCoord::new(
+            (transform.position[0] / crate::units::CELL_UNITS).floor() as i32,
+            (transform.position[1] / crate::units::CELL_UNITS).floor() as i32,
+        );
+        !self.exterior_cells.contains_key(&grid)
     }
 
     /// Live cell and terrain blocker counts, without changing instance bounds.
@@ -6013,27 +6083,31 @@ impl CellStreamerNode {
     }
 }
 
-fn terrain_height(lod: Option<&TerrainLodState>, x: f32, y: f32) -> Option<f32> {
-    let lod = lod?;
-    let cell = CellCoord::new(
-        (x / crate::units::CELL_UNITS).floor() as i32,
-        (y / crate::units::CELL_UNITS).floor() as i32,
-    );
-    for level in [LodLevel::L4, LodLevel::L8, LodLevel::L16, LodLevel::L32] {
-        let block = LodBlockCoord::containing_from(cell, level, lod.anchor);
-        if let Some(instances) = lod.blocks.get(&block) {
-            for instance in instances {
-                if let Some(height) = instance
-                    .heights
-                    .as_ref()
-                    .and_then(|heights| heights.sample(x, y))
-                {
-                    return Some(height);
-                }
-            }
-        }
+fn terrain_snapshot(
+    lod: Option<&TerrainLodState>,
+    near: Arc<crate::distant_visibility::TerrainHeights>,
+) -> crate::distant_visibility::TerrainSnapshot {
+    let anchor = lod.map_or(CellCoord::new(0, 0), |lod| lod.anchor);
+    let blocks = lod.map_or_else(std::collections::HashMap::new, |lod| {
+        lod.blocks
+            .iter()
+            .filter(|(block, _)| lod.streamer.is_drawable(**block))
+            .map(|(block, instances)| {
+                (
+                    *block,
+                    instances
+                        .iter()
+                        .filter_map(|instance| instance.heights.clone())
+                        .collect(),
+                )
+            })
+            .collect()
+    });
+    crate::distant_visibility::TerrainSnapshot {
+        near,
+        blocks,
+        anchor,
     }
-    None
 }
 
 fn enforce_terrain_lod_budget(lod: &mut TerrainLodState) -> usize {

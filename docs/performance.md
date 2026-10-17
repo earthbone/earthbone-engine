@@ -1,5 +1,20 @@
 # Performance
 
+## Distant visibility worker, PRF-51
+
+The grounded trace found 94.054 ms of ridge visibility selection on a walking
+frame. Selection now runs on one worker against immutable uploaded terrain
+indices. Polling does not wait for unfinished work. A changed revision keeps
+uncertain references visible until a current result can remove them, and near
+and enabled-state masks are checked again before publication.
+
+The existing selector's ridge, missing-terrain, admission and release rules
+stay in use. Focused tests compare worker and direct results and hold a worker
+behind a channel to verify nonblocking polling. Both final grounded traces
+record at most 0.051 ms of main-thread selection. OpenMW's scene ownership and
+Mudcrab's ready-coverage handoff supply the comparison, while the existing Rust
+height indices and selector remain in use. No dependency or scene node is added.
+
 ## Exterior publication stages, PRF-46, PRF-52 and PRF-54
 
 The door route exposed a blocking join on background LOD preparation. The
