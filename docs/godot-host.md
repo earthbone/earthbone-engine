@@ -1,5 +1,40 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Exterior publication, PRF-40, 2026-10-15
+
+Automatic gameplay now publishes exterior resources once per rendered frame.
+One shared 8 ms upload allowance covers near cells and distant full models.
+An indivisible mesh, material or door upload may cross that allowance.
+The next upload waits for another frame. Existing batching, MultiMesh groups,
+triangle owners and resolved CELL identities are preserved.
+Manual fixed-step calls and explicit whole-cell render-work limits keep their
+synchronous path. Both worker types join during retirement and shutdown.
+
+Walking preparation and distant-reference reads run outside the presentation
+callback. Pending responses retain their planner generations and stale
+responses are discarded. Partial query collision is removed on cancellation.
+Collision installation uses chunks of 32, and drawable acknowledgements follow
+the final upload and collision chunk. Old distant instances stay visible until
+replacement publication is complete. Pending near meshes do not count as
+acknowledged LOD coverage. The configured Full LOD radius stays 96.
+
+Location replacement can resume within a cell, in addition to yielding between
+cells. Runtime attachment follows completed publication. The loading cover now
+includes gameplay startup, player appearance, NPC presentation and the record
+sky before rendering warm-up. Custom shader resources remain cached across
+cell retirement. Unused textures and materials are released as before.
+The inline game allows one physics tick per rendered frame. Slow rendering
+therefore slows simulation, rather than repeating gameplay to recover lost
+wall time. This supersedes the earlier two-step cap for automatic gameplay.
+
+The local Godot pipeline compilation guide and Engine class reference supply
+the rendering and catch-up contracts. godotwind's budgeted pocket attach
+supplies the deadline and indivisible-unit approach. The host reuses its own
+batching, mesh upload and Mudcrab-derived acknowledged residency machinery.
+No parser, external dependency, saved section or per-reference node path is
+added. The timing probe and fixed acceptance limits are documented in
+[performance.md](performance.md#exterior-publication-prf-40-2026-10-15).
+
 ## Character corrections, 2026-10-13
 
 The watched `735176dff` play path exposed three character integration bugs.

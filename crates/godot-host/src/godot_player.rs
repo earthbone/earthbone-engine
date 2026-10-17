@@ -643,6 +643,9 @@ impl INode3D for PlayerNode {
     fn process(&mut self, delta: f64) {
         let engine_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         if !self.location_preparing {
+            if self.auto_step && self.game.is_some() && !self.advance_exterior() {
+                self.auto_step = false;
+            }
             self.present_simulation();
             self.sync_npc_grounding(0.0);
             self.sync_npc_actors(delta as f32);

@@ -29,9 +29,7 @@ use godot::classes::{
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
-use crate::batch::{
-    batch_surfaces, cell_occluder_mesh, instancing_candidates, BatchMember, InstanceGroup,
-};
+use crate::batch::{cell_occluder_mesh, BatchMember, InstanceGroup};
 use crate::data_source::{
     BlockFormat, DataSource, LoadedCell, LoadedSurface, SurfaceTextures, TextureData,
 };
@@ -48,7 +46,9 @@ use soe_physics::{Iso, Vec3};
 mod object_animation;
 
 mod console_render;
+mod distant_upload;
 mod play_path;
+pub(crate) mod upload;
 
 fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
     let encoded = u64::try_from(encoded).ok()?;
@@ -214,6 +214,10 @@ pub struct CellStreamerNode {
     bounds: Option<crate::mesh::Aabb>,
     last_stats: VarDictionary,
     location_totals: Option<(usize, StreamTotals)>,
+    location_upload: Option<(GlobalFormId, upload::Plan)>,
+    upload_clock: upload::FrameBudget,
+    upload_slices: u64,
+    upload_worst_ms: f64,
     load_profiles: std::collections::BTreeMap<GlobalFormId, soe_trace::LoadRecorder>,
     work_frame: Option<soe_trace::WorkFrame>,
     /// Static bodies this node put into the physics space, freed with the
@@ -269,12 +273,22 @@ enum LodStream {
 
 #[derive(Default)]
 struct DistantState {
+    worker: Option<distant_upload::Worker>,
+    publishing: Option<distant_upload::Publishing>,
     world: Option<GlobalFormId>,
     selector: crate::distant_visibility::Selector,
     surfaces: std::collections::BTreeMap<GlobalFormId, Vec<LoadedSurface>>,
     heights: crate::distant_visibility::TerrainHeights,
     terrain_revision: u64,
     revision: u64,
+}
+
+impl Drop for DistantState {
+    fn drop(&mut self) {
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 struct TerrainLodState {
@@ -716,7 +730,7 @@ impl BatchTable {
 /// Running totals over the cells one `stream_cell` or `stream_exterior`
 /// call added, reported through `last_stats`.
 #[derive(Default)]
-struct StreamTotals {
+pub(crate) struct StreamTotals {
     reference_counts: std::collections::BTreeMap<soe_esm::Tag, crate::data_source::ReferenceCounts>,
     cells: usize,
     references: usize,
@@ -837,6 +851,10 @@ impl INode3D for CellStreamerNode {
             bounds: None,
             last_stats: VarDictionary::new(),
             location_totals: None,
+            location_upload: None,
+            upload_clock: upload::FrameBudget::default(),
+            upload_slices: 0,
+            upload_worst_ms: 0.0,
             load_profiles: std::collections::BTreeMap::new(),
             work_frame: None,
             collision: crate::godot_physics::CellBodies::default(),
@@ -1609,6 +1627,39 @@ impl CellStreamerNode {
         true
     }
 
+    pub(crate) fn location_upload_pending(&self) -> bool {
+        self.location_upload.is_some()
+    }
+
+    pub(crate) fn finish_streamed_upload(
+        &mut self,
+        cell: &crate::data_source::PreparedCell,
+        world: &soe_game::World,
+    ) {
+        let visible = self.visible_cell(cell.id, &cell.loaded, Some(world));
+        self.register_cell(cell.id, &cell.loaded);
+        self.load_profiles
+            .insert(cell.id, cell.loaded.stats.profile.clone());
+        if let Some(scenario) = self.scenario() {
+            if self.cell_occluders {
+                let ordinary: Vec<_> = visible
+                    .surfaces
+                    .iter()
+                    .filter(|surface| !self.is_door(surface.reference))
+                    .cloned()
+                    .collect();
+                self.add_cell_occluder(cell.id, &ordinary, scenario);
+            }
+        }
+        if let Some(space) = self.base().get_world_3d().map(|world| world.get_space()) {
+            self.install_movable_collision(space, &cell.colliders);
+        }
+        self.distant.revision = self.distant.revision.wrapping_add(1);
+        self.reference_index_dirty = true;
+        self.sync_terrain_lod_join();
+        self.refresh_console_borders();
+    }
+
     /// Keep movable authored bodies when a door or grid load replaces presentation.
     fn install_movable_collision(
         &mut self,
@@ -1654,8 +1705,37 @@ impl CellStreamerNode {
         let Some((before, mut totals)) = self.location_totals.take() else {
             return false;
         };
+        let mut plan = match self.location_upload.take() {
+            Some((pending, plan)) if pending == id => plan,
+            Some(_) => return false,
+            None => {
+                let visible = self.visible_cell(id, cell, Some(world));
+                self.prepare_upload(id, &visible)
+            }
+        };
+        let _capture = cell.stats.profile.enter();
+        if !self.upload_plan_step(id, &mut plan, &mut totals, upload::SLICE_BUDGET) {
+            return false;
+        }
+        if !plan.is_empty() {
+            self.location_upload = Some((id, plan));
+            self.location_totals = Some((before, totals));
+            return true;
+        }
+        let visible = self.visible_cell(id, cell, Some(world));
+        self.register_cell(id, &visible);
+        self.load_profiles.insert(id, cell.stats.profile.clone());
         totals.cell_list.push(id.to_string());
-        self.install_cell(id, cell, scenario, &mut totals, Some(world));
+        totals.add_cell(&visible);
+        if self.cell_occluders {
+            let ordinary: Vec<_> = visible
+                .surfaces
+                .iter()
+                .filter(|surface| !self.is_door(surface.reference))
+                .cloned()
+                .collect();
+            self.add_cell_occluder(id, &ordinary, scenario);
+        }
         if let (Some(source), Some(space)) = (
             self.data_source.as_ref(),
             self.base().get_world_3d().map(|world| world.get_space()),
@@ -1848,6 +1928,7 @@ impl CellStreamerNode {
                 touched_instances.extend(members.iter().map(|(instance, _)| *instance));
             }
         }
+        let pending = self.distant.publishing.as_ref();
         for (index, instance) in self.instances.iter_mut().enumerate() {
             if let Some(animation) = &mut instance.animation {
                 if let BatchTable::Triangles(members) = &instance.table {
@@ -1872,6 +1953,9 @@ impl CellStreamerNode {
                             server.instance_set_visible(
                                 instance.rid,
                                 placement.visible
+                                    && !pending.is_some_and(|publishing| {
+                                        publishing.contains_rid(instance.rid)
+                                    })
                                     && self.console_visibility[instance.render_kind]
                                     && world.destruction_model(member.reference).is_none(),
                             );
@@ -3999,6 +4083,7 @@ impl CellStreamerNode {
             },
             budget_bytes,
             LodStream::Terrain,
+            true,
         )
     }
 
@@ -4028,6 +4113,7 @@ impl CellStreamerNode {
             },
             budget_bytes,
             LodStream::Object,
+            true,
         )
     }
 
@@ -4053,6 +4139,7 @@ impl CellStreamerNode {
             },
             budget_bytes,
             LodStream::Tree,
+            true,
         )
     }
 
@@ -4304,6 +4391,7 @@ impl CellStreamerNode {
     /// included, and forgets the bounds. Releases unused material cache entries.
     #[func]
     pub fn clear(&mut self) {
+        self.location_upload = None;
         self.location_totals = None;
         self.load_profiles.clear();
         self.collision.free();
@@ -4545,114 +4633,20 @@ impl CellStreamerNode {
             .insert(cell, loaded.stats.profile.clone());
         totals.add_cell(loaded);
 
-        let mut ordinary = Vec::new();
-        let mut doors = std::collections::BTreeMap::<GlobalFormId, Vec<LoadedSurface>>::new();
-        for surface in &loaded.surfaces {
-            if self.is_door(surface.reference) {
-                doors
-                    .entry(surface.reference)
-                    .or_default()
-                    .push(surface.clone());
-            } else {
-                ordinary.push(surface.clone());
-            }
-        }
-        for (id, surfaces) in doors {
-            self.add_door(cell, id, &surfaces, scenario);
-            totals.instances += surfaces.len();
+        let mut plan = self.prepare_upload(cell, loaded);
+        while !plan.is_empty() {
+            self.upload_plan_step(cell, &mut plan, totals, std::time::Duration::MAX);
         }
         if self.cell_occluders {
+            let ordinary: Vec<_> = loaded
+                .surfaces
+                .iter()
+                .filter(|surface| !self.is_door(surface.reference))
+                .cloned()
+                .collect();
             self.add_cell_occluder(cell, &ordinary, scenario);
         }
-        let mut groups = std::collections::BTreeMap::<usize, Vec<LoadedSurface>>::new();
-        for surface in ordinary {
-            let table = BatchTable::Instances(vec![surface.reference]);
-            let kind = self.console_render_kind(&table, &surface.arrays.material);
-            groups.entry(kind).or_default().push(surface);
-        }
-        for surfaces in groups.values() {
-            self.add_ordinary_cell_surfaces(cell, surfaces, scenario, totals);
-        }
         self.refresh_console_borders();
-    }
-
-    fn add_ordinary_cell_surfaces(
-        &mut self,
-        cell: GlobalFormId,
-        ordinary: &[LoadedSurface],
-        scenario: Rid,
-        totals: &mut StreamTotals,
-    ) {
-        for surface in ordinary {
-            if surface.animation.is_some() {
-                self.add_animated_surface(cell, surface, scenario);
-                totals.instances += 1;
-            }
-        }
-        let (groups, remainder) = if self
-            .data_source
-            .as_ref()
-            .is_some_and(|source| source.cell_index().persistent_cell_world(cell).is_some())
-        {
-            crate::batch::worldspace_instancing_candidates(ordinary)
-        } else {
-            instancing_candidates(ordinary)
-        };
-        for group in &groups {
-            self.add_multimesh(cell, group, scenario);
-            totals.instances += 1;
-        }
-        let remainder: Vec<LoadedSurface> = remainder
-            .into_iter()
-            .filter_map(|i| {
-                let surface = &ordinary[i];
-                surface.animation.is_none().then(|| surface.clone())
-            })
-            .collect();
-        if self.batch_surfaces {
-            let (batches, stats) = batch_surfaces(&remainder);
-            totals.largest_batch = totals.largest_batch.max(stats.largest_batch_surfaces);
-            for batch in &batches {
-                let first = &remainder[batch.members[0].surface];
-                let material =
-                    material_for(&mut self.materials, &first.arrays.material, &batch.textures);
-                let table = BatchTable::Triangles(
-                    batch
-                        .members
-                        .iter()
-                        .map(|m| BatchTableMember {
-                            reference: remainder[m.surface].reference,
-                            member: *m,
-                            origin: remainder[m.surface].placement,
-                        })
-                        .collect(),
-                );
-                self.add_instance(cell, &batch.arrays, &material, scenario, table);
-                totals.instances += 1;
-            }
-        } else {
-            totals.largest_batch = totals.largest_batch.max(1);
-            for surface in &remainder {
-                let material = material_for(
-                    &mut self.materials,
-                    &surface.arrays.material,
-                    &surface.textures,
-                );
-                let table = BatchTable::Triangles(vec![BatchTableMember {
-                    reference: surface.reference,
-                    member: BatchMember {
-                        surface: 0,
-                        first_vertex: 0,
-                        vertex_count: surface.arrays.positions.len(),
-                        first_triangle: 0,
-                        triangle_count: surface.arrays.triangle_count(),
-                    },
-                    origin: surface.placement,
-                }]);
-                self.add_instance(cell, &surface.arrays, &material, scenario, table);
-                totals.instances += 1;
-            }
-        }
     }
 
     fn is_door(&self, id: GlobalFormId) -> bool {
@@ -4953,6 +4947,34 @@ impl CellStreamerNode {
         self.occluders.clear();
     }
 
+    pub(crate) fn begin_walking_lod(
+        &mut self,
+        world: &str,
+        focus: CellCoord,
+        full_res_radius: i32,
+        lod_radius: i32,
+        budget_bytes: i64,
+    ) -> bool {
+        for kind in [LodStream::Terrain, LodStream::Object, LodStream::Tree] {
+            if self.start_lod(
+                world,
+                focus,
+                TerrainLodConfig {
+                    full_res_radius,
+                    lod_radius,
+                    ..TerrainLodConfig::default()
+                },
+                budget_bytes,
+                kind,
+                false,
+            ) < 0
+            {
+                return false;
+            }
+        }
+        true
+    }
+
     fn start_lod(
         &mut self,
         world_editor_id: &str,
@@ -4960,6 +4982,7 @@ impl CellStreamerNode {
         mut config: TerrainLodConfig,
         budget_bytes: i64,
         kind: LodStream,
+        settle: bool,
     ) -> i32 {
         let (caller, catalog_kind) = match kind {
             LodStream::Terrain => {
@@ -5034,7 +5057,7 @@ impl CellStreamerNode {
             LodStream::Object => self.object_lod = Some(lod),
             LodStream::Tree => self.tree_lod = Some(lod),
         }
-        if self.lod_cycle(focus, true, caller, kind).is_none() {
+        if settle && self.lod_cycle(focus, true, caller, kind).is_none() {
             return -1;
         }
         let lod = match kind {
@@ -5251,6 +5274,7 @@ impl CellStreamerNode {
         world_id: GlobalFormId,
         eye: [f32; 3],
         world: &soe_game::World,
+        progressive: bool,
     ) -> bool {
         let Some(source) = self.data_source.clone() else {
             return false;
@@ -5262,10 +5286,15 @@ impl CellStreamerNode {
             return true;
         }
         if self.distant.world != Some(world_id) {
-            self.distant = DistantState {
-                world: Some(world_id),
-                ..DistantState::default()
-            };
+            self.distant = DistantState::default();
+            self.distant.world = Some(world_id);
+        }
+        if progressive {
+            match self.poll_distant_upload(owner) {
+                Ok(true) => return true,
+                Err(()) => return false,
+                Ok(false) => {}
+            }
         }
         let terrain_revision = self.terrain_lod.as_ref().map_or(0, |lod| lod.revision);
         if self.distant.terrain_revision != terrain_revision {
@@ -5339,6 +5368,9 @@ impl CellStreamerNode {
             .any(|id| !selected.contains(id));
         if additions.is_empty() && !releases {
             return true;
+        }
+        if progressive {
+            return self.request_distant_upload(owner, additions, selected);
         }
         let loaded = match source.stream_selected_references(owner, &additions) {
             Ok(loaded) => loaded,
@@ -5435,6 +5467,7 @@ impl CellStreamerNode {
     fn loaded_terrain_heights(&self) -> std::collections::HashMap<CellCoord, Vec<f32>> {
         self.instances
             .iter()
+            .filter(|instance| self.rendered_cells.contains(&instance.cell))
             .filter_map(|instance| {
                 let arrays = &instance.arrays;
                 if !arrays
@@ -5687,9 +5720,7 @@ impl MaterialMap {
             .retain(|_, texture| texture.get_reference_count() > 1);
         self.cubemaps
             .retain(|_, texture| texture.get_reference_count() > 1);
-        self.shaders
-            .borrow_mut()
-            .retain(|_, shader| shader.get_reference_count() > 1);
+        // CONTEXT: Keep warmed shader RIDs across cell retirement and world changes.
     }
 }
 
