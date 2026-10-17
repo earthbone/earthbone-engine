@@ -214,6 +214,7 @@ pub struct SkinnedActorNode {
     presented_moving: bool,
     presented_turning: i8,
     pose_us: f64,
+    pose_stages: [f64; 5],
     presented_appearance: Option<soe_game::appearance::ActorAppearance>,
     surfaces: Vec<ActorSurface>,
     appearance: Option<AppearanceBinding>,
@@ -255,6 +256,7 @@ impl INode3D for SkinnedActorNode {
             presented_moving: false,
             presented_turning: 0,
             pose_us: 0.0,
+            pose_stages: [0.0; 5],
             presented_appearance: None,
             first_person: false,
             camera_offset: Transform3D::IDENTITY,
@@ -904,6 +906,7 @@ impl SkinnedActorNode {
     /// this while `playing`, and a test can call it directly.
     #[func]
     pub fn advance(&mut self, delta: f32) {
+        self.pose_stages = [0.0; 5];
         self.sync_invisibility();
         self.sync_death_rendering();
         self.refresh_appearance();
@@ -931,6 +934,12 @@ impl SkinnedActorNode {
             vm.send_event_named(&request);
         }
         vm.update(delta);
+        let timings = vm.update_timings();
+        self.pose_stages[..3].copy_from_slice(&[
+            timings.control_us,
+            timings.sampling_us,
+            timings.pose_generation_us,
+        ]);
         if let Some(clock) = self.debug_clock.as_mut() {
             clock.observe(vm, assets, delta);
         }
@@ -942,11 +951,15 @@ impl SkinnedActorNode {
             .cloned()
             .collect();
         self.elapsed += f64::from(delta);
+        let model_started = std::time::Instant::now();
         if let Err(e) = to_model_space_into(&assets.skeleton, vm.pose(), &mut self.model) {
             soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
             return;
         }
+        self.pose_stages[3] = model_started.elapsed().as_secs_f64() * 1e6;
+        let upload_started = std::time::Instant::now();
         self.push_pose();
+        self.pose_stages[4] = upload_started.elapsed().as_secs_f64() * 1e6;
         // Authored events follow the pose they belong to.
         let report_target = self
             .appearance
@@ -1065,6 +1078,26 @@ impl SkinnedActorNode {
             }
         }
         self.applied_expression_weights = applied_expression_weights;
+    }
+
+    /// Wall-clock stages of the last pose, in microseconds. Generation includes
+    /// blending and modifiers, while upload includes attachment submission.
+    #[func]
+    pub fn pose_stage_timings(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        for (name, value) in [
+            "graph_control_us",
+            "clip_sampling_us",
+            "pose_generation_us",
+            "model_space_us",
+            "skinning_upload_us",
+        ]
+        .into_iter()
+        .zip(self.pose_stages)
+        {
+            result.set(name, value);
+        }
+        result
     }
 
     /// What the load found: shape, bone and clip counts. Empty before a load.

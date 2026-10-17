@@ -1294,6 +1294,15 @@ fn transform_vector(
     [vector[0], vector[1], vector[2], input[3]]
 }
 
+/// Wall-clock stages of the last interpreter update. Pose generation includes
+/// blending and modifiers, excluding the separately timed clip sampling.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UpdateTimings {
+    pub control_us: f64,
+    pub sampling_us: f64,
+    pub pose_generation_us: f64,
+}
+
 pub struct Interpreter<'a> {
     graph: &'a BehaviorGraph,
     clips: &'a ClipLibrary,
@@ -1321,6 +1330,7 @@ pub struct Interpreter<'a> {
     foot_ik_ground_targets: Vec<FootIkGroundTarget>,
     frame: u64,
     condition_frames: Vec<u64>,
+    update_timings: UpdateTimings,
 }
 
 /// Rounds of internally raised events handled per update before the rest
@@ -1401,6 +1411,7 @@ impl<'a> Interpreter<'a> {
             expression_random_state: 0x4d59_5df4_d0f3_3173,
             frame: 0,
             condition_frames: vec![0; graph.nodes.len()],
+            update_timings: UpdateTimings::default(),
         };
         interp.resolve_bindings();
         interp.resolve_conditions();
@@ -1942,8 +1953,15 @@ impl<'a> Interpreter<'a> {
         true
     }
 
+    /// Wall-clock stages for the most recent update.
+    pub fn update_timings(&self) -> UpdateTimings {
+        self.update_timings
+    }
+
     /// One frame: bindings, activation, events, generate, raised events.
     pub fn update(&mut self, dt: f32) -> &Output {
+        let started = std::time::Instant::now();
+        self.update_timings = UpdateTimings::default();
         self.frame += 1;
         self.generated.fill(None);
         self.apply_bindings();
@@ -1958,7 +1976,11 @@ impl<'a> Interpreter<'a> {
             }
             self.handle_conditions(root);
             self.modifier_order.clear();
+            let generating = std::time::Instant::now();
             let output = self.generate(root, dt);
+            self.update_timings.pose_generation_us = (generating.elapsed().as_secs_f64() * 1e6
+                - self.update_timings.sampling_us)
+                .max(0.0);
             self.output = output;
             self.update_i_state_managers();
             self.update_time_step_modifiers(dt);
@@ -1977,6 +1999,10 @@ impl<'a> Interpreter<'a> {
             }
         }
         self.apply_output_bindings();
+        self.update_timings.control_us = (started.elapsed().as_secs_f64() * 1e6
+            - self.update_timings.sampling_us
+            - self.update_timings.pose_generation_us)
+            .max(0.0);
         &self.output
     }
 
@@ -4271,7 +4297,9 @@ impl<'a> Interpreter<'a> {
             self.raise(e);
         }
         let mut pose = self.reference_pose.clone();
+        let sampling = std::time::Instant::now();
         source.sample_into(now + clip.crop_start_amount_local_time, &mut pose);
+        self.update_timings.sampling_us += sampling.elapsed().as_secs_f64() * 1e6;
         Output {
             bone_weights: vec![1.0; pose.len()],
             pose,

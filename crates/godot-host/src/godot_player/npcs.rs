@@ -729,14 +729,50 @@ impl PlayerNode {
         let Some(game) = &self.game else {
             return Array::new();
         };
-        let world = game.world();
+        let mut world = game.world_mut();
         self.npc_actors.residents.keys().filter_map(|id| {
+            world.actor_ref(*id)?;
+            let base = world.reference_ref(*id).and_then(|reference| reference.base);
+            let source = base.map(|_| world.actor_component_source(*id, soe_game::npc::template::AI_DATA));
+            let source_error = source.as_ref().and_then(|source| source.as_ref().err()).map(ToString::to_string).unwrap_or_default();
+            let source = source.and_then(Result::ok);
+            let data = source.and_then(|source| world.npc(source)).and_then(|npc| npc.ai_data);
+            let packages = base.map(|_| world.actor_component_source(*id, soe_game::npc::template::AI_PACKAGES));
+            let packages_error = packages.as_ref().and_then(|source| source.as_ref().err()).map(ToString::to_string).unwrap_or_default();
+            let package_source = packages.and_then(Result::ok);
+            let package_count = package_source.and_then(|source| world.npc(source)).map_or(0, |npc| npc.packages.len());
+            let style = source.and_then(|source| {
+                let bytes: [u8; 4] = world.record(source)?.find(soe_esm::Tag(*b"ZNAM"))?.get(..4)?.try_into().ok()?;
+                world.resolve_from(source, u32::from_le_bytes(bytes))
+            });
+            let class = base.and_then(|_| world.actor_component_source(*id, soe_game::npc::template::STATS).ok()).and_then(|source| {
+                let npc = world.npc(source)?;
+                world.resolve_from(source, npc.class?)
+            });
             let actor = world.actor_ref(*id)?;
             Some(vdict! { "actor" => id.to_string().as_str(),
                 "package" => actor.ai.package.and_then(|package| world.editor_id(package)).unwrap_or_default().as_str(),
                 "procedure" => format!("{:?}", actor.ai.procedure).as_str(),
                 "path_points" => actor.ai.path.len() as i64,
                 "speed" => actor.ai.speed,
+                "ai_disabled" => actor.ai_disabled, "dead" => actor.dead, "unconscious" => actor.unconscious,
+                "in_combat" => actor.in_combat,
+                "combat_target" => actor.combat_target.map_or_else(String::new, |id| id.to_string()).as_str(),
+                "destination" => actor.ai.destination.map_or(Vector3::ZERO, |p| Vector3::new(p[0], p[1], p[2])),
+                "next_waypoint" => actor.ai.path.first().map_or(Vector3::ZERO, |p| Vector3::new(p[0], p[1], p[2])),
+                "last_evaluation" => actor.ai.last_evaluation,
+                "base" => base.map_or_else(String::new, |id| id.to_string()).as_str(),
+                "race" => actor.race.and_then(|race| world.editor_id(race)).unwrap_or_default().as_str(),
+                "class" => class.and_then(|class| world.editor_id(class)).unwrap_or_default().as_str(),
+                "combat_style" => style.and_then(|style| world.editor_id(style)).unwrap_or_default().as_str(),
+                "ai_data_error" => source_error.as_str(), "package_source_error" => packages_error.as_str(),
+                "package_count" => package_count as i64,
+                "aggression" => data.map_or(-1, |data| i64::from(data.aggression)),
+                "confidence" => data.map_or(-1, |data| i64::from(data.confidence)),
+                "aggro_radius" => data.is_some_and(|data| data.aggro_radius),
+                "warn_radius" => data.map_or(0, |data| i64::from(data.warn_radius)),
+                "warn_attack_radius" => data.map_or(0, |data| i64::from(data.warn_attack_radius)),
+                "attack_radius" => data.map_or(0, |data| i64::from(data.attack_radius)),
                 "arrived" => actor.ai.arrived })
         }).collect()
     }

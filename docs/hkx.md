@@ -1,5 +1,12 @@
 # soe-hkx: Skyrim SE animation files and the behavior runtime design
 
+Round 4 adds wall-clock measurements for graph control, clip sampling and
+remaining pose generation per interpreter update. Pose generation includes
+blending and modifiers. The host separately measures model-space conversion
+and skin transform submission. Clips remain decoded in the retained library,
+and the existing shared-node output cache remains in use. The measurements
+use Rust monotonic time and do not change graph time or saved state.
+
 The 2026-10-13 character correction generates a shared graph node once per
 interpreter update and reuses its output across parent branches. Previously,
 Hulda's vanilla `MT_Idle.HKX` playhead advanced three times per update, playing

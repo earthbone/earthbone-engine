@@ -43,40 +43,117 @@ The game implementation and local OpenMW source are recorded in
 
 ## NPC route progress, round 4, 2026-10-17
 
-`r4_npc_progress_test.gd` extends the free walk, using its installed data,
-package driver, cell transition and collision controller. It measures each
-actor for 30 simulation seconds in the Bannered Mare and Whiterun. The fixed
-check flags five seconds without progress on an active route and requires
-at least 64 units of movement. The initial run fails with 16 findings.
+`r4_npc_progress_test.gd` extends the free walk, using installed data,
+package execution, the cell transition and the collision controller. It
+measures 30 simulation seconds in both the Bannered Mare and Whiterun.
+Its unchanged limits require 64 units of movement and flag five seconds
+without progress on an active route. The final release exits zero, compared
+with 16 failures initially, 14 after the first route corrections and 11
+after sandbox recovery.
 
-Grounded waypoints used spatial distance even when NAVM height differed from
-the collision floor. Scoped NPC routes also used the point funnel without
-the controller's radius. The game corrections and local OpenMW, Mudcrab and
-Recast sources are documented in [game.md](game.md#grounded-navm-progress-round-4).
-The same release scene measurement after both corrections gives:
-
-| Actor | Travel before, units | Travel after, units | Longest blocked interval before, seconds | After, seconds |
+| Actor | Travel before, units | Final travel, units | Longest blocked interval before, seconds | Final, seconds |
 | --- | ---: | ---: | ---: | ---: |
-| Adrianne | 28.76 | 139.13 | 22 | 0 |
-| Nazeem | 40.20 | 540.14 | 27 | 1 |
-| Ysolda | 20.97 | 669.64 | 27 | 19 |
-| Hulda | 39.95 | 39.95 | 28 | 28 |
+| Adrianne | 28.76 | 128.63 | 22 | 0 |
+| Nazeem | 40.20 | 998.62 | 27 | 0 |
+| Ysolda | 20.97 | 1350.22 | 27 | 0 |
+| Hulda | 39.95 | 315.54 | 28 | 1 |
 
-The complete check still fails with 14 findings. Hulda targets the counter
-lean marker at (307.824, -466.927, 64.747). Collision stops her at
-(319.236, -466.927, 68.339), outside the four-unit arrival tolerance.
-Other findings include failed sandbox destinations, unsupported Patrol
-markers without idle times, unsupported simultaneous procedures and routes
-to another interior. Replanning does not cure a collision-blocked endpoint.
-These results do not establish complete NPC package execution.
+Package and combat loops measured spatial distance to NAVM points even when
+the collision floor differed. Both now use the shared walking comparison
+inside the controller's step-and-snap band. Scoped NPC corridors use the
+existing portal inset with capsule clearance. Sandbox rejects unreachable
+or sustained collision-blocked choices and retries another candidate.
+Missing optional Patrol Data now gives a zero wait instead of an error.
+Local sources and focused regressions are documented in
+[game.md](game.md#combat-navm-progress-round-4).
 
-Validation passes 1,338 game and 585 host library tests, package formatting
-and both packages' all-target Clippy checks with warnings denied. The release
-build passes in 7 minutes 45 seconds. Both installed progress runs exit one,
-preserving the failing full-scene check. The height regression fails before
-at x=9.9997 units, then passes its 75-unit minimum. The corner regression
-fails at zero clearance, then passes its unchanged 28-unit minimum.
-No node path, dependency or saved field is added.
+The last 11 stalls were in combat movement. Guard 0:0D0FF5 was stuck at a
+waypoint 15.19 units below the collision floor. Its travel improves from
+43.76 to 647.18 units, with blocked time falling from 21 seconds to zero.
+The package and combat regressions both fail before at x=9.999734 and then
+pass their unchanged 75-unit minimum. The scoped corner regression fails
+at zero clearance and passes its unchanged 28-unit minimum. The absent-wait
+regression fails before and passes after, with zero installed missing-idle
+errors in the final scene run.
+
+This progress check counts active routes. Unsupported simultaneous children,
+unavailable Sit furniture and cross-interior goals still leave some actors
+idle. Zero progress findings does not establish complete package execution.
+The guards' unprovoked combat also exposes the separate hostility policy
+gap in CMB-43. No node path, dependency or saved field is added.
+
+Final scoped validation passes 1,343 game, 590 host and 117 hkx library tests,
+with installed-data variables unset for that library run. Formatting and
+all-target Clippy with warnings denied pass for all three crates. The source
+survey separately passes with installed data. Release builds for the three
+measured change sets pass in 7 minutes 45 seconds, 7 minutes 11 seconds and
+6 minutes 56 seconds. Workspace tests and the full lint script were excluded
+by the round 4 instructions.
+
+## Moving giant measurements, round 4
+
+`r4_giant_profile_test.gd` extends the free walk, measures Bannered Mare
+humans, travels through the production console path to Bleakwind Basin and
+selects a resident giant by its loaded skeleton. It places the player 700
+units east of that giant, inside the same exterior cell. Both toward and
+away phases require 64 units of actual movement from the player and giant.
+Fixed budgets are one millisecond for pose p99 and 33 milliseconds for main
+engine p99. The test uses the main total once, without summing child scopes.
+
+Before the new clock correction, the controlled headless run exits zero.
+The giant moves 1,867 and 769 units in the two phases. Pose p99 is 89.94 and
+70.44 microseconds. Main engine p99 is 20.36 and 16.22 milliseconds.
+An earlier boundary-crossing probe spends 270.59 milliseconds in cell
+streaming inside a 289.69 millisecond frame. That frame does not establish
+an animation or pathfinding bottleneck. Neither passing budget reproduces
+the user's sustained GPU slowdown, and no performance fix is claimed from it.
+
+The installed source survey resolves the retained leveled choice for
+0:033F9F. AI data and packages come from EncGiant01. The actor has aggression
+1, confidence 4, GiantRace and EncClassBanditMelee. Aggro radius behavior is
+set, with warn 1024, warn/attack 750 and attack 375. Its csGiant CSCR values
+are 0, 0, 0.2 and 0.2. Local xEdit and UESP CSTY name those fields circle,
+fallback, flank distance and stalk time. They do not define a four-unit
+arrival distance. No inherited package drives this resident's pursuit.
+Combat acquisition and the hard-coded four-unit pursuit do. Acquisition
+currently uses aggression and Combat detection without warning-radius policy.
+The measured giant path requests reach 60 per second while its target moves.
+Warning, combat approach and rendered slowdown checks remain separate rows
+CMB-40, CMB-41 and PRF-51. Faction hostility before acquisition is CMB-43.
+This diagnostic does not implement them.
+
+The stage-enabled release also exits zero. Giant pose p99 is 74.68 and
+69.58 microseconds, with main engine p99 17.89 and 15.52 milliseconds.
+The following stage medians are measured per actor per rendered frame.
+Generation includes blending and modifiers, upload includes attachments.
+
+| Stage, microseconds | Hulda | Giant toward | Giant away |
+| --- | ---: | ---: | ---: |
+| Graph control | 114.03 | 11.36 | 11.54 |
+| Clip sampling | 5.93 | 5.86 | 5.70 |
+| Pose generation | 17.35 | 12.80 | 12.34 |
+| Model conversion | 1.23 | 1.15 | 1.19 |
+| Skin transform upload | 27.25 | 8.88 | 8.92 |
+
+The giant is in combat with player 0:000014 in both phases. The next NAVM
+point differs from the collision floor by 7.03 and 27.03 units at the phase
+ends. The separate combat waypoint loop measured spatial distance,
+which prompted CMB-42's failing progress regression and correction. The screenshot also
+shows arm deformation. This headless cost test does not validate that pose
+or prove visual smoothness on the user's GPU. The forearm correction is ANM-62.
+
+After the combat correction, the final giant probe again exits zero. Giant
+pose p99 is 90.46 and 73.10 microseconds. Main engine p99 is 20.40 and 16.27
+milliseconds. The giant moves 1,849 and 801 units, while the player moves
+1,165 and 864 units. Requests still reach 60 per second. These measurements
+retain the original budgets and still do not reproduce the reported slowdown.
+
+The new actor timing method reports graph control, clip sampling, remaining
+pose generation, model conversion and skin transform submission in
+microseconds. Generation includes blending and modifiers. It measures the
+retained interpreter and decoded clip library, with no new dependency,
+actor node or saved field. Local serde-hkx class descriptions, the existing
+hkx shared-node cache and Godot RID submission remain the implementation.
 
 ## Tree pipeline warmup, PRF-49, 2026-10-17
 

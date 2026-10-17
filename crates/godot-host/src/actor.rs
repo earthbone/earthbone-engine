@@ -45,6 +45,9 @@ mod presentation;
 #[cfg(feature = "godot")]
 pub(crate) use presentation::NpcPresentation;
 
+#[cfg(test)]
+mod r4_survey;
+
 /// Vanilla one-handed melee behavior, with authored attack markers.
 pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
 
