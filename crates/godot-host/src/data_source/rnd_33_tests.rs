@@ -159,3 +159,91 @@ fn rnd_33_additive_palette_shader_retains_alpha_depth_and_falloff() {
     assert!(code.contains("float opacity = tint.a * angle_opacity * (false ? 1.0 : texel.a)"));
     assert!(code.contains("angle_opacity = mix("));
 }
+
+#[test]
+fn r4_vertex_colored_radial_glow_keeps_its_authored_color() {
+    let mut material = crate::mesh::MaterialDesc {
+        shader_flags_1: soe_nif::blocks::flags1::VERTEX_ALPHA,
+        shader_flags_2: soe_nif::blocks::flags2::VERTEX_COLORS,
+        diffuse: Some("textures/effects/glowslightflash.dds".into()),
+        effect: Some(EffectMaterial {
+            params: soe_nif::mesh::EffectParams {
+                source_texture: "textures/effects/glowslightflash.dds".into(),
+                ..Default::default()
+            },
+            blend: Some(soe_nif::mesh::Blend {
+                src: BlendFactor::SrcAlpha,
+                dst: BlendFactor::One,
+            }),
+            alpha_test: None,
+            uv_offset: [0.0; 2],
+            uv_scale: [1.0; 2],
+            controllers: Vec::new(),
+        }),
+        ..Default::default()
+    };
+    apply_fire_palette_fallback(
+        &mut material,
+        Some("textures/effects/gradients/gradfireexplosion.dds"),
+    );
+    assert_eq!(
+        material.shader_flags_1 & flags1::GREYSCALE_TO_PALETTE_COLOR,
+        0,
+        "authored vertex color must not become an inferred palette coordinate"
+    );
+    assert!(material
+        .effect
+        .as_ref()
+        .unwrap()
+        .params
+        .greyscale_texture
+        .is_empty());
+}
+
+#[test]
+fn r4_installed_central_hearth_has_colored_glow_and_particle_flames() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let archive =
+        soe_bsa::Archive::open(&std::path::PathBuf::from(data).join("Skyrim - Meshes0.bsa"))
+            .unwrap();
+    let file = soe_nif::parse(
+        &archive
+            .read("meshes/clutter/woodfires/campfire01burning.nif")
+            .unwrap(),
+    )
+    .unwrap();
+    let meshes = file.meshes().unwrap();
+    let glow = meshes.iter().find(|mesh| mesh.name == "Glow02:0").unwrap();
+    assert_ne!(glow.material.flags1 & flags1::VERTEX_ALPHA, 0);
+    assert_ne!(
+        glow.material.flags2 & soe_nif::blocks::flags2::VERTEX_COLORS,
+        0
+    );
+    assert_eq!(glow.material.flags1 & flags1::GREYSCALE_TO_PALETTE_COLOR, 0);
+    assert!(glow
+        .material
+        .effect
+        .as_ref()
+        .unwrap()
+        .greyscale_texture
+        .is_empty());
+    assert!(glow.colors.iter().any(|color| color[0] > color[2] * 1.5));
+    assert_eq!(
+        file.block_types()
+            .iter()
+            .filter(|kind| **kind == "NiParticleSystem")
+            .count(),
+        3
+    );
+    let mut material = super::material_desc_from(glow);
+    apply_fire_palette_fallback(
+        &mut material,
+        Some("textures/effects/gradients/gradfireexplosion.dds"),
+    );
+    assert_eq!(
+        material.shader_flags_1 & flags1::GREYSCALE_TO_PALETTE_COLOR,
+        0
+    );
+}

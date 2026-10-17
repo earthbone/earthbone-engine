@@ -1624,7 +1624,9 @@ fn apply_fire_palette_fallback(material: &mut MaterialDesc, palette: Option<&str
     let Some(palette) = palette else {
         return;
     };
-    if material.shader_flags_1 & flags1::GREYSCALE_TO_PALETTE_COLOR != 0 {
+    if material.shader_flags_1 & flags1::GREYSCALE_TO_PALETTE_COLOR != 0
+        || material.shader_flags_2 & soe_nif::blocks::flags2::VERTEX_COLORS != 0
+    {
         return;
     }
     let Some(effect) = material.effect.as_mut() else {
@@ -2090,6 +2092,8 @@ mod rnd_17_tests;
 #[cfg(test)]
 mod rnd_22_tests;
 
+#[cfg(test)]
+mod record_light_tests;
 #[cfg(test)]
 mod rnd_24_tests;
 

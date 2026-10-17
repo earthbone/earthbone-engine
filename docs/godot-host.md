@@ -1,4 +1,139 @@
-# godot-host: streaming, mesh and terrain for the Godot 4 host
+## Surface emission, RND-49, 2026-10-17
+
+Preview3 adds constant radiance after diffuse texture modulation. Local
+Community Shaders `Lighting.hlsl` instead adds `emitColor` to `diffuseColor`
+before multiplying by `material.BaseColor`. The host now uses that same
+multiplication for emitting lighting materials, including the private
+animated shader path. Emitting ordinary surfaces select the existing
+lighting shader so both paths preserve diffuse detail and glow map masks.
+Authored emissive color, multiple and texture resolution retain their values.
+
+`r4_emission_fixture_preserves_diffuse_modulation` writes two independent
+NIFs and a diffuse map with 128 and 32 grey texels. `r4_emission_test.gd`
+requires linear red values 0.1079 and 0.0072 at emission strength 0.5, with
+errors below 0.02 and 0.01. Preview3 fails both material paths with 0.5029 at
+both samples. The corrected debug extension passes both paths with 0.1095
+and 0.0070. The host library passes 597 tests with installed data unset.
+Package formatting and all-target Clippy with warnings denied pass.
+Godot uses Forward+ on Xvfb :99 with llvmpipe. The unchanged refraction
+shader also preserves a flat background across nine exposure combinations,
+with zero measured channel difference, rejecting double exposure as the
+central halo's cause.
+
+The extracted installed candle sconce and chandelier render without clipped
+white pixels under the fixture's fixed lighting. Gameplay exposure, flame
+presentation and the full window appearance still need cell acceptance.
+The shared installed-data lock blocks the free-walk baseline and full survey.
+The release build waits on its own shared lock. These results establish the
+surface equation correction, without certifying the complete Round 4 scene.
+The existing shader path adds no reference nodes, dependency or saved state.
+
+### Reproducing the asset captures
+
+Run the installed `r4_installed_light_material_survey` library test with
+`SKYRIM_DATA` set and `SOE_R4_ASSET_FIXTURE` naming a separate output
+directory. It writes five empty masters, the two burning wood models,
+the horn sconce and chandelier, a Whiterun window wall, and their source
+textures. The output cannot be the installed Data directory or its child.
+No game asset is tracked. Set `SOE_R4_EMISSION_FIXTURE` to that output's
+absolute path for `godot/r4_asset_light_test.gd`. `SOE_R4_OUTPUT` selects
+where to save captures and `SOE_R4_PHASE` labels them.
+
+The installed exporter passes. The window-only preview fixture clips 866
+pixels against the predeclared 655-pixel limit, while the corrected surface
+clips zero with the same mesh, camera and lighting. The permanent asset
+regression retains that case. This validates the shared emission equation,
+not the still-missing external-emittance response to time and weather.
+
+## Central campfire glow, RND-52, 2026-10-17
+
+The central Bannered Mare fire is `Campfire01Burning`, reference `0:05D691`
+at approximately -121, -385, 33. The earlier hearth capture selected the two
+wall fireplaces, references `0:0602CB` and `0:0616F2`, and missed this model.
+The central model contains a radial `Glow02:0` effect card with source texture
+`effects/glowslightflash.dds`, warm vertex RGB, vertex alpha and SrcAlpha/One
+blending. Its palette field is empty and its palette flag is clear.
+
+The model-name fallback assigned that card a sibling fire palette. This
+reinterpreted its authored vertex red as a palette coordinate and produced
+the pale halo shown in the preview3 screenshot. The fallback now preserves
+vertex-colored effects. Authored palettes, blend factors, alpha and flame
+controller speeds retain their values.
+
+`r4_vertex_colored_radial_glow_keeps_its_authored_color` fails before the fix
+with palette bit 16 where zero is required, and passes afterward. The
+installed archive assertion checks the exact central glow and three particle
+systems. A small extracted-asset fixture reproduces the pale halo through
+preview3's production material builder. The corrected Forward+ fixture has
+no inferred palette and increases warm pixels from 7 to 577, with zero
+clipped white pixels in either capture. This is an isolated model capture,
+not acceptance of the complete free-walk fire. The host library passes 597
+tests with game data unset, and all-target Clippy passes with warnings denied.
+
+The central model's actual flames and smoke require its three particle
+systems. World loading does not instantiate those systems. RND-53 records
+that separate gap. The shared installed-data lock blocks the full free-walk
+baseline and cell survey. The release build also waits on its shared lock.
+The isolated correction was checked with a debug extension on Xvfb :99 and
+llvmpipe. No per-reference nodes, dependencies or saved state are added.
+
+Sources read are local nifly `src/Shaders.cpp`, nifxml `nif.xml`, Community
+Shaders `package/Shaders/Effect.hlsl` for the vertex and palette equation,
+and the installed `Campfire01Burning.nif`. NIF and BSA readers were reused
+for the archive inspection. Game assets remain outside tracked files.
+
+## Placed record lights, RND-50, 2026-10-17
+
+Preview3 renders summoned magic lights but omits ordinary placed LIGH
+references. The Bannered Mare central hearth has `WRFireLightShadow01`,
+reference `0:0C8FBD`, with RGB 216, 170, 101, radius 768, FNAM fade 3,
+and flicker plus shadow-omnidirectional flags. The wall hearth has a second
+reference to the same light. Window fill lights also carry XEMI links.
+
+The host now reads the shared world's light index for rendered cells,
+current placement and enabled state, and winning LIGH fields. Preview
+streaming reads the same authored records through a temporary World.
+Gameplay synchronization reads the live shared World. Omni lights use omni
+RIDs. Spot and hemisphere types use spot RIDs with full cone angles
+converted to half angles. Only authored shadow types enable Godot shadows.
+Color, radius, negative lights, FNAM fade, falloff and distance fade reach
+the host. Destroyed and off-by-default lights are excluded. Reference
+changes, retirement and clearing update or free light and instance RIDs.
+Unchanged static transforms are not resubmitted.
+
+Flicker and pulse retain period, intensity and movement amplitudes.
+Per-reference deterministic noise follows OpenMW's smooth target approach.
+It does not reproduce a measured Bethesda noise sequence. This is render
+presentation state. No reference nodes, saved sections or dependencies
+are added. XEMI weather emittance is still covered by RND-51.
+
+`r4_record_light_test.gd` loads an independently written record-only cell.
+Preview3 renders zero lights and fails the required count of three. The
+release correction renders three, leaving the off-by-default light absent.
+An omni shadow changes 4,104 receiver pixels and a spotlight shadow changes
+1,205, each above the threshold of 20 written before the run. Their warm
+light reaches 65,536 and 14,247 pixels, respectively, above the threshold
+of 100. Flicker produces 57 distinct energy values within authored bounds.
+Clearing releases all light resources. Unit tests check type flags, field
+conversion, malformed records, finite timing and deterministic bounds.
+The host library passes 598 tests with installed data unset. Package
+formatting and all-target Clippy with warnings denied pass.
+
+The full preview3 walkthrough baseline exits one with zero placed lights,
+zero warm hearth pixels, and the explicit missing-particle failure. The
+installed material survey passes separately. Its central glow is distinct
+from the older wall-fireplace capture. The Forward+ frame report records
+58.0 ms p99 on llvmpipe, above 16.7 ms. Full corrected-cell timing is a
+separate required check, RND-54. A source correction or an isolated shadow
+fixture cannot certify that frame budget.
+
+Sources read are local xEdit `Core/wbDefinitionsTES5.pas` LIGH DATA and FNAM,
+UESP `LIGH.wikitext`, and OpenMW
+`components/sceneutil/lightcontroller.cpp`. The ESM crate has no typed LIGH
+view. The existing host light reader supplies common fields and the remaining
+render fields are decoded within the host crate. The installed Skyrim.esm
+record survey uses the existing plugin reader, without reading the game
+executable.
 
 ## Round 4 runtime timing, 2026-10-17
 
@@ -4261,9 +4396,9 @@ Godot's emission operator and energy multiplier. The NIF reader already
 retains these fields. Only its independent test writer needed an emission
 parameter. No format parser or new dependency was added.
 
-The standard material uses Godot's multiply emission operator when a glow
-texture is bound, and color-only emission otherwise. The decal
-shader receives the same color, multiplier and sRGB texture. Material and
+RND-49 routes emitting ordinary surfaces through the shared lighting shader.
+It multiplies emission by diffuse color and by a glow map when one is bound.
+The decal shader receives the same color, multiplier and sRGB texture. Material and
 batch keys include all three so shared diffuse maps cannot combine distinct
 emission states. The existing VFS and source texture cache resolve and share
 glow maps, including loose-file overrides. Production geometry still uses
@@ -8603,14 +8738,16 @@ source alpha once, so low-alpha flame texels do not fill the effect mesh hull.
 Blended effects keep depth writes disabled. Greyscale color
 and alpha lookups retain the authored palette flags, and falloff remains part
 of the opacity calculation. For a fire NIF with an authored greyscale color
-palette, an additive effect layer without its own palette path inherits the
-first sibling color palette and enables palette-color sampling. Existing
-palette assignments remain unchanged.
+palette, an additive effect layer without vertex colors or its own palette
+path inherits the first sibling color palette and enables palette-color
+sampling. RND-52 preserves authored vertex-colored effects and existing
+palette assignments.
 
 The installed Bannered Mare survey finds `FireplaceWood01Burning` with an
 additive greyscale-palette surface and a separate palette surface with view
-falloff. It also finds the placed `Campfire01Burning` effect, whose unpaletted
-additive layer inherits the sibling `GradFireExplosion` color palette. The
+falloff. It also finds the placed `Campfire01Burning` effect. Its ember layers
+retain authored palettes, while RND-52 preserves the central radial glow
+without a palette. The
 Godot capture entry point `godot/rnd_33_hearth_test.gd` extends the RND-38
 hearth check, which starts `godot/walkthrough.gd`. It selects every resident
 `FireplaceWood01Burning` effect and distortion layer from uploaded

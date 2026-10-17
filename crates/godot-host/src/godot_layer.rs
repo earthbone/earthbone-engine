@@ -45,6 +45,7 @@ use crate::units::{
 use soe_physics::{Iso, Vec3};
 
 mod object_animation;
+mod record_lights;
 
 mod console_pick;
 mod console_render;
@@ -204,6 +205,8 @@ pub struct CellStreamerNode {
     shader_particles: std::collections::BTreeMap<GlobalFormId, ShaderParticleInstance>,
     /// Point lights for active magic effects that placed LIGH references.
     runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
+    placed_lights: std::collections::BTreeMap<GlobalFormId, record_lights::PlacedLight>,
+    light_seconds: f64,
     /// The `CELL` each streamed exterior grid position resolved to, so
     /// `release_exterior_cell` can find that cell's instances by the grid
     /// coordinate `cell_unload_requested` carries.
@@ -929,6 +932,8 @@ impl INode3D for CellStreamerNode {
             spell_art: std::collections::BTreeMap::new(),
             shader_particles: std::collections::BTreeMap::new(),
             runtime_lights: std::collections::HashMap::new(),
+            placed_lights: std::collections::BTreeMap::new(),
+            light_seconds: 0.0,
             exterior_cells: std::collections::HashMap::new(),
             rendered_cells: std::collections::BTreeSet::new(),
             materials: MaterialMap::new(),
@@ -990,6 +995,7 @@ impl INode3D for CellStreamerNode {
         self.free_visual_effects();
         self.free_shader_particles();
         self.free_runtime_lights();
+        self.free_record_lights(None);
         self.clear_terrain_lod();
         self.clear_object_lod();
         self.clear_tree_lod();
@@ -1005,6 +1011,7 @@ impl INode3D for CellStreamerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        self.animate_record_lights(delta);
         self.advance_object_animations(delta as f32);
         self.advance_doors(delta as f32);
         let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
@@ -2092,6 +2099,7 @@ impl CellStreamerNode {
         });
         let mut server = RenderingServer::singleton();
         self.sync_runtime_lights(world, &mut server);
+        self.sync_record_lights(world);
         let mut touched_instances = std::collections::BTreeSet::new();
         for reference in &changed {
             if let Some(members) = self.reference_index.get(reference) {
@@ -3708,6 +3716,12 @@ impl CellStreamerNode {
                 .sum::<usize>()) as i32
     }
 
+    /// Authored light flags and submitted RIDs for capture and budget checks.
+    #[func]
+    pub fn record_light_instances(&self) -> Array<VarDictionary> {
+        self.record_light_rows()
+    }
+
     /// Number of point lights currently owned for active magic effects.
     #[func]
     pub fn runtime_light_count(&self) -> i32 {
@@ -3921,6 +3935,7 @@ impl CellStreamerNode {
             }
         }
         self.rendered_cells.remove(&owner);
+        self.free_record_lights(Some(owner));
         self.free_doors(&[owner]);
         self.deferred_references.retain(|_, cell| *cell != owner);
         if self.collision_cell == Some(owner) {
@@ -4712,6 +4727,7 @@ impl CellStreamerNode {
         self.free_effect_shaders();
         self.free_visual_effects();
         self.free_runtime_lights();
+        self.free_record_lights(None);
         self.exterior_cells.clear();
         self.ref_cache.clear();
         self.reference_changes = soe_game::world::ReferenceChanges::default();
@@ -4765,6 +4781,12 @@ impl CellStreamerNode {
         let visible = self.visible_cell(cell, loaded, world);
         self.register_cell(cell, &visible);
         self.add_cell(cell, &visible, scenario, totals);
+        if let Some(world) = world {
+            self.sync_record_lights(world);
+        } else if let Some(source) = &self.data_source {
+            let world = soe_game::World::from_shared_order(source.shared_order());
+            self.sync_record_lights(&world);
+        }
     }
 
     fn visible_cell(
@@ -6464,6 +6486,7 @@ fn material_for(
     } else if desc.landscape_lod_normals() {
         landscape_lod_material(desc, textures, &mut cache.textures, &cache.shaders).upcast()
     } else if desc.decal_depth().is_some()
+        || desc.emits_light()
         || desc.environment_texture().is_some()
         || desc.texture_transform.is_some()
     {
@@ -6855,7 +6878,7 @@ pub(crate) fn decal_shader(desc: &MaterialDesc) -> String {
         ""
     };
     let emission = if desc.emits_light() {
-        "EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, uv).rgb;"
+        "EMISSION = color.rgb * emission_color.rgb * emission_strength * texture(glow_texture, uv).rgb;"
     } else {
         ""
     };
