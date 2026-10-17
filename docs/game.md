@@ -10193,3 +10193,13 @@ additional tower-entry failure found stage 50 where the route requires
 stage 20. The capsule query therefore remains an explicit API. Automatic
 adoption needs collision-body dimensions and stance that agree with the
 gameplay path. The point-query behavior and every assertion are retained.
+
+The corrected installed run passes all 15 selected library checks, including
+the repeated capsule survey, and reports 35 passes and six failures among
+41 integration checks, exit status 101. The tower-entry regression passes.
+Each checkpoint failure retains one done-stage difference, missing 100,
+103 and 120. Quest flags and player inventory match. The second checkpoint
+pair has no differing field. Final scoped checks pass formatting, all-target
+clippy, 259 game library tests, 10 trigger checks and 55 probe tests. PLY-03
+remains in progress for furniture entry, saved enable state and agreement
+between trigger queries and the actor's collision body.
