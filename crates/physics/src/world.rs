@@ -35,11 +35,9 @@ pub struct BodyId(pub u32);
 /// the Havok scale. Skyrim's `fGravity` setting is close to this.
 pub const GRAVITY: f32 = 9.81 * crate::bhk::UNITS_PER_METER;
 
-/// The default movement type's speeds, in game units per real second. The
-/// package driver in `soe-game` walks actors at these, and they live here
-/// because physics is the lower crate: a controller cannot depend on the
-/// runtime that drives it. Race movement data is not read yet, so every
-/// actor moves at the default type's rates.
+/// Fallback speeds in game units per real second for a load order without
+/// MOVT records. Gameplay reads race movement types in `soe-game` and gives
+/// their directional rates to the controller.
 pub const WALK_SPEED: f32 = 110.0;
 pub const FAST_WALK_SPEED: f32 = 160.0;
 pub const JOG_SPEED: f32 = 180.0;

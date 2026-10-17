@@ -2133,6 +2133,8 @@ mod hst_26_activation;
 mod hst_26_adversarial;
 #[path = "hst_28_adversarial.rs"]
 mod hst_28_adversarial;
+#[path = "movement.rs"]
+mod movement;
 #[path = "scr_53_breaker3_adversarial.rs"]
 mod scr_53_breaker3_adversarial;
 #[path = "scr_53_breaker4_adversarial.rs"]

@@ -148,6 +148,7 @@ pub struct Snapshot {
     pub interval: Duration,
     pub behind_for: Duration,
     pub player: GlobalFormId,
+    pub player_movement: crate::movement::Profile,
     pub actors: BTreeMap<GlobalFormId, RefPlacement>,
     pub contacts: Arc<Vec<crate::world::ContactActor>>,
     pub appearances: Arc<BTreeMap<GlobalFormId, crate::appearance::ActorAppearance>>,
@@ -479,6 +480,7 @@ fn run(
                 .and_then(|cell| world.sky_frame(cell).ok().flatten());
         }
         sequence += 1;
+        let player_movement = game.world_mut().actor_movement(player);
         let world = game.world();
         let actors = contacts
             .iter()
@@ -515,6 +517,7 @@ fn run(
             interval,
             behind_for,
             player,
+            player_movement,
             actors,
             contacts: Arc::clone(&contacts),
             appearances: Arc::clone(&appearances),
@@ -556,6 +559,7 @@ mod tests {
                 file: 0,
                 object: 0x14,
             },
+            player_movement: crate::movement::Profile::default(),
             actors: BTreeMap::from([(
                 id(),
                 RefPlacement {

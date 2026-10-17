@@ -50,6 +50,7 @@ use soe_papyrus::{Value, VmError};
 
 use crate::actor_values::actor_value_name;
 use crate::clock::GameClock;
+use crate::movement::{race_override, speed_at};
 use crate::package::{
     condition, flags, speed, CompValue, Condition, Location, LocationData, Package, Schedule,
 };
@@ -105,7 +106,6 @@ pub struct PathQuery {
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const WKMV: Tag = Tag::new(b"WKMV");
 const RNMV: Tag = Tag::new(b"RNMV");
-const MTYP: Tag = Tag::new(b"MTYP");
 const SPED: Tag = Tag::new(b"SPED");
 
 /// What the chosen package makes the actor do.
@@ -383,35 +383,38 @@ pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
 }
 
 pub(crate) fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {
+    let Some((race, multiplier, encumbered)) = world.movement_modifiers(actor) else {
+        return movement_input(preferred).2;
+    };
+    let preferred = if encumbered { speed::WALK } else { preferred };
     let (default_tag, offset, fallback) = movement_input(preferred);
-    let Some(race) = world.actor(actor).and_then(|state| state.race) else {
-        return fallback;
-    };
-    let Some(record) = world
-        .record(race)
-        .filter(|record| record.tag == T(b"RACE") && !record.is_deleted())
-    else {
-        return fallback;
-    };
-    let Some(raw) = record.find(default_tag).and_then(form_id) else {
-        return fallback;
-    };
-    let Some(movement_type) = world.resolve_from(race, raw) else {
-        return fallback;
-    };
-    let Some(movement_record) = world
-        .record(movement_type)
-        .filter(|record| record.tag == T(b"MOVT") && !record.is_deleted())
-    else {
-        return fallback;
-    };
-    race_override(world, race, record, movement_type, offset)
-        .or_else(|| {
-            movement_record
-                .find(SPED)
-                .and_then(|data| speed_at(data, offset))
+    let base_speed = crate::movement::movement_type(world, race, default_tag)
+        .and_then(|movement_type| {
+            let movement_record = world
+                .record(movement_type)
+                .filter(|record| record.tag == T(b"MOVT") && !record.is_deleted())?;
+            race.and_then(|race| {
+                race_override(world, race, world.record(race)?, movement_type, offset)
+            })
+            .or_else(|| {
+                crate::movement::MovementType::from_record(movement_record)
+                    .ok()
+                    .map(|view| {
+                        if offset == 20 {
+                            view.run.forward
+                        } else {
+                            view.walk.forward
+                        }
+                    })
+                    .or_else(|| {
+                        movement_record
+                            .find(SPED)
+                            .and_then(|data| speed_at(data, offset))
+                    })
+            })
         })
-        .unwrap_or(fallback)
+        .unwrap_or(fallback);
+    base_speed * multiplier
 }
 
 fn movement_input(preferred: u8) -> (Tag, usize, f32) {
@@ -423,31 +426,8 @@ fn movement_input(preferred: u8) -> (Tag, usize, f32) {
     }
 }
 
-fn race_override(
-    world: &World,
-    race: GlobalFormId,
-    record: &soe_esm::Record,
-    movement_type: GlobalFormId,
-    offset: usize,
-) -> Option<f32> {
-    let mut current = None;
-    for subrecord in &record.subrecords {
-        if subrecord.tag == MTYP {
-            current = form_id(&subrecord.data).and_then(|raw| world.resolve_from(race, raw));
-        } else if subrecord.tag == SPED && current == Some(movement_type) {
-            return speed_at(&subrecord.data, offset);
-        }
-    }
-    None
-}
-
 fn form_id(data: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes(data.get(..4)?.try_into().ok()?))
-}
-
-fn speed_at(data: &[u8], offset: usize) -> Option<f32> {
-    let speed = f32::from_le_bytes(data.get(offset..offset + 4)?.try_into().ok()?);
-    (speed.is_finite() && speed > 0.0).then_some(speed)
 }
 
 /// The template chain of a package, innermost last: the package itself,
@@ -3185,6 +3165,16 @@ fn step_procedure(
     dt: f32,
     alloc: Alloc<'_>,
 ) {
+    if let Some(active_package) = ai.package {
+        let preferred = if ai.procedure == Procedure::Flee {
+            speed::RUN
+        } else {
+            package(world, active_package)
+                .filter(|package| package.has_flag(flags::PREFERRED_SPEED))
+                .map_or(speed::WALK, |package| package.general.preferred_speed)
+        };
+        ai.speed = movement_speed(world, actor, preferred);
+    }
     if ai.procedure == Procedure::UseWeapon && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         let target = world
             .loaded_actor_mut(actor)
@@ -4716,6 +4706,19 @@ mod tests {
             assert_eq!(speed_at(&data, 16), None);
         }
         assert_eq!(speed_at(&data[..19], 16), None);
+    }
+
+    #[test]
+    fn a_complete_movt_zero_rate_stops_the_package_actor() {
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        plugin.push_top(soe_esm::Record::new(T(b"MOVT"), 1).sub(SPED, vec![0; 44]));
+        plugin.push_top(soe_esm::Record::new(T(b"RACE"), 2).sub(RNMV, 1_u32.to_le_bytes()));
+        let mut order = soe_esm::LoadOrder::new();
+        order.add("zero.esp", plugin).unwrap();
+        let mut world = World::new(order);
+        let actor = world.player();
+        world.actor(actor).unwrap().race = Some(GlobalFormId { file: 0, object: 2 });
+        assert_eq!(movement_speed(&mut world, actor, speed::RUN), 0.0);
     }
 
     #[test]

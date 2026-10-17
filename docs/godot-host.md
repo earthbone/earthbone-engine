@@ -146,6 +146,39 @@ No parser, external dependency, saved section or per-reference node path is
 added. The timing probe and fixed acceptance limits are documented in
 [performance.md](performance.md#exterior-publication-prf-45-2026-10-15).
 
+## Player MOVT rates, HST-40
+
+The merge assigns HST-40 to the incoming MOVT row because preview3
+already uses HST-36 for adult FaceGen materials. Both rows and their
+evidence survive. Historical test names retain their original labels.
+
+PlayerNode gives the input driver the player's live race movement view from
+`soe-game`. The inline path reads World directly. The threaded path consumes
+the same derived view in each simulation snapshot, including SpeedMult and
+carry-limit changes. Forward, backward and strafe rates come from MOVT rather
+than the old fixed 160-unit walk, 180-unit jog and 375-unit sprint.
+
+Shift inverts always-run, Caps Lock toggles it and Left Alt selects sprint.
+Sneaking takes precedence and uses the sneak MOVT walk/run pair. Encumbrance
+limits movement to walking and clears the sprint signal. Stick magnitude
+scales the selected directional rate without increasing diagonal speed.
+The standalone `Driver::update` API retains its historical fallback profile
+for callers without a load order. Gameplay uses `update_with_movement`.
+
+Input tests cover those key-driven gait choices in all four directions and
+the encumbered sprint signal. A zero sprint strafe rate removes that velocity
+component even under diagonal input. Source layouts and the installed record check
+are documented in [game.md](game.md). The existing PC controlmap bindings
+and Godot key translation are retained. No reference node or dependency is
+added. Interactive walking and sprint stamina consumption were not measured.
+
+Validation passes 1,898 library cases across game, host and physics, plus
+4,285 game integration cases with four existing ignored cases and all six
+host patrol regressions. Formatting and Clippy with all features, all targets
+and warnings denied pass for the touched crates. The installed movement
+suite checks ten cases with DLC masters. Nord's forward rates are 80.1 walk,
+370 run, 500 sprint and 47.2/222 sneak. The workspace gate remains with the lead.
+
 ## Character corrections, 2026-10-13
 
 The watched `735176dff` play path exposed three character integration bugs.
@@ -2320,10 +2353,10 @@ activate on release. Telekinesis retains its separate input path.
 The carry target stays at the captured eye-ray distance in front of the
 camera. The body remains rigid with its existing collision layer, mask,
 gravity and velocity. Each fixed step applies a central impulse from a damped
-spring between the hit anchor and that target. The spring uses acceleration
-100 times displacement minus 20 times velocity, compensates the body's current
-host gravity, bounds acceleration to 80 metres per second squared and bounds
-its impulse timestep to 1/30 second. Release stops applying impulses and keeps
+spring between the hit anchor and that target. HST-33 replaces the mass-scaled
+acceleration with a bounded force spring, described below. It compensates the
+body's current host gravity within the force budget and bounds its impulse
+timestep to 1/30 second. Release stops applying impulses and keeps
 the body's linear and angular momentum. Jolt continues to resolve collisions
 while held and after the drop. Simulated poses reach the existing World
 reference fields and the renderer through HST-12's sync path.
@@ -2354,6 +2387,53 @@ carries the tankard two metres, releases with momentum, checks table or floor
 contact and settling, compares World and rendering poses, checks focus-loss
 release, then taps to pick up the dropped item. It captures
 `target/hst-22-carry.png`, writes `target/hst-22-scene.log` and quits.
+
+### Grab weight, HST-33
+
+The old spring multiplied its capped acceleration by body mass, so every
+object accelerated alike. The spring now uses stiffness 200 newtons per metre
+and damping 40 newton seconds per metre. It integrates the spring implicitly
+over the bounded timestep so very light NIF bodies remain stable. Gravity
+compensation is added before the total force is capped. Impulse is force
+times timestep, without a final mass multiplier. Heavy objects accelerate
+more slowly and can sag when their weight exceeds the available force.
+
+The force ceiling reads `fZKeyMaxForce` through `World::game_setting` each
+held step. Winning plugin records and live script overrides therefore reach
+the host without a second settings table. Missing, negative or non-finite
+values fall back to 100. Zero supplies no force. NIF mass already reaches
+Godot's body mass through `placed_cell_colliders` and the resident RID builder.
+No saved state, dependency or per-reference node is added.
+
+The installed Skyrim.esm survey uses `soe-esm`, with no game executable reads.
+It finds `fZKeyMaxForce` at 100 and `fZKeyMaxForceWeightHigh` at 150. The local
+sources do not establish vanilla's force interpolation or Havok constraint
+units. Using the first value as a Newton ceiling is this host's approximation,
+and the weight-high setting is reported without inventing an interpolation.
+This change establishes mass response, not exact vanilla constraint parity.
+
+References read: `uesp-modfileformat/GMST.wikitext` and xEdit's
+`TES5Edit/Core/wbDefinitionsTES5.pas` GMST definition establish EDID-selected
+DATA types. `nifxml/nif.xml`'s `bhkRigidBodyCInfo2010` defines mass in kilograms.
+Godotwind's `src/core/interaction/carry_controller.gd` uses a velocity drive,
+which would bypass the required weight response here. Existing readers and
+the server-body spring are reused rather than adding a parser or node path.
+
+The `hst_33_` tests compare 1 kg and 10 kg bodies after 0.25 seconds toward
+a target one metre away. Their declared limits are below 0.4 metre error for
+the light body, above 0.6 metre for the heavy body and more than twice the
+light body's error. They also check light-body stability, the total force
+ceiling including gravity, winning and live GMST overrides, invalid values,
+and installed Bannered Mare NIF masses with the installed force setting.
+
+All four cases pass with installed data. The survey covers 272 dynamic
+colliders from 0.2 to 84 kilograms. At 0.25 seconds their follow errors are
+0.292 and 0.962 metres. The synthetic 1 and 10 kilogram bodies report 0.296
+and 0.685 metres. The unchanged HST-22 Godot regression passes both cases,
+carrying the tankard 2.032 metres, blocking it at the wall, retaining release
+momentum, landing and picking it up again. The shared release build and
+headless Godot import pass. Scoped library and Clippy results are recorded
+in the movement section above. The workspace gate remains with the lead.
 
 ### Destruction-stage models, CMB-37
 

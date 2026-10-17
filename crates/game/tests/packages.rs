@@ -825,6 +825,39 @@ fn a_race_without_override_uses_its_base_movement_type() {
 }
 
 #[test]
+fn package_movement_applies_live_speedmult_and_carry_limit() {
+    let mut game = game_at_hour(13.0);
+    let guard = game.form("GuardRef").unwrap();
+    tick(&mut game, 0.1);
+    let baseline = game.world().actor_ref(guard).unwrap().ai.speed;
+    game.world_mut()
+        .set_actor_value(guard, "speedmult", 150.0)
+        .unwrap();
+    tick(&mut game, 0.1);
+    assert_eq!(
+        game.world().actor_ref(guard).unwrap().ai.speed,
+        baseline * 1.5
+    );
+    game.world_mut()
+        .set_actor_value(guard, "carryweight", 10.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(guard, "inventoryweight", 11.0)
+        .unwrap();
+    tick(&mut game, 0.1);
+    let movement = game.world_mut().actor_movement(guard);
+    assert_eq!(
+        game.world().actor_ref(guard).unwrap().ai.speed,
+        movement.speed(soe_game::movement::Gait::Walk, 0.0, 1.0)
+    );
+    game.world_mut()
+        .set_actor_value(guard, "speedmult", 0.0)
+        .unwrap();
+    tick(&mut game, 0.1);
+    assert_eq!(game.world().actor_ref(guard).unwrap().ai.speed, 0.0);
+}
+
+#[test]
 fn a_preferred_run_uses_the_race_run_movement_type() {
     let mut game = game_at_hour(13.0);
     let guard = game.form("GuardRef").unwrap();

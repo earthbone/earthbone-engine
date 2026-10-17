@@ -51,6 +51,7 @@ pub mod loot;
 pub mod magic_profile;
 pub mod mcm;
 pub mod moddata;
+pub mod movement;
 pub mod music;
 pub mod natives;
 pub mod npc;

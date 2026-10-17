@@ -1483,7 +1483,11 @@ impl PlayerNode {
         }
 
         let camera = self.rig;
-        let intent = self.driver.update(&input, &camera);
+        let movement = self.game.as_mut().map_or_else(Default::default, |game| {
+            let player = game.player();
+            game.world_mut().actor_movement(player)
+        });
+        let intent = self.driver.update_with_movement(&input, &camera, &movement);
         let before = self.feet();
         let was_grounded = self.character().is_some_and(|c| c.on_ground);
         let paralyzed = self.game.as_mut().is_some_and(|game| {

@@ -885,3 +885,10 @@ maxima of 1.486 and 1.999 ms, down from 275.523 and 383.831 ms. The 33 ms
 limit was added before these after measurements. The release library build,
 package formatting and all-target physics and host Clippy passed. Full workspace
 validation is assigned to the lead by the consolidated task.
+
+## MOVT speed ownership, HST-40
+
+The movement constants in `world.rs` remain fallback rates for callers
+without MOVT records. Gameplay supplies directional race movement rates and
+live actor modifiers from `soe-game`, documented in [game.md](game.md).
+The capsule still consumes a direction and speed without reading game forms.

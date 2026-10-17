@@ -570,6 +570,7 @@ impl CellBodies {
         anchor: Vector3,
         target: Vector3,
         delta: f32,
+        max_force: f32,
     ) -> bool {
         let Some(entry) = self
             .movable
@@ -602,6 +603,7 @@ impl CellBodies {
             vector(gravity),
             mass,
             delta,
+            max_force,
         ) else {
             return false;
         };

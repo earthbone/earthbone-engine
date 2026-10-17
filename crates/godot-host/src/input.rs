@@ -2,7 +2,7 @@
 
 //! Input, from the vanilla `controlmap.txt` to a frame of movement intent.
 //!
-//! No engine dependency here. The Godot layer reads devices and fills an
+//! The Godot layer reads devices and fills an
 //! [`InputState`], this module turns that into an [`Intent`] the character
 //! controller can be driven with, and nothing about Godot reaches the rules.
 //!
@@ -26,7 +26,11 @@
 
 use std::collections::BTreeMap;
 
-use soe_physics::{Vec3, FAST_WALK_SPEED, JOG_SPEED, RUN_SPEED, WALK_SPEED};
+use soe_game::movement::{Gait, Profile};
+use soe_physics::Vec3;
+
+#[cfg(test)]
+use soe_physics::{FAST_WALK_SPEED, JOG_SPEED, RUN_SPEED, WALK_SPEED};
 
 use crate::camera::CameraRig;
 
@@ -654,7 +658,7 @@ pub struct Intent {
 /// always-run and sneak are state rather than momentary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Driver {
-    /// Vanilla ships this on, so a fresh player jogs rather than walks.
+    /// Vanilla ships this on, so a fresh player runs.
     pub always_run: bool,
     pub sneaking: bool,
 }
@@ -672,6 +676,21 @@ impl Driver {
     /// controller should do. The camera supplies the facing, so movement is
     /// relative to the view exactly as it is in the real game.
     pub fn update(&mut self, input: &InputState, camera: &CameraRig) -> Intent {
+        // CONTEXT: Standalone controllers without a load order retain their
+        // historical fallback rates. Gameplay supplies the actor's MOVT view.
+        let mut fallback = Profile::default();
+        fallback.walk.walk = fallback.walk.run;
+        fallback.run.run = fallback.run.walk;
+        self.update_with_movement(input, camera, &fallback)
+    }
+
+    /// Apply the actor's record-backed directional speeds and live modifiers.
+    pub fn update_with_movement(
+        &mut self,
+        input: &InputState,
+        camera: &CameraRig,
+        movement: &Profile,
+    ) -> Intent {
         if input.toggle_always_run_pressed {
             self.always_run = !self.always_run;
         }
@@ -679,31 +698,35 @@ impl Driver {
             self.sneaking = !self.sneaking;
         }
 
-        let direction = camera.move_direction(input.move_x, input.move_y);
-        let moving = input.is_moving();
-
-        // Sneaking is slowest and beats everything. Sprint beats the run and
+        // Sneaking beats sprint input. Sprint beats the run and
         // walk pair. The walk key inverts whatever always-run is set to, so
         // holding it while always-run is on gives a walk and holding it while
-        // always-run is off gives a jog.
-        let speed = if !moving {
-            0.0
-        } else if self.sneaking {
-            WALK_SPEED
+        // always-run is off gives a run.
+        let running = self.always_run != input.walk;
+        let gait = if self.sneaking {
+            if running {
+                Gait::SneakRun
+            } else {
+                Gait::SneakWalk
+            }
         } else if input.sprint {
-            RUN_SPEED
-        } else if self.always_run != input.walk {
-            JOG_SPEED
+            Gait::Sprint
+        } else if running {
+            Gait::Run
         } else {
-            FAST_WALK_SPEED
+            Gait::Walk
         };
+        let [right, forward] = movement.velocity(gait, input.move_x, input.move_y);
+        let direction = camera.move_direction(right, forward);
+        let speed = right.hypot(forward);
+        let moving = speed > 1e-6;
 
         Intent {
             direction,
             speed: speed * input.move_x.hypot(input.move_y).min(1.0),
             // A sneaking character cannot jump, which is vanilla.
             jump: input.jump_pressed && !self.sneaking,
-            sprinting: moving && input.sprint && !self.sneaking,
+            sprinting: moving && input.sprint && !self.sneaking && !movement.encumbered,
             crouch: self.sneaking,
             activate: input.activate_pressed,
         }
@@ -1042,6 +1065,108 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
         };
         assert_eq!(drive(&mut d, press).speed, FAST_WALK_SPEED);
         assert_eq!(drive(&mut d, press).speed, JOG_SPEED);
+    }
+
+    #[test]
+    fn movt_rates_follow_shift_alt_caps_lock_and_sneak_in_each_direction() {
+        use soe_game::movement::{Directions, MovementType};
+        let walk = Directions {
+            left: 60.0,
+            right: 70.0,
+            forward: 100.0,
+            back: 50.0,
+        };
+        let run = Directions {
+            left: 200.0,
+            right: 220.0,
+            forward: 300.0,
+            back: 180.0,
+        };
+        let sprint = Directions {
+            left: 350.0,
+            right: 360.0,
+            forward: 600.0,
+            back: 250.0,
+        };
+        let profile = Profile {
+            walk: MovementType { walk, run },
+            run: MovementType { walk, run },
+            sprint: MovementType { walk, run: sprint },
+            sneak: MovementType { walk, run },
+            multiplier: 1.5,
+            encumbered: false,
+        };
+        for (x, y) in [(-1.0, 0.0), (1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+            let mut driver = Driver::new();
+            let mut input = InputState {
+                move_x: x,
+                move_y: y,
+                ..Default::default()
+            };
+            let mut update = |input: &InputState| {
+                driver.update_with_movement(input, &CameraRig::default(), &profile)
+            };
+            assert_eq!(update(&input).speed, run.speed(x, y) * 1.5);
+            input.walk = true;
+            assert_eq!(update(&input).speed, walk.speed(x, y) * 1.5);
+            input.toggle_always_run_pressed = true;
+            assert_eq!(update(&input).speed, run.speed(x, y) * 1.5);
+            input.toggle_always_run_pressed = false;
+            input.walk = false;
+            assert_eq!(update(&input).speed, walk.speed(x, y) * 1.5);
+            input.sprint = true;
+            assert_eq!(update(&input).speed, sprint.speed(x, y) * 1.5);
+            input.sneak_pressed = true;
+            assert_eq!(update(&input).speed, walk.speed(x, y) * 1.5);
+            input.sneak_pressed = false;
+            input.walk = true;
+            assert_eq!(update(&input).speed, run.speed(x, y) * 1.5);
+        }
+    }
+
+    #[test]
+    fn encumbered_movt_profile_walks_and_clears_the_sprint_signal() {
+        let movement = Profile {
+            encumbered: true,
+            ..Profile::default()
+        };
+        let input = InputState {
+            sprint: true,
+            ..forward()
+        };
+        let intent = Driver::new().update_with_movement(&input, &CameraRig::default(), &movement);
+        assert_eq!(intent.speed, movement.speed(Gait::Walk, 0.0, 1.0));
+        assert!(!intent.sprinting);
+    }
+
+    #[test]
+    fn movt_zero_strafe_rate_keeps_diagonal_sprint_velocity_forward() {
+        use soe_game::movement::Directions;
+        let mut movement = Profile::default();
+        movement.sprint.run = Directions {
+            left: 0.0,
+            right: 0.0,
+            forward: 500.0,
+            back: 270.84,
+        };
+        let camera = CameraRig::default();
+        let input = InputState {
+            move_x: 1.0,
+            move_y: 1.0,
+            sprint: true,
+            ..Default::default()
+        };
+        let diagonal = Driver::new().update_with_movement(&input, &camera, &movement);
+        assert_eq!(diagonal.direction, camera.move_direction(0.0, 1.0));
+        assert!((diagonal.speed - 500.0 / 2.0_f32.sqrt()).abs() < 1e-4);
+        let sideways = InputState {
+            move_y: 0.0,
+            ..input
+        };
+        let stopped = Driver::new().update_with_movement(&sideways, &camera, &movement);
+        assert_eq!(stopped.speed, 0.0);
+        assert_eq!(stopped.direction, Vec3::ZERO);
+        assert!(!stopped.sprinting);
     }
 
     #[test]

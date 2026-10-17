@@ -18,7 +18,14 @@ impl PlayerNode {
         let (dx, dy) = std::mem::take(&mut self.pending_look);
         self.rig.look(dx, dy);
         let input = self.gather();
-        let intent = self.driver.update(&input, &self.rig);
+        let fallback = soe_game::movement::Profile::default();
+        let movement = self
+            .simulation_pair
+            .as_ref()
+            .map_or(&fallback, |pair| &pair.current.player_movement);
+        let intent = self
+            .driver
+            .update_with_movement(&input, &self.rig, movement);
         if let (Some(world), Some(character)) = (self.world.as_mut(), self.character) {
             world.set_crouch(character, intent.crouch);
             let (direction, speed, jump) = super::player_locomotion(intent, false);

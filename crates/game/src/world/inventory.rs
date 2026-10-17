@@ -39,6 +39,37 @@ enum ReferenceSource {
 }
 
 impl World {
+    /// Sum the shared inventory's current quantities using winning item weights.
+    /// An explicit InventoryWeight actor value takes precedence in actor_movement.
+    #[must_use]
+    pub fn carried_weight(&self, actor: GlobalFormId) -> f32 {
+        let Some(reference) = self.reference_ref(actor) else {
+            return 0.0;
+        };
+        let mut items: Vec<_> = reference.inventory.iter().collect();
+        items.sort_unstable_by_key(|(item, _)| **item);
+        items
+            .into_iter()
+            .map(|(item, count)| {
+                let Some(record) = self.record(*item) else {
+                    return 0.0;
+                };
+                let weight = match record.tag.as_bytes() {
+                    b"WEAP" => self
+                        .combat_weapon_source(*item)
+                        .ok()
+                        .map(|(_, weapon)| weapon.weight),
+                    b"ARMO" => self
+                        .combat_armor_record(*item)
+                        .ok()
+                        .and_then(|armor| armor.weight),
+                    _ => item_weight(record),
+                };
+                weight.unwrap_or(0.0) * count.max(0) as f32
+            })
+            .sum()
+    }
+
     /// Exchange an exact quantity of merchandise and currency between two
     /// holders after preparing all four inventory changes.
     ///
@@ -974,4 +1005,23 @@ impl World {
         }
         moved
     }
+}
+
+fn item_weight(record: &Record) -> Option<f32> {
+    let offset = match record.tag.as_bytes() {
+        b"WEAP" | b"ARMO" | b"MISC" | b"INGR" | b"KEYM" | b"SCRL" | b"SLGM" | b"APPA" => 4,
+        b"BOOK" => 12,
+        b"ALCH" => 0,
+        b"AMMO" => 16,
+        b"LIGH" => 44,
+        _ => return None,
+    };
+    let value = f32::from_le_bytes(
+        record
+            .find(Tag(*b"DATA"))?
+            .get(offset..offset + 4)?
+            .try_into()
+            .ok()?,
+    );
+    (value.is_finite() && value >= 0.0).then_some(value)
 }

@@ -149,6 +149,10 @@ impl PlayerNode {
         let eye = self.rig.head(self.feet(), self.capsule_height());
         let target = eye + self.rig.look_direction() * carry.distance;
         let target = SkyrimPos::new(target.x, target.y, target.z).to_godot();
+        let max_force = self
+            .game
+            .as_ref()
+            .map_or(0.0, |game| crate::carry::max_force(&game.world()));
         let applied = enabled
             && self.game_streamer.as_ref().is_some_and(|streamer| {
                 streamer.bind().spring_carry(
@@ -156,6 +160,7 @@ impl PlayerNode {
                     carry.anchor,
                     Vector3::new(target.x, target.y, target.z),
                     delta as f32,
+                    max_force,
                 )
             });
         if !applied {
