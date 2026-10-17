@@ -109,7 +109,11 @@ impl SkyRecords {
         let result = if let Some(player) = &mut self.player {
             player.bind_mut().sky_frame_for_host()
         } else if let Some(world) = &mut self.preview {
-            let cell = world.cell_by_editor_id(&cell_name.to_string());
+            let cell = self
+                .source
+                .as_ref()
+                .and_then(|source| source.resolve_cell(&cell_name.to_string()))
+                .or_else(|| world.cell_by_editor_id(&cell_name.to_string()));
             cell.map_or_else(
                 || Err(soe_papyrus::VmError::State("missing sky cell".into())),
                 |cell| world.sky_frame(cell),
