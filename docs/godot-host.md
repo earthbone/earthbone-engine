@@ -9431,20 +9431,20 @@ behavior for an occupied depth. Existing truncated-input and
 unterminated-sprite assertions are unchanged. Details and the Ruffle source
 reference are in [swf-convert.md](swf-convert.md).
 
-Before the art-policy split, ten unchanged adversarial checks and the new
-closed-sprite and matrix regressions pass. That survey stops at the loading
-menu's root mismatch. A separate read-only envelope survey confirms it is
-the only root mismatch in the 35-movie fixture. The final combined test,
-clippy and cargo-format retries were canceled with exit 130 while waiting
-in the run wrapper's resource guards. They produced no final-policy result.
-Direct rustfmt passes. The missing-Java live retry was also canceled while
-waiting for the shared installed-test slot, without a notice result.
+The final art-policy run passes four regressions, including all 35 NORDIC
+movies, ten unchanged adversarial checks and three converter library tests.
+It retains exactly four short sprites and the loading menu's one short root.
+The cache regression proves the strict parser still rejects a root mismatch
+while the art cache retains both counts. Both crates pass all-target clippy
+and cargo formatting. The host library passes 532 tests, with installed-data
+gates unset. The missing-Java live retry was canceled while waiting for the
+shared installed-test slot, without a notice result.
 
-The release build and Godot import pass for UI-20's preceding font fixes,
-but that build predates the final UI-30 conversion changes. UI-30 remains
-in progress for the final-policy checks, a rebuilt extension and the
-inventory, container, magic, map, journal and HUD theme captures. No art or
-source from the installs was added to the checkout.
+The final release extension build and Godot import pass after the art-policy
+checks. UI-30 remains in progress for the live missing-Java notice,
+installed font binding and the inventory, container, magic, map, journal
+and HUD theme captures. UI-20's authored control placement and chrome remain
+unfinished. No art or source from the installs was added to the checkout.
 
 The exporter promotes the existing tempfile dependency from test scope to
 runtime scope. Cargo tree shows no newly resolved package. It remains the
@@ -9478,3 +9478,37 @@ Those library runs leave SKYRIM_DATA unset, so installed-data cases return
 early. The focused MCM checks set the external SkyUI and NORDIC fixture paths.
 Clippy with all targets and crate formatting pass. The release extension and
 Godot import pass. The full lead gate was not run, as instructed.
+
+## UI chain follow-up validation, 2026-10-17
+
+On `lead/ui-swf`, `8e869d0b` adds cache import resolution, configured fonts
+and numeric FontFile styles. `4f4a1d7a` adds bounded NORDIC art conversion
+without changing strict root-frame rejection. The final checks pass 532 host
+and three converter library tests, with installed-data gates unset. All-target
+clippy and cargo formatting pass for both crates. Four converter regressions,
+including all 35 NORDIC movies, and ten unchanged adversarial checks pass.
+The earlier seven UI-20 converter checks and both standalone Godot scenes
+also pass. Both external mod variables stay set for the focused runs.
+
+The final release build passes in 4 minutes 51 seconds. The extension is newer
+than the converter source, and Godot import exits successfully. No dependency,
+saved state or per-reference node path was added. The full lead gate was not
+run, as instructed.
+
+Windowed retry results are separate from those checks:
+
+| Check | Observed result |
+| --- | --- |
+| UI-20 installed scene | Canceled without a scene result while queued |
+| UI-30 missing-Java notice | Canceled without a notice result while queued |
+| UI-05 lifecycle | Monitored cargo wrapper blocked in flock on installed-0.lock before Cargo started |
+| UI-11 options | Reached compilation, canceled with exit 130 before a scene result |
+| UI-13 dialogs | Canceled with exit 130 without a scene result |
+| UI-29 camera | Monitored cargo wrapper blocked on installed-0.lock, stopped before Cargo started |
+
+The monitored retries inspect only their own process trees. They show the
+wrapper waiting in `flock 8`, with the shared slot occupied. The bounded
+UI-29 retry stops its own process group and reports exit 130. These are
+unavailable scene checks, not passing captures. UI-05, UI-11, UI-13 and UI-29
+therefore stay in progress. UI-19 and UI-23 retain their earlier completion
+evidence. UI-20 and UI-30 retain the visual gaps described above.

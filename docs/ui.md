@@ -2,8 +2,9 @@
 
 The native Godot menus and the later SWF execution track share load-order
 asset resolution. UI-19 converts winning art and retains JPEXS ActionScript
-outside the checkout. It does not execute ActionScript. UI-20 and UI-30 still
-need imported movie and font binding before their visual checks can pass.
+outside the checkout. It does not execute ActionScript. UI-20 resolves cached
+imports and configured font families. Authored control placement and the
+full UI-20 and UI-30 theme comparisons remain unfinished.
 The MCM bridge executes original Papyrus scripts through the shared Game VM.
 
 UI-23's execution research lives in

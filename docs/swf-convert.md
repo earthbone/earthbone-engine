@@ -113,7 +113,14 @@ combination, while
 ignores it on an occupied depth. The converter validates its complete matrix
 through Ruffle with a temporary move flag, then retains tag 26 as a diagnostic
 without changing the display list. It accepts only the matrix-only form.
-The temporary buffer's 29-byte bound follows the flag and depth fields plus
+The temporary buffer's bound of 29 bytes follows the flag and depth fields plus
 the matrix's maximum 203 bits. Truncated and trailing data remain errors.
 The regression uses authored synthetic transforms and checks that the prior
 placement survives. No installed layout bytes are included in the test.
+
+The final 2026-10-17 run passes all four UI-30 regressions, including the
+35-movie NORDIC survey, ten existing adversarial checks and three library
+tests. Exactly four short sprites and the loading menu's short root remain
+visible in metadata. All-target clippy and crate formatting pass. The earlier
+seven UI-20 checks also pass, including the Godot font-style round trip.
+This validates conversion and resource loading, not complete menu rendering.
