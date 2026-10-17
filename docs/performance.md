@@ -1,5 +1,199 @@
 # Performance
 
+## Exterior publication, PRF-45, 2026-10-15
+
+The initial `lead/perf-exterior` pass starts at preview2, `a621c939b`.
+Its changes are continued with the terrain fixes on `lead/whiterun-lod`.
+The machine is a Ryzen 9 7900X with 24 logical CPUs and 64 GiB RAM.
+Automated rendering uses stock Godot 4.4.1, Xvfb :99 and llvmpipe
+LLVM 22.1.8 at 640 by 360. These software Vulkan frame times are not
+measurements of the user's RTX 5070 Ti. Other agents share memory and storage.
+The installed-data slot serializes Godot scenarios. CPU trace runs overlapped
+portions of the software baseline. These are diagnostic observations on a
+shared machine, rather than an idle-machine speedup comparison.
+Cargo wrappers hold compilation
+when an installed scenario leaves less than 24 GiB available.
+
+The 2026-10-14 play captures from process 1410207, between 17:38 and 17:46,
+include a 425.148 ms `cell_streaming` span and a 417.492 ms
+`host.stream_cell` span. Their upload logs report 90.453, 65.052 and
+46.130 ms cells against the existing 33 ms upload budget.
+The three costs addressed here are synchronous cell and distant-model
+preparation followed by whole-cell publication, first-use rendering variants,
+and repeated inline game work during physics catch-up.
+PRF-29's pipeline counter observations identify frame intervals containing
+compilation. The reported 50 to 67 ms intervals are not compiler durations.
+The existing telemetry does not measure the compiler separately.
+
+`soe-bench --runs 3 trace exterior <cell>` measured both three by three
+blocks before the runtime edits. These first CPU runs used the debug binary,
+with timing capture enabled. They measure asset preparation and exclude Godot.
+The source uses the five base masters. Inclusive worker spans overlap.
+
+| CPU block | References | Meshes | Triangles | One worker median s | 24 workers median s |
+|---|---|---|---|---|---|
+| WhiterunExterior04 | 1,013 | 632 | 402,440 | 13.330 | 3.322 |
+| WhiterunExterior01 | 1,332 | 928 | 552,895 | 17.135 | 3.731 |
+
+Texture and archive work dominate those captures. WhiterunExterior04 records
+81,880.727 ms of texture decode and 83,403.510 ms of VFS reads across all
+samples and workers, compared with 1,602.765 ms of NIF parsing.
+WhiterunExterior01 records 103,960.725, 106,338.593 and 2,408.970 ms.
+These totals are inclusive CPU intervals, not shares of block wall time.
+This row changes when preparation runs, rather than its decoder algorithms.
+
+The after CPU traces used the same debug command and three samples, serialized
+through the installed-data slot. References, meshes and triangles match the
+before runs exactly, with zero mesh failures at both locations.
+
+| CPU block | Before one worker s | After one worker s | Before 24 workers s | After 24 workers s |
+|---|---|---|---|---|
+| WhiterunExterior04 | 13.330 | 12.652 | 3.322 | 2.965 |
+| WhiterunExterior01 | 17.135 | 15.697 | 3.731 | 3.083 |
+
+The reader implementation is unchanged. Different contention and cache
+conditions can explain these timing changes. These figures do not establish
+a decoder speedup. The after logs and Chrome traces are retained in
+`/run/media/pengolodh/Data/soe-build/wt/lead-perf/target/prf40-after-cpu`.
+
+The fixed probe starts the ordinary walkthrough in the Bannered Mare,
+enters each Tamriel exterior near its eastern CELL edge, samples 360 rendered
+frames, and releases Forward after frame 180. It retains raw samples and
+requires movement and a CELL boundary crossing. The release baseline uses a
+private copy of the preview2 extension. Its two processes exited zero.
+
+| Before | Wall p50 ms | Wall p99 ms | Streaming p50 ms | Streaming p99 ms | Streaming worst ms | Physics steps per frame |
+|---|---|---|---|---|---|---|
+| WhiterunExterior04 | 283.354 | 3,038.580 | 1.740 | 14.153 | 1,231.463 | 2 |
+| WhiterunExterior01 | 404.219 | 1,344.144 | 1.691 | 425.428 | 1,758.613 | 2 |
+
+The corresponding physics-sync worst times were 1,101.456 and 1,039.907 ms.
+The pipeline deltas were 12 and 8 surface compilations, 36 and 34 background
+specializations, and zero draw compilations. The first probe's three-dimensional
+displacement includes a large height change. It is timing evidence and does
+not certify grounded walking or collision correctness.
+Baseline JSON, logs and Chrome traces are in
+`/run/media/pengolodh/Data/soe-build/wt/lead-perf/target/prf40-before`.
+
+Publication now has one shared 8 ms allowance per presentation frame.
+One indivisible Godot upload may cross it. Later near and distant work receives
+no allowance until the next frame. Material batches, instancing and triangle
+owners retain their old grouping. Walking preparation and distant asset reads
+use workers, while host resources remain on the presentation thread.
+Collision queries are installed in chunks of 32. A cell is acknowledged as
+drawable only after its publication and collision work finishes.
+Old distant RIDs remain visible until their replacement has completed.
+The ordinary synchronous API and explicit whole-cell triangle and byte limits
+retain their existing behavior.
+
+Walking starts LOD selection without settling every block in one callback.
+The existing incremental LOD calls then populate the configured radius,
+including the radius 96 Full LOD path. Pending geometry does not count as
+acknowledged near coverage. Rendering warm-up follows gameplay, actor appearance
+and the record sky, under a loading cover. Shared custom shader RIDs stay in
+the streamer cache across cell retirement, while unused materials and textures
+are still pruned. The inline path allows one physics tick per rendered frame.
+Below 60 FPS, simulation falls behind wall time instead of repeating whole
+game ticks to catch up.
+
+Sources read were local `godot-docs/tutorials/performance/pipeline_compilations.rst`,
+`godot-docs/classes/class_engine.rst`, and
+`godotwind/src/core/world/interior_pocket_manager.gd`, particularly its
+budgeted attach step. Mudcrab's acknowledged drawable lifecycle is already
+the host planner's source. The Rust queue uses the existing batching and
+server upload functions. No dependency, saved field or per-reference node
+path is added.
+
+The acceptance check is
+`prf_40_installed_exterior_uploads_and_physics_are_bounded`.
+Its fixed limits are uploads below 33 ms, at most one physics step, zero draw
+compilations, 360 samples, horizontal movement above 128 units and a boundary
+crossing at both locations. New foreground draw pipelines fail the check.
+Background specialization counts are reported separately.
+The repeated installed check passed both locations. Both Godot processes
+exited zero with the walkthrough shutdown marker. Each sampled 360 frames.
+
+| After | Wall p50 ms | Wall p99 ms | Streaming p50 ms | Streaming p99 ms | Streaming worst ms | Physics steps per frame |
+|---|---|---|---|---|---|---|
+| WhiterunExterior04 | 256.824 | 505.211 | 9.958 | 56.409 | 85.165 | 1 |
+| WhiterunExterior01 | 371.107 | 639.745 | 7.889 | 216.335 | 217.195 | 1 |
+
+| After | Upload worst ms | Upload slices during samples | Physics-sync worst ms | Surface compilations | Background specializations | Draw compilations |
+|---|---|---|---|---|---|---|
+| WhiterunExterior04 | 21.575 | 7 | 242.256 | 8 | 36 | 0 |
+| WhiterunExterior01 | 24.117 | 173 | 302.669 | 6 | 34 | 0 |
+
+Startup warmed 21 custom shader variants, all retained across the cell clear.
+The traversals ended with 64 and 63 cached variants. Background specialization
+and surface compilation still occur. These counters do not establish compiler
+duration or prove that every exterior variant was warmed at startup.
+Both upload maxima satisfy the declared 33 ms limit, with the shared 8 ms
+allowance yielding between indivisible resource uploads.
+
+WhiterunExterior04 moved 540 horizontal units and crossed from CELL 95FC to
+95FB. Its large downward displacement and ungrounded final state exclude it
+as evidence of grounded walking. WhiterunExterior01 moved 446.652 horizontal
+units, crossed from 961B to 961A and ended grounded. Both retained 26 resident
+cells. Raw samples and child logs from that pass are in
+`/run/media/pengolodh/Data/soe-build/wt/lead-perf/target/prf40-after`.
+Reducing catch-up also changes simulated time per rendered sample, so these
+wall-time percentiles are not a fixed-distance simulation speed comparison.
+
+Streaming outside the upload allowance and individual physics-sync callbacks
+still exceed 33 ms. PRF-46 and PRF-47 track attribution and bounded work for
+those costs. This row does not establish a complete exterior frame budget
+or hardware GPU frame rate.
+
+Package formatting, all-target Clippy with warnings denied and the release
+library build passed. The host library suite reported 535 passes with
+installed-data variables unset, including five new pure regression checks.
+The separate installed acceptance reported one pass, 534 filtered tests and
+288.22 seconds. The full workspace gate was left to the lead as requested.
+
+The first installed acceptance attempt failed its movement and CELL-crossing
+assertions. It recorded a 19.757 ms upload maximum and one physics step, but
+zero horizontal displacement. Those frame percentiles are not accepted after
+results. The capture is retained in `target/prf40-after/attempt-1`.
+The async path was attempting an empty residency update at entry, where the
+synchronous path skips it. The async path now uses the same guard and logs a
+rejected update. The repeated acceptance above passed without weakening its
+movement or boundary assertions.
+
+### Combined LOD and exterior confirmation, 2026-10-17
+
+The consolidated `lead/whiterun-lod` run used one release library build for
+both changes. The installed PRF-45 acceptance passed in 302.28 seconds.
+Both Godot processes exited zero with the walkthrough shutdown marker.
+Each sampled 360 rendered frames, crossed a CELL boundary and stayed at one
+physics step per frame. Both had zero foreground draw compilations.
+
+| Combined run | Wall p50 ms | Wall p99 ms | Streaming p99 ms | Streaming worst ms | Upload worst ms | Physics-sync worst ms |
+|---|---|---|---|---|---|---|
+| WhiterunExterior04 | 271.351 | 750.351 | 74.172 | 140.061 | 22.815 | 498.503 |
+| WhiterunExterior01 | 372.819 | 640.832 | 217.518 | 220.026 | 23.810 | 276.389 |
+
+Against the recorded preview2 baseline, streaming worst time fell from
+1,231.463 to 140.061 ms at WhiterunExterior04 and from 1,758.613 to
+220.026 ms at WhiterunExterior01. Upload maxima remain below the fixed 33 ms
+acceptance limit. Publication yielded eight and 174 times during the samples.
+The two traversals still compiled eight and six surfaces, with 36 and 34
+background specializations. These counts do not measure compiler duration.
+The shared machine and software renderer limits above apply to this repeat.
+
+The first traversal moved 540 horizontal units, crossed 95FC to 95FB and ended
+ungrounded. The second moved 446.652 units, crossed 961B to 961A and ended
+grounded. These results verify movement and streaming, not complete collision
+correctness. PRF-46 and PRF-47 retain the remaining streaming and individual
+physics stalls. Hardware GPU frame rate is unmeasured. Reports and child logs
+for this repeat are in this worktree's `target/prf40-after`.
+
+Formatting, all-target host Clippy with warnings denied and the release build
+passed. Focused host filters reported 29 passes, including data-gated early
+returns with SKYRIM_DATA unset. The resource ownership regression passed.
+The separate LOD checks reported four integration passes in 488.89 seconds
+and two installed library passes in 86.10 seconds. The full workspace gate
+was left to the lead as requested.
+
 ## Fixed-tick budget gate, PRF-37 draft
 
 `godot/tst_18_frame_budget_test.gd` starts the PRF-12 walkthrough, warms it
@@ -33,9 +227,11 @@ resident block, without walking across its boundary.
 
 The threaded simulation is opt-in through `SOE_THREADED_SIMULATION=1`. The
 default `start_gameplay` path, which is the one the user plays, still runs the
-game inline in `physics_process` with Godot's catch-up ticks, so a slow frame is
-followed by up to eight physics callbacks and the spiral the row describes is
-still live there. The TST-18 gate above passes only on the draft path. The
+game inline in `physics_process`. At this checkpoint a slow frame could be
+followed by up to eight physics callbacks. PRF-45 now caps the default path at
+one callback per rendered frame, including inline game work. That bounds
+catch-up repetitions but does not move simulation onto its worker or bound
+one callback's duration. The TST-18 gate above passes only on the draft path. The
 default path is neither restructured nor measured by it, so the 2 ms main-thread
 clause cannot be read as the only open piece of PRF-37. Moving the default path
 onto the worker and measuring it with ordinary input are both still missing.
@@ -2519,3 +2715,96 @@ navigation is covered by the cold-start tests
 This gate measures the opt-in snapshot adapter. It does not establish complete
 playable-runtime integration or include startup and cell replacement in the
 steady-frame percentile window. The draft limits are listed above.
+
+### Exterior follow-up measurements, 2026-10-17
+
+The completed PRF-45 traversal now exports the existing Chrome load trace and
+writes Godot hitch dumps under a private `XDG_DATA_HOME`. This follows Godot's
+`data_paths.rst` user-data override and avoids the unwritable shared app-data
+path. Both traversals retained 360 frames, crossed a CELL boundary and exited
+successfully. Captures precede the incremental collision-grid change.
+
+| Measurement in ms | WhiterunExterior04 | WhiterunExterior01 |
+|---|---|---|
+| Streaming p50 | 11.185 | 7.283 |
+| Streaming p99 | 54.716 | 237.647 |
+| Streaming maximum | 98.876 | 246.575 |
+| Physics p50 | 1.022 | 1.070 |
+| Physics p99 | 269.995 | 373.884 |
+| Physics maximum | 275.523 | 383.831 |
+| Upload maximum | 24.830 | 24.290 |
+
+Each trace contains 65,536 timed events. The captures produced ten and fifteen
+hitch files respectively, with zero overwritten files. Foreground draw
+compilations were zero. Surface compilations were eight and six, and
+specializations were 36 and 34. Physics stayed at one step per rendered frame.
+These software Vulkan runs identify engine stalls, not hardware GPU FPS.
+
+The three principal engine costs after the initial upload fixes were the
+whole-world static-grid rebuild during physics, synchronous LOD cache joins
+during streaming, and indivisible resource upload calls. The grid rebuild is
+addressed in PRF-47. `CellStreamerNode::lod_cycle` still joins a requested cache job with
+`finish` on the main thread. PRF-46 retains that scope because making it
+asynchronous also requires pending readiness and old-coverage retirement.
+Treating a pending BTR as absent would lose coverage. Upload slices share an
+eight-ms deadline but one resource call can exceed it. Both observed maxima
+remain below the unchanged 33 ms upload gate.
+
+The additional PRF-47 mutation check fixes its 33 ms limit before measurement.
+Before the change, adding one 2,048-triangle tile to 512,000 resident primitives
+and stepping took 438.267 ms. Removing it and stepping took 437.403 ms.
+`SimpleWorld` now updates the edited body's grid entries immediately, preserving
+body identity, material results and insertion-order contact ties across storage
+compaction. Installed traversals additionally assert a 33 ms physics maximum.
+The consolidated task assigns the full workspace gate to the lead.
+
+The focused debug check after the change measured 2.256 ms for insertion and
+1.749 ms for removal, below the unchanged 33 ms limit. All physics unit and
+integration harnesses passed with four installed-data checks skipped.
+
+The installed confirmation passed both 360-frame traversals in 287.01 seconds.
+Both child processes exited zero with the normal walkthrough shutdown marker.
+Their traces and hitch files are retained in `target/prf40-after`. The earlier
+captures above are in `target/prf40-after/before-incremental-grid-2026-10-17`.
+
+| After incremental grid, ms | WhiterunExterior04 | WhiterunExterior01 |
+|---|---|---|
+| Physics p50 | 0.879 | 0.981 |
+| Physics p99 | 1.247 | 1.443 |
+| Physics maximum | 1.486 | 1.999 |
+| Streaming p50 | 10.506 | 8.049 |
+| Streaming p99 | 54.864 | 225.011 |
+| Streaming maximum | 78.115 | 231.159 |
+| Upload maximum | 19.672 | 23.942 |
+| Rendered-frame p50 | 257.402 | 374.479 |
+| Rendered-frame p99 | 352.972 | 627.224 |
+
+The physics maxima fell from 275.523 and 383.831 ms and satisfy the unchanged
+33 ms bound. Foreground draw compilations remained zero. Surface and background
+specialization counts were unchanged at eight and 36, then six and 34.
+Each frame used at most one physics step. The boundary crossings and horizontal
+displacements match the preceding captures. Exterior04 still ends ungrounded,
+so this result does not establish correct grounded movement there.
+Streaming still exceeds 33 ms. PRF-46 remains open, and no hardware GPU FPS or
+full workspace gate result is claimed. Package formatting, all-target Clippy
+for physics and godot-host, comment lint, prose lint and Markdown lint passed.
+
+The 1.486 and 1.999 ms physics captures were subsequently archived under
+`target/prf40-after/after-grid-before-surface-handoff-2026-10-17` before
+confirming the per-surface Full LOD handoff on the shared upload path.
+
+The combined library with per-unit Full LOD masking passed the same installed
+acceptance in 290.71 seconds. Both Godot processes exited zero. This repeat
+checks the changed shared upload loop without changing any limit.
+
+| Combined per-unit handoff, maximum ms | WhiterunExterior04 | WhiterunExterior01 |
+|---|---|---|
+| Physics | 4.040 | 1.401 |
+| Upload | 20.848 | 23.796 |
+| Streaming | 77.071 | 222.030 |
+
+Both traversals retained 360 frames, a CELL crossing, one physics step at most
+and zero foreground draw compilations. Surface and specialization counts
+remain eight and 36, then six and 34. These shared-machine observations keep
+PRF-47 below 33 ms and leave PRF-46 open. They do not establish hardware FPS.
+The current reports and load traces remain in `target/prf40-after`.

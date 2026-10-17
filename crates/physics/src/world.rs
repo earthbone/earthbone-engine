@@ -21,7 +21,7 @@
 //! Jolt CharacterVirtual separates surface normals for slope and support from
 //! contact normals for penetration. This resolver uses the same distinction.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::bhk::Layer;
 use crate::hull;
@@ -259,7 +259,6 @@ struct StaticBody {
     layer: Layer,
     prims: Vec<Prim>,
     materials: Vec<Option<u32>>,
-    aabb: Aabb,
 }
 
 const CELL: f32 = 256.0;
@@ -269,9 +268,8 @@ pub struct SimpleWorld {
     next: u32,
     statics: Vec<StaticBody>,
     characters: HashMap<BodyId, Character>,
-    /// Grid cell to (static index, prim index). Rebuilt when `dirty`.
+    /// Grid cell to (static index, prim index), updated with each body edit.
     grid: HashMap<(i32, i32, i32), Vec<(usize, usize)>>,
-    dirty: bool,
 }
 
 impl SimpleWorld {
@@ -303,20 +301,24 @@ impl SimpleWorld {
         })
     }
 
-    fn rebuild(&mut self) {
-        self.grid.clear();
-        for (si, s) in self.statics.iter().enumerate() {
-            for (pi, p) in s.prims.iter().enumerate() {
-                let b = p.aabb();
-                if b.is_empty() || !b.min.is_finite() || !b.max.is_finite() {
-                    continue;
-                }
-                for c in Self::cells(&b) {
-                    self.grid.entry(c).or_default().push((si, pi));
-                }
+    fn index_static(&mut self, si: usize) {
+        for (pi, p) in self.statics[si].prims.iter().enumerate() {
+            let b = p.aabb();
+            if b.is_empty() || !b.min.is_finite() || !b.max.is_finite() {
+                continue;
+            }
+            for c in Self::cells(&b) {
+                self.grid.entry(c).or_default().push((si, pi));
             }
         }
-        self.dirty = false;
+    }
+
+    #[cfg(test)]
+    fn rebuild(&mut self) {
+        self.grid.clear();
+        for si in 0..self.statics.len() {
+            self.index_static(si);
+        }
     }
 
     /// Primitives whose cells overlap `aabb`, each once.
@@ -327,7 +329,8 @@ impl SimpleWorld {
                 out.extend_from_slice(list);
             }
         }
-        out.sort_unstable();
+        // CONTEXT: Compaction changes slots. Body IDs preserve insertion-order ties.
+        out.sort_unstable_by_key(|&(si, pi)| (self.statics[si].id.0, pi));
         out.dedup();
         out.retain(|&(si, pi)| self.statics[si].prims[pi].aabb().overlaps(aabb));
         out
@@ -547,9 +550,6 @@ impl SimpleWorld {
         if !dt.is_finite() || dt <= 0.0 {
             return;
         }
-        if self.dirty {
-            self.rebuild();
-        }
         let Some(ch) = self.characters.get(&id) else {
             return;
         };
@@ -650,18 +650,13 @@ impl PhysicsWorld for SimpleWorld {
             &mut materials,
             None,
         );
-        let aabb = prims
-            .iter()
-            .map(Prim::aabb)
-            .fold(Aabb::empty(), |a, b| a.union(&b));
         self.statics.push(StaticBody {
             id,
             layer: collider.layer,
             prims,
             materials,
-            aabb,
         });
-        self.dirty = true;
+        self.index_static(self.statics.len() - 1);
         id
     }
 
@@ -669,10 +664,35 @@ impl PhysicsWorld for SimpleWorld {
         if self.characters.remove(&id).is_some() {
             return;
         }
-        let before = self.statics.len();
-        self.statics.retain(|s| s.id != id);
-        if self.statics.len() != before {
-            self.dirty = true;
+        let Some(index) = self.statics.iter().position(|body| body.id == id) else {
+            return;
+        };
+        let last = self.statics.len() - 1;
+        let mut touched = BTreeSet::new();
+        for body in [Some(index), (last != index).then_some(last)]
+            .into_iter()
+            .flatten()
+        {
+            for primitive in &self.statics[body].prims {
+                let bounds = primitive.aabb();
+                if !bounds.is_empty() && bounds.min.is_finite() && bounds.max.is_finite() {
+                    touched.extend(Self::cells(&bounds));
+                }
+            }
+        }
+        self.statics.swap_remove(index);
+        for cell in touched {
+            if let Some(entries) = self.grid.get_mut(&cell) {
+                entries.retain(|(body, _)| *body != index);
+                for (body, _) in entries.iter_mut() {
+                    if *body == last {
+                        *body = index;
+                    }
+                }
+                if entries.is_empty() {
+                    self.grid.remove(&cell);
+                }
+            }
         }
     }
 
@@ -737,9 +757,6 @@ impl PhysicsWorld for SimpleWorld {
     }
 
     fn step(&mut self, dt: f32) {
-        if self.dirty {
-            self.rebuild();
-        }
         let ids: Vec<BodyId> = self.characters.keys().copied().collect();
         for id in ids {
             self.step_character(id, dt);
@@ -750,21 +767,7 @@ impl PhysicsWorld for SimpleWorld {
         soe_trace::count(soe_trace::Operation::Raycasts, 1);
         let query = Aabb::of_points([from, to]);
         let mut best: Option<RayHit> = None;
-        let candidates = if self.dirty {
-            // A world that was never stepped has no grid yet, fall back to
-            // the body boxes.
-            let mut v = Vec::new();
-            for (si, s) in self.statics.iter().enumerate() {
-                if s.aabb.overlaps(&query) {
-                    for pi in 0..s.prims.len() {
-                        v.push((si, pi));
-                    }
-                }
-            }
-            v
-        } else {
-            self.candidates(&query)
-        };
+        let candidates = self.candidates(&query);
         for (si, pi) in candidates {
             if let Some((t, normal)) = ray_prim(&self.statics[si].prims[pi], from, to) {
                 if best.is_none_or(|b| t < b.fraction) {
@@ -1174,6 +1177,70 @@ fn ray_cylinder(from: Vec3, to: Vec3, c0: Vec3, c1: Vec3, r: f32) -> Option<f32>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streamed_grid_edits_preserve_rays_materials_and_insertion_order() {
+        fn floor(x: f32, material: u32) -> Collider {
+            Collider {
+                node: soe_nif::BlockRef(0),
+                node_name: "streamed floor".into(),
+                layer: Layer::STATIC,
+                motion: crate::MotionType::Fixed,
+                mass: 0.0,
+                transform: Iso::IDENTITY,
+                shape: Shape::TriangleMesh {
+                    radius: 0.0,
+                    vertices: vec![
+                        Vec3::new(x - 64.0, -64.0, 0.0),
+                        Vec3::new(x + 64.0, -64.0, 0.0),
+                        Vec3::new(x, 64.0, 0.0),
+                    ],
+                    triangles: vec![[0, 1, 2]],
+                    materials: vec![Some(material)],
+                },
+            }
+        }
+        fn ray(world: &SimpleWorld, x: f32) -> Option<RayHit> {
+            world.raycast(Vec3::new(x, 0.0, 32.0), Vec3::new(x, 0.0, -32.0))
+        }
+        fn assert_rebuild_matches(world: &mut SimpleWorld) {
+            let queries = [-1024.0, -256.0, 0.0, 1024.0];
+            let before = queries.map(|x| ray(world, x));
+            let mut incremental = world.grid.clone();
+            for entries in incremental.values_mut() {
+                entries.sort_unstable();
+            }
+            world.rebuild();
+            for entries in world.grid.values_mut() {
+                entries.sort_unstable();
+            }
+            assert_eq!(incremental, world.grid);
+            assert_eq!(before, queries.map(|x| ray(world, x)));
+        }
+        let mut world = SimpleWorld::new();
+        let removed = world.add_static(&floor(-1024.0, 1));
+        let first = world.add_static(&floor(-256.0, 2));
+        let second = world.add_static(&floor(-256.0, 3));
+        let moved = world.add_static(&floor(1024.0, 4));
+        assert_eq!(ray(&world, -256.0).unwrap().body, first);
+        world.remove(removed);
+        assert!(ray(&world, -1024.0).is_none());
+        let hit = ray(&world, 1024.0).unwrap();
+        assert_eq!((hit.body, hit.material), (moved, Some(4)));
+        assert_rebuild_matches(&mut world);
+        world.remove(moved);
+        assert_eq!(ray(&world, -256.0).unwrap().body, first);
+        assert_rebuild_matches(&mut world);
+        world.remove(first);
+        let hit = ray(&world, -256.0).unwrap();
+        assert_eq!((hit.body, hit.material), (second, Some(3)));
+        assert_rebuild_matches(&mut world);
+        world.remove(second);
+        world.remove(moved);
+        world.remove(moved);
+        assert!(world.grid.is_empty());
+        assert_rebuild_matches(&mut world);
+    }
 
     #[test]
     fn downward_snap_stops_at_first_surface() {

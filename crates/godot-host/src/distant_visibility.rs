@@ -192,6 +192,7 @@ pub struct TerrainHeights {
     bins: HashMap<(i32, i32), Vec<usize>>,
     triangles: Vec<[[f32; 3]; 3]>,
     near: HashMap<crate::streaming::CellCoord, Vec<f32>>,
+    near_hidden: HashMap<crate::streaming::CellCoord, u32>,
 }
 
 impl TerrainHeights {
@@ -204,6 +205,8 @@ impl TerrainHeights {
                 .values()
                 .map(|indices| indices.capacity() * std::mem::size_of::<usize>())
                 .sum::<usize>()
+            + self.near_hidden.capacity()
+                * std::mem::size_of::<(crate::streaming::CellCoord, u32)>()
             + self
                 .near
                 .values()
@@ -215,6 +218,12 @@ impl TerrainHeights {
     /// Godot metres, in the rendered south-to-north 33 by 33 layout.
     pub fn set_near(&mut self, near: &HashMap<crate::streaming::CellCoord, Vec<f32>>) {
         self.near.clone_from(near);
+        self.near_hidden.clear();
+    }
+
+    /// Hidden CELL quadrants retain coverage but supply no visibility blocker.
+    pub fn set_near_hidden(&mut self, hidden: HashMap<crate::streaming::CellCoord, u32>) {
+        self.near_hidden = hidden;
     }
 
     /// Index upward terrain in Skyrim units. Water is excluded by the caller.
@@ -269,6 +278,10 @@ impl TerrainHeights {
             let row = (y / 128.0 - coord.y as f32 * 32.0).clamp(0.0, 32.0);
             let c = (col.floor() as usize).min(31);
             let r = (row.floor() as usize).min(31);
+            let quadrant = c / 16 + 2 * (r / 16);
+            if self.near_hidden.get(&coord).copied().unwrap_or(0) & (1 << quadrant) != 0 {
+                return None;
+            }
             let u = col - c as f32;
             let v = row - r as f32;
             let sw = heights[r * 33 + c];
@@ -304,6 +317,40 @@ impl TerrainHeights {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hidden_land_heights_do_not_occlude_or_fall_back_to_distant_terrain() {
+        use super::TerrainHeights;
+        use crate::streaming::CellCoord;
+        use std::collections::HashMap;
+
+        let coord = CellCoord::new(-2, 3);
+        let mut heights = TerrainHeights::default();
+        heights.insert(
+            &[
+                [-200.0, 200.0, -100.0],
+                [0.0, 200.0, -100.0],
+                [-100.0, 200.0, -300.0],
+            ],
+            &[0, 1, 2],
+        );
+        for hidden in 0..16 {
+            heights.set_near(&HashMap::from([(coord, vec![100.0; 33 * 33])]));
+            heights.set_near_hidden(HashMap::from([(coord, hidden)]));
+            for (quadrant, x, y) in [
+                (0, -7168.0, 13312.0),
+                (1, -5120.0, 13312.0),
+                (2, -7168.0, 15360.0),
+                (3, -5120.0, 15360.0),
+            ] {
+                assert_eq!(
+                    heights.sample(x, y),
+                    (hidden & (1 << quadrant) == 0).then_some(7000.0),
+                    "quadrant {quadrant}, mask {hidden:x}"
+                );
+            }
+        }
+    }
+
     use super::*;
     fn candidate(top: i16) -> Candidate {
         Candidate::from_bounds(

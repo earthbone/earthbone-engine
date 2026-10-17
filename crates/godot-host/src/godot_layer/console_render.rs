@@ -7,35 +7,13 @@ use godot::prelude::*;
 
 impl CellStreamerNode {
     pub(super) fn console_render_kind(&self, table: &BatchTable, material: &MaterialDesc) -> usize {
-        if material.water.is_some() {
-            return 3;
-        }
         let reference = match table {
             BatchTable::Triangles(members) => members.first().map(|m| m.reference),
             BatchTable::Instances(members) => members.first().copied(),
         };
-        let Some((source, reference)) = self.data_source.as_ref().zip(reference) else {
-            return 0;
-        };
-        let order = source.order();
-        let Some(record) = order.winner(reference) else {
-            return 0;
-        };
-        let tag = if record.tag == soe_esm::tag::REFR {
-            order.winner_ref(reference).and_then(|owner| {
-                soe_esm::records::refr::Refr::from_record(record)
-                    .ok()
-                    .and_then(|refr| order.winner(order.resolve(owner.file, refr.base)))
-                    .map(|base| base.tag)
-            })
-        } else {
-            Some(record.tag)
-        };
-        match tag.map(|tag| *tag.as_bytes()) {
-            Some([b'G', b'R', b'A', b'S']) => 1,
-            Some([b'T', b'R', b'E', b'E']) => 2,
-            _ => 0,
-        }
+        reference.map_or(0, |reference| {
+            super::upload::render_kind(self.data_source.as_deref(), reference, material)
+        })
     }
 
     pub(crate) fn toggle_console_geometry(&mut self, name: &str) -> bool {
@@ -49,7 +27,16 @@ impl CellStreamerNode {
         let mut server = RenderingServer::singleton();
         for instance in &self.instances {
             if instance.render_kind == kind {
-                server.instance_set_visible(instance.rid, visible);
+                server.instance_set_visible(
+                    instance.rid,
+                    visible
+                        && !instance.arrays.indices.is_empty()
+                        && !self
+                            .distant
+                            .publishing
+                            .as_ref()
+                            .is_some_and(|publishing| publishing.contains_rid(instance.rid)),
+                );
             }
         }
         if kind == 2 {

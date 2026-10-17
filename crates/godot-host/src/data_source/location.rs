@@ -446,6 +446,9 @@ impl DataSource {
                 continue;
             }
             let arrays = &surface.arrays;
+            if arrays.indices.is_empty() {
+                continue;
+            }
             placed.push(PlacedCollider {
                 reference: surface.reference,
                 // LAND has no separate reference placement, matching the

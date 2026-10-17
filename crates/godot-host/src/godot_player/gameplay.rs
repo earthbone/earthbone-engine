@@ -688,13 +688,10 @@ impl PlayerNode {
         installed
     }
 
-    /// Most physics ticks Godot may run for one presentation frame while the
-    /// legacy inline game is live. Godot's default of 8 makes a slow frame run
-    /// the whole game up to eight times, which makes the next frame slower
-    /// again. Two keeps one tick of catch-up and lets game time fall behind wall
-    /// time instead of spiralling (PRF-37 clause 1, interim until the game
-    /// leaves the render thread).
-    const CATCHUP_STEP_CAP: i32 = 2;
+    /// One inline game tick per rendered frame bounds recovery after a hitch.
+    /// Godot drops overdue ticks instead of repeating all gameplay work. Below
+    /// 60 FPS this slows simulation, as documented by class_engine.rst.
+    const CATCHUP_STEP_CAP: i32 = 1;
 
     fn cap_catchup_steps(&mut self) {
         let mut engine = godot::classes::Engine::singleton();
@@ -819,7 +816,7 @@ impl PlayerNode {
             }
         }
         self.sync_references_for_tick();
-        if !self.advance_exterior() {
+        if !self.automatic_physics_step && !self.advance_exterior() {
             self.auto_step = false;
             return;
         }
@@ -1541,20 +1538,16 @@ impl PlayerNode {
                     return false;
                 };
                 let mut node = streamer.bind_mut();
-                if pending.cells == 0 && !node.begin_location_replace() {
+                if pending.cells == 0
+                    && !node.location_upload_pending()
+                    && !node.begin_location_replace()
+                {
                     return false;
                 }
                 let Some((id, loaded)) = location.cells.get(pending.cells) else {
                     return false;
                 };
                 let last = pending.cells + 1 == location.cells.len();
-                if *id != cell && worldspace.is_some() && source.exterior_world(*id) == worldspace {
-                    soe_trace::info!(target: "host::gameplay", system = "host::gameplay", "LOCATION_INSTALL phase=runtime cell={id}");
-                    if let Err(error) = game.attach_streaming_cells(&[*id]) {
-                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
-                        return false;
-                    }
-                }
                 if !node.install_location_cell(
                     *id,
                     loaded,
@@ -1563,6 +1556,19 @@ impl PlayerNode {
                     last,
                 ) {
                     return false;
+                }
+                if node.location_upload_pending() {
+                    drop(node);
+                    self.location_install = Some(pending);
+                    self.location_preparing = true;
+                    return false;
+                }
+                if *id != cell && worldspace.is_some() && source.exterior_world(*id) == worldspace {
+                    soe_trace::info!(target: "host::gameplay", system = "host::gameplay", "LOCATION_INSTALL phase=runtime cell={id}");
+                    if let Err(error) = game.attach_streaming_cells(&[*id]) {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+                        return false;
+                    }
                 }
                 drop(node);
                 pending.cells += 1;
@@ -1697,6 +1703,7 @@ impl PlayerNode {
                     planner: planner.clone(),
                     cells: location.collision_cells,
                     lod_started: false,
+                    pending: super::exterior::Pending::default(),
                 });
             }
             let collision = location.collision;

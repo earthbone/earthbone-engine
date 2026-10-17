@@ -36,6 +36,9 @@ func _start() -> void:
 		printerr("Set SKYRIM_DATA and build/import the Godot extension first")
 		quit(1)
 		return
+	var loading_cover: ColorRect
+	if DisplayServer.get_name() != "headless":
+		loading_cover = Warmup.cover(get_root())
 	var scene := Node3D.new()
 	get_root().add_child(scene)
 	streamer = ClassDB.instantiate("CellStreamerNode")
@@ -96,24 +99,15 @@ func _start() -> void:
 		printerr("Could not initialize cell lighting")
 		quit(1)
 		return
-	loading_phase = "Preparing rendering"
-	var rendering := {"error": "", "load_render_frames": 0, "load_render_ms": 0.0}
-	if DisplayServer.get_name() != "headless":
-		var loading_cover := Warmup.cover(get_root())
-		rendering = await Warmup.prepare()
-		if not rendering.error.is_empty():
-			printerr("Could not prepare rendering: ", rendering.error)
-			quit(1)
-			return
-		loading_cover.queue_free()
-	print("STARTUP rendering ", JSON.stringify(rendering))
 	loading_phase = "Starting game scripts"
 	await process_frame
 	await process_frame
-	if not player.call("start_gameplay"):
+	if not player.call("start_gameplay") and not player.call("is_location_preparing"):
 		printerr("Could not start the gameplay runtime")
 		quit(1)
 		return
+	while player.call("is_location_preparing"):
+		await process_frame
 	if OS.get_environment("SOE_THREADED_SIMULATION") != "1":
 		phase_msec = Time.get_ticks_msec()
 		player_body = ClassDB.instantiate("SkinnedActorNode")
@@ -133,11 +127,21 @@ func _start() -> void:
 			return
 		print("STARTUP player appearance ms=", Time.get_ticks_msec() - phase_msec,
 			" control_nodes=2 body=", player_body.call("stats"), " arms=", player_arms.call("stats"))
-	print("STARTUP ready ms=", Time.get_ticks_msec() - startup_msec)
 	if not sky.use_player(player):
 		printerr("Could not initialize the record sky")
 		quit(1)
 		return
+	loading_phase = "Preparing rendering"
+	var rendering := {"error": "", "load_render_frames": 0, "load_render_ms": 0.0}
+	if DisplayServer.get_name() != "headless":
+		rendering = await Warmup.prepare()
+		if not rendering.error.is_empty():
+			printerr("Could not prepare rendering: ", rendering.error)
+			quit(1)
+			return
+		loading_cover.queue_free()
+	print("STARTUP rendering ", JSON.stringify(rendering))
+	print("STARTUP ready ms=", Time.get_ticks_msec() - startup_msec)
 	loading_label.queue_free()
 	loading_label = null
 	print("WASD move, mouse look, E activate (hold to carry), Z grab or drop, primary attack throws held objects, Space jump, Ctrl sneak, F camera, R ready weapon, mouse buttons attack or cast, F3 system timings, tilde/grave console, Esc pause menu")

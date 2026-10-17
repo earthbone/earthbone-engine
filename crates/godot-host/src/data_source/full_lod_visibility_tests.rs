@@ -685,3 +685,370 @@ fn distant_occlusion_keeps_a_partly_visible_object() {
         "{stderr}"
     );
 }
+
+#[cfg(feature = "godot")]
+#[test]
+fn whiterun_lod_installed_authored_hidden_land_has_no_triangles_or_collision() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open_with_threads(Path::new(&data), 1).unwrap();
+    let (city, _) = source.resolve_world("WhiterunWorld").unwrap();
+    let order = source.shared_order();
+    let coordinates = [
+        (5, -3),
+        (7, -1),
+        (6, -1),
+        (6, -2),
+        (5, -2),
+        (6, -3),
+        (5, -1),
+    ]
+    .map(|(x, y)| crate::streaming::CellCoord::new(x, y));
+    let cells = source.prepare_grid_cells(city, &coordinates).unwrap();
+    assert_eq!(cells.len(), coordinates.len());
+    for cell in cells {
+        let record = order.winner(cell.id).unwrap();
+        let grid = soe_esm::records::cell::Cell::from_record(record, false)
+            .unwrap()
+            .grid
+            .unwrap();
+        let hidden = grid.flags.unwrap_or(0) & 15;
+        assert_ne!(hidden, 0);
+        let terrain = cell
+            .loaded
+            .surfaces
+            .iter()
+            .find(|s| {
+                s.arrays
+                    .material
+                    .diffuse
+                    .as_deref()
+                    .is_some_and(|p| p.starts_with("terrain:"))
+            })
+            .unwrap();
+        let expected = (4 - hidden.count_ones()) as usize * 512;
+        eprintln!(
+            "WHITERUN_HIDDEN grid={},{} mask={hidden:x} triangles={} expected={expected}",
+            grid.x,
+            grid.y,
+            terrain.arrays.triangle_count()
+        );
+        assert_eq!(
+            terrain.arrays.triangle_count(),
+            expected,
+            "authored hidden LAND at {},{}",
+            grid.x,
+            grid.y
+        );
+        let colliders: Vec<_> = cell
+            .colliders
+            .iter()
+            .filter(|c| c.reference == terrain.reference)
+            .collect();
+        assert_eq!(colliders.len(), usize::from(expected > 0));
+        for collider in colliders {
+            let soe_physics::Shape::TriangleMesh { triangles, .. } = &collider.collider.shape
+            else {
+                panic!("LAND collider must be a triangle mesh")
+            };
+            assert_eq!(triangles.len(), expected);
+            assert!(expected > 0, "fully hidden LAND must not create a collider");
+        }
+    }
+}
+
+#[test]
+fn whiterun_lod_installed_object_geometry_extents() {
+    use crate::streaming::CellCoord;
+    use crate::terrain_lod::{bto_path, LodKind, TerrainLodConfig, TerrainLodStreamer};
+    use std::collections::{BTreeMap, HashSet};
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open_with_threads(Path::new(&data), 1).unwrap();
+    let (city, _) = source.resolve_world("WhiterunWorld").unwrap();
+    let (_, name) = source.lod_worldspace(city).unwrap();
+    let full: Vec<_> = source
+        .cell_index()
+        .cells()
+        .filter_map(|(id, _)| {
+            let grid = source.cell_index().grid_of(id)?;
+            (grid.world == city).then_some(CellCoord::new(grid.x, grid.y))
+        })
+        .collect();
+    let full_set: HashSet<_> = full.iter().copied().collect();
+    let focus = CellCoord::new(6, -1);
+    let mut planner = TerrainLodStreamer::with_catalog(
+        TerrainLodConfig {
+            full_res_radius: 2,
+            lod_radius: 96,
+            ..Default::default()
+        },
+        source.lod_settings(&name).unwrap().unwrap().sw_cell,
+        source.scenery_lod_blocks(&name, LodKind::Object),
+    )
+    .unwrap();
+    planner.set_full_cells(&full);
+    let blocks = planner.settle(focus).load;
+    let mut intrusions = BTreeMap::new();
+    let mut triangles = 0;
+    let mut nearby = 0;
+    for block in &blocks {
+        let file = soe_nif::parse(&source.vfs().read(&bto_path(&name, *block)).unwrap()).unwrap();
+        for mesh in file.meshes().unwrap() {
+            for indices in mesh.indices.as_chunks::<3>().0 {
+                triangles += 1;
+                let points = indices.map(|i| {
+                    mesh.transform.apply(soe_nif::Vec3::new(
+                        mesh.positions[i as usize][0],
+                        mesh.positions[i as usize][1],
+                        mesh.positions[i as usize][2],
+                    ))
+                });
+                let x = points.iter().map(|p| p.x).sum::<f32>() / 3.0;
+                let y = points.iter().map(|p| p.y).sum::<f32>() / 3.0;
+                let cell = CellCoord::new((x / 4096.0).floor() as i32, (y / 4096.0).floor() as i32);
+                if full_set.contains(&cell) {
+                    *intrusions
+                        .entry((block.level.cells(), block.x, block.y, cell.x, cell.y))
+                        .or_insert(0usize) += 1;
+                    nearby += usize::from(cell.ring_distance(focus) <= 2);
+                }
+            }
+        }
+    }
+    eprintln!("WHITERUN_OBJECT_EXTENTS cells={} blocks={} triangles={triangles} near_pond_intrusions={nearby} intrusions={intrusions:?}", full.len(), blocks.len());
+    assert!(triangles > 0);
+    assert_eq!(
+        nearby, 0,
+        "baked object LOD reaches the player's loaded near cells"
+    );
+}
+
+#[test]
+fn whiterun_lod_installed_bto_overhangs_have_no_resident_source() {
+    use crate::streaming::CellCoord;
+    use crate::terrain_lod::{bto_path, LodKind, TerrainLodConfig, TerrainLodStreamer};
+    use soe_esm::records::stat::Static;
+
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open_with_threads(Path::new(&data), 1).unwrap();
+    let (world, name) = source.resolve_world("Tamriel").unwrap();
+    let focus = CellCoord::new(10, -2);
+    let full: HashSet<_> = (-2..=2)
+        .flat_map(|y| (-2..=2).map(move |x| CellCoord::new(focus.x + x, focus.y + y)))
+        .collect();
+    let anchor = source.lod_settings(&name).unwrap().unwrap().sw_cell;
+    let mut planner = TerrainLodStreamer::with_catalog(
+        TerrainLodConfig {
+            full_res_radius: 2,
+            lod_radius: 96,
+            ..Default::default()
+        },
+        anchor,
+        source.scenery_lod_blocks(&name, LodKind::Object),
+    )
+    .unwrap();
+    planner.set_full_cells(&full.iter().copied().collect::<Vec<_>>());
+    let blocks = planner.settle(focus).load;
+    let mut targets = HashMap::new();
+    for block in blocks {
+        let file = soe_nif::parse(&source.vfs.read(&bto_path(&name, block)).unwrap()).unwrap();
+        for mesh in file.meshes().unwrap() {
+            for indices in mesh.indices.as_chunks::<3>().0 {
+                let points = indices.map(|i| {
+                    mesh.transform.apply(NifVec3::new(
+                        mesh.positions[i as usize][0],
+                        mesh.positions[i as usize][1],
+                        mesh.positions[i as usize][2],
+                    ))
+                });
+                let centre = points
+                    .iter()
+                    .fold(NifVec3::new(0.0, 0.0, 0.0), |a, b| a + *b)
+                    .scale(1.0 / 3.0);
+                let cell = CellCoord::new(
+                    (centre.x / crate::units::CELL_UNITS).floor() as i32,
+                    (centre.y / crate::units::CELL_UNITS).floor() as i32,
+                );
+                if full.contains(&cell) {
+                    targets.entry(block).or_insert_with(Vec::new).push(points);
+                }
+            }
+        }
+    }
+
+    // CONTEXT: BTO half-float packing loses precision. Require all three vertices
+    // within eight Skyrim units, rather than attributing by an overlapping bound.
+    const TOLERANCE: f32 = 8.0;
+    const BIN_WIDTH: f32 = 32.0;
+    const ORDERS: [[usize; 3]; 6] = [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ];
+    let key = |points: &[NifVec3; 3]| -> [i32; 3] {
+        std::array::from_fn(|axis| {
+            (points.iter().map(|p| [p.x, p.y, p.z][axis]).sum::<f32>() / 3.0 / BIN_WIDTH).floor()
+                as i32
+        })
+    };
+    let mut models = HashMap::new();
+    let mut matched = 0usize;
+    let mut unmatched = 0usize;
+    let mut resident = BTreeSet::new();
+    let mut counts = BTreeMap::new();
+    let mut targets: Vec<_> = targets.into_iter().collect();
+    targets.sort_unstable_by_key(|(block, _)| (block.level.cells(), block.x, block.y));
+    for (block, triangles) in targets {
+        let level = match block.level.cells() {
+            4 => 0,
+            8 => 1,
+            16 => 2,
+            _ => 3,
+        };
+        let mut candidates: HashMap<_, Vec<_>> = HashMap::new();
+        for (id, record) in source.order.winners_of(tag::REFR) {
+            let owner = source.order.winner_ref(id).unwrap();
+            if record
+                .placement
+                .world
+                .map(|raw| source.order.resolve(owner.file, raw))
+                != Some(world)
+            {
+                continue;
+            }
+            let reference = Refr::from_record(record).unwrap();
+            let Some(transform) = reference.transform else {
+                continue;
+            };
+            let coord = CellCoord::new(
+                (transform.position[0] / crate::units::CELL_UNITS).floor() as i32,
+                (transform.position[1] / crate::units::CELL_UNITS).floor() as i32,
+            );
+            if crate::terrain_lod::LodBlockCoord::containing_from(coord, block.level, anchor)
+                != block
+            {
+                continue;
+            }
+            let base_record = source
+                .order
+                .winner(source.order.resolve(owner.file, reference.base))
+                .unwrap();
+            if base_record.tag != tag::STAT {
+                continue;
+            }
+            let base = Static::from_record(base_record).unwrap();
+            let Some(path) = base
+                .lod_models
+                .as_ref()
+                .map(|paths| &paths[level])
+                .filter(|p| !p.is_empty())
+            else {
+                continue;
+            };
+            let meshes = models.entry(path.clone()).or_insert_with(|| {
+                let path = soe_bsa::normalize(path);
+                let path = if path.starts_with("meshes/") {
+                    path
+                } else {
+                    format!("meshes/{path}")
+                };
+                let Ok(bytes) = source.vfs.read(&path) else {
+                    return Vec::new();
+                };
+                soe_nif::parse(&bytes).unwrap().meshes().unwrap()
+            });
+            let placement = placement_transform(&reference);
+            let owner_cell = record
+                .placement
+                .cell
+                .map(|raw| source.order.resolve(owner.file, raw));
+            let resident_cell = owner_cell
+                .and_then(|cell| source.cell_index().grid_of(cell))
+                .map_or(coord, |grid| CellCoord::new(grid.x, grid.y));
+            for mesh in meshes {
+                let placement = placement.then(&mesh.transform);
+                for indices in mesh.indices.as_chunks::<3>().0 {
+                    let points = indices.map(|i| {
+                        let p = mesh.positions[i as usize];
+                        placement.apply(NifVec3::new(p[0], p[1], p[2]))
+                    });
+                    candidates
+                        .entry(key(&points))
+                        .or_default()
+                        .push((id, resident_cell, points));
+                }
+            }
+        }
+        for triangle in triangles {
+            let centre = key(&triangle);
+            let mut sources = BTreeSet::new();
+            for x in -1..=1 {
+                for y in -1..=1 {
+                    for z in -1..=1 {
+                        let Some(candidates) =
+                            candidates.get(&[centre[0] + x, centre[1] + y, centre[2] + z])
+                        else {
+                            continue;
+                        };
+                        for (id, cell, points) in candidates {
+                            if ORDERS.iter().any(|order| {
+                                triangle.iter().zip(order).all(|(a, i)| {
+                                    let b = points[*i];
+                                    (a.x - b.x)
+                                        .abs()
+                                        .max((a.y - b.y).abs())
+                                        .max((a.z - b.z).abs())
+                                        <= TOLERANCE
+                                })
+                            }) {
+                                sources.insert(*id);
+                                if full.contains(cell) {
+                                    resident.insert(*id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if sources.is_empty() {
+                unmatched += 1;
+                if unmatched <= 5 {
+                    eprintln!("BTO_UNMATCHED block={block:?} triangle={triangle:?}");
+                }
+            } else {
+                matched += 1;
+                for id in sources {
+                    *counts.entry(id).or_insert(0usize) += 1;
+                }
+            }
+        }
+    }
+    for (id, count) in counts {
+        let owner = source.order.winner_ref(id).unwrap();
+        let reference = Refr::from_record(source.order.record(owner)).unwrap();
+        let base = source
+            .order
+            .winner(source.order.resolve(owner.file, reference.base))
+            .unwrap();
+        eprintln!(
+            "BTO_SOURCE reference={id} base={:?} triangles={count} position={:?}",
+            base.editor_id(),
+            reference.transform
+        );
+    }
+    eprintln!("BTO_ATTRIBUTION matched={matched} unmatched={unmatched} resident={resident:?}");
+    assert!(matched > 0, "survey must exercise baked object overhangs");
+    assert_eq!(unmatched, 0, "every overhang needs an authored source");
+    assert!(
+        resident.is_empty(),
+        "resident full-detail objects are duplicated"
+    );
+}

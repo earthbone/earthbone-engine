@@ -269,8 +269,10 @@ Existing controller and large-world checks remain enabled.
 
 Statics are flattened to world-space primitives on insert: triangles
 (meshes, boxes and hulls through the face builder), spheres and capsules.
-A uniform grid of 256 unit cells is the broad phase, rebuilt lazily after
-inserts and removals. The character is a capsule with feet at `position`,
+A uniform grid of 256 unit cells is the broad phase. Inserts index only the
+new body. Removals erase that body and repair a moved storage slot in the
+affected grid cells. Candidate ordering follows body IDs so storage compaction
+preserves insertion-order collision ties. The character is a capsule with feet at `position`,
 stepped by integrating gravity, moving, then resolving penetration up to
 six times against the closest point between the capsule axis and each
 nearby primitive (Ericson's segment-triangle, segment-segment and
@@ -290,7 +292,7 @@ Not in this world: rigid body simulation, constraints, ragdolls, friction,
 continuous collision, keyframed movers. Those are Jolt's.
 
 `SimpleWorld::step_character` advances one capsule against the current static
-collision, rebuilding the broad-phase grid after edits. It rejects non-finite
+collision, with the broad-phase grid already current after edits. It rejects non-finite
 or non-positive time without changing characters. HST-30 uses this entry point
 to resolve NPC movement after the AI tick while retaining the player's separate
 physics update. It uses the same gravity, penetration, step and slope rules as
@@ -850,3 +852,36 @@ floor. Walking contact can redirect velocity upward, but that correction no
 longer becomes a later airborne ascent request. Actual jumps retain their
 independent vertical request. The focused checks pass 27 physics library,
 15 character, two large-world and 17 synthetic cases with unchanged assertions.
+
+### Streamed collision grid, PRF-47
+
+The exterior trace clustered 270 to 384 ms physics callbacks around arriving
+cells. `SimpleWorld` marked its entire static grid dirty on every insertion
+or removal, then rebuilt every resident primitive in the next controller
+step. The fixed 33 ms mutation test with 512,000 resident primitives measured
+438.267 ms for one arriving 2,048-triangle tile and 437.403 ms for its removal
+before the change. The test includes both mutation and the following step.
+
+The grid now updates with each edited body. A removal visits the primitive
+bounds of the removed body and the last body whose storage slot moves.
+It does not visit unrelated bodies or enumerate their combined empty bounds.
+Rays see edits immediately. The regression compares incremental entries and
+ray hits with a full rebuild after removals, including negative coordinates,
+overlapping surfaces, body IDs, material IDs and insertion-order ties.
+Controller, contact and material tests retain their existing expectations.
+
+OpenMW `apps/openmw/mwphysics/physicssystem.cpp`, `updateScale`, updates the
+changed collision object's broad-phase AABB with `updateSingleAabb`. That
+per-object update contract informed this change. OpenMW's collision-object
+API cannot index the host's Rust primitives, so the existing uniform grid
+remains in use. No OpenMW code is ported.
+
+The focused debug check after the change measured 2.256 ms for insertion and
+1.749 ms for removal, below the unchanged 33 ms limit. All physics unit and
+integration harnesses passed with four installed-data checks skipped.
+
+Installed PRF-45 confirmation passed both 360-frame CELL crossings with physics
+maxima of 1.486 and 1.999 ms, down from 275.523 and 383.831 ms. The 33 ms
+limit was added before these after measurements. The release library build,
+package formatting and all-target physics and host Clippy passed. Full workspace
+validation is assigned to the lead by the consolidated task.

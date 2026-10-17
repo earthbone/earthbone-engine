@@ -2,7 +2,9 @@
 
 //! Exterior block selection and LAND construction, from CELL and WRLD
 //! records in the load order. LAND texture layouts follow TES5Edit and UESP,
-//! parent terrain follows CommonLib's kUseLandData.
+//! parent terrain follows CommonLib's kUseLandData. UESP CELL XCLC
+//! force-hide bits omit LAND quadrants in south-west, south-east,
+//! north-west, north-east order, matching LAND quadrant ordering.
 //!
 //! Each cell's terrain is meshed on its own, so two neighbouring cells only
 //! meet exactly where their VHGT data already agrees. Bethesda's own LAND
@@ -14,7 +16,7 @@
 //! `docs/godot-host.md`'s exterior section (RND-15) for the case this fixes.
 
 use soe_esm::records::ltex::LandTexture;
-use soe_esm::records::{land::Land, wrld::World};
+use soe_esm::records::{cell::Cell, land::Land, wrld::World};
 use soe_esm::{tag, GlobalFormId, Record, Tag};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -125,6 +127,7 @@ fn terrain_surface_from_heights(
     cell: &ExteriorCell,
     heights: &[f32],
     normals: Option<&[[i8; 3]]>,
+    hidden_quadrants: u32,
 ) -> Result<SurfaceArrays, MeshError> {
     use soe_esm::records::land::VERTS_PER_SIDE;
     let step = crate::units::CELL_UNITS / (VERTS_PER_SIDE - 1) as f32;
@@ -156,6 +159,10 @@ fn terrain_surface_from_heights(
     let mut indices = Vec::with_capacity((VERTS_PER_SIDE - 1) * (VERTS_PER_SIDE - 1) * 6);
     for row in 0..side - 1 {
         for col in 0..side - 1 {
+            let quadrant = col / 16 + 2 * (row / 16);
+            if hidden_quadrants & (1 << quadrant) != 0 {
+                continue;
+            }
             let sw = row * side + col;
             let se = sw + 1;
             let nw = sw + side;
@@ -178,6 +185,28 @@ fn terrain_surface_from_heights(
 }
 
 impl DataSource {
+    /// Winning CELL visibility bits also apply when its LAND comes from a parent.
+    pub(crate) fn terrain_hidden_quadrants(
+        &self,
+        cell: GlobalFormId,
+    ) -> Result<u32, DataSourceError> {
+        let Some(owner) = self.order.winner_ref(cell) else {
+            return Ok(0);
+        };
+        let record = self.order.record(owner);
+        if record.tag != tag::CELL {
+            return Ok(0);
+        }
+        Ok(Cell::from_record(
+            record,
+            self.order.file(owner.file).plugin.header.is_localized(),
+        )?
+        .grid
+        .and_then(|grid| grid.flags)
+        .unwrap_or(0)
+            & 15)
+    }
+
     /// Small worlds retain every authored grid cell while the player is inside.
     /// UESP WRLD DATA and xEdit name this flag independently of parent PNAM.
     #[must_use]
@@ -480,7 +509,13 @@ impl DataSource {
             if let Some((land_id, land)) = land_ref.get(&(cell.x, cell.y)) {
                 if let Some(h) = heights.get(&(cell.x, cell.y)) {
                     let _terrain = soe_trace::Span::new("host.terrain_surface", "host");
-                    match terrain_surface_from_heights(cell, h, land.normals.as_deref()) {
+                    let hidden_quadrants = self.terrain_hidden_quadrants(cell.id)?;
+                    match terrain_surface_from_heights(
+                        cell,
+                        h,
+                        land.normals.as_deref(),
+                        hidden_quadrants,
+                    ) {
                         Ok(mut arrays) => {
                             let diffuse = self.terrain_diffuse(*land_id, land);
                             arrays.material.diffuse = Some(format!("terrain:{land_id}"));
@@ -521,7 +556,35 @@ impl DataSource {
 
 #[cfg(test)]
 mod tests {
-    use super::within_radius;
+    use super::{terrain_surface_from_heights, within_radius, ExteriorCell};
+
+    #[test]
+    fn hidden_land_quadrants_keep_heights_and_remove_only_authored_triangles() {
+        let cell = ExteriorCell {
+            x: -2,
+            y: 3,
+            id: soe_esm::GlobalFormId { file: 0, object: 1 },
+        };
+        for hidden in 0..16u32 {
+            let arrays = terrain_surface_from_heights(
+                &cell,
+                &vec![100.0; 33 * 33],
+                None,
+                hidden | 0x0054_0000,
+            )
+            .unwrap();
+            assert_eq!(arrays.positions.len(), 33 * 33);
+            assert_eq!(
+                arrays.triangle_count(),
+                (4 - hidden.count_ones()) as usize * 512
+            );
+            for triangle in arrays.indices.as_chunks::<3>().0 {
+                let col = triangle.iter().map(|i| *i as usize % 33).min().unwrap();
+                let row = triangle.iter().map(|i| *i as usize / 33).min().unwrap();
+                assert_eq!(hidden & (1 << (col / 16 + 2 * (row / 16))), 0);
+            }
+        }
+    }
 
     #[test]
     fn grid_distance_handles_extreme_coordinates_and_negative_radii() {

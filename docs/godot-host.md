@@ -104,6 +104,48 @@ Threaded gameplay omits the explicit player rigs and is outside the inline
 play path checked here. These checks do not establish complete first-person
 combat or skin subsurface and specular lighting.
 
+## Exterior publication, PRF-45, 2026-10-15
+
+The merge assigns PRF-45, PRF-46 and PRF-47 to the exterior upload,
+remaining streaming and physics synchronization rows. Their original branch
+IDs were PRF-40, PRF-41 and PRF-42, which preview3 independently used for
+allocator retention, first-person preparation and NPC rig release. Historical
+test names, scripts and evidence retain their original labels. All six rows
+and their validation remain recorded.
+
+Automatic gameplay now publishes exterior resources once per rendered frame.
+One shared 8 ms upload allowance covers near cells and distant full models.
+An indivisible mesh, material or door upload may cross that allowance.
+The next upload waits for another frame. Existing batching, MultiMesh groups,
+triangle owners and resolved CELL identities are preserved.
+Manual fixed-step calls and explicit whole-cell render-work limits keep their
+synchronous path. Both worker types join during retirement and shutdown.
+
+Walking preparation and distant-reference reads run outside the presentation
+callback. Pending responses retain their planner generations and stale
+responses are discarded. Partial query collision is removed on cancellation.
+Collision installation uses chunks of 32, and drawable acknowledgements follow
+the final upload and collision chunk. Old distant instances stay visible until
+replacement publication is complete. Pending near meshes do not count as
+acknowledged LOD coverage. The configured Full LOD radius stays 96.
+
+Location replacement can resume within a cell, in addition to yielding between
+cells. Runtime attachment follows completed publication. The loading cover now
+includes gameplay startup, player appearance, NPC presentation and the record
+sky before rendering warm-up. Custom shader resources remain cached across
+cell retirement. Unused textures and materials are released as before.
+The inline game allows one physics tick per rendered frame. Slow rendering
+therefore slows simulation, rather than repeating gameplay to recover lost
+wall time. This supersedes the earlier two-step cap for automatic gameplay.
+
+The local Godot pipeline compilation guide and Engine class reference supply
+the rendering and catch-up contracts. godotwind's budgeted pocket attach
+supplies the deadline and indivisible-unit approach. The host reuses its own
+batching, mesh upload and Mudcrab-derived acknowledged residency machinery.
+No parser, external dependency, saved section or per-reference node path is
+added. The timing probe and fixed acceptance limits are documented in
+[performance.md](performance.md#exterior-publication-prf-45-2026-10-15).
+
 ## Character corrections, 2026-10-13
 
 The watched `735176dff` play path exposed three character integration bugs.
@@ -3390,6 +3432,206 @@ must restore at least 1000 LOD pixels inside its former coverage. A second
 normal view stands 1.7 metres above the installed LAND centre sample and looks
 south across the plains. Captures and logs are written under
 `godot/.godot/rnd-29-*`.
+
+## Whiterun terrain masks and resident LOD, RND-42 and RND-43
+
+WhiterunWorld inherits Tamriel LOD through PNAM Use LOD Data. Its cell
+coordinates stay in that same grid. Seven winning Whiterun CELL records hide
+LAND quadrants through XCLC's low four bits. The pond's cell (6, -1) and the
+cell (5, -2) hide all four. The renderer previously ignored these bits and
+submitted inherited full-resolution LAND through the city's authored ground.
+Hiding BTR in an installed Plains District capture left that nearby ground
+unchanged.
+
+LAND construction now omits those quadrants from its triangle list. The seven
+installed cells remove 9,216 triangles, with both fully hidden cells at zero.
+Collision uses the same list and omits fully hidden LAND bodies. The 33 by 33 height
+samples remain available for the loaded-cell LOD mask and edge joining.
+A fully hidden LAND resource retains its existing server instance, kept
+invisible even after a terrain visibility toggle. Godot requires a nonempty
+index buffer, so this invisible resource carries one zero-area GPU face.
+The logical mesh has no triangles. Hidden quadrants supply no Full LOD
+visibility blocker, while their samples still mask BTR. This retains the
+uploaded height inspection contract without adding scene nodes. Object and tree LOD
+exclude installed exterior cells, including cells with no visible batches.
+
+The raw parent BTR survey found 4,941 triangle centroids inside a 25-cell grid.
+Of these, 2,679 lay above sampled LAND, with a maximum excess of 11.77 metres.
+Cell clipping removed every overlap. A small vertical offset would not
+replace that coverage mask. The initial live walkthrough also found zero BTR
+triangle intersections and zero duplicate nominal BTO blocks under 113
+loaded city cells. The corrected live regression passed at the inn exit,
+pond, inside gate and outside gate in 356 seconds. The elevated capture
+repeat passed in 331.57 seconds. City probes retained 113
+LAND resources and 743,097 BTR triangles. Outside the gate there were 25 LAND
+resources and 617,462 BTR triangles. All four probes had zero BTR triangle
+intersections with loaded cells and zero nominal BTO blocks covering drawn
+near-reference cells.
+
+The BTO survey inspected 1,001,342 triangles in 163 selected parent chunks.
+None had a centroid in the pond's near grid. Some distant geometry extends outside its
+nominal chunk. The outside-gate live probe found one such triangle in cell
+(6, -4). BTO does not retain each source reference's FormID, so the live
+resident-object assertion checks chunk exclusion, not per-triangle identity.
+Tamriel's separately placed Whiterun city LOD references appeared outside
+the gate and were absent from all three city probes. Those initial captures did not
+reproduce the reported coarse wall or rock overlay.
+The capture controls hide BTR, BTO and placed city LOD independently.
+An installed asset survey inspected 40 city wall meshes, 20 mountain meshes
+and all 45 Whiterun terrain meshes. None contained `BSLODTriShape`,
+`NiLODNode` or `NiSwitchNode` embedded LOD selectors.
+
+The 2026-10-17 continuation reproduced stale object LOD with an empty child
+CELL at (8, 0). Before correction, parent BTO block `4:8:0` retained one
+instance and one triangle immediately after the CELL installed. Object and
+tree LOD derived their mask from visible batches, which omitted empty cells,
+and waited for another LOD update to release old chunks. Registration now
+sets the mask from installed exterior CELL coordinates and retires overlapping
+blocks before returning. The same registration runs when sliced publication
+finishes. Pending terrain resources supply no acknowledged near coverage.
+The synthetic regression also requires LOD to return after the cell unloads.
+
+The combined release continuation passed all four `whiterun_lod` integration
+checks in 488.89 seconds on 2026-10-17. The Godot child exited zero and printed
+its shutdown marker. Plains, pond, inside walls, outside walls and a six-cell
+exterior move all had zero BTR intersections, zero above-LAND samples, zero
+nominal BTO overlap and no duplicate resident Full LOD references. The three
+city probes retained 113 LAND resources. Both exterior probes retained 25.
+The walking probe had 633,198 BTR triangles and 758 BTO triangle centroids
+inside near cells despite disjoint nominal blocks. The RND-44 survey below
+maps those overhangs to source references before changing object LOD geometry.
+The original coarse wall or rock overlay remains unreproduced. Pixel controls
+include animation noise, including 2,793 changed pixels outside the walls
+where zero LAND triangles were restored. Acceptance uses geometry and
+residency, not those pixel differences. The full workspace gate is assigned
+to the lead by the consolidated task.
+
+### Full LOD publication handoff, RND-45
+
+An admitted persistent Full LOD model can remain in its old world-cell batch
+while walking installs its full-detail grid cell. Waiting for the asynchronous
+distant replacement leaves both copies drawable. Each near upload unit now masks
+its old distant batch member before drawing its first surface. Waiting for
+cell registration was too late because sliced near uploads draw before the
+whole cell finishes. MultiMesh members get a zero basis, and
+triangle members use the existing visibility patch. Reference updates retain
+that mask until the near cell retires. Partially published near references
+are also excluded from distant selection. Near retirement permits selection
+again and rebuilds a retained masked batch when needed. Other members of a shared batch stay visible.
+Occluders containing a masked source are retired at the same boundary.
+
+Distant worker responses and sliced publications carry their residency
+revision. A changed cell set discards a stale response or its still-hidden
+partial uploads before they can become visible. The old drawable resources
+remain until a current replacement completes. Direct cell installs and
+releases also invalidate distant selection. No saved field, dependency or
+per-reference scene node is added.
+
+The installed walkthrough regression additionally moves until an admitted
+Full LOD reference's physical cell enters the near grid. Each handoff inspects
+the old MultiMesh transforms and array-batch triangles as well as the
+selected-reference list. This
+extends the existing Plains District, pond, wall and six-cell walking probes.
+It chooses the nearest admitted reference outside the loaded grid, then moves
+relative to the player one cell at a time through resident LAND. Each step
+waits for the new five by five grid before the next move. Targeting the
+persistent reference itself would change the logical cell and replace the
+location instead of testing walking publication. The original six-cell probe
+runs before this additional automatic movement.
+
+The first additional-probe diagnostic reached the four original city and gate
+checks with zero BTR intersections and zero above-LAND samples. It was stopped
+after its new observer mistook the shared Tamriel water-owner form `0:000018`
+for a Full LOD reference and its new move omitted the required
+`match_rotation` input field. The observer now uses record-qualified persistent
+Full LOD REFRs. These were fixture failures. The log and captures remain in
+`target/whiterun-lod/attempt-1-oracle-and-input`.
+
+The stronger automatic probe initially failed during sliced publication even
+though all six terrain coverage checks passed. It performed 73 mask observations,
+but other near batches began drawing before cell registration masked their
+old Full LOD members. Each upload unit now masks its own references before
+creating visible RIDs. The mask counter counts only verified zero-area members. The observer checks
+both MultiMesh bases and collapsed array-batch triangles through the existing
+triangle-owner query. It checks every walking frame and excludes only
+new distant RIDs that the renderer explicitly keeps hidden during staging.
+That diagnostic exited one and is retained in
+`target/whiterun-lod/attempt-3-sliced-publication`.
+
+The final installed continuation passed in 419.26 seconds and exited zero
+with the normal walkthrough shutdown marker. All six probes reported zero
+BTR intersections, zero above-LAND samples and zero duplicate object blocks.
+The three city probes retained 113 LAND resources and the three exterior
+probes retained 25. The added automatic probe brought reference `0:10D281`
+into the near grid and verified 69 hidden-member observations, including
+repeated frame checks. Only verified zero bases or zero-area triangles count.
+No resident Full LOD reference remained drawable during publication.
+
+The completed shared-upload library also passed both 360-frame PRF-45
+crossings in 290.71 seconds. Physics maxima were 4.040 and 1.401 ms and upload
+maxima were 20.848 and 23.796 ms, below the unchanged 33 ms bounds.
+Both had one physics step at most and zero draw compilations. Streaming
+maxima remained 77.071 and 222.030 ms, tracked separately by PRF-46.
+The reports remain in `target/whiterun-lod` and `target/prf40-after`.
+
+Focused host checks, the physics suite, all-target package Clippy, formatting,
+comment lint, prose lint, Markdown lint and GDScript parsing passed. Unset-data
+harness returns are recorded as skips, including seven of the nine persistent
+Full LOD filter cases. The two pure residency cases passed. The full workspace
+gate remains assigned to the lead. No hardware GPU FPS is claimed, and the
+older unchanged six-GiB Full LOD memory failure below was not rerun.
+
+The BTO attribution survey separately matches overhanging baked triangles to
+authored STAT MNAM triangles after winning REFR transforms. It requires all
+three vertices within eight Skyrim units, with a one-to-one vertex mapping.
+Every sampled overhang must have a source, and none may have resident full
+detail. xEdit `Core/wbLOD.pas` assigns the baked block by REFR position.
+OpenMW's `mwrender/objectpaging.cpp` also collects source references by cells,
+so geometry crossing a cell edge alone does not identify a duplicate.
+The host keeps its own archive and server resource paths. No source is ported.
+
+The installed RND-44 survey matched all 758 walking-probe overhangs to nine
+references, with zero unmatched triangles and zero resident sources. The
+unchanged eight-unit tolerance applies to each of the triangle's vertices.
+The loaded grid spans x 8 to 12 and y -4 to 0. Every source origin is outside
+that grid. These are valid extensions of nonresident objects, so the host
+retains their geometry.
+
+| Reference | Base | Source cell | Overhanging triangles |
+|---|---|---|---|
+| `0:03AC58` | FXWaterfallBodySlope_static | (8, -5) | 36 |
+| `0:05D6BB` | MountainPeak01 | (7, 0) | 213 |
+| `0:06E06F` | MountainRidge03_Light_SN | (11, -5) | 65 |
+| `0:06E089` | MountainCliff04_SparseSN | (10, -5) | 121 |
+| `0:06E098` | MountainPeak01 | (9, -5) | 2 |
+| `0:06E9E5` | WRWallRuinsFree01Entance01 | (7, -1) | 3 |
+| `0:0803F3` | MountainCliff02_LightSN | (10, -5) | 182 |
+| `0:080B1B` | MountainCliff02 | (9, -5) | 135 |
+| `0:0C878D` | MountainTrim01Tundra01 | (13, -5) | 1 |
+
+An earlier installed persistent Full LOD run passed its scene checks, including
+1,203 mountain silhouette pixels against the threshold of 500, 325 eligible
+drawn models and zero retained parent-world models on city return. Its Rust
+test failed the unchanged six-GiB peak RSS limit at 17.736 GiB. The previous
+residency verification also failed that limit, as recorded in
+`docs/full-lod-residency.md`. That capture does not establish whether the mask
+change increased peak memory. RND-40 and RND-41 remain unfinished.
+
+At an earlier checkpoint, one full lint run exited zero with 9,836 Rust tests passed, 14 ignored and
+55 performance-runner contracts passed. Cargo-deny and cargo-audit were
+absent. Summed Rust harness time was 432.39 seconds, above the 300-second
+Tier 1 target. A repeat exited 101 with 9,823 passed and one failure in the
+unchanged trace test
+`prf_29_budget_log_and_dump_name_the_same_slowest_asset_and_cause`.
+Its subscriber buffer lacked the expected report. RND-42 remained `wip`
+at that checkpoint. The consolidated task leaves the workspace gate to the lead.
+
+Sources are UESP `CELL.wikitext` XCLC quadrant flags, `WRLD.wikitext` parent
+flags, xEdit `Core/wbLOD.pas` persistent-reference exclusions and LAND quadrant
+ordering. OpenMW `components/terrain/quadtreeworld.cpp` refines chunks at the
+active grid. Mudcrab `crates/engine/src/streaming/lod.rs` chooses ready terrain
+by cell and quadrant. Those readiness contracts were compared with the host's
+existing BTR clipper. No Mudcrab code was ported.
 
 ## Walkthrough terrain coverage, RND-35
 
