@@ -122,6 +122,11 @@ fn r4_installed_door_streaming_stays_below_thirty_three_ms() {
 }
 
 #[test]
+fn r4_installed_tree_billboards_cover_the_medium_band() {
+    r4_installed_route("r4_tree_test.gd");
+}
+
+#[test]
 fn r4_installed_full_tree_pipelines_are_warm() {
     r4_installed_route("r4_tree_pipeline_test.gd");
 }

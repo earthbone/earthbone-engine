@@ -1,39 +1,5 @@
 # Performance
 
-## Distant visibility worker, PRF-51
-
-The grounded trace found 94.054 ms of ridge visibility selection on a walking
-frame. Selection now runs on one worker against immutable uploaded terrain
-indices. Polling does not wait for unfinished work. A changed revision keeps
-uncertain references visible until a current result can remove them, and near
-and enabled-state masks are checked again before publication.
-
-The existing selector's ridge, missing-terrain, admission and release rules
-stay in use. Focused tests compare worker and direct results and hold a worker
-behind a channel to verify nonblocking polling. Both final grounded traces
-record at most 0.051 ms of main-thread selection. OpenMW's scene ownership and
-Mudcrab's ready-coverage handoff supply the comparison, while the existing Rust
-height indices and selector remain in use. No dependency or scene node is added.
-
-## Exterior publication stages, PRF-46, PRF-52 and PRF-54
-
-The door route exposed a blocking join on background LOD preparation. The
-walking path now polls completion and keeps previous coverage until finer
-workers finish. Atlas image bytes use contiguous packed-array transfers.
-All three LOD streams share the publication clock. The existing cell worker
-also prepares occluders and query hulls, including the 36.939 ms hull operation
-identified by the grounded trace. Server allocation and attachment stay on
-the main thread. Movable publication keeps all shapes of one reference in
-one compound body and slices between references.
-
-Retirement hides departing render batches and releases resources in bounded
-slices, charging the shared clock. A started retirement keeps its generation
-until release completes. Render finalization and gameplay cell entry previously
-shared a frame and cost about 12 and 15 ms. The ordered lifecycle delta now
-runs on the following streaming frame before new loads. The fixture retains
-its timing assertions and adds collision-supported entry and a grounded finish.
-The visibility and tree handoff rows complete the combined route validation.
-
 ## Automatic gameplay clock, PRF-48, 2026-10-17
 
 Preview3 capped physics at one callback per rendered frame. Godot's local
@@ -66,6 +32,173 @@ walks 3,710 units. The host library passes 583 cases with installed data unset.
 All-target Clippy with warnings denied and package formatting pass. The
 exterior worst frame remains 881.882 ms and streaming reaches 145.492 ms.
 The clock pass does not meet the exterior frame budget. PRF-46 remains open.
+
+## Nonblocking LOD preparation, PRF-46, 2026-10-17
+
+The free-walk door traversal on the clock-corrected extension reaches
+139.294 ms of streaming work. `godot/r4_streaming_test.gd` fails its 33 ms
+limit on that run. It retains the clock and movement assertions and uses
+the same Bannered Mare exit as the clock regression.
+
+`lod_cycle` started a preparation worker and immediately joined it through
+`LodBuildRequest::finish`. Automatic walking now polls completion before
+consuming a result. Pending blocks stay eligible for a later frame instead
+of being recorded as missing content. Explicit settling still waits. Cache
+ownership retains unfinished workers and joins them on shutdown. Runtime
+spans separate the LOD cycle and ready-result publication.
+
+Polling alone leaves a 42.269 ms peak. A detailed trace attributes 24.214 ms
+to creating the object LOD atlas image. The gdext packed-array implementation
+provides a contiguous slice copy, while the previous iterator wrote each
+byte separately. Slice transfers lower the next measured peak to 37.915 ms.
+The terrain, object and tree streams also spent separate publication budgets.
+They now share a frame clock with earlier streaming work and rotate priority.
+A normal installed door run reaches 25.683 ms. Its walking acceptance is being
+repeated with collision-ground observations, since clock and horizontal travel
+alone can also pass during a fall.
+
+The longer PRF-40 traversal exposes that gap in its own fixture. It spawns
+below collision, records an empty ground query and falls over 60,000 units.
+The fixture now selects collision support, completes controller installation
+before movement and requires a grounded finish. It retains every upload,
+cell-crossing and timing assertion. The corrected baseline crosses 5,680 units
+and finishes grounded. Streaming still reaches 335.905 ms. Retirement takes
+246.480 ms, query collision installation 75.751 ms, cell finalization 90.412 ms
+and distant-object updates 128.421 ms.
+
+Collision publication now works to elapsed time rather than a fixed group of
+32 shapes, including controller and host query bodies in the same slice.
+Occluder preparation uses the existing exterior worker. Walking retirement
+hides departing batches, then frees render and collision resources in bounded
+slices. A claimed retirement keeps its generation until release completes,
+including if the player turns back. Distant uploads share immutable source
+payloads rather than deep-cloning every retained mesh on the frame path.
+Their occluder preparation and replaced-resource release use the same paths.
+
+The host library passes 590 cases, including a worker held behind a channel,
+a pending block retried on the next cycle and coarse coverage retained until
+all finer workers are ready. Partial finer coverage stays hidden until that
+handoff. All-target Clippy and package formatting pass. This reuses the
+existing LOD cache, worker and streamer. It adds no dependency, scene node or
+saved state. PRF-46 remains in progress until both installed traversals pass.
+
+The grounded detailed trace isolates two further stalls. Controller removal
+reaches 211.036 ms because storage compaction reindexes the surviving last
+body. PRF-50 uses stable body IDs in grid entries and cached occupied cells.
+Its fixed 33 ms survivor test fails at 192.062 ms before the change and passes
+at 0.005 ms afterward. All 29 physics library cases pass.
+
+The first installed stable-ID repeat reaches 114.604 ms of removal. Shared
+cell lists still scan overlapping survivors. A second fixed-limit regression
+fails at 41.316 ms, then per-body cell buckets reduce it to 0.009 ms. Both
+focused removal tests pass, alongside 30 physics library cases. The installed
+bucket repeat still records 210.814 ms of controller removal and 215.193 ms
+of streaming. Primitive count, occupied-cell cleanup and body storage release
+are being traced separately. PRF-50 remains open.
+
+Distant visibility selection reaches 94.054 ms on the same traversal. PRF-51
+keeps the current selector and evaluates it on a worker against shared,
+immutable terrain height indices. Polling never waits for a running query.
+The previous presentation stays visible until completion. Changed snapshots
+retain uncertain references until a current visibility result can remove them.
+Near-cell and enabled-state masks are checked again before publication.
+Eighteen focused visibility cases retain the ridge and admission contracts.
+
+Door query collision and walking collision use elapsed slices. A query body
+that spends its slice defers the controller body to the next frame rather
+than combining their individual costs. Finalization also charges the shared
+publication clock. Installed confirmation remains pending.
+
+PRF-52 isolates another required-door load stall. The instrumented route
+reaches 43.680 ms during preparation and 31.129 ms while walking. The largest
+query operation is 36.431 ms and contains seven separate body hull phases.
+Individual hull phases stay below 6.483 ms, shape creation below 0.057 ms and
+shape attachment below 1.432 ms. Cell finalization installed every movable
+reference in one call after the static collision slices had completed.
+
+Movable publication now queues one complete reference at a time. Multiple
+colliders for one reference retain their compound body, mass and placements.
+Required locations keep that queue across preparation frames. Walking cells
+finish movable publication before acknowledging the cell as drawable.
+Finalization waits for a later frame after movable work. Required preparation
+also accounts for earlier tree LOD work before starting more collision work.
+The installed combined door and tree check passes at 30.707 ms of streaming,
+with clock ratios 1.00212 in the inn and 1.00225 outside. Every exterior sample
+is grounded. Its tree survey covers all 850 expected archived trees with zero
+missing and no near-cell duplicates. The strengthened full-tree probe also
+passes with ArrayMesh and MultiMesh instances for both pine and aspen. Both
+report zero mesh, surface and draw compilations. Pine preparation and upload
+takes 96.219 ms and aspen 20.299 ms through the synchronous diagnostic model
+API. Instance creation takes 0.086 and 0.124 ms. Production walking prepares
+models on the cell worker, so those diagnostic totals are not frame-path
+streaming measurements.
+
+The longer grounded repeats still fail streaming at 43.100 and 59.669 ms.
+Per-primitive overflow reduces the large controller removal to 38.267 and
+53.786 ms, but 146,958 cells remain across the body's moderate primitives.
+PRF-50 now bounds combined cells per body, documented in [physics.md](physics.md).
+Separating render finalization from gameplay entry lowers their previous
+40.734 ms combined exterior frame to 28.572 ms in the first traversal.
+Completed entry and unload deltas keep their order and consume the next
+streaming frame before new loads.
+
+PRF-54 isolates 36.939 ms of CPU hull tessellation inside one query collider
+publication, with 0.368 ms of shape attachment. Walking preparation now carries
+one CPU-prepared primitive payload per static collider from the existing cell
+worker. Publication retains the same hull repair and compound geometry but
+only performs server allocation and attachment. Synchronous rebuilds call the
+same preparation function. The focused compound check verifies hull corners,
+sphere scale and placement. Final installed repeats pass both grounded routes.
+Worst streaming is 27.641 ms for WhiterunExterior04 and 29.606 ms for
+WhiterunExterior01, below the unchanged 33 ms limit. They travel 5,680 and
+5,998 horizontal units, cross CELL boundaries and finish on collision ground.
+Worst physics synchronization is 15.468 and 18.715 ms, with one callback per
+frame. Controller-only collision publication in the prior trace peaks at
+30.227 ms, so it retains its existing path. The expensive query hull work now
+runs on the cell worker. Main-thread distant selection peaks at 0.051 ms and
+body removal at 0.595 ms.
+
+The final door and tree repeat passes at 26.374 ms during preparation and
+26.909 ms while walking. Clock ratios are 1.00184 in the inn and 1.00193 in
+Whiterun, with every exterior sample grounded. The 850-tree survey still has
+zero missing billboards and no near-cell duplicates. The ArrayMesh and
+MultiMesh tree probe reports zero mesh, surface and draw compilations for
+both species, with two background specializations each. Pine preparation and
+upload takes 45.064 ms plus 0.077 ms instance creation. Aspen takes 24.841 ms
+plus 0.106 ms. The old player eye-height and camera attachment fixture passes.
+
+These are stock Godot 4.4.1 runs on Xvfb :99 with llvmpipe. Total frame time
+still exceeds 33 ms. The two grounded routes record 456.959 and 450.693 ms
+worst frames, so the streaming acceptance does not establish a real GPU frame
+budget. Final reports and traces are under target/r4-runtime/final. Package
+formatting, all-target Clippy and 600 host library cases pass, with installed
+fixtures run separately from the ungated library count. No dependency,
+saved field or per-reference scene node is added.
+
+## Tree pipeline warmup, PRF-49, 2026-10-17
+
+The free-walk full-tree probe loads a pine and an aspen through the production
+model mesh API after entering Whiterun. Before warmup, each creates three
+surface pipelines. Pine preparation and upload takes 43.505 ms for 3,734
+vertices, and aspen takes 29.942 ms for 2,758 vertices. Godot's local pipeline
+compilation guide identifies mesh, surface and draw compilation as possible
+frame stalls. Background specialization is recorded separately.
+
+Startup now prepares representative surfaces from winning TREE models and
+the existing BTT billboard builder. It retains their authored material
+cutoffs, texture-slot presence and vertex layout. A private texture cache
+uses small placeholders. Production shaders are shared and remain alive with
+the representative meshes. Temporary server instances are drawn under the
+loading cover and freed after the existing rendering-settle check. The fixed
+acceptance is zero mesh, surface and draw compilations for a newly loaded
+tree after startup. The installed probe passes and exits zero. Both trees create zero mesh,
+surface and draw pipelines. Pine preparation and upload takes 43.388 ms,
+and aspen takes 29.057 ms. This isolates compilation from the remaining
+upload cost. Startup prepares 261 models into 155 representatives using
+25,668 mesh bytes. CPU preparation takes 1,441 ms and publication 46 ms,
+both under the loading cover. All 595 host library cases, all-target Clippy
+and package formatting pass. No dependency, saved
+state or per-reference scene node is added.
 
 ## Exterior publication, PRF-45, 2026-10-15
 
@@ -2875,28 +3008,3 @@ and zero foreground draw compilations. Surface and specialization counts
 remain eight and 36, then six and 34. These shared-machine observations keep
 PRF-47 below 33 ms and leave PRF-46 open. They do not establish hardware FPS.
 The current reports and load traces remain in `target/prf40-after`.
-
-## Tree pipeline warmup, PRF-49, 2026-10-17
-
-The free-walk full-tree probe loads a pine and an aspen through the production
-model mesh API after entering Whiterun. Before warmup, each creates three
-surface pipelines. Pine preparation and upload takes 43.505 ms for 3,734
-vertices, and aspen takes 29.942 ms for 2,758 vertices. Godot's local pipeline
-compilation guide identifies mesh, surface and draw compilation as possible
-frame stalls. Background specialization is recorded separately.
-
-Startup now prepares representative surfaces from winning TREE models and
-the existing BTT billboard builder. It retains their authored material
-cutoffs, texture-slot presence and vertex layout. A private texture cache
-uses small placeholders. Production shaders are shared and remain alive with
-the representative meshes. Temporary server instances are drawn under the
-loading cover and freed after the existing rendering-settle check. The fixed
-acceptance is zero mesh, surface and draw compilations for a newly loaded
-tree after startup. The installed probe passes and exits zero. Both trees create zero mesh,
-surface and draw pipelines. Pine preparation and upload takes 43.388 ms,
-and aspen takes 29.057 ms. This isolates compilation from the remaining
-upload cost. Startup prepares 261 models into 155 representatives using
-25,668 mesh bytes. CPU preparation takes 1,441 ms and publication 46 ms,
-both under the loading cover. All 595 host library cases, all-target Clippy
-and package formatting pass. No dependency, saved
-state or per-reference scene node is added.

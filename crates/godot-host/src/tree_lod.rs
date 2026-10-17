@@ -78,6 +78,20 @@ pub struct TreeReference {
     pub raw_form_id: u32,
 }
 
+/// Group archived positions by their physical cell for near-detail handoff.
+/// Coverage follows Mudcrab streaming/lod.rs, without changing BTT identity.
+pub(crate) fn cell_groups(
+    references: Vec<TreeReference>,
+) -> BTreeMap<crate::streaming::CellCoord, Vec<TreeReference>> {
+    let mut cells = BTreeMap::<_, Vec<_>>::new();
+    for reference in references {
+        let [x, y, z] = reference.position;
+        let cell = crate::streaming::CellCoord::containing(crate::units::SkyrimPos::new(x, y, z));
+        cells.entry(cell).or_default().push(reference);
+    }
+    cells
+}
+
 /// Read the count and packed 32-byte LST entries, ignoring bytes after the table.
 pub fn read_types(bytes: &[u8]) -> Result<BTreeMap<u32, TreeType>, TreeLodError> {
     let mut reader = Reader {
@@ -208,4 +222,37 @@ pub fn build_billboards(
         }
     }
     Ok(mesh)
+}
+
+#[cfg(test)]
+mod cell_group_tests {
+    use super::*;
+    use crate::streaming::CellCoord;
+
+    #[test]
+    fn billboard_groups_keep_negative_cell_ownership_and_reference_order() {
+        let tree = |raw_form_id, x, y| TreeReference {
+            tree_type: 0,
+            position: [x, y, 0.0],
+            rotation: 0.0,
+            scale: 1.0,
+            raw_form_id,
+        };
+        let cells = cell_groups(vec![
+            tree(1, -1.0, 0.0),
+            tree(2, 4096.0, 0.0),
+            tree(3, 0.0, -0.5),
+            tree(4, 500.0, -0.5),
+        ]);
+        assert_eq!(cells.len(), 3);
+        assert_eq!(cells[&CellCoord::new(-1, 0)][0].raw_form_id, 1);
+        assert_eq!(cells[&CellCoord::new(1, 0)][0].raw_form_id, 2);
+        assert_eq!(
+            cells[&CellCoord::new(0, -1)]
+                .iter()
+                .map(|tree| tree.raw_form_id)
+                .collect::<Vec<_>>(),
+            [3, 4]
+        );
+    }
 }

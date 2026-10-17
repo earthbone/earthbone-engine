@@ -22,6 +22,7 @@ func _sample(label: String, fps: int) -> void:
 		var build_ms := (Time.get_ticks_usec() - started) / 1000.0
 		_check(not meshes.is_empty(), "full tree model loaded: " + model)
 		var rids: Array[RID] = []
+		var instanced: Array[MultiMesh] = []
 		var vertices := 0
 		var feet: Vector3 = player.call("position")
 		var position := Vector3(feet.x / 70.0 + 12, feet.z / 70.0, -feet.y / 70.0)
@@ -30,13 +31,24 @@ func _sample(label: String, fps: int) -> void:
 			var rid := RenderingServer.instance_create2(mesh.get_rid(), streamer.get_world_3d().get_scenario())
 			RenderingServer.instance_set_transform(rid, Transform3D(Basis.IDENTITY, position))
 			rids.append(rid)
+			var multi := MultiMesh.new()
+			multi.transform_format = MultiMesh.TRANSFORM_3D
+			multi.mesh = mesh
+			multi.instance_count = 2
+			multi.set_instance_transform(0, Transform3D.IDENTITY)
+			multi.set_instance_transform(1, Transform3D(Basis.IDENTITY, Vector3(5, 0, 0)))
+			instanced.append(multi)
+			var multi_rid := RenderingServer.instance_create2(multi.get_rid(), streamer.get_world_3d().get_scenario())
+			RenderingServer.instance_set_transform(multi_rid, Transform3D(Basis.IDENTITY, position))
+			rids.append(multi_rid)
+		var instance_upload_ms := (Time.get_ticks_usec() - started) / 1000.0 - build_ms
 		for _frame in 3:
 			await RenderingServer.frame_post_draw
 		var counts := Warmup.snapshot()
 		for index in counts.size():
 			counts[index] -= before[index]
 		var pipelines := Warmup.named(counts)
-		var row := {"model": model, "meshes": meshes.size(), "vertices": vertices, "prepare_upload_ms": build_ms, "pipelines": pipelines}
+		var row := {"model": model, "meshes": meshes.size(), "multimeshes": instanced.size(), "vertices": vertices, "prepare_upload_ms": build_ms, "instance_upload_ms": instance_upload_ms, "pipelines": pipelines}
 		trees.append(row)
 		print("R4_FULL_TREE ", JSON.stringify(row))
 		_check(vertices > 100, "full tree has authored geometry")

@@ -1,22 +1,58 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
-## Exterior publication stages, PRF-46, PRF-52 and PRF-54
+## Round 4 runtime timing, 2026-10-17
 
-Walking now polls unfinished LOD workers and retains coarse coverage until
-finer blocks are ready. Terrain, object and tree publication share a frame
-budget. Packed image bytes use contiguous copies. Cell preparation builds
-occluders and query hulls on the existing worker, leaving server calls on the
-main thread. Movable references retain their compound shapes across slices.
+PRF-48 corrects the automatic World and player-controller clock. One capped
+Godot physics callback now supplies monotonic wall time, and the existing
+capsule controller substeps long movement intervals. Manual `advance(delta)`
+retains explicit time. Menus, console and location preparation do not build
+automatic catch-up debt. The free-walk inn and door regression passes its
+5 percent clock tolerance, with ratios 1.01291 and 0.99948. This supersedes
+the slow-simulation behavior described in the earlier PRF-45 checkpoint.
 
-Departing render batches hide before resource retirement. Retirement keeps
-its generation until release finishes. Gameplay entry and unload deltas run
-on the next streaming frame after render finalization, retaining their order.
-The grounded fixture now selects collision support and requires a grounded
-finish, since the old fixture could pass horizontal travel while falling.
-The separate visibility and tree rows carry their own acceptance evidence.
-No per-reference scene node, dependency or saved field is added.
+PRF-46 passes both grounded traversals at 27.641 and 29.606 ms worst streaming,
+with unchanged 33 ms limits and radius 96 distant coverage. The door route
+passes at 26.374 ms during preparation and 26.909 ms while walking, with clock
+ratios 1.00184 and 1.00193. CPU preparation is polled without blocking, and
+uploads, collision publication, retirement and lifecycle entry use separate
+bounded stages. Tree pipelines remain warm under both mesh instance paths.
+The longer PRF-40 fixture now queries collision support before walking and
+requires a grounded finish. Its former below-floor start could pass travel
+checks while falling. Both corrected routes finish grounded. Total software
+renderer frame times still exceed 33 ms. See [performance.md](performance.md)
+for source paths, measurements and the real GPU validation limit.
 
-## Tree pipeline warmup, PRF-49, 2026-10-17
+The RND-47 free-walk survey found 715 missing trees among 850 archived trees
+outside near cells within eight cells. Whole-block exclusion discarded every
+tree in a 4 by 4 block when one cell had near detail. The correction
+groups billboard surfaces by physical source cell and masks only resident near
+cells. xEdit `Core/wbLOD.pas` supplies the LST atlas rectangles and BTT placed
+references. UESP TREE describes the near model. Mudcrab streaming/lod.rs
+supplies the ready-coverage handoff rule. The archive bytes and reference
+identities keep their existing meaning. Publication uses server RIDs per cell,
+with no node per tree. The installed survey reaches zero missing trees out of
+850 and finds no drawn billboard cell with near render batches. Early door
+preparation lets tree workers fill the medium band before walking resumes.
+The source-block registration path also masks individual cells instead of
+discarding a whole archived block.
+
+The repeated survey still finds zero missing out of 850 archived trees and
+no near-cell duplicates. It retains 190 archived blocks as 2,131 source-cell
+instance RIDs, with 103,792 triangles and 7,888,192 tracked geometry bytes.
+These are server resources, not scene nodes. The trace builds 26,352 tree
+billboards in 84.848 ms on workers, 3.22 microseconds per tree in aggregate.
+The largest source-cell build is 12.813 ms. Shared atlas upload is 3.540 ms.
+The combined check still fails its separate streaming limit during door
+preparation at 44.174 ms. Walking streaming is 29.069 ms.
+
+PRF-50 corrects a further static-grid compaction stall. Removing a small body
+visited every primitive of a large surviving body. Stable grid body IDs remove
+that dependency. PRF-51 evaluates distant visibility against immutable height
+indices on a worker, retaining displayed references while a result is pending.
+An obsolete snapshot cannot remove uncertain coverage. Installed confirmation
+peaks at 0.051 ms for main-thread selection and 0.595 ms for controller removal.
+Query hull preparation now joins the existing cell worker, preserving compound
+shapes and leaving server calls on the main thread.
 
 PRF-49 prepares the load order's winning TREE material and vertex layouts on a
 worker. The loading screen draws small representatives using production NIF

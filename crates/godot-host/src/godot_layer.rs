@@ -5378,7 +5378,7 @@ impl CellStreamerNode {
             tree_cells: std::collections::HashMap::new(),
             tree_hidden_cells: std::collections::HashSet::new(),
             progressive: !settle,
-            streamer: if matches!(kind, LodStream::Terrain) {
+            streamer: if matches!(kind, LodStream::Terrain | LodStream::Tree) {
                 streamer.with_cell_handoff()
             } else {
                 streamer
@@ -5472,7 +5472,7 @@ impl CellStreamerNode {
                 source.scenery_lod_blocks(&lod.world_editor_id, catalog_kind),
             )
             .ok()?;
-            lod.streamer = if matches!(kind, LodStream::Terrain) {
+            lod.streamer = if matches!(kind, LodStream::Terrain | LodStream::Tree) {
                 streamer.with_cell_handoff()
             } else {
                 streamer
