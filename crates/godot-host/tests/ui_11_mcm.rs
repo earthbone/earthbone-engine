@@ -471,7 +471,7 @@ fn ui_11_windowed_unmodified_scripts_render_update_and_callback_once() {
         return;
     };
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let directory = tempfile::tempdir_in(&root).unwrap();
+    let directory = tempfile::tempdir_in("/tmp").unwrap();
     fixture.write(directory.path());
     let output = std::process::Command::new(godot)
         .args([

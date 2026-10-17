@@ -5984,6 +5984,13 @@ UI-05 remains in progress until that check completes.
 
 ### MCM text and toggle rows, UI-11
 
+On 2026-10-17, the original SkyUI PEX checks pass in 18 focused game tests
+and eight host protocol tests. The windowed options check remains queued
+behind the shared installed-test slot, so UI-11 remains in progress.
+
+The windowed fixture keeps original SkyUI PEX files in a temporary directory
+outside the checkout. Generated captures and logs stay in `target/ui_11_host`.
+
 `mcm_menu::ConfigPage` stores text/value and toggle rows in authored order.
 It returns SkyUI option IDs using the page number in the high byte and a slot
 from 0 to 127 in the low byte. `set_enabled` changes the disabled flag while
