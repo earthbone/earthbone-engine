@@ -15,6 +15,8 @@ var cache_symbol := ""
 var cache_instance := ""
 var stretch_art := false
 var art_color := Color.WHITE
+## Mirrors installed art on the y axis, used by the descending sort arrow.
+var flipped := false
 var meshes: Array = []
 var art_bounds := Rect2()
 var art_source := "builtin"
@@ -35,8 +37,29 @@ func _load_art() -> void:
 		return
 	if cache == null or cache.directory != cache_directory:
 		cache = InterfaceCache.new(cache_directory)
-	for movie_path in cache.movies:
-		if not cache_movie.is_empty() and not str(movie_path).ends_with(cache_movie):
+	var key := JSON.stringify([icon_name, cache_movie, cache_symbol, cache_instance, cache_icon_name])
+	if cache.presentations.has(key):
+		var prepared: Dictionary = cache.presentations[key]
+		if not prepared.is_empty():
+			meshes = prepared.meshes.duplicate()
+			art_bounds = prepared.bounds
+			art_source = prepared.source
+		return
+	var selected_movie := cache_movie.replace("\\", "/").to_lower()
+	var movie_paths: Array = []
+	if selected_movie.begins_with("interface/"):
+		var requested: Dictionary = cache.movie(selected_movie)
+		if requested.is_empty():
+			return
+		selected_movie = requested.path
+		movie_paths = [selected_movie]
+	else:
+		movie_paths = cache.movies.keys()
+		# A same-named SkyUI movie wins over the vanilla inventory component,
+		# and NORDIC replaces that same path, so installed art decides the look.
+		movie_paths.sort_custom(func(a, b): return str(a).begins_with("interface/skyui/") and not str(b).begins_with("interface/skyui/"))
+	for movie_path in movie_paths:
+		if not selected_movie.is_empty() and not str(movie_path).ends_with(selected_movie):
 			continue
 		if cache_movie.is_empty() and "icon" not in str(movie_path).to_lower():
 			continue
@@ -61,35 +84,63 @@ func _load_art() -> void:
 							break
 				if not meshes.is_empty():
 					art_source = str(movie_path)
+					_remember_art(key)
 					return
 			continue
 		var label := cache_icon_name if not cache_icon_name.is_empty() else icon_name
 		if label == "default_spell":
 			label = "mag_all"
-		for timeline in metadata.get("timelines", {}).values():
-			for frame in timeline.get("frames", []):
-				if label in frame.get("labels", []):
-					_collect(source, frame.display_list, Transform2D.IDENTITY, 0)
-					if not meshes.is_empty():
-						art_source = str(movie_path)
-						return
+		for frame in cache.labeled_frames(source, label):
+			_collect(source, frame.display_list, Transform2D.IDENTITY, 0)
+			if not meshes.is_empty():
+				art_source = str(movie_path)
+				_remember_art(key)
+				return
+	cache.presentations[key] = {}
+
+func _remember_art(key: String) -> void:
+	cache.presentations[key] = {"meshes": meshes.duplicate(), "bounds": art_bounds, "source": art_source}
+
+func use_cache(prepared) -> void:
+	cache = prepared
+	cache_directory = prepared.directory
+	meshes = []
+	texture = null
+	art_bounds = Rect2()
+	art_source = "builtin"
+	_load_art()
+	if meshes.is_empty():
+		_load_theme()
+	queue_redraw()
 
 func _load_theme() -> void:
-	var _span = UiTrace.begin("ui.icon.theme." + icon_name)
-	var path := DefaultTheme.resource_path(icon_name)
-	if path.is_empty() or not FileAccess.file_exists(path):
+	if icon_name == "sort_arrow":
 		return
-	if path.ends_with(".svg"):
+	var _span = UiTrace.begin("ui.icon.theme." + icon_name)
+	var path := ""
+	var value: Resource
+	if cache != null and cache.prepared_resources:
+		var prepared: Dictionary = cache.fallbacks.get(icon_name, cache.fallbacks.get("default_misc", {}))
+		if prepared.is_empty():
+			return
+		path = prepared.path
+		value = prepared.resource
+	else:
+		path = DefaultTheme.resource_path(icon_name)
+		if path.is_empty() or not FileAccess.file_exists(path):
+			return
+	if value == null and path.ends_with(".svg") and (cache == null or not cache.prepared_resources):
 		var pixels := Image.new()
 		if pixels.load_svg_from_string(FileAccess.get_file_as_string(path)) == OK:
 			texture = ImageTexture.create_from_image(pixels)
 	else:
-		var resource = load(path)
-		if resource is Mesh:
-			meshes.append({"mesh": resource, "transform": Transform2D.IDENTITY})
-			art_bounds = resource.get_meta("swf_bounds", Rect2())
-		elif resource is Texture2D:
-			texture = resource
+		if value == null:
+			value = cache.resource(path) if cache != null else load(path)
+		if value is Mesh:
+			meshes.append({"mesh": value, "transform": Transform2D.IDENTITY})
+			art_bounds = value.get_meta("swf_bounds", Rect2())
+		elif value is Texture2D:
+			texture = value
 	if not meshes.is_empty() or texture != null:
 		art_source = path
 
@@ -110,12 +161,11 @@ func _collect(source: Dictionary, instances: Array, transform: Transform2D, dept
 		var target: Dictionary = resolved.movie
 		var character: int = resolved.character
 		var shape_path := str(target.directory).path_join("shape-%d.tres" % character)
-		if FileAccess.file_exists(shape_path):
-			var mesh = load(shape_path)
-			if mesh is Mesh:
-				meshes.append({"mesh": mesh, "transform": local})
-				var bounds: Rect2 = local * mesh.get_meta("swf_bounds", Rect2())
-				art_bounds = bounds if art_bounds.size == Vector2.ZERO else art_bounds.merge(bounds)
+		var mesh = cache.resource(shape_path)
+		if mesh is Mesh:
+			meshes.append({"mesh": mesh, "transform": local})
+			var bounds: Rect2 = local * mesh.get_meta("swf_bounds", Rect2())
+			art_bounds = bounds if art_bounds.size == Vector2.ZERO else art_bounds.merge(bounds)
 		else:
 			var timeline = target.data.get("timelines", {}).get(str(character), {})
 			if not timeline.get("frames", []).is_empty():
@@ -129,10 +179,21 @@ func _draw() -> void:
 		var scale_xy := (size - Vector2.ONE * 4) / art_bounds.size
 		if not stretch_art:
 			scale_xy = Vector2.ONE * minf(scale_xy.x, scale_xy.y)
+		if flipped:
+			scale_xy.y = -scale_xy.y
 		var fit := Transform2D.IDENTITY.scaled(scale_xy)
 		fit.origin = size * 0.5 - art_bounds.get_center() * scale_xy
+		# Installed SWF art keeps the colours its author drew. The tint only
+		# darkens the bundled fallback shapes.
+		var tint := Color.WHITE if art_source.begins_with("interface/") else art_color
 		for part in meshes:
-			draw_mesh(part.mesh, null, fit * part.transform, art_color)
+			draw_mesh(part.mesh, null, fit * part.transform, tint)
+		return
+	if icon_name == "sort_arrow":
+		var half := minf(size.x, size.y) * 0.5
+		var mid := size * 0.5
+		var tip := -half if not flipped else half
+		draw_colored_polygon(PackedVector2Array([mid + Vector2(0, tip * 0.6), mid + Vector2(half, -tip * 0.6), mid + Vector2(-half, -tip * 0.6)]), Color(0.9, 0.92, 0.93))
 		return
 	var color := Color(0.78, 0.82, 0.83)
 	var center := size * 0.5

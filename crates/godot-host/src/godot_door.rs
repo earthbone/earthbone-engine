@@ -22,6 +22,7 @@ pub(super) struct DoorSurface {
     pub triangles: usize,
     pub submitted: Transform3D,
     pub animation: Option<AnimatedSurface>,
+    pub pick_mesh: crate::godot_layer::picking::PickMesh,
 }
 
 pub(super) struct ResidentDoor {
@@ -29,7 +30,7 @@ pub(super) struct ResidentDoor {
     pub node: Gd<Node3D>,
     pub surfaces: Vec<DoorSurface>,
     pose: Transform3D,
-    visible: bool,
+    pub visible: bool,
     opened: bool,
     fraction: f32,
     pub animation: Option<DoorAnimation>,

@@ -5,6 +5,7 @@ extends SceneTree
 const Cache = preload("res://ui/interface_cache.gd")
 const Icon = preload("res://ui/item_icon.gd")
 const Menu = preload("res://ui/item_menu.gd")
+const Library = preload("res://ui/item_art_library.gd")
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -28,6 +29,7 @@ func run() -> void:
 		"interface/cycle.swf": "cycle/movie.tres",
 		"interface/escape.swf": "../outside/movie.tres",
 		"interface/fonts.swf": "fonts/movie.tres",
+		"interface/icons_aaa.swf": "icons/movie.tres",
 		"interface/icons_fixture.swf": "icons/movie.tres",
 	}})
 	var font_config := FileAccess.open(directory.path_join("fontconfig.txt"), FileAccess.WRITE)
@@ -101,7 +103,7 @@ func run() -> void:
 	var menu := Menu.new()
 	root.add_child(menu)
 	var items := [{"id": "1", "name": "Fixture item", "category": "Misc", "icon": "default_misc", "side": 0}]
-	menu.configure("inventory", items, directory)
+	menu.configure("inventory", items, directory, {"item": "INTERFACE\\ICONS_FIXTURE.SWF"})
 	var item_icon = menu.rows.get_child(0).get_child(0).get_child(1)
 	assert(item_icon.art_source == "interface/icons_fixture.swf")
 	var manifest := directory.path_join("manifest.json")
@@ -121,5 +123,54 @@ func run() -> void:
 	icon.queue_free()
 	imported.queue_free()
 	await process_frame
+	await _exercise_library(directory)
 	print("UI-20 IMPORT PASS")
 	quit(0)
+
+func _exercise_library(directory: String) -> void:
+	var library := Library.new()
+	var sources := {"item": "interface/icons_fixture.swf"}
+	library.request(directory, sources)
+	root.add_child(library)
+	var started := Time.get_ticks_msec()
+	while library.cache.directory != directory or not library.cache.prepared_resources:
+		assert(Time.get_ticks_msec() - started < 10_000, "resource worker must finish")
+		await process_frame
+	var prepared = library.cache
+	assert(prepared.font("$BoldFont").resource_path == directory.path_join("fonts/font-3.tres"))
+	var hidden := ["manifest.json", "icons/movie.json", "card/movie.json", "fonts/movie.json"]
+	for relative in hidden:
+		var path := directory.path_join(relative)
+		assert(DirAccess.rename_absolute(path, path + ".prepared") == OK)
+	var items: Array = []
+	for index in range(128):
+		items.append({"id": str(index), "name": "Fixture item %03d" % index,
+			"category": "Misc", "icon": "default_misc", "side": 0})
+	for opening in range(2):
+		var opening_started := Time.get_ticks_usec()
+		var menu := Menu.new()
+		menu.configure("inventory", items, directory, sources, library)
+		root.add_child(menu)
+		var opening_ms := (Time.get_ticks_usec() - opening_started) / 1000.0
+		print("UI-20 ASYNC measured opening=", opening, " ms=", opening_ms)
+		assert(opening_ms < 33.0, "prepared menu opening must fit the frame budget")
+		assert(menu.visible_rows.size() == 128)
+		started = Time.get_ticks_msec()
+		while menu.next_row < 128:
+			assert(Time.get_ticks_msec() - started < 10_000, "all rows must finish")
+			await process_frame
+		assert(menu.rows.get_child_count() == 128)
+		assert(float(menu.get_meta("chrome_build_ms", 0.0)) < 33.0)
+		assert(float(menu.get_meta("sort_build_ms", 0.0)) < 33.0)
+		assert(float(menu.get_meta("rows_batch_max_ms", 0.0)) < 33.0)
+		assert(menu.rows.get_child(0).get_child(0).get_child(1).art_source == "interface/icons_fixture.swf")
+		assert(menu.art_cache == prepared, "reopening retains the player's generation")
+		print("UI-20 ASYNC opening=", opening, " ms=", opening_ms, " rows=", menu.next_row,
+			" batch_max_ms=", menu.get_meta("rows_batch_max_ms", 0.0))
+		menu.queue_free()
+		await process_frame
+	for relative in hidden:
+		var path := directory.path_join(relative)
+		assert(DirAccess.rename_absolute(path + ".prepared", path) == OK)
+	library.queue_free()
+	await process_frame

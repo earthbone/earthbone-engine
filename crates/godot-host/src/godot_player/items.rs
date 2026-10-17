@@ -2,7 +2,7 @@
 
 //! SkyUI-informed native Control presentation, with actions resolved in Game.
 
-use godot::classes::{Control, GDScript, ProjectSettings};
+use godot::classes::{Control, GDScript, Node, ProjectSettings};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
@@ -54,6 +54,50 @@ fn form(data: &VarDictionary) -> Option<GlobalFormId> {
 }
 
 impl PlayerNode {
+    fn item_icon_sources(&self) -> VarDictionary {
+        let mut icons = VarDictionary::new();
+        if let Some(source) = &self.data_source {
+            match crate::interface_art::icon_sources(source.vfs()) {
+                Ok(sources) => {
+                    if let Some(category) = sources.category {
+                        icons.set("category", category);
+                    }
+                    if let Some(item) = sources.item {
+                        icons.set("item", item);
+                    }
+                }
+                Err(error) => {
+                    godot_error!("PlayerNode: interface config: {error}");
+                }
+            }
+        }
+        icons
+    }
+
+    fn item_art_library(&mut self, directory: &str, sources: &VarDictionary) -> Option<Gd<Node>> {
+        if let Some(mut library) = self.base().get_node_or_null("ItemArtLibrary") {
+            let _guard = self.base_mut();
+            library.call("request", &[directory.to_variant(), sources.to_variant()]);
+            return Some(library);
+        }
+        let _span = crate::godot_ui_trace::scope(|| "ui.assets.library_create".into());
+        let menu = godot::tools::try_load::<GDScript>("res://ui/item_menu.gd").ok()?;
+        let script = godot::tools::try_load::<GDScript>("res://ui/item_art_library.gd").ok()?;
+        let mut library = Node::new_alloc();
+        library.set_script(&script);
+        library.set_name("ItemArtLibrary");
+        library.set_meta("menu_script", &menu.to_variant());
+        library.call("request", &[directory.to_variant(), sources.to_variant()]);
+        self.base_mut().add_child(&library);
+        Some(library)
+    }
+
+    pub(super) fn prepare_item_assets(&mut self) {
+        let directory = self.item_art_cache();
+        let sources = self.item_icon_sources();
+        self.item_art_library(&directory, &sources);
+    }
+
     fn item_art_cache(&mut self) -> String {
         let _span = soe_trace::Span::new("ui.art.cache_request", "ui");
         if let Some(cache) = &self.interface_cache {
@@ -129,16 +173,12 @@ impl PlayerNode {
             }
         };
         self.interface_cache = Some(cache.clone());
-        if let Some(mut view) = self
-            .menu_content()
-            .and_then(|content| content.get_node_or_null("ItemMenu"))
-        {
-            let _guard = self.base_mut();
-            view.call("set_art_cache", &[cache.to_variant()]);
-        }
+        let sources = self.item_icon_sources();
+        self.item_art_library(&cache, &sources);
     }
 
     pub(super) fn present_items(&mut self, mode: &str, rows: &[(Row, i64)]) -> bool {
+        let presentation_started = std::time::Instant::now();
         let mut span = crate::godot_ui_trace::scope(|| "ui.items.present".into());
         span.set_payload(rows.len() as u64);
         let Some(mut content) = self.menu_content() else {
@@ -154,6 +194,10 @@ impl PlayerNode {
         if let Some(mut view) = content.get_node_or_null("ItemMenu") {
             let _guard = self.base_mut();
             view.call("replace_rows", &[data.to_variant()]);
+            view.set_meta(
+                "opening_main_thread_ms",
+                &(presentation_started.elapsed().as_secs_f64() * 1000.0).to_variant(),
+            );
             return true;
         }
         let script = godot::tools::try_load::<GDScript>("res://ui/item_menu.gd");
@@ -162,6 +206,8 @@ impl PlayerNode {
             return false;
         };
         let cache = self.item_art_cache();
+        let icon_sources = self.item_icon_sources();
+        let library = self.item_art_library(&cache, &icon_sources);
         let base = self.base().clone();
         let _guard = self.base_mut();
         for mut child in content.get_children().iter_shared() {
@@ -172,10 +218,22 @@ impl PlayerNode {
         view.set_script(&script);
         view.connect("activate_item", &base.callable("item_menu_activate"));
         view.connect("favorite_item", &base.callable("item_menu_favorite"));
-        content.add_child(&view);
         view.call(
             "configure",
-            &[mode.to_variant(), data.to_variant(), cache.to_variant()],
+            &[
+                mode.to_variant(),
+                data.to_variant(),
+                cache.to_variant(),
+                icon_sources.to_variant(),
+                library
+                    .as_ref()
+                    .map_or_else(Variant::nil, |value| value.to_variant()),
+            ],
+        );
+        content.add_child(&view);
+        view.set_meta(
+            "opening_main_thread_ms",
+            &(presentation_started.elapsed().as_secs_f64() * 1000.0).to_variant(),
         );
         true
     }
@@ -260,15 +318,29 @@ impl PlayerNode {
         let Some(game) = self.game.as_mut() else {
             return false;
         };
-        let rows = item_menu::barter(game, faction, merchant);
-        let player = game.player();
-        let gold = game.form("Gold001");
-        let player_gold = gold.map_or(0, |gold| game.world_mut().item_count(player, gold));
-        let merchant_gold = game
+        let service = game
             .resolve_vendor_service(faction, merchant)
             .ok()
-            .flatten()
-            .map_or(0, |service| service.gold);
+            .flatten();
+        let Some(service) = service else {
+            return self.present_items("barter", &[]);
+        };
+        self.present_barter_service_items(merchant, &service)
+    }
+
+    pub(super) fn present_barter_service_items(
+        &mut self,
+        merchant: GlobalFormId,
+        service: &soe_game::services::VendorService,
+    ) -> bool {
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let rows = item_menu::barter_with_service(game, service, merchant);
+        let player = game.world_mut().player();
+        let gold = game.form("Gold001");
+        let player_gold = gold.map_or(0, |gold| game.world_mut().item_count(player, gold));
+        let merchant_gold = service.gold;
         if !self.present_items("barter", &rows) {
             return false;
         }

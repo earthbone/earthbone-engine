@@ -192,10 +192,14 @@ fn entry_point_invocations_with_conditions(
     let mut owned = world.perks_for_actor(actor);
     let npc_perks = actor_npc_perks(world, actor)?;
     owned.extend(npc_perks);
-    let entries = world
-        .order()
-        .winners_of(Tag(*b"PERK"))
-        .filter(|(perk, record)| owned.contains(perk) && !record.is_deleted())
+    let entries = owned
+        .iter()
+        .filter_map(|perk| {
+            world
+                .record(*perk)
+                .filter(|record| record.tag == Tag(*b"PERK") && !record.is_deleted())
+                .map(|record| (*perk, record))
+        })
         .map(|(perk, record)| entry_point_sections(record, perk).map(|sections| (perk, sections)))
         .collect::<Result<Vec<_>, _>>()?;
     let mut invocations = Vec::new();
@@ -354,51 +358,63 @@ pub(crate) fn apply_value_modifiers(
     Ok(value)
 }
 
-fn actor_perk_rank(
-    world: &World,
-    owned: &BTreeSet<GlobalFormId>,
-    perk: GlobalFormId,
-) -> Result<u16, DispatchError> {
-    let records = world
-        .order()
-        .winners_of(Tag(*b"PERK"))
-        .filter(|(_, record)| !record.is_deleted())
-        .collect::<Vec<_>>();
-    let mut predecessors = BTreeMap::<GlobalFormId, Vec<GlobalFormId>>::new();
-    let mut successors = BTreeMap::<GlobalFormId, GlobalFormId>::new();
-    for (id, record) in &records {
+/// NNAM topology derived from the winning immutable form table, never actor state.
+#[derive(Default)]
+pub(crate) struct RankIndex {
+    predecessors: BTreeMap<GlobalFormId, Vec<GlobalFormId>>,
+    successors: BTreeMap<GlobalFormId, GlobalFormId>,
+    malformed: BTreeSet<GlobalFormId>,
+}
+
+impl RankIndex {
+    pub(crate) fn insert(
+        &mut self,
+        order: &soe_esm::LoadOrder,
+        file: usize,
+        id: GlobalFormId,
+        record: &soe_esm::Record,
+    ) {
+        if record.tag != Tag(*b"PERK") || record.is_deleted() {
+            return;
+        }
         let next_fields = record
             .subrecords
             .iter()
             .filter(|sub| sub.tag == Tag(*b"NNAM"))
             .collect::<Vec<_>>();
         if next_fields.len() > 1 {
-            if *id == perk {
-                return Err(DispatchError::Malformed(*id));
-            }
-            continue;
+            self.malformed.insert(id);
+            return;
         }
         let Some(field) = next_fields.first() else {
-            continue;
+            return;
         };
         let Ok(bytes) = <[u8; 4]>::try_from(field.data.as_slice()) else {
-            if *id == perk {
-                return Err(DispatchError::Malformed(*id));
-            }
-            continue;
+            self.malformed.insert(id);
+            return;
         };
         let raw = u32::from_le_bytes(bytes);
         if raw == 0 {
-            continue;
+            return;
         }
-        let Some(next) = world.resolve_from(*id, raw) else {
-            if *id == perk {
-                return Err(DispatchError::Malformed(*id));
-            }
-            continue;
-        };
-        successors.insert(*id, next);
-        predecessors.entry(next).or_default().push(*id);
+        let next = order.resolve(file, raw);
+        self.successors.insert(id, next);
+        self.predecessors.entry(next).or_default().push(id);
+    }
+}
+
+fn actor_perk_rank(
+    world: &World,
+    owned: &BTreeSet<GlobalFormId>,
+    perk: GlobalFormId,
+) -> Result<u16, DispatchError> {
+    let RankIndex {
+        predecessors,
+        successors,
+        malformed,
+    } = &world.perk_ranks;
+    if malformed.contains(&perk) {
+        return Err(DispatchError::Malformed(perk));
     }
 
     let mut root = perk;
@@ -786,4 +802,72 @@ fn pad_legacy_data(bytes: &[u8]) -> Option<[u8; 5]> {
     let mut padded = [0u8; 5];
     padded[..bytes.len()].copy_from_slice(bytes);
     Some(padded)
+}
+
+#[cfg(test)]
+mod rank_tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
+    }
+
+    fn perk(object: u32, next: u32) -> Record {
+        Record::new(Tag(*b"PERK"), object).sub(Tag(*b"NNAM"), next.to_le_bytes())
+    }
+
+    #[test]
+    fn prf_50_rank_links_follow_winning_overrides_and_plugin_masters() {
+        let mut base = Plugin::new(FileHeader::default());
+        base.push_top(perk(0x800, 0x801));
+        base.push_top(perk(0x801, 0x802));
+        base.push_top(perk(0x802, 0));
+        let mut patch = Plugin::new(FileHeader {
+            masters: vec!["Base.esm".into()],
+            ..FileHeader::default()
+        });
+        patch.push_top(perk(0x801, 0x0100_0900));
+        patch.push_top(perk(0x0100_0900, 0));
+        let mut order = LoadOrder::new();
+        order.add("Base.esm", base).unwrap();
+        order.add("Patch.esp", patch).unwrap();
+        let world = World::new(order);
+        let last = GlobalFormId {
+            file: 1,
+            object: 0x900,
+        };
+        let owned = BTreeSet::from([id(0x800), last]);
+        assert_eq!(actor_perk_rank(&world, &owned, id(0x800)).unwrap(), 3);
+        assert_eq!(actor_perk_rank(&world, &owned, last).unwrap(), 3);
+        assert_eq!(
+            actor_perk_rank(&world, &BTreeSet::from([id(0x802)]), id(0x802)).unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn prf_50_rank_links_reject_cycles_ambiguous_parents_and_malformed_fields() {
+        let mut plugin = Plugin::new(FileHeader::default());
+        for record in [
+            perk(0x800, 0x801),
+            perk(0x801, 0x800),
+            perk(0x802, 0).sub(Tag(*b"NNAM"), 0u32.to_le_bytes()),
+            perk(0x803, 0x804),
+            perk(0x804, 0),
+            perk(0x805, 0x804),
+        ] {
+            plugin.push_top(record);
+        }
+        let mut order = LoadOrder::new();
+        order.add("Base.esm", plugin).unwrap();
+        let world = World::new(order);
+        for object in [0x800, 0x802, 0x804] {
+            let target = id(object);
+            assert!(
+                matches!(actor_perk_rank(&world, &BTreeSet::from([target]), target),
+                Err(DispatchError::Malformed(found)) if found == target)
+            );
+        }
+    }
 }

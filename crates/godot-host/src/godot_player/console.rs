@@ -7,7 +7,7 @@ use godot::classes::control::{FocusMode, LayoutPreset, SizeFlags};
 use godot::classes::input::MouseMode;
 use godot::classes::{
     CanvasLayer, Input, InputEvent, InputEventKey, InputEventMouseButton, Label, LineEdit,
-    PanelContainer, PhysicsRayQueryParameters3D, PhysicsServer3D, RichTextLabel, VBoxContainer,
+    PanelContainer, RichTextLabel, VBoxContainer,
 };
 use godot::global::{Key, MouseButton};
 use godot::prelude::*;
@@ -345,33 +345,11 @@ impl PlayerNode {
         let camera = self.camera.as_ref()?;
         let from = camera.project_ray_origin(point);
         let to = from + camera.project_ray_normal(point) * 10000.0;
-        let space = self.base().get_world_3d()?.get_space();
-        let mut query = PhysicsRayQueryParameters3D::new_gd();
-        query.set_from(from);
-        query.set_to(to);
-        query.set_hit_from_inside(true);
         let player = self.game.as_mut()?.player();
-        let excluded: Array<Rid> = self
-            .actor_bodies
-            .owners()
-            .iter()
-            .filter_map(|(rid, id)| (*id == player).then_some(*rid))
-            .collect();
-        query.set_exclude(&excluded);
-        let mut state = PhysicsServer3D::singleton().space_get_direct_state(space)?;
-        let hit = state.intersect_ray(&query);
-        let body = hit.get("rid").and_then(|value| value.try_to::<Rid>().ok());
-        let physical = body.and_then(|body| {
-            self.query_collision
-                .reference_for_body(body)
-                .or_else(|| self.game_streamer.as_ref()?.bind().reference_for_body(body))
-                .or_else(|| self.actor_bodies.owners().get(&body).copied())
-                .or_else(|| self.npc_actors.console_reference_for_body(body))
-        });
-        let mut nearest = hit
-            .get("position")
-            .and_then(|value| value.try_to::<Vector3>().ok())
-            .map(|point| (point.distance_to(from) / from.distance_to(to), physical));
+        let total = from.distance_to(to);
+        let mut nearest = self
+            .host_reference_ray(from, to)
+            .map(|(reference, point)| (point.distance_to(from) / total, Some(reference)));
         let actor = self.npc_actors.console_geometry_pick(from, to);
         let reference = self
             .game_streamer

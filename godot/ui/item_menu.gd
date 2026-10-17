@@ -9,6 +9,9 @@ signal favorite_item(row: Dictionary)
 const Icon = preload("res://ui/item_icon.gd")
 const DefaultTheme = preload("res://ui/theme/theme.gd")
 const InterfaceCache = preload("res://ui/interface_cache.gd")
+const ArtLibrary = preload("res://ui/item_art_library.gd")
+const ROW_BUILD_US := 2000
+const SORT_ARROW_SIZE := 8.0
 const INVENTORY_CATEGORIES = ["All", "Weapons", "Apparel", "Potions", "Scrolls", "Food", "Ingredients", "Books", "Keys", "Misc"]
 const FAVORITE_CATEGORIES = ["All", "Gear", "Aid", "Magic"]
 const MAGIC_CATEGORIES = ["All", "Spells"]
@@ -26,6 +29,20 @@ var descending := false
 var selected_id := ""
 var query := ""
 var cache_directory := ""
+var icon_sources: Dictionary = {}
+var art_library: Node
+var async_menu := false
+var next_row := 0
+var chrome_pending := false
+var sort_pending := false
+var selection_pending := false
+var row_spacer: Control
+var art_updates: Array = []
+var base_fill: ColorRect
+var list_panel: Control
+var card_panel: Control
+var select_indicator: Control
+var installed_style := false
 var art_cache = InterfaceCache.new()
 var categories: VBoxContainer
 var header: HBoxContainer
@@ -52,24 +69,17 @@ func _ready() -> void:
 	add_theme_font_size_override("font_size", 12)
 	theme = DefaultTheme.controls()
 	_apply_cache_font()
-	var background := ColorRect.new()
-	background.color = Color(0.025, 0.03, 0.035, 0.94)
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(background)
-	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for decoration_name in ["background", "frame"]:
-		var decoration := Icon.new()
-		decoration.name = decoration_name.capitalize()
-		decoration.icon_name = decoration_name
-		decoration.stretch_art = true
-		decoration.art_color = Color(0.035, 0.045, 0.05, 0.96) if decoration_name == "background" else Color(0.10, 0.13, 0.15, 0.85)
-		decoration.cache_directory = cache_directory
-		decoration.cache = art_cache
-		decoration.cache_movie = "itemcard.swf"
-		decoration.cache_symbol = "ItemCard"
-		decoration.cache_instance = "background"
-		add_child(decoration)
-		decoration.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	base_fill = ColorRect.new()
+	base_fill.color = Color(0.025, 0.03, 0.035, 0.0 if installed_style else 0.94)
+	base_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(base_fill)
+	base_fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# SkyUI draws the list side from InventoryLists (ListBackground) and the
+	# card side from ItemCard (background). Both come from the winning SWF, so
+	# NORDIC replaces them through the same virtual path. The node names stay
+	# Background and Frame for the earlier tests.
+	list_panel = _panel("Background", "background", "inventorylists.swf", "InventoryListsTweener", "ListBackground", Color(0.035, 0.045, 0.05, 0.96))
+	card_panel = _panel("Frame", "frame", "itemcard.swf", "ItemCard", "background", Color(0.10, 0.13, 0.15, 0.85))
 	var body := HBoxContainer.new()
 	body.name = "Body"
 	add_child(body)
@@ -121,36 +131,89 @@ func _ready() -> void:
 	card.size_flags_horizontal = Control.SIZE_SHRINK_END
 	body.add_child(card)
 	resized.connect(_resize_card)
+	card.resized.connect(_layout_panels)
+	_layout_panels()
 	refresh()
 
-func configure(menu_mode: String, data: Array, cache: String = "") -> void:
+func _panel(node_name: String, art_name: String, movie: String, symbol: String, instance: String, tint: Color) -> Control:
+	var panel := Icon.new()
+	panel.name = node_name
+	panel.icon_name = art_name
+	panel.stretch_art = true
+	panel.art_color = tint
+	panel.cache_directory = cache_directory
+	panel.cache = art_cache
+	panel.cache_movie = movie
+	panel.cache_symbol = symbol
+	panel.cache_instance = instance
+	add_child(panel)
+	return panel
+
+## The list panel spans categories and columns, the card panel spans the card.
+func _layout_panels() -> void:
+	if list_panel == null or card_panel == null:
+		return
+	var card_width := maxf(card.size.x, card.custom_minimum_size.x)
+	var split := maxf(0.0, size.x - card_width - 5.0)
+	list_panel.position = Vector2.ZERO
+	list_panel.size = Vector2(split, size.y)
+	card_panel.position = Vector2(split + 2.0, 0.0)
+	card_panel.size = Vector2(maxf(0.0, size.x - split - 2.0), size.y)
+
+## True when the winning interface files carry SkyUI's list and card movies.
+func installed_chrome() -> bool:
+	return not art_cache.movie("interface/skyui/inventorylists.swf").is_empty() and not art_cache.movie("interface/skyui/itemcard.swf").is_empty()
+
+func _apply_installed_style() -> void:
+	var installed := installed_chrome()
+	if installed == installed_style:
+		return
+	installed_style = installed
+	var font = theme.default_font
+	theme = DefaultTheme.controls(installed)
+	theme.default_font = font
+	if base_fill != null:
+		base_fill.color.a = 0.0 if installed else 0.94
+
+func configure(menu_mode: String, data: Array, cache: String = "", sources: Dictionary = {}, library: Node = null) -> void:
 	var _span = UiTrace.begin("ui.items.configure")
 	mode = menu_mode
 	source_rows = data
-	set_art_cache(cache)
+	icon_sources = sources
+	art_library = library
+	async_menu = library != null
+	if library != null:
+		library.connect("prepared", Callable(self, "_prepared_art"))
+		var prepared = library.get("cache")
+		set_art_cache(str(prepared.directory), prepared)
+	else:
+		set_art_cache(cache)
 
-func set_art_cache(cache: String) -> void:
+func _prepared_art(prepared) -> void:
+	set_art_cache(str(prepared.directory), prepared)
+
+func set_art_cache(cache: String, prepared = null) -> void:
 	var _span = UiTrace.begin("ui.items.art")
 	cache_directory = cache
+	if prepared != null:
+		art_cache = prepared
 	if is_node_ready():
 		_apply_cache_font()
-		for decoration_name in ["Background", "Frame"]:
-			var decoration = get_node(decoration_name)
-			decoration.cache_directory = cache_directory
-			decoration.cache = art_cache
-			decoration.meshes.clear()
-			decoration.art_bounds = Rect2()
-			decoration.art_source = "builtin"
-			decoration._load_art()
-			if decoration.meshes.is_empty():
-				decoration._load_theme()
-			decoration.queue_redraw()
-		refresh()
+		if async_menu:
+			art_updates = find_children("*", "Control", true, false).filter(func(control): return control.has_method("use_cache"))
+			set_process(true)
+		else:
+			for decoration_name in ["Background", "Frame"]:
+				get_node(decoration_name).use_cache(art_cache)
+			if select_indicator != null and is_instance_valid(select_indicator):
+				select_indicator.use_cache(art_cache)
+			refresh()
 
 func _apply_cache_font() -> void:
 	if art_cache.directory != cache_directory:
 		art_cache = InterfaceCache.new(cache_directory)
 	theme.default_font = art_cache.font("$EverywhereMediumFont")
+	_apply_installed_style()
 
 func replace_rows(data: Array) -> void:
 	source_rows = data
@@ -163,6 +226,7 @@ func set_gold(player_amount: int, merchant_amount: int) -> void:
 
 func _resize_card() -> void:
 	card.custom_minimum_size.x = maxf(112.0, size.x * 0.24)
+	_layout_panels()
 
 func _clear(parent: Node) -> void:
 	for child in parent.get_children():
@@ -258,6 +322,8 @@ func sort_by(key: String) -> void:
 	refresh()
 
 func select_category(value: String) -> void:
+	if category == value:
+		return
 	category = value
 	refresh()
 
@@ -296,10 +362,56 @@ func refresh() -> void:
 	if not is_node_ready():
 		return
 	gold_label.visible = mode == "barter"
+	_release_indicator()
 	_clear(categories)
 	_clear(header)
 	_clear(rows)
+	row_spacer = null
+	next_row = 0
+	art_updates = []
 	_clear(tabs)
+	columns = column_order()
+	chrome_pending = async_menu
+	if not async_menu:
+		_build_chrome()
+	visible_rows = source_rows.filter(_matches)
+	sort_pending = async_menu
+	selection_pending = async_menu
+	if not async_menu:
+		_sort_visible()
+	if async_menu:
+		row_spacer = Control.new()
+		row_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		rows.add_child(row_spacer)
+	else:
+		for row in visible_rows:
+			_append_row(row)
+		next_row = visible_rows.size()
+	set_process(chrome_pending or sort_pending or selection_pending or (async_menu and next_row < visible_rows.size()))
+	if async_menu:
+		_clear(card)
+	else:
+		_finish_selection()
+
+func _sort_visible() -> void:
+	var _span = UiTrace.begin("ui.items.sort")
+	var started := Time.get_ticks_usec()
+	visible_rows.sort_custom(_less)
+	set_meta("sort_build_ms", (Time.get_ticks_usec() - started) / 1000.0)
+
+func _finish_selection() -> void:
+	var _span = UiTrace.begin("ui.items.selection")
+	if visible_rows.is_empty():
+		var empty := Label.new()
+		empty.text = "No matching items"
+		rows.add_child(empty)
+		selected_id = ""
+		_clear(card)
+	else:
+		var selection = visible_rows.filter(func(row): return str(row.id) == selected_id)
+		_select(selection[0] if not selection.is_empty() else visible_rows[0])
+
+func _build_chrome() -> void:
 	var choices: Array = INVENTORY_CATEGORIES.duplicate()
 	if mode == "favorites":
 		choices = FAVORITE_CATEGORIES
@@ -319,6 +431,7 @@ func refresh() -> void:
 		category_art.icon_name = DefaultTheme.category_icon(str(choice))
 		category_art.cache_directory = cache_directory
 		category_art.cache = art_cache
+		category_art.cache_movie = str(icon_sources.get("category", ""))
 		category_art.cache_icon_name = DefaultTheme.installed_category(str(choice))
 		category_art.custom_minimum_size = Vector2(20, 20)
 		button.add_child(category_art)
@@ -339,62 +452,117 @@ func refresh() -> void:
 	columns = column_order()
 	for key in columns:
 		var title: String = LABELS[key]
-		if key == sort_key:
-			title += " ▼" if descending else " ▲"
 		var button := _button(title, header, sort_by.bind(str(key)))
 		button.name = str(key)
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		if key == sort_key:
+			_add_sort_arrow(button, title)
 		button.tooltip_text = "Equipped" if key == "equipped" else str(LABELS[key])
 		button.custom_minimum_size.x = _cell_width(key)
 		if key == "name":
 			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			button.custom_minimum_size.x = 55
-	visible_rows = source_rows.filter(_matches)
-	visible_rows.sort_custom(_less)
-	for row in visible_rows:
-		var button := _button("", rows, _activate.bind(row))
-		button.name = "Item_" + str(row.id).replace(":", "_")
-		button.custom_minimum_size.y = 24
-		button.disabled = not row.get("enabled", true)
-		button.mouse_entered.connect(_select.bind(row))
-		button.focus_entered.connect(_select.bind(row))
-		var cells := HBoxContainer.new()
-		cells.add_theme_constant_override("separation", 0)
-		cells.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		button.add_child(cells)
-		cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		for key in columns:
-			if key == "icon":
-				var icon := Icon.new()
-				icon.icon_name = row.get("icon", "default_misc")
-				icon.cache_directory = cache_directory
-				icon.cache = art_cache
-				_cell(icon, key)
-				cells.add_child(icon)
-			elif key == "equipped" and row.get("equipped", false):
-				var marker := Icon.new()
-				marker.icon_name = "marker"
-				marker.cache_directory = cache_directory
-				marker.cache = art_cache
-				marker.cache_movie = "inventorylists.swf"
-				marker.cache_symbol = "EquipIcon"
-				_cell(marker, key)
-				cells.add_child(marker)
-			else:
-				var label := Label.new()
-				label.add_theme_font_size_override("font_size", 12)
-				_cell(label, key)
-				label.text = _display(row, key)
-				label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-				cells.add_child(label)
-	if visible_rows.is_empty():
-		var empty := Label.new()
-		empty.text = "No matching items"
-		rows.add_child(empty)
-		selected_id = ""
-		_clear(card)
-	else:
-		var selection = visible_rows.filter(func(row): return str(row.id) == selected_id)
-		_select(selection[0] if not selection.is_empty() else visible_rows[0])
+
+## SkyUI draws a small sortIcon beside the sorted column title. A text glyph
+## in the converted font rendered as a header sized triangle, so the arrow is
+## its own control of a fixed size, mirrored for descending order.
+func _add_sort_arrow(button: Button, title: String) -> void:
+	var arrow := Icon.new()
+	arrow.name = "SortArrow"
+	arrow.icon_name = "sort_arrow"
+	arrow.cache_directory = cache_directory
+	arrow.cache = art_cache
+	arrow.cache_movie = "inventorylists.swf"
+	arrow.cache_symbol = "ItemsListHeader"
+	arrow.cache_instance = "sortIcon"
+	arrow.flipped = descending
+	var font := button.get_theme_font("font")
+	var text_width := font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x if font != null else 28.0
+	var left := 3.0 + text_width + 4.0
+	button.add_child(arrow)
+	arrow.anchor_top = 0.5
+	arrow.anchor_bottom = 0.5
+	arrow.offset_left = left
+	arrow.offset_right = left + SORT_ARROW_SIZE
+	arrow.offset_top = -SORT_ARROW_SIZE * 0.5
+	arrow.offset_bottom = SORT_ARROW_SIZE * 0.5
+
+func _append_row(row: Dictionary) -> void:
+	var _span = UiTrace.begin("ui.items.row")
+	var button := _button("", rows, _activate.bind(row))
+	button.name = "Item_" + str(row.id).replace(":", "_")
+	button.custom_minimum_size.y = 24
+	button.disabled = not row.get("enabled", true)
+	button.mouse_entered.connect(_select.bind(row))
+	button.focus_entered.connect(_select.bind(row))
+	var cells := HBoxContainer.new()
+	cells.add_theme_constant_override("separation", 0)
+	cells.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(cells)
+	cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for key in columns:
+		if key == "icon":
+			var icon := Icon.new()
+			icon.icon_name = row.get("icon", "default_misc")
+			icon.cache_directory = cache_directory
+			icon.cache = art_cache
+			icon.cache_movie = str(icon_sources.get("category" if row.category == "Spells" else "item", ""))
+			_cell(icon, key)
+			cells.add_child(icon)
+		elif key == "equipped" and row.get("equipped", false):
+			var marker := Icon.new()
+			marker.icon_name = "marker"
+			marker.cache_directory = cache_directory
+			marker.cache = art_cache
+			marker.cache_movie = "inventorylists.swf"
+			marker.cache_symbol = "EquipIcon"
+			_cell(marker, key)
+			cells.add_child(marker)
+		else:
+			var label := Label.new()
+			label.add_theme_font_size_override("font_size", 12)
+			_cell(label, key)
+			label.text = _display(row, key)
+			label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			cells.add_child(label)
+
+func _append_rows(deadline: int) -> void:
+	var _span = UiTrace.begin("ui.items.build_rows")
+	while next_row < visible_rows.size() and Time.get_ticks_usec() < deadline:
+		_append_row(visible_rows[next_row])
+		next_row += 1
+	if row_spacer != null:
+		row_spacer.custom_minimum_size.y = (visible_rows.size() - next_row) * 24.0
+		rows.move_child(row_spacer, rows.get_child_count() - 1)
+		if next_row == visible_rows.size():
+			rows.remove_child(row_spacer)
+			row_spacer.queue_free()
+			row_spacer = null
+
+func _process(_delta: float) -> void:
+	var started := Time.get_ticks_usec()
+	if chrome_pending:
+		_build_chrome()
+		chrome_pending = false
+		set_meta("chrome_build_ms", (Time.get_ticks_usec() - started) / 1000.0)
+		return
+	if sort_pending:
+		_sort_visible()
+		sort_pending = false
+		return
+	var deadline := started + ROW_BUILD_US
+	if selection_pending:
+		_finish_selection()
+		selection_pending = false
+	while not art_updates.is_empty() and Time.get_ticks_usec() < deadline:
+		var icon = art_updates.pop_back()
+		if is_instance_valid(icon) and not icon.is_queued_for_deletion():
+			icon.use_cache(art_cache)
+	if next_row < visible_rows.size():
+		_append_rows(deadline)
+	var elapsed_ms := (Time.get_ticks_usec() - started) / 1000.0
+	set_meta("rows_batch_max_ms", maxf(float(get_meta("rows_batch_max_ms", 0.0)), elapsed_ms))
+	set_process(selection_pending or not art_updates.is_empty() or next_row < visible_rows.size())
 
 func _display(row: Dictionary, key: String) -> String:
 	if key == "equipped":
@@ -416,8 +584,42 @@ func _display(row: Dictionary, key: String) -> String:
 func _choose_hand(hand: int) -> void:
 	set_meta("hand", hand)
 
+func _release_indicator() -> void:
+	if select_indicator != null and is_instance_valid(select_indicator) and select_indicator.get_parent() != null:
+		select_indicator.get_parent().remove_child(select_indicator)
+
+## The selected row shows SkyUI's selectIndicator art when it is installed.
+func _move_indicator(row: Dictionary) -> void:
+	if not installed_style:
+		return
+	var button := rows.get_node_or_null("Item_" + str(row.id).replace(":", "_")) as Control
+	if button == null:
+		return
+	if select_indicator == null or not is_instance_valid(select_indicator):
+		var indicator := Icon.new()
+		indicator.name = "SelectIndicator"
+		indicator.icon_name = "select_indicator"
+		indicator.stretch_art = true
+		indicator.cache_directory = cache_directory
+		indicator.cache = art_cache
+		indicator.cache_movie = "inventorylists.swf"
+		indicator.cache_symbol = "ItemsListEntry"
+		indicator.cache_instance = "selectIndicator"
+		select_indicator = indicator
+	if select_indicator.get_parent() == button:
+		return
+	_release_indicator()
+	button.add_child(select_indicator)
+	button.move_child(select_indicator, 0)
+	select_indicator.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
 func _select(row: Dictionary) -> void:
+	var stages := {}
+	var stamp := Time.get_ticks_usec()
+	set_meta("selection_name", str(row.name))
+	set_meta("selection_description_chars", str(row.get("description", "")).length())
 	selected_id = str(row.id)
+	_move_indicator(row)
 	_clear(card)
 	var title := Label.new()
 	title.name = "Name"
@@ -425,6 +627,8 @@ func _select(row: Dictionary) -> void:
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.add_theme_font_size_override("font_size", 16)
 	card.add_child(title)
+	stages["title"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
 	var details := Label.new()
 	details.name = "Details"
 	details.text = str(row.category)
@@ -434,6 +638,8 @@ func _select(row: Dictionary) -> void:
 	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	details.add_theme_font_size_override("font_size", 12)
 	card.add_child(details)
+	stages["details"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
 	var description := Label.new()
 	description.name = "Description"
 	description.text = str(row.get("description", ""))
@@ -441,6 +647,8 @@ func _select(row: Dictionary) -> void:
 	description.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	description.add_theme_font_size_override("font_size", 12)
 	card.add_child(description)
+	stages["description"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
 	quantity = SpinBox.new()
 	quantity.name = "Quantity"
 	quantity.min_value = 1
@@ -448,6 +656,8 @@ func _select(row: Dictionary) -> void:
 	quantity.value = 1
 	quantity.visible = mode in ["container", "barter"]
 	card.add_child(quantity)
+	stages["quantity"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
 	var action := "Equip"
 	if mode == "container":
 		action = "Take" if side == 0 else "Store"
@@ -459,6 +669,10 @@ func _select(row: Dictionary) -> void:
 	favorite = _button("Unfavorite" if row.get("favorite", false) else "Favorite", card, favorite_item.emit.bind(row))
 	favorite.name = "Favorite"
 	favorite.visible = mode in ["inventory", "magic", "favorites"]
+	stages["actions"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
+
+	set_meta("card_stages_ms", stages)
 
 func _confirm(row: Dictionary) -> void:
 	activate_item.emit(row, int(quantity.value), side)

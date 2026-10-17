@@ -12096,3 +12096,15 @@ The CK page recommends placed heading markers. OpenMW supplies the marker
 and reciprocal door precedence. Its cell-store and renderer types do not fit
 this runtime, so the implementation reads the existing form table and index.
 The REFR and LAND readers remain the existing format implementations.
+
+### Perk dispatch cost during barter
+
+PRF-50 keeps the actor's owned perk identities as the entry-point source.
+This follows local CommonLibSSE-NG `include/RE/A/Actor.h`, `ForEachPerk`,
+and `include/RE/B/BGSPerk.h` rank visitors. Resolved identities remain sorted
+before dispatch. The winning records still supply entry sections, conditions
+and effects. World builds an immutable NNAM predecessor and successor index
+during its existing record-indexing pass. Cycle, ambiguous-parent and malformed
+link rejection retain their previous behavior. The index contains no ownership
+or actor state and has no save section. Runtime record setters do not change
+PERK NNAM links. Repeated rank queries no longer scan every winning form.

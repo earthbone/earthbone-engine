@@ -3,7 +3,7 @@
 //! A real Skyrim SE `Data` folder as a source of cells and meshes: the
 //! `esm`, `bsa` and `nif` crates wired together and fed into `mesh::build_surface`.
 //!
-//! `DataSource::open` loads the five base masters through a `LoadOrder`,
+//! `DataSource::open` loads the resolved active plugins through a `LoadOrder`,
 //! builds the `CellIndex` over them, and builds a `bsa::Vfs` from their
 //! associated archives plus the data folder as a loose overlay.
 //! `DataSource::stream_cell` resolves a cell by editor id through the index,
@@ -52,6 +52,7 @@ mod exterior;
 mod footstep_tests;
 mod grass;
 mod land_material;
+mod launch;
 mod location;
 mod lod;
 mod models;
@@ -63,6 +64,8 @@ mod workers;
 
 #[cfg(test)]
 mod destruction_tests;
+#[cfg(test)]
+mod door_audit_tests;
 #[cfg(test)]
 mod full_lod_tests;
 #[cfg(test)]
@@ -99,6 +102,9 @@ pub use textures::{BlockFormat, TextureData};
 use water::water_material_from;
 use workers::WorkerPools;
 
+#[cfg(test)]
+const BASE_MASTERS: &[&str] = soe_profile::ccc::HARDCODED_SE;
+
 /// Resolve material textures through the same VFS path as streamed meshes.
 pub(crate) fn resolve_material_textures(
     vfs: &Vfs,
@@ -110,16 +116,6 @@ pub(crate) fn resolve_material_textures(
         .map(|material| cache.resolve(vfs, material))
         .collect()
 }
-
-/// The base masters every Skyrim SE install ships, in the order the game
-/// itself loads them.
-const BASE_MASTERS: [&str; 5] = [
-    "Skyrim.esm",
-    "Update.esm",
-    "Dawnguard.esm",
-    "HearthFires.esm",
-    "Dragonborn.esm",
-];
 
 #[derive(Debug, thiserror::Error)]
 pub enum DataSourceError {
@@ -135,6 +131,8 @@ pub enum DataSourceError {
     },
     #[error("{0}")]
     Esm(#[from] soe_esm::Error),
+    #[error("invalid load order: {0}")]
+    LoadOrder(String),
     #[error("localized text: {0}")]
     Localization(String),
     #[error("{0}")]
@@ -440,8 +438,7 @@ pub struct EditorCell {
     pub references: usize,
 }
 
-/// Parse the base masters, on `threads` workers when more than one, and hand
-/// them back in master order so the load order stays deterministic.
+/// Location of the shared parsed-plugin cache.
 fn plugin_cache_dir() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("SOE_PLUGIN_CACHE") {
         return (path != "off").then(|| PathBuf::from(path));
@@ -469,20 +466,21 @@ fn plugin_cache_dir() -> Option<PathBuf> {
     })
 }
 
-fn parse_masters(
-    data_dir: &Path,
+fn parse_plugins(
+    entries: &[&soe_profile::Entry],
     threads: usize,
     workers: &WorkerPools,
     cache_dir: Option<&Path>,
 ) -> Result<Vec<soe_esm::Plugin>, DataSourceError> {
-    let _span = soe_trace::Span::with_payload("host.parse_masters", "host", threads as u64);
-    let parse_one = |name: &str| -> Result<soe_esm::Plugin, DataSourceError> {
+    let _span = soe_trace::Span::with_payload("host.parse_plugins", "host", threads as u64);
+    let parse_one = |entry: &&soe_profile::Entry| -> Result<soe_esm::Plugin, DataSourceError> {
+        let name = &entry.name;
         let _plugin = soe_trace::LoadScope::object(format!("plugin:{name}"));
-        let path = data_dir.join(name);
+        let path = &entry.path;
         let parsed = if let Some(cache_dir) = cache_dir {
-            soe_esm::read_plugin_cached(&path, cache_dir)
+            soe_esm::read_plugin_cached(path, cache_dir)
         } else {
-            soe_esm::read_plugin(&path)
+            soe_esm::read_plugin(path)
         };
         parsed
             .map_err(|source| DataSourceError::Io {
@@ -490,12 +488,12 @@ fn parse_masters(
                 source,
             })?
             .map_err(|source| DataSourceError::Plugin {
-                name: name.to_string(),
+                name: name.clone(),
                 source,
             })
     };
     workers
-        .ordered_map(&BASE_MASTERS, threads, |name| parse_one(name))?
+        .ordered_map(entries, threads, parse_one)?
         .into_iter()
         .collect()
 }
@@ -551,7 +549,7 @@ impl DataSource {
         }
     }
 
-    /// Loads the base masters and their associated archives from `data_dir`,
+    /// Loads the active base plugins and associated archives from `data_dir`,
     /// then adds `data_dir` itself as a loose overlay so a texture or mesh
     /// replacer placed there beats the archives, matching the shipped engine.
     /// Parsing and mesh building use the machine's parallelism.
@@ -629,17 +627,23 @@ impl DataSource {
         let _span = soe_trace::Span::with_payload("host.open", "host", threads as u64);
         let threads = threads.max(1);
         let workers = WorkerPools::default();
-        let data_dir = loadout
-            .data_roots
-            .first()
-            .ok_or_else(|| DataSourceError::DataDirectory(PathBuf::new()))?;
-        let parsed = parse_masters(data_dir, threads, &workers, cache_dir)?;
+        if loadout.load_order.broken() {
+            return Err(DataSourceError::LoadOrder(format!(
+                "{:?}",
+                loadout.load_order.problems
+            )));
+        }
+        let entries = loadout.load_order.active().collect::<Vec<_>>();
+        let parsed = parse_plugins(&entries, threads, &workers, cache_dir)?;
         let mut order = LoadOrder::new();
-        for (name, plugin) in BASE_MASTERS.iter().zip(parsed) {
+        for (entry, mut plugin) in entries.iter().zip(parsed) {
+            if entry.light {
+                plugin.header.flags |= soe_esm::plugin::flags::LIGHT_MASTER;
+            }
             order
-                .add(name, plugin)
+                .add(&entry.name, plugin)
                 .map_err(|source| DataSourceError::Plugin {
-                    name: (*name).to_string(),
+                    name: entry.name.clone(),
                     source,
                 })?;
         }

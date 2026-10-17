@@ -143,6 +143,15 @@ pub fn barter(game: &mut Game, faction: GlobalFormId, merchant: GlobalFormId) ->
     let Ok(Some(service)) = game.resolve_vendor_service(faction, merchant) else {
         return Vec::new();
     };
+    barter_with_service(game, &service, merchant)
+}
+
+/// Build one presentation from the service resolved for this opening.
+pub(crate) fn barter_with_service(
+    game: &Game,
+    service: &soe_game::services::VendorService,
+    merchant: GlobalFormId,
+) -> Vec<(Row, i64)> {
     if !service.available {
         return Vec::new();
     }
@@ -160,11 +169,11 @@ pub fn barter(game: &mut Game, faction: GlobalFormId, merchant: GlobalFormId) ->
             Some((row, 0))
         })
         .collect();
-    let player = game.player();
+    let player = game.world_mut().player();
     rows.extend(
         inventory(game, player)
             .into_iter()
-            .filter(|row| game.vendor_accepts_sale(&service, row.form))
+            .filter(|row| game.vendor_accepts_sale(service, row.form))
             .filter_map(|mut row| {
                 row.value = prices
                     .unit_price(row.value, soe_game::barter::Side::Sell)
@@ -197,6 +206,57 @@ pub fn trade(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prf_50_installed_barter_snapshot_stays_within_the_frame_budget() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(std::path::Path::new(&data)).unwrap();
+        let mut game = source.localized_game().unwrap();
+        let cell = game.form("WhiterunBanneredMare").unwrap();
+        game.change_cell(Some(cell));
+        game.load_cell(cell);
+        let merchant = game.form("HuldaRef").unwrap();
+        let player = game.player();
+        let forms = source
+            .order()
+            .winners()
+            .filter_map(|(id, owner)| {
+                matches!(
+                    source.order().record(owner).tag.as_bytes(),
+                    b"MISC" | b"WEAP" | b"ARMO" | b"ALCH" | b"INGR" | b"BOOK" | b"AMMO" | b"KEYM"
+                )
+                .then_some(id)
+            })
+            .take(256)
+            .collect::<Vec<_>>();
+        for form in &forms {
+            game.world_mut().add_item(player, *form, 5);
+        }
+        let started = std::time::Instant::now();
+        let service = game.merchant_vendor_service(merchant).unwrap().unwrap();
+        let service_time = started.elapsed();
+        assert!(service.available);
+        let started = std::time::Instant::now();
+        game.barter_prices(merchant).unwrap();
+        let prices_time = started.elapsed();
+        let started = std::time::Instant::now();
+        let rows = barter(&mut game, service.faction, merchant);
+        let rows_time = started.elapsed();
+        eprintln!(
+            "PRF50 service_ms={:.3} prices_ms={:.3} rows_ms={:.3} rows={} stock={}",
+            service_time.as_secs_f64() * 1000.0,
+            prices_time.as_secs_f64() * 1000.0,
+            rows_time.as_secs_f64() * 1000.0,
+            rows.len(),
+            service.merchandise.len()
+        );
+        assert!(!rows.is_empty());
+        assert!(service_time < std::time::Duration::from_millis(33));
+        assert!(prices_time < std::time::Duration::from_millis(33));
+        assert!(rows_time < std::time::Duration::from_millis(33));
+    }
 
     #[test]
     fn ui_20_missing_localization_never_displays_table_debug_markers() {

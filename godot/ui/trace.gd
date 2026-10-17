@@ -3,6 +3,8 @@ extends RefCounted
 ## UI fixtures can run without the native extension.
 
 static func begin(label: String) -> RefCounted:
+	if OS.get_thread_caller_id() != OS.get_main_thread_id():
+		return null
 	if not ClassDB.class_exists("UiTraceSpan"):
 		return null
 	var span: RefCounted = ClassDB.instantiate("UiTraceSpan")

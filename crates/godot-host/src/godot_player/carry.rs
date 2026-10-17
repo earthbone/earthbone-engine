@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Player carry input over resident server bodies. CK OnGrab and OnRelease
-//! have no parameters. Godot's first ray hit preserves obstruction ordering.
+//! have no parameters. Rendered door geometry refines static collision proxies.
 
 use godot::classes::{PhysicsRayQueryParameters3D, PhysicsServer3D};
 use godot::prelude::*;
@@ -21,19 +21,27 @@ pub(super) struct HeldReference {
 
 impl PlayerNode {
     fn host_activate_hit(&mut self) -> Option<(GlobalFormId, Vector3)> {
-        let space = self.base().get_world_3d()?.get_space();
         let eye = self.rig.head(self.feet(), self.capsule_height());
         let end = eye + self.rig.look_direction() * super::ACTIVATE_REACH;
         let convert = |v: soe_physics::Vec3| {
             let p = SkyrimPos::new(v.x, v.y, v.z).to_godot();
             Vector3::new(p.x, p.y, p.z)
         };
+        self.host_reference_ray(convert(eye), convert(end))
+    }
+
+    pub(super) fn host_reference_ray(
+        &mut self,
+        from: Vector3,
+        to: Vector3,
+    ) -> Option<(GlobalFormId, Vector3)> {
+        let space = self.base().get_world_3d()?.get_space();
         let mut query = PhysicsRayQueryParameters3D::new_gd();
-        query.set_from(convert(eye));
-        query.set_to(convert(end));
+        query.set_from(from);
+        query.set_to(to);
         query.set_hit_from_inside(true);
         let player = self.game.as_mut().map(soe_game::Game::player);
-        let excluded: Array<Rid> = self
+        let mut excluded: Array<Rid> = self
             .actor_bodies
             .owners()
             .iter()
@@ -43,14 +51,61 @@ impl PlayerNode {
         let mut state = PhysicsServer3D::singleton().space_get_direct_state(space)?;
         soe_trace::count(soe_trace::Operation::Raycasts, 1);
         let hit = state.intersect_ray(&query);
-        let body = hit.get("rid")?.try_to::<Rid>().ok()?;
-        let point = hit.get("position")?.try_to::<Vector3>().ok()?;
-        let reference = self
-            .query_collision
+        let physical = (|| {
+            let body = hit.get("rid")?.try_to::<Rid>().ok()?;
+            let point = hit.get("position")?.try_to::<Vector3>().ok()?;
+            let reference = self.ray_body_reference(body)?;
+            Some((reference, point))
+        })();
+        let refines_static = physical.map_or_else(
+            || hit.is_empty(),
+            |(reference, _)| self.ray_static_proxy(reference),
+        );
+        if refines_static {
+            if let Some(rendered) = self
+                .game_streamer
+                .as_ref()
+                .and_then(|streamer| streamer.bind().rendered_door_ray(from, to))
+            {
+                query.set_to(rendered.1);
+                let mut blocker = hit;
+                while !blocker.is_empty() {
+                    let body = blocker.get("rid")?.try_to::<Rid>().ok()?;
+                    let reference = self.ray_body_reference(body)?;
+                    if !self.ray_static_proxy(reference) {
+                        let point = blocker.get("position")?.try_to::<Vector3>().ok()?;
+                        return Some((reference, point));
+                    }
+                    if excluded.contains(body) {
+                        return physical;
+                    }
+                    excluded.push(body);
+                    query.set_exclude(&excluded);
+                    soe_trace::count(soe_trace::Operation::Raycasts, 1);
+                    blocker = state.intersect_ray(&query);
+                }
+                return Some(rendered);
+            }
+        }
+        physical
+    }
+
+    fn ray_body_reference(&self, body: Rid) -> Option<GlobalFormId> {
+        self.query_collision
             .reference_for_body(body)
             .or_else(|| self.game_streamer.as_ref()?.bind().reference_for_body(body))
-            .or_else(|| self.actor_bodies.owners().get(&body).copied())?;
-        Some((reference, point))
+            .or_else(|| self.actor_bodies.owners().get(&body).copied())
+            .or_else(|| self.npc_actors.console_reference_for_body(body))
+    }
+
+    fn ray_static_proxy(&mut self, reference: GlobalFormId) -> bool {
+        self.game.as_mut().is_some_and(|game| {
+            let mut world = game.world_mut();
+            world
+                .base_of(reference)
+                .and_then(|base| world.record(base))
+                .is_some_and(|record| matches!(record.tag.as_bytes(), b"STAT" | b"MSTT" | b"DOOR"))
+        })
     }
 
     pub(super) fn update_carry_input(&mut self, input: &InputState, delta: f64) {

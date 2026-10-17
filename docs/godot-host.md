@@ -10779,3 +10779,136 @@ The original tankard acceptance also passes without threshold changes. It
 carries 2.087463 m, is blocked by a wall while held, retains momentum, lands,
 and is taken through the mapped Activate input. The installed carry library
 run passes all 13 checks and surveys 272 dynamic colliders from 0.2 to 84 kg.
+
+## Player Data overlays, round 4
+
+`SOE_DATA_PATHS` adds installed Data folders to the free walk host. It uses
+`:` between paths on Linux and `;` on Windows. Set the base install with
+`SKYRIM_DATA` as before. Each extra path must be the folder containing the
+mod's `Interface`, plugin and archive files. Paths are read in the given
+order, lowest priority first. Nothing is copied into the install.
+
+The host enables every plugin in these extra folders. Plugin names sort
+alphabetically within each folder. The profile crate then puts masters
+before ordinary plugins and checks master dependencies. Winning plugin
+files come from the last root containing that name. Archives in each extra
+folder load in alphabetical order after the base archives. Loose files
+beat archives, and a later loose root beats an earlier loose root. This is
+an explicit-folder loadout, without MO2 profile selection or disabled mods.
+Use only the extra folders and plugin order intended for play.
+
+For the supplied SkyUI and NORDIC installs, add this line to the launcher:
+
+```sh
+export SOE_DATA_PATHS="/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/mods/SkyUI-5.2SE-6.11:/run/media/pengolodh/linux-data-games/fixtures/NORDIC-UI-2.4.1/Data"
+```
+
+For SkyUI alone, omit the second path. The reference conventions are
+`soe-profile`, `soe-bsa` and local LMO `src/plugins/loadorder.rs`. No parser,
+dependency, saved state or world-reference nodes are added.
+
+The before-fix free walk exits 1 with only the five base plugins despite the
+extra root setting. The overlay build loads eleven plugins, including
+`SkyUI_SE.esp` and the installed Creation Club files. Both fixture loadouts
+resolve installed inventory-list, item and item-card movies in all five
+menus. Captures are under `target/r4-ui/skyui` and `target/r4-ui/nordic`.
+The host library passes 593 checks with installed inputs unset. Package
+formatting, all-target Clippy and the release build pass. No full lint gate
+was run, following the round 4 task. These source-selection checks do not
+establish authored layout fidelity. The live captures also expose a separate
+configured-icon selection failure, tracked by UI-41.
+
+### Configured icon movies
+
+The first NORDIC free walk capture exits 1 at the configured-icon check in
+all five menus. The native presenter scans every icon movie and picks the
+alphabetically earlier Celtic category catalog. SkyUI's winning
+`interface/skyui/config.txt` selects the psychosteve category catalog, which
+NORDIC replaces. The converted NORDIC generation was present in every menu,
+so mounting the Data roots alone did not correct this separate selection.
+
+The presenter now reads the two quoted source entries in `[Appearance]`
+through `soe-profile::Ini`. It passes their paths to the item menu and
+resolves full interface paths case insensitively through InterfaceCache.
+Missing configuration retains the existing fallback. Malformed selectors
+report their key, and unreadable or malformed text reports the config path.
+The references are local SkyUI Community `data/interface/skyui/config.txt`
+and `source/actionscript/ItemMenus/ItemMenu.as`, function `setConfig`.
+The full AS2 configuration interpreter is outside this native selector path.
+
+The import fixture supplies an earlier competing catalog and an explicit
+mixed-case Windows path. It retains every import, font, cycle, generation
+and pixel assertion. Four focused source checks pass with the external
+SkyUI and NORDIC paths set. No mod file is copied into the repository.
+
+The item presenter also records its elapsed main-thread time as menu
+metadata. This exposes deferred barter presentation separately from its
+request, which returned in 0.3 ms while construction happened on the next
+frame. `ui.container.open` and `ui.barter.open` trace scopes cover the outer
+opening work. These are diagnostics without saved state or visible controls.
+
+The selector release library passes in 1 minute 47 seconds. Both sequential
+free walk runs exit zero, report no GDScript errors, and pass the configured
+source check in inventory, container, barter, magic and favorites. Captures
+are under `target/r4-ui/skyui-selected` and `target/r4-ui/nordic-selected`.
+The source names and pixels now distinguish the selected SkyUI and NORDIC
+category art. The strengthened import fixture and all 597 host library
+checks pass, alongside package formatting and all-target Clippy.
+Authored control placement and full chrome comparisons remain the existing
+UI-20 and UI-30 work. These captures establish the loadout and icon binding,
+without a claim that the native control layout matches the SWF layout.
+
+## Door picking through collision proxies, HST-52
+
+The free-walk E-key reproduction aims at the visible exit from the authored
+return marker in Heimskr's House. Reference `0056DF3` is a STAT frame based on
+`03F8B0`, not a load door. It has no XTEL, lock, owner or enable parent. Its
+convex collision proxy spans the visible opening. The physical ray hits that
+frame at 31.239 Skyrim units, before the drawn door at 45.065 units. Before
+the fix, E selects the frame and leaves the player in CELL `0165AD`, even
+with the authored house key in inventory.
+
+The actual exit is DOOR reference `016659`, based on `024E26`, targeting
+`01A6FD` in WhiterunWorld. Its XLOC level is zero and its key is `093B0A`.
+XLOC presence means locked, including level zero. The local xEdit
+`Core/wbDefinitionsTES5.pas` XLOC definition and AfterLoad normalization,
+UESP REFR layout and CK Lock documentation agree on that boundary. The
+exterior door has enable parent `0FC90C`. These records are not patched.
+
+The host now refines static collision picks when submitted door triangles
+intersect the ray. Submitted ordinary geometry still blocks the door.
+The implementation follows OpenMW `mwrender/renderingmanager.cpp` rendered
+intersection ordering and uses Godot Geometry3D's triangle intersection,
+with retained CPU arrays and bounds checks. Batched members use their current
+placement, MultiMesh members use their instance placement and animated
+surfaces use their submitted transforms and skin poses. Equal-distance hits
+use resolved FormID order. E and console selection share this path.
+A physics recheck up to the drawn hit preserves nearer actor and item
+blockers after excluding the static proxies. Movement collision, key checks,
+enable parents and Game activation remain
+record-driven. No node per world reference or dependency is added. Doors
+retain positions and indices for picking, and batch members retain 24-byte
+bounds. Existing server meshes and door control nodes are reused.
+
+`godot/r4_door_pick.gd` retains the reported free-walk failure and checks
+rendered selection, side-wall occlusion, no-key rejection and keyed E travel.
+`godot/r4_doors_play.gd` surveys every load door in the Bannered Mare and
+Dragonsreach in both directions, plus the reported house exit. It checks
+location completion, supporting collision and destination navigation.
+
+## Imported menu font sizes, UI-42
+
+The free-walk captures expose blank native menu text after imported fonts
+resolve. The generated Futura atlas has a fixed size of 64 pixels and
+integer-only scaling. At the native menu's 12-pixel size, Godot rounds that
+scale to zero. An isolated render of the same cached font reports zero
+width and zero visible pixels. The local Godot
+`classes/class_textserver.rst` specifies fractional scaling for non-pixel
+fonts. With fractional scaling, the same text has width 82 and 321 visible
+pixels, above the test's unchanged 20-pixel minimum.
+
+InterfaceCache selects fractional scaling for resolved SWF font aliases.
+This works with existing converted caches and keeps the authored family,
+style and glyph atlas. It does not change the converter or require another
+resource generation. The free-walk capture script now checks actual
+12-pixel font pixels in each of the five menus for both UI loadouts.

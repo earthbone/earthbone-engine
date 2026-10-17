@@ -1236,7 +1236,7 @@ impl PlayerNode {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.location_preparing = false;
         self.location_install = None;
-        match DataSource::open(Path::new(&path.to_string())) {
+        match DataSource::open_for_play(Path::new(&path.to_string())) {
             Ok(source) => {
                 self.load_control_map(&source);
                 if self.base().is_node_ready() {
@@ -1244,6 +1244,7 @@ impl PlayerNode {
                 }
                 self.interface_cache = None;
                 self.data_source = Some(Arc::new(source));
+                self.prepare_item_assets();
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
                 self.refresh_image_space();
@@ -1284,6 +1285,7 @@ impl PlayerNode {
         self.interface_cache = None;
         self.interface_cache_job = None;
         self.data_source = Some(source);
+        self.prepare_item_assets();
         self.game = None;
         self.clear_player_input();
         self.image_space = crate::image_space::ImageSpaceStack::default();
