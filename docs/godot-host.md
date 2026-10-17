@@ -10199,6 +10199,44 @@ Authored control placement and full chrome comparisons remain the existing
 UI-20 and UI-30 work. These captures establish the loadout and icon binding,
 without a claim that the native control layout matches the SWF layout.
 
+## Door picking through collision proxies, HST-52
+
+The free-walk E-key reproduction aims at the visible exit from the authored
+return marker in Heimskr's House. Reference `0056DF3` is a STAT frame based on
+`03F8B0`, not a load door. It has no XTEL, lock, owner or enable parent. Its
+convex collision proxy spans the visible opening. The physical ray hits that
+frame at 31.239 Skyrim units, before the drawn door at 45.065 units. Before
+the fix, E selects the frame and leaves the player in CELL `0165AD`, even
+with the authored house key in inventory.
+
+The actual exit is DOOR reference `016659`, based on `024E26`, targeting
+`01A6FD` in WhiterunWorld. Its XLOC level is zero and its key is `093B0A`.
+XLOC presence means locked, including level zero. The local xEdit
+`Core/wbDefinitionsTES5.pas` XLOC definition and AfterLoad normalization,
+UESP REFR layout and CK Lock documentation agree on that boundary. The
+exterior door has enable parent `0FC90C`. These records are not patched.
+
+The host now refines static collision picks when submitted door triangles
+intersect the ray. Submitted ordinary geometry still blocks the door.
+The implementation follows OpenMW `mwrender/renderingmanager.cpp` rendered
+intersection ordering and uses Godot Geometry3D's triangle intersection,
+with retained CPU arrays and bounds checks. Batched members use their current
+placement, MultiMesh members use their instance placement and animated
+surfaces use their submitted transforms and skin poses. Equal-distance hits
+use resolved FormID order. E and console selection share this path.
+A physics recheck up to the drawn hit preserves nearer actor and item
+blockers after excluding the static proxies. Movement collision, key checks,
+enable parents and Game activation remain
+record-driven. No node per world reference or dependency is added. Doors
+retain positions and indices for picking, and batch members retain 24-byte
+bounds. Existing server meshes and door control nodes are reused.
+
+`godot/r4_door_pick.gd` retains the reported free-walk failure and checks
+rendered selection, side-wall occlusion, no-key rejection and keyed E travel.
+`godot/r4_doors_play.gd` surveys every load door in the Bannered Mare and
+Dragonsreach in both directions, plus the reported house exit. It checks
+location completion, supporting collision and destination navigation.
+
 ## Imported menu font sizes, UI-42
 
 The free-walk captures expose blank native menu text after imported fonts

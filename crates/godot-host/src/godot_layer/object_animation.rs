@@ -215,6 +215,7 @@ impl CellStreamerNode {
                 triangle_count: surface.arrays.triangle_count(),
             },
             origin: surface.placement,
+            bounds: surface.arrays.bounds,
         }]);
         self.add_instance(cell, &surface.arrays, &material, scenario, table);
         let Some(instance) = self.instances.last_mut() else {

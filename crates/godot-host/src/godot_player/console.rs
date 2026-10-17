@@ -7,7 +7,7 @@ use godot::classes::control::{LayoutPreset, SizeFlags};
 use godot::classes::input::MouseMode;
 use godot::classes::{
     CanvasLayer, Input, InputEvent, InputEventKey, InputEventMouseButton, Label, LineEdit,
-    PanelContainer, PhysicsRayQueryParameters3D, PhysicsServer3D, RichTextLabel, VBoxContainer,
+    PanelContainer, RichTextLabel, VBoxContainer,
 };
 use godot::global::{Key, MouseButton};
 use godot::prelude::*;
@@ -261,27 +261,7 @@ impl PlayerNode {
         let camera = self.camera.as_ref()?;
         let from = camera.project_ray_origin(point);
         let to = from + camera.project_ray_normal(point) * 10000.0;
-        let space = self.base().get_world_3d()?.get_space();
-        let mut query = PhysicsRayQueryParameters3D::new_gd();
-        query.set_from(from);
-        query.set_to(to);
-        query.set_hit_from_inside(true);
-        let player = self.game.as_mut()?.player();
-        let excluded: Array<Rid> = self
-            .actor_bodies
-            .owners()
-            .iter()
-            .filter_map(|(rid, id)| (*id == player).then_some(*rid))
-            .collect();
-        query.set_exclude(&excluded);
-        let mut state = PhysicsServer3D::singleton().space_get_direct_state(space)?;
-        let hit = state.intersect_ray(&query);
-        let body = hit.get("rid")?.try_to::<Rid>().ok()?;
-        let picked = self
-            .query_collision
-            .reference_for_body(body)
-            .or_else(|| self.game_streamer.as_ref()?.bind().reference_for_body(body))
-            .or_else(|| self.actor_bodies.owners().get(&body).copied())?;
+        let (picked, _) = self.host_reference_ray(from, to)?;
         selectable_reference(&self.game.as_ref()?.world(), picked).then_some(picked)
     }
 

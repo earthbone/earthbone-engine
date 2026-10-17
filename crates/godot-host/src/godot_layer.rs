@@ -47,6 +47,7 @@ mod object_animation;
 
 mod console_render;
 mod distant_upload;
+pub(crate) mod picking;
 mod play_path;
 pub(crate) mod upload;
 
@@ -699,6 +700,7 @@ struct BatchTableMember {
     reference: GlobalFormId,
     member: BatchMember,
     origin: Iso,
+    bounds: crate::mesh::Aabb,
 }
 
 /// The side table for one instance: which form owns each triangle range and
@@ -4818,6 +4820,7 @@ impl CellStreamerNode {
                 model_transform,
                 submitted: Transform3D::IDENTITY,
                 triangles: surface.arrays.triangle_count(),
+                pick_mesh: picking::PickMesh::new(&surface.arrays),
                 animation: surface.animation.clone(),
             });
             self.bounds = Some(self.bounds.map_or(surface.arrays.bounds, |bounds| {

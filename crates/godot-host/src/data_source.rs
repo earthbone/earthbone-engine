@@ -62,6 +62,8 @@ mod workers;
 #[cfg(test)]
 mod destruction_tests;
 #[cfg(test)]
+mod door_audit_tests;
+#[cfg(test)]
 mod full_lod_tests;
 #[cfg(test)]
 mod full_lod_visibility_tests;

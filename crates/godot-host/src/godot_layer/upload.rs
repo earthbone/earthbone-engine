@@ -149,6 +149,7 @@ impl Plan {
                             reference: remainder[member.surface].reference,
                             member: *member,
                             origin: remainder[member.surface].placement,
+                            bounds: remainder[member.surface].arrays.bounds,
                         })
                         .collect();
                     units.push_back(Unit::Mesh(Box::new(MeshUpload {
@@ -170,6 +171,7 @@ impl Plan {
                             triangle_count: surface.arrays.triangle_count(),
                         },
                         origin: surface.placement,
+                        bounds: surface.arrays.bounds,
                     };
                     units.push_back(Unit::Mesh(Box::new(MeshUpload {
                         arrays: surface.arrays,
