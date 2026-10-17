@@ -3149,3 +3149,86 @@ exceeds the five-minute target. The installed route remains the separate
 failure above. The loose stop itself reports a 460.572 ms maximum frame
 interval, including the 425.270 ms inventory opening, with 1,539.428 ms of
 margin below the unchanged watchdog.
+
+## Cached item menus in free walk
+
+PRF-50 measures `godot/r4_menu_budget.gd` in `walkthrough.gd` with the
+SkyUI and NORDIC Data overlays, the production converter and an existing
+art cache. The 33 ms opening limit and 256 distinct chest-item minimum
+were written before the first measurement. The script opens all 40 enabled
+Bannered Mare containers, then seeds a chest and the player through the
+console. It also checks inventory and Hulda's barter request and presenter.
+Unlocking the containers is test setup for this performance survey.
+
+The before trace is `target/r4-ui/budget-before-trace.json`. Container
+opening takes 267.515 to 298.724 ms. The full chest has 272 rows and takes
+609.671 ms, including 425.775 ms in presentation. Inventory has 280 rows
+and takes 575.968 ms. Barter returns its deferred request in 0.748 ms but
+takes 1126.198 ms in `ui.barter.open`. Its presenter takes 287.862 ms.
+The full chest repeats refresh three times, totalling 358.428 ms. Manifest
+parsing takes 132.633 ms. There are no NIF, DDS or host texture-upload spans
+in that opening interval. The native presenter does not render per-row models.
+
+Each PlayerNode now retains one ItemArtLibrary control node and one published
+resource generation across menu lifetimes. This is one host node per player,
+with no per-reference node path. A worker reads manifests, movie metadata,
+imported meshes and fonts through Godot's ResourceLoader. It publishes the
+completed generation after joining the worker. Active controls and the Rust
+Godot binding stay on the main thread. The references are local Godot
+`tutorials/performance/thread_safe_apis.rst` and `classes/class_os.rst`.
+No second renderer, dependency or saved field is added.
+
+The menu is configured before entering the active tree. Repeating the current
+category no longer rebuilds it. The shell opens first, categories and columns
+follow on the next frame, then rows and newly published art use 2 ms work
+slices. Logical filtering and sorting still cover the full snapshot, and the
+remaining rows reserve their scroll height. Icon presentations and labeled
+frames are shared within the generation. Existing trade and inventory
+transactions continue to read the shared Game state.
+
+The import fixture hides its manifest and movie metadata after preparation,
+opens twice and checks all 128 rows, the installed source and the shared
+generation. Opening takes 10.146 and 10.123 ms. The largest row batches take
+4.248 and 3.880 ms. All previous import, font, cycle and pixel checks remain.
+
+The separate installed barter snapshot initially takes 1468.215 ms in
+pricing and 1559.339 ms in row construction. Dispatch scans the whole load
+order for owned perks and rebuilds every NNAM graph for each owned perk.
+Dispatch now reads the actor's sorted perk identities directly. The immutable
+NNAM index is built during World record indexing. Pricing falls to 0.506 ms,
+row construction to 3.385 ms and vendor-service selection takes 0.339 ms.
+Opening reuses that selected service, while each trade still revalidates it.
+
+The first cache-and-batch confirmation opens the 40 ordinary containers in
+1.497 to 9.102 ms and the full chest in 31.287 ms. Barter's outer scope takes
+4.129 ms. Inventory still fails the unchanged 33 ms check at 35.452 ms.
+Its `ui.items.ready` takes 32.016 ms, including 31.480 ms in refresh. Sorting
+and item-card construction still happen inside that opening call. They now
+run after the shell opens, with sorting on its own frame and selection in
+the following row-work phase. The comparator and all row actions are unchanged.
+The regression checks the 33 ms limit for opening, chrome, sorting and row
+work and waits for every row before closing the menu.
+
+Initializing the one player art-library node, including script loading, takes
+22.850 ms during data attachment. It adds no world-reference nodes. The
+converter writes ArrayMesh, FontFile and ImageTexture resources, which the
+worker loads through Godot's resource loader. Movie metadata is read as JSON
+without instantiating a movie resource on that worker.
+
+The final free-walk confirmation passes all 43 opening checks. The 40 ordinary
+containers take 1.272 to 2.000 ms. The 272-row chest takes 6.610 ms and the
+280-row inventory takes 4.262 ms. Barter requests in 0.990 ms and presents in
+4.008 ms. The largest chrome phase is 7.565 ms, sorting is 2.786 ms and
+row work is 26.608 ms. The same run captures inventory, container, barter,
+magic and favorites for both SkyUI and NORDIC, with no script errors.
+The final import fixture opens twice in 2.580 and 2.637 ms and retains all
+128 rows. Existing menu sorting, search, categories and actions also pass.
+
+The host passes 599 library tests with installed-data variables unset,
+package formatting and all-target Clippy with warnings denied. The game
+passes 1357 library tests and the same package checks. One cache-worker
+failure test initially observed a sender-disconnect race, then passed both
+in isolation and in the full host rerun without changing its assertion.
+The measurements use the private software-rendered test display. Physical
+GPU presentation cost remains outside this confirmation. Durable evidence
+is under `/run/host/media/pengolodh/Data/soe-build/evidence/lead-r4-ui`.

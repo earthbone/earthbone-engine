@@ -35,6 +35,14 @@ func _load_art() -> void:
 		return
 	if cache == null or cache.directory != cache_directory:
 		cache = InterfaceCache.new(cache_directory)
+	var key := JSON.stringify([icon_name, cache_movie, cache_symbol, cache_instance, cache_icon_name])
+	if cache.presentations.has(key):
+		var prepared: Dictionary = cache.presentations[key]
+		if not prepared.is_empty():
+			meshes = prepared.meshes.duplicate()
+			art_bounds = prepared.bounds
+			art_source = prepared.source
+		return
 	var selected_movie := cache_movie.replace("\\", "/").to_lower()
 	var movie_paths: Array = []
 	if selected_movie.begins_with("interface/"):
@@ -71,35 +79,61 @@ func _load_art() -> void:
 							break
 				if not meshes.is_empty():
 					art_source = str(movie_path)
+					_remember_art(key)
 					return
 			continue
 		var label := cache_icon_name if not cache_icon_name.is_empty() else icon_name
 		if label == "default_spell":
 			label = "mag_all"
-		for timeline in metadata.get("timelines", {}).values():
-			for frame in timeline.get("frames", []):
-				if label in frame.get("labels", []):
-					_collect(source, frame.display_list, Transform2D.IDENTITY, 0)
-					if not meshes.is_empty():
-						art_source = str(movie_path)
-						return
+		for frame in cache.labeled_frames(source, label):
+			_collect(source, frame.display_list, Transform2D.IDENTITY, 0)
+			if not meshes.is_empty():
+				art_source = str(movie_path)
+				_remember_art(key)
+				return
+	cache.presentations[key] = {}
+
+func _remember_art(key: String) -> void:
+	cache.presentations[key] = {"meshes": meshes.duplicate(), "bounds": art_bounds, "source": art_source}
+
+func use_cache(prepared) -> void:
+	cache = prepared
+	cache_directory = prepared.directory
+	meshes = []
+	texture = null
+	art_bounds = Rect2()
+	art_source = "builtin"
+	_load_art()
+	if meshes.is_empty():
+		_load_theme()
+	queue_redraw()
 
 func _load_theme() -> void:
 	var _span = UiTrace.begin("ui.icon.theme." + icon_name)
-	var path := DefaultTheme.resource_path(icon_name)
-	if path.is_empty() or not FileAccess.file_exists(path):
-		return
-	if path.ends_with(".svg"):
+	var path := ""
+	var value: Resource
+	if cache != null and cache.prepared_resources:
+		var prepared: Dictionary = cache.fallbacks.get(icon_name, cache.fallbacks.get("default_misc", {}))
+		if prepared.is_empty():
+			return
+		path = prepared.path
+		value = prepared.resource
+	else:
+		path = DefaultTheme.resource_path(icon_name)
+		if path.is_empty() or not FileAccess.file_exists(path):
+			return
+	if value == null and path.ends_with(".svg") and (cache == null or not cache.prepared_resources):
 		var pixels := Image.new()
 		if pixels.load_svg_from_string(FileAccess.get_file_as_string(path)) == OK:
 			texture = ImageTexture.create_from_image(pixels)
 	else:
-		var resource = load(path)
-		if resource is Mesh:
-			meshes.append({"mesh": resource, "transform": Transform2D.IDENTITY})
-			art_bounds = resource.get_meta("swf_bounds", Rect2())
-		elif resource is Texture2D:
-			texture = resource
+		if value == null:
+			value = cache.resource(path) if cache != null else load(path)
+		if value is Mesh:
+			meshes.append({"mesh": value, "transform": Transform2D.IDENTITY})
+			art_bounds = value.get_meta("swf_bounds", Rect2())
+		elif value is Texture2D:
+			texture = value
 	if not meshes.is_empty() or texture != null:
 		art_source = path
 
@@ -120,12 +154,11 @@ func _collect(source: Dictionary, instances: Array, transform: Transform2D, dept
 		var target: Dictionary = resolved.movie
 		var character: int = resolved.character
 		var shape_path := str(target.directory).path_join("shape-%d.tres" % character)
-		if FileAccess.file_exists(shape_path):
-			var mesh = load(shape_path)
-			if mesh is Mesh:
-				meshes.append({"mesh": mesh, "transform": local})
-				var bounds: Rect2 = local * mesh.get_meta("swf_bounds", Rect2())
-				art_bounds = bounds if art_bounds.size == Vector2.ZERO else art_bounds.merge(bounds)
+		var mesh = cache.resource(shape_path)
+		if mesh is Mesh:
+			meshes.append({"mesh": mesh, "transform": local})
+			var bounds: Rect2 = local * mesh.get_meta("swf_bounds", Rect2())
+			art_bounds = bounds if art_bounds.size == Vector2.ZERO else art_bounds.merge(bounds)
 		else:
 			var timeline = target.data.get("timelines", {}).get(str(character), {})
 			if not timeline.get("frames", []).is_empty():

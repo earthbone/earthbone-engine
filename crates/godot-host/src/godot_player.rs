@@ -1216,6 +1216,7 @@ impl PlayerNode {
                 }
                 self.interface_cache = None;
                 self.data_source = Some(Arc::new(source));
+                self.prepare_item_assets();
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
                 self.refresh_image_space();
@@ -1256,6 +1257,7 @@ impl PlayerNode {
         self.interface_cache = None;
         self.interface_cache_job = None;
         self.data_source = Some(source);
+        self.prepare_item_assets();
         self.game = None;
         self.clear_player_input();
         self.image_space = crate::image_space::ImageSpaceStack::default();

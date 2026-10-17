@@ -42,7 +42,7 @@ impl PlayerNode {
                 });
         if let Some(service) = service {
             self.barter_menu = Some((merchant, service.faction));
-            self.present_barter_items(merchant, service.faction)
+            self.present_barter_service_items(merchant, &service)
         } else {
             self.present_items("barter", &[])
         }

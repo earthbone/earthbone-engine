@@ -9,6 +9,8 @@ signal favorite_item(row: Dictionary)
 const Icon = preload("res://ui/item_icon.gd")
 const DefaultTheme = preload("res://ui/theme/theme.gd")
 const InterfaceCache = preload("res://ui/interface_cache.gd")
+const ArtLibrary = preload("res://ui/item_art_library.gd")
+const ROW_BUILD_US := 2000
 const INVENTORY_CATEGORIES = ["All", "Weapons", "Apparel", "Potions", "Scrolls", "Food", "Ingredients", "Books", "Keys", "Misc"]
 const FAVORITE_CATEGORIES = ["All", "Gear", "Aid", "Magic"]
 const MAGIC_CATEGORIES = ["All", "Spells"]
@@ -27,6 +29,14 @@ var selected_id := ""
 var query := ""
 var cache_directory := ""
 var icon_sources: Dictionary = {}
+var art_library: Node
+var async_menu := false
+var next_row := 0
+var chrome_pending := false
+var sort_pending := false
+var selection_pending := false
+var row_spacer: Control
+var art_updates: Array = []
 var art_cache = InterfaceCache.new()
 var categories: VBoxContainer
 var header: HBoxContainer
@@ -124,30 +134,37 @@ func _ready() -> void:
 	resized.connect(_resize_card)
 	refresh()
 
-func configure(menu_mode: String, data: Array, cache: String = "", sources: Dictionary = {}) -> void:
+func configure(menu_mode: String, data: Array, cache: String = "", sources: Dictionary = {}, library: Node = null) -> void:
 	var _span = UiTrace.begin("ui.items.configure")
 	mode = menu_mode
 	source_rows = data
 	icon_sources = sources
-	set_art_cache(cache)
+	art_library = library
+	async_menu = library != null
+	if library != null:
+		library.connect("prepared", Callable(self, "_prepared_art"))
+		var prepared = library.get("cache")
+		set_art_cache(str(prepared.directory), prepared)
+	else:
+		set_art_cache(cache)
 
-func set_art_cache(cache: String) -> void:
+func _prepared_art(prepared) -> void:
+	set_art_cache(str(prepared.directory), prepared)
+
+func set_art_cache(cache: String, prepared = null) -> void:
 	var _span = UiTrace.begin("ui.items.art")
 	cache_directory = cache
+	if prepared != null:
+		art_cache = prepared
 	if is_node_ready():
 		_apply_cache_font()
-		for decoration_name in ["Background", "Frame"]:
-			var decoration = get_node(decoration_name)
-			decoration.cache_directory = cache_directory
-			decoration.cache = art_cache
-			decoration.meshes.clear()
-			decoration.art_bounds = Rect2()
-			decoration.art_source = "builtin"
-			decoration._load_art()
-			if decoration.meshes.is_empty():
-				decoration._load_theme()
-			decoration.queue_redraw()
-		refresh()
+		if async_menu:
+			art_updates = find_children("*", "Control", true, false).filter(func(control): return control.has_method("use_cache"))
+			set_process(true)
+		else:
+			for decoration_name in ["Background", "Frame"]:
+				get_node(decoration_name).use_cache(art_cache)
+			refresh()
 
 func _apply_cache_font() -> void:
 	if art_cache.directory != cache_directory:
@@ -260,6 +277,8 @@ func sort_by(key: String) -> void:
 	refresh()
 
 func select_category(value: String) -> void:
+	if category == value:
+		return
 	category = value
 	refresh()
 
@@ -301,7 +320,52 @@ func refresh() -> void:
 	_clear(categories)
 	_clear(header)
 	_clear(rows)
+	row_spacer = null
+	next_row = 0
+	art_updates = []
 	_clear(tabs)
+	columns = column_order()
+	chrome_pending = async_menu
+	if not async_menu:
+		_build_chrome()
+	visible_rows = source_rows.filter(_matches)
+	sort_pending = async_menu
+	selection_pending = async_menu
+	if not async_menu:
+		_sort_visible()
+	if async_menu:
+		row_spacer = Control.new()
+		row_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		rows.add_child(row_spacer)
+	else:
+		for row in visible_rows:
+			_append_row(row)
+		next_row = visible_rows.size()
+	set_process(chrome_pending or sort_pending or selection_pending or (async_menu and next_row < visible_rows.size()))
+	if async_menu:
+		_clear(card)
+	else:
+		_finish_selection()
+
+func _sort_visible() -> void:
+	var _span = UiTrace.begin("ui.items.sort")
+	var started := Time.get_ticks_usec()
+	visible_rows.sort_custom(_less)
+	set_meta("sort_build_ms", (Time.get_ticks_usec() - started) / 1000.0)
+
+func _finish_selection() -> void:
+	var _span = UiTrace.begin("ui.items.selection")
+	if visible_rows.is_empty():
+		var empty := Label.new()
+		empty.text = "No matching items"
+		rows.add_child(empty)
+		selected_id = ""
+		_clear(card)
+	else:
+		var selection = visible_rows.filter(func(row): return str(row.id) == selected_id)
+		_select(selection[0] if not selection.is_empty() else visible_rows[0])
+
+func _build_chrome() -> void:
 	var choices: Array = INVENTORY_CATEGORIES.duplicate()
 	if mode == "favorites":
 		choices = FAVORITE_CATEGORIES
@@ -351,54 +415,82 @@ func refresh() -> void:
 		if key == "name":
 			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			button.custom_minimum_size.x = 55
-	visible_rows = source_rows.filter(_matches)
-	visible_rows.sort_custom(_less)
-	for row in visible_rows:
-		var button := _button("", rows, _activate.bind(row))
-		button.name = "Item_" + str(row.id).replace(":", "_")
-		button.custom_minimum_size.y = 24
-		button.disabled = not row.get("enabled", true)
-		button.mouse_entered.connect(_select.bind(row))
-		button.focus_entered.connect(_select.bind(row))
-		var cells := HBoxContainer.new()
-		cells.add_theme_constant_override("separation", 0)
-		cells.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		button.add_child(cells)
-		cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		for key in columns:
-			if key == "icon":
-				var icon := Icon.new()
-				icon.icon_name = row.get("icon", "default_misc")
-				icon.cache_directory = cache_directory
-				icon.cache = art_cache
-				icon.cache_movie = str(icon_sources.get("category" if row.category == "Spells" else "item", ""))
-				_cell(icon, key)
-				cells.add_child(icon)
-			elif key == "equipped" and row.get("equipped", false):
-				var marker := Icon.new()
-				marker.icon_name = "marker"
-				marker.cache_directory = cache_directory
-				marker.cache = art_cache
-				marker.cache_movie = "inventorylists.swf"
-				marker.cache_symbol = "EquipIcon"
-				_cell(marker, key)
-				cells.add_child(marker)
-			else:
-				var label := Label.new()
-				label.add_theme_font_size_override("font_size", 12)
-				_cell(label, key)
-				label.text = _display(row, key)
-				label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-				cells.add_child(label)
-	if visible_rows.is_empty():
-		var empty := Label.new()
-		empty.text = "No matching items"
-		rows.add_child(empty)
-		selected_id = ""
-		_clear(card)
-	else:
-		var selection = visible_rows.filter(func(row): return str(row.id) == selected_id)
-		_select(selection[0] if not selection.is_empty() else visible_rows[0])
+
+func _append_row(row: Dictionary) -> void:
+	var button := _button("", rows, _activate.bind(row))
+	button.name = "Item_" + str(row.id).replace(":", "_")
+	button.custom_minimum_size.y = 24
+	button.disabled = not row.get("enabled", true)
+	button.mouse_entered.connect(_select.bind(row))
+	button.focus_entered.connect(_select.bind(row))
+	var cells := HBoxContainer.new()
+	cells.add_theme_constant_override("separation", 0)
+	cells.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(cells)
+	cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for key in columns:
+		if key == "icon":
+			var icon := Icon.new()
+			icon.icon_name = row.get("icon", "default_misc")
+			icon.cache_directory = cache_directory
+			icon.cache = art_cache
+			icon.cache_movie = str(icon_sources.get("category" if row.category == "Spells" else "item", ""))
+			_cell(icon, key)
+			cells.add_child(icon)
+		elif key == "equipped" and row.get("equipped", false):
+			var marker := Icon.new()
+			marker.icon_name = "marker"
+			marker.cache_directory = cache_directory
+			marker.cache = art_cache
+			marker.cache_movie = "inventorylists.swf"
+			marker.cache_symbol = "EquipIcon"
+			_cell(marker, key)
+			cells.add_child(marker)
+		else:
+			var label := Label.new()
+			label.add_theme_font_size_override("font_size", 12)
+			_cell(label, key)
+			label.text = _display(row, key)
+			label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			cells.add_child(label)
+
+func _append_rows(deadline: int) -> void:
+	var _span = UiTrace.begin("ui.items.build_rows")
+	while next_row < visible_rows.size() and Time.get_ticks_usec() < deadline:
+		_append_row(visible_rows[next_row])
+		next_row += 1
+	if row_spacer != null:
+		row_spacer.custom_minimum_size.y = (visible_rows.size() - next_row) * 24.0
+		rows.move_child(row_spacer, rows.get_child_count() - 1)
+		if next_row == visible_rows.size():
+			rows.remove_child(row_spacer)
+			row_spacer.queue_free()
+			row_spacer = null
+
+func _process(_delta: float) -> void:
+	var started := Time.get_ticks_usec()
+	if chrome_pending:
+		_build_chrome()
+		chrome_pending = false
+		set_meta("chrome_build_ms", (Time.get_ticks_usec() - started) / 1000.0)
+		return
+	if sort_pending:
+		_sort_visible()
+		sort_pending = false
+		return
+	var deadline := started + ROW_BUILD_US
+	if selection_pending:
+		_finish_selection()
+		selection_pending = false
+	while not art_updates.is_empty() and Time.get_ticks_usec() < deadline:
+		var icon = art_updates.pop_back()
+		if is_instance_valid(icon) and not icon.is_queued_for_deletion():
+			icon.use_cache(art_cache)
+	if next_row < visible_rows.size():
+		_append_rows(deadline)
+	var elapsed_ms := (Time.get_ticks_usec() - started) / 1000.0
+	set_meta("rows_batch_max_ms", maxf(float(get_meta("rows_batch_max_ms", 0.0)), elapsed_ms))
+	set_process(selection_pending or not art_updates.is_empty() or next_row < visible_rows.size())
 
 func _display(row: Dictionary, key: String) -> String:
 	if key == "equipped":

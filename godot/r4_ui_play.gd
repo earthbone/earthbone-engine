@@ -37,7 +37,10 @@ func _start() -> void:
 			failed = true
 			continue
 		var started := Time.get_ticks_msec()
-		while str(menu.get("cache_directory")).is_empty() and Time.get_ticks_msec() - started < 120_000:
+		while (str(menu.get("cache_directory")).is_empty() or menu.get("chrome_pending")
+			or menu.get("sort_pending") or menu.get("selection_pending")
+			or int(menu.get("next_row")) < menu.get("visible_rows").size()
+			or not menu.get("art_updates").is_empty()) and Time.get_ticks_msec() - started < 120_000:
 			await process_frame
 		print("R4_UI presentation mode=", mode, " ms=", menu.get_meta("opening_main_thread_ms", -1.0))
 		var cache = menu.get("art_cache")
