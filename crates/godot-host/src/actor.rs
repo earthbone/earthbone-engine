@@ -2621,6 +2621,41 @@ mod tests {
     }
 
     #[test]
+    fn installed_adult_npcs_draw_exactly_one_hair_and_one_hairline() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        for name in ["Hulda", "Ysolda", "Mikael", "Saadia", "CarlottaValentia"] {
+            let base = world.form(name).unwrap();
+            let actor = world.references_of_base(base, 1)[0];
+            let assets = ActorAssets::load_for_actor(&mut world, actor, source.vfs()).unwrap();
+            let hair: Vec<_> = assets
+                .surfaces
+                .iter()
+                .filter(|s| s.head_part_type == Some(3))
+                .map(|s| s.name.clone())
+                .collect();
+            assert!(hair.len() <= 1, "{name} draws {hair:?} as hair");
+            let lower = |s: &&ActorSurface| s.name.to_ascii_lowercase();
+            let hairlike: Vec<_> = assets
+                .surfaces
+                .iter()
+                .filter(|s| {
+                    let n = lower(s);
+                    n.contains("hair") && !n.contains("hairline")
+                })
+                .map(|s| s.name.clone())
+                .collect();
+            assert!(
+                hairlike.len() <= 1,
+                "{name} has several hair shapes {hairlike:?}, a head part was added next to the FaceGen hair"
+            );
+        }
+    }
+
+    #[test]
     fn hst_23_installed_hulda_head_and_idle_pose() {
         let Some(data) = std::env::var_os("SKYRIM_DATA") else {
             return;
