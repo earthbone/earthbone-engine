@@ -9393,3 +9393,25 @@ and project import pass. `ui_30_missing_java_notice_uses_the_live_menu_fallback`
 has not started because another job holds the shared installed-test slot.
 Its implementation and generated reference exports do not establish that
 runtime notice result or the missing theme acceptance checks.
+
+## UI chain validation checkpoint, 2026-10-17
+
+UI-19 and UI-23 meet their recorded done checks. UI-20 and UI-30 retain the
+movie, font and theme gaps described above. UI-05, UI-11, UI-13 and UI-29
+retain their native-window validation gaps. Their queued Godot attempts and
+the missing-Java notice attempt were canceled before Cargo started because
+another job held the shared installed-test slot. Neither attempt produced a
+test result. The slot was still held after both queued processes exited.
+
+The explicit SkyUI source rerun passes all 19 UI-05 game checks and all eight
+UI-11 host protocol checks. The UI-11 game suite passes 18 checks, and UI-13
+passes 29 protocol checks, including the original framework and state options.
+The compass rig check passes 721 headings at a 0.001 pixel tolerance. The
+standalone native picker measures 238 by 303 pixels. These results do not
+replace the unrun windowed checks.
+
+Game, host and converter library checks pass 1334, 532 and three tests.
+Those library runs leave SKYRIM_DATA unset, so installed-data cases return
+early. The focused MCM checks set the external SkyUI and NORDIC fixture paths.
+Clippy with all targets and crate formatting pass. The release extension and
+Godot import pass. The full lead gate was not run, as instructed.
