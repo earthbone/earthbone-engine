@@ -1,5 +1,51 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Near LAND texture detail, round 4
+
+The walkthrough terrain probe exits the Bannered Mare and moves to the
+Whiterun pond route. It aims at a nearby submitted LAND triangle and captures
+normal rendering, all LOD hidden and LAND hidden. The blurred ground stays
+when terrain, object, tree and Full LOD are hidden. Hiding LAND removes it.
+The lower-half difference counts are 913 pixels without LOD and 28,256 pixels
+without LAND. Its 256 by 256 diffuse fails the fixed native-detail check.
+
+The near terrain used a CPU composite with only 128 pixels per quadrant,
+including all four texture repeats. Each native tile was reduced to 32 pixels
+before the renderer sampled it. This was the source of the blurred surface,
+rather than an overlapping terrain LOD height or a residency handoff.
+
+LAND now keeps the original DDS payloads and samples its ordered layers in a
+quadrant shader. Separate 17 by 17 RGBA images pack four alpha grids each.
+The one cell mesh, triangle indices, CELL masks and collider stay intact.
+An opaque base pass preserves the full terrain shadow and depth surface.
+Four detail passes use Godot's next-pass material chain. They share shader
+resources and native texture uploads. This adds four material passes per
+LAND instance, with no node or renderer-server instance added. Real GPU cost
+has not been measured.
+
+Native image payloads and generated weights participate in the existing
+streaming budget, texture inventory and memory attribution. The former
+CPU-decoded image cache is no longer needed. Its historical counters report
+zero. The CPU compositor remains a test reference. The installed seven-cell
+Whiterun mask check retains its triangle and one-collider assertions.
+
+Local xEdit LAND/TXST, UESP LAND and OpenMW
+`components/terrain/material.cpp` supply layouts and separate detail textures
+from blend weights. OpenMW's OSG state sets do not fit the stock Godot host,
+so this uses Godot's existing material passes and texture upload cache.
+Mudcrab `crates/engine/src/streaming/lod.rs` supplies the per-quadrant LOD
+readiness comparison. The LOD-off reproduction rules out that path here.
+No dependency or saved state is added.
+
+The five-pass synthetic viewport check matches all four quadrant colors with
+zero pixel error, including a fifth overlay in a second packed alpha map.
+Package formatting and all-target Clippy pass. All 585 library cases pass
+with installed variables unset. The embedded release walkthrough passes and
+exits zero. At the same LAND triangle the diffuse is now 1024 by 1024, with
+five material passes and the original 1,089 vertices. The LOD-off image keeps
+the fine texture. Difference counts are 965 pixels without LOD and 28,098
+without LAND. The final installed mask check passes all seven cells again.
+
 ## Streamed adult face highlights, round 4
 
 The round 4 probe extends `godot/walkthrough.gd` and samples resident Hulda,

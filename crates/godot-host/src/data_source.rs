@@ -254,6 +254,11 @@ pub struct LoadedSurface {
     pub mesh_identity: Option<Arc<str>>,
 }
 
+/// Native diffuse tiles and packed LAND alpha grids for one quadrant.
+pub type TerrainQuadrantTextures = terrain_texture::TerrainQuadrantTextures<TextureData>;
+/// Quadrant material passes share the original cell mesh and its collision.
+pub type TerrainTextures = terrain_texture::TerrainTextures<TextureData>;
+
 /// A surface's 2D textures and environment cubemap, ready to upload. A failed
 /// named diffuse uses the checker. Other slots remain `None` when absent or
 /// unreadable, with failed reads counted in `CellStats`. `Arc` because a texture shared
@@ -261,6 +266,7 @@ pub struct LoadedSurface {
 /// and cloned out of `TextureCache` cheaply for every surface that uses it.
 #[derive(Debug, Clone, Default)]
 pub struct SurfaceTextures {
+    pub terrain: Option<Arc<TerrainTextures>>,
     pub environment: Option<Arc<TextureData>>,
     pub environment_mask: Option<Arc<TextureData>>,
     pub diffuse: Option<Arc<TextureData>>,
@@ -277,6 +283,21 @@ pub struct SurfaceTextures {
     pub water_flow: Option<Arc<TextureData>>,
 }
 
+impl SurfaceTextures {
+    pub(crate) fn terrain_images(&self) -> impl Iterator<Item = &Arc<TextureData>> {
+        self.terrain
+            .iter()
+            .flat_map(|terrain| terrain.quadrants.iter())
+            .flat_map(|quadrant| {
+                quadrant
+                    .layers
+                    .iter()
+                    .map(|(_, image)| image)
+                    .chain(quadrant.weights.iter())
+            })
+    }
+}
+
 pub struct LoadedCell {
     pub stats: CellStats,
     pub surfaces: Vec<LoadedSurface>,
@@ -290,6 +311,24 @@ impl LoadedCell {
         for surface in &self.surfaces {
             let material = &surface.arrays.material;
             let textures = &surface.textures;
+            if let Some(terrain) = &textures.terrain {
+                for (q, quadrant) in terrain.quadrants.iter().enumerate() {
+                    for (path, image) in &quadrant.layers {
+                        inventory
+                            .entry(soe_bsa::normalize(path))
+                            .or_insert_with(|| image.payload_bytes());
+                    }
+                    for (i, image) in quadrant.weights.iter().enumerate() {
+                        inventory.insert(
+                            format!(
+                                "{}:weights:{q}:{i}",
+                                material.diffuse.as_deref().unwrap_or("terrain")
+                            ),
+                            image.payload_bytes(),
+                        );
+                    }
+                }
+            }
             for (path, texture) in [
                 (material.diffuse.as_deref(), textures.diffuse.as_deref()),
                 (material.normal.as_deref(), textures.normal.as_deref()),

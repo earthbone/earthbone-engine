@@ -1052,3 +1052,37 @@ fn whiterun_lod_installed_bto_overhangs_have_no_resident_source() {
         "resident full-detail objects are duplicated"
     );
 }
+
+#[test]
+fn installed_native_terrain_walkthrough() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let directory = root.join("target/r4-terrain-regression");
+    std::fs::create_dir_all(&directory).unwrap();
+    let output = std::process::Command::new(binary)
+        .arg("--path")
+        .arg(root.join("godot"))
+        .args(["--resolution", "640x360", "--script", "r4_terrain_probe.gd"])
+        .env("DISPLAY", ":99")
+        .env("SKYRIM_DATA", data)
+        .env("SOE_GODOT_TIMEOUT", "600")
+        .env("SOE_CHARACTER_OUTPUT", &directory)
+        .output()
+        .unwrap();
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(directory.join("test.log"), &log).unwrap();
+    assert!(
+        output.status.success()
+            && log.contains("RESULT: PASS R4 terrain probe")
+            && !log.contains("SCRIPT ERROR"),
+        "{log}"
+    );
+    println!("{log}");
+}

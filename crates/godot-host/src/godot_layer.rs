@@ -5815,7 +5815,9 @@ fn material_for(
     if let Some(existing) = cache.materials.get(&key) {
         return existing.clone();
     }
-    let material: Gd<Material> = if let Some(water) = &desc.water {
+    let material: Gd<Material> = if let Some(terrain) = &textures.terrain {
+        terrain_material(terrain, desc, &mut cache.textures, &cache.shaders)
+    } else if let Some(water) = &desc.water {
         water_material(water, textures, &mut cache.textures, &cache.shaders).upcast()
     } else if let Some(effect) = &desc.effect {
         nif_effect_material(desc, effect, textures, &mut cache.textures, &cache.shaders).upcast()
@@ -5852,6 +5854,82 @@ fn material_for(
     };
     cache.materials.insert(key, material.clone());
     material
+}
+
+fn terrain_material(
+    terrain: &crate::data_source::TerrainTextures,
+    desc: &MaterialDesc,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    shaders: &ShaderCache,
+) -> Gd<Material> {
+    let mut next: Option<Gd<Material>> = None;
+    for (q, quadrant) in terrain.quadrants.iter().enumerate().rev() {
+        if quadrant.layers.is_empty() {
+            continue;
+        }
+        let mut uniforms = String::new();
+        for i in 0..quadrant.layers.len() {
+            uniforms.push_str(&format!("uniform sampler2D layer_{i} : source_color, filter_linear_mipmap_anisotropic, repeat_enable;\n"));
+        }
+        for i in 0..quadrant.weights.len() {
+            uniforms.push_str(&format!(
+                "uniform sampler2D weights_{i} : filter_linear, repeat_disable;\n"
+            ));
+        }
+        let mut blend = String::new();
+        for i in 1..quadrant.layers.len() {
+            let mask = (i - 1) / 4;
+            let channel = ["r", "g", "b", "a"][(i - 1) % 4];
+            blend.push_str(&format!("color = mix(color, texture(layer_{i}, uv * 4.0).rgb, texture(weights_{mask}, weights_uv).{channel});\n"));
+        }
+        let shader = shader_for_code(
+            shaders,
+            include_str!("terrain.gdshader")
+                .replace("LAYER_UNIFORMS", &uniforms)
+                .replace("LAYER_BLEND", &blend)
+                .replace(
+                    "WEIGHT_SIDE",
+                    &format!("{}.0", soe_esm::records::land::ALPHA_GRID_SIDE),
+                ),
+        );
+        let mut material = ShaderMaterial::new_gd();
+        material.set_shader(&shader);
+        material.set_shader_parameter(
+            "quadrant",
+            &Vector2::new((q % 2) as f32, (q / 2) as f32).to_variant(),
+        );
+        for (i, (path, image)) in quadrant.layers.iter().enumerate() {
+            if let Some(texture) = cached_texture(cache, Some(path), image) {
+                material.set_shader_parameter(&format!("layer_{i}"), &texture.to_variant());
+            }
+        }
+        for (i, image) in quadrant.weights.iter().enumerate() {
+            let path = format!(
+                "{}:weights:{q}:{i}",
+                desc.diffuse.as_deref().unwrap_or("terrain")
+            );
+            if let Some(texture) = cached_texture(cache, Some(&path), image) {
+                material.set_shader_parameter(&format!("weights_{i}"), &texture.to_variant());
+            }
+        }
+        if let Some(pass) = &next {
+            material.set_next_pass(pass);
+        }
+        next = Some(material.upcast());
+    }
+    // CONTEXT: The opaque base preserves the full LAND shadow and depth surface.
+    // Detail passes sort after it and share its original mesh and CELL masks.
+    let mut base = StandardMaterial3D::new_gd();
+    if let Some((path, image)) = terrain.quadrants.first().and_then(|q| q.layers.first()) {
+        if let Some(texture) = cached_texture(cache, Some(path), image) {
+            base.set_texture(TextureParam::ALBEDO, &texture);
+        }
+    }
+    base.set_render_priority(-1);
+    if let Some(pass) = &next {
+        base.set_next_pass(pass);
+    }
+    base.upcast()
 }
 
 fn tree_material(

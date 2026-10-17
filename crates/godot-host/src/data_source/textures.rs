@@ -187,7 +187,6 @@ pub(super) struct TextureCache {
     /// of both doing it (the first version raced and read 132 files for 88
     /// textures).
     textures: Mutex<PreparedTextures>,
-    decoded_rgba: Mutex<ByteCache<Option<Arc<DdsImage>>>>,
     decoded: AtomicUsize,
     failures: AtomicUsize,
     decode_ns: AtomicU64,
@@ -201,7 +200,6 @@ impl Default for TextureCache {
     fn default() -> Self {
         Self {
             textures: Mutex::new(PreparedTextures::new(IMAGE_CACHE_BYTES)),
-            decoded_rgba: Mutex::new(ByteCache::new(IMAGE_CACHE_BYTES)),
             decoded: AtomicUsize::new(0),
             failures: AtomicUsize::new(0),
             decode_ns: AtomicU64::new(0),
@@ -260,7 +258,7 @@ impl PreparedTextures {
     }
 }
 
-fn texture_path(path: &str) -> String {
+pub(super) fn texture_path(path: &str) -> String {
     let path = soe_bsa::normalize(path.trim())
         .split('/')
         .filter(|part| !part.is_empty())
@@ -320,33 +318,8 @@ impl TextureCache {
             report.add("texture_cache_payload_bytes", image.payload_bytes());
         }
         report.add("texture_cache_bytes", textures.cache.bytes);
-        let rgba = self
-            .decoded_rgba
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        report.add("decoded_cache_slots", rgba.entries.len());
-        report.add("decoded_cache_bytes", rgba.bytes);
-    }
-
-    pub(super) fn decode_rgba(&self, vfs: &Vfs, path: &str) -> Option<Arc<DdsImage>> {
-        let path = texture_path(path);
-        let mut cache = self
-            .decoded_rgba
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let Some(image) = cache.get(&path) {
-            return image.clone();
-        }
-        let image = vfs.read(&path).ok().and_then(|bytes| {
-            let _decode = soe_trace::LoadMeasure::new(soe_trace::LoadStage::TextureDecode, &path);
-            Dds::parse(&bytes)
-                .and_then(|dds| dds.decode(0, 0))
-                .ok()
-                .map(Arc::new)
-        });
-        let bytes = image.as_ref().map_or(0, |image| image.rgba.capacity());
-        cache.insert(path, image.clone(), bytes);
-        image
+        report.add("decoded_cache_slots", 0);
+        report.add("decoded_cache_bytes", 0);
     }
 
     pub(super) fn clear_prepared(&self) {
@@ -354,14 +327,11 @@ impl TextureCache {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
-        self.decoded_rgba
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
     }
 
     pub(super) fn resolve(&self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
         SurfaceTextures {
+            terrain: None,
             water_noise: std::array::from_fn(|i| {
                 material
                     .water

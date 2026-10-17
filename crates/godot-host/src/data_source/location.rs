@@ -63,6 +63,7 @@ impl LocationPayload {
             .chain(surface.textures.water_noise.iter())
             .chain([&surface.textures.water_flow])
             .flatten()
+            .chain(surface.textures.terrain_images())
             {
                 if self.images.insert(std::sync::Arc::as_ptr(image) as usize) {
                     self.bytes = self.bytes.saturating_add(image.payload_bytes());
@@ -163,6 +164,26 @@ impl PreparedCell {
                 let key = path.map(|path| (kind, soe_bsa::normalize(path)));
                 if key.as_ref().is_none_or(|key| uploaded.insert(key.clone())) {
                     texture_bytes = texture_bytes.saturating_add(texture_payload_bytes(texture));
+                }
+            }
+            if let Some(terrain) = &textures.terrain {
+                for (q, quadrant) in terrain.quadrants.iter().enumerate() {
+                    for (path, image) in &quadrant.layers {
+                        if uploaded.insert((0, soe_bsa::normalize(path))) {
+                            texture_bytes =
+                                texture_bytes.saturating_add(texture_payload_bytes(image));
+                        }
+                    }
+                    for (i, image) in quadrant.weights.iter().enumerate() {
+                        let path = format!(
+                            "{}:weights:{q}:{i}",
+                            material.diffuse.as_deref().unwrap_or("terrain")
+                        );
+                        if uploaded.insert((0, path)) {
+                            texture_bytes =
+                                texture_bytes.saturating_add(texture_payload_bytes(image));
+                        }
+                    }
                 }
             }
         }

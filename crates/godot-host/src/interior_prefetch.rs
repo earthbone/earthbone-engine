@@ -485,6 +485,7 @@ mod tests {
                 arrays,
                 placement: soe_physics::Iso::IDENTITY,
                 textures: crate::data_source::SurfaceTextures {
+                    terrain: None,
                     diffuse: Some(Arc::clone(&texture)),
                     normal: Some(texture),
                     environment: None,
