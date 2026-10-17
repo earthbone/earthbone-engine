@@ -185,7 +185,7 @@ pub struct ActorSurface {
     pub face_detail: Option<(String, std::sync::Arc<crate::data_source::TextureData>)>,
     /// NIF specular settings and optional texture slot 7.
     pub face_lighting: Option<FaceLighting>,
-    /// Authored SkinTint or HairTint RGB multiplier.
+    /// Authored SkinTint multiplier. HairTint is resolved into vertex colours.
     pub tint_color: Option<[f32; 3]>,
     pub arrays: SurfaceArrays,
     /// Expression blend-shape deltas in the order uploaded to Godot.
@@ -1102,8 +1102,7 @@ impl ActorAssets {
 
 fn authored_tint(mesh: &soe_nif::Mesh) -> Option<[f32; 3]> {
     match &mesh.material.extra {
-        soe_nif::blocks::ShaderExtra::SkinTint(color)
-        | soe_nif::blocks::ShaderExtra::HairTint(color) => Some(*color),
+        soe_nif::blocks::ShaderExtra::SkinTint(color) => Some(*color),
         _ => None,
     }
 }
@@ -1743,6 +1742,198 @@ mod tests {
         );
         assert!(!vfs.exists("meshes/actors/fixture/characters/missing-third-skeleton.hkx"));
         assert!(!vfs.exists("meshes/actors/fixture/behaviors/missing-third-graph.hkx"));
+    }
+
+    #[test]
+    fn installed_exported_head_parts_match_selected_geometry() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        let mut oracle = serde_json::Map::new();
+        let mut wrong_colors = 0;
+        for name in [
+            "Hulda",
+            "Mikael",
+            "Sinmir",
+            "Ysolda",
+            "Belethor",
+            "Saadia",
+            "CarlottaValentia",
+            "AdrianneAvenicci",
+            "OlavaTheFeeble",
+            "Eorlund",
+            "Nazeem",
+        ] {
+            let actor = match name {
+                "Eorlund" => soe_esm::GlobalFormId {
+                    file: 0,
+                    object: 108163,
+                },
+                "Nazeem" => soe_esm::GlobalFormId {
+                    file: 0,
+                    object: 108196,
+                },
+                _ => {
+                    let base = world.form(name).unwrap();
+                    world.references_of_base(base, 1)[0]
+                }
+            };
+            let appearance = world.actor_appearance(actor).unwrap();
+            let face = appearance.facegen.as_ref().unwrap();
+            let path = format!(
+                "meshes/actors/character/facegendata/facegeom/{}/{:08X}.nif",
+                face.plugin, face.object
+            );
+            let file = soe_nif::parse(&source.vfs().read(&path).unwrap()).unwrap();
+            let mut meshes = file.meshes().unwrap();
+            for mesh in &mut meshes {
+                if let Some(soe_nif::blocks::Block::BsTriShape(shape)) = file.blocks.get(mesh.block)
+                {
+                    apply_dynamic_positions(shape, &mut mesh.positions).unwrap();
+                }
+            }
+            for mesh in &meshes {
+                if let soe_nif::blocks::ShaderExtra::HairTint(tint) = mesh.material.extra {
+                    let expected: Vec<[f32; 4]> = mesh
+                        .positions
+                        .iter()
+                        .enumerate()
+                        .map(|(index, _)| {
+                            let color = mesh.colors.get(index).copied().unwrap_or([1.0; 4]);
+                            let weight = if mesh.material.vertex_colors {
+                                color[1]
+                            } else {
+                                1.0
+                            };
+                            let rgb = tint.map(|channel| 1.0 + (channel - 1.0) * weight);
+                            [
+                                rgb[0],
+                                rgb[1],
+                                rgb[2],
+                                if mesh.material.vertex_alpha {
+                                    color[3]
+                                } else {
+                                    1.0
+                                },
+                            ]
+                        })
+                        .collect();
+                    oracle.insert(
+                        format!("{}:{}:{}", actor.file, actor.object, mesh.name),
+                        serde_json::json!(expected),
+                    );
+                }
+            }
+            let assets = ActorAssets::load_for_actor(&mut world, actor, source.vfs()).unwrap();
+            println!(
+                "HEAD_SOURCE {name} parts={:?} exports={:?}",
+                appearance
+                    .head_parts
+                    .iter()
+                    .map(|p| (&p.name, p.part_type, &p.model))
+                    .collect::<Vec<_>>(),
+                meshes
+                    .iter()
+                    .map(|m| (&m.name, m.positions.len()))
+                    .collect::<Vec<_>>()
+            );
+            for surface in assets
+                .surfaces
+                .iter()
+                .filter(|s| s.head_part_type.is_some())
+            {
+                let mesh = meshes
+                    .iter()
+                    .find(|m| m.name.eq_ignore_ascii_case(&surface.name))
+                    .unwrap();
+                let expected = surface_of(mesh).unwrap();
+                println!(
+                    "HEAD_SOURCE {name} {} type={:?} vertices={} bones={:?}",
+                    surface.name,
+                    surface.head_part_type,
+                    surface.arrays.positions.len(),
+                    surface
+                        .skin
+                        .bones
+                        .iter()
+                        .map(|b| &b.name)
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    surface.arrays.positions, expected.positions,
+                    "{name} {} uses exported positions",
+                    surface.name
+                );
+                assert!(surface.map.unmatched.is_empty());
+                if let Some(expected) =
+                    oracle.get(&format!("{}:{}:{}", actor.file, actor.object, surface.name))
+                {
+                    let expected: Vec<[f32; 4]> = serde_json::from_value(expected.clone()).unwrap();
+                    let wrong = surface
+                        .arrays
+                        .colors
+                        .iter()
+                        .zip(&expected)
+                        .filter(|(a, b)| a.iter().zip(*b).any(|(a, b)| (a - b).abs() > 0.00001))
+                        .count();
+                    println!(
+                        "HEAD_TINT_ERROR {name} {} wrong={wrong}/{}",
+                        surface.name,
+                        expected.len()
+                    );
+                    wrong_colors +=
+                        wrong + expected.len().saturating_sub(surface.arrays.colors.len());
+                }
+            }
+        }
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/r4-hair-reference.json");
+        std::fs::write(path, serde_json::to_vec(&oracle).unwrap()).unwrap();
+        assert_eq!(
+            wrong_colors, 0,
+            "HairTint green weights become RGB tint for both hair layers"
+        );
+    }
+
+    #[test]
+    fn installed_streamed_hair_matches_facegen_colours() {
+        if std::env::var_os("SKYRIM_DATA").is_none() {
+            return;
+        }
+        installed_exported_head_parts_match_selected_geometry();
+        let binary = std::env::var_os("SOE_GODOT_BIN").expect("installed renderer requires Godot");
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for exterior in [false, true] {
+            let directory = workspace.join(if exterior {
+                "target/r4-hair-exterior"
+            } else {
+                "target/r4-hair-inn"
+            });
+            std::fs::create_dir_all(&directory).unwrap();
+            let output = std::process::Command::new(&binary)
+                .arg("--path")
+                .arg(workspace.join("godot"))
+                .args(["--resolution", "960x720", "--script", "r4_hair_probe.gd"])
+                .env("DISPLAY", ":99")
+                .env("SOE_CHARACTER_OUTPUT", &directory)
+                .env("SOE_HAIR_EXTERIOR", if exterior { "1" } else { "0" })
+                .output()
+                .unwrap();
+            let log = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            std::fs::write(directory.join("test.log"), &log).unwrap();
+            assert!(
+                output.status.success()
+                    && log.contains("RESULT: PASS R4 hair")
+                    && !log.contains("SCRIPT ERROR"),
+                "{log}"
+            );
+        }
     }
 
     #[test]
@@ -2592,6 +2783,52 @@ mod tests {
             material: soe_nif::Material::default(),
         };
         (skeleton, mesh)
+    }
+
+    #[test]
+    fn hair_tint_uses_green_weight_and_retains_alpha_on_both_attachment_paths() {
+        let (skeleton, mut mesh) = rigid_shield_fixture();
+        mesh.material.kind =
+            soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::HairTint);
+        mesh.material.extra = soe_nif::blocks::ShaderExtra::HairTint([0.2, 0.4, 0.6]);
+        mesh.material.vertex_colors = true;
+        mesh.material.vertex_alpha = true;
+        mesh.material.flags2 |= soe_nif::blocks::flags2::VERTEX_COLORS;
+        mesh.colors = vec![
+            [0.1, 0.0, 0.9, 0.25],
+            [0.9, 0.5, 0.1, 0.5],
+            [1.0, 1.0, 0.0, 0.75],
+        ];
+        let skinned = surface_of(&mesh).unwrap();
+        let rigid = rigid_surface(&mesh, "SHIELD", &skeleton).unwrap();
+        assert!(skinned.material.vertex_colors_srgb);
+        let mut ordinary = skinned.material.clone();
+        ordinary.vertex_colors_srgb = false;
+        assert_ne!(
+            crate::mesh::MaterialKey::from(&skinned.material),
+            crate::mesh::MaterialKey::from(&ordinary)
+        );
+        let expected = [
+            [1.0, 1.0, 1.0, 0.25],
+            [0.6, 0.7, 0.8, 0.5],
+            [0.2, 0.4, 0.6, 0.75],
+        ];
+        for colors in [&skinned.colors, &rigid.arrays.colors] {
+            for (actual, expected) in colors.iter().zip(expected) {
+                for (actual, expected) in actual.iter().zip(expected) {
+                    assert!((actual - expected).abs() < 0.00001, "{colors:?}");
+                }
+            }
+        }
+        assert!(
+            rigid.tint_color.is_none(),
+            "HairTint is not multiplied a second time"
+        );
+        mesh.material.vertex_colors = false;
+        mesh.material.vertex_alpha = false;
+        mesh.material.flags2 &= !soe_nif::blocks::flags2::VERTEX_COLORS;
+        let arrays = surface_of(&mesh).unwrap();
+        assert_eq!(arrays.colors, vec![[0.2, 0.4, 0.6, 1.0]; 3]);
     }
 
     #[test]

@@ -1,5 +1,61 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Exported NPC hairline colours, RND-57, 2026-10-17
+
+The free walk close captures reproduce a pale strip through Hulda's crown and
+mismatched hair layers on Mikael, Adrianne, Eorlund, Ysolda and Nazeem.
+The strip comes from the exported hairline drawn with a different tint from
+the outer hair. On the RTX 5070 Ti and private display :99, the stable inn
+baseline differs from the authored-colour control on 13443 of 44950 pixels
+for Hulda's front view and 15845 of 52755 for Mikael. Saadia's three views
+are a passing control. Exterior front-view differences are 12922 of 60722
+for Adrianne, 4957 of 87587 for Eorlund, 12845 of 53635 for Ysolda and
+24613 of 24632 for Nazeem. The old extension fails eighteen views. The
+corrected extension matches all twenty-one views with zero differing pixels.
+The three-percent limit and 1000-pixel minimum retain their baseline values.
+
+Paired captures freeze the sky, shader clock, actor poses and exposure.
+The unchanged-frame calibration is zero in every final view, before and
+after the fix. Without this freeze, the moving exterior changes 14814 pixels
+between captures with no material change. That drift caused an earlier
+exterior comparison to fail after its uploaded colours already matched.
+
+The source survey checks eleven NPCs against their defining-plugin FaceGeom
+files. Selected head, hair and HNAM hairline vertices match the exports and
+all selected bones map to the race rig. Hair and head use the same authored
+head and spine bind transforms and actor placement. Live Hulda and Mikael
+both have scale 1.03 on every head part. The loader already applies dynamic
+FaceGen positions and includes the HDPT extra parts. Those paths do not need
+replacement for this reproduction.
+
+The material fault has two parts. HairTint uses vertex green as its tint
+weight, but ordinary RGB multiplication lost that meaning. Actor upload then
+applied the uniform tint only to StandardMaterial3D. The DECAL shader used by
+hairlines and brows retained the untinted texture. Preparing packed tint
+colours from the authored green weight gives both material paths the same
+input. Packed sRGB conversion happens before interpolation, with material
+identity retaining that encoding. SkinTint keeps its existing uniform path.
+The synthetic test preserves independent alpha and covers disabled colour
+flags and both rigid and skinned attachment paths. The nine-NPC baseline
+source comparison has 10152 wrong colour entries. The expanded eleven-NPC
+comparison matches the corrected colours and exported positions.
+
+`installed_streamed_hair_matches_facegen_colours` generates an external source
+oracle and runs `r4_hair_probe.gd` in the inn and through its real door into
+Whiterun. It samples three views per adult, with hair-hidden controls and a
+reference using the NIF's tint and green weights on the same resident mesh.
+The oracle and PNGs stay under target. Game assets are not committed.
+
+Local nifly `src/NifFile.cpp::PrepareData` supplies the dynamic-position
+contract. Its `src/Shaders.cpp` retains HairTint RGB. OpenMW
+`apps/openmw/mwrender/esm4npcanimation.cpp` supplies HDPT and covered-hair
+selection, but has no exported FaceGeom assembly in that path.
+xEdit's HDPT HNAM and the UESP HDPT page define attached extra parts.
+Community Shaders `package/Shaders/Lighting.hlsl` supplies the HairTint
+vertex-green rule. Godot's BaseMaterial3D reference defines the sRGB vertex
+flag. These are references for the existing Rust assembly and material paths.
+This change adds no dependencies, saved state, scene nodes or rendering passes.
+
 ## First person report investigation, RND-51, 2026-10-17
 
 The local walkthrough probe sees zero foreground pixels in the sheathed

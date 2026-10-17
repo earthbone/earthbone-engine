@@ -31,6 +31,8 @@ pub struct MaterialDesc {
     pub shader_flags_2: u32,
     /// BSLightingShaderType 18 uses the shared terrain noise mask.
     pub landscape_lod_noise: bool,
+    /// HairTint weights resolved into packed sRGB vertex colours.
+    pub vertex_colors_srgb: bool,
     pub alpha: AlphaMode,
     /// Two-sided rendering, from the shader flags or an NiStencilProperty.
     pub double_sided: bool,
@@ -168,6 +170,7 @@ impl Default for MaterialDesc {
             shader_flags_1: 0,
             shader_flags_2: 0,
             landscape_lod_noise: false,
+            vertex_colors_srgb: false,
             alpha: AlphaMode::default(),
             double_sided: false,
             water: None,
@@ -360,7 +363,8 @@ impl MaterialDesc {
     /// Lighting buffers retain the enabled RGB and alpha channels, neutralizing others.
     pub fn uses_vertex_colors(&self) -> bool {
         self.shader_flags_2 & soe_nif::blocks::flags2::TREE_ANIM == 0
-            && (self.shader_flags_1 & soe_nif::blocks::flags1::VERTEX_ALPHA != 0
+            && (self.vertex_colors_srgb
+                || self.shader_flags_1 & soe_nif::blocks::flags1::VERTEX_ALPHA != 0
                 || self.shader_flags_2 & soe_nif::blocks::flags2::VERTEX_COLORS != 0)
     }
 
@@ -423,6 +427,7 @@ pub enum AlphaMode {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MaterialKey {
     vertex_colors: bool,
+    vertex_colors_srgb: bool,
     pub environment: Option<String>,
     pub environment_mask: Option<String>,
     pub environment_scale: u32,
@@ -448,6 +453,7 @@ impl From<&MaterialDesc> for MaterialKey {
     fn from(material: &MaterialDesc) -> Self {
         Self {
             vertex_colors: material.uses_vertex_colors(),
+            vertex_colors_srgb: material.vertex_colors_srgb,
             environment: material.environment_texture().map(str::to_lowercase),
             environment_mask: material.environment_mask.as_deref().map(str::to_lowercase),
             environment_scale: material.environment_scale.to_bits(),

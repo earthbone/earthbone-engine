@@ -1972,12 +1972,17 @@ pub(crate) fn mesh_data_from(shape: &NifMesh, combined: &NifTransform) -> MeshDa
             .collect()
     });
     let bone_weights = (!shape.bone_weights.is_empty()).then(|| shape.bone_weights.clone());
+    let hair_tint = match shape.material.extra {
+        soe_nif::blocks::ShaderExtra::HairTint(tint) => Some(tint),
+        _ => None,
+    };
     MeshData {
         positions,
         normals,
         tangents,
         uvs,
-        colors: (shape.material.effect.is_some()
+        colors: (hair_tint.is_some()
+            || shape.material.effect.is_some()
             || (shape.material.flags2 & soe_nif::blocks::flags2::TREE_ANIM == 0
                 && (shape.material.vertex_colors || shape.material.vertex_alpha)))
             .then(|| {
@@ -1993,6 +1998,19 @@ pub(crate) fn mesh_data_from(shape: &NifMesh, combined: &NifTransform) -> MeshDa
                         }
                         if !shape.material.vertex_alpha {
                             color[3] = 1.0;
+                        }
+                    }
+                }
+                // CONTEXT: HairTint uses green as a tint weight, not RGB albedo.
+                if let Some(tint) = hair_tint {
+                    for (index, color) in colors.iter_mut().enumerate() {
+                        let weight = if shape.material.vertex_colors {
+                            shape.colors.get(index).map_or(1.0, |color| color[1])
+                        } else {
+                            1.0
+                        };
+                        for (channel, tint) in color[..3].iter_mut().zip(tint) {
+                            *channel = (1.0 - weight) + tint * weight;
                         }
                     }
                 }
@@ -2035,6 +2053,7 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
             m.kind,
             soe_nif::mesh::MaterialKind::Lighting(soe_nif::blocks::ShaderType::LodLandscapeNoise)
         ),
+        vertex_colors_srgb: matches!(m.extra, soe_nif::blocks::ShaderExtra::HairTint(_)),
         alpha,
         double_sided: m.double_sided,
         water: None,

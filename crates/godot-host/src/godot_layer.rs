@@ -6325,6 +6325,12 @@ pub(crate) fn decal_shader(desc: &MaterialDesc) -> String {
     } else {
         "1.0"
     };
+    let vertex_conversion = if desc.vertex_colors_srgb {
+        "vec3 vertex_color_to_linear(vec3 color) { return mix(pow((color + vec3(0.055)) / 1.055, vec3(2.4)), color / 12.92, lessThan(color, vec3(0.04045))); }
+void vertex() { COLOR.rgb = vertex_color_to_linear(COLOR.rgb); }"
+    } else {
+        ""
+    };
     format!(
         "shader_type spatial;
 render_mode {depth}, {cull}{test};
@@ -6345,6 +6351,7 @@ uniform float uv_rotation = 0.0;
 uniform float material_alpha = 1.0;
 uniform float animation_time = -1.0;
 {functions}
+{vertex_conversion}
 void fragment() {{
     vec2 animated_offset = uv_offset;
     vec2 animated_scale = uv_scale;
@@ -6538,6 +6545,7 @@ fn material_with_textures(
         Flags::ALBEDO_FROM_VERTEX_COLOR,
         material.uses_vertex_colors(),
     );
+    mat.set_flag(Flags::SRGB_VERTEX_COLOR, material.vertex_colors_srgb);
 
     if let Some(tex) = albedo_texture(cache, material, textures) {
         mat.set_texture(TextureParam::ALBEDO, &tex);
