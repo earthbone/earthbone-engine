@@ -21,7 +21,11 @@ fn shared_partition_vertices_are_counted_for_large_creatures() {
         .iter()
         .filter(|n| {
             let l = n.to_ascii_lowercase();
-            l.ends_with(".nif") && l.contains("actors") && !l.contains("facegen")
+            std::path::Path::new(&l)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("nif"))
+                && l.contains("actors")
+                && !l.contains("facegen")
         })
         .cloned()
         .collect();
