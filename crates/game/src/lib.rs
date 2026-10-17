@@ -1203,6 +1203,35 @@ impl Game {
     /// # Errors
     /// See World::melee_hit for the current supported contact rules.
     pub fn melee_hit(&mut self, hit: combat::MeleeHit) -> Result<combat::HitResult, combat::Error> {
+        self.contact_hit(hit, None)
+    }
+
+    /// Apply a host-confirmed arrow or bolt contact with an actor, then run
+    /// its script events. The perk entry points are those of a weapon hit by
+    /// the shooter and its bow.
+    ///
+    /// # Errors
+    /// See World::projectile_hit for the current supported contact rules.
+    pub fn projectile_hit(
+        &mut self,
+        request: &combat::FlightRequest,
+        target: GlobalFormId,
+    ) -> Result<combat::HitResult, combat::Error> {
+        let hit = combat::MeleeHit {
+            attacker: request.attacker,
+            target,
+            weapon: request.weapon,
+            is_bash: false,
+            is_power_attack: false,
+        };
+        self.contact_hit(hit, Some(request))
+    }
+
+    fn contact_hit(
+        &mut self,
+        hit: combat::MeleeHit,
+        ranged: Option<&combat::FlightRequest>,
+    ) -> Result<combat::HitResult, combat::Error> {
         let (outgoing, incoming) = if hit.is_bash {
             (Vec::new(), Vec::new())
         } else {
@@ -1238,12 +1267,22 @@ impl Game {
             )
         };
         let vm = &mut self.vm;
-        let result =
-            self.world
-                .borrow_mut()
-                .melee_hit(hit, outgoing, incoming, &mut |name, class| {
-                    vm.create_object_of(name, class)
-                })?;
+        let result = match ranged {
+            Some(request) => self.world.borrow_mut().projectile_hit(
+                request,
+                hit.target,
+                outgoing,
+                incoming,
+                &mut |name, class| vm.create_object_of(name, class),
+            )?,
+            None => {
+                self.world
+                    .borrow_mut()
+                    .melee_hit(hit, outgoing, incoming, &mut |name, class| {
+                        vm.create_object_of(name, class)
+                    })?
+            }
+        };
         self.run_until_idle(64);
         Ok(result)
     }

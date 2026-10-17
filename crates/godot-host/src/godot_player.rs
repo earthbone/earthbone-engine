@@ -186,6 +186,8 @@ pub struct PlayerNode {
     first_person_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     furniture_camera_restore: Option<CameraMode>,
     weapon_holds: [Option<f32>; 2],
+    ranged_release: crate::combat::RangedRelease,
+    ranged_flights: Vec<melee::ArrowFlight>,
     npc_grounding: crate::npc_grounding::NpcGrounding,
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     debug_ref_markers: BTreeMap<GlobalFormId, Rid>,
@@ -358,6 +360,8 @@ impl INode3D for PlayerNode {
             first_person_appearance: None,
             furniture_camera_restore: None,
             weapon_holds: [None, None],
+            ranged_release: crate::combat::RangedRelease::default(),
+            ranged_flights: Vec::new(),
             npc_grounding: crate::npc_grounding::NpcGrounding::default(),
             pending_debug_latents: Vec::new(),
             debug_ref_markers: BTreeMap::new(),
@@ -877,7 +881,7 @@ impl PlayerNode {
 
     #[func]
     fn input_focus_lost(&mut self) {
-        self.weapon_holds = [None, None];
+        self.cancel_weapon_input();
         self.input_focused = false;
         if let Some(game) = self.game.as_mut() {
             let player = game.player();
@@ -1059,6 +1063,10 @@ impl PlayerNode {
         match appearance {
             Ok(()) => {
                 if is_player && visual.bind().is_first_person() {
+                    let callable = self.base().callable("first_person_weapon_contact");
+                    if !visual.is_connected("weapon_contact", &callable) {
+                        visual.connect("weapon_contact", &callable);
+                    }
                     self.first_person_appearance = Some(visual);
                     self.sync_camera_controls();
                     self.update_camera();
@@ -1236,6 +1244,7 @@ impl PlayerNode {
     #[func]
     pub fn load_data(&mut self, path: GString) -> bool {
         self.clear_player_input();
+        self.clear_ranged_flights();
         self.interface_cache_job = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.location_preparing = false;
@@ -1291,6 +1300,7 @@ impl PlayerNode {
         self.data_source = Some(source);
         self.prepare_item_assets();
         self.game = None;
+        self.clear_ranged_flights();
         self.clear_player_input();
         self.image_space = crate::image_space::ImageSpaceStack::default();
         self.refresh_image_space();
@@ -1541,6 +1551,7 @@ impl PlayerNode {
             }
         }
 
+        self.update_ranged_flights(delta as f32);
         let camera = self.rig;
         let movement = self.game.as_mut().map_or_else(Default::default, |game| {
             let player = game.player();

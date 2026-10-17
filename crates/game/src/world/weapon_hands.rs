@@ -110,7 +110,7 @@ impl World {
     }
 
     /// Select a weapon in the shared equipment state for a specific hand.
-    /// Two-handed melee weapons occupy both hands and are selected by the right.
+    /// Two-handed weapons occupy both hands and are selected by the right.
     ///
     /// # Errors
     /// Missing actor/item, malformed weapon, incompatible hand or insufficient copies.
@@ -121,6 +121,21 @@ impl World {
         item: GlobalFormId,
     ) -> Result<(), Error> {
         let (left, right) = self.hand_weapon_assignment(actor, hand, item, 0)?;
+        let slots = self.weapon_hand_slots(item)?;
+        let both_hands = hand == Hand::Right && slots & (1 << 2) == 0 && slots & (1 << 3) != 0;
+        for spell_hand in [Hand::Left, Hand::Right] {
+            if spell_hand == hand || both_hands {
+                if let Some(spell) = self.hand_spell(actor, spell_hand) {
+                    self.unequip_hand_spell(actor, spell_hand, spell)?;
+                }
+            }
+        }
+        if hand == Hand::Left || both_hands {
+            if let Some(shield) = self.equipped_shield(actor)? {
+                self.unequip_item(actor, shield)?;
+            }
+            self.release_torch(actor);
+        }
         let state = self.actor(actor).ok_or(Error::Actor(actor))?;
         for old in [state.left_weapon, state.right_weapon]
             .into_iter()
@@ -133,6 +148,68 @@ impl World {
         state.left_weapon = left;
         state.right_weapon = right;
         state.equipped.insert(item);
+        Ok(())
+    }
+
+    /// Put away the right-hand weapon when it needs both hands (two-handed
+    /// weapons, bows and crossbows), so a shield can take the left hand.
+    ///
+    /// # Errors
+    /// Missing actor or malformed weapon.
+    pub(super) fn release_two_handed_weapon(&mut self, actor: GlobalFormId) -> Result<(), Error> {
+        let Some(weapon) = self.actor(actor).ok_or(Error::Actor(actor))?.right_weapon else {
+            return Ok(());
+        };
+        let slots = self.weapon_hand_slots(weapon)?;
+        if slots & (1 << 2) == 0 && slots & (1 << 3) != 0 {
+            let state = self.actor(actor).ok_or(Error::Actor(actor))?;
+            state.equipped.remove(&weapon);
+            state.right_weapon = None;
+            state.left_weapon = None;
+        }
+        Ok(())
+    }
+
+    /// Whether a form is a carried light (LIGH with the carryable flag), which
+    /// occupies the left hand like a shield.
+    pub(super) fn is_torch(&self, item: GlobalFormId) -> bool {
+        self.record(item)
+            .filter(|record| record.tag == Tag(*b"LIGH"))
+            .and_then(|record| record.find(Tag(*b"DATA")))
+            .and_then(|data| data.get(12..16))
+            .and_then(|data| data.try_into().ok())
+            .map(u32::from_le_bytes)
+            .is_some_and(|flags| flags & 2 != 0)
+    }
+
+    /// Put away any equipped torch.
+    pub(super) fn release_torch(&mut self, actor: GlobalFormId) {
+        let torches: Vec<GlobalFormId> = self
+            .actor_ref(actor)
+            .map(|state| {
+                state
+                    .equipped
+                    .iter()
+                    .copied()
+                    .filter(|item| self.is_torch(*item))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for torch in torches {
+            let _ = self.force_unequip_item(actor, torch);
+        }
+    }
+
+    /// Free the left hand for a torch: the shield, left weapon and left spell go.
+    pub(super) fn release_left_hand(&mut self, actor: GlobalFormId) -> Result<(), Error> {
+        if let Some(shield) = self.equipped_shield(actor)? {
+            self.unequip_item(actor, shield)?;
+        }
+        let state = self.actor(actor).ok_or(Error::Actor(actor))?;
+        if let Some(weapon) = state.left_weapon.take() {
+            state.equipped.remove(&weapon);
+        }
+        state.left_spell = None;
         Ok(())
     }
 
@@ -154,8 +231,8 @@ impl World {
         granted_copies: i32,
     ) -> Result<(Option<GlobalFormId>, Option<GlobalFormId>), Error> {
         let (_, weapon) = self.combat_weapon_source(item)?;
-        if !matches!(weapon.animation, 1..=6) {
-            return Err(Error::Unsupported("non-melee hand weapon"));
+        if !matches!(weapon.animation, 1..=7 | 9) {
+            return Err(Error::Unsupported("unsupported hand weapon type"));
         }
         let slots = self.weapon_hand_slots(item)?;
         let selected = match hand {
@@ -214,5 +291,63 @@ impl World {
         let copies =
             1 + i32::from(state.left_weapon == Some(item) && state.right_weapon == Some(item));
         (self.item_count(actor, item) >= copies).then_some(item)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    #[test]
+    fn hst_25_ranged_weapon_uses_the_authored_both_hands_slot() {
+        for animation in [7, 9] {
+            let id = |object| GlobalFormId { file: 0, object };
+            let mut plugin = Plugin::new(FileHeader::default());
+            for slot in [0x100, 0x101] {
+                plugin.push_top(Record::new(Tag(*b"EQUP"), slot));
+            }
+            plugin.push_top(
+                Record::new(Tag(*b"EQUP"), 0x102)
+                    .sub(Tag(*b"DATA"), 1_u32.to_le_bytes())
+                    .sub(
+                        Tag(*b"PNAM"),
+                        [0x100_u32.to_le_bytes(), 0x101_u32.to_le_bytes()].concat(),
+                    ),
+            );
+            plugin.push_top(
+                Record::new(Tag(*b"DOBJ"), 0x103).sub(
+                    Tag(*b"DNAM"),
+                    [
+                        b"LHEQ".as_slice(),
+                        &0x100_u32.to_le_bytes(),
+                        b"RHEQ",
+                        &0x101_u32.to_le_bytes(),
+                    ]
+                    .concat(),
+                ),
+            );
+            let mut data = vec![0; 100];
+            data[0] = animation;
+            plugin.push_top(
+                Record::new(Tag(*b"WEAP"), 0x104)
+                    .sub(Tag(*b"DATA"), [0; 10])
+                    .sub(Tag(*b"DNAM"), data)
+                    .sub(Tag(*b"ETYP"), 0x102_u32.to_le_bytes()),
+            );
+            let mut order = LoadOrder::new();
+            order.add("Bow.esm", plugin).unwrap();
+            let mut world = World::new(order);
+            let player = world.player();
+            world.add_item(player, id(0x104), 1);
+            assert!(world
+                .equip_hand_weapon(player, Hand::Left, id(0x104))
+                .is_err());
+            world
+                .equip_hand_weapon(player, Hand::Right, id(0x104))
+                .unwrap();
+            assert_eq!(world.hand_weapon(player, Hand::Right), Some(id(0x104)));
+            assert_eq!(world.hand_weapon(player, Hand::Left), None);
+        }
     }
 }

@@ -122,12 +122,22 @@ pub fn gift_entries(game: &Game, request: &soe_game::world::GiftMenuRequest) -> 
 
 /// Toggle an equipped weapon or armor through the shared game world.
 pub fn toggle_equip(game: &mut Game, item: GlobalFormId) -> bool {
+    toggle_equip_hand(game, item, soe_game::combat::Hand::Right)
+}
+
+/// Toggle equipment using the hand selected by the inventory presenter.
+pub fn toggle_equip_hand(
+    game: &mut Game,
+    item: GlobalFormId,
+    hand: soe_game::combat::Hand,
+) -> bool {
     let player = game.player();
     let mut world = game.world_mut();
     let Some(tag) = world.tag_of(item) else {
         return false;
     };
-    if !matches!(tag.as_bytes(), b"WEAP" | b"ARMO") || world.item_count(player, item) <= 0 {
+    if !matches!(tag.as_bytes(), b"WEAP" | b"ARMO" | b"AMMO") || world.item_count(player, item) <= 0
+    {
         return false;
     }
     if world
@@ -135,7 +145,22 @@ pub fn toggle_equip(game: &mut Game, item: GlobalFormId) -> bool {
         .is_some_and(|actor| actor.equipped.contains(&item))
     {
         world.unequip_item(player, item).is_ok()
+    } else if tag == Tag(*b"WEAP") {
+        world.equip_hand_weapon(player, hand, item).is_ok()
     } else {
+        if tag == Tag(*b"AMMO") {
+            let previous: Vec<_> = world
+                .actor_ref(player)
+                .into_iter()
+                .flat_map(|actor| actor.equipped.iter().copied())
+                .filter(|equipped| world.tag_of(*equipped) == Some(Tag(*b"AMMO")))
+                .collect();
+            for previous in previous {
+                if world.unequip_item(player, previous).is_err() {
+                    return false;
+                }
+            }
+        }
         world.equip_item(player, item).is_ok()
     }
 }
@@ -174,8 +199,29 @@ mod tests {
 
     fn game() -> Game {
         let mut plugin = Plugin::new(FileHeader::default());
+        let mut weapon = vec![0; 100];
+        weapon[0] = 1;
+        weapon[4..8].copy_from_slice(&1_f32.to_le_bytes());
+        weapon[8..12].copy_from_slice(&1_f32.to_le_bytes());
+        plugin.push_top(Record::new(Tag(*b"EQUP"), 0x300));
+        plugin.push_top(Record::new(Tag(*b"EQUP"), 0x301));
+        plugin.push_top(
+            Record::new(Tag(*b"DOBJ"), 0x302).sub(
+                Tag(*b"DNAM"),
+                [
+                    b"LHEQ".as_slice(),
+                    &0x300_u32.to_le_bytes(),
+                    b"RHEQ",
+                    &0x301_u32.to_le_bytes(),
+                ]
+                .concat(),
+            ),
+        );
         plugin.push_top(
             Record::new(Tag(*b"WEAP"), 0x100)
+                .sub(Tag(*b"DATA"), [0; 10])
+                .sub(Tag(*b"DNAM"), weapon)
+                .sub(Tag(*b"ETYP"), 0x301_u32.to_le_bytes())
                 .zsub(Tag(*b"FULL"), "Sword")
                 .sub(Tag(*b"KWDA"), 0x200_u32.to_le_bytes()),
         );
@@ -200,6 +246,7 @@ mod tests {
         );
         plugin.push_top(Record::new(Tag(*b"MISC"), 0x104).zsub(Tag(*b"FULL"), "Gold"));
         plugin.push_top(Record::new(Tag(*b"KYWD"), 0x200));
+        plugin.push_top(Record::new(Tag(*b"SPEL"), 0x400).sub(Tag(*b"SPIT"), [0; 36]));
         plugin.push_top(
             Record::new(Tag(*b"FLST"), 0x201)
                 .sub(Tag(*b"LNAM"), 0x200_u32.to_le_bytes())
@@ -288,6 +335,44 @@ mod tests {
         assert!(!entries(&game, player, Category::Weapons)[0].equipped);
         assert!(!toggle_equip(&mut game, id(0x102)));
         assert!(!toggle_equip(&mut game, id(0x999)));
+    }
+
+    #[test]
+    fn hst_25_inventory_equip_assigns_the_weapon_hand_used_by_attacks() {
+        let mut game = game();
+        let player = game.player();
+        game.world_mut().add_item(player, id(0x100), 1);
+        assert!(toggle_equip(&mut game, id(0x100)));
+        assert_eq!(
+            game.world_mut()
+                .hand_weapon(player, soe_game::combat::Hand::Right),
+            Some(id(0x100))
+        );
+    }
+
+    #[test]
+    fn hst_25_inventory_weapon_replaces_a_previous_spell_in_its_hand() {
+        let mut game = game();
+        let player = game.player();
+        {
+            let mut world = game.world_mut();
+            world.add_item(player, id(0x100), 1);
+            let actor = world.actor(player).unwrap();
+            actor.spells.insert(id(0x400));
+            actor.right_spell = Some(id(0x400));
+            actor.equipped.insert(id(0x400));
+        }
+        assert!(toggle_equip(&mut game, id(0x100)));
+        let world = game.world();
+        assert_eq!(
+            world.hand_spell(player, soe_game::combat::Hand::Right),
+            None
+        );
+        assert!(!world
+            .actor_ref(player)
+            .unwrap()
+            .equipped
+            .contains(&id(0x400)));
     }
 
     #[test]

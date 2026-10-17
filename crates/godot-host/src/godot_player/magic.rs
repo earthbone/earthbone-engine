@@ -463,6 +463,40 @@ mod tests {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Start or end a hand cast for a resident NPC mage. The cast runs
+    /// through the same game path as the player's, and the NPC's visual plays
+    /// the casting idle with the hand art for `start`, then releases it.
+    /// Returns whether the game accepted the change.
+    #[func]
+    pub fn cast_actor_hand(&mut self, file: i32, object: i64, left: bool, start: bool) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Magic);
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let actor = GlobalFormId { file, object };
+        let hand = if left { Hand::Left } else { Hand::Right };
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let accepted = if start {
+            match game.begin_hand_cast(actor, hand, None) {
+                Ok(started) => started,
+                Err(error) => {
+                    soe_trace::error!(target: "host::magic", system = "host::magic", "NPC hand cast rejected: {error}");
+                    false
+                }
+            }
+        } else {
+            game.end_hand_cast(actor, hand)
+        };
+        if accepted || !start {
+            if let Some(mut node) = self.npc_actors.debug_actor(actor) {
+                node.bind_mut().animate_hand_cast(left, start);
+            }
+        }
+        accepted
+    }
+
     /// List loaded targeted spells that contain the Grab Actor archetype.
     /// Runtime checks can select the installed record without a plugin-specific FormID.
     #[func]

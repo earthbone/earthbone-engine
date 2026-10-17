@@ -1200,6 +1200,125 @@ existing FaceGen blend. Godot's local `spatial_shader.rst` supplies light-stage
 inputs and the light-color normalization. No dependency, saved state or new
 node path is added. Full subsurface lighting remains outside this change.
 
+## Round 4 player equipment, HST-25
+
+The free walk inventory reproduction equips iron armor, gauntlets, a sword and
+shield through `item_menu_activate`. Before correction, third-person armor
+changed 6,841 pixels and unequipping restored the original models. Equipping
+gauntlets removed the first-person hand mesh. The installed IronGlovesAA has
+MOD2 and MOD3 but no MOD4 or MOD5. First-person selection replaced its model
+with None while still hiding the skin hands. Both initial loading and live
+refresh now retain the biped model when a separate first-person model is
+absent and apply the race's first-person biped mask.
+
+The local `uesp-modfileformat/ARMA.wikitext` states the model fallback.
+`TES5Edit/Core/wbDefinitionsTES5.pas` supplies ARMA model tags and RACE biped
+flags. Existing INV-08 selection supplies race matching, sex, addon priority
+and covered body partitions. No separate player equipment state is introduced.
+`hst_25_armor_test.gd` keeps the free walk startup, menu transaction, visible
+third-person change, first-person gauntlet and unequip restoration checks.
+
+The same reproduction found that inventory weapon selection only marked the
+form equipped. It did not assign a hand, so the attachment renderer found no
+sword and the attack transaction failed. The presenter now uses the shared
+hand equipment transaction, with its selected hand. The host's earlier debug
+equip helper already used that transaction and therefore missed this defect.
+Selecting a weapon also clears the previous spell in the occupied hand.
+The replacement scene failed before this change because the stale right-hand
+spell took priority over the newly equipped sword's model.
+
+Shields previously stayed in the armor skin assembly and had no sheath path.
+Their INV-08-selected addon now supplies the movable shield model. It follows
+Shield when drawn and ShieldBack when sheathed. Weapon attachment waits for
+the authored weaponDraw or weaponSheathe event instead of moving on the R
+press. Those annotations join the existing graph trigger conversion. The
+render observation retains source models, selected attachment bones and the
+transforms submitted to RenderingServer. No scene nodes, dependencies or
+saved fields are added.
+
+Local CommonLibSSE-NG FixedStrings.h names weapon and shield attachment nodes.
+OpenMW npcanimation.cpp separates equipped-part selection and sheathed shield
+presentation. Nemesis animation data separates WeapEquip requests from the
+later weaponDraw and weaponSheathe markers. The existing host graph, NIF and
+server-resource paths are reused instead of linking either renderer.
+
+The vanilla skeleton contains WeaponBack and SHIELD but no ShieldBack. The
+local hdtSMP64 force-update list names ShieldBack among custom rig nodes. The
+host preserves a supplied ShieldBack. Without one, it adds a presentation child
+of the authored WeaponBack. The fallback keeps that node's orientation and
+depth, but fits its center and height to NPC Spine2 through the reference pose.
+The initial identity local pose put the shield behind the head in the free walk
+capture. Its height was 29.24 Skyrim units above Spine2. The installed torso
+regression fails against the five-unit limit before correction and measures
+zero height difference afterward. The synthetic anchor check still verifies
+preservation of custom nodes. OpenMW's actoranimation.cpp uses a dedicated
+shield attachment and supports authored sheath transforms. This fallback is
+host policy, not an authored vanilla shield attachment.
+
+The first installed equipment run failed on the missing back anchor. It
+confirmed the draw and sheathe clips and their attachment markers in both rigs,
+and ordinary mouse attacks select clips and emit HitFrame in both views.
+The first attack run played no block clip, rejected bow and ammunition equip,
+produced no bow draw or release and consumed no arrow. Held dagger and mace
+power attacks emitted hit markers. The initial two-handed fixture used IronMace
+0x13982. The installed record survey corrected it to IronWarhammer 0x13981
+without changing the two-handed clip assertion. Input now routes block starts and
+stops to the graph and shared blocking state. Bow input arms CMB-08, while the
+authored arrowRelease marker releases one shot into CMB-22 flight. Menu and
+focus cancellation clear held actions and queue their graph stops.
+
+The installed behavior graph accepts bowAttackStart and attackRelease as
+input. Bow_DrawNock and Bow_Draw annotations supply bowDrawStart and bowDrawn
+to advance its internal phases, followed by arrowRelease and bowEnd. These
+annotations use the existing clip-trigger conversion, including its crop and
+duplicate checks. The local CK animation-event pages and Nemesis annotation
+data distinguish input requests from these authored phase markers.
+
+Only the visible player rig supplies combat contacts. Previously all contacts
+came from the third-person graph even while the first-person graph was shown.
+The scene uses a controlled collider for a resident actor to check that its
+health changes at the selected rig's authored marker once. The fixture is a
+contact-timing check, not a survey of actor collision shapes in normal play.
+Third-person health changes from 1000 to 992.3, then first-person health changes
+from 992.3 to 984.6. Before the contact-source correction, the first-person hit
+left health at 992.3.
+
+The complete sequence passes headless and windowed in Bannered Mare and
+WhiterunOrigin on the private software-rendered display. Windowed armor changes
+6,735 and 4,341 pixels against the 100-pixel minimum. Unequip restores both rigs'
+previous models. Both rigs
+play shield and two-handed block clips, dagger and warhammer power attacks,
+and Bow_DrawNock and Bow_DrawLight followed by arrowRelease. The fixture first
+reported 33 to 32 arrows because the player already held 23. It now establishes
+and asserts ten starting arrows, then retains the nine-arrow release assertion.
+The invisible rig's release marker cannot consume a second arrow. Captures are
+under `target/hst25-final-mare` and `target/hst25-final-exterior`.
+
+Run `hst_25_walkthrough_inventory_attacks` with SKYRIM_DATA, SOE_GODOT_BIN and
+SOE_EQUIPMENT_ALL_CELLS=1 to repeat all four modes. The combined run takes
+227.19 seconds. The earlier exterior windowed fixture reached the unchanged
+300-second process limit while waiting for a render after every animation tick.
+The fixture now yields a rendered frame once per eight manual animation ticks.
+Every 60 Hz animation step, clip observation, event and contact assertion still
+runs. Captures still wait for frame_post_draw. The runner records each location
+separately before moving to the next one. No assertion or timeout was relaxed.
+
+Projectile flight currently ends at its first actor without applying damage
+or OnHit. CMB-40 records that separate core gap. Projectile rendering and full
+hand spell presentation are also not established by these checks. The fixture
+unequips the shield before selecting two-handed weapons. The shared equipment
+paths do not resolve conflicts between shield armor and weapon hand slots.
+INV-09 records that transition gap. No new
+production scene nodes, dependency or saved field is added. The first-person
+shadow rendering, rig turning, NPC movement, hair and faces remain with their
+round 4 owners. The captures show the sheathed third-person idle facing the
+camera while the drawn stance faces away. Root facing remains unresolved by
+these equipment changes. Contact placement against ordinary NPC collision
+geometry, other gear and rigs, and a GPU play session remain unverified.
+Package formatting, all-target Clippy and 601 host library tests pass. The game
+hand changes pass all-target Clippy and 1,356 game library tests. The ordinary
+library runs skip installed-data checks when their data variables are unset.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and

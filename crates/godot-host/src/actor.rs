@@ -183,6 +183,10 @@ pub struct FaceLighting {
 
 /// One skinned shape of a character, ready to upload.
 pub struct ActorSurface {
+    /// Winning addon slots used to route movable shields separately from body skin.
+    pub armor_slots: u32,
+    /// VFS source retained after texture payloads are released.
+    pub model_path: String,
     /// The shape's name in the `NIF`, for reporting.
     pub name: String,
     /// HDPT type when this is a selected head surface.
@@ -298,12 +302,7 @@ impl AppearanceCache {
         vfs: &Vfs,
         skeleton: &Skeleton,
     ) -> Result<Option<AppearanceUpdate>, ActorError> {
-        let mut appearance = world.actor_appearance(actor)?;
-        for part in &mut appearance.parts {
-            part.model.clone_from(&part.first_person_model);
-        }
-        appearance.head_parts.clear();
-        appearance.facegen = None;
+        let appearance = first_person_appearance(world, actor)?;
         self.prepare_appearance(appearance, vfs, skeleton)
     }
 
@@ -332,6 +331,82 @@ impl AppearanceCache {
             surfaces,
         }))
     }
+}
+
+fn shield_back_anchor(skeleton: &mut Skeleton) {
+    if skeleton.bone_index("ShieldBack").is_some() {
+        return;
+    }
+    let Some(back) = skeleton
+        .bone_index("WeaponBack")
+        .and_then(|index| i16::try_from(index).ok())
+    else {
+        return;
+    };
+    let mut pose = soe_hkx::QsTransform::IDENTITY;
+    if let (Some(torso), Ok(model)) = (
+        skeleton.bone_index("NPC Spine2 [Spn2]"),
+        skeleton.to_model_space(&skeleton.reference_pose),
+    ) {
+        let anchor = crate::skinned::Affine::from_qs(&model[back as usize]);
+        let offset = [
+            model[torso].translation[0] - anchor.origin[0],
+            0.0,
+            model[torso].translation[2] - anchor.origin[2],
+        ];
+        // Fit the shield center to the torso while keeping authored back depth
+        // and orientation. The orthogonal Qs basis maps this offset to local space.
+        for axis in 0..3 {
+            let length: f32 = anchor.basis.iter().map(|row| row[axis].powi(2)).sum();
+            if length > f32::EPSILON {
+                pose.translation[axis] = anchor
+                    .basis
+                    .iter()
+                    .zip(offset)
+                    .map(|(row, delta)| row[axis] * delta)
+                    .sum::<f32>()
+                    / length;
+            }
+        }
+    }
+    skeleton.bones.push(HkxBone {
+        name: "ShieldBack".into(),
+        lock_translation: false,
+    });
+    skeleton.parent_indices.push(back);
+    skeleton.reference_pose.push(pose);
+}
+
+fn first_person_appearance(
+    world: &mut soe_game::World,
+    actor: soe_esm::GlobalFormId,
+) -> Result<soe_game::appearance::ActorAppearance, ActorError> {
+    let mut appearance = world.actor_appearance(actor)?;
+    let slots = appearance
+        .race
+        .and_then(|race| world.record(race))
+        .and_then(|record| {
+            record
+                .find(soe_esm::Tag(*b"BOD2"))
+                .or_else(|| record.find(soe_esm::Tag(*b"BODT")))
+        })
+        .map(|bytes| {
+            let mut fields =
+                soe_esm::cursor::Fields::new(soe_esm::Tag(*b"RACE"), soe_esm::Tag(*b"BOD2"), bytes);
+            fields.u32()
+        })
+        .transpose()?
+        .unwrap_or(u32::MAX);
+    for part in &mut appearance.parts {
+        part.visible_slots &= slots;
+        if let Some(first) = &part.first_person_model {
+            part.model = Some(first.clone());
+        }
+    }
+    appearance.parts.retain(|part| part.visible_slots != 0);
+    appearance.head_parts.clear();
+    appearance.facegen = None;
+    Ok(appearance)
 }
 
 fn read(vfs: &Vfs, path: &str) -> Result<Vec<u8>, ActorError> {
@@ -522,12 +597,7 @@ impl ActorAssets {
         let (mut graph, unresolved_references) = Self::load_graph(vfs, &behavior_path)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph, &root);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
-        let mut appearance = world.actor_appearance(actor)?;
-        for part in &mut appearance.parts {
-            part.model.clone_from(&part.first_person_model);
-        }
-        appearance.head_parts.clear();
-        appearance.facegen = None;
+        let appearance = first_person_appearance(world, actor)?;
         let surfaces = Self::appearance_surfaces(vfs, &appearance, &skeleton)?;
         let mut assets = ActorAssets {
             skeleton,
@@ -546,6 +616,7 @@ impl ActorAssets {
             unresolved_references,
         };
         Self::extend_race_bones(vfs, &mut assets)?;
+        shield_back_anchor(&mut assets.skeleton);
         Ok(assets)
     }
 
@@ -610,6 +681,7 @@ impl ActorAssets {
         }
         assets.surfaces = Self::appearance_surfaces(vfs, appearance, &assets.skeleton)?;
         Self::extend_race_bones(vfs, &mut assets)?;
+        shield_back_anchor(&mut assets.skeleton);
         let bones: std::collections::BTreeSet<_> = assets
             .surfaces
             .iter()
@@ -816,14 +888,18 @@ impl ActorAssets {
                         .copied()
                         .find(|name| skeleton.bones.iter().any(|bone| bone.name == *name))
                 });
-            surfaces.extend(Self::load_attached_surfaces(
+            let mut selected = Self::load_attached_surfaces(
                 vfs,
                 &path,
                 skeleton,
                 part.authored_slots & !part.visible_slots,
                 attachment,
                 &[],
-            )?);
+            )?;
+            for surface in &mut selected {
+                surface.armor_slots = part.visible_slots;
+            }
+            surfaces.extend(selected);
         }
         let mut exported = if let Some(face) = &appearance.facegen {
             let path = format!(
@@ -1010,6 +1086,8 @@ impl ActorAssets {
             let partitions = partition_count(&file, mesh);
             let map = BoneMap::build(&skin.bones, skeleton);
             out.push(ActorSurface {
+                armor_slots: 0,
+                model_path: mesh_path.to_owned(),
                 name: mesh.name.clone(),
                 head_part_type: None,
                 face_tint: None,
@@ -1089,6 +1167,9 @@ impl ActorAssets {
             .iter()
             .map(|surface| surface.arrays.material.clone())
             .collect();
+        for surface in &mut out {
+            surface.model_path = mesh_path.to_owned();
+        }
         for (surface, textures) in
             out.iter_mut()
                 .zip(crate::data_source::resolve_material_textures(
@@ -1623,6 +1704,8 @@ fn rigid_surface(
     };
     let map = BoneMap::build(&skin.bones, skeleton);
     Ok(ActorSurface {
+        armor_slots: 0,
+        model_path: String::new(),
         name: mesh.name.clone(),
         head_part_type: None,
         face_tint: None,
@@ -1644,6 +1727,299 @@ fn rigid_surface(
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn hst_25_shield_back_fallback_uses_the_authored_back_anchor_and_preserves_custom_nodes() {
+        let mut skeleton = Skeleton {
+            name: "fixture".into(),
+            bones: vec![HkxBone {
+                name: "WeaponBack".into(),
+                lock_translation: false,
+            }],
+            parent_indices: vec![-1],
+            reference_pose: vec![soe_hkx::QsTransform {
+                translation: [2.0, -8.0, 90.0, 0.0],
+                ..soe_hkx::QsTransform::IDENTITY
+            }],
+            float_slots: Vec::new(),
+            reference_floats: Vec::new(),
+        };
+        shield_back_anchor(&mut skeleton);
+        let model = skeleton.to_model_space(&skeleton.reference_pose).unwrap();
+        assert_eq!(skeleton.bones[1].name, "ShieldBack");
+        assert_eq!(model[1], model[0]);
+        skeleton.reference_pose[1].translation[0] = 12.0;
+        let authored = skeleton.reference_pose.clone();
+        shield_back_anchor(&mut skeleton);
+        assert_eq!(skeleton.reference_pose, authored);
+        assert_eq!(skeleton.bones.len(), 2);
+    }
+
+    #[test]
+    fn hst_25_installed_weapon_and_bow_event_contract() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        for (object, expected) in [
+            (0x1397e, 2),
+            (0x13980, 6),
+            (0x13981, 6),
+            (0x13982, 4),
+            (0x1359d, 5),
+            (0x13985, 7),
+        ] {
+            let record = world
+                .record(soe_esm::GlobalFormId { file: 0, object })
+                .unwrap();
+            let weapon = soe_game::combat::records::Weapon::from_record(record).unwrap();
+            assert_eq!(
+                weapon.animation, expected,
+                "fixture weapon kind for {object:x}"
+            );
+            println!(
+                "HST-25 record {object:x} {:?} animation={}",
+                record.editor_id(),
+                weapon.animation
+            );
+        }
+        let player = world.player();
+        for assets in [
+            ActorAssets::load_for_actor(&mut world, player, source.vfs()).unwrap(),
+            ActorAssets::load_player_first_person(&mut world, player, source.vfs()).unwrap(),
+        ] {
+            for node in &assets.graph.nodes {
+                if let soe_hkx::behavior::NodeKind::StateMachine(machine) = &node.kind {
+                    if matches!(
+                        node.name.as_str(),
+                        "1HM_Behavior"
+                            | "BowAttackBehavior"
+                            | "BowDrawBehavior"
+                            | "Bow_DrawingBehavior"
+                            | "Bow_AttackStandingBehavior"
+                    ) {
+                        for state in &machine.states {
+                            for transition in &state.transitions {
+                                let event = usize::try_from(transition.event_id)
+                                    .ok()
+                                    .and_then(|id| assets.graph.data.event_names.get(id));
+                                println!(
+                                    "HST-25 graph={} machine={} state={} event={event:?} to={}",
+                                    assets.behavior_path,
+                                    node.name,
+                                    state.name,
+                                    transition.to_state_id
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hst_25_installed_shield_back_sits_at_the_upper_torso() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        let player = world.player();
+        let assets = ActorAssets::load_for_actor(&mut world, player, source.vfs()).unwrap();
+        let skeleton = &assets.skeleton;
+        let model = skeleton.to_model_space(&skeleton.reference_pose).unwrap();
+        for name in [
+            "WeaponBack",
+            "NPC Spine2 [Spn2]",
+            "NPC Head [Head]",
+            "ShieldBack",
+        ] {
+            println!(
+                "HST-25 back anchor {name}: {:?}",
+                model[skeleton.bone_index(name).unwrap()]
+            );
+        }
+        let mut low = [f32::INFINITY; 3];
+        let mut high = [f32::NEG_INFINITY; 3];
+        for (arrays, _) in source
+            .item_preview_surfaces("Armor/Iron/Shield.nif")
+            .unwrap()
+        {
+            for position in arrays.positions {
+                for axis in 0..3 {
+                    low[axis] = low[axis].min(position[axis]);
+                    high[axis] = high[axis].max(position[axis]);
+                }
+            }
+        }
+        println!("HST-25 shield bounds {low:?} to {high:?}");
+        let shield = model[skeleton.bone_index("ShieldBack").unwrap()].translation;
+        let torso = model[skeleton.bone_index("NPC Spine2 [Spn2]").unwrap()].translation;
+        assert!(
+            (shield[2] - torso[2]).abs() <= 5.0,
+            "shield anchor above torso: {shield:?} versus {torso:?}"
+        );
+        assert!(
+            (shield[0] - torso[0]).abs() <= 5.0,
+            "shield anchor off center: {shield:?} versus {torso:?}"
+        );
+    }
+
+    #[test]
+    fn hst_25_installed_skeleton_has_required_sheath_nodes() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        let player = world.player();
+        let assets = ActorAssets::load_for_actor(&mut world, player, source.vfs()).unwrap();
+        let bytes = source.vfs().read(&assets.skeleton_model_path).unwrap();
+        let file = soe_nif::parse(&bytes).unwrap();
+        let mut nodes = std::collections::BTreeMap::new();
+        let mut visited = std::collections::BTreeSet::new();
+        for root in &file.roots {
+            collect_rig_nodes(&file, *root, None, &mut visited, &mut nodes);
+        }
+        for name in nodes.keys() {
+            println!("HST-25 skeleton node {name}");
+        }
+        assert!(
+            assets.skeleton.bone_index("ShieldBack").is_some(),
+            "shield back attachment missing"
+        );
+    }
+
+    #[test]
+    fn hst_25_installed_inventory_gauntlets_have_first_person_geometry() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut game = source.localized_game().unwrap();
+        let player = game.player();
+        let gauntlets = soe_esm::GlobalFormId {
+            file: 0,
+            object: 0x12e46,
+        };
+        game.world_mut().add_item(player, gauntlets, 1);
+        assert!(crate::inventory_menu::toggle_equip(&mut game, gauntlets));
+        let mut world = game.world_mut();
+        let appearance = world.actor_appearance(player).unwrap();
+        println!("HST-25 gauntlets {appearance:?}");
+        let first =
+            ActorAssets::load_player_first_person(&mut world, player, source.vfs()).unwrap();
+        let names: Vec<_> = first
+            .surfaces
+            .iter()
+            .map(|surface| surface.name.as_str())
+            .collect();
+        assert!(
+            names
+                .iter()
+                .any(|name| name.to_ascii_lowercase().contains("gauntlet")),
+            "first person gauntlets missing: {names:?}"
+        );
+    }
+
+    fn inventory_scene(script: &str) {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let binary =
+            std::env::var_os("SOE_GODOT_BIN").expect("installed equipment check requires Godot");
+        let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let cells: &[&str] = if std::env::var("SOE_EQUIPMENT_ALL_CELLS").as_deref() == Ok("1") {
+            &["mare", "exterior"]
+        } else if std::env::var("SOE_EQUIPMENT_EXTERIOR").as_deref() == Ok("1") {
+            &["exterior"]
+        } else {
+            &["mare"]
+        };
+        for cell in cells {
+            let evidence = workspace.join(format!("target/hst25-final-{cell}"));
+            std::fs::create_dir_all(&evidence).unwrap();
+            for headless in [true, false] {
+                let mut command = std::process::Command::new(&binary);
+                if headless {
+                    command.arg("--headless");
+                }
+                let output = command
+                    .arg("--path")
+                    .arg(workspace.join("godot"))
+                    .args(["--resolution", "640x360", "--script", script])
+                    .env("SKYRIM_DATA", &data)
+                    .env(
+                        "SOE_EQUIPMENT_EXTERIOR",
+                        if *cell == "exterior" { "1" } else { "0" },
+                    )
+                    .env("DISPLAY", ":99")
+                    .env("SOE_INTERFACE_CACHE", "/tmp/soe-equipment-no-interface")
+                    .env_remove("SOE_CAPTURE_PATH")
+                    .env_remove("SOE_THREADED_SIMULATION")
+                    .output()
+                    .unwrap();
+                let log = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                std::fs::write(
+                    workspace.join(format!("target/{script}-{headless}.log")),
+                    &log,
+                )
+                .unwrap();
+                std::fs::write(evidence.join(format!("{script}-{headless}.log")), &log).unwrap();
+                assert!(
+                    output.status.success()
+                        && log.contains("RESULT: PASS HST-25 inventory equipment")
+                        && !log.contains("SCRIPT ERROR"),
+                    "{script} cell={cell} headless={headless} {}: {log}",
+                    output.status
+                );
+                if !headless {
+                    for suffix in [
+                        "bare",
+                        "armored",
+                        "drawn",
+                        "sheathed",
+                        "third_drawn",
+                        "third_sheathed",
+                        "first_drawn",
+                        "first_sheathed",
+                    ] {
+                        if script == "hst_25_armor_test.gd" && !matches!(suffix, "bare" | "armored")
+                        {
+                            continue;
+                        }
+                        let name = format!("hst_25_equipment_{suffix}.png");
+                        std::fs::copy(
+                            workspace.join("godot/.godot").join(&name),
+                            evidence.join(name),
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hst_25_walkthrough_inventory_armor() {
+        inventory_scene("hst_25_armor_test.gd");
+    }
+
+    #[test]
+    fn hst_25_walkthrough_inventory_equipment() {
+        inventory_scene("hst_25_equipment_test.gd");
+    }
+
+    #[test]
+    fn hst_25_walkthrough_inventory_attacks() {
+        inventory_scene("hst_25_attack_test.gd");
+    }
 
     #[test]
     fn first_person_load_does_not_prepare_third_person_assets() {
