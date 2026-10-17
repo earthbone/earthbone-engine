@@ -139,6 +139,132 @@ mod tests {
         assert_eq!(world.actor_ref(actor).unwrap().ai.path, [[100.0, 0.0, 8.0]]);
     }
 
+    fn combat_world() -> (crate::World, GlobalFormId, GlobalFormId) {
+        use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"NPC_"), 0x802));
+        plugin.push_top(Record::new(Tag(*b"ACHR"), 0x810).sub(b"NAME", 0x802_u32.to_le_bytes()));
+        let mut order = LoadOrder::new();
+        order.add("CombatReplan.esm", plugin).unwrap();
+        let mut world = crate::World::new(order);
+        let actor = world.player();
+        let target = id(0x810);
+        world.actor(target).unwrap();
+        world.reference(target).unwrap().position = [1000.0, 100.0, 0.0];
+        world.reference(actor).unwrap().position = [100.0, 100.0, 0.0];
+        let state = world.actor(actor).unwrap();
+        state.in_combat = true;
+        state.combat_target = Some(target);
+        state.ai.speed = 80.0;
+        let mut graph = soe_navmesh::NavGraph::new();
+        graph.add_mesh_with_adjacency(
+            vec![[0.0, 0.0, 0.0], [10000.0, 0.0, 0.0], [0.0, 10000.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        world.ai.nav = Some(graph);
+        world.ai.nav_cells = vec![None];
+        world.ai.nav_spaces = vec![None];
+        (world, actor, target)
+    }
+
+    fn combat_step(world: &mut crate::World, actor: GlobalFormId, frame: u32) {
+        world.clock.real_seconds = f64::from(frame) / 60.0;
+        world
+            .ai
+            .planner
+            .begin_frame(world.ai.nav.as_ref().unwrap(), &world.ai.nav_cells);
+        super::super::pursue_combat_target(world, actor, 1.0 / 60.0);
+    }
+
+    #[test]
+    fn combat_replanning_tracks_a_running_target_without_frame_rate_requests() {
+        let (mut world, actor, target) = combat_world();
+        for frame in 0..120 {
+            world.reference(target).unwrap().position[0] += 5.0;
+            combat_step(&mut world, actor, frame);
+        }
+        let requests = world.ai.path_metrics()[&actor].requests;
+        assert!(
+            (2..=10).contains(&requests),
+            "requests in two seconds: {requests}"
+        );
+        assert!(world.reference(actor).unwrap().position[0] > 250.0);
+    }
+
+    #[test]
+    fn combat_replanning_backs_off_failed_routes_despite_floor_motion() {
+        let (mut world, actor, _) = combat_world();
+        world.ai.nav = Some(soe_navmesh::NavGraph::new());
+        for frame in 0..60 {
+            world.reference(actor).unwrap().position[2] += 0.01;
+            combat_step(&mut world, actor, frame);
+        }
+        let requests = world.ai.path_metrics()[&actor].requests;
+        assert!(
+            (2..=5).contains(&requests),
+            "failed requests in one second: {requests}"
+        );
+        assert_eq!(world.reference(actor).unwrap().position[0], 100.0);
+    }
+
+    #[test]
+    fn combat_replanning_ignores_small_goal_jitter() {
+        let (mut world, actor, target) = combat_world();
+        for frame in 0..120 {
+            world.reference(target).unwrap().position[1] = 100.0 + (frame % 2) as f32;
+            combat_step(&mut world, actor, frame);
+        }
+        assert_eq!(world.ai.path_metrics()[&actor].requests, 1);
+    }
+
+    fn long_combat_world() -> (crate::World, GlobalFormId, GlobalFormId) {
+        let (mut world, actor, target) = combat_world();
+        let mut graph = soe_navmesh::NavGraph::new();
+        let vertices = (0..=1000)
+            .flat_map(|x| [[x as f32 * 100.0, 0.0, 0.0], [x as f32 * 100.0, 100.0, 0.0]])
+            .collect();
+        let triangles: Vec<_> = (0..1000)
+            .flat_map(|x| [[x * 2, x * 2 + 2, x * 2 + 3], [x * 2, x * 2 + 3, x * 2 + 1]])
+            .collect();
+        graph.add_mesh_with_adjacency(vertices, &triangles);
+        graph.prepare_queries();
+        world.ai.nav = Some(graph);
+        world.reference(actor).unwrap().position = [10.0, 50.0, 0.0];
+        world.reference(target).unwrap().position = [99990.0, 50.0, 0.0];
+        (world, actor, target)
+    }
+
+    #[test]
+    fn combat_replanning_retains_pending_search_keys_while_target_and_floor_move() {
+        let (mut world, actor, target) = long_combat_world();
+        for frame in 0..120 {
+            world.reference(target).unwrap().position[1] += 0.01;
+            world.reference(actor).unwrap().position[2] += 0.01;
+            combat_step(&mut world, actor, frame);
+        }
+        let metrics = &world.ai.path_metrics()[&actor];
+        assert_eq!(metrics.cancellations, 0);
+        assert_eq!(metrics.requests, 1);
+        assert!(world.reference(actor).unwrap().position[0] > 100.0);
+    }
+
+    #[test]
+    fn combat_replanning_full_tick_retains_search_during_collision_floor_motion() {
+        let (mut world, actor, target) = long_combat_world();
+        world.player_ai_driven = true;
+        let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+        for frame in 0..120 {
+            world.reference(target).unwrap().position[1] += 0.01;
+            world.reference(actor).unwrap().position[2] += 0.01;
+            world.clock.real_seconds = f64::from(frame) / 60.0;
+            super::super::tick(&mut world, 1.0 / 60.0, &mut alloc);
+        }
+        let metrics = &world.ai.path_metrics()[&actor];
+        assert_eq!(metrics.cancellations, 0);
+        assert_eq!(metrics.requests, 1);
+        assert!(world.reference(actor).unwrap().position[0] > 100.0);
+    }
+
     #[test]
     fn grounded_route_keeps_a_waypoint_on_a_different_floor() {
         let mut ai = AiState {

@@ -1,5 +1,44 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Giant replanning follow-up, round 4
+
+The free walk giant probe now requires at most five requests per wall second
+and samples the inclusive AI tick separately from engine and pose timings.
+The original one-millisecond pose p99, 33-millisecond engine p99 and 64-unit
+movement limits remain unchanged. Against the unchanged extension the probe
+exits one with two request-rate failures. Toward and away peaks are 50 and
+61 requests per second. Engine p99 is 26.56 and 15.56 milliseconds. AI tick
+p99 is 1.55 and 1.31 milliseconds. The sustained frame slowdown still does
+not reproduce in this headless run.
+
+The host reports sustained blocked combat steps through the existing grounded
+controller feedback. The game retains its retry deadline, as described in
+[game.md](game.md#bounded-combat-replanning-round-4). The scene keeps its
+production Bannered Mare startup and console transition to Bleakwind Basin.
+No dependency, saved field or per-reference node is added.
+
+The corrected release passes in 7 minutes 22 seconds. The identical installed
+probe exits zero with four requests per second in both phases. Giant travel
+is 1,888 and 742 units, while player travel is 1,213 and 815 units.
+
+| Phase | Engine p99 before, ms | After, ms | AI tick p99 before, ms | After, ms | Requests per second before | After |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Toward | 26.56 | 20.33 | 1.55 | 1.54 | 50 | 4 |
+| Away | 15.56 | 18.25 | 1.31 | 1.33 | 61 | 4 |
+
+AI tick p50 changes from 1.041 to 0.908 milliseconds toward, and from 0.963
+to 0.957 away. These runs establish bounded requests, not a repeatable frame
+rate improvement. The reported sustained GPU slowdown remains unverified.
+The five focused regressions and all 1,348 game plus 590 host library tests
+pass with installed-data variables unset. Both crates pass formatting and
+all-target Clippy with warnings denied. Markdown lint passes. No workspace
+test run or full lint gate is run, following the round instructions.
+
+An earlier release command is interrupted with exit 130 during review of the
+outer cancellation policy. Its artifact timestamp advances during termination,
+so it is not reported as a successful validation build. The successful build
+and installed confirmation above include the full-tick correction.
+
 ## Round 4 NPC handover
 
 Branch `lead/r4-npc` starts at `77317179a`. The installed NPC progress check

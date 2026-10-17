@@ -1,5 +1,38 @@
 # soe-game: the runtime form table and the first natives
 
+## Bounded combat replanning, round 4
+
+The pursuing giant requested 50 paths per wall second toward the camera and
+61 away in the free walk baseline. The combat driver reused the four-unit
+waypoint tolerance as its goal-change threshold. A running target crosses
+that threshold each tick. Failed requests did not retain an attempt deadline,
+and pending requests changed their exact start or goal keys as collision
+height or the target moved. The focused fixtures reproduce 120 requests in
+two seconds and 60 failed requests in one second before correction.
+
+Combat now retains transient request keys and attempt time separately from
+saved package state. It resumes a pending search with its original start and
+goal. A new attempt requires a changed goal or an empty or failed route, and
+at least 0.25 simulation seconds since the previous attempt. Goal displacement
+must exceed the greater of 32 units and one interval of movement. Sustained
+host collision blocking clears the failed step but retains the deadline.
+Existing saved routes remain usable when the transient cache is absent.
+
+Local OpenMW `apps/openmw/mwmechanics/aipackage.cpp`, `pathTo` and
+`doesPathNeedRecalc`, gates rebuilds on reaction time, goal displacement and
+cell changes. `aicombat.cpp` gates attack decisions on its reaction timer.
+The Rust driver keeps the existing NAVM planner and controller instead of
+linking OpenMW's C++ navigator. The 0.25-second interval is an explicit engine
+policy, not a measured claim about vanilla's exact timer. No dependency,
+actor node or saved field is added.
+
+The five `combat_replanning_` regressions cover continuous pursuit, failed
+routes with floor motion, small goal jitter and sliced requests with moving
+keys, including the outer AI tick cancellation policy. The unchanged
+floor-progress regression is retained. The full-tick case fails with 119
+cancellations before the outer policy correction and passes with zero after it.
+Installed free walk results and timing limits are reported in [godot-host.md](godot-host.md).
+
 ## Combat NAVM progress, round 4
 
 The installed progress run after sandbox recovery leaves 11 actors stuck.

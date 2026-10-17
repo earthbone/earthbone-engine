@@ -92,6 +92,19 @@ const FRAME_EVALUATION_BUDGET: usize = 4;
 const DEFAULT_SANDBOX_RADIUS: f32 = 512.0;
 /// Combat movement stops within this distance of the selected target.
 const COMBAT_ARRIVAL_DISTANCE: f32 = 4.0;
+/// OpenMW AiPackage gates path rebuilds on reaction time and goal displacement.
+const COMBAT_REPLAN_INTERVAL: f64 = 0.25;
+const COMBAT_GOAL_TOLERANCE: f32 = 32.0;
+
+#[derive(Clone, Copy)]
+struct CombatRoute {
+    target: GlobalFormId,
+    from: [f32; 3],
+    goal: [f32; 3],
+    cell: Option<GlobalFormId>,
+    started: f64,
+    pending: bool,
+}
 type PlannedPath = (Vec<[f32; 3]>, Vec<Option<GlobalFormId>>);
 
 /// Current planner request, read without starting or advancing a query.
@@ -214,6 +227,7 @@ pub struct AiWorld {
     nav_door_ids: std::collections::HashSet<GlobalFormId>,
     dirty_nav_doors: BTreeSet<GlobalFormId>,
     planner: navigation::Planner,
+    combat_routes: BTreeMap<GlobalFormId, CombatRoute>,
     /// Actors considered at each process level in the most recent tick.
     pub process_counts: [usize; 4],
     /// Actors whose driver ran at each process level in the most recent tick.
@@ -2318,6 +2332,26 @@ fn refresh_nav_doors(world: &mut World) {
 
 // ----- the driver -----
 
+/// Invalidate a blocked combat step while preserving the path retry deadline.
+pub fn retry_blocked_combat_path(world: &mut World, actor: GlobalFormId) -> bool {
+    let Some(state) = world
+        .loaded_actor_mut(actor)
+        .filter(|state| state.in_combat)
+    else {
+        return false;
+    };
+    if state.ai.path.is_empty() {
+        return false;
+    }
+    state.ai.path.clear();
+    state.ai.path_cells.clear();
+    world.ai.planner.cancel(actor);
+    if let Some(route) = world.ai.combat_routes.get_mut(&actor) {
+        route.pending = false;
+    }
+    true
+}
+
 /// Retry a sandbox target after the host reports sustained collision blocking.
 /// Fixed package goals and combat pursuit retain their current destinations.
 pub fn retry_blocked_sandbox(world: &mut World, actor: GlobalFormId) -> bool {
@@ -2426,6 +2460,10 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         markers.begin_frame(world, &actors);
         world.ai.markers = markers;
     });
+    world
+        .ai
+        .combat_routes
+        .retain(|actor, _| actors.binary_search(actor).is_ok());
     let now = world.clock.real_seconds;
     for (actor, dt) in updates {
         let _entity =
@@ -2468,9 +2506,20 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 world.ai.markers.cancel(actor);
             }
             if let Some(position) = world.reference(actor).map(|reference| reference.position) {
-                if world.ai.planner.moved(actor, position) {
+                let pending_combat = world.ai.combat_routes.get(&actor).is_some_and(|route| {
+                    route.pending
+                        && world.actor_ref(actor).is_some_and(|state| {
+                            state.in_combat && state.combat_target == Some(route.target)
+                        })
+                        && movement::waypoint_distance(route.from, position)
+                            <= COMBAT_GOAL_TOLERANCE
+                });
+                if world.ai.planner.moved(actor, position) && !pending_combat {
                     world.ai.planner.cancel(actor);
                     world.ai.markers.cancel(actor);
+                    if let Some(route) = world.ai.combat_routes.get_mut(&actor) {
+                        route.pending = false;
+                    }
                 }
             }
             if world.ai.planner.waiting(actor) || world.ai.markers.waiting(actor) {
@@ -2827,6 +2876,7 @@ fn ignores_combat_inner(world: &mut World, actor: GlobalFormId) -> bool {
 }
 
 fn clear_combat_engagement(world: &mut World, actor: GlobalFormId) {
+    world.ai.combat_routes.remove(&actor);
     if let Some(state) = world.loaded_actor_mut(actor) {
         if !state.in_combat && state.combat_target.is_none() {
             return;
@@ -3024,21 +3074,57 @@ fn pursue_combat_target_inner(world: &mut World, actor: GlobalFormId, dt: f32) {
         return;
     }
     let mut ai = std::mem::take(&mut state.ai);
-    if ai
-        .destination
-        .is_none_or(|old| distance(old, destination) > COMBAT_ARRIVAL_DISTANCE)
-        || ai.path.is_empty()
+    let now = world.clock.real_seconds;
+    if !ai.path.is_empty() {
+        if let Some(goal) = ai.destination {
+            world.ai.combat_routes.entry(actor).or_insert(CombatRoute {
+                target,
+                from: position,
+                goal,
+                cell: target_cell,
+                started: now,
+                pending: false,
+            });
+        }
+    }
+    let prior = world.ai.combat_routes.get(&actor).copied();
+    let goal_tolerance = COMBAT_GOAL_TOLERANCE.max(speed * COMBAT_REPLAN_INTERVAL as f32);
+    let changed = prior.is_none_or(|route| {
+        route.target != target
+            || route.cell != target_cell
+            || movement::waypoint_distance(route.goal, destination) > goal_tolerance
+    });
+    let due = prior
+        .is_none_or(|route| now < route.started || now - route.started >= COMBAT_REPLAN_INTERVAL);
+    let request = if let Some(route) = prior.filter(|route| route.pending && route.target == target)
     {
-        let Some((path, cells)) = plan_combat(world, actor, position, destination, target_cell)
-        else {
-            if let Some(state) = world.actor(actor) {
-                state.ai = ai;
+        Some(route)
+    } else if (changed || ai.path.is_empty()) && due {
+        world.ai.planner.cancel(actor);
+        Some(CombatRoute {
+            target,
+            from: position,
+            goal: destination,
+            cell: target_cell,
+            started: now,
+            pending: true,
+        })
+    } else {
+        None
+    };
+    if let Some(mut route) = request {
+        match request_combat(world, actor, route.from, route.goal, route.cell) {
+            std::task::Poll::Ready(result) => {
+                route.pending = false;
+                if let Some((path, cells)) = result {
+                    ai.destination = Some(route.goal);
+                    ai.path = path;
+                    ai.path_cells = cells;
+                }
             }
-            return;
-        };
-        ai.destination = Some(destination);
-        ai.path = path;
-        ai.path_cells = cells;
+            std::task::Poll::Pending => {}
+        }
+        world.ai.combat_routes.insert(actor, route);
     }
     let steering_started = std::time::Instant::now();
     let mut budget = speed * dt.max(0.0);
@@ -3089,8 +3175,21 @@ fn plan_combat(
     to: [f32; 3],
     to_cell: Option<GlobalFormId>,
 ) -> Option<PlannedPath> {
+    match request_combat(world, actor, from, to, to_cell) {
+        std::task::Poll::Ready(path) => path,
+        std::task::Poll::Pending => None,
+    }
+}
+
+fn request_combat(
+    world: &mut World,
+    actor: GlobalFormId,
+    from: [f32; 3],
+    to: [f32; 3],
+    to_cell: Option<GlobalFormId>,
+) -> std::task::Poll<Option<PlannedPath>> {
     let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
-    match navigation::request(
+    navigation::request(
         world,
         actor,
         from,
@@ -3099,10 +3198,8 @@ fn plan_combat(
             cell: to_cell,
             fallback: false,
         },
-    ) {
-        std::task::Poll::Ready(path) => path.map(|(_, path)| path),
-        std::task::Poll::Pending => None,
-    }
+    )
+    .map(|result| result.map(|(_, path)| path))
 }
 
 /// Choose a reachable navmesh point that increases distance from the threat.

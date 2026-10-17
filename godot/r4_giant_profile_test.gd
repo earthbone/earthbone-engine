@@ -4,6 +4,7 @@ extends "res://walkthrough.gd"
 ## Fixed free walk actor update budget, measured with meshes off screen too.
 const STEP := 1.0 / 60.0
 const POSE_P99_US := 1000.0
+const MAX_PATH_REQUESTS_PER_SECOND := 5
 var failures := 0
 
 func _initialize() -> void:
@@ -93,6 +94,8 @@ func _measure() -> void:
 		var timings := {}
 		var stages := {}
 		var advance_times: Array[float] = []
+		var ai_times: Array[float] = []
+		var peak_requests := 0
 		var first_position: Vector3
 		var have_position := false
 		var maximum_movement := 0.0
@@ -101,6 +104,11 @@ func _measure() -> void:
 			var systems: Dictionary = player.call("system_frame_breakdown")
 			var advance_us := float(systems.get("main_thread_engine", {}).get("ms", 0.0)) * 1000.0
 			advance_times.append(advance_us)
+			ai_times.append(float(player.call("ai_planning_microseconds")))
+			var ai: Dictionary = player.call("ai_breakdown")
+			for identity: String in ai.paths:
+				if identity.to_lower() == (str(giant.file) + ":%06X" % int(giant.object)).to_lower():
+					peak_requests = maxi(peak_requests, int(ai.paths[identity].requests_per_second))
 			for visual: Dictionary in player.call("npc_visuals"):
 				if visual.node_id == 0:
 					continue
@@ -124,9 +132,11 @@ func _measure() -> void:
 		if not summary.has(giant_id) or float(summary[giant_id].p99_us) > POSE_P99_US:
 			failures += 1
 		var advance_summary := _summary({"advance": advance_times})
+		if peak_requests > MAX_PATH_REQUESTS_PER_SECOND:
+			failures += 1
 		if float(advance_summary.advance.p99_us) > 33000.0 or maximum_movement < 64.0 or player_units < 64.0:
 			failures += 1
-		print("R4_GIANT_TIMINGS ", JSON.stringify({"away": away, "actors": summary, "stages": _summary(stages), "advance": advance_summary, "giant": giant_id, "moved_units": maximum_movement, "player_moved_units": player_units, "ai": player.call("ai_breakdown"), "packages": player.call("npc_package_states")}))
+		print("R4_GIANT_TIMINGS ", JSON.stringify({"away": away, "actors": summary, "stages": _summary(stages), "advance": advance_summary, "ai_tick": _summary({"ai": ai_times}), "peak_requests_per_second": peak_requests, "giant": giant_id, "moved_units": maximum_movement, "player_moved_units": player_units, "ai": player.call("ai_breakdown"), "packages": player.call("npc_package_states")}))
 	print("R4_GIANT_RESULT failures=", failures)
 	quit(0 if failures == 0 else 1)
 

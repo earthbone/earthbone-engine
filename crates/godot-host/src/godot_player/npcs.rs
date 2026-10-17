@@ -294,7 +294,8 @@ impl PlayerNode {
                         .is_some_and(|feedback| {
                             feedback.blocked_seconds >= crate::npc_grounding::BLOCKED_RETRY_SECONDS
                         })
-                        && soe_game::ai::retry_blocked_sandbox(&mut world, contact.actor)
+                        && (soe_game::ai::retry_blocked_combat_path(&mut world, contact.actor)
+                            || soe_game::ai::retry_blocked_sandbox(&mut world, contact.actor))
                     {
                         self.npc_grounding.retry_started(contact.actor);
                     }
