@@ -56,3 +56,14 @@ writing it. UI-24 uses this entry point for its checked NORDIC theme.
 The implementation shares the existing UI-19 resource writer, whose sources
 are Ruffle's shape utilities and Godot's ArrayMesh, FontFile and ImageTexture
 resource encoding. UI-24 adds no parser or resource format to this crate.
+
+## Installed validation, 2026-10-17
+
+The winning vanilla and SkyUI survey converts 70 interface movies. The full
+cache check publishes all 70 with real JPEXS exports. Vanilla inventory and
+magic exports contain 68 and 55 source files, and SkyUI winners contain 71
+and 69. The Chinese font retains all 17,514 glyphs across 30 atlas pages.
+The paged font render check uses an isolated Godot project so host diagnostics
+autoloads do not require an imported GDExtension. It keeps the original pixel
+thresholds and saves the frame before checking them, including on failure.
+Generated art and decompiled scripts remain external inputs and outputs.
