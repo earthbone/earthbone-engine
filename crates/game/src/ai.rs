@@ -360,10 +360,7 @@ pub fn debug_destination(world: &mut World, actor: GlobalFormId) -> Option<Place
 /// The `PACK` view of a winning record.
 pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
     let rec = world.record(id)?;
-    let immutable = world
-        .order()
-        .winner(id)
-        .is_some_and(|winner| std::ptr::eq(rec, winner));
+    let immutable = !world.has_runtime_record(id);
     let mut package = if immutable {
         world
             .ai

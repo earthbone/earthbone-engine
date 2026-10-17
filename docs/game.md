@@ -11938,3 +11938,19 @@ pair has no differing field. Final scoped checks pass formatting, all-target
 clippy, 259 game library tests, 10 trigger checks and 55 probe tests. PLY-03
 remains in progress for furniture entry, saved enable state and agreement
 between trigger queries and the actor's collision body.
+
+## Package view cache lookup cost, PRF-14
+
+The preview3 integration gate measured 10,053 peak record lookups in the fixed
+thousand-actor stress case, above its unchanged 8,100 limit. Entity profiling
+identified repeated reads of the two active PACK records. `ai::package` fetched
+the record through World, then fetched its winner again only to compare their
+addresses before using the parsed-package cache.
+
+The cache now uses World's existing `has_runtime_record` test, also used by
+the AI tree cache. Immutable load-order records retain the parsed view, while
+runtime overrides and created records are parsed from their current record.
+No record read is hidden from the counter. The duplicate lookup is removed.
+The same 1,000 actors, 10 warm-up ticks and 120 measured ticks now peak at
+7,051 record lookups. Both PRF-14 cases pass with their original bounds.
+No state, cache authority or save field is added.
