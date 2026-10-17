@@ -245,7 +245,8 @@ impl World {
 
     /// Held death requests are persistent state, not runnable VM work.
     pub fn has_pending_calls(&self) -> bool {
-        !self.pending_story_events.is_empty()
+        self.has_due_activation()
+            || !self.pending_story_events.is_empty()
             || self
                 .pending
                 .iter()

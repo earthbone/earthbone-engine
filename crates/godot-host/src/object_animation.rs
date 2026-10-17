@@ -350,6 +350,7 @@ mod clock_tests {
 #[derive(Debug, Clone)]
 pub struct AnimatedSurface {
     pub asset: Arc<ObjectAnimation>,
+    pub behavior: Option<Arc<crate::object_behavior::Asset>>,
     pub block: usize,
     pub shader: Option<usize>,
     pub skin: Option<Skin>,

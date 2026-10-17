@@ -18,6 +18,7 @@ path = "tests/it.rs"
 save-fault-tests = ["soe-save/fault-injection"]
 
 [dependencies]
+serde_json = "1"
 thiserror = "2.0"
 crc32fast = "1"
 rayon = "1.11"

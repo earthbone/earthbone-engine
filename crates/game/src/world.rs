@@ -41,6 +41,7 @@ use soe_papyrus::{ObjectId, Value};
 use crate::clock::GameClock;
 use crate::quest::Quest;
 
+mod activation_parents;
 mod actor_seeds;
 mod actor_spells;
 mod actors;
@@ -61,6 +62,8 @@ mod doorway;
 mod driver;
 mod exterior_actors;
 mod package_overrides;
+#[cfg(test)]
+mod sound_activation_tests;
 pub use package_overrides::PackageOverride;
 pub mod effect_shader;
 mod encounter_zones;
@@ -958,6 +961,7 @@ pub struct World {
     pub(crate) memory_tracker: performance::MemoryTracker,
     navigation_load_times: BTreeMap<GlobalFormId, u64>,
     pub pending: Vec<Pending>,
+    activation_parents: activation_parents::State,
     /// Transient requests for work that only the host can present.
     pub host_requests: Vec<HostRequest>,
     pub(crate) spell_art_requests: Vec<SpellArtRequest>,
@@ -1339,6 +1343,7 @@ impl World {
             memory_tracker: performance::MemoryTracker::default(),
             navigation_load_times: BTreeMap::new(),
             pending: Vec::new(),
+            activation_parents: activation_parents::State::default(),
             host_requests: Vec::new(),
             spell_art_requests: Vec::new(),
             preloaded_spell_art: BTreeSet::new(),
@@ -1545,7 +1550,7 @@ pub fn class_for_tag(tag: &[u8; 4]) -> &'static str {
         b"RACE" => "Race",
         b"PACK" => "Package",
         b"SCEN" => "Scene",
-        b"SNDR" => "Sound",
+        b"SOUN" | b"SNDR" => "Sound",
         b"IDLE" => "Idle",
         b"PERK" => "Perk",
         b"SHOU" => "Shout",

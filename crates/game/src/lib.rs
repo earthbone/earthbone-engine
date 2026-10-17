@@ -22,6 +22,7 @@
 //! game.tick(1.0 / 60.0);
 //! ```
 
+pub mod activation_sweep;
 pub mod actor_values;
 pub mod ai;
 pub mod ambience;
@@ -45,6 +46,7 @@ pub mod determinism;
 pub mod dialogue;
 pub mod footsteps;
 mod game_settings;
+pub mod gameplay_sweeps;
 pub mod harness;
 pub mod inventory;
 pub mod lockpicking;
@@ -627,6 +629,14 @@ impl Game {
 
     pub fn shared_world(&self) -> Rc<RefCell<World>> {
         self.world.clone()
+    }
+
+    /// Mark a host graph ready, preserving the shared loaded-reference event path.
+    pub fn report_animation_loaded(&mut self, source: GlobalFormId) {
+        let loaded = self.world.borrow_mut().animation_graph_loaded(source);
+        if loaded {
+            self.run_until_idle(64);
+        }
     }
 
     /// Deliver one host animation event to Papyrus listeners and latent waits.
@@ -1860,6 +1870,15 @@ impl Game {
     pub fn pump(&mut self) -> usize {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
         let mcm_events = self.pump_mcm_events();
+        for _ in 0..64 {
+            let entry = self.world.borrow_mut().take_due_activation();
+            let Some(entry) = entry else { break };
+            self.bind_reference(entry.target, &mut BindReport::default());
+            let vm = &mut self.vm;
+            self.world
+                .borrow_mut()
+                .activate_child(entry, &mut |name, class| vm.create_object_of(name, class));
+        }
         self.prepare_cell_events();
         let quest_scope = soe_trace::SystemScope::new(soe_trace::System::Quests);
         self.dispatch_story_manager_events();

@@ -1013,6 +1013,17 @@ impl DataSource {
     /// interior cell when both an interior and an exterior one share a name.
     #[must_use]
     pub fn resolve_cell(&self, editor_id: &str) -> Option<GlobalFormId> {
+        if let Some((file, object)) = editor_id.split_once(':') {
+            let id = GlobalFormId {
+                file: file.parse().ok()?,
+                object: u32::from_str_radix(object, 16).ok()?,
+            };
+            return self
+                .order
+                .winner(id)
+                .filter(|record| record.tag == soe_esm::tag::CELL)
+                .map(|_| id);
+        }
         self.cell_index().cell_by_editor_id(editor_id)
     }
 
@@ -1574,8 +1585,19 @@ impl DataSource {
         let animation = Arc::new(soe_nif::object_animation::ObjectAnimation::from_file(
             &file,
         )?);
+        let behavior = if playback == SurfacePlayback::Live {
+            match crate::object_behavior::Asset::from_nif(&self.vfs, &file, animation.rest_pose()) {
+                Ok(asset) => asset,
+                Err(error) => {
+                    soe_trace::error!(target: "host::object_behavior", system = "host::object_behavior", model, error = %error, "object behavior unavailable, retaining NIF geometry");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let animated = playback == SurfacePlayback::Live
-            && (animation.is_animated() || animation.has_sequences());
+            && (animation.is_animated() || animation.has_sequences() || behavior.is_some());
         let instancing = instancing && !animated;
         let mut animations = Vec::new();
         let mut meshes = file.meshes()?;
@@ -1648,6 +1670,7 @@ impl DataSource {
             };
             animations.push(animated.then(|| crate::object_animation::AnimatedSurface {
                 asset: animation.clone(),
+                behavior: behavior.clone(),
                 block: shape.block,
                 shader: soe_nif::object_animation::shader_ref(&file.blocks[shape.block]).get(),
                 skin: shape.skin.clone(),
@@ -2234,6 +2257,8 @@ mod grass_tests;
 #[cfg(test)]
 mod marker_shape_tests;
 
+#[cfg(test)]
+mod activation_sweep_tests;
 #[cfg(test)]
 mod animated_static_mesh_tests;
 

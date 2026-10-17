@@ -2668,6 +2668,23 @@ impl CellStreamerNode {
             .collect()
     }
 
+    /// Uploaded poses for one reference, excluding unrelated autonomous animation.
+    #[func]
+    pub fn reference_animation_transforms(&self, file: i32, object: i64) -> Array<Transform3D> {
+        let Some(reference) = script_reference(file, object) else {
+            return Array::new();
+        };
+        self.instances
+            .iter()
+            .filter(|instance| match &instance.table {
+                BatchTable::Triangles(members) => members.iter().any(|m| m.reference == reference),
+                BatchTable::Instances(_) => false,
+            })
+            .filter_map(|instance| instance.animation.as_ref())
+            .flat_map(|animation| animation.last_transforms.iter().copied())
+            .collect()
+    }
+
     /// Draw a model at the origin through the production object RID path.
     #[func]
     #[allow(clippy::needless_pass_by_value)]

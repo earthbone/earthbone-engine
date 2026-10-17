@@ -237,6 +237,98 @@ and crossbows and rejects a left-hand assignment. This adds no saved state.
 The host routes arrowRelease animation annotations through the existing
 CMB-08 release latch and CMB-22 flight query. Projectile damage and projectile
 OnHit events remain absent from that core path, as recorded in [combat.md](combat.md).
+## Activation survey, TST-22
+
+`activation_sweep` visits installed placements through Game activation and
+records typed state contracts, OnActivate counts, pending animation waits,
+static PEX call metadata and errors. The initial diagnostic baseline contains
+3,131 activations across 51 cells. It predates the stricter state classifier,
+plugin-ordered archive view and additional Whiterun exterior selection.
+Keep that distinction when comparing later runs. The report and its owning
+failure rows are described in [validation.md](validation.md).
+
+Sources read locally are CK Activate, OnActivate, PlayAnimation,
+PlayGamebryoAnimation and IsActivateChild, xEdit ACTI, LIGH and XAPR fields,
+UESP FLOR, TREE and REFR, nifly Animation.cpp and ExtraData.cpp, and nif.xml
+BSBehaviorGraphExtraData. OpenMW activator.cpp distinguishes script activation
+from a default null action. Its TES3 action does not execute Skyrim PEX or
+HKX projects. The existing Rust readers, VM and animation evaluator remain
+the execution path. Mudcrab streaming was checked for object animation wiring
+and did not supply a Skyrim object graph bridge to reuse.
+No game assets or script instruction dumps belong in the report.
+
+## Sound marker method dispatch, SCR-77
+
+Papyrus Sound methods now dispatch on SOUN marker records. They previously
+allocated a generic Form object, producing a missing play method error on
+Mzinchaleft02 button 0:0C1F67 and QSTAstrolabeButtonPressX. The existing
+Sound.Play native, sound-instance queue and SOUN SDSC descriptor resolver
+remain the playback path. Existing SNDR dispatch is retained.
+
+The local SKSE PapyrusSound.cpp binds Sound to TESSound and exposes its
+descriptor. SKSE scripts/vanilla/Sound.psc declares Play on Sound. The local
+CommonLib TESSound declaration and xEdit SOUN/SDSC layout agree. No new
+reader, native, dependency or saved field is added.
+
+The synthetic script failed with Form instead of Sound before the correction.
+It now queues one sound instance and continues its linked activation without
+a missing-method error. The linked activation already completed in this VM
+before the fix, so that continuation is not claimed as a repaired outcome.
+Physical audio output and old saved VM objects with a generic class have not
+been established by this check.
+
+## Activation-parent dispatch, SCR-76
+
+Successful default activation now queues children from winning XAPR records.
+The reverse index uses the existing CommonLibWorld decoder, including its
+load-order namespace resolution and malformed-field checks. It is a derived
+index, with no parallel mutable reference state. Default-only calls also
+queue children. A blocked default action does not. Children receive normal
+activation with their immediate parent as actor and bind their scripts before
+dispatch. The root still receives its original activating actor.
+
+Authored delays use elapsed simulation seconds and pause with the world.
+Zero and negative delays are immediate. Work is sorted by deadline, reference,
+actor and ancestry. Ancestor cycles stop with a native error. Each pump drains
+at most 64 tasks, leaving further work queued. Delayed work and ancestry use
+the named SCR-76 world section and participate in the determinism hash.
+SAVE_VERSION remains 37. Loading a save without this section clears the queue.
+Malformed saved work leaves the live queue unchanged.
+
+Sources are the local CommonLibSSE-NG ExtraActivateRefChildren.h,
+RefActivateData.h and ExtraActivateRef.h, Skymp MpObjectReference.cpp
+ActivateChilds and unit/ActivateParentTest.cpp, plus QuickLootIE
+Behaviors/ContainerAnimator.cpp. Skymp dispatches each child with its immediate
+parent and defers even zero-delay children until timer processing. QuickLoot's
+InitChildActivates signature alone does not establish child event identity.
+The existing XAPR view and timer infrastructure remain the readers and clock.
+No executable is read or called.
+The CK Activate page supplies blocked and default-only behavior.
+Skymp's dispatch comment marks its actor choice uncertain. TST-54 therefore
+retains the vanilla actor and timer-order oracle check. Parent-only XAPD
+restrictions are SCR-78. These limits are not claimed as verified by the
+synthetic dispatch tests.
+
+The first test failed because the XAPR child stayed closed. Seven focused
+checks now cover open state, root and child actors, cold script binding, blocked parent
+and child behavior, delayed save and reload, cycles, malformed XAPR and atomic
+saved-deadline rejection. Installed script-effect parity remains part of the
+sweep oracle work, rather than a claim made by these synthetic checks.
+
+## Shared object graph assets, ANM-61
+
+The host and headless survey share anim_driver project, character, rig, graph
+and clip resolution. Assets retain the decoded skeleton for named NIF node
+binding. HostState exposes the existing transient playhead between frames.
+Case-insensitive event lookup matches script open with the authored Open event.
+Unknown event names still fail. The object-only headless driver leaves actor
+presentation to its existing path. No saved world field is added.
+
+The installed Dwemer button and lever test exercises both movement and native
+PlayAnimationAndWait completion. Twelve focused driver tests pass, including
+mixed-case requests. QASmoke placed button motion changes from zero of nine
+to nine of nine. This result does not establish linked-reference effects,
+PlayGamebryoAnimation or threaded host transport.
 
 ## Race movement speeds, HST-40
 

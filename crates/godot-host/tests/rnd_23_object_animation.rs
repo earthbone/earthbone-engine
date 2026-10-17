@@ -22,6 +22,7 @@ fn surface() -> AnimatedSurface {
     w.roots = vec![root];
     let file = soe_nif::parse(&w.finish()).unwrap();
     AnimatedSurface {
+        behavior: None,
         asset: Arc::new(ObjectAnimation::from_file(&file).unwrap()),
         block: 0,
         shader: Some(1),

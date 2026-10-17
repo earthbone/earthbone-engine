@@ -1243,6 +1243,9 @@ impl World {
                 _ => {}
             }
         }
+        if process {
+            self.queue_activation_children(target);
+        }
         if send_event {
             let who = self.form_value(Some(activator), alloc);
             let object = self.object_of(Handle::Form(target), alloc);

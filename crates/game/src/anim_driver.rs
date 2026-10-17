@@ -30,7 +30,9 @@ use std::rc::Rc;
 pub struct Error(String);
 
 /// A graph, linked behaviors, decoded clips and its reference pose.
+#[derive(Debug)]
 pub struct Assets {
+    pub skeleton: Option<soe_hkx::skeleton::Skeleton>,
     pub graph: BehaviorGraph,
     pub clips: ClipLibrary,
     pub pose: Vec<QsTransform>,
@@ -82,6 +84,55 @@ impl Assets {
         )
     }
 
+    /// Resolve an object's authored behavior project through the existing HKX readers.
+    pub fn for_object(archive: &Vfs, nif: &soe_nif::NifFile) -> Result<Option<Self>, Error> {
+        let Some(project) = behavior_project(nif)? else {
+            return Ok(None);
+        };
+        let path = asset_path("meshes/", &project)?.to_ascii_lowercase();
+        Self::from_project(archive, &path).map(Some)
+    }
+
+    /// Load the character, graph, skeleton and clips named by a behavior project.
+    pub fn from_project(archive: &Vfs, path: &str) -> Result<Self, Error> {
+        let bytes = archive.read(path).map_err(execution)?;
+        let project = ProjectData::from_packfile(&Packfile::parse(&bytes).map_err(execution)?)
+            .map_err(execution)?;
+        let base = path.rsplit_once('/').map_or("", |(parent, _)| parent);
+        let base = format!("{base}/");
+        let join = |prefix: &str, name: &str| {
+            if name
+                .replace('\\', "/")
+                .to_ascii_lowercase()
+                .starts_with("meshes/")
+            {
+                asset_path("", name)
+            } else if name
+                .replace('\\', "/")
+                .to_ascii_lowercase()
+                .starts_with("actors/")
+            {
+                asset_path("meshes/", name)
+            } else {
+                asset_path(
+                    &base,
+                    &format!("{}/{}", prefix.trim_matches(['/', '\\']), name),
+                )
+            }
+        };
+        let name = project
+            .character_filenames
+            .first()
+            .ok_or_else(|| execution("project has no character"))?;
+        let character_path = join(&project.character_path, name)?;
+        let bytes = archive.read(&character_path).map_err(execution)?;
+        let character = CharacterData::from_packfile(&Packfile::parse(&bytes).map_err(execution)?)
+            .map_err(execution)?;
+        let behavior = join(&project.behavior_path, &character.behavior_filename)?;
+        let skeleton = join(&project.character_path, &character.rig_name)?;
+        Self::from_vfs(archive, &behavior, &base, &skeleton)
+    }
+
     fn from_vfs(archive: &Vfs, path: &str, base: &str, skeleton: &str) -> Result<Self, Error> {
         let mut graph = graph(archive, path)?;
         let mut failure = None;
@@ -116,14 +167,19 @@ impl Assets {
         let container =
             AnimationContainer::from_packfile(&Packfile::parse(&bytes).map_err(execution)?)
                 .map_err(execution)?;
-        let pose = container
+        let skeleton = container
             .skeletons
             .into_iter()
             .next()
-            .ok_or_else(|| execution("missing actor skeleton"))?
-            .reference_pose;
+            .ok_or_else(|| execution("missing actor skeleton"))?;
+        let pose = skeleton.reference_pose.clone();
         annotation_triggers(&mut graph, &clips);
-        Ok(Self { graph, clips, pose })
+        Ok(Self {
+            graph,
+            clips,
+            pose,
+            skeleton: Some(skeleton),
+        })
     }
 }
 
@@ -156,6 +212,11 @@ impl<'a> Host<'a> {
             request_cursor: 0,
             annotation_reports: Vec::new(),
         }
+    }
+
+    /// The local bone pose produced by the last graph update.
+    pub fn pose(&self) -> &[QsTransform] {
+        self.vm.pose()
     }
 
     /// Advance the graph and report emitted events through the game bridge.
@@ -222,7 +283,13 @@ impl<'a> Host<'a> {
                 continue;
             }
             let event = request_event(&world, &request.animation);
-            if !self.vm.send_event_named(&event) {
+            let event_name = self
+                .graph
+                .data
+                .event_names
+                .iter()
+                .find(|name| name.eq_ignore_ascii_case(&event));
+            if !event_name.is_some_and(|name| self.vm.send_event_named(name)) {
                 return Err(execution(format!("unknown graph event {event}")));
             }
         }
@@ -236,7 +303,13 @@ impl<'a> Host<'a> {
             }
             if *actor == self.actor {
                 let event = request_event(&world, event);
-                if !self.vm.send_event_named(&event) {
+                let event_name = self
+                    .graph
+                    .data
+                    .event_names
+                    .iter()
+                    .find(|name| name.eq_ignore_ascii_case(&event));
+                if !event_name.is_some_and(|name| self.vm.send_event_named(name)) {
                     return Err(execution(format!("unknown graph event {event}")));
                 }
             }
@@ -447,7 +520,8 @@ struct Instance {
     started: bool,
 }
 
-struct HostState {
+/// Transient graph state, rebound to the same assets between host frames.
+pub struct HostState {
     vm: soe_hkx::interp::InterpreterState,
     last_ints: BTreeMap<String, i32>,
     last_bools: BTreeMap<String, bool>,
@@ -458,7 +532,8 @@ struct HostState {
 }
 
 impl Host<'_> {
-    fn into_state(self) -> HostState {
+    /// Retain the graph playhead and request cursors without borrowing its assets.
+    pub fn into_state(self) -> HostState {
         HostState {
             vm: self.vm.into_state(),
             last_ints: self.last_ints,
@@ -472,7 +547,8 @@ impl Host<'_> {
 }
 
 impl<'a> Host<'a> {
-    fn from_state(assets: &'a Assets, actor: GlobalFormId, state: HostState) -> Self {
+    /// Rebind the retained state to the assets that created it.
+    pub fn from_state(assets: &'a Assets, actor: GlobalFormId, state: HostState) -> Self {
         Self {
             graph: &assets.graph,
             vm: Interpreter::from_state(&assets.graph, &assets.clips, state.vm),
@@ -490,6 +566,7 @@ impl<'a> Host<'a> {
 
 /// Asset-backed headless graph instances, using the same evaluator as probes.
 pub struct Driver {
+    include_actors: bool,
     vfs: Vfs,
     assets: BTreeMap<String, Rc<Assets>>,
     instances: BTreeMap<GlobalFormId, Instance>,
@@ -498,6 +575,11 @@ pub struct Driver {
 }
 
 impl Driver {
+    /// Leave actor graphs to the host while evaluating placed object projects.
+    pub fn objects_only(mut self) -> Self {
+        self.include_actors = false;
+        self
+    }
     pub(crate) fn reset(&mut self, request_cursor: usize) {
         self.instances.clear();
         self.partners.clear();
@@ -537,6 +619,7 @@ impl Driver {
         }
         vfs.add_loose_root(data).map_err(execution)?;
         Ok(Self {
+            include_actors: true,
             vfs,
             assets: BTreeMap::new(),
             instances: BTreeMap::new(),
@@ -546,42 +629,7 @@ impl Driver {
     }
 
     fn load_project(&self, path: &str) -> Result<Assets, Error> {
-        let bytes = self.vfs.read(path).map_err(execution)?;
-        let project = ProjectData::from_packfile(&Packfile::parse(&bytes).map_err(execution)?)
-            .map_err(execution)?;
-        let base = path.rsplit_once('/').map_or("", |(parent, _)| parent);
-        let base = format!("{base}/");
-        let join = |prefix: &str, name: &str| {
-            if name
-                .replace('\\', "/")
-                .to_ascii_lowercase()
-                .starts_with("meshes/")
-            {
-                asset_path("", name)
-            } else if name
-                .replace('\\', "/")
-                .to_ascii_lowercase()
-                .starts_with("actors/")
-            {
-                asset_path("meshes/", name)
-            } else {
-                asset_path(
-                    &base,
-                    &format!("{}/{}", prefix.trim_matches(['/', '\\']), name),
-                )
-            }
-        };
-        let name = project
-            .character_filenames
-            .first()
-            .ok_or_else(|| execution("project has no character"))?;
-        let character_path = join(&project.character_path, name)?;
-        let bytes = self.vfs.read(&character_path).map_err(execution)?;
-        let character = CharacterData::from_packfile(&Packfile::parse(&bytes).map_err(execution)?)
-            .map_err(execution)?;
-        let behavior = join(&project.behavior_path, &character.behavior_filename)?;
-        let skeleton = join(&project.character_path, &character.rig_name)?;
-        Assets::from_vfs(&self.vfs, &behavior, &base, &skeleton)
+        Assets::from_project(&self.vfs, path)
     }
 
     fn graph_for(
@@ -597,6 +645,9 @@ impl Driver {
             return Ok(None);
         };
         if record.tag == soe_esm::Tag(*b"NPC_") {
+            if !self.include_actors {
+                return Ok(None);
+            }
             let rig = world.actor_animation_rig(target).map_err(execution)?;
             return rig
                 .and_then(|rig| rig.behavior)
@@ -777,6 +828,7 @@ mod tests {
         transition.to_state_id = 0;
         machine.states[1].transitions.push(transition);
         Assets {
+            skeleton: None,
             graph,
             clips: ClipLibrary::new(),
             pose: vec![],
@@ -805,6 +857,19 @@ mod tests {
             .push((actor, "walkStart".into()));
         host.update(&mut game, 0.0).unwrap();
         assert_eq!(host.vm.current_state(root), Some(1));
+        host.update(&mut game, 0.0).unwrap();
+        assert_eq!(host.vm.current_state(root), Some(1));
+    }
+
+    #[test]
+    fn anm_61_host_resolves_request_names_without_case() {
+        let assets = assets();
+        let root = assets.graph.root.unwrap();
+        let mut game = Game::new(soe_esm::LoadOrder::new());
+        let actor = game.player();
+        let mut host = Host::new(&assets, actor);
+        host.update(&mut game, 0.0).unwrap();
+        game.world_mut().request_animation(actor, "WALKSTART");
         host.update(&mut game, 0.0).unwrap();
         assert_eq!(host.vm.current_state(root), Some(1));
     }
@@ -943,6 +1008,7 @@ mod tests {
         let assets = Rc::new(opening_assets());
         let state = Some(Host::new(&assets, actor).into_state());
         let driver = Driver {
+            include_actors: true,
             vfs: Vfs::new(),
             assets: BTreeMap::new(),
             instances: BTreeMap::from([(
@@ -1066,6 +1132,7 @@ mod tests {
         let assets = Rc::new(opening_assets());
         let state = Some(Host::new(&assets, target).into_state());
         game.set_headless_animations(Driver {
+            include_actors: true,
             vfs: Vfs::new(),
             assets: BTreeMap::new(),
             instances: BTreeMap::from([(
@@ -1130,6 +1197,7 @@ mod tests {
         let assets = Rc::new(opening_assets());
         let state = Some(Host::new(&assets, actor).into_state());
         game.set_headless_animations(Driver {
+            include_actors: true,
             vfs: Vfs::new(),
             assets: BTreeMap::new(),
             instances: BTreeMap::from([(
@@ -1188,6 +1256,7 @@ mod tests {
         let assets = Rc::new(opening_assets());
         let state = Some(Host::new(&assets, target).into_state());
         game.set_headless_animations(Driver {
+            include_actors: true,
             vfs: Vfs::new(),
             assets: BTreeMap::new(),
             instances: BTreeMap::from([(
@@ -1269,6 +1338,7 @@ mod tests {
             );
         }
         game.set_headless_animations(Driver {
+            include_actors: true,
             vfs: Vfs::new(),
             assets: BTreeMap::new(),
             instances,

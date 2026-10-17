@@ -882,6 +882,15 @@ impl World {
                 }
             }
         }
+        let mut activations = soe_papyrus::vm::state::Writer::new();
+        super::activation_parents::write(
+            self,
+            &mut activations,
+            &mut soe_papyrus::vm::state::ArrayPool::default(),
+        );
+        if !activations.out.is_empty() {
+            h.bytes(&activations.out);
+        }
         let pending = h.finish();
 
         let mut h = StateHasher::new();
