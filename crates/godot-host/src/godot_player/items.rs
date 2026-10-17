@@ -332,7 +332,15 @@ impl PlayerNode {
             };
             crate::magic_menu::equip_spell(game, hand, item)
         } else if matches!(title.as_str(), "Inventory" | "Favorites") {
-            crate::inventory_menu::toggle_equip(game, item)
+            crate::inventory_menu::toggle_equip_hand(
+                game,
+                item,
+                if hand == 0 {
+                    soe_game::combat::Hand::Left
+                } else {
+                    soe_game::combat::Hand::Right
+                },
+            )
         } else {
             false
         };

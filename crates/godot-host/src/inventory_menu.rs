@@ -122,6 +122,15 @@ pub fn gift_entries(game: &Game, request: &soe_game::world::GiftMenuRequest) -> 
 
 /// Toggle an equipped weapon or armor through the shared game world.
 pub fn toggle_equip(game: &mut Game, item: GlobalFormId) -> bool {
+    toggle_equip_hand(game, item, soe_game::combat::Hand::Right)
+}
+
+/// Toggle equipment using the hand selected by the inventory presenter.
+pub fn toggle_equip_hand(
+    game: &mut Game,
+    item: GlobalFormId,
+    hand: soe_game::combat::Hand,
+) -> bool {
     let player = game.player();
     let mut world = game.world_mut();
     let Some(tag) = world.tag_of(item) else {
@@ -135,6 +144,8 @@ pub fn toggle_equip(game: &mut Game, item: GlobalFormId) -> bool {
         .is_some_and(|actor| actor.equipped.contains(&item))
     {
         world.unequip_item(player, item).is_ok()
+    } else if tag == Tag(*b"WEAP") {
+        world.equip_hand_weapon(player, hand, item).is_ok()
     } else {
         world.equip_item(player, item).is_ok()
     }
@@ -174,8 +185,29 @@ mod tests {
 
     fn game() -> Game {
         let mut plugin = Plugin::new(FileHeader::default());
+        let mut weapon = vec![0; 100];
+        weapon[0] = 1;
+        weapon[4..8].copy_from_slice(&1_f32.to_le_bytes());
+        weapon[8..12].copy_from_slice(&1_f32.to_le_bytes());
+        plugin.push_top(Record::new(Tag(*b"EQUP"), 0x300));
+        plugin.push_top(Record::new(Tag(*b"EQUP"), 0x301));
+        plugin.push_top(
+            Record::new(Tag(*b"DOBJ"), 0x302).sub(
+                Tag(*b"DNAM"),
+                [
+                    b"LHEQ".as_slice(),
+                    &0x300_u32.to_le_bytes(),
+                    b"RHEQ",
+                    &0x301_u32.to_le_bytes(),
+                ]
+                .concat(),
+            ),
+        );
         plugin.push_top(
             Record::new(Tag(*b"WEAP"), 0x100)
+                .sub(Tag(*b"DATA"), [0; 10])
+                .sub(Tag(*b"DNAM"), weapon)
+                .sub(Tag(*b"ETYP"), 0x301_u32.to_le_bytes())
                 .zsub(Tag(*b"FULL"), "Sword")
                 .sub(Tag(*b"KWDA"), 0x200_u32.to_le_bytes()),
         );
@@ -288,6 +320,19 @@ mod tests {
         assert!(!entries(&game, player, Category::Weapons)[0].equipped);
         assert!(!toggle_equip(&mut game, id(0x102)));
         assert!(!toggle_equip(&mut game, id(0x999)));
+    }
+
+    #[test]
+    fn hst_25_inventory_equip_assigns_the_weapon_hand_used_by_attacks() {
+        let mut game = game();
+        let player = game.player();
+        game.world_mut().add_item(player, id(0x100), 1);
+        assert!(toggle_equip(&mut game, id(0x100)));
+        assert_eq!(
+            game.world_mut()
+                .hand_weapon(player, soe_game::combat::Hand::Right),
+            Some(id(0x100))
+        );
     }
 
     #[test]
