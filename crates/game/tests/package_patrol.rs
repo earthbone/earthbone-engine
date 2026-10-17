@@ -312,6 +312,30 @@ fn open_routes_reverse_but_closed_routes_wrap_even_without_repeat() {
 }
 
 #[test]
+fn ply_03_patrol_without_optional_marker_data_visits_each_reference_and_finishes() {
+    let mut order = order(Settings::default());
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Patrol.esm".into()],
+        ..FileHeader::default()
+    });
+    for (object, x, next) in [(A, 110.0, Some(B)), (B, 220.0, Some(C)), (C, 330.0, None)] {
+        let mut marker = placed(*b"REFR", object, 0, x);
+        if let Some(next) = next {
+            marker = marker.sub(T(b"XLKR"), next.to_le_bytes());
+        }
+        patch.push_top(marker);
+    }
+    order.add("PlainMarkers.esp", patch).unwrap();
+    let mut game = Game::new(order);
+    assert!(game.world_mut().drive_actor(id(ACTOR)));
+    for expected in [110.0, 110.0, 220.0, 220.0, 330.0, 330.0] {
+        game.tick(1.0);
+        assert_eq!(position(&game), expected);
+    }
+    assert!(state(&game).completed.contains_key(&id(PACK)));
+}
+
+#[test]
 fn nearest_start_uses_the_following_marker_and_terminal_entry_can_finish() {
     let mut game = game(Settings {
         nearest: true,

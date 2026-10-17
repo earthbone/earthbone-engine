@@ -650,6 +650,9 @@ impl Game {
         self.world
             .borrow_mut()
             .load_state_with_file_map(world_bytes, file_map.as_deref())?;
+        if let Some(driver) = &mut self.headless_animations {
+            driver.reset(self.world.borrow().animation_requests.len());
+        }
         let world_nanos = world_validation_nanos.saturating_add(elapsed_nanos(world_started));
         let vm_started = std::time::Instant::now();
         self.vm.load_state(vm_bytes)?;

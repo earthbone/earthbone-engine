@@ -9998,3 +9998,117 @@ inclusive phase remains bounded by the total. Nested idle-chatter and
 force-greet evaluations are counted through the enclosing greeting duration.
 The synthetic PRF-27 phase check and installed PRF-11 sixty-second check
 retain the phase bounds and the original eight-millisecond frame budget.
+
+## Headless behavior graphs, PLY-03
+
+`anim_driver::Host` is the graph evaluator moved from `soe-probe`. The probe
+keeps its configuration and error adapter and calls that host. Headless
+checkpoint loading installs `anim_driver::Driver`, which consumes each new
+animation request once and advances active graphs on gameplay ticks. Graph
+reports use `Game::report_animation_event`, including registered Papyrus
+listeners and latent waits. A ready headless graph marks its enabled reference
+loaded and delivers OnLoad before its first event. Lazy binding includes the
+base form's scripts, so an OnLoad animation listener sees the first clip trigger.
+Repeated ticks do not repeat OnLoad. Disabling a reference or unloading its
+cell stops its graph. Readiness is established once per instance, so a later
+tick cannot reload a graph whose cell has left memory.
+
+An IDLE request carries its editor ID. The driver resolves the winning IDLE
+and sends its ENAM event. Actor graph projects come from
+`World::actor_animation_rig`. For objects, the base MODL names the NIF and
+BSBehaviorGraphExtraData names the project. The existing HKX project and
+character readers select the behavior file and skeleton. Archives follow
+load order and loose files override them. Missing active clips and unknown
+graph events or variables produce a headless animation diagnostic.
+
+Decoded clip annotations become timed graph triggers unless clip flag 16
+forbids conversion. Authored triggers at the same event and local time take
+precedence. A trigger at the initial playhead fires once on activation,
+including an update with zero elapsed time. Later ticks do not repeat it.
+The driver retains the existing interpreter state between ticks without
+leaking assets or adding an engine save field. World restoration drops active
+graph instances and advances the request cursor past old requests. Cached
+assets remain available, while saved event history is never injected as input.
+
+An annotation reaches another graph only when the idle supplies an explicit
+partner or the actor has a recorded furniture relationship, and that graph
+names the event. A reserved furniture marker or a unique FURN reference in
+the current package supplies the furniture relationship. Delivery queues a
+request on that reference and evaluates it with zero additional elapsed time
+in the same tick. Up to eight rounds bound chains of script and graph
+requests. Other references receive no broadcast.
+
+The installed MQ101 scene establishes an authored relationship: scene
+0:0D0594 assigns Alduin package 0:06CF55 in phases 5 through 14. That package's
+SingleRef target is wall reference 0:06CF54. Its base 0:06CF46 names the
+ImpTowerWallCollapse01 NIF and sets dragonTowerWallScript.myEvent to Begin.
+The wall's Behavior00 graph enters OpeningAnim on Open and fires Begin at
+local time zero. The script sets stage 103, whose Fragment_297 sets stage 100.
+Stage 40's Fragment_309 requests Dragon_AlduinTowerSmashBite. Its ENAM is
+PerchTowerAttackSmashBite, and its clip has an Open annotation at 0.4 seconds
+and authored End_Tower_Smash triggers. The installed smash generator has
+flags zero, allowing annotation conversion. Its End_Tower_Smash and
+to_Perch_Idle triggers fire 0.002 seconds before clip end.
+
+Sources read for this change were local CK PlayIdle, PlayIdleWithTarget,
+OnAnimationEvent, OnLoad and OnTriggerEnter pages, UESP IDLE.wikitext, xEdit
+wbDefinitionsTES5.pas IDLE, FURN and PACK definitions, nifxml/nif.xml
+BSBehaviorGraphExtraData and serde-hkx/assets/classes/hkbClipGenerator.json.
+The NIF reader retains this extra-data block as opaque bytes, so the driver
+reads its fixed-string index using the declared NIF layout. The profile
+archive association in `crates/profile/src/lib.rs`, the Godot actor project
+resolver and the probe animation host supplied the loading
+and graph-variable paths. Installed winning records, NIF, HKX and PEX files
+were read in place. No game asset or save is part of the change.
+
+The baseline installed replay has no Open or End_Tower_Smash from Alduin.
+At stage 40 he has package 0:0D67AF, dunCGAlduinAShoutStrafeSquarePkg,
+from scene phase 4. Its first Patrol target is 0:0D67B1, whose optional
+patrol-data group is absent. Patrol now accepts such markers with zero dwell.
+Malformed, negative and non-finite explicit dwell values still fail. The
+sources are xEdit's REFR Patrol group and Mutagen's PlacedObject.xml,
+Patrol.xml and Patrol_Generated.cs. The latter initializes idle time to zero.
+
+Ordinary gameplay ticks update scene actions but do not advance scene phases.
+The route's play-scene commands advance them. The stage-40 idle request arrives
+while phase 4 still owns Alduin's package, before phases 5 through 14 assign
+the wall package. His graph remains on its ground path. The driver does not
+reconstruct saved Havok graph state or synthesize a furniture-entry event.
+IDLE 0:0680F7 supplies EnterPerchTowerAttackInstant under the DragonTowerAttack
+furniture branch, conditioned on IsEnteringInteractionQuick. The condition
+evaluator does not support that function, and neither host has a generic
+furniture-entry animation bridge. These are separate interaction and scene
+execution limits. The graph-load hook covers the wall's listener once a
+record-linked annotation requests its graph.
+
+The route's 1900 navigation samples have no point or point-sweep crossing
+of either stage-120 box. Its closest sample to 0:0CD6AC is at
+[16235.515, -83631.625, 8444.988], about 299 units below the box. For
+0:0ED5FC it passes [17179.012, -83443.68, 8393.669], only 19.47 units
+outside the rotated side. Both records use enable parent 0:0F7E82,
+dunCGPostTriggerCleanupMarker, whose record starts disabled. Fragment_232
+enables that parent at stage 10, and Fragment_275 disables it at stage 200.
+The checkpoint importer already applies saved enable-mask changes, so these
+authored calls alone do not establish an import failure.
+
+The 2026-10-17 diagnostic replay repeats those 1900 samples and both zero
+crossing counts. The two triggers and their enable parent are disabled both
+at checkpoint load and after the route. The replay still reaches stage 192.
+Patrol now has a valid procedure, but Alduin emits neither Open nor
+End_Tower_Smash, and the wall receives no graph request. Trigger membership
+uses the actor's footpoint and point sweep, not its controller body. No
+trigger volume change is part of this patch. Controller-body overlap and
+the parent's saved enable state need separate verification.
+
+Checks on 2026-10-17 pass 253 game library tests, 440 HKX tests, 55 probe
+tests and 22 Patrol integration tests. Optional installed-data and capture
+gates were unset for those crate runs. Formatting and all-target clippy pass
+for game, HKX and probe. Eleven game driver tests include the three moved
+probe checks and eight graph, script, timing, request and lifecycle checks.
+The HKX change supplies the state ownership and initial trigger handling
+needed by the shared game driver, without a second interpreter.
+
+The installed diagnostic route completes through stage 192, with stages
+100, 103 and 120 still absent. The full installed PLY-03 suite has not yet
+completed on this milestone. PLY-03 remains unfinished. The lead's workspace
+gate was not run, as requested.

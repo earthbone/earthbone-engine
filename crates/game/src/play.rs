@@ -223,6 +223,9 @@ fn load(data: &Path, save_path: &Path, mode: SaveMode) -> Result<Game, Error> {
     }
     order.build_cell_index();
     let mut game = Game::new(order);
+    let driver = crate::anim_driver::Driver::open(data, game.world().order())
+        .map_err(|error| startup(error.to_string()))?;
+    game.set_headless_animations(driver);
     let scripts = game.load_scripts_from_data(data);
     if !scripts.scripts_failed.is_empty() {
         return Err(startup(format!(

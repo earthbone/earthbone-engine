@@ -25,6 +25,7 @@
 pub mod actor_values;
 pub mod ai;
 pub mod ambience;
+pub mod anim_driver;
 pub mod appearance;
 pub mod class;
 pub mod clock;
@@ -188,6 +189,7 @@ pub struct Game {
     mcm_registered: Vec<GlobalFormId>,
     mcm_active: Option<GlobalFormId>,
     mcm_bridge: Rc<RefCell<mcm::Bridge>>,
+    headless_animations: Option<anim_driver::Driver>,
     /// Actors that were in greeting range on the previous gameplay tick.
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
     /// Hands currently held by direct player or scripted cast input.
@@ -298,6 +300,7 @@ impl Game {
             mcm_registered: Vec::new(),
             mcm_active: None,
             mcm_bridge,
+            headless_animations: None,
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
             wasm_mods: WasmMods::new(),
@@ -650,6 +653,11 @@ impl Game {
                 .resolve_latent(completion.latent, Value::Bool(completion.succeeded));
         }
         self.run_until_idle(64);
+    }
+
+    /// Drive behavior graphs from Papyrus requests in headless runs.
+    pub fn set_headless_animations(&mut self, driver: anim_driver::Driver) {
+        self.headless_animations = Some(driver);
     }
 
     /// Drain host graph events after a host frame and deliver them in order.
@@ -1717,6 +1725,12 @@ impl Game {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
             self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         }
+        if let Some(mut driver) = self.headless_animations.take() {
+            driver.step(self, if menu_mode { 0.0 } else { real_seconds as f32 });
+            self.headless_animations = Some(driver);
+            self.deliver_animation_reports();
+        }
+
         self.run_until_idle(64);
         if !menu_mode {
             let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);

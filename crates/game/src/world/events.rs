@@ -445,6 +445,19 @@ impl World {
         self.finish_animation_waits(source, None);
     }
 
+    /// A headless graph is ready for animation requests and script listeners.
+    pub(crate) fn animation_graph_loaded(&mut self, source: GlobalFormId) -> bool {
+        if !self.reference_enabled(source) || !self.loaded_3d_references.insert(source) {
+            return false;
+        }
+        self.commonlib_object_loaded(source, true);
+        self.pending.push(Pending::ReferenceEvent {
+            reference: source,
+            name: "OnLoad".into(),
+        });
+        true
+    }
+
     /// Resolve waits when a reference becomes disabled.
     pub fn set_reference_enabled(&mut self, source: GlobalFormId, enabled: bool) {
         let cell = if let Some(reference) = self.reference(source) {
