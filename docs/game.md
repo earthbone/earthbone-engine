@@ -20,6 +20,21 @@ the execution path. Mudcrab streaming was checked for object animation wiring
 and did not supply a Skyrim object graph bridge to reuse.
 No game assets or script instruction dumps belong in the report.
 
+## Shared object graph assets, ANM-61
+
+The host and headless survey share anim_driver project, character, rig, graph
+and clip resolution. Assets retain the decoded skeleton for named NIF node
+binding. HostState exposes the existing transient playhead between frames.
+Case-insensitive event lookup matches script open with the authored Open event.
+Unknown event names still fail. The object-only headless driver leaves actor
+presentation to its existing path. No saved world field is added.
+
+The installed Dwemer button and lever test exercises both movement and native
+PlayAnimationAndWait completion. Twelve focused driver tests pass, including
+mixed-case requests. QASmoke placed button motion changes from zero of nine
+to nine of nine. This result does not establish linked-reference effects,
+PlayGamebryoAnimation or threaded host transport.
+
 ## Race movement speeds, HST-40
 
 `movement::MovementType` reads the four directional walk/run pairs in MOVT

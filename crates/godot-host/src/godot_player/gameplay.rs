@@ -785,6 +785,11 @@ impl PlayerNode {
             game.update_trigger_actor_position(player, cell, from, [feet.x, feet.y, feet.z]);
             if delta.is_finite() && delta > 0.0 {
                 game.tick(delta);
+                if let Some(streamer) = &mut self.game_streamer {
+                    streamer
+                        .bind_mut()
+                        .advance_game_object_animations(game, delta as f32);
+                }
             }
         }
         // CONTEXT: Apply game edits before reading simulated body poses back

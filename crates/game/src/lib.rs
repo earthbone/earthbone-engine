@@ -630,6 +630,14 @@ impl Game {
         self.world.clone()
     }
 
+    /// Mark a host graph ready, preserving the shared loaded-reference event path.
+    pub fn report_animation_loaded(&mut self, source: GlobalFormId) {
+        let loaded = self.world.borrow_mut().animation_graph_loaded(source);
+        if loaded {
+            self.run_until_idle(64);
+        }
+    }
+
     /// Deliver one host animation event to Papyrus listeners and latent waits.
     pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
         let vm = &mut self.vm;

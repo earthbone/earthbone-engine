@@ -1485,8 +1485,19 @@ impl DataSource {
         let animation = Arc::new(soe_nif::object_animation::ObjectAnimation::from_file(
             &file,
         )?);
+        let behavior = if playback == SurfacePlayback::Live {
+            match crate::object_behavior::Asset::from_nif(&self.vfs, &file, animation.rest_pose()) {
+                Ok(asset) => asset,
+                Err(error) => {
+                    soe_trace::error!(target: "host::object_behavior", system = "host::object_behavior", model, error = %error, "object behavior unavailable, retaining NIF geometry");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let animated = playback == SurfacePlayback::Live
-            && (animation.is_animated() || animation.has_sequences());
+            && (animation.is_animated() || animation.has_sequences() || behavior.is_some());
         let instancing = instancing && !animated;
         let mut animations = Vec::new();
         let mut meshes = file.meshes()?;
@@ -1556,6 +1567,7 @@ impl DataSource {
             };
             animations.push(animated.then(|| crate::object_animation::AnimatedSurface {
                 asset: animation.clone(),
+                behavior: behavior.clone(),
                 block: shape.block,
                 shader: soe_nif::object_animation::shader_ref(&file.blocks[shape.block]).get(),
                 skin: shape.skin.clone(),

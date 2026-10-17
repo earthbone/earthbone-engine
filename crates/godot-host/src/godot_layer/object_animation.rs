@@ -16,6 +16,7 @@ pub(super) struct RuntimeSurface {
     skeleton: Option<Rid>,
     base: MaterialDesc,
     pub(super) last_transforms: Vec<Transform3D>,
+    behavior: Option<std::rc::Rc<std::cell::RefCell<crate::object_behavior::Runtime>>>,
 }
 
 impl Drop for RuntimeSurface {
@@ -42,9 +43,12 @@ impl RuntimeSurface {
     }
 
     fn update(&mut self, rid: Rid, delta: f32) {
-        let pose = self
+        let mut pose = self
             .clock
             .update(&self.surface.asset, delta, self.sequence.as_deref());
+        if let Some(behavior) = &self.behavior {
+            behavior.borrow().apply(&mut pose);
+        }
         let shape = pose
             .transforms
             .get(self.surface.block)
@@ -167,6 +171,30 @@ impl CellStreamerNode {
         let Some(animated) = surface.animation.clone() else {
             return;
         };
+        let behavior = animated.behavior.as_ref().map(|asset| {
+            self.instances
+                .iter()
+                .find_map(|instance| {
+                    let BatchTable::Triangles(members) = &instance.table else {
+                        return None;
+                    };
+                    members
+                        .iter()
+                        .any(|member| member.reference == surface.reference)
+                        .then(|| {
+                            instance
+                                .animation
+                                .as_ref()
+                                .and_then(|animation| animation.behavior.clone())
+                        })
+                        .flatten()
+                })
+                .unwrap_or_else(|| {
+                    std::rc::Rc::new(std::cell::RefCell::new(
+                        crate::object_behavior::Runtime::new(Arc::clone(asset), surface.reference),
+                    ))
+                })
+        });
         let mut desc = surface.arrays.material.clone();
         let initial = animated.asset.sample(0.0, None);
         if desc.effect.is_none()
@@ -237,6 +265,7 @@ impl CellStreamerNode {
             skeleton,
             base: surface.arrays.material.clone(),
             last_transforms: Vec::new(),
+            behavior,
         };
         runtime.update(instance.rid, 0.0);
         instance.animation = Some(runtime);
@@ -251,6 +280,38 @@ impl CellStreamerNode {
         for instance in &mut self.instances {
             if let Some(animation) = &mut instance.animation {
                 animation.update(instance.rid, delta);
+            }
+        }
+    }
+
+    /// Evaluate each placed object's graph once, regardless of its surface count.
+    pub(crate) fn advance_game_object_animations(
+        &mut self,
+        game: &mut soe_game::Game,
+        seconds: f32,
+    ) {
+        let mut visited = std::collections::BTreeSet::new();
+        for instance in &self.instances {
+            let BatchTable::Triangles(members) = &instance.table else {
+                continue;
+            };
+            let Some(reference) = members.first().map(|member| member.reference) else {
+                continue;
+            };
+            let Some(behavior) = instance
+                .animation
+                .as_ref()
+                .and_then(|animation| animation.behavior.as_ref())
+            else {
+                continue;
+            };
+            if visited.insert(reference) {
+                if let Err(error) = behavior.borrow_mut().update(game, seconds) {
+                    game.vm.log.push(
+                        game.vm.time(),
+                        format!("error: object animation {reference}: {error}"),
+                    );
+                }
             }
         }
     }

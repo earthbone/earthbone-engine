@@ -16,6 +16,31 @@ model-presence library check passed before the fix and is only a coverage
 guard. It is not evidence of working activation animation.
 See [validation.md](validation.md) for the command and oracle limits.
 
+## Placed object behavior graphs, ANM-61
+
+Live object surfaces now resolve BSBehaviorGraphExtraData through the existing
+game HKX project loader. One graph playhead per placed reference supplies
+bone poses to the existing NIF node and RID transform path. All surfaces of
+a reference share that playhead. No scene nodes, dependencies or saved fields
+are added. NIF controller tracks outside the graph subtree keep their samples.
+Requests match authored event names without case, including script open versus
+graph Open. Completion events reach the existing Papyrus latent wait bridge.
+
+The installed button and lever test checks movement above 0.001 units or
+matrix components within three simulated seconds and completion of native
+PlayAnimationAndWait. It failed on the authored Open name before the event
+lookup correction. The free walk QASmoke comparison is nine buttons without
+motion before and nine with motion after. Both cell processes exited normally.
+The after visit took 33.401 seconds. Concurrent quest errors still fail the
+sweep. Forge and smelter rigs have no matching object node and report binding
+errors. Furniture animation remains HST-52, with no fallback pass claimed.
+
+This bridge runs with the inline Game. Threaded request and pose transport is
+ANM-62. PlayGamebryoAnimation and full script-effect oracles remain separate
+work. The source contracts and unchanged evaluator are listed in
+[game.md](game.md). The test and sweep measure transforms and script completion,
+not pixels or physical sound output.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and
