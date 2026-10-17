@@ -56,7 +56,7 @@ fn run() -> Result<bool, String> {
                 .and_then(soe_esm::Record::editor_id)
                 .unwrap_or_default()
         );
-        results.push(run_cell(&order, &vfs, cell)?);
+        results.push(run_cell(&order, &vfs, cell, Path::new(&data))?);
         let report = json!({"schema":1,"oracle":"CK contracts and installed records, no captured vanilla runtime oracle",
             "complete":index + 1 == total,"requested_cells":requested_cells,
             "settle_seconds":3,"isolation":"fresh cell, sequential activations within cell",

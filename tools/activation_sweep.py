@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 import subprocess
 import signal
+import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,8 @@ def summary(report):
                 if site:
                     sites.add("papyrus:" + site.group(1))
             causes.update(sites)
+            if any(message.startswith("Headless animation ") for message in row.get("logs", [])) and row["cause"] != "headless_animation_error":
+                causes["headless_animation_error"] += 1
             if row.get("pending_animation_waits", 0) and row["cause"] != "animation_wait_not_completed":
                 causes["animation_wait_not_completed"] += 1
             for cause in row.get("visual", {}).get("causes", []):
@@ -50,10 +53,12 @@ def summary(report):
 
 
 def compact_host(data):
-    initial = {}
+    initial = data.get("initial", {})
     for index, row in enumerate(data.get("references", [])):
         before, after = row.get("before", {}), row.get("after", {})
         for field in ("papyrus_errors", "native_errors", "animation_requests"):
+            if field + "_count" in before:
+                continue
             prior, current = before.get(field, []), after.get(field, [])
             if index == 0:
                 initial[field] = prior
@@ -66,7 +71,25 @@ def compact_host(data):
     return data
 
 
+def read_host(path):
+    try:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict) or not isinstance(data.get("complete"), bool) or not isinstance(data.get("references"), list):
+            raise ValueError("invalid host report structure")
+        for row in data["references"]:
+            reference = row.get("reference") if isinstance(row, dict) else None
+            if not isinstance(reference, dict) or not isinstance(reference.get("id"), str) or not isinstance(row.get("before"), dict) or not isinstance(row.get("after"), dict):
+                raise ValueError("invalid reference observation")
+        return compact_host(data), None
+    except (OSError, ValueError) as error:
+        return {}, str(error)
+
+
 def write_report(path, report):
+    for cell in report["cells"]:
+        for row in cell["references"]:
+            row["logs"] = [message for message in row.get("logs", []) if any(
+                word in message.lower() for word in ("error", "cannot", "unsupported", "missing", "unknown", "headless animation", "has no function"))]
     report["counts"] = summary(report)
     path.write_text(json.dumps(report, indent=2) + "\n")
     lines = ["# Activation sweep", "", report["oracle"], "",
@@ -89,8 +112,50 @@ def write_report(path, report):
     path.with_suffix(".md").write_text("\n".join(lines))
 
 
+def model_key(path):
+    return "/".join(part for part in path.replace("\\", "/").lower().split("/") if part).removeprefix("meshes/")
+
+
+def merge_host(cell, data, status, log_text, seconds, report_error=None):
+    behavior_errors = [line for line in log_text.splitlines() if "host::object_behavior" in line and "ERROR" in line]
+    expected = {row["reference"]["id"] for row in cell["references"]}
+    actual = {row["reference"]["id"] for row in data.get("references", [])}
+    complete = status == 0 and data.get("complete", False) and "ACTIVATION_SWEEP complete" in log_text and "SCRIPT ERROR" not in log_text and expected == actual and len(data.get("references", [])) == len(cell["references"]) and data.get("cell", {}).get("id") == cell["cell"]["id"]
+    cell["host"] = {"exit_status": status, "complete": complete, "required": True,
+                    "seconds": seconds, "initial": data.get("initial", {}),
+                    "report_error": report_error, "behavior_errors": behavior_errors}
+    observed = {row["reference"]["id"]: row for row in data.get("references", [])}
+    for row in cell["references"]:
+        row.setdefault("headless_status", row["status"])
+        row.setdefault("headless_cause", row["cause"])
+        row["status"] = row["headless_status"]
+        row["cause"] = row["headless_cause"]
+        if any(message.startswith("Headless animation ") for message in row.get("logs", [])):
+            row["status"], row["cause"] = "error", "headless_animation_error"
+        row["visual"] = observed.get(row["reference"]["id"], {"status": "error", "causes": ["host_run_incomplete"]})
+        causes = row["visual"].setdefault("causes", [])
+        causes[:] = [cause for cause in causes if cause != "host_run_incomplete"]
+        for error in behavior_errors:
+            model = re.search(r'model=("(?:\\.|[^"\\])*")', error)
+            if model and model_key(json.loads(model.group(1))) == model_key(row.get("model") or ""):
+                if "host_behavior_binding_error" not in causes:
+                    causes.append("host_behavior_binding_error")
+                row["visual"].setdefault("behavior_errors", []).append(error)
+        if not complete:
+            causes.append("host_run_incomplete")
+        if causes:
+            row["visual"]["status"] = "fail"
+        if causes and row["status"] == "pass":
+            row["status"] = "error" if any("error" in cause or cause == "host_run_incomplete" for cause in causes) else "wrong outcome"
+            row["cause"] = causes[0]
+
+
 def host_pass(report, args, work):
     for index, cell in enumerate(report["cells"]):
+        if not cell["references"]:
+            cell["host"] = {"required": False, "complete": False, "status": "no eligible references", "exit_status": None, "seconds": 0}
+            write_report(args.report, report)
+            continue
         source = work / f"cell-{index}.json"
         output = work / f"host-{index}.json"
         log = work / f"host-{index}.log"
@@ -98,7 +163,7 @@ def host_pass(report, args, work):
         env = dict(os.environ, SOE_ACTIVATION_CELL=str(source),
                    SOE_ACTIVATION_OUTPUT=str(output), SOE_THREADED_SIMULATION="0",
                    DISPLAY=":99", SOE_GODOT_TIMEOUT=str(args.cell_timeout))
-        command = [args.godot, "--headless", "--path", str(ROOT / "godot"),
+        command = [args.godot, "--headless", "--path", str(args.project),
                    "--script", "activation_sweep.gd"]
         print(f"activation host: {index + 1}/{len(report['cells'])} {cell['cell']}", flush=True)
         with installed_slot() as descriptors, log.open("w") as stream:
@@ -115,24 +180,9 @@ def host_pass(report, args, work):
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait()
                 status = child.returncode
-        data = compact_host(json.loads(output.read_text())) if output.exists() else {}
+        data, report_error = read_host(output)
         log_text = log.read_text(errors="replace")
-        complete = status == 0 and data.get("complete", False) and "ACTIVATION_SWEEP complete" in log_text and "SCRIPT ERROR" not in log_text
-        cell["host"] = {"exit_status": status, "complete": complete,
-                        "seconds": round(time.monotonic() - started, 3), "initial": data.get("initial", {})}
-        observed = {r["reference"]["id"]: r for r in data.get("references", [])}
-        for row in cell["references"]:
-            row.setdefault("headless_status", row["status"])
-            row.setdefault("headless_cause", row["cause"])
-            row["status"] = row["headless_status"]
-            row["cause"] = row["headless_cause"]
-            row["visual"] = observed.get(row["reference"]["id"],
-                                         {"status": "error", "causes": ["host_run_incomplete"]})
-            if not complete:
-                row["visual"].setdefault("causes", []).append("host_run_incomplete")
-            if row["visual"].get("causes") and row["status"] == "pass":
-                row["status"] = "wrong outcome"
-                row["cause"] = row["visual"]["causes"][0]
+        merge_host(cell, data, status, log_text, round(time.monotonic() - started, 3), report_error)
         write_report(args.report, report)
 
 
@@ -140,6 +190,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, default=ROOT / "docs/activation-sweep.json")
     parser.add_argument("--godot", default=os.environ.get("SOE_GODOT_BIN", "godot"))
+    parser.add_argument("--project", type=Path, default=ROOT / "godot")
     parser.add_argument("--game-bin", type=Path, default=ROOT / "target/release/soe-activation-sweep")
     parser.add_argument("--cell")
     parser.add_argument("--all-cells", action="store_true")
@@ -168,9 +219,14 @@ def main():
     if not args.headless_only:
         host_pass(report, args, work)
     write_report(args.report, report)
-    return int(not report.get("complete", False) or not report["cells"] or any(not cell.get("host", {}).get("complete", False)
+    return int(not report.get("complete", False) or not report["cells"] or any((bool(cell["references"]) and not cell.get("host", {}).get("complete", False))
                or any(row["status"] != "pass" for row in cell["references"]) for cell in report["cells"]))
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        exit_status = main()
+    except (OSError, ValueError, RuntimeError) as error:
+        print(f"activation sweep setup: {error}", file=sys.stderr)
+        exit_status = 2
+    raise SystemExit(exit_status)

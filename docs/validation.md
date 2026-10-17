@@ -39,6 +39,18 @@ target-specific uploaded animation transforms and Papyrus errors. The runner
 waits for and records each process exit before the next cell. Use the shared
 installed-slot Godot wrapper. Per-cell input, output and logs stay under
 `target/activation-sweep`. A missing completion or reference result fails.
+Completion is checked independently from object success. Binding errors retain
+their model and fail the matching references. Error histories are recorded as
+per-activation deltas, with startup errors stored once. Routine authored trace
+text is excluded. A report from a different cell cannot satisfy a visit.
+
+The first before report has 51 cells and 3,131 activations. The expanded after
+survey has 68 cells and 3,277 activations, including more Whiterun exterior
+cells. Its state classifier and archive ordering also changed. Aggregate
+pass counts across these revisions are diagnostic totals, not a controlled
+improvement rate. The controlled QASmoke observation is nine matching Dwemer
+buttons without motion before and nine with motion after. The full after
+survey uses the graph-fix build, with child dispatch checked separately.
 
 This is a contract survey from CK Activate, OnActivate, PlayAnimation and
 PlayGamebryoAnimation, installed records and authored animation assets. It

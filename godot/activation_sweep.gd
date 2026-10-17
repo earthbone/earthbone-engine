@@ -4,6 +4,7 @@ extends "res://walkthrough.gd"
 var sweep_cell: Dictionary
 var output_path: String
 var outcomes: Array = []
+var initial: Dictionary = {}
 
 func _initialize() -> void:
 	var input_path := OS.get_environment("SOE_ACTIVATION_CELL")
@@ -23,8 +24,22 @@ func _process(_delta: float) -> bool:
 
 func _save(complete: bool) -> void:
 	var file := FileAccess.open(output_path, FileAccess.WRITE)
-	file.store_string(JSON.stringify({"cell": sweep_cell.cell, "complete": complete, "references": outcomes}, "  "))
+	file.store_string(JSON.stringify({"cell": sweep_cell.cell, "complete": complete, "initial": initial, "references": outcomes}, "  "))
 	file.close()
+
+func _deltas(before: Dictionary, after: Dictionary) -> Dictionary:
+	var result := {}
+	for field: String in ["papyrus_errors", "native_errors", "animation_requests"]:
+		var prior = before.get(field, [])
+		var current = after.get(field, [])
+		if outcomes.is_empty():
+			initial[field] = prior
+		result[field] = Array(current).slice(prior.size())
+		before[field + "_count"] = prior.size()
+		after[field + "_count"] = current.size()
+		before.erase(field)
+		after.erase(field)
+	return result
 
 func _start() -> void:
 	await super._start()
@@ -59,10 +74,12 @@ func _start() -> void:
 			causes.append("host_animation_no_motion")
 		if row.base_type in ["CONT", "NPC_"] and not before.get("locked", false) and not before.get("blocked", false) and not menu:
 			causes.append("host_menu_missing")
-		outcomes.append({"reference": row.reference, "accepted": accepted,
+		var result := {"reference": row.reference, "accepted": accepted,
 			"before": before, "after": after, "menu": menu,
 			"drawn_surfaces": drawn, "animation_surfaces": transforms.size(), "motion": moved,
-			"causes": causes, "status": "observed" if causes.is_empty() else "fail"})
+			"causes": causes, "status": "observed" if causes.is_empty() else "fail"}
+		result.merge(_deltas(before, after))
+		outcomes.append(result)
 		_save(false)
 	_save(true)
 	print("ACTIVATION_SWEEP complete refs=", outcomes.size(), " cell=", startup_cell)

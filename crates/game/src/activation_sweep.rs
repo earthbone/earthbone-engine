@@ -222,6 +222,21 @@ fn animation_asset(vfs: &soe_bsa::Vfs, record: &soe_esm::Record) -> (Vec<String>
     }
 }
 
+fn reference_states(
+    game: &Game,
+    cell: GlobalFormId,
+    authored: &[GlobalFormId],
+) -> BTreeMap<GlobalFormId, Json> {
+    let world = game.world();
+    let mut ids = authored.to_vec();
+    ids.extend(world.runtime_references_in_cell(cell));
+    ids.sort_unstable();
+    ids.dedup();
+    ids.into_iter().filter_map(|id|world.reference_ref(id).map(|reference|(id,json!({
+        "base":reference.base.map(|id|id.to_string()),"enabled":reference.enabled,"opened":reference.opened,
+        "position":reference.position,"rotation":reference.rotation,"deleted":reference.deleted})))) .collect()
+}
+
 fn script_calls(vfs: &soe_bsa::Vfs, names: &[String]) -> Vec<Json> {
     let mut result = Vec::new();
     let mut pending = names.to_vec();
@@ -283,21 +298,33 @@ pub fn run_cell(
     order: &Arc<LoadOrder>,
     vfs: &soe_bsa::Vfs,
     cell: GlobalFormId,
+    data: &Path,
 ) -> Result<Json, String> {
     let mut game = Game::from_shared_order(Arc::clone(order));
     let loaded = game.load_scripts_from_vfs(vfs);
+    game.set_headless_animations(
+        crate::anim_driver::Driver::open(data, order)
+            .map_err(|error| error.to_string())?
+            .objects_only(),
+    );
     game.start();
-    let bind = game.load_cell(cell);
     let player = game.player();
     if let Some(reference) = game.world_mut().reference(player) {
         reference.cell = Some(cell);
+        reference.position = [0.0, 0.0, 500.0];
     }
-    game.run_until_idle(64);
+    game.world_mut().prefetch_cell(cell);
     let ids = game.world_mut().cell_reference_ids(cell);
+    let mut bind = crate::BindReport::default();
+    for target in &ids {
+        game.bind_reference(*target, &mut bind);
+    }
+    game.change_cell(Some(cell));
+    game.run_until_idle(64);
     let mut rows = Vec::new();
     let mut excluded = Vec::new();
     let mut assets = BTreeMap::new();
-    for target in ids {
+    for target in ids.iter().copied() {
         let Some(base) = game.world_mut().reference(target).and_then(|r| r.base) else {
             continue;
         };
@@ -322,6 +349,10 @@ pub fn run_cell(
             });
         let object = game.object_of_form(target);
         let scripts = game.vm.scripts_on(object);
+        let script_before: BTreeMap<_, _> = scripts
+            .iter()
+            .map(|script| (script.clone(), game.vm.state_of(object, script)))
+            .collect();
         let calls = script_calls(vfs, &scripts);
         observe(&mut game, target)?;
         let links = game
@@ -341,11 +372,25 @@ pub fn run_cell(
         let request_start = game.world().animation_requests.len();
         let log_start = game.vm.log.entries.len();
         let native_start = game.world().native_errors.len();
+        let event_start = game.world().animation_events.len();
+        let world_before = reference_states(&game, cell, &ids);
         let accepted = game.activate(target, player);
         for _ in 0..12 {
             game.tick(0.25);
         }
         let after = state(&mut game, target, item);
+        let script_after: BTreeMap<_, _> = scripts
+            .iter()
+            .map(|script| (script.clone(), game.vm.state_of(object, script)))
+            .collect();
+        let world_after = reference_states(&game, cell, &ids);
+        let changed_references: Vec<_> = world_after.keys().chain(world_before.keys()).copied().collect::<std::collections::BTreeSet<_>>()
+            .into_iter().filter(|id|world_before.get(id)!=world_after.get(id))
+            .map(|id|json!({"reference":id.to_string(),"before":world_before.get(&id),"after":world_after.get(&id)})).collect();
+        let emitted: Vec<_> = game.world().animation_events[event_start..]
+            .iter()
+            .map(|(id, name)| json!({"reference":id.to_string(),"name":name}))
+            .collect();
         let linked_after: Vec<_> = links
             .iter()
             .map(|(_, id)| (id.to_string(), state(&mut game, *id, item)))
@@ -360,6 +405,19 @@ pub fn run_cell(
             .collect();
         let logs: Vec<_> = game.vm.log.entries[log_start..]
             .iter()
+            .filter(|entry| {
+                let message = entry.message.to_ascii_lowercase();
+                [
+                    "error",
+                    "cannot",
+                    "unsupported",
+                    "missing",
+                    "unknown",
+                    "headless animation",
+                ]
+                .iter()
+                .any(|word| message.contains(word))
+            })
             .map(|e| e.message.clone())
             .collect();
         let native_errors = game.world().native_errors[native_start..].to_vec();
@@ -394,7 +452,8 @@ pub fn run_cell(
         };
         let (status, cause) = if !native_errors.is_empty()
             || logs.iter().any(|line| {
-                line.contains("error:")
+                line.starts_with("Headless animation ")
+                    || line.contains("error:")
                     || line.contains("ERROR")
                     || line.contains("has no function")
             }) {
@@ -433,6 +492,7 @@ pub fn run_cell(
             "model":record.find(Tag(*b"MODL")).map(|raw|String::from_utf8_lossy(raw).trim_end_matches('\0').to_string()),
             "animation_requests":requests,"before":before,"after":after,
             "state_contract":state_contract,"pending_animation_waits":pending_waits,
+            "changed_references":changed_references,"script_state_before":script_before,"script_state_after":script_after,"animation_events":emitted,
             "linked_before":linked_before,"linked_after":linked_after,"logs":logs,"native_errors":native_errors,
             "visual":{"status":"not run"}}));
     }
