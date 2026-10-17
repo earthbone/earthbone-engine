@@ -3983,13 +3983,6 @@ driver re-evaluates every actor once a real second and whenever it has no
 package. The natives table rows above still list both natives as stubbed,
 they moved to the implemented column with this section.
 
-The `POBA`, `POCA` and `POEA` actions also start their authored idle or
-dialogue topic at the matching boundary. Idle delivery uses the actor's
-animation event path. A topic opens a dialogue session with the player as
-listener and makes that topic the session's initial choice. Dead and
-unconscious actors do not start boundary actions. Topic actions also require
-an available actor who can speak to the player and no active dialogue session.
-
 An unfinished package with `Must Complete` stays selected ahead of higher
 priority candidates until its procedure tree finishes. Combat can interrupt
 it when `Interrupt Override` is Combat or `Observe combat behavior` is set in
