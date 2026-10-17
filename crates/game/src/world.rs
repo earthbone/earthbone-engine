@@ -848,6 +848,8 @@ pub struct World {
     pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
     /// NPC bases warned about during this world session, excluded from saves.
     pub(crate) duplicate_npc_perk_warnings: BTreeSet<GlobalFormId>,
+    /// Immutable NNAM links derived while indexing the winning records.
+    pub(crate) perk_ranks: crate::perks::RankIndex,
     /// Source-level CommonLib event channels backed by this live world.
     pub(crate) commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
@@ -1239,6 +1241,7 @@ impl World {
     /// Use the immutable form table already opened by the host.
     pub fn from_shared_order(order: Arc<LoadOrder>) -> World {
         let mut editor_ids = HashMap::new();
+        let mut perk_ranks = crate::perks::RankIndex::default();
         for (file_index, file) in order.files().iter().enumerate() {
             for (i, rec) in file.plugin.records.iter().enumerate() {
                 let id = order.resolve(file_index, rec.form_id);
@@ -1250,6 +1253,7 @@ impl World {
                 if !is_winner {
                     continue;
                 }
+                perk_ranks.insert(&order, file_index, id, rec);
                 if let Some(edid) = rec.editor_id() {
                     editor_ids.insert(edid.to_ascii_lowercase(), id);
                 }
@@ -1264,6 +1268,7 @@ impl World {
             created_base_records: BTreeMap::new(),
             unresolved_records: BTreeMap::new(),
             editor_ids,
+            perk_ranks,
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),

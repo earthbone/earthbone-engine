@@ -11954,3 +11954,15 @@ No record read is hidden from the counter. The duplicate lookup is removed.
 The same 1,000 actors, 10 warm-up ticks and 120 measured ticks now peak at
 7,051 record lookups. Both PRF-14 cases pass with their original bounds.
 No state, cache authority or save field is added.
+
+### Perk dispatch cost during barter
+
+PRF-50 keeps the actor's owned perk identities as the entry-point source.
+This follows local CommonLibSSE-NG `include/RE/A/Actor.h`, `ForEachPerk`,
+and `include/RE/B/BGSPerk.h` rank visitors. Resolved identities remain sorted
+before dispatch. The winning records still supply entry sections, conditions
+and effects. World builds an immutable NNAM predecessor and successor index
+during its existing record-indexing pass. Cycle, ambiguous-parent and malformed
+link rejection retain their previous behavior. The index contains no ownership
+or actor state and has no save section. Runtime record setters do not change
+PERK NNAM links. Repeated rank queries no longer scan every winning form.
