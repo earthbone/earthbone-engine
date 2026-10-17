@@ -54,6 +54,8 @@
 use std::fmt;
 
 mod catalog;
+mod completion;
+pub use completion::Completion;
 mod play;
 
 use soe_esm::GlobalFormId;

@@ -10190,3 +10190,21 @@ Moller and Trumbore routine rather than adding a second implementation.
 Godot's local `Aabb`, `Mesh.get_faces`, `MultiMesh` and skeleton-transform
 contracts supply bounds, uploaded geometry and placement. The existing
 batch and skin adapters retain reference ownership and current poses.
+
+## Console Tab completion, preview round 4
+
+The input intercepts Tab while the console is open, obtains candidates from
+Game's shared command and form tables, and retains LineEdit focus. It replaces
+the token at the caret while preserving the rest of the command. Repeated Tab
+cycles the candidates, Shift+Tab reverses direction, and editing the line
+starts a new completion. The overlay prints at most twenty candidate names
+while retaining the full sorted cycle. See [game.md](game.md) for argument
+filtering, source paths and the focused checks.
+
+The free walk Tab fixture changes from three failed checks to zero failures,
+including command completion, Gold001 in a middle argument, short FormID
+`0000000F` and a named reference. It and the existing overlay fixture exit
+zero. Final package formatting and all-target Clippy pass for physics, game
+and host. Library checks pass 30, 1,361 and 594 tests respectively, with
+optional installed inputs unset. The separate release extension build passes.
+No workspace test or full lint script was run, as instructed.

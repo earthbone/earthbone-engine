@@ -21,6 +21,7 @@ mod ini;
 #[derive(Default)]
 pub(super) struct Session {
     pub open: bool,
+    completion: Option<CompletionCycle>,
     commands: Console,
     view: Option<View>,
     history: Vec<String>,
@@ -38,6 +39,15 @@ pub(super) struct Session {
     pub animator_camera: Option<(crate::camera::CameraMode, f32)>,
     wireframe: bool,
     free_speed: f32,
+}
+
+struct CompletionCycle {
+    original: String,
+    expected: String,
+    caret: i32,
+    range: std::ops::Range<usize>,
+    candidates: Vec<String>,
+    index: usize,
 }
 
 pub(super) struct FreeCamera {
@@ -119,6 +129,10 @@ impl PlayerNode {
                         self.console_set_open(false);
                         return true;
                     }
+                    Key::TAB => {
+                        self.console_complete(key.is_shift_pressed());
+                        return true;
+                    }
                     Key::UP => {
                         self.console_history(true);
                         return true;
@@ -181,6 +195,74 @@ impl PlayerNode {
             }
         }
         false
+    }
+
+    fn console_complete(&mut self, backwards: bool) {
+        let Some(view) = self.console.view.as_ref() else {
+            return;
+        };
+        let line = view.input.get_text().to_string();
+        let caret = view.input.get_caret_column();
+        let previous = self.console.completion.take();
+        let mut state = if let Some(mut cycle) =
+            previous.filter(|cycle| cycle.expected == line && cycle.caret == caret)
+        {
+            cycle.index = if backwards {
+                (cycle.index + cycle.candidates.len() - 1) % cycle.candidates.len()
+            } else {
+                (cycle.index + 1) % cycle.candidates.len()
+            };
+            cycle
+        } else {
+            let Some(game) = self.game.as_ref() else {
+                return;
+            };
+            let byte = line
+                .char_indices()
+                .nth(caret.max(0) as usize)
+                .map_or(line.len(), |(byte, _)| byte);
+            let Some(matches) = Console::complete(&game.world(), &line, byte) else {
+                return;
+            };
+            if matches.candidates.len() > 1 {
+                self.console_print(&format!(
+                    "{} matches: {}",
+                    matches.candidates.len(),
+                    matches
+                        .candidates
+                        .iter()
+                        .take(20)
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            CompletionCycle {
+                original: line,
+                expected: String::new(),
+                caret,
+                range: matches.range,
+                index: if backwards {
+                    matches.candidates.len() - 1
+                } else {
+                    0
+                },
+                candidates: matches.candidates,
+            }
+        };
+        let candidate = &state.candidates[state.index];
+        let column =
+            state.original[..state.range.start].chars().count() + candidate.chars().count();
+        let mut completed = state.original.clone();
+        completed.replace_range(state.range.clone(), candidate);
+        if let Some(view) = self.console.view.as_mut() {
+            view.input.set_text(&completed);
+            view.input.set_caret_column(column as i32);
+            view.input.grab_focus();
+        }
+        state.expected = completed;
+        state.caret = column as i32;
+        self.console.completion = Some(state);
     }
 
     fn console_history(&mut self, up: bool) {

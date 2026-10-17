@@ -83,6 +83,23 @@ impl World {
         self.player_first_person
     }
 
+    pub(crate) fn console_completion_forms(&self) -> impl Iterator<Item = GlobalFormId> + '_ {
+        self.order
+            .winners()
+            .map(|(id, _)| id)
+            .chain(self.created_base_records.keys().copied())
+            .chain(self.refs.keys().copied())
+    }
+
+    pub(crate) fn console_editor_matches<'a>(
+        &'a self,
+        prefix: &'a str,
+    ) -> impl Iterator<Item = GlobalFormId> + 'a {
+        self.editor_ids
+            .iter()
+            .filter_map(move |(editor, &id)| editor.starts_with(prefix).then_some(id))
+    }
+
     pub fn form(&self, editor_id: &str) -> Option<GlobalFormId> {
         self.editor_ids
             .get(&editor_id.to_ascii_lowercase())

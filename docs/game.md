@@ -11954,3 +11954,37 @@ No record read is hidden from the counter. The duplicate lookup is removed.
 The same 1,000 actors, 10 warm-up ticks and 120 measured ticks now peak at
 7,051 record lookups. Both PRF-14 cases pass with their original bounds.
 No state, cache authority or save field is added.
+
+## Console completion, preview round 4
+
+`Console::complete` reads the same command table, aliases and argument syntax
+as command execution. It returns the token byte range and sorted candidates.
+Reference, base-object, item and typed form arguments use winning records.
+Editor-ID lookup shares World's existing name index. Runtime-created bases
+and references also contribute their current runtime FormIDs. Numeric slots
+such as item counts do not offer form candidates.
+
+The host converts the LineEdit character caret to a byte position, replaces
+only that token and retains later arguments. Tab cycles forward through the
+matches, Shift+Tab cycles backward, and an edited line starts a new completion.
+No command executes during completion and keyboard focus remains in the console.
+The transient cycle is presentation state and adds no saved field.
+
+The old free walk console fails the command, base editor-ID and short FormID
+Tab cases. Six focused library tests cover command aliases and target
+prefixes, reference and base filtering, a middle argument and its suffix,
+numeric FormIDs, Unicode token boundaries, created reference IDs and declared
+actor-value versus actor-reference arguments.
+`godot/r4_console_completion_test.gd` exercises Tab key events in the free
+walk scene. Optional installed fixtures are reported separately from library
+counts. All six focused checks pass. The installed free walk Tab scene
+changes from three failed checks to zero failures and exits zero. Package
+formatting, all-target Clippy and 1,361 game library checks pass.
+
+The local UESP `uesp-skyrim-console/Console.wikitext` documents targeted
+commands, aliases and reference versus base IDs. CommonLibSSE-NG
+`include/RE/C/CommandTable.h`, `SCRIPT_PARAM_TYPE`, distinguishes object refs,
+actors, inventory objects and typed forms. The existing `debug.rs` and
+`debug/commands.tsv` manifests provide the executable Rust syntax. Their
+completion adapter reuses the shared World indexes instead of introducing
+another form store. No dependency is added.
