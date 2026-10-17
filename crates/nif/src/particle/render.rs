@@ -45,6 +45,9 @@ pub struct RenderEmitter {
     pub rotation: [f32; 4],
     pub random_rotation_sign: bool,
     pub drag: [f32; 3],
+    /// BSPSysLODModifier fields in NIF order: begin distance, end distance,
+    /// end emit scale and end size. Distances are fractions of the far range.
+    pub lod: Option<[f32; 4]>,
     /// Unmapped modifiers are reported so a host can expose its limits.
     pub unsupported: Vec<String>,
 }
@@ -162,6 +165,7 @@ pub fn render_emitters(file: &NifFile) -> Result<Vec<RenderEmitter>> {
             rotation: [0.0; 4],
             random_rotation_sign: false,
             drag: [0.0; 3],
+            lod: None,
             unsupported: Vec::new(),
         };
         for reference in sys.modifiers {
@@ -235,9 +239,7 @@ pub fn render_emitters(file: &NifFile) -> Result<Vec<RenderEmitter>> {
                     }
                 }
                 "BSPSysLODModifier" => {
-                    // Distance fractions have no effect on the close-view birth
-                    // and age audit. Keep this execution gap visible to callers.
-                    render.unsupported.push(type_name.clone());
+                    render.lod = Some([s.f32()?, s.f32()?, s.f32()?, s.f32()?]);
                 }
                 "NiPSysDragModifier" => {
                     let node = s.block_ref()?;

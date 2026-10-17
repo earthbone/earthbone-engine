@@ -31,6 +31,28 @@ impl Drop for ResidentParticle {
     }
 }
 
+/// Far range in game units that BSPSysLODModifier distance fractions scale.
+/// The fractions carry no unit in nif.xml, one exterior cell width is the
+/// working assumption until a play capture says otherwise.
+const LOD_RANGE_UNITS: f32 = 4096.0;
+
+/// Emit scale and size scale of a LOD modifier at a viewer distance in game units.
+pub(super) fn lod_scales(lod: Option<[f32; 4]>, distance_units: f32) -> (f32, f32) {
+    let Some([begin, end, emit, size]) = lod else {
+        return (1.0, 1.0);
+    };
+    let begin = begin * LOD_RANGE_UNITS;
+    let end = end * LOD_RANGE_UNITS;
+    let t = if end > begin {
+        ((distance_units - begin) / (end - begin)).clamp(0.0, 1.0)
+    } else if distance_units >= end {
+        1.0
+    } else {
+        0.0
+    };
+    (1.0 + (emit - 1.0) * t, 1.0 + (size - 1.0) * t)
+}
+
 fn random(index: u64, channel: u64) -> f32 {
     let mut x = index
         .wrapping_mul(6364136223846793005)
@@ -273,6 +295,11 @@ impl CellStreamerNode {
         if !delta.is_finite() || delta <= 0.0 {
             return;
         }
+        let eye = self
+            .base()
+            .get_viewport()
+            .and_then(|viewport| viewport.get_camera_3d())
+            .map(|camera| camera.get_global_position());
         let mut server = RenderingServer::singleton();
         for resident in self.nif_particles.values_mut() {
             if !resident.enabled {
@@ -289,12 +316,29 @@ impl CellStreamerNode {
             } else {
                 source.origin
             };
+            let (emit_scale, size_scale) = match eye {
+                Some(eye) if source.lod.is_some() => {
+                    let at = SkyrimPos::new(
+                        placement.translation.x,
+                        placement.translation.y,
+                        placement.translation.z,
+                    )
+                    .to_godot();
+                    let metres = eye.distance_to(Vector3::new(at.x, at.y, at.z));
+                    lod_scales(source.lod, metres / crate::units::METRES_PER_UNIT)
+                }
+                _ => (1.0, 1.0),
+            };
             for particle in resident
                 .timeline
                 .particles()
                 .iter()
                 .filter(|p| p.born_at > old)
             {
+                if emit_scale < 1.0 && random(resident.submitted, 29) > emit_scale {
+                    resident.submitted += 1;
+                    continue;
+                }
                 let (position, velocity, radius) = spawn(source, resident.submitted);
                 let position = placement.apply(soe_nif::types::Vec3::new(
                     position[0],
@@ -324,7 +368,7 @@ impl CellStreamerNode {
                     Color::from_rgba(
                         particle.lifetime,
                         resident.elapsed - particle.born_at,
-                        radius * placement.scale * crate::units::METRES_PER_UNIT,
+                        radius * size_scale * placement.scale * crate::units::METRES_PER_UNIT,
                         random(resident.submitted, 23),
                     ),
                     31,
@@ -522,5 +566,20 @@ mod tests {
             )
             .unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod lod_tests {
+    use super::lod_scales;
+
+    #[test]
+    fn lod_modifier_scales_births_and_size_with_distance() {
+        let lod = Some([0.1, 0.7, 0.2, 2.0]);
+        assert_eq!(lod_scales(None, 9999.0), (1.0, 1.0));
+        assert_eq!(lod_scales(lod, 0.0), (1.0, 1.0));
+        let (emit, size) = lod_scales(lod, 0.4 * 4096.0);
+        assert!((emit - 0.6).abs() < 1e-4 && (size - 1.5).abs() < 1e-4);
+        assert_eq!(lod_scales(lod, 5.0 * 4096.0), (0.2, 2.0));
     }
 }
