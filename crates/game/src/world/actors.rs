@@ -157,17 +157,22 @@ impl World {
     #[must_use]
     pub fn sit_state(&mut self, id: GlobalFormId) -> Option<i32> {
         let actor = self.actor(id)?;
-        Some(if actor.ai.procedure == crate::ai::Procedure::Sit {
-            if !actor.ai.arrived {
-                2
-            } else if actor.sit_wants_to_stand {
-                4
+        Some(
+            if actor.ai.procedure == crate::ai::Procedure::Sit || actor.furniture_seat.is_some() {
+                if !actor.ai.arrived
+                    && (actor.ai.procedure == crate::ai::Procedure::Sit
+                        || actor.ai.destination.is_some())
+                {
+                    2
+                } else if actor.sit_wants_to_stand {
+                    4
+                } else {
+                    3
+                }
             } else {
-                3
-            }
-        } else {
-            0
-        })
+                0
+            },
+        )
     }
 
     /// Report whether the actor's live sit animation is transitioning to stand.

@@ -5,11 +5,48 @@
 
 use soe_esm::GlobalFormId;
 
+/// Publish the view and actor roles expected by the vanilla behavior selectors.
+#[cfg(any(feature = "godot", test))]
+pub(crate) fn set_actor_view(
+    vm: &mut soe_hkx::interp::Interpreter<'_>,
+    first_person: bool,
+    player: bool,
+) {
+    for (name, value) in [
+        ("IsFirstPerson", first_person),
+        ("i1stPerson", first_person),
+        ("IsPlayer", player),
+        ("iIsPlayer", player),
+        ("IsNPC", !player),
+    ] {
+        vm.variables.set_by_name(name, f32::from(value));
+    }
+    vm.character_properties
+        .set_by_name("IsThirdPerson", f32::from(!first_person));
+}
+
 /// Last posture submitted to one graph instance, separate from game state.
 #[cfg(any(feature = "godot", test))]
 #[derive(Debug, Default)]
 pub(crate) struct SneakGraphState {
     sneaking: bool,
+}
+
+/// Last swimming edge submitted to one graph instance.
+#[cfg(any(feature = "godot", test))]
+#[derive(Debug, Default)]
+pub(crate) struct SwimGraphState {
+    swimming: bool,
+}
+
+#[cfg(any(feature = "godot", test))]
+impl SwimGraphState {
+    pub(crate) fn apply(&mut self, vm: &mut soe_hkx::interp::Interpreter<'_>, swimming: bool) {
+        if self.swimming != swimming {
+            vm.send_event_named(if swimming { "SwimStart" } else { "SwimStop" });
+            self.swimming = swimming;
+        }
+    }
 }
 
 #[cfg(any(feature = "godot", test))]

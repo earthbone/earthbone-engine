@@ -359,6 +359,7 @@ impl ActorAssets {
             ("IsPlayer", 0.0),
             ("iIsPlayer", 0.0),
             ("IsFirstPerson", 0.0),
+            ("i1stPerson", 0.0),
             ("Speed", 0.0),
             ("Direction", 0.0),
             ("TurnDelta", 0.0),
@@ -2115,6 +2116,163 @@ mod tests {
             failures.is_empty(),
             "clip durations outside 5 percent: {failures:?}"
         );
+    }
+
+    #[test]
+    fn r4_furniture_extracted_graph_enters_holds_and_exits() {
+        let started = std::time::Instant::now();
+        r4_graph_cases(&[
+            "IdleChairFrontEnter",
+            "IdleBedLeftEnterStart",
+            "IdleBlacksmithForgeEnter",
+            "IdleCookingSpitEnter",
+            "IdleAlchemyEnter",
+            "IdleEnchantingEnter",
+            "SwimStart",
+        ]);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(60),
+            "furniture graph checks exceeded the 60 second bound: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn r4_chair_annotations_finish_entry_and_exit() {
+        r4_graph_cases(&["IdleChairFrontEnter"]);
+    }
+
+    fn r4_graph_cases(events: &[&str]) {
+        let Some(directory) = std::env::var_os("SOE_HKX_DIR") else {
+            return;
+        };
+        let mut vfs = Vfs::new();
+        vfs.add_loose_root(std::path::Path::new(&directory))
+            .unwrap();
+        for (root, player) in [
+            (CHARACTER_ROOT.to_owned(), true),
+            (format!("{CHARACTER_ROOT}_1stperson/"), true),
+            (CHARACTER_ROOT.to_owned(), false),
+        ] {
+            let (mut graph, unresolved) =
+                ActorAssets::load_graph(&vfs, &format!("{root}{MASTER_BEHAVIOR}")).unwrap();
+            assert!(unresolved.is_empty());
+            let (library, _) = ActorAssets::load_clips(&vfs, &graph, &root);
+            crate::combat::contact_annotation_triggers(&mut graph, &library);
+            let mut failures = Vec::new();
+            for &event in events {
+                if root.contains("_1stperson") && event != "SwimStart" {
+                    continue;
+                }
+                let mut vm = soe_hkx::interp::Interpreter::new(&graph, &library, Vec::new());
+                crate::animation_dispatch::set_actor_view(
+                    &mut vm,
+                    root.contains("_1stperson"),
+                    player,
+                );
+                for name in [
+                    "IsAttackReady",
+                    "iRightHandType",
+                    "iLeftHandType",
+                    "iRightHandEquipped",
+                    "iLeftHandEquipped",
+                ] {
+                    vm.variables.set_by_name(name, 0.0);
+                }
+                for _ in 0..60 {
+                    vm.update(1.0 / 60.0);
+                }
+                let baseline: Vec<_> = vm
+                    .active_clips()
+                    .iter()
+                    .filter_map(|(id, _)| match &graph.node(*id).kind {
+                        soe_hkx::behavior::NodeKind::Clip(c) => Some(&c.animation_name),
+                        _ => None,
+                    })
+                    .collect();
+                println!("{root} player={player} baseline={baseline:?}");
+                println!(
+                    "{root} event={event} accepted={}",
+                    vm.send_event_named(event)
+                );
+                for tick in 0..1200 {
+                    vm.update(1.0 / 60.0);
+                    if [0, 60, 180, 599, 1199].contains(&tick) {
+                        let active: Vec<_> = vm
+                            .active_clips()
+                            .iter()
+                            .filter_map(|(id, _)| match &graph.node(*id).kind {
+                                soe_hkx::behavior::NodeKind::Clip(c) => Some(&c.animation_name),
+                                _ => None,
+                            })
+                            .collect();
+                        println!("{root} {event} tick={tick} clips={active:?}");
+                        if tick == 599 || tick == 1199 {
+                            let expected = match event {
+                                "IdleChairFrontEnter" => "chair_idle",
+                                "IdleBedLeftEnterStart" => "sleep",
+                                "IdleBlacksmithForgeEnter" => "blacksmith",
+                                "IdleCookingSpitEnter" => "cooking",
+                                "IdleAlchemyEnter" => "alchemy",
+                                "IdleEnchantingEnter" => "enchant",
+                                _ => "swim",
+                            };
+                            if !active
+                                .iter()
+                                .any(|clip| clip.to_ascii_lowercase().contains(expected))
+                            {
+                                failures.push((
+                                    event,
+                                    expected,
+                                    active.iter().map(|s| (*s).clone()).collect::<Vec<_>>(),
+                                ));
+                            }
+                        }
+                    }
+                }
+                if event == "SwimStart" {
+                    vm.variables.set_by_name("Speed", 120.0);
+                    vm.send_event_named("moveStart");
+                    for _ in 0..60 {
+                        vm.update(1.0 / 60.0);
+                    }
+                    if root.contains("_1stperson") {
+                        assert!(graph.nodes.iter().any(|node| {
+                            node.name == "SwimLocomotion_1stP" && vm.is_active(node.id)
+                        }), "first person swim movement did not enter its authored locomotion state");
+                        assert!(vm.active_clips().iter().any(|(id, time)| {
+                            *time > 0.0 && matches!(&graph.node(*id).kind, soe_hkx::behavior::NodeKind::Clip(clip) if clip.animation_name.to_ascii_lowercase().contains("swimidle"))
+                        }), "first person swim locomotion clip did not advance");
+                    } else {
+                        assert!(vm.active_clips().iter().any(|(id, _)| matches!(&graph.node(*id).kind, soe_hkx::behavior::NodeKind::Clip(clip) if clip.animation_name.to_ascii_lowercase().contains("swim") && clip.animation_name.to_ascii_lowercase().contains("forward"))), "swim movement did not select a stroke");
+                    }
+                    vm.variables.set_by_name("Speed", 0.0);
+                    vm.send_event_named("moveStop");
+                }
+                vm.send_event_named(if event == "SwimStart" {
+                    "SwimStop"
+                } else {
+                    "IdleFurnitureExit"
+                });
+                for _ in 0..600 {
+                    vm.update(1.0 / 60.0);
+                }
+                let active: Vec<_> = vm
+                    .active_clips()
+                    .iter()
+                    .filter_map(|(id, _)| match &graph.node(*id).kind {
+                        soe_hkx::behavior::NodeKind::Clip(c) => Some(&c.animation_name),
+                        _ => None,
+                    })
+                    .collect();
+                println!("{root} {event} exit clips={active:?}");
+                assert_eq!(
+                    active, baseline,
+                    "exit did not restore the complete standing clip set"
+                );
+            }
+            assert!(failures.is_empty(), "authored idle absent: {failures:?}");
+        }
     }
 
     #[test]

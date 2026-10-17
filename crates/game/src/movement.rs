@@ -187,6 +187,26 @@ impl Profile {
 }
 
 impl World {
+    /// Resolve the race's SWMV movement and the actor's live speed multiplier.
+    pub fn actor_swim_movement(&mut self, actor: GlobalFormId) -> MovementType {
+        let (race, multiplier, _) = self.movement_modifiers(actor).unwrap_or((None, 1.0, false));
+        let mut movement = race_movement(self, race, T(b"SWMV")).unwrap_or(MovementType {
+            walk: Directions::uniform(soe_physics::WALK_SPEED),
+            run: Directions::uniform(soe_physics::JOG_SPEED),
+        });
+        for directions in [&mut movement.walk, &mut movement.run] {
+            for rate in [
+                &mut directions.left,
+                &mut directions.right,
+                &mut directions.forward,
+                &mut directions.back,
+            ] {
+                *rate *= multiplier;
+            }
+        }
+        movement
+    }
+
     /// Resolve the actor's current race movement defaults and matching overrides.
     /// Missing MOVT data uses the physics constants as a fallback.
     pub fn actor_movement(&mut self, actor: GlobalFormId) -> Profile {
@@ -313,4 +333,59 @@ pub(crate) fn race_override(
 pub(crate) fn speed_at(data: &[u8], offset: usize) -> Option<f32> {
     let speed = f32::from_le_bytes(data.get(offset..offset + 4)?.try_into().ok()?);
     (speed.is_finite() && speed > 0.0).then_some(speed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin};
+
+    #[test]
+    fn r4_swim_movement_reads_swmv_and_live_speedmult_for_player_and_packages() {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(T(b"RACE"), 0x800).sub(b"SWMV", 0x801_u32.to_le_bytes()));
+        let speeds: Vec<_> = [
+            40.0_f32, 100.0, 50.0, 110.0, 60.0, 120.0, 30.0, 90.0, 0.0, 0.0,
+        ]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect();
+        plugin.push_top(Record::new(T(b"MOVT"), 0x801).sub(b"SPED", speeds));
+        let mut order = LoadOrder::new();
+        order.add("Skyrim.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        let actor = world.player();
+        world.actor(actor).unwrap().race = Some(GlobalFormId {
+            file: 0,
+            object: 0x800,
+        });
+        world
+            .actor(actor)
+            .unwrap()
+            .values
+            .set_base("speedmult", 150.0)
+            .unwrap();
+        let movement = world.actor_swim_movement(actor);
+        assert_eq!(movement.walk.forward, 90.0);
+        assert_eq!(movement.run.forward, 180.0);
+        assert_eq!(movement.walk.left, 60.0);
+        let walk = world.actor_movement(actor).walk.walk.forward;
+        world.actor(actor).unwrap().swimming = true;
+        assert_eq!(
+            crate::ai::movement_speed(&mut world, actor, crate::package::speed::WALK),
+            90.0
+        );
+        assert_eq!(
+            crate::ai::movement_speed(&mut world, actor, crate::package::speed::RUN),
+            180.0
+        );
+        assert_eq!(world.actor_movement(actor).walk.walk.forward, walk);
+        world
+            .actor(actor)
+            .unwrap()
+            .values
+            .set_base("speedmult", 50.0)
+            .unwrap();
+        assert_eq!(world.actor_swim_movement(actor).run.forward, 60.0);
+    }
 }

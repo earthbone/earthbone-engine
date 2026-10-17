@@ -221,6 +221,11 @@ impl PlayerNode {
                 .into_iter()
                 .filter(|contact| {
                     contact.actor != player
+                        && world.furniture_seat(contact.actor).is_none_or(|_| {
+                            world.actor_ref(contact.actor).is_some_and(|actor| {
+                                !actor.ai.arrived && actor.ai.destination.is_some()
+                            })
+                        })
                         && !self.actor_bodies.controls_motion(contact.actor)
                         && world.actor_ref(contact.actor).is_none_or(|actor| {
                             !crate::ragdoll::actor_uses_ragdoll(
@@ -256,14 +261,68 @@ impl PlayerNode {
             .into_iter()
             .map(|contact| {
                 let cell = self.npc_collision_cell(contact.cell, contact.position);
-                (contact, cell)
+                let water = if let (Some(game), Some(source)) = (&self.game, &self.data_source) {
+                    let visual = self.npc_actors.debug_actor(contact.actor);
+                    let height = visual
+                        .as_ref()
+                        .and_then(|visual| visual.bind().camera_head_height())
+                        .unwrap_or(120.0 * contact.scale);
+                    let posed_head = visual
+                        .as_ref()
+                        .and_then(|visual| visual.bind().posed_head_height());
+                    let mut world = game.world_mut();
+                    let was_swimming = world
+                        .actor_ref(contact.actor)
+                        .is_some_and(|actor| actor.swimming);
+                    let fraction = world
+                        .game_setting("fSwimHeightScale")
+                        .map(|value| value.as_float())
+                        .unwrap_or(0.65);
+                    let water = cell
+                        .and_then(|cell| source.water_at(cell, contact.position))
+                        .map(|(height, _)| height);
+                    let swimming = crate::swimming::submerged(
+                        was_swimming,
+                        contact.position[2],
+                        water,
+                        height,
+                        fraction,
+                    );
+                    let drawn = world
+                        .actor_ref(contact.actor)
+                        .is_some_and(|actor| actor.weapon_drawn);
+                    if let Some(actor) = world.actor(contact.actor) {
+                        actor.swimming = swimming;
+                        if swimming {
+                            actor.weapon_drawn = false;
+                            actor.sneaking = false;
+                            actor.sprinting = false;
+                        }
+                    }
+                    if swimming && drawn {
+                        world.request_animation(contact.actor, "Unequip");
+                    }
+                    if swimming {
+                        let head = if was_swimming { posed_head } else { None };
+                        water.map(|height_water| crate::npc_grounding::WaterMotion {
+                            height: height_water,
+                            depth: crate::swimming::surface_depth(height, head, fraction),
+                            speed: world.actor_swim_movement(contact.actor).run.forward,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                (contact, cell, water)
             })
             .collect();
         let Some(physics) = &mut self.world else {
             return;
         };
         let mut retained = std::collections::BTreeSet::new();
-        for (contact, cell) in prepared {
+        for (contact, cell, water) in prepared {
             // CONTEXT: A presentation-only sync must not erase a native's new
             // placement before the next physics tick consumes it as intent.
             if delta == 0.0
@@ -276,13 +335,16 @@ impl PlayerNode {
                 retained.insert(contact.actor);
                 continue;
             }
-            if let Some(position) = self.npc_grounding.update(
+            if let Some(position) = self.npc_grounding.update_motion(
                 physics,
                 contact.actor,
                 cell,
-                contact.position,
-                contact.scale,
-                delta,
+                &crate::npc_grounding::Motion {
+                    target: contact.position,
+                    scale: contact.scale,
+                    delta,
+                    water,
+                },
             ) {
                 retained.insert(contact.actor);
                 if let Some(game) = &self.game {

@@ -49,6 +49,20 @@ pub struct NpcGrounding {
     bodies: BTreeMap<GlobalFormId, Body>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct WaterMotion {
+    pub height: f32,
+    pub depth: f32,
+    pub speed: f32,
+}
+
+pub(crate) struct Motion {
+    pub target: [f32; 3],
+    pub scale: f32,
+    pub delta: f32,
+    pub water: Option<WaterMotion>,
+}
+
 impl NpcGrounding {
     /// Forget handles when their entire collision world is replaced.
     pub fn reset(&mut self) {
@@ -88,6 +102,32 @@ impl NpcGrounding {
         scale: f32,
         delta: f32,
     ) -> Option<[f32; 3]> {
+        self.update_motion(
+            world,
+            actor,
+            collision_cell,
+            &Motion {
+                target,
+                scale,
+                delta,
+                water: None,
+            },
+        )
+    }
+
+    pub(crate) fn update_motion(
+        &mut self,
+        world: &mut SimpleWorld,
+        actor: GlobalFormId,
+        collision_cell: Option<GlobalFormId>,
+        motion: &Motion,
+    ) -> Option<[f32; 3]> {
+        let Motion {
+            target,
+            scale,
+            delta,
+            water,
+        } = *motion;
         if !target.into_iter().all(f32::is_finite)
             || !scale.is_finite()
             || scale <= 0.0
@@ -163,8 +203,17 @@ impl NpcGrounding {
             } else {
                 Vec3::new(difference.x, difference.y, 0.0) * (1.0 / delta)
             };
-            world.move_character(body.id, desired);
-            world.step_character(body.id, delta);
+            if let Some(water) = water {
+                let desired = if desired.length() > water.speed {
+                    desired.normalized() * water.speed
+                } else {
+                    desired
+                };
+                world.step_swimming(body.id, desired, water.height, water.depth, delta);
+            } else {
+                world.move_character(body.id, desired);
+                world.step_character(body.id, delta);
+            }
         }
         let position = world.character(body.id)?.position;
         Some([position.x, position.y, position.z])

@@ -21,6 +21,48 @@ use soe_esm::{GlobalFormId, LoadOrder, Record, Tag};
 
 use crate::mesh::{WaterMaterial, WaterShading};
 
+impl super::DataSource {
+    /// Resolve the same CELL and WRLD water used to draw the surface.
+    pub(crate) fn cell_water(&self, cell: GlobalFormId) -> Option<(f32, Option<GlobalFormId>)> {
+        let owner = self.order.winner_ref(cell)?;
+        let localized = self.order.file(owner.file).plugin.header.is_localized();
+        let view =
+            soe_esm::records::cell::Cell::from_record(self.order.record(owner), localized).ok()?;
+        if !view.has_water() {
+            return None;
+        }
+        let fallback = match (view.grid, view.world) {
+            (Some(_), Some(raw)) => world_water(&self.order, self.order.resolve(owner.file, raw)),
+            _ => WorldWater::default(),
+        };
+        let height = view
+            .water_height
+            .filter(|height| is_recorded_height(*height))
+            .or(fallback.height)?;
+        let water = view
+            .water
+            .map(|raw| self.order.resolve(owner.file, raw))
+            .or(fallback.water);
+        Some((height, water))
+    }
+
+    /// Exterior movement samples the physical grid cell at the actor's XY.
+    pub(crate) fn water_at(
+        &self,
+        cell: GlobalFormId,
+        position: [f32; 3],
+    ) -> Option<(f32, Option<GlobalFormId>)> {
+        let cell = if let Some(grid) = self.cell_index().grid_of(cell) {
+            let x = (position[0] / crate::units::CELL_UNITS).floor() as i32;
+            let y = (position[1] / crate::units::CELL_UNITS).floor() as i32;
+            self.cell_index().exterior_cell(grid.world, x, y)?
+        } else {
+            cell
+        };
+        self.cell_water(cell)
+    }
+}
+
 /// `WRLD` `PNAM` bit 3, "Use Water Data" in TES5Edit's WRLD definition:
 /// the worldspace takes its water height and type from its `WNAM` parent.
 const USE_PARENT_WATER: u16 = 0x0008;

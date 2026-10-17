@@ -970,6 +970,12 @@ impl PlayerNode {
         if !self.menu.close() {
             return false;
         }
+        if self.crafting_bench.is_some() {
+            if let Some(game) = &mut self.game {
+                let player = game.player();
+                game.world_mut().request_furniture_exit(player);
+            }
+        }
         self.item_card_view = None;
         self.barter_menu = None;
         if let Some(view) = self.menu_view.as_mut() {

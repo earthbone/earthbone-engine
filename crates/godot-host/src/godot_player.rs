@@ -70,6 +70,7 @@ mod saves;
 mod scripted;
 mod simulation;
 mod sky;
+mod swimming;
 mod training;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
@@ -182,6 +183,7 @@ pub struct PlayerNode {
     player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     npc_actors: npcs::NpcActors,
     first_person_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
+    furniture_camera_restore: Option<CameraMode>,
     weapon_holds: [Option<f32>; 2],
     npc_grounding: crate::npc_grounding::NpcGrounding,
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
@@ -349,6 +351,7 @@ impl INode3D for PlayerNode {
             player_appearance: None,
             npc_actors: npcs::NpcActors::default(),
             first_person_appearance: None,
+            furniture_camera_restore: None,
             weapon_holds: [None, None],
             npc_grounding: crate::npc_grounding::NpcGrounding::default(),
             pending_debug_latents: Vec::new(),
@@ -1447,6 +1450,11 @@ impl PlayerNode {
         }
         if self.menu.is_open() {
             self.release_carry();
+            self.hold_player_furniture(&crate::input::InputState::default());
+            self.motion.step(self.feet(), self.capsule_height());
+            if !self.auto_step {
+                self.update_camera();
+            }
             if let Some(game) = &mut self.game {
                 self.menu.tick(game, delta);
             }
@@ -1515,6 +1523,7 @@ impl PlayerNode {
             }
         }
         let before = self.feet();
+        let furniture = self.hold_player_furniture(&input);
         let was_grounded = self.character().is_some_and(|c| c.on_ground);
         let paralyzed = self.game.as_mut().is_some_and(|game| {
             let player = game.player();
@@ -1523,7 +1532,13 @@ impl PlayerNode {
 
         let physics_scope = soe_trace::SystemScope::new(soe_trace::System::Physics);
         let noclip = self.console_noclip_step(delta, &input);
-        if let (Some(world), Some(id)) = (self.world.as_mut().filter(|_| !noclip), self.character) {
+        let swimming = !noclip && !furniture && self.advance_swimming(&input, delta as f32);
+        if let (Some(world), Some(id)) = (
+            self.world
+                .as_mut()
+                .filter(|_| !noclip && !furniture && !swimming),
+            self.character,
+        ) {
             let _owner = crate::allocations::OwnerScope::new(crate::allocations::Owner::Movement);
             world.set_crouch(id, intent.crouch);
             let (direction, speed, jump) = player_locomotion(intent, paralyzed);
@@ -1552,11 +1567,13 @@ impl PlayerNode {
                 });
             }
         }
-        self.advance_footsteps(before, was_grounded, &input);
+        if !furniture && !swimming {
+            self.advance_footsteps(before, was_grounded, &input);
+        }
 
         self.update_carry_input(&input, delta);
 
-        self.advance_game(delta, intent.sprinting);
+        self.advance_game(delta, intent.sprinting && !swimming);
         let player_motion = if input.is_moving() {
             if input.sprint || self.driver.always_run != input.walk {
                 soe_game::detection::Motion::Running
@@ -2880,6 +2897,7 @@ impl PlayerNode {
             walk: held(Action::Walk),
             sneak_held: held(Action::Sneak),
             jump_pressed: pressed(Action::Jump),
+            jump_held: held(Action::Jump),
             sneak_pressed: pressed(Action::Sneak),
             activate_pressed: pressed(Action::Activate),
             grab_pressed: pressed(Action::Grab),
@@ -2895,6 +2913,7 @@ impl PlayerNode {
             state.move_x = 0.0;
             state.move_y = 0.0;
             state.jump_pressed = false;
+            state.jump_held = false;
             state.sprint = false;
         }
         if !self.player_control_enabled(1) {
