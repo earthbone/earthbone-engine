@@ -32,9 +32,10 @@ use godot::prelude::*;
 use soe_audio::{LipWeightTrack, Pcm, SoundSource};
 use soe_bsa::Vfs;
 
-use crate::audio::{to_i16_bytes, to_mono, Kind, MusicFade, VoicePool};
+use crate::audio::{Kind, MusicFade, VoicePool};
 use crate::background_audio::{Decoder, Lane};
 use crate::data_source::{vfs_from_loadout, DataSource};
+use crate::sound_decode::{OneShotDecoder, PreparedSound};
 
 /// How many sounds may play at once.
 ///
@@ -77,7 +78,7 @@ struct AsyncAudioResult {
     generation: u64,
     path: String,
     ambience_plan: Option<soe_game::sound::SoundPlayback>,
-    decoded: Result<soe_audio::Sound, String>,
+    decoded: Result<PreparedSound, String>,
 }
 
 #[derive(Debug)]
@@ -93,6 +94,26 @@ struct PlaybackParameters<'a> {
     gain: f32,
     pitch: f32,
     output: &'a soe_game::sound::SoundOutput,
+}
+
+struct PendingSound {
+    ticket: u64,
+    path: String,
+    position: Vector3,
+    kind: Kind,
+    parameters: Option<(f32, f32, soe_game::sound::SoundOutput)>,
+}
+
+impl PendingSound {
+    fn parameters(&self) -> Option<PlaybackParameters<'_>> {
+        self.parameters
+            .as_ref()
+            .map(|(gain, pitch, output)| PlaybackParameters {
+                gain: *gain,
+                pitch: *pitch,
+                output,
+            })
+    }
 }
 
 struct VoiceGain {
@@ -117,6 +138,8 @@ pub struct SoundBank {
     max_distance: f32,
     vfs: Option<Arc<Vfs>>,
     decoder: Option<Decoder>,
+    one_shot_decoder: Option<OneShotDecoder>,
+    pending_sounds: HashMap<usize, PendingSound>,
     music_pending: Option<PendingMusic>,
     ambience_pending: Option<(u64, String)>,
     music_feeds: [Option<GeneratorFeed>; 2],
@@ -191,6 +214,8 @@ impl INode3D for SoundBank {
             max_distance: 2000.0,
             vfs: None,
             decoder: None,
+            one_shot_decoder: None,
+            pending_sounds: HashMap::new(),
             music_pending: None,
             ambience_pending: None,
             music_feeds: [None, None],
@@ -257,7 +282,11 @@ impl INode3D for SoundBank {
         // A player that has stopped hands its slot back. Polling rather than
         // wiring the `finished` signal keeps the release in one place and
         // costs one bool per slot per frame.
+        self.poll_one_shots();
         for i in 0..self.players.len() {
+            if self.pending_sounds.contains_key(&i) {
+                continue;
+            }
             let playing = self.players[i].is_playing();
             if !playing && self.pool.peek(i).is_some() {
                 self.pool.release(i);
@@ -603,7 +632,12 @@ impl SoundBank {
     /// Number of decoder calls, for cache and installed-playback checks.
     #[func]
     fn decoded_count(&self) -> i64 {
-        (self.decoded_count + self.decoder.as_ref().map_or(0, Decoder::decodes)) as i64
+        (self.decoded_count
+            + self.decoder.as_ref().map_or(0, Decoder::decodes)
+            + self
+                .one_shot_decoder
+                .as_ref()
+                .map_or(0, OneShotDecoder::decodes)) as i64
     }
 
     /// Current memory charged to the decoded music and ambience cache.
@@ -715,6 +749,10 @@ impl SoundBank {
             return false;
         };
         player.stop();
+        self.pending_sounds.remove(&slot);
+        if let Some(decoder) = &self.one_shot_decoder {
+            decoder.cancel(slot);
+        }
         self.pool.release(slot);
         self.voice_gains.remove(&slot);
         self.dialogue_voice.stop(slot);
@@ -726,10 +764,11 @@ impl SoundBank {
             self.pool
                 .peek(slot)
                 .is_some_and(|playing| playing.kind == Kind::Voice)
-                && self
-                    .players
-                    .get(slot)
-                    .is_some_and(|player| player.is_playing())
+                && (self.pending_sounds.contains_key(&slot)
+                    || self
+                        .players
+                        .get(slot)
+                        .is_some_and(|player| player.is_playing()))
         })
     }
 
@@ -807,6 +846,14 @@ impl SoundBank {
         self.music_feeds = [None, None];
         self.music_paths = [None, None];
         self.music_fade = None;
+        self.pending_sounds.clear();
+        self.one_shot_decoder = None;
+        for slot in 0..self.players.len() {
+            self.players[slot].stop();
+            self.pool.release(slot);
+            self.dialogue_voice.stop(slot);
+        }
+        self.voice_gains.clear();
         self.streams.clear();
         self.stream_order.clear();
         self.stream_bytes = 0;
@@ -814,74 +861,58 @@ impl SoundBank {
         self.ambience_generation = self.ambience_generation.wrapping_add(1);
     }
 
-    fn stream(
-        &mut self,
-        data_path: &str,
-    ) -> Result<(Gd<AudioStreamWav>, f64, Option<LipWeightTrack>), String> {
-        let key = soe_bsa::normalize(data_path);
-        if let Some((stream, _, duration, lip)) = self.streams.get(&key) {
-            return Ok((stream.clone(), *duration, lip.clone()));
-        }
-        let vfs = self
-            .source
+    fn poll_one_shots(&mut self) {
+        // CONTEXT: Only one resource upload enters a frame, even after a decode burst.
+        let Some(ready) = self
+            .one_shot_decoder
             .as_ref()
-            .map(|s| s.vfs())
-            .or(self.vfs.as_deref())
-            .ok_or_else(|| "no audio data source".to_owned())?;
-
-        // The pure Rust decoder handles vanilla xWMA without an external
-        // process. The optional ffmpeg decoder remains useful for comparison.
-        #[cfg(feature = "xwma-ffmpeg")]
-        let wma = soe_audio::wma::Ffmpeg::new();
-        #[cfg(feature = "xwma-ffmpeg")]
-        let source = SoundSource::new(vfs).with_wma_decoder(&wma);
-        #[cfg(not(feature = "xwma-ffmpeg"))]
-        let wma = soe_audio::wma::Native;
-        #[cfg(not(feature = "xwma-ffmpeg"))]
-        let source = SoundSource::new(vfs).with_wma_decoder(&wma);
-
-        let decode_started = std::time::Instant::now();
-        let sound = source
-            .read(data_path)
-            .map_err(|error| format!("{data_path}: {error}"))?;
-        soe_trace::metric_add(
-            soe_trace::Metric::AudioDecodeNs,
-            decode_started.elapsed().as_nanos() as u64,
-        );
-        if sound.pcm.is_empty() {
-            return Err(format!("{data_path}: decoded to no samples"));
+            .and_then(OneShotDecoder::poll)
+        else {
+            return;
+        };
+        if self
+            .pending_sounds
+            .get(&ready.slot)
+            .is_none_or(|pending| pending.ticket != ready.ticket)
+        {
+            return;
         }
-        let duration = sound.pcm.duration_seconds();
-        let lip = sound.lip.as_deref().and_then(|bytes| {
-            soe_audio::Lip::parse(bytes)
-                .and_then(|lip| lip.decode())
-                .ok()
-        });
-        self.decoded_count += 1;
-        let stream = wav_from(&sound.pcm);
-        let pcm_bytes = sound.pcm.frames().saturating_mul(2);
-        let lip_bytes = lip.as_ref().map_or(0, |track| {
-            usize::try_from(track.frame_count())
-                .unwrap_or(usize::MAX)
-                .saturating_mul(track.target_count().saturating_add(track.gesture_count()))
-                .saturating_mul(std::mem::size_of::<f32>())
-        });
-        let bytes = pcm_bytes.saturating_add(lip_bytes);
-        if bytes <= CACHE_BYTES {
-            while self.stream_bytes + bytes > CACHE_BYTES {
-                let Some(oldest) = self.stream_order.pop_front() else {
-                    break;
-                };
-                if let Some((_, size, _, _)) = self.streams.remove(&oldest) {
-                    self.stream_bytes -= size;
-                }
+        let Some(pending) = self.pending_sounds.remove(&ready.slot) else {
+            return;
+        };
+        match ready.sound {
+            Ok(sound) => {
+                let (stream, duration, lip) =
+                    if let Some((stream, _, duration, lip)) = self.streams.get(&ready.path) {
+                        (stream.clone(), *duration, lip.clone())
+                    } else {
+                        let stream = wav_from_prepared(&sound);
+                        let duration = sound.duration;
+                        let lip = sound.lip.clone();
+                        let bytes = sound.bytes.len();
+                        if bytes <= CACHE_BYTES {
+                            while self.stream_bytes.saturating_add(bytes) > CACHE_BYTES {
+                                let Some(oldest) = self.stream_order.pop_front() else {
+                                    break;
+                                };
+                                if let Some((_, bytes, _, _)) = self.streams.remove(&oldest) {
+                                    self.stream_bytes -= bytes;
+                                }
+                            }
+                            self.stream_bytes += bytes;
+                            self.stream_order.push_back(ready.path.clone());
+                            self.streams
+                                .insert(ready.path, (stream.clone(), bytes, duration, lip.clone()));
+                        }
+                        (stream, duration, lip)
+                    };
+                self.start_in_slot(ready.slot, &pending, (stream, duration, lip));
             }
-            self.stream_bytes += bytes;
-            self.stream_order.push_back(key.clone());
-            self.streams
-                .insert(key, (stream.clone(), bytes, duration, lip.clone()));
+            Err(error) => {
+                self.pool.release(ready.slot);
+                self.background_error(&pending.path, &error);
+            }
         }
-        Ok((stream, duration, lip))
     }
 
     fn begin_music(&mut self, data_path: &str, fade_in: f32, fade_out: f32, abrupt: bool) -> bool {
@@ -1084,7 +1115,9 @@ impl SoundBank {
         let worker = std::thread::Builder::new()
             .name("soe-audio-descriptor".to_owned())
             .spawn(move || {
-                let decoded = source.decode(&requested_path);
+                let decoded = source
+                    .decode(&requested_path)
+                    .and_then(|sound| PreparedSound::prepare(&sound));
                 let _ = sender.send(AsyncAudioResult {
                     kind: AsyncAudioKind::DescriptorAmbience,
                     generation,
@@ -1115,16 +1148,16 @@ impl SoundBank {
                 index += 1;
             }
         }
-        while let Ok(result) = self.async_receiver.try_recv() {
+        if let Ok(result) = self.async_receiver.try_recv() {
             if result.kind != AsyncAudioKind::DescriptorAmbience
                 || result.generation != self.ambience_generation
             {
-                continue;
+                return;
             }
             match result.decoded {
-                Ok(sound) if !sound.pcm.is_empty() => {
+                Ok(sound) if !sound.bytes.is_empty() => {
                     self.decoded_count += 1;
-                    let stream = wav_from(&sound.pcm);
+                    let stream = wav_from_prepared(&sound);
                     if let Some(plan) = result.ambience_plan.as_ref() {
                         if !self.start_descriptor_ambience(&stream, plan) {
                             self.background_error(
@@ -1363,20 +1396,86 @@ impl SoundBank {
             self.last_error = "SoundBank must be inside the scene tree".into();
             return -1;
         }
-        let (stream, duration, lip) = match self.stream(data_path) {
-            Ok(decoded) => decoded,
-            Err(error) => {
-                self.last_error = error.as_str().into();
-                return -1;
-            }
-        };
-
-        let Some(slot) = self.pool.claim(kind) else {
-            self.last_error =
-                GString::from(format!("{data_path}: every slot holds something louder").as_str());
+        let Some(source) = self
+            .source
+            .clone()
+            .map(AudioDataSource::Data)
+            .or_else(|| self.vfs.clone().map(AudioDataSource::Vfs))
+        else {
+            self.last_error = "no audio data source".into();
             return -1;
         };
+        let vfs = match &source {
+            AudioDataSource::Data(source) => source.vfs(),
+            AudioDataSource::Vfs(vfs) => vfs,
+        };
+        let Some(path) = SoundSource::new(vfs).resolve(data_path) else {
+            self.last_error = format!("no sound at {data_path}").as_str().into();
+            return -1;
+        };
+        let Some(slot) = self.pool.claim(kind) else {
+            self.last_error = format!("{data_path}: every slot holds something louder")
+                .as_str()
+                .into();
+            return -1;
+        };
+        self.players[slot].stop();
+        self.dialogue_voice.stop(slot);
+        self.pending_sounds.remove(&slot);
+        self.voice_gains.remove(&slot);
+        if let Some(decoder) = &self.one_shot_decoder {
+            decoder.cancel(slot);
+        }
+        let mut pending = PendingSound {
+            ticket: 0,
+            path: path.clone(),
+            position,
+            kind,
+            parameters: plan.map(|plan| (plan.gain, plan.pitch, plan.output.clone())),
+        };
+        if let Some((stream, _, duration, lip)) = self.streams.get(&path) {
+            return self.start_in_slot(slot, &pending, (stream.clone(), *duration, lip.clone()));
+        }
+        if self.one_shot_decoder.is_none() {
+            match OneShotDecoder::new(SLOTS, CACHE_BYTES, move |path| source.decode(path)) {
+                Ok(decoder) => self.one_shot_decoder = Some(decoder),
+                Err(error) => {
+                    self.pool.release(slot);
+                    self.last_error = error.as_str().into();
+                    return -1;
+                }
+            }
+        }
+        let requested = self
+            .one_shot_decoder
+            .as_ref()
+            .ok_or_else(|| "no audio worker".to_owned())
+            .and_then(|decoder| decoder.request(slot, &path));
+        match requested {
+            Ok(ticket) => {
+                pending.ticket = ticket;
+                self.pending_sounds.insert(slot, pending);
+                self.last_error = GString::new();
+                slot as i32
+            }
+            Err(error) => {
+                self.pool.release(slot);
+                self.last_error = error.as_str().into();
+                -1
+            }
+        }
+    }
 
+    fn start_in_slot(
+        &mut self,
+        slot: usize,
+        pending: &PendingSound,
+        decoded: (Gd<AudioStreamWav>, f64, Option<LipWeightTrack>),
+    ) -> i32 {
+        let (stream, duration, lip) = decoded;
+        let position = pending.position;
+        let kind = pending.kind;
+        let plan = pending.parameters();
         self.voice_gains.remove(&slot);
         let voice_curve = (kind == Kind::Voice)
             .then_some(plan)
@@ -1459,12 +1558,11 @@ impl SoundBank {
 ///
 /// Mono because the buffer is about to be placed in the world, and a stereo
 /// image fights the position the 3D player is giving it.
-fn wav_from(pcm: &Pcm) -> Gd<AudioStreamWav> {
-    let mono = to_mono(pcm);
+fn wav_from_prepared(sound: &PreparedSound) -> Gd<AudioStreamWav> {
     let mut wav = AudioStreamWav::new_gd();
-    wav.set_data(&PackedByteArray::from(to_i16_bytes(&mono).as_slice()));
+    wav.set_data(&PackedByteArray::from(sound.bytes.as_slice()));
     wav.set_format(audio_stream_wav::Format::FORMAT_16_BITS);
-    wav.set_mix_rate(mono.sample_rate as i32);
+    wav.set_mix_rate(sound.rate as i32);
     wav.set_stereo(false);
     wav
 }

@@ -73,6 +73,8 @@ pub mod race_menu;
 pub mod ragdoll;
 pub mod save_recovery;
 pub mod skinned;
+#[cfg(feature = "godot")]
+mod sound_decode;
 pub mod streaming;
 pub mod terrain;
 pub mod terrain_lod;
