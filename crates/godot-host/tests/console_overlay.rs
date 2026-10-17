@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Installed-data console input regression runs the real walkthrough headless on Xvfb.
+//! Installed console regressions follow Godot Input and DisplayServer APIs.
+//! The walkthrough covers input, travel and software rendering on the private display.
 
 #[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
 #[path = "common/isolated_project.rs"]
@@ -56,7 +57,15 @@ fn console_overlay_walkthrough_opens_submits_history_and_closes() {
 }
 
 #[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
-fn r4_scene(script: &str, marker: &str, windowed: bool) {
+#[derive(Clone, Copy)]
+enum Renderer {
+    Headless,
+    OpenGl,
+    VulkanSoftware,
+}
+
+#[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
+fn r4_scene(script: &str, marker: &str, renderer: Renderer) {
     let (Some(data), Some(godot), Some(extension)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_GODOT_BIN"),
@@ -80,11 +89,26 @@ fn r4_scene(script: &str, marker: &str, windowed: bool) {
         Some(extension),
     );
     let mut command = std::process::Command::new(godot);
-    if windowed {
-        command.args(["--rendering-method", "gl_compatibility"]);
-    } else {
-        command.arg("--headless");
+    match renderer {
+        Renderer::Headless => {
+            command.arg("--headless");
+        }
+        Renderer::OpenGl => {
+            command.args(["--rendering-method", "gl_compatibility"]);
+        }
+        Renderer::VulkanSoftware => {
+            command.args(["--rendering-method", "forward_plus"]);
+            command.env(
+                "VK_ICD_FILENAMES",
+                "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json",
+            );
+            command.env(
+                "VK_DRIVER_FILES",
+                "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json",
+            );
+        }
     }
+    command.env("SOE_R4_COC_CAPTURE", project.path().join("qasmoke.png"));
     let result = command
         .arg("--path")
         .arg(project.path())
@@ -110,11 +134,35 @@ fn r4_scene(script: &str, marker: &str, windowed: bool) {
 #[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn r4_console_text_uses_clipboards_mouse_selection_and_paging() {
-    r4_scene("r4_console_text_test.gd", "R4_TEXT_RESULT PASS", true);
+    r4_scene(
+        "r4_console_text_test.gd",
+        "R4_TEXT_RESULT PASS",
+        Renderer::OpenGl,
+    );
+}
+
+#[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn r4_coc_walkthrough_places_player_and_replaces_lighting() {
+    r4_scene("r4_coc_test.gd", "R4_COC_RESULT PASS", Renderer::Headless);
 }
 
 #[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn r4_coc_installs_queued_cell_while_console_pauses_gameplay() {
-    r4_scene("r4_coc_paused_test.gd", "R4_PAUSED_RESULT PASS", false);
+    r4_scene(
+        "r4_coc_paused_test.gd",
+        "R4_PAUSED_RESULT PASS",
+        Renderer::Headless,
+    );
+}
+
+#[cfg(all(feature = "godot", target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn r4_coc_software_capture_contains_room_detail() {
+    r4_scene(
+        "r4_coc_test.gd",
+        "R4_COC_RESULT PASS",
+        Renderer::VulkanSoftware,
+    );
 }

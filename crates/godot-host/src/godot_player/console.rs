@@ -522,6 +522,12 @@ impl PlayerNode {
                 output.push_str("\nerror: host could not install the new player pose");
             }
             self.sync_door_presentation();
+            if let Some(game) = self.game.as_ref() {
+                if let Err(error) = self.image_space.sync(&game.world()) {
+                    output.push_str(&format!("\nerror: {error}"));
+                }
+            }
+            self.refresh_image_space();
         }
         self.console_selection_label();
         self.console_print(&output);

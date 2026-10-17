@@ -10235,6 +10235,44 @@ Native input event checks select zero characters with selection disabled and
 scene passes in both the Bannered Mare and WhiterunExterior04, including both
 clipboards, output copying, paging and Tab completion.
 
+## Console travel lighting, RND-49
+
+Console commands refresh the derived imagespace and camera controls while the
+console pauses gameplay. Previously a COC jump retained the prior cell's IMGS
+until gameplay advanced. The walkthrough regression observes exposure,
+contrast, tint and saturation before and after an explicit refresh of the same
+destination records. Before correction, all three requested interiors retain
+the previous cell's values.
+
+The installed winning QASmoke record has ambient RGB 32,38,33 and fog RGB
+23,33,22, with fog near 0, far 4500, power 0.6 and maximum 1. Its LTMP is null,
+so its XCLL fields remain local even with inheritance flags 159. XCIM selects
+IMGS 00013B32, with exposure 4.5, contrast 1.6 and a 0.2-strength green tint.
+These green values are authored. The void silhouette came from placing the
+player at height 0 while its COC marker is at height 6976. The fix retains the
+record colours and places the player at the marker inside the rooms.
+
+WarehouseFurniture inherits ambient, directional and fog fields from LGTM
+000300E2. The installed survey compares resolved host values with shared World
+values. QASmoke and XTestGrantInt retain local XCLL with null templates. Sources
+are local xEdit CELL/XCLL and LGTM definitions, UESP `LGTM.wikitext`, and the
+existing IMGS reader and host renderer. No format reader is replaced.
+
+The finished travel scene passes QASmoke, WarehouseFurniture, XTestGrantInt,
+WhiterunExterior04 and the return to the Bannered Mare. Imagespace controls
+match an explicit refresh immediately after each jump. The queued travel
+fixture also checks the destination camera Environment while the console is
+open.
+
+The initial frozen OpenGL capture was black and did not establish a visible
+scene. The added Vulkan llvmpipe capture closes the console, advances 120
+simulation steps, then reads the viewport after frame_post_draw. It requires
+more than five percent nonblack samples and more than 64 distinct sampled
+colours, using an eight pixel stride. The capture passes with a nonblack ratio
+of 1.0 and 179 colours. The player settles at height 6976.35 inside the room.
+The image is `target/r4-coc-qasmoke-playing.png`. The registered software
+capture test uses the same script. No physical GPU run was made.
+
 ## Queued console cell installation, HST-56
 
 With automatic stepping enabled, the host prepares and installs a new cell in
