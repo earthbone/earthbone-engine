@@ -157,6 +157,7 @@ pub struct BatchStats {
 /// occluder. Sorting uses triangle count and preserves source order on ties.
 pub const CELL_OCCLUDER_SURFACES: usize = 4;
 
+#[cfg_attr(not(feature = "godot"), allow(dead_code))]
 #[derive(Default)]
 pub(crate) struct PreparedOccluder {
     pub vertices: Vec<[f32; 3]>,

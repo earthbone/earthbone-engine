@@ -47,6 +47,7 @@ impl super::DataSource {
     }
 
     /// Exterior movement samples the physical grid cell at the actor's XY.
+    #[cfg_attr(not(feature = "godot"), allow(dead_code))]
     pub(crate) fn water_at(
         &self,
         cell: GlobalFormId,

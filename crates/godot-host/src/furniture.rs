@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![cfg_attr(not(feature = "godot"), allow(dead_code))]
 
 //! FURN placement uses nifly's FurniturePosition and xEdit's FNPR/NAM0 fields.
 //! The existing NIF reader retains these extra blocks as opaque data. This

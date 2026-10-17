@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![cfg_attr(not(feature = "godot"), allow(dead_code))]
 
 //! Routes game animation requests to the host visual with the matching form
 //! identity.

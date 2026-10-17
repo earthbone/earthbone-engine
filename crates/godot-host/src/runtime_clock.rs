@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![cfg_attr(not(feature = "godot"), allow(dead_code))]
 
 //! Wall-time input for automatic gameplay. Godot class_engine.rst documents
 //! that max_physics_steps_per_frame drops simulation time at low frame rates.

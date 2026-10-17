@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![cfg_attr(not(feature = "godot"), allow(dead_code))]
 
 //! Profile-selected tree material and vertex layouts for load-time rendering.
 //! Godot's pipeline_compilations.rst requires real material instances before
