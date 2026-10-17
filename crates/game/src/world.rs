@@ -62,6 +62,8 @@ mod doorway;
 mod driver;
 mod exterior_actors;
 mod package_overrides;
+#[cfg(test)]
+mod sound_activation_tests;
 pub use package_overrides::PackageOverride;
 pub mod effect_shader;
 mod encounter_zones;
@@ -1523,7 +1525,7 @@ pub fn class_for_tag(tag: &[u8; 4]) -> &'static str {
         b"RACE" => "Race",
         b"PACK" => "Package",
         b"SCEN" => "Scene",
-        b"SNDR" => "Sound",
+        b"SOUN" | b"SNDR" => "Sound",
         b"IDLE" => "Idle",
         b"PERK" => "Perk",
         b"SHOU" => "Shout",

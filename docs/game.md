@@ -20,6 +20,26 @@ the execution path. Mudcrab streaming was checked for object animation wiring
 and did not supply a Skyrim object graph bridge to reuse.
 No game assets or script instruction dumps belong in the report.
 
+## Sound marker method dispatch, SCR-77
+
+Papyrus Sound methods now dispatch on SOUN marker records. They previously
+allocated a generic Form object, producing a missing play method error on
+Mzinchaleft02 button 0:0C1F67 and QSTAstrolabeButtonPressX. The existing
+Sound.Play native, sound-instance queue and SOUN SDSC descriptor resolver
+remain the playback path. Existing SNDR dispatch is retained.
+
+The local SKSE PapyrusSound.cpp binds Sound to TESSound and exposes its
+descriptor. SKSE scripts/vanilla/Sound.psc declares Play on Sound. The local
+CommonLib TESSound declaration and xEdit SOUN/SDSC layout agree. No new
+reader, native, dependency or saved field is added.
+
+The synthetic script failed with Form instead of Sound before the correction.
+It now queues one sound instance and continues its linked activation without
+a missing-method error. The linked activation already completed in this VM
+before the fix, so that continuation is not claimed as a repaired outcome.
+Physical audio output and old saved VM objects with a generic class have not
+been established by this check.
+
 ## Activation-parent dispatch, SCR-76
 
 Successful default activation now queues children from winning XAPR records.
