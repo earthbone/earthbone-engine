@@ -1,5 +1,20 @@
 # soe-hkx: Skyrim SE animation files and the behavior runtime design
 
+## Furniture nested transitions, ANM-62, 2026-10-17
+
+The interpreter parsed nested transition IDs but did not use them. The vanilla
+furniture branch consequently selected the anvil state for cooking, alchemy
+and enchanting events. Transitions now check an authored nested source and
+activate the authored nested destination through generator wrappers. A local
+wildcard can change a child state while retaining its parent state.
+
+The local serde-hkx `assets/classes/hkbStateMachineTransitionInfo.json`
+declares the IDs and validity flags. Nemesis's vanilla `Nemesis_mt_behavior.xml`
+uses them to select furniture states. Three synthetic tests cover destination
+entry through a wrapper, source filtering and a child change within one parent.
+The host's extracted vanilla graph test checks the distinct chair, bed, forge,
+cooking, alchemy and enchanting clips through entry, a hold and exit.
+
 ## State synchronization correction, ANM-61, 2026-10-17
 
 The interpreter read `syncVariableIndex` for `START_STATE_MODE_SYNC` but never

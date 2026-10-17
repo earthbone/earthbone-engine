@@ -3591,7 +3591,7 @@ impl<'a> Interpreter<'a> {
             .chain(sm.wildcard_transitions.iter())
             .enumerate()
             .filter(|(index, info)| {
-                Self::transition_matches(sm, current, info, ev)
+                self.transition_matches(sm, current, info, ev)
                     && (info.flags & transition_flags::USE_TRIGGER_INTERVAL == 0
                         || interval_open(
                             &info.trigger_interval,
@@ -3677,7 +3677,13 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Match event or condition-only transitions. Wildcard self transitions require their flag.
-    fn transition_matches(sm: &StateMachine, current: i32, t: &TransitionInfo, ev: Event) -> bool {
+    fn transition_matches(
+        &self,
+        sm: &StateMachine,
+        current: i32,
+        t: &TransitionInfo,
+        ev: Event,
+    ) -> bool {
         if t.flags & transition_flags::DISABLED != 0 || t.event_id != ev.id {
             return false;
         }
@@ -3686,10 +3692,41 @@ impl<'a> Interpreter<'a> {
         }
         let wildcard = transition_flags::IS_GLOBAL_WILDCARD | transition_flags::IS_LOCAL_WILDCARD;
         let self_ok = transition_flags::ALLOW_SELF_TRANSITION_BY_TRANSITION_FROM_ANY_STATE;
-        if t.to_state_id == current && t.flags & wildcard != 0 && t.flags & self_ok == 0 {
+        let nested = sm
+            .state(current)
+            .and_then(|state| state.generator)
+            .and_then(|generator| self.nested_machine(generator));
+        let nested_state = nested.and_then(|machine| self.current_state(machine));
+        if t.flags & transition_flags::FROM_NESTED_STATE_ID_IS_VALID != 0
+            && nested_state != Some(t.from_nested_state_id)
+        {
+            return false;
+        }
+        let changes_nested = t.flags & transition_flags::TO_NESTED_STATE_ID_IS_VALID != 0
+            && nested_state != Some(t.to_nested_state_id);
+        if t.to_state_id == current
+            && t.flags & wildcard != 0
+            && t.flags & self_ok == 0
+            && !changes_nested
+        {
             return false;
         }
         sm.state(t.to_state_id).is_some_and(|s| s.enable)
+    }
+
+    fn nested_machine(&self, mut generator: NodeId) -> Option<NodeId> {
+        for _ in 0..self.graph.nodes.len() {
+            generator = match &self.graph.node(generator).kind {
+                NodeKind::StateMachine(_) => return Some(generator),
+                NodeKind::ModifierGenerator { generator, .. } => (*generator)?,
+                NodeKind::BehaviorReference { resolved, .. } => (*resolved)?,
+                NodeKind::IStateTagging {
+                    default_generator, ..
+                } => (*default_generator)?,
+                _ => return None,
+            };
+        }
+        None
     }
 
     fn start_transition(
@@ -3795,7 +3832,37 @@ impl<'a> Interpreter<'a> {
                 }
             }
         }
+        let nested = to_generator
+            .filter(|_| info.flags & transition_flags::TO_NESTED_STATE_ID_IS_VALID != 0)
+            .and_then(|generator| self.nested_machine(generator))
+            .filter(|machine| matches!(&graph.node(*machine).kind, NodeKind::StateMachine(sm) if sm.state(info.to_nested_state_id).is_some_and(|state| state.enable)));
+        let prior_start = nested.and_then(|machine| self.nodes[machine.0].start_state);
+        if let Some(machine) = nested {
+            self.nodes[machine.0].start_state = Some(info.to_nested_state_id);
+            if self.nodes[machine.0].active {
+                let NodeKind::StateMachine(nested_sm) = &graph.node(machine).kind else {
+                    return;
+                };
+                let prior = self.nodes[machine.0].current_state;
+                if let Some(generator) = prior
+                    .and_then(|state| nested_sm.state(state))
+                    .and_then(|state| state.generator)
+                {
+                    self.deactivate(generator);
+                }
+                self.end_transitions(machine, nested_sm, self.nodes[machine.0].transitions.len());
+                self.enter_state(
+                    machine,
+                    nested_sm,
+                    info.to_nested_state_id,
+                    (ev.id >= 0).then_some(ev.id),
+                );
+            }
+        }
         self.enter_state(id, sm, to, (ev.id >= 0).then_some(ev.id));
+        if let Some(machine) = nested {
+            self.nodes[machine.0].start_state = prior_start;
+        }
     }
 
     /// End a prefix of the transition chain and release generators no longer used.
@@ -5128,6 +5195,139 @@ mod tests {
         while !bytes.len().is_multiple_of(4) {
             bytes.push(0);
         }
+    }
+
+    fn r4_nested_graph() -> BehaviorGraph {
+        use crate::behavior::StateInfo;
+        let state = |state_id, generator| StateInfo {
+            name: format!("state {state_id}"),
+            state_id,
+            probability: 1.0,
+            enable: true,
+            generator,
+            enter_notify_events: Vec::new(),
+            exit_notify_events: Vec::new(),
+            transitions: Vec::new(),
+            bindings: None,
+        };
+        let machine = |states| StateMachine {
+            event_to_send_when_state_or_transition_changes: crate::behavior::EventProperty {
+                id: -1,
+                has_payload: false,
+            },
+            start_state_id: 0,
+            return_to_previous_state_event_id: -1,
+            random_transition_event_id: -1,
+            transition_to_next_higher_state_event_id: -1,
+            transition_to_next_lower_state_event_id: -1,
+            sync_variable_index: -1,
+            wrap_around_state_id: false,
+            max_simultaneous_transitions: 1,
+            start_state_mode: 0,
+            self_transition_mode: 0,
+            states,
+            wildcard_transitions: Vec::new(),
+            has_start_state_chooser: false,
+        };
+        let mut outer = machine(vec![state(0, None), state(1, Some(NodeId(1)))]);
+        for (event, to, from_nested, to_nested, flags) in [
+            (0, 1, -1, 7, transition_flags::TO_NESTED_STATE_ID_IS_VALID),
+            (1, 0, 0, -1, transition_flags::FROM_NESTED_STATE_ID_IS_VALID),
+            (2, 0, 7, -1, transition_flags::FROM_NESTED_STATE_ID_IS_VALID),
+            (3, 1, -1, 0, transition_flags::TO_NESTED_STATE_ID_IS_VALID),
+        ] {
+            let mut transition = TransitionInfo::plain(to);
+            transition.event_id = event;
+            transition.from_nested_state_id = from_nested;
+            transition.to_nested_state_id = to_nested;
+            transition.flags = flags | transition_flags::IS_LOCAL_WILDCARD;
+            outer.wildcard_transitions.push(transition);
+        }
+        let node = |id, kind| crate::behavior::Node {
+            id: NodeId(id),
+            offset: 0,
+            class: String::new(),
+            name: format!("node {id}"),
+            user_data: 0,
+            bindings: None,
+            kind,
+        };
+        BehaviorGraph {
+            name: "nested furniture destinations".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                event_names: ["enter", "wrong source", "leave", "change nested"]
+                    .map(str::to_owned)
+                    .to_vec(),
+                ..Default::default()
+            },
+            nodes: vec![
+                node(0, NodeKind::StateMachine(outer)),
+                node(
+                    1,
+                    NodeKind::ModifierGenerator {
+                        modifier: None,
+                        generator: Some(NodeId(2)),
+                    },
+                ),
+                node(
+                    2,
+                    NodeKind::StateMachine(machine(vec![
+                        state(0, Some(NodeId(3))),
+                        state(7, Some(NodeId(4))),
+                    ])),
+                ),
+                node(3, NodeKind::Clip(ClipGenerator::default())),
+                node(4, NodeKind::Clip(ClipGenerator::default())),
+            ],
+        }
+    }
+
+    #[test]
+    fn r4_nested_destination_activates_the_requested_state_through_a_wrapper() {
+        let graph = r4_nested_graph();
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.update(0.0);
+        vm.send_event(0);
+        vm.update(0.0);
+        assert_eq!(vm.current_state(NodeId(2)), Some(7));
+        assert!(vm.is_active(NodeId(4)));
+        assert!(!vm.is_active(NodeId(3)));
+        assert_eq!(vm.nodes[2].start_state, None);
+    }
+
+    #[test]
+    fn r4_nested_source_filters_the_parent_transition() {
+        let graph = r4_nested_graph();
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.update(0.0);
+        vm.send_event(0);
+        vm.update(0.0);
+        vm.send_event(1);
+        vm.update(0.0);
+        assert_eq!(vm.current_state(NodeId(0)), Some(1));
+        vm.send_event(2);
+        vm.update(0.0);
+        assert_eq!(vm.current_state(NodeId(0)), Some(0));
+        assert!(!vm.is_active(NodeId(2)));
+    }
+
+    #[test]
+    fn r4_nested_destination_changes_within_the_same_parent_state() {
+        let graph = r4_nested_graph();
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.update(0.0);
+        vm.send_event(0);
+        vm.update(0.0);
+        vm.send_event(3);
+        vm.update(0.0);
+        assert_eq!(vm.current_state(NodeId(2)), Some(0));
+        assert!(vm.is_active(NodeId(3)));
+        assert!(!vm.is_active(NodeId(4)));
     }
 
     #[test]
