@@ -12446,3 +12446,20 @@ The graph contains attackStart_ClubAttack1, attackStart_ClubAttack2 and
 attackStart_HandSwipeAttack. Their clips carry HitFrame and named SoundPlay
 annotations. The host's existing annotation importer previously discarded the
 sound annotations. No dependency or actor node is added.
+## Stagger direction and weapon skill use (2026-10-03)
+
+`World::stagger_direction_value` turns the stored stagger source into the
+behavior graph's `staggerDirection`: the bearing from the target to the
+source, minus the target's heading, as a fraction of a full turn. 0 means
+the source stands in front and the target staggers backwards, 0.5 means it
+stands behind. activeragdoll's `main.cpp` documents the same convention.
+`combat_stagger_adversarial.rs` checks the front, right, back and left
+quarters.
+
+A player melee hit with a One-Handed, Two-Handed or Archery weapon now
+advances that skill by the weapon's base damage, the use UESP's
+Skyrim:Leveling page gives for those skills, and `advance_skill` applies the
+AVIF multiplier and offset. Bashes, unarmed contacts and NPC attackers gain
+nothing. A load order without the skill's AVIF form keeps the hit and skips
+the experience. Arrow impacts deal no damage yet, so Archery only trains
+once that path exists. Tests in `cmb_weapon_skill_use.rs`.

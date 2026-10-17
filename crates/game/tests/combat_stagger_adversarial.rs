@@ -229,6 +229,41 @@ fn cmb_14_non_qualifying_hit_does_not_clear_active_stagger() {
     );
 }
 
+/// `staggerDirection` is 0 with the source in front of the target, 0.5
+/// behind it and 0.25 on its right, the activeragdoll convention where 0
+/// and 1 stagger backwards. The target faces north (`rotation[2]` 0).
+#[test]
+fn stagger_direction_follows_the_source_bearing() {
+    for (offset, rotation, expected) in [
+        ([0.0, 100.0], 0.0, 0.0),
+        ([0.0, -100.0], 0.0, 0.5),
+        ([100.0, 0.0], 0.0, 0.25),
+        ([-100.0, 0.0], 0.0, 0.75),
+        ([100.0, 0.0], std::f32::consts::FRAC_PI_2, 0.0),
+    ] {
+        let mut game = fixture(
+            weapon(0xA00, 10, 6, 1.0),
+            None,
+            &[("fStaggerThreshold", 0.01)],
+        );
+        {
+            let mut world = game.world_mut();
+            let target = world.reference(id(0x901)).unwrap();
+            target.position = [0.0, 0.0, 0.0];
+            target.rotation = [0.0, 0.0, rotation];
+            let attacker = world.reference(id(0x900)).unwrap();
+            attacker.position = [offset[0], offset[1], 0.0];
+        }
+        assert!(game.melee_hit(hit(0x900, 0x901, 0xA00)).unwrap().staggered);
+        let direction = game.world().stagger_direction_value(id(0x901)).unwrap();
+        let wrapped = (direction - expected).rem_euclid(1.0);
+        assert!(
+            wrapped.min(1.0 - wrapped) < 1e-4,
+            "source at {offset:?}, target yaw {rotation}: got {direction}, expected {expected}"
+        );
+    }
+}
+
 /// docs/combat.md CMB-14: "Both stay overridable through the existing
 /// plugin and live-setting GMST precedence World::combat_setting already
 /// gives every other engine default here." A plugin-defined

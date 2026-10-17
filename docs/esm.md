@@ -749,3 +749,16 @@ plugin name. These always-on `soe-trace` load phases are independent of the
 optional span switch and do not change parsing, cache identity or form state.
 The boundaries follow this crate's existing parser and parsed-cache API and
 `docs/performance.md`'s parsed plugin cache measurements.
+## LTEX material and the dominant LAND texture (2026-10-03)
+
+`LandTexture` also reads `MNAM` (the MATT material), `HNAM` friction and
+restitution, `SNAM` specular exponent and the SSE `INAM` snow flag, laid out
+as in xEdit's `wbRecord(LTEX, ...)`. `Land::dominant_texture(x, y)` returns
+the raw LTEX FormID that covers a point given in cell units, zero meaning
+the default texture. It picks the quadrant (0 south west, 1 south east,
+2 north west, 3 north east), samples the nearest of its 17 by 17 vertices,
+and composites the alpha layers over the base in layer order the way the
+host's terrain bake does. The texture with the largest visible weight wins.
+The method came from SkyCraft's `Dig::LandMaterialAt`, without its fixed
+opacity threshold. CommonLib's `TES::GetLandTexture` is the vanilla
+counterpart. Unit tests in `land.rs` and `gras_ltex_adversarial.rs`.

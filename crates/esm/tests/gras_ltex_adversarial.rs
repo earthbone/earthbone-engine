@@ -180,3 +180,14 @@ fn ltex_multiple_gnam_subrecords_preserve_file_order() {
          walks them in this order"
     );
 }
+
+/// `MNAM` is the MATT FormID footsteps resolve on painted terrain.
+#[test]
+fn ltex_reads_material_and_snow_flag() {
+    let record = Record::new(tag::LTEX, 1)
+        .sub(b"MNAM", 0x0001_2345u32.to_le_bytes())
+        .sub(b"INAM", 1u32.to_le_bytes());
+    let ltex = LandTexture::from_record(&record).unwrap();
+    assert_eq!(ltex.material, Some(0x0001_2345));
+    assert!(ltex.is_snow);
+}

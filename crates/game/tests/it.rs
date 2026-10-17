@@ -685,6 +685,8 @@ mod cmb_38_breaker_adversarial;
 mod cmb_39_adversarial;
 #[path = "cmb_39_duplicate_npc_perks.rs"]
 mod cmb_39_duplicate_npc_perks;
+#[path = "cmb_weapon_skill_use.rs"]
+mod cmb_weapon_skill_use;
 #[path = "combat_ai.rs"]
 mod combat_ai;
 #[path = "combat_bleedout.rs"]

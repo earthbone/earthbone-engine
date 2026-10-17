@@ -405,6 +405,7 @@ impl World {
         let mut poison_stack: PoisonStack = None;
         let mut weapon_enchantment = None;
         let mut enchantment_charge = None;
+        let mut skill_use = None;
         let (
             weapon_damage,
             stagger_fraction,
@@ -528,6 +529,7 @@ impl World {
                 8 => "marksman",
                 _ => "",
             };
+            skill_use = (!skill.is_empty()).then_some((skill, f32::from(weapon.damage)));
             let scale = if skill.is_empty() {
                 1.0
             } else {
@@ -818,6 +820,14 @@ impl World {
         if !killed && self.player == Some(hit.attacker) {
             self.record_player_assault(hit.attacker, hit.target);
         }
+        if let Some((skill, base_damage)) = skill_use.filter(|_| self.player == Some(hit.attacker))
+        {
+            // UESP Skyrim:Leveling counts one weapon skill use per point of
+            // base weapon damage, before the hit's multipliers. A load order
+            // without the skill's AVIF form has no use multiplier to apply,
+            // so the hit stands without the experience.
+            let _ = self.advance_skill(hit.attacker, skill, base_damage);
+        }
         self.break_invisibility(hit.attacker, alloc);
         let mut event_flags = soe_commonlib_shim::events::HitFlags::default();
         if hit.is_power_attack {
@@ -988,6 +998,31 @@ impl World {
                 .stagger_end_time
                 .is_some_and(|until| self.clock.real_seconds < until)
         })
+    }
+
+    /// The behavior graph's `staggerDirection` for the actor's current
+    /// stagger, the bearing of its source relative to the actor's heading as
+    /// a fraction of a full turn. 0 (or 1) is a source straight ahead, so the
+    /// actor staggers backwards, 0.5 is a source behind it. Heading follows
+    /// the reference Z rotation, clockwise from north. The convention is the
+    /// one `activeragdoll/src/main.cpp` writes into the same graph variable.
+    /// `None` when no source was recorded or either reference has no
+    /// position, which leaves the graph's previous value in place.
+    #[must_use]
+    pub fn stagger_direction_value(&self, id: GlobalFormId) -> Option<f32> {
+        let source = self.actor_ref(id)?.stagger_direction?;
+        let target = self.reference_ref(id)?;
+        let from = self.reference_ref(source)?;
+        let (dx, dy) = (
+            from.position[0] - target.position[0],
+            from.position[1] - target.position[1],
+        );
+        if dx == 0.0 && dy == 0.0 {
+            return None;
+        }
+        let relative = dx.atan2(dy) - target.rotation[2];
+        let turn = relative.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU;
+        turn.is_finite().then_some(turn)
     }
 
     /// Commit one stagger application with its authored magnitude and source

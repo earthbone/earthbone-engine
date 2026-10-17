@@ -259,6 +259,67 @@ impl Land {
             world: rec.placement.world,
         })
     }
+
+    /// The LTEX FormID painted most strongly at a point, as written in the
+    /// file, zero when the default landscape texture shows. `x` and `y` are
+    /// Skyrim units from the cell's south west corner, clamped to the cell.
+    ///
+    /// The quadrant comes from the half the point lies in (0 south west,
+    /// 1 south east, 2 north west, 3 north east) and the sample from its
+    /// nearest vertex on the quadrant's 17 by 17 alpha grid. Layers composite
+    /// over the base in `index` order, the same order the terrain bake draws,
+    /// and the texture with the largest visible share wins. This answers the
+    /// question CommonLib names `TES::GetLandTexture`.
+    #[must_use]
+    pub fn dominant_texture(&self, x: f32, y: f32) -> u32 {
+        const CELL: f32 = 4096.0;
+        const HALF: f32 = CELL / 2.0;
+        const SIDE: usize = 17;
+        const SPACING: f32 = HALF / (SIDE - 1) as f32;
+        let x = if x.is_finite() {
+            x.clamp(0.0, CELL)
+        } else {
+            0.0
+        };
+        let y = if y.is_finite() {
+            y.clamp(0.0, CELL)
+        } else {
+            0.0
+        };
+        let east = x >= HALF;
+        let north = y >= HALF;
+        let quadrant = &self.quadrants[usize::from(east) + 2 * usize::from(north)];
+        let local = |value: f32, upper: bool| {
+            let offset = if upper { value - HALF } else { value };
+            ((offset / SPACING).round() as usize).min(SIDE - 1)
+        };
+        let position = local(y, north) * SIDE + local(x, east);
+
+        let mut shares = vec![(quadrant.base.unwrap_or(0), 1.0f32)];
+        let mut layers: Vec<_> = quadrant.layers.iter().collect();
+        layers.sort_by_key(|layer| layer.index);
+        for layer in layers {
+            let opacity = layer
+                .alphas
+                .iter()
+                .find(|alpha| usize::from(alpha.position) == position)
+                .map_or(0.0, |alpha| alpha.opacity.clamp(0.0, 1.0));
+            if opacity <= 0.0 {
+                continue;
+            }
+            for (_, share) in &mut shares {
+                *share *= 1.0 - opacity;
+            }
+            shares.push((layer.texture, opacity));
+        }
+        let mut best = shares[0];
+        for entry in shares.into_iter().skip(1) {
+            if entry.1 > best.1 {
+                best = entry;
+            }
+        }
+        best.0
+    }
 }
 
 /// Apply one circular height brush dab to a LAND record and rebuild its
@@ -726,6 +787,75 @@ fn ensure_unique_subrecord(record: &Record, tag: Tag) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn painted(base: Option<u32>, layers: Vec<Layer>) -> Land {
+        let empty = || Quadrant {
+            base: None,
+            layers: Vec::new(),
+        };
+        Land {
+            form_id: 0x10,
+            flags: 0,
+            heights: None,
+            normals: None,
+            colours: None,
+            quadrants: [
+                Quadrant { base, layers },
+                empty(),
+                empty(),
+                Quadrant {
+                    base: Some(0x77),
+                    layers: Vec::new(),
+                },
+            ],
+            cell: None,
+            world: None,
+        }
+    }
+
+    fn layer(texture: u32, index: u16, alphas: &[(u16, f32)]) -> Layer {
+        Layer {
+            texture,
+            index,
+            alphas: alphas
+                .iter()
+                .map(|&(position, opacity)| Alpha { position, opacity })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn dominant_texture_falls_back_to_base_then_default() {
+        let land = painted(Some(0x50), Vec::new());
+        assert_eq!(land.dominant_texture(100.0, 100.0), 0x50);
+        assert_eq!(land.dominant_texture(3000.0, 3000.0), 0x77);
+        assert_eq!(land.dominant_texture(3000.0, 100.0), 0);
+        assert_eq!(land.dominant_texture(f32::NAN, -50.0), 0x50);
+    }
+
+    #[test]
+    fn dominant_texture_reads_the_nearest_vertex_and_composites_layers() {
+        // Vertex (col 2, row 1) sits at 256, 128 in the south west quadrant.
+        let at = 17 + 2;
+        let land = painted(
+            Some(0x50),
+            vec![
+                layer(0x61, 1, &[(at, 0.9)]),
+                layer(0x60, 0, &[(at, 1.0), (0, 0.4)]),
+            ],
+        );
+        assert_eq!(
+            land.dominant_texture(250.0, 140.0),
+            0x61,
+            "the higher index draws over the lower one"
+        );
+        assert_eq!(
+            land.dominant_texture(0.0, 0.0),
+            0x50,
+            "a 0.4 layer leaves the base with the larger share"
+        );
+        assert_eq!(land.dominant_texture(600.0, 600.0), 0x50);
+    }
 
     fn slope() -> Vec<f32> {
         (0..VERTS)

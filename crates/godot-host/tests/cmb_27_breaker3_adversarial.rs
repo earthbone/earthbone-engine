@@ -132,7 +132,7 @@ fn cmb_27_shared_hit_plays_authored_reaction_then_returns_without_redamage() {
         .poll(&mut shared.borrow_mut(), target)
         .expect("shared hit state starts a reaction");
     assert_eq!(event, StaggerGraphEvent::Start);
-    assert!(send_stagger_start(&mut vm, magnitude));
+    assert!(send_stagger_start(&mut vm, magnitude, None));
     let played = (0..90).any(|_| {
         vm.update(1.0 / 60.0);
         vm.active_clips().iter().any(|(node, _)| {

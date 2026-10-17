@@ -4427,6 +4427,16 @@ disappears after the effect's authored duration. Run it with `SOE_GODOT_BIN`,
 "$SOE_GODOT_BIN" --path godot --script mag_35_runtime_light_test.gd --resolution 640x360
 ```
 
+Since 2026-10-03 the DATA effect flag also drives light energy each frame.
+Flicker is 0x8, Flicker Slow 0x40, Pulse 0x80 and Pulse Slow 0x100, with at
+most one set per record (UESP `LIGH`). The float at offset 28 is a frequency
+in cycles per second, since CommonLib names it `flickerPeriodRecip`, and the
+float at 32 is the intensity amplitude. Neither source specifies the waveform.
+Pulse is one sine and flicker sums three sines at unrelated rates. The slow
+variants run at half rate, as OpenMW's `lightcontroller.cpp` does. The
+reference id offsets each light's phase. Movement amplitude, the FNAM fade
+value and placed LIGH references are still not applied.
+
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
 round had no Godot binary. Later sections record actual host runs, and the
@@ -7213,6 +7223,15 @@ with selection limits described in [game.md](game.md). Animation timing,
 landing/scuff sounds and NPC footstep delivery remain pending. The current
 controller does not supply submerged state to audio.
 
+LAND collision carries no Havok material, so footsteps on terrain used to
+fall back to the `DLMT` default object. Since 2026-10-03 a hit on a LAND body
+resolves `DataSource::terrain_material`, the counterpart of CommonLib's
+`TES::GetLandMaterialType`. It takes the cell's winning LAND (or the parent
+worldspace's), the dominant texture at that point (`Land::dominant_texture`
+in [esm.md](esm.md)) and that LTEX's `MNAM` MATT. A missing link still falls
+back to `DLMT`. The gated `real_terrain_material` test resolves 3957 of 4096
+samples around Whiterun to MATT records, five distinct materials.
+
 ## Dialogue voice playback
 
 When a selected INFO response starts, the dialogue menu resolves its voice
@@ -7590,8 +7609,19 @@ direction. The master graph does not expose
 a hit direction through the outer graph's variable table. The gated
 `cmb_27_vanilla_hit_reaction_plays_and_returns_to_locomotion_without_damage`
 test checks the installed master graph plays its authored stagger clip and
-returns to the original active state. Exact hit direction and same-frame
-repeated deadlines are not represented by the current World event state.
+returns to the original active state. Same-frame repeated deadlines are not
+represented by the current World event state.
+
+Since 2026-10-03 `staggerStart` also carries `staggerDirection` from
+`World::stagger_direction_value`. The value is the bearing from the target to
+the stagger source, relative to the target's heading, wrapped into 0 to 1.
+0 means the source stands in front, so the target staggers backwards, and
+0.5 means it stands behind. This is the convention activeragdoll's
+`main.cpp` documents. A stagger with no source leaves the graph's previous
+value in place. `Variables::set_by_name` ignores a name the graph does not
+declare, so on the vanilla master graph, which does not expose the variable
+as the paragraph above records, the value only reaches graphs that declare
+it.
 
 The `cmb_19_` unit tests check bone assignment, frame conversion and the
 death-to-resurrection mode transition. The installed-data gated
