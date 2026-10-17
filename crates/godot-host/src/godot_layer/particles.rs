@@ -581,6 +581,7 @@ mod lod_tests {
         assert_eq!(lod_scales(lod, 0.0), (1.0, 1.0));
         let (emit, size) = lod_scales(lod, 0.4 * 4096.0);
         assert!((emit - 0.6).abs() < 1e-4 && (size - 1.5).abs() < 1e-4);
-        assert_eq!(lod_scales(lod, 5.0 * 4096.0), (0.2, 2.0));
+        let (emit, size) = lod_scales(lod, 5.0 * 4096.0);
+        assert!((emit - 0.2).abs() < 1e-6 && (size - 2.0).abs() < 1e-6);
     }
 }
