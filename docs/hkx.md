@@ -59,6 +59,32 @@ The shared synthetic locomotion graph now sets its unused sync index to -1.
 It previously left zero there, pointing at Speed. Enabling state publication
 exposed that fixture error in the game animation timing checks. Their
 playhead and furniture-event assertions are unchanged.
+## Clip entry markers, round 4
+
+ANM-63 delivers a trigger at the initial playhead once when its clip activates.
+The previous strict previous-time comparison skipped a marker at zero, and
+also skipped a marker exactly at a nonzero start time. The existing activation
+flag is consumed by the clip's first generation. A zero time step can deliver
+the entry marker without repeating it on later zero steps. Normal crossing,
+looping and acyclic checks remain active.
+
+Both clip_entry_ tests fail before correction with zero events instead of one.
+They cover zero-time entry, repeated zero updates, a later marker and a nonzero
+start that skips earlier markers. The host's sound annotation regression also
+requires a time-zero sound followed by the original later HitFrame.
+
+Local serde-hkx assets/classes/hkbClipTrigger.json supplies localTime and the
+annotation flag. OpenMW apps/openmw/mwrender/animation.cpp::Animation::play
+uses lowerBound at entry and delivers keys equal to the initial time. This
+supplies the entry boundary, while the existing interpreter handles later
+crossings. No dependency or saved field is added.
+
+Round 4 adds wall-clock measurements for graph control, clip sampling and
+remaining pose generation per interpreter update. Pose generation includes
+blending and modifiers. The host separately measures model-space conversion
+and skin transform submission. Clips remain decoded in the retained library,
+and the existing shared-node output cache remains in use. The measurements
+use Rust monotonic time and do not change graph time or saved state.
 
 The 2026-10-13 character correction generates a shared graph node once per
 interpreter update and reuses its output across parent branches. Previously,

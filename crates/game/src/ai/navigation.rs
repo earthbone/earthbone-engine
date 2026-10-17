@@ -99,6 +99,7 @@ enum Work {
 #[derive(Clone)]
 struct QueryScope {
     space: GlobalFormId,
+    clearance: f32,
     meshes: std::sync::Arc<[bool]>,
     target_meshes: std::sync::Arc<[bool]>,
     compatible: bool,
@@ -134,6 +135,21 @@ fn query_scope(world: &mut World, actor: GlobalFormId, goal: Goal) -> Option<Que
     };
     Some(QueryScope {
         space,
+        clearance: {
+            let reference = world.reference_ref(actor)?;
+            let height = reference
+                .base
+                .and_then(|base| world.actor_controller_scale(base).ok())
+                .unwrap_or(1.0);
+            let scale = height * reference.scale;
+            let settings = soe_physics::CharacterSettings::mudcrab();
+            (settings.radius + settings.collision_offset)
+                * if scale.is_finite() && scale > 0.0 {
+                    scale
+                } else {
+                    1.0
+                }
+        },
         meshes: space_mask(world, space),
         target_meshes: space_mask(world, target),
         compatible: target == space,
@@ -492,8 +508,8 @@ impl Planner {
             r.from != from
                 || r.goal != goal
                 || r.revision != graph.query_revision()
-                || r.scope.as_ref().map(|scope| scope.space)
-                    != scope.as_ref().map(|scope| scope.space)
+                || r.scope.as_ref().map(|scope| (scope.space, scope.clearance))
+                    != scope.as_ref().map(|scope| (scope.space, scope.clearance))
         }) {
             self.cancel(actor);
         }
@@ -659,6 +675,7 @@ impl Request {
                     self.failed = path.is_none();
                     let started = std::time::Instant::now();
                     let path = path
+                        .and_then(|path| scoped_clearance(graph, path, scope.as_ref()))
                         .map(|path| planned(path, cells, if fallback { None } else { cell }))
                         .or_else(|| {
                             if !fallback || scope.as_ref().is_some_and(|scope| !scope.compatible) {
@@ -712,6 +729,11 @@ impl Request {
                         match result {
                             Poll::Pending => break,
                             Poll::Ready(Some(path)) => {
+                                let Some(path) = scoped_clearance(graph, path, scope.as_ref())
+                                else {
+                                    flee.search = None;
+                                    continue;
+                                };
                                 self.result = Poll::Ready(Some((
                                     flee.destination,
                                     planned(path, cells, None),
@@ -741,6 +763,13 @@ impl Request {
     }
 }
 
+fn scoped_clearance(graph: &NavGraph, path: Path, scope: Option<&QueryScope>) -> Option<Path> {
+    match scope {
+        Some(scope) => graph.path_with_portal_inset(&path, scope.clearance),
+        None => Some(path),
+    }
+}
+
 pub(super) fn request(
     world: &mut World,
     actor: GlobalFormId,
@@ -763,6 +792,71 @@ pub(super) fn request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn npc_package_route_keeps_capsule_clear_of_an_inner_corner() {
+        let mut world = overlapping_rooms();
+        let actor = world.player();
+        let room = GlobalFormId {
+            file: 0,
+            object: 0x800,
+        };
+        let mut indices = BTreeMap::new();
+        let mut vertices = Vec::new();
+        let mut triangles = Vec::new();
+        for (x, y) in [(0, 0), (1, 0), (2, 0), (2, 1), (2, 2)] {
+            let corners = [(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)].map(|point| {
+                *indices.entry(point).or_insert_with(|| {
+                    vertices.push([point.0 as f32 * 128.0, point.1 as f32 * 128.0, 0.0]);
+                    vertices.len() as u32 - 1
+                })
+            });
+            triangles.extend([
+                [corners[0], corners[1], corners[2]],
+                [corners[0], corners[2], corners[3]],
+            ]);
+        }
+        let mut graph = NavGraph::new();
+        graph.add_mesh_with_adjacency(vertices, &triangles);
+        world.ai.nav = Some(graph);
+        world.ai.nav_cells = vec![Some(room)];
+        world.ai.nav_spaces = vec![Some(room)];
+        let from = [40.0, 88.0, 0.0];
+        let to = [296.0, 344.0, 0.0];
+        let Poll::Ready(Some((_, (mut points, owners)))) = request(
+            &mut world,
+            actor,
+            from,
+            Goal::Point {
+                to,
+                cell: Some(room),
+                fallback: false,
+            },
+        ) else {
+            panic!("small supported corridor must finish in one slice");
+        };
+        assert!(owners.iter().all(|owner| *owner == Some(room)));
+        assert_eq!(points.last(), Some(&to));
+        points.insert(0, from);
+        let corner = [256.0, 128.0, 0.0];
+        for pair in points.windows(2) {
+            let dx = pair[1][0] - pair[0][0];
+            let dy = pair[1][1] - pair[0][1];
+            let length2 = dx * dx + dy * dy;
+            let t = if length2 > 0.0 {
+                (((corner[0] - pair[0][0]) * dx + (corner[1] - pair[0][1]) * dy) / length2)
+                    .clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let clearance =
+                (pair[0][0] + dx * t - corner[0]).hypot(pair[0][1] + dy * t - corner[1]);
+            assert!(
+                clearance >= 28.0 - 0.01,
+                "capsule clips the corner at {clearance} units: {points:?}"
+            );
+        }
+    }
 
     fn overlapping_rooms() -> World {
         use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};

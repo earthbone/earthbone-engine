@@ -69,6 +69,13 @@ fn to_transform3d(a: &Affine) -> Transform3D {
     )
 }
 
+/// An authored contact marker sampled from the uploaded pose.
+pub(crate) struct PoseContact {
+    pub name: String,
+    pub hand: Hand,
+    pub pose: Transform3D,
+}
+
 /// The two RIDs one skinned shape needs.
 struct ShapeRids {
     instance: Rid,
@@ -218,10 +225,12 @@ pub struct SkinnedActorNode {
     assets: Option<Arc<ActorAssets>>,
     presented_actor: Option<soe_esm::GlobalFormId>,
     presented_placement: Option<soe_game::world::RefPlacement>,
+    presentation: crate::actor::NpcPresentation,
     presentation_hidden: bool,
     presented_moving: bool,
     presented_turning: i8,
     pose_us: f64,
+    pose_stages: [f64; 5],
     presented_appearance: Option<soe_game::appearance::ActorAppearance>,
     surfaces: Vec<ActorSurface>,
     appearance: Option<AppearanceBinding>,
@@ -238,6 +247,7 @@ pub struct SkinnedActorNode {
     model: Vec<QsTransform>,
     skins: Vec<Affine>,
     uploaded_skins: Vec<Transform3D>,
+    contacts: Vec<PoseContact>,
     stats: VarDictionary,
     applied_expression_weights: std::collections::BTreeMap<String, f32>,
     elapsed: f64,
@@ -260,10 +270,12 @@ impl INode3D for SkinnedActorNode {
             playing: true,
             presented_actor: None,
             presented_placement: None,
+            presentation: crate::actor::NpcPresentation::default(),
             presentation_hidden: false,
             presented_moving: false,
             presented_turning: 0,
             pose_us: 0.0,
+            pose_stages: [0.0; 5],
             presented_appearance: None,
             first_person: false,
             camera_offset: Transform3D::IDENTITY,
@@ -284,6 +296,7 @@ impl INode3D for SkinnedActorNode {
             model: Vec::new(),
             skins: Vec::new(),
             uploaded_skins: Vec::new(),
+            contacts: Vec::new(),
             stats: VarDictionary::new(),
             applied_expression_weights: std::collections::BTreeMap::new(),
             elapsed: 0.0,
@@ -992,6 +1005,8 @@ impl SkinnedActorNode {
     /// this while `playing`, and a test can call it directly.
     #[func]
     pub fn advance(&mut self, delta: f32) {
+        self.contacts.clear();
+        self.pose_stages = [0.0; 5];
         self.sync_invisibility();
         self.sync_death_rendering();
         self.refresh_appearance();
@@ -1037,6 +1052,7 @@ impl SkinnedActorNode {
             vm.send_event_named(&request);
         }
         vm.update(delta);
+
         if let Some(binding) = &mut self.appearance {
             if !self.first_person {
                 if let Some(value) = vm
@@ -1055,6 +1071,14 @@ impl SkinnedActorNode {
                     .finish(&mut binding.world.borrow_mut(), binding.actor, vm);
             }
         }
+
+        let timings = vm.update_timings();
+        self.pose_stages[..3].copy_from_slice(&[
+            timings.control_us,
+            timings.sampling_us,
+            timings.pose_generation_us,
+        ]);
+
         if let Some(clock) = self.debug_clock.as_mut() {
             clock.observe(vm, assets, delta);
         }
@@ -1066,12 +1090,19 @@ impl SkinnedActorNode {
             .cloned()
             .collect();
         self.elapsed += f64::from(delta);
+        let model_started = std::time::Instant::now();
         if let Err(e) = to_model_space_into(&assets.skeleton, vm.pose(), &mut self.model) {
             soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode: {e}");
             return;
         }
+
         self.apply_head_tracking();
+
+        self.pose_stages[3] = model_started.elapsed().as_secs_f64() * 1e6;
+        let upload_started = std::time::Instant::now();
+
         self.push_pose();
+        self.pose_stages[4] = upload_started.elapsed().as_secs_f64() * 1e6;
         // Authored events follow the pose they belong to.
         let report_target = self
             .appearance
@@ -1086,6 +1117,11 @@ impl SkinnedActorNode {
             if matches!(event, "HitFrame" | "attackStop") {
                 for hand in [Hand::Right, Hand::Left] {
                     if let Ok(pose) = self.weapon_pose(hand) {
+                        self.contacts.push(PoseContact {
+                            name: event.to_owned(),
+                            hand,
+                            pose,
+                        });
                         self.signals().weapon_contact().emit(
                             &GString::from(event),
                             hand == Hand::Left,
@@ -1100,6 +1136,7 @@ impl SkinnedActorNode {
             self.signals().animation_event().emit(&GString::from(event));
         });
     }
+
 
     fn apply_head_tracking(&mut self) {
         self.head_aim = None;
@@ -1154,6 +1191,11 @@ impl SkinnedActorNode {
         state.set("yaw", yaw);
         state.set("pitch", pitch);
         state
+    }
+
+    pub(crate) fn take_contacts(&mut self) -> Vec<PoseContact> {
+        std::mem::take(&mut self.contacts)
+
     }
 
     fn push_pose(&mut self) {
@@ -1249,6 +1291,26 @@ impl SkinnedActorNode {
             }
         }
         self.applied_expression_weights = applied_expression_weights;
+    }
+
+    /// Wall-clock stages of the last pose, in microseconds. Generation includes
+    /// blending and modifiers, while upload includes attachment submission.
+    #[func]
+    pub fn pose_stage_timings(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        for (name, value) in [
+            "graph_control_us",
+            "clip_sampling_us",
+            "pose_generation_us",
+            "model_space_us",
+            "skinning_upload_us",
+        ]
+        .into_iter()
+        .zip(self.pose_stages)
+        {
+            result.set(name, value);
+        }
+        result
     }
 
     /// What the load found: shape, bone and clip counts. Empty before a load.
@@ -1722,12 +1784,21 @@ impl SkinnedActorNode {
         placement: soe_game::world::RefPlacement,
         hidden: bool,
         delta: f32,
+        source_seconds: Option<f64>,
+        fraction: f32,
     ) {
-        if let (Some(motion), Some(vm)) = (
-            self.presented_placement
-                .and_then(|previous| crate::actor::NpcMotion::between(previous, placement, delta)),
-            self.vm.as_mut(),
-        ) {
+        let (placement, motion) = source_seconds.map_or_else(
+            || {
+                (
+                    placement,
+                    self.presented_placement.and_then(|previous| {
+                        crate::actor::NpcMotion::between(previous, placement, delta)
+                    }),
+                )
+            },
+            |seconds| self.presentation.sample(placement, seconds, fraction),
+        );
+        if let (Some(motion), Some(vm)) = (motion, self.vm.as_mut()) {
             let speed = motion.speed;
             let turn = motion.turn;
             vm.variables.set_by_name("Speed", speed);

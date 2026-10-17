@@ -408,6 +408,8 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("find") => Procedure::Find,
         Some("holdposition") => Procedure::HoldPosition,
         Some("shout") => Procedure::Shout,
+        // Instant door procedures, run by `door_procedure` in `enter`.
+        Some("unlockdoors" | "lockdoors") => Procedure::None,
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
     }
@@ -886,6 +888,11 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
             super::patrol::begin(world, actor, ai, tree.patrol_parameters(branch));
         }
         ai.wait_until = wait_until;
+        if let Some(lock) = door_procedure(branch) {
+            super::set_owned_cell_doors(world, actor, lock, alloc);
+            use_magic_succeeded = true;
+            ai.procedure = Procedure::None;
+        }
         if ai.procedure == Procedure::UseMagic {
             match use_magic(world, actor, ai, &tree, branch, alloc) {
                 Ok(()) => {
@@ -903,6 +910,16 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
     }
     if ai.tree.as_ref().is_some_and(|s| s.finished) {
         complete(world, ai);
+    }
+}
+
+/// `Some(true)` for LockDoors and `Some(false)` for UnlockDoors. Both finish
+/// in the tick they start, like a UseMagic that cast.
+fn door_procedure(branch: &Branch) -> Option<bool> {
+    match branch.procedure.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("lockdoors") => Some(true),
+        Some("unlockdoors") => Some(false),
+        _ => None,
     }
 }
 
@@ -1168,5 +1185,31 @@ fn complete(world: &World, ai: &mut AiState) {
     if let Some(id) = ai.package {
         ai.completed
             .insert(id, world.clock.game_days.floor() as u32);
+    }
+}
+
+#[cfg(test)]
+mod door_tests {
+    use super::*;
+
+    fn branch(name: &str) -> Branch {
+        Branch {
+            kind: String::new(),
+            conditions: Vec::new(),
+            child_count: 0,
+            repeat_when_complete: false,
+            procedure: Some(name.to_owned()),
+            success_completes_package: false,
+            inputs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn door_procedures_map_to_lock_state_and_stay_supported() {
+        assert_eq!(door_procedure(&branch("UnlockDoors")), Some(false));
+        assert_eq!(door_procedure(&branch("LockDoors")), Some(true));
+        assert_eq!(door_procedure(&branch("Travel")), None);
+        assert_eq!(procedure(&branch("UnlockDoors")), Procedure::None);
+        assert_eq!(procedure(&branch("LockDoors")), Procedure::None);
     }
 }

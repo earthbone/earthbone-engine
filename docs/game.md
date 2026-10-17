@@ -88,6 +88,133 @@ behavior but provide no reusable Rust implementation. The resolver reads
 winning records and shared runtime state. It handles alias names, short
 names, race, pronouns, capitalization, relationship labels, global values,
 date and timer subtags, Name and BaseName, and Message.Show numeric slots.
+## Bounded combat replanning, round 4
+
+The pursuing giant requested 50 paths per wall second toward the camera and
+61 away in the free walk baseline. The combat driver reused the four-unit
+waypoint tolerance as its goal-change threshold. A running target crosses
+that threshold each tick. Failed requests did not retain an attempt deadline,
+and pending requests changed their exact start or goal keys as collision
+height or the target moved. The focused fixtures reproduce 120 requests in
+two seconds and 60 failed requests in one second before correction.
+
+Combat now retains transient request keys and attempt time separately from
+saved package state. It resumes a pending search with its original start and
+goal. A new attempt requires a changed goal or an empty or failed route, and
+at least 0.25 simulation seconds since the previous attempt. Goal displacement
+must exceed the greater of 32 units and one interval of movement. Sustained
+host collision blocking clears the failed step but retains the deadline.
+Existing saved routes remain usable when the transient cache is absent.
+
+Local OpenMW `apps/openmw/mwmechanics/aipackage.cpp`, `pathTo` and
+`doesPathNeedRecalc`, gates rebuilds on reaction time, goal displacement and
+cell changes. `aicombat.cpp` gates attack decisions on its reaction timer.
+The Rust driver keeps the existing NAVM planner and controller instead of
+linking OpenMW's C++ navigator. The 0.25-second interval is an explicit engine
+policy, not a measured claim about vanilla's exact timer. No dependency,
+actor node or saved field is added.
+
+The five `combat_replanning_` regressions cover continuous pursuit, failed
+routes with floor motion, small goal jitter and sliced requests with moving
+keys, including the outer AI tick cancellation policy. The unchanged
+floor-progress regression is retained. The full-tick case fails with 119
+cancellations before the outer policy correction and passes with zero after it.
+Installed free walk results and timing limits are reported in [godot-host.md](godot-host.md).
+
+## Combat NAVM progress, round 4
+
+The installed progress run after sandbox recovery leaves 11 actors stuck.
+Their diagnostics show active combat, with the next waypoint between 1.79
+and 15.19 units above or below their collision floor. The combat driver had
+its own spatial waypoint loop, separate from package movement. Both now use
+the same ground-plane comparison inside the shared step-and-snap height band.
+Combat arrival uses that comparison too. Target selection, chase distance
+and large vertical links keep their existing rules.
+
+The combat regression restores collision height after each simulated step.
+Before correction it pins at x=9.999734 after 60 steps, below the fixed
+75-unit minimum. The package regression and different-floor guard remain.
+The local OpenMW AiPackage walking comparison and Mudcrab controller tuning
+are the same sources as the package correction below. No saved state or
+new dependency is added.
+
+The corrected release exits zero in the unchanged free walk progress check,
+compared with 11 failures before this combat correction and 16 initially.
+Guard 0:0D0FF5 improves from 43.76 units and 21 blocked seconds to 647.18
+units and zero blocked seconds. Whiterun active routes stay below the
+five-second stuck bound. Ysolda travels 1,350.22 units and Nazeem 998.62.
+The 1,343 game library tests and strict all-target Clippy pass. The release
+build passes in 6 minutes 56 seconds. Combat hostility and warning policy
+remain CMB-40 and CMB-43, separate from waypoint progress.
+
+## Collision-blocked sandbox choices, round 4
+
+The free walk keeps Hulda targeting the counter marker for 28 seconds after
+collision stops her 12 units short. Failed marker routes also retain their
+unreachable destination. Sandbox now discards a completed failed route or a
+target blocked by the grounded controller for one second. A rejected marker
+is excluded for 30 simulation seconds. Package changes reset exclusions.
+Pending sliced searches retain their target. Travel and combat keep their
+fixed targets. The controller reports intended and actual horizontal travel,
+so a stopped or airborne actor cannot trigger this recovery.
+
+OpenMW `aiwander.cpp`, `evadeObstacles`, removes blocked wander destinations
+and returns to action selection. The existing sandbox marker and navigation
+planners supply the replacement here. Exclusions and collision counters are
+transient caches and do not add saved state. The marker retry and blocked
+controller regressions retain their fixed time and progress thresholds.
+
+## Patrol marker wait defaults, round 4
+
+The installed Whiterun free walk reports Patrol marker has no idle time
+for guards and Brenuin. Their REFR records omit the optional Patrol Data
+group. The reader accepted that omission for ACHR but rejected it for REFR.
+Both now use a zero wait when the group is absent. An explicit XPRD keeps
+its authored value, and malformed, negative or non-finite waits still fail.
+
+Local xEdit `wbDefinitionsTES5.pas`, its Patrol Data group, and UESP
+`REFR.wikitext` declare the optional group. Mutagen
+`Common Subrecords/Patrol.xml` and `Patrol_Generated.cs` give IdleTime its
+zero default. The existing reference and package readers remain in use.
+The focused absent-group regression fails before the correction and passes
+after it. Authored waits and malformed wait cases also pass.
+
+## Grounded NAVM progress, round 4
+
+The free walk measurement in `godot/r4_npc_progress_test.gd` advances the
+Bannered Mare and Whiterun for 30 simulation seconds each. Its fixed limits
+require 64 units of movement and flag five seconds without progress on an
+active route. Before correction, Hulda travels 39.95 units and remains stuck
+for 28 seconds. Ysolda and Nazeem remain stuck for 27 seconds each. Their
+collision floor is 4.27 and 6.32 units above the local NAVM plane.
+
+The package driver measured full three-dimensional waypoint distance, while
+the host's NPC controller consumes horizontal intent and resolves gravity
+against collision. A buried waypoint remains outside the four-unit arrival
+tolerance after the actor reaches its XY position. The retained route did
+not request another path. Grounded progress now uses horizontal distance
+inside the existing controller's step-plus-snap height band. Larger height
+differences retain the spatial check. OpenMW's `apps/openmw/mwmechanics/aipackage.cpp`,
+`pathTo`, supplies the walking ground-plane progress comparison. Mudcrab's
+`crates/engine/src/physics.rs` supplies the existing controller tuning.
+The engine retains its native NAVM graph and existing controller.
+
+`grounded_route_advances_past_navmesh_points_below_the_collision_floor`
+reproduces a collision floor eight units above a route point. Corner
+clearance, unreachable furniture origins and unsupported package procedures
+are separate findings in the scene measurement.
+
+NPC requests also resmooth completed corridors with the existing portal
+inset. Clearance includes the shared Mudcrab capsule radius and collision
+margin, scaled by the live NPC, race and reference height. Scope changes
+invalidate pending paths when that clearance changes. Unscoped point
+queries keep their original geometry. The scoped request test
+`npc_package_route_keeps_capsule_clear_of_an_inner_corner` measured zero
+clearance before this connection, against its fixed 28-unit minimum.
+Recast's `RecastDemo/Source/Sample_SoloMesh.cpp` erodes walkable space by
+agent radius before the point funnel. OpenMW `AiPackage::pathTo` supplies
+agent bounds to its navigator. The engine reuses the existing inset from
+AI-95 instead of replacing native NAVM geometry or adding a dependency.
 
 ## Race movement speeds, HST-40
 
@@ -12108,3 +12235,100 @@ during its existing record-indexing pass. Cycle, ambiguous-parent and malformed
 link rejection retain their previous behavior. The index contains no ownership
 or actor state and has no save section. Runtime record setters do not change
 PERK NNAM links. Repeated rank queries no longer scan every winning form.
+## Authored warning and melee approach, round 4
+
+Combat acquisition now distinguishes aggressive actors from enemies. AIDT
+aggression one needs an enemy faction reaction, an enemy relationship or
+provocation. Shared and friendly factions exclude unprovoked acquisition.
+Very aggressive actors may select neutral targets and frenzy still overrides
+that filter. Existing authored Guard area intrusion behavior remains active.
+Cowardly confidence prevents unprovoked acquisition, and Calm suspends radius
+warnings while its aggression reduction holds.
+
+The NPC AI-data template supplies the aggro-radius flag and three AIDT radii.
+A positively detected Alert target can receive a warning before Combat
+awareness. Entry into the warning band queues aggroWarningStart once. The
+actor stays neutral until the target crosses the attack radius, or crosses
+the warn-attack radius after the authored graph emits aggroWarningStop.
+Leaving the warning radius clears the warning. Candidates are sorted by
+distance and FormID before warning selection. A validated surviving melee
+hit provokes the victim without waiting for another detection update.
+The CMB-40 actor section stores the target and completion flag. SAVE_VERSION
+remains 37. Warning state participates in deterministic hashing.
+
+The traits template and an explicit NPC CSCR audio-template chain supply the
+CSDT Aware sound category. The NPC category value is one. CSDI
+resolves the descriptor and CSDC supplies its chance. Choice and sound
+variation draws come from the simulation AI random stream. A transient host
+request reuses the positional SoundBank. No actor-specific node is added.
+
+Melee approach reads RACE unarmed reach, weapon reach, fCombatDistance and
+CSTY CSGD melee and unarmed equipment choices. A creature without a held
+weapon uses race reach when either close-combat choice has a positive weight.
+A zero unarmed weight does not disable its melee choice. Controller height and the live
+reference scale convert that reach to placed units. The RACE size enum is a
+category, not an additional metric scale. CSCR's circle, fallback, flank and
+stalk values are not distances. A coarse AI step is capped at remaining
+approach distance. Records without race attributes retain the existing
+four-unit fallback, and malformed authored choices return a typed error.
+
+Sources read locally are xEdit Core/wbDefinitionsTES5.pas for NPC AIDT,
+ZNAM, CSTY CSGD and RACE DATA,
+uesp-modfileformat/NPC.wikitext and FACT.wikitext for inheritance and faction
+reactions, CommonLibSSE-NG TESNPC.h for the eight CreatureSounds slots, and
+OpenMW apps/openmw/mwmechanics/aicombat.cpp for reaction gates. The shared
+xEdit and Mutagen sound enum includes four foot slots, which disagrees with
+NPC data. The installed AudioTemplate records use categories zero, six and
+seven. AudioTemplateGiant category seven points to NPCGiantConsciousLP.
+That agrees with the NPC-specific UESP enum. It defines no Aware entry, so
+the generic Aware reader cannot supply this giant with a warning roar.
+The extracted giant behavior graph supplies aggroWarningStart and its timed
+aggroWarningStop transition. The installed giantActorSCRIPT only registers
+GiantStompEffect and requests area knockback and rumble. It does not own the
+warning policy. Existing parsers and the animation event bridge suffice.
+No dependency is added.
+
+This milestone covers warning, provocation and approach. Ordinary NPC pursuit
+still needs strike selection and host-confirmed contacts, tracked by CMB-45.
+The pure threaded sound preparation path does not evaluate conditional SNDRs.
+The inline installed scene is the acceptance path for this milestone.
+
+## Ordinary NPC contact timing, round 4
+
+CMB-45 selects forward ordinary ATKD/ATKE entries from the resolved NPC attack
+data component, its ATKR attack race or the actor race. An explicit override
+with no supported entry stays an override. Selection uses authored chance
+weights and the saved AI random stream. The actor faces its target at melee
+reach and sends the selected event to its behavior graph. Movement waits while
+the strike is active. The graph's attackStop starts the authored recovery time,
+with a 0.25-second engine floor for zero-recovery entries.
+
+The host takes HitFrame after skin pose upload and reads that hand's world
+weapon transform. It consumes the actor's sole contact opportunity before
+querying the first physics body on the reach segment. Obstructions and empty
+space consume the opportunity too. Only an actor hit reaches Game::melee_hit.
+The existing shared damage, armor, events, death and provocation paths apply.
+This bridge currently uses the inline Game. Threaded physical attack dispatch
+remains part of UI-35.
+
+A pending event is replayed when an inline visual becomes resident, and graph
+unload cancels its active strike. The CMB-45 actor section retains event,
+target, hand, weapon, contact consumption and recovery. SAVE_VERSION stays 37.
+The deterministic actor hash includes these fields. SoundPlay annotations
+retain their authored time and resolve SNDR editor IDs through the form table.
+Sound variation draws remain in the simulation.
+
+The ordinary selector accepts unit damage multipliers without attack spells,
+power, bash or rotating flags. Attack-specific damage and stagger modifiers
+are CMB-46. Power and spell-bearing attack execution is CMB-47. Existing unarmed
+contact damage still has the stagger limitation documented in combat.md.
+These bounds exclude the giant power stomp while retaining its normal club
+and swipe entries.
+
+Local sources read are xEdit wbAttackData and NPC/RACE ATKR, the installed
+giant RACE entries and graph, and OpenMW aicombat.cpp. The giant normal entries
+have damage multiplier one, strike angle 65 and club recovery 1.5 seconds.
+The graph contains attackStart_ClubAttack1, attackStart_ClubAttack2 and
+attackStart_HandSwipeAttack. Their clips carry HitFrame and named SoundPlay
+annotations. The host's existing annotation importer previously discarded the
+sound annotations. No dependency or actor node is added.

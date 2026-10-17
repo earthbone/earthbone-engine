@@ -392,8 +392,19 @@ impl PlayerNode {
             ) {
                 retained.insert(contact.actor);
                 if let Some(game) = &self.game {
-                    game.world_mut()
-                        .set_host_actor_pose(contact.actor, position, contact.rotation);
+                    let mut world = game.world_mut();
+                    world.set_host_actor_pose(contact.actor, position, contact.rotation);
+                    if self
+                        .npc_grounding
+                        .movement_diagnostics(contact.actor)
+                        .is_some_and(|feedback| {
+                            feedback.blocked_seconds >= crate::npc_grounding::BLOCKED_RETRY_SECONDS
+                        })
+                        && (soe_game::ai::retry_blocked_combat_path(&mut world, contact.actor)
+                            || soe_game::ai::retry_blocked_sandbox(&mut world, contact.actor))
+                    {
+                        self.npc_grounding.retry_started(contact.actor);
+                    }
                 } else if let Some(simulation) = &self.simulation {
                     if let Some(source) = self
                         .simulation_pair
@@ -415,6 +426,7 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_npc_actors(&mut self, delta: f32) {
+        self.sync_actor_sounds();
         self.npc_actors.prune_unused_rigs();
         self.npc_actors
             .textures
@@ -436,6 +448,7 @@ impl PlayerNode {
             self.npc_actors.textures = crate::godot_layer::SharedTextures::default();
             self.npc_actors.source = Some(Arc::clone(&source));
         }
+        let mut contacts = Vec::new();
         let mut placements = BTreeMap::new();
         if let Some(pair) = &self.simulation_pair {
             self.npc_actors
@@ -545,6 +558,15 @@ impl PlayerNode {
         }
         let mut parent = self.base().clone();
         let mut uploaded = false;
+        let source_seconds = self
+            .game
+            .as_ref()
+            .map(|game| game.world().clock.real_seconds);
+        let fraction = if self.auto_step && source_seconds.is_some() {
+            godot::classes::Engine::singleton().get_physics_interpolation_fraction() as f32
+        } else {
+            1.0
+        };
         for (id, placement) in placements {
             let Some(appearance) = self.npc_actors.appearances.get(&id) else {
                 continue;
@@ -626,8 +648,13 @@ impl PlayerNode {
                             if !node.is_inside_tree() {
                                 parent.add_child(&node);
                             }
-                            node.bind_mut()
-                                .present(placement, self.npc_actors.hidden, 0.0);
+                            node.bind_mut().present(
+                                placement,
+                                self.npc_actors.hidden,
+                                0.0,
+                                source_seconds,
+                                1.0,
+                            );
                             let result = node.bind_mut().install_presented_actor(
                                 id,
                                 rig,
@@ -640,6 +667,35 @@ impl PlayerNode {
                                     Arc::clone(&source),
                                     id,
                                 );
+                            }
+                            let warning = self.game.as_ref().map_or_else(
+                                || {
+                                    self.simulation_pair.as_ref().is_some_and(|pair| {
+                                        pair.current.pending_warnings.contains(&id)
+                                    })
+                                },
+                                |game| {
+                                    game.world()
+                                        .actor_ref(id)
+                                        .and_then(|actor| actor.aggro_warning)
+                                        .is_some_and(|warning| !warning.completed)
+                                },
+                            );
+                            if warning && result.is_ok() {
+                                node.bind_mut()
+                                    .send_presented_animation("aggroWarningStart");
+                            }
+                            if result.is_ok() {
+                                let strike = self.game.as_ref().and_then(|game| {
+                                    game.world()
+                                        .actor_ref(id)
+                                        .and_then(|actor| actor.npc_strike.as_ref())
+                                        .filter(|strike| !strike.finished)
+                                        .map(|strike| strike.event.clone())
+                                });
+                                if let Some(event) = strike {
+                                    node.bind_mut().send_presented_animation(&event);
+                                }
                             }
                             if let Err(error) = result {
                                 resident.error = Some(error);
@@ -664,8 +720,19 @@ impl PlayerNode {
                         id,
                     );
                 }
-                node.bind_mut()
-                    .present(placement, self.npc_actors.hidden, delta);
+                node.bind_mut().present(
+                    placement,
+                    self.npc_actors.hidden,
+                    delta,
+                    source_seconds,
+                    fraction,
+                );
+                contacts.extend(
+                    node.bind_mut()
+                        .take_contacts()
+                        .into_iter()
+                        .map(|contact| (id, contact)),
+                );
                 if let Some(pair) = &self.simulation_pair {
                     for request in resident
                         .animation_cursor
@@ -676,6 +743,7 @@ impl PlayerNode {
                 }
             }
         }
+        self.npc_strike_contacts(contacts);
         soe_trace::metric_set(
             soe_trace::Metric::AnimationActors,
             self.npc_actors
@@ -739,6 +807,14 @@ impl PlayerNode {
                     "position" => Vector3::new(position.x, position.y, position.z),
                     "on_ground" => character.on_ground,
                 };
+                if let Some(feedback) = self.npc_grounding.movement_diagnostics(*actor) {
+                    row.set(
+                        "requested",
+                        Vector3::new(feedback.target[0], feedback.target[1], feedback.target[2]),
+                    );
+                    row.set("blocked_seconds", feedback.blocked_seconds);
+                    row.set("blocked_steps", feedback.blocked_steps as i64);
+                }
                 if let Some(height) = crate::npc_grounding::support_height(physics, position) {
                     row.set("ground_z", height);
                     row.set("below_ground", height - position.z);
@@ -798,14 +874,55 @@ impl PlayerNode {
         let Some(game) = &self.game else {
             return Array::new();
         };
-        let world = game.world();
+        let mut world = game.world_mut();
         self.npc_actors.residents.keys().filter_map(|id| {
+            world.actor_ref(*id)?;
+            let base = world.reference_ref(*id).and_then(|reference| reference.base);
+            let source = base.map(|_| world.actor_component_source(*id, soe_game::npc::template::AI_DATA));
+            let source_error = source.as_ref().and_then(|source| source.as_ref().err()).map(ToString::to_string).unwrap_or_default();
+            let source = source.and_then(Result::ok);
+            let data = source.and_then(|source| world.npc(source)).and_then(|npc| npc.ai_data);
+            let packages = base.map(|_| world.actor_component_source(*id, soe_game::npc::template::AI_PACKAGES));
+            let packages_error = packages.as_ref().and_then(|source| source.as_ref().err()).map(ToString::to_string).unwrap_or_default();
+            let package_source = packages.and_then(Result::ok);
+            let package_count = package_source.and_then(|source| world.npc(source)).map_or(0, |npc| npc.packages.len());
+            let style = source.and_then(|source| {
+                let bytes: [u8; 4] = world.record(source)?.find(soe_esm::Tag(*b"ZNAM"))?.get(..4)?.try_into().ok()?;
+                world.resolve_from(source, u32::from_le_bytes(bytes))
+            });
+            let class = base.and_then(|_| world.actor_component_source(*id, soe_game::npc::template::STATS).ok()).and_then(|source| {
+                let npc = world.npc(source)?;
+                world.resolve_from(source, npc.class?)
+            });
+            let combat_distance = world.combat_approach_distance(*id).ok();
             let actor = world.actor_ref(*id)?;
             Some(vdict! { "actor" => id.to_string().as_str(),
                 "package" => actor.ai.package.and_then(|package| world.editor_id(package)).unwrap_or_default().as_str(),
                 "procedure" => format!("{:?}", actor.ai.procedure).as_str(),
                 "path_points" => actor.ai.path.len() as i64,
                 "speed" => actor.ai.speed,
+                "ai_disabled" => actor.ai_disabled, "dead" => actor.dead, "unconscious" => actor.unconscious,
+                "in_combat" => actor.in_combat,
+                "combat_target" => actor.combat_target.map_or_else(String::new, |id| id.to_string()).as_str(),
+                "warning_target" => actor.aggro_warning.map_or_else(String::new, |warning| warning.target.to_string()).as_str(),
+                "warning_complete" => actor.aggro_warning.is_some_and(|warning| warning.completed),
+                "aware_sound_starts" => self.actor_sound_starts.get(id).copied().unwrap_or(0) as i64,
+                "destination" => actor.ai.destination.map_or(Vector3::ZERO, |p| Vector3::new(p[0], p[1], p[2])),
+                "next_waypoint" => actor.ai.path.first().map_or(Vector3::ZERO, |p| Vector3::new(p[0], p[1], p[2])),
+                "last_evaluation" => actor.ai.last_evaluation,
+                "base" => base.map_or_else(String::new, |id| id.to_string()).as_str(),
+                "race" => actor.race.and_then(|race| world.editor_id(race)).unwrap_or_default().as_str(),
+                "class" => class.and_then(|class| world.editor_id(class)).unwrap_or_default().as_str(),
+                "combat_style" => style.and_then(|style| world.editor_id(style)).unwrap_or_default().as_str(),
+                "combat_distance" => combat_distance.unwrap_or(0.0),
+                "ai_data_error" => source_error.as_str(), "package_source_error" => packages_error.as_str(),
+                "package_count" => package_count as i64,
+                "aggression" => data.map_or(-1, |data| i64::from(data.aggression)),
+                "confidence" => data.map_or(-1, |data| i64::from(data.confidence)),
+                "aggro_radius" => data.is_some_and(|data| data.aggro_radius),
+                "warn_radius" => data.map_or(0, |data| i64::from(data.warn_radius)),
+                "warn_attack_radius" => data.map_or(0, |data| i64::from(data.warn_attack_radius)),
+                "attack_radius" => data.map_or(0, |data| i64::from(data.attack_radius)),
                 "arrived" => actor.ai.arrived })
         }).collect()
     }

@@ -6,7 +6,7 @@
 //! one worker. PRF-17 retains ownership of navigation jobs. Rate and handoff
 //! policy are engine-owned, rather than a vanilla save format.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -154,6 +154,10 @@ pub struct Snapshot {
     pub appearances: Arc<BTreeMap<GlobalFormId, crate::appearance::ActorAppearance>>,
     /// Append-only graph requests retain ordering when presentation skips ticks.
     pub animation_requests: Arc<Vec<crate::world::AnimationRequest>>,
+    /// Ordered actor sounds retain simulation-owned variation draws.
+    pub actor_sound_requests: Arc<Vec<crate::world::ActorSoundRequest>>,
+    /// Attached actors whose warning graph has not completed.
+    pub pending_warnings: Arc<BTreeSet<GlobalFormId>>,
     pub sky: Option<crate::world::sky::SkyFrame>,
     pub evaluations: usize,
     pub systems: soe_trace::FrameSample,
@@ -405,6 +409,8 @@ fn run(
     let mut sky = None;
     let mut appearances = Arc::new(BTreeMap::new());
     let mut animation_requests = Arc::new(Vec::new());
+    let mut actor_sound_requests = Arc::new(Vec::new());
+    let mut pending_warnings = Arc::new(BTreeSet::new());
     let player = game.player();
     while !stop.load(Ordering::Acquire) {
         let now = Instant::now();
@@ -500,6 +506,22 @@ fn run(
         if animation_requests.len() != world.animation_requests.len() {
             animation_requests = Arc::new(world.animation_requests.clone());
         }
+        if actor_sound_requests.len() != world.actor_sound_requests.len() {
+            actor_sound_requests = Arc::new(world.actor_sound_requests.clone());
+        }
+        let warnings: BTreeSet<_> = contacts
+            .iter()
+            .filter_map(|contact| {
+                world
+                    .actor_ref(contact.actor)
+                    .and_then(|actor| actor.aggro_warning)
+                    .is_some_and(|warning| !warning.completed)
+                    .then_some(contact.actor)
+            })
+            .collect();
+        if warnings != *pending_warnings {
+            pending_warnings = Arc::new(warnings);
+        }
         drop(world);
         drop(scope);
         let produced_at = Instant::now();
@@ -522,6 +544,8 @@ fn run(
             contacts: Arc::clone(&contacts),
             appearances: Arc::clone(&appearances),
             animation_requests: Arc::clone(&animation_requests),
+            actor_sound_requests: Arc::clone(&actor_sound_requests),
+            pending_warnings: Arc::clone(&pending_warnings),
             sky: sky.clone(),
             evaluations,
             systems: frame.finish(),
@@ -572,6 +596,8 @@ mod tests {
             contacts: Arc::new(Vec::new()),
             appearances: Arc::new(BTreeMap::new()),
             animation_requests: Arc::new(Vec::new()),
+            actor_sound_requests: Arc::new(Vec::new()),
+            pending_warnings: Arc::new(BTreeSet::new()),
             sky: None,
             evaluations: 0,
             systems: soe_trace::FrameSample::default(),

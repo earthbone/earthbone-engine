@@ -519,6 +519,22 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
             h.i32(variation);
         }
     }
+    h.bool(a.npc_strike.is_some());
+    if let Some(strike) = &a.npc_strike {
+        h.str(&strike.event);
+        form(h, strike.target);
+        form(h, strike.weapon);
+        h.bool(strike.hand == crate::combat::Hand::Left);
+        h.bool(strike.contact_used);
+        h.bool(strike.finished);
+        h.f64(strike.ready_at);
+        h.f32(strike.recovery);
+    }
+    h.bool(a.aggro_warning.is_some());
+    if let Some(warning) = a.aggro_warning {
+        form(h, warning.target);
+        h.bool(warning.completed);
+    }
     opt_form(h, a.exclusive_branch);
     h.len(a.relationships.len());
     for (id, rank) in &a.relationships {
@@ -908,6 +924,14 @@ impl World {
         for (latent, result) in &self.completed_animation_waits {
             h.u64(latent.0);
             h.bool(*result);
+        }
+        h.len(self.actor_sound_requests.len());
+        for request in &self.actor_sound_requests {
+            form(&mut h, request.actor);
+            form(&mut h, request.descriptor);
+            for draw in request.draws {
+                h.f32(draw);
+            }
         }
         h.len(self.animation_requests.len());
         for request in &self.animation_requests {

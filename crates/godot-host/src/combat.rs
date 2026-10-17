@@ -23,7 +23,7 @@ use soe_hkx::QsTransform;
 
 use crate::skinned::Affine;
 
-/// Convert decoded combat annotations to the graph's existing trigger model.
+/// Convert decoded contact and sound annotations to the graph trigger model.
 /// The Havok clip flag 16 disables annotation conversion. Crop offsets follow
 /// the interpreter's local playhead, while authored graph triggers take priority.
 pub fn contact_annotation_triggers(graph: &mut BehaviorGraph, clips: &ClipLibrary) {
@@ -46,7 +46,8 @@ pub fn contact_annotation_triggers(graph: &mut BehaviorGraph, clips: &ClipLibrar
             if !matches!(
                 annotation.text.as_str(),
                 "HitFrame" | "preHitFrame" | "weaponSwing" | "attackStop"
-            ) {
+            ) && !annotation.text.starts_with("SoundPlay.")
+            {
                 continue;
             }
             let time = annotation.time - generator.crop_start_amount_local_time;
@@ -533,3 +534,6 @@ pub fn plan_body_sync<S: std::hash::BuildHasher>(
     plan.removed.extend(gone);
     plan
 }
+
+#[cfg(test)]
+mod r4_annotations;

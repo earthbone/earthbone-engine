@@ -188,6 +188,300 @@ An obsolete snapshot cannot remove uncertain coverage. Installed confirmation
 peaks at 0.051 ms for main-thread selection and 0.595 ms for controller removal.
 Query hull preparation now joins the existing cell worker, preserving compound
 shapes and leaving server calls on the main thread.
+## Ordinary giant strike follow-up, round 4
+
+The free walk strike probe first runs against the warning-only extension.
+No attack clip plays, and player health stays at 1000. The check fails.
+The initial warning completion fixture also leaves and re-enters the warning
+band. Shorter strafe excursions preserve movement and positive detection while
+allowing a continuous warning. Health in the separate approach and timing
+fixtures is raised so a correct strike cannot terminate those measurements.
+
+The inline host now collects authored contact poses after upload and queries
+the existing physics bodies once per strike. The actor-owned latch consumes
+misses and obstructions. Six library regressions cover event selection,
+hand identity, duplicate contact, recovery, save retention and named sounds.
+The sound timing regression fails before the importer correction with zero
+sound events rather than one. It also retains the later HitFrame assertion.
+The full scope and save contract are in
+[game.md](game.md#ordinary-npc-contact-timing-round-4).
+
+The installed giant audio template contains only its conscious loop. Its
+warning clip carries four footstep annotations and no sound event. The
+requested warning roar still lacks a sourced hook and remains separately
+tracked. Ordinary strike contacts do not establish power or attached-spell
+execution. No new actor node or dependency is added.
+
+## Giant warning and approach follow-up, round 4
+
+The moving-player free walk probe reproduces premature hostility before the
+correction. At the midpoint of the authored warning band, detection reaches
+28.87, the giant engages, and neither a warning clip nor a warning sound starts.
+The probe exits one with two failures. Earlier stationary probes had negative
+detection and do not establish a visible warning failure.
+
+The installed giant's AI-data source is EncGiant01 with aggression one,
+confidence four and aggro radius enabled. Warn, warn-attack and attack radii
+are 1024, 750 and 375 units. RACE unarmed reach is 512 units, with race
+height one. csGiant's CSCR values are circle and movement behavior weights,
+not an approach radius. The policy and source credits are in
+[game.md](game.md#authored-warning-and-melee-approach-round-4).
+
+The host delivers a record-selected Aware sound through its existing
+SoundBank slots, tracks starts for the installed probe, and restores a pending
+warning when an actor presentation becomes resident. Inline and snapshot
+presentation receive the same simulation-selected descriptor and variation
+draws. This adds no per-reference node. The named CMB-40 actor save section
+retains warning identity without changing SAVE_VERSION.
+
+The first installed confirmation catches a style-selection error. csGiant
+sets melee weight one and unarmed weight zero. Its race attack still uses
+melee reach, so treating unarmed weight zero as a prohibition rejects pursuit.
+The corrected regression uses these authored weights. The same run selects
+the warning clip and stays neutral in the warning band, but no roar starts.
+AudioTemplateGiant supplies only its conscious loop, category seven, and the
+warning clip has footsteps without a sound annotation. The warning roar is
+not established by the generic Aware reader.
+
+NPC strike execution is still a separate acceptance check, CMB-45. Entering
+combat and arriving at reach do not establish a damaging attack. Speaker
+output and sustained GPU frame rate are not measured by the headless probe.
+
+## Giant replanning follow-up, round 4
+
+The free walk giant probe now requires at most five requests per wall second
+and samples the inclusive AI tick separately from engine and pose timings.
+The original one-millisecond pose p99, 33-millisecond engine p99 and 64-unit
+movement limits remain unchanged. Against the unchanged extension the probe
+exits one with two request-rate failures. Toward and away peaks are 50 and
+61 requests per second. Engine p99 is 26.56 and 15.56 milliseconds. AI tick
+p99 is 1.55 and 1.31 milliseconds. The sustained frame slowdown still does
+not reproduce in this headless run.
+
+The host reports sustained blocked combat steps through the existing grounded
+controller feedback. The game retains its retry deadline, as described in
+[game.md](game.md#bounded-combat-replanning-round-4). The scene keeps its
+production Bannered Mare startup and console transition to Bleakwind Basin.
+No dependency, saved field or per-reference node is added.
+
+The corrected release passes in 7 minutes 22 seconds. The identical installed
+probe exits zero with four requests per second in both phases. Giant travel
+is 1,888 and 742 units, while player travel is 1,213 and 815 units.
+
+| Phase | Engine p99 before, ms | After, ms | AI tick p99 before, ms | After, ms | Requests per second before | After |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Toward | 26.56 | 20.33 | 1.55 | 1.54 | 50 | 4 |
+| Away | 15.56 | 18.25 | 1.31 | 1.33 | 61 | 4 |
+
+AI tick p50 changes from 1.041 to 0.908 milliseconds toward, and from 0.963
+to 0.957 away. These runs establish bounded requests, not a repeatable frame
+rate improvement. The reported sustained GPU slowdown remains unverified.
+The five focused regressions and all 1,348 game plus 590 host library tests
+pass with installed-data variables unset. Both crates pass formatting and
+all-target Clippy with warnings denied. Markdown lint passes. No workspace
+test run or full lint gate is run, following the round instructions.
+
+An earlier release command is interrupted with exit 130 during review of the
+outer cancellation policy. Its artifact timestamp advances during termination,
+so it is not reported as a successful validation build. The successful build
+and installed confirmation above include the full-tick correction.
+
+## Round 4 NPC handover
+
+Branch `lead/r4-npc` starts at `77317179a`. The installed NPC progress check
+improves from 16 failures to zero. The alternating-frame walking clock
+improves from 0.03 to 0.32 seconds and passes. The giant timing probe passes
+before and after, so the reported sustained slowdown remains unverified.
+All installed processes were tracked through their exit status.
+
+| Commit | Result | Validation at the milestone |
+| --- | --- | --- |
+| `dbc2c408d` | Grounded package waypoint progress | 1,338 game and 585 host library passes, scoped fmt and Clippy pass |
+| `cbd073d39` | Capsule clearance for scoped corridors | Same combined checks, installed progress improves to 14 failures |
+| `990c70146` | Zero wait for omitted Patrol Data | Absent-group regression fails before and passes after, installed missing-idle errors fall to zero |
+| `081f66937` | Retry failed and blocked sandbox choices | 1,342 game, 590 host and 117 hkx library passes, scoped fmt and Clippy pass, Hulda blocked time falls from 28 seconds to one |
+| `0f015312f` | Grounded combat waypoint progress | 1,343 game, 590 host and 117 hkx library passes, scoped fmt and Clippy pass, installed progress exits zero |
+| `e93ca3758` | Simulation motion and interpolated NPC placement | Same combined checks, installed walking clock exits zero |
+| `f9ae8f8ca` | Pose-stage and giant source diagnostics | Same final checks, installed giant and source probes exit zero |
+
+Library and Clippy counts above describe the combined working tree checked
+at each milestone. Installed-data library cases skip when their variables
+are unset. The separate installed scene probes and source survey use real
+data. No workspace test run or full lint gate was run, as the round forbids
+both. Git commits returned zero and advanced the branch despite a read-only
+packed-refs maintenance warning. The branch is left for the lead to merge.
+
+Files changed are `BACKLOG.csv`, the three crate docs, and these source groups:
+
+- Game: `ai.rs`, `ai/movement.rs`, `ai/navigation.rs`, `ai/markers.rs` and `ai/patrol.rs`.
+- Host: `actor.rs`, `actor/presentation.rs`, `actor/r4_survey.rs`, `godot_actor.rs`, `godot_player/npcs.rs` and `npc_grounding.rs`.
+- Animation: `hkx/src/interp.rs`.
+- Godot: `r4_npc_progress_test.gd`, `r4_npc_clock_test.gd`, `r4_giant_profile_test.gd` and their UID files.
+
+The sections below credit local OpenMW, Mudcrab, Recast, Godot, xEdit, UESP,
+Mutagen, CommonLib and serde-hkx sources and explain the retained tooling.
+No dependency, saved field or actor node was added. Open scopes are the
+hostility and giant warning/distance policies, the unreproduced rendered
+slowdown and the captured forearm deformation. Unsupported package execution
+also leaves actors without an active route outside this progress check.
+Those limits are recorded in the backlog and in the measurements below.
+
+## NPC render clock, round 4
+
+The inline presenter derived Speed from consecutive render-frame positions.
+When rendering outpaced physics, unchanged frames sent moveStop and the next
+tick sent moveStart. `r4_npc_clock_test.gd` reproduces this in the Bannered
+Mare by moving Hulda on alternating render frames. Before correction she
+moves 44.75 units, but her walking clips never advance beyond 0.03 seconds.
+The fixed check requires 16 units of displacement and a walk clock reaching
+0.1 seconds. It exits one before the correction.
+
+Inline NPC presentation now retains the last two simulation poses and samples
+locomotion only when simulation time advances. Render frames between ticks
+retain the current velocity. A later stopped tick produces zero velocity.
+Automatic presentation interpolates position and heading between those poses
+using Godot's physics interpolation fraction. Manual fixed-step checks present
+the latest pose. Clock rewinds, teleports and same-tick native placement changes
+reset history instead of interpolating across a jump. The threaded adapter
+retains its existing snapshot path.
+
+The local Godot `physics_interpolation_introduction.rst` and Engine class
+reference supply the previous/current pose and interpolation-fraction contract.
+The host reuses its placement conversion, graph inputs and RID submission.
+No new actor node, dependency or saved field is added. The transient history
+holds two render snapshots per existing actor node.
+
+The corrected release exits zero in the same installed clock check. Hulda
+moves 66.51 units and the maximum walking clip clock reaches 0.32 seconds,
+above the unchanged 0.1-second threshold. Before correction it was 0.03.
+The headless check proves graph-clock progress, not visual motion quality
+on the user's GPU.
+
+## Sandbox collision recovery, round 4
+
+The unchanged installed progress check now measures Hulda traveling 315.54
+units, compared with 39.95 before recovery. Her longest blocked interval
+falls from 28 seconds to one. Saadia travels 483.06 units with no blocked
+sample. The host reports continuous grounded collision blocking to the
+sandbox planner after one second. It retains fixed Travel and combat goals.
+The game implementation and local OpenMW source are recorded in
+[game.md](game.md#collision-blocked-sandbox-choices-round-4).
+
+## NPC route progress, round 4, 2026-10-17
+
+`r4_npc_progress_test.gd` extends the free walk, using installed data,
+package execution, the cell transition and the collision controller. It
+measures 30 simulation seconds in both the Bannered Mare and Whiterun.
+Its unchanged limits require 64 units of movement and flag five seconds
+without progress on an active route. The final release exits zero, compared
+with 16 failures initially, 14 after the first route corrections and 11
+after sandbox recovery.
+
+| Actor | Travel before, units | Final travel, units | Longest blocked interval before, seconds | Final, seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Adrianne | 28.76 | 128.63 | 22 | 0 |
+| Nazeem | 40.20 | 998.62 | 27 | 0 |
+| Ysolda | 20.97 | 1350.22 | 27 | 0 |
+| Hulda | 39.95 | 315.54 | 28 | 1 |
+
+Package and combat loops measured spatial distance to NAVM points even when
+the collision floor differed. Both now use the shared walking comparison
+inside the controller's step-and-snap band. Scoped NPC corridors use the
+existing portal inset with capsule clearance. Sandbox rejects unreachable
+or sustained collision-blocked choices and retries another candidate.
+Missing optional Patrol Data now gives a zero wait instead of an error.
+Local sources and focused regressions are documented in
+[game.md](game.md#combat-navm-progress-round-4).
+
+The last 11 stalls were in combat movement. Guard 0:0D0FF5 was stuck at a
+waypoint 15.19 units below the collision floor. Its travel improves from
+43.76 to 647.18 units, with blocked time falling from 21 seconds to zero.
+The package and combat regressions both fail before at x=9.999734 and then
+pass their unchanged 75-unit minimum. The scoped corner regression fails
+at zero clearance and passes its unchanged 28-unit minimum. The absent-wait
+regression fails before and passes after, with zero installed missing-idle
+errors in the final scene run.
+
+This progress check counts active routes. Unsupported simultaneous children,
+unavailable Sit furniture and cross-interior goals still leave some actors
+idle. Zero progress findings does not establish complete package execution.
+The guards' unprovoked combat also exposes the separate hostility policy
+gap in CMB-43. No node path, dependency or saved field is added.
+
+Final scoped validation passes 1,343 game, 590 host and 117 hkx library tests,
+with installed-data variables unset for that library run. Formatting and
+all-target Clippy with warnings denied pass for all three crates. The source
+survey separately passes with installed data. Release builds for the three
+measured change sets pass in 7 minutes 45 seconds, 7 minutes 11 seconds and
+6 minutes 56 seconds. Workspace tests and the full lint script were excluded
+by the round 4 instructions.
+
+## Moving giant measurements, round 4
+
+`r4_giant_profile_test.gd` extends the free walk, measures Bannered Mare
+humans, travels through the production console path to Bleakwind Basin and
+selects a resident giant by its loaded skeleton. It places the player 700
+units east of that giant, inside the same exterior cell. Both toward and
+away phases require 64 units of actual movement from the player and giant.
+Fixed budgets are one millisecond for pose p99 and 33 milliseconds for main
+engine p99. The test uses the main total once, without summing child scopes.
+
+Before the new clock correction, the controlled headless run exits zero.
+The giant moves 1,867 and 769 units in the two phases. Pose p99 is 89.94 and
+70.44 microseconds. Main engine p99 is 20.36 and 16.22 milliseconds.
+An earlier boundary-crossing probe spends 270.59 milliseconds in cell
+streaming inside a 289.69 millisecond frame. That frame does not establish
+an animation or pathfinding bottleneck. Neither passing budget reproduces
+the user's sustained GPU slowdown, and no performance fix is claimed from it.
+
+The installed source survey resolves the retained leveled choice for
+0:033F9F. AI data and packages come from EncGiant01. The actor has aggression
+1, confidence 4, GiantRace and EncClassBanditMelee. Aggro radius behavior is
+set, with warn 1024, warn/attack 750 and attack 375. Its csGiant CSCR values
+are 0, 0, 0.2 and 0.2. Local xEdit and UESP CSTY name those fields circle,
+fallback, flank distance and stalk time. They do not define a four-unit
+arrival distance. No inherited package drives this resident's pursuit.
+Combat acquisition and the hard-coded four-unit pursuit do. Acquisition
+currently uses aggression and Combat detection without warning-radius policy.
+The measured giant path requests reach 60 per second while its target moves.
+Warning, combat approach and rendered slowdown checks remain separate rows
+CMB-40, CMB-41 and PRF-51. Faction hostility before acquisition is CMB-43.
+This diagnostic does not implement them.
+
+The stage-enabled release also exits zero. Giant pose p99 is 74.68 and
+69.58 microseconds, with main engine p99 17.89 and 15.52 milliseconds.
+The following stage medians are measured per actor per rendered frame.
+Generation includes blending and modifiers, upload includes attachments.
+
+| Stage, microseconds | Hulda | Giant toward | Giant away |
+| --- | ---: | ---: | ---: |
+| Graph control | 114.03 | 11.36 | 11.54 |
+| Clip sampling | 5.93 | 5.86 | 5.70 |
+| Pose generation | 17.35 | 12.80 | 12.34 |
+| Model conversion | 1.23 | 1.15 | 1.19 |
+| Skin transform upload | 27.25 | 8.88 | 8.92 |
+
+The giant is in combat with player 0:000014 in both phases. The next NAVM
+point differs from the collision floor by 7.03 and 27.03 units at the phase
+ends. The separate combat waypoint loop measured spatial distance,
+which prompted CMB-42's failing progress regression and correction. The screenshot also
+shows arm deformation. This headless cost test does not validate that pose
+or prove visual smoothness on the user's GPU. The forearm correction is ANM-62.
+
+After the combat correction, the final giant probe again exits zero. Giant
+pose p99 is 90.46 and 73.10 microseconds. Main engine p99 is 20.40 and 16.27
+milliseconds. The giant moves 1,849 and 801 units, while the player moves
+1,165 and 864 units. Requests still reach 60 per second. These measurements
+retain the original budgets and still do not reproduce the reported slowdown.
+
+The new actor timing method reports graph control, clip sampling, remaining
+pose generation, model conversion and skin transform submission in
+microseconds. Generation includes blending and modifiers. It measures the
+retained interpreter and decoded clip library, with no new dependency,
+actor node or saved field. Local serde-hkx class descriptions, the existing
+hkx shared-node cache and Godot RID submission remain the implementation.
+
+## Tree pipeline warmup, PRF-49, 2026-10-17
 
 PRF-49 prepares the load order's winning TREE material and vertex layouts on a
 worker. The loading screen draws small representatives using production NIF

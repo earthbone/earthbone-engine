@@ -716,6 +716,9 @@ impl World {
                 target.combat_target = None;
             }
         }
+        if !lethal && !entering_bleedout {
+            crate::ai::engagement::provoke(self, hit.target, hit.attacker);
+        }
         if let Some(deadline) = stagger_deadline.filter(|_| staggered) {
             self.begin_stagger(hit.target, stagger_magnitude, Some(hit.attacker), deadline);
         }

@@ -442,6 +442,10 @@ pub struct ActorState {
     /// Relationship rank per other actor, `SetRelationshipRank` values.
     pub relationships: BTreeMap<GlobalFormId, i32>,
     pub combat_target: Option<GlobalFormId>,
+    /// Current warning and its authored graph completion state.
+    pub aggro_warning: Option<crate::ai::AggroWarning>,
+    /// Selected ordinary strike and its single contact opportunity.
+    pub npc_strike: Option<crate::ai::npc_strike::NpcStrike>,
     pub crime_faction: Option<GlobalFormId>,
     /// Whether this actor is currently trespassing, for the CK `IsTrespassing` query.
     pub trespassing: bool,
@@ -613,6 +617,14 @@ pub struct ActorBaseState {
     pub outfit: Option<GlobalFormId>,
     pub sleep_outfit: Option<GlobalFormId>,
     pub dead_count: i32,
+}
+
+/// An authored actor sound and simulation-owned variation draws for the host.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorSoundRequest {
+    pub actor: GlobalFormId,
+    pub descriptor: GlobalFormId,
+    pub draws: [f32; 3],
 }
 
 /// A host menu request raised by default processing or a Papyrus native.
@@ -967,6 +979,8 @@ pub struct World {
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
+    /// Ordered one-shot actor descriptors awaiting host playback.
+    pub actor_sound_requests: Vec<ActorSoundRequest>,
     /// Requests awaiting delivery to a host animation graph.
     pub animation_requests: Vec<AnimationRequest>,
     pub(crate) animation_waits: Vec<AnimationWait>,
@@ -1339,6 +1353,7 @@ impl World {
             help_message_events: BTreeSet::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
+            actor_sound_requests: Vec::new(),
             animation_requests: Vec::new(),
             animation_waits: Vec::new(),
             animation_host_notices: Vec::new(),

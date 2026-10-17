@@ -10,6 +10,84 @@ use super::PlayerNode;
 use crate::input::InputState;
 
 impl PlayerNode {
+    pub(super) fn sync_actor_sounds(&mut self) {
+        let Some(source) = self.data_source.as_ref().map(std::sync::Arc::clone) else {
+            return;
+        };
+        if self.sound_bank.is_none() {
+            return;
+        }
+        let requests: Vec<_> = if let Some(game) = &self.game {
+            let world = game.world();
+            let start = self
+                .actor_sound_cursor
+                .min(world.actor_sound_requests.len());
+            self.actor_sound_cursor = world.actor_sound_requests.len();
+            world.actor_sound_requests[start..]
+                .iter()
+                .filter_map(|request| {
+                    Some((*request, world.reference_ref(request.actor)?.position))
+                })
+                .collect()
+        } else if let Some(pair) = &self.simulation_pair {
+            let requests = &pair.current.actor_sound_requests;
+            let start = self.actor_sound_cursor.min(requests.len());
+            self.actor_sound_cursor = requests.len();
+            requests[start..]
+                .iter()
+                .filter_map(|request| {
+                    Some((*request, pair.current.actors.get(&request.actor)?.position))
+                })
+                .collect()
+        } else {
+            return;
+        };
+        let order = source.shared_order();
+        for (request, position) in requests {
+            let actor = request.actor;
+            let descriptor = request.descriptor;
+            let plan = if let Some(game) = &self.game {
+                let mut world = game.world_mut();
+                soe_game::sound::prepare_for(
+                    &order,
+                    &mut world,
+                    &game.vm,
+                    descriptor,
+                    actor,
+                    None,
+                    request.draws,
+                    &soe_game::sound::SoundSettings::default(),
+                )
+            } else {
+                soe_game::sound::prepare(
+                    &order,
+                    descriptor,
+                    request.draws,
+                    &soe_game::sound::SoundSettings::default(),
+                )
+            };
+            match plan {
+                Ok(plan) => {
+                    let position =
+                        crate::units::SkyrimPos::new(position[0], position[1], position[2])
+                            .to_godot();
+                    if let Some(bank) = self.sound_bank.as_mut() {
+                        let slot = bank
+                            .bind_mut()
+                            .play_prepared(&plan, Vector3::new(position.x, position.y, position.z));
+                        if slot >= 0 {
+                            *self.actor_sound_starts.entry(actor).or_default() += 1;
+                        }
+                        soe_trace::info!(target: "host::audio", system = "audio", "ACTOR_SOUND actor={actor} descriptor={descriptor} path={} slot={slot}", plan.data_path);
+                    }
+                }
+                Err(error) => {
+                    soe_trace::error!(target: "host::audio", system = "audio", "actor sound {actor} {descriptor}: {error}");
+                }
+            }
+        }
+    }
+
     fn audio_cell(&self, cell: soe_esm::GlobalFormId) -> soe_esm::GlobalFormId {
         let Some(source) = self.data_source.as_ref() else {
             return cell;
@@ -25,6 +103,8 @@ impl PlayerNode {
         index.exterior_cell(world, coord.x, coord.y).unwrap_or(cell)
     }
     pub(super) fn start_footstep_audio(&mut self) {
+        self.actor_sound_cursor = 0;
+        self.actor_sound_starts.clear();
         let Some(source) = self.data_source.clone() else {
             return;
         };

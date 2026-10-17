@@ -392,6 +392,8 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "PLY-06", write: super::package_overrides::write_overrides, read: super::package_overrides::read_overrides },
     Section { name: "PRF-36", write: crate::ai::process::write_clock, read: crate::ai::process::read_clock },
     Section { name: "SCR-74", write: write_scr_74_actor, read: read_scr_74_actor },
+    Section { name: "CMB-40", write: crate::ai::engagement::write_warning, read: crate::ai::engagement::read_warning },
+    Section { name: "CMB-45", write: crate::ai::npc_strike::write_strike, read: crate::ai::npc_strike::read_strike },
 ];
 
 fn write_favorites(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
