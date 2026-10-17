@@ -83,6 +83,20 @@ pub(super) struct NpcActors {
 }
 
 impl NpcActors {
+    pub(super) fn take_footsteps(&mut self) -> Vec<(GlobalFormId, String, Vector3)> {
+        let mut events = Vec::new();
+        for (actor, resident) in &mut self.residents {
+            if let Some(node) = &mut resident.node {
+                events.extend(
+                    node.bind_mut()
+                        .take_footstep_events()
+                        .into_iter()
+                        .map(|(tag, point)| (*actor, tag, point)),
+                );
+            }
+        }
+        events
+    }
     fn prune_unused_rigs(&self) {
         // CONTEXT: A decoder holds this lock during I/O. Reconcile on a later
         // frame if it is busy, and keep every pending or resident consumer.

@@ -27,6 +27,14 @@ pub(crate) fn wait_for_decoders() {
     }
 }
 
+pub(crate) fn retire_worker(worker: JoinHandle<()>) {
+    let mut retired = RETIRED_WORKERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    retired.retain(|worker| !worker.is_finished());
+    retired.push(worker);
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Lane {
     Music,
@@ -187,11 +195,7 @@ impl Drop for Decoder {
         }
         if let Some(worker) = self.worker.take() {
             // SAFETY: The decoder must finish before its extension code unloads.
-            let mut retired = RETIRED_WORKERS
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            retired.retain(|worker| !worker.is_finished());
-            retired.push(worker);
+            retire_worker(worker);
         }
     }
 }

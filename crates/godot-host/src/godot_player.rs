@@ -214,6 +214,7 @@ pub struct PlayerNode {
     footstep_cadence: crate::audio::FootstepCadence,
     footstep_count: u64,
     footstep_errors: u64,
+    footstep_history: std::collections::VecDeque<VarDictionary>,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
     door_collision_revisions: std::collections::BTreeMap<GlobalFormId, u64>,
     pending_load_door: Option<GlobalFormId>,
@@ -381,6 +382,7 @@ impl INode3D for PlayerNode {
             footstep_cadence: crate::audio::FootstepCadence::default(),
             footstep_count: 0,
             footstep_errors: 0,
+            footstep_history: std::collections::VecDeque::new(),
             game_streamer: None,
             door_collision_revisions: std::collections::BTreeMap::new(),
             pending_load_door: None,
@@ -682,6 +684,7 @@ impl INode3D for PlayerNode {
             self.present_simulation();
             self.sync_npc_grounding(0.0);
             self.sync_npc_actors(delta as f32);
+            self.play_animation_footsteps();
             self.refresh_debug_views();
             self.sync_dialogue_mouth();
             self.flush_reference_sync();

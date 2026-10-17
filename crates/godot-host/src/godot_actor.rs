@@ -238,6 +238,8 @@ pub struct SkinnedActorNode {
     stats: VarDictionary,
     applied_expression_weights: std::collections::BTreeMap<String, f32>,
     elapsed: f64,
+    footstep_events: Vec<(String, Vector3)>,
+    footstep_tags: std::collections::BTreeSet<String>,
     debug_clock: Option<debug_views::AnimationClock>,
     invisible: bool,
     geometry_visible: bool,
@@ -282,6 +284,8 @@ impl INode3D for SkinnedActorNode {
             stats: VarDictionary::new(),
             applied_expression_weights: std::collections::BTreeMap::new(),
             elapsed: 0.0,
+            footstep_events: Vec::new(),
+            footstep_tags: std::collections::BTreeSet::new(),
             debug_clock: None,
             invisible: false,
             geometry_visible: true,
@@ -465,6 +469,32 @@ impl SkinnedActorNode {
             return;
         };
         let mut world = binding.world.borrow_mut();
+        if let Some(actor) = world.actor_ref(binding.actor) {
+            for (name, value, start, stop) in [
+                ("IsSneaking", actor.sneaking, "SneakStart", "SneakStop"),
+                ("IsSprinting", actor.sprinting, "SprintStart", "SprintStop"),
+                ("IsSwimming", actor.swimming, "SwimStart", "SwimStop"),
+            ] {
+                let previous = vm
+                    .variables
+                    .index(name)
+                    .and_then(|index| vm.variables.bool(index));
+                vm.variables.set_by_name(name, f32::from(u8::from(value)));
+                if previous.is_some_and(|previous| previous != value) {
+                    let requested = if value { start } else { stop };
+                    if let Some(event) = self.assets.as_deref().and_then(|assets| {
+                        assets
+                            .graph
+                            .data
+                            .event_names
+                            .iter()
+                            .find(|event| event.eq_ignore_ascii_case(requested))
+                    }) {
+                        vm.send_event_named(event);
+                    }
+                }
+            }
+        }
         for (hand, prefix) in [(Hand::Left, "Left"), (Hand::Right, "Right")] {
             let kind = if world.hand_spell(binding.actor, hand).is_some() {
                 9.0
@@ -1031,6 +1061,10 @@ impl SkinnedActorNode {
             .filter(|_| !self.first_person)
             .map(|binding| (binding.world.clone(), binding.actor));
         report_graph_events(&mut events, |event| {
+            if !self.first_person && self.footstep_tags.contains(&event.to_ascii_lowercase()) {
+                let position = self.foot_position(event);
+                self.footstep_events.push((event.to_owned(), position));
+            }
             if matches!(event, "HitFrame" | "attackStop") {
                 for hand in [Hand::Right, Hand::Left] {
                     if let Ok(pose) = self.weapon_pose(hand) {
@@ -1532,6 +1566,7 @@ impl SkinnedActorNode {
         {
             return;
         }
+        self.cache_footstep_tags(&source);
         let animation_cursor = AnimationEventCursor::at_end(&world.borrow().animation_requests);
         let mouth_targets = {
             let mut world = world.borrow_mut();
@@ -1614,6 +1649,40 @@ impl SkinnedActorNode {
 
     pub(crate) fn presented_position(&self) -> Vector3 {
         self.actor_placement().origin
+    }
+
+    pub(crate) fn take_footstep_events(&mut self) -> Vec<(String, Vector3)> {
+        std::mem::take(&mut self.footstep_events)
+    }
+
+    fn cache_footstep_tags(&mut self, source: &DataSource) {
+        self.footstep_events.clear();
+        self.footstep_tags = source
+            .order()
+            .winners_of(soe_esm::Tag(*b"FSTP"))
+            .filter(|(_, record)| !record.is_deleted())
+            .filter_map(|(_, record)| record.find(soe_esm::Tag(*b"ANAM")))
+            .map(|bytes| soe_esm::cursor::zstring(bytes).to_ascii_lowercase())
+            .collect();
+    }
+
+    fn foot_position(&self, event: &str) -> Vector3 {
+        let bone = if event.to_ascii_lowercase().contains("right") {
+            "NPC R Foot [Rft ]"
+        } else {
+            "NPC L Foot [Lft ]"
+        };
+        self.assets
+            .as_deref()
+            .and_then(|assets| assets.skeleton.bone_index(bone))
+            .and_then(|index| self.model.get(index))
+            .map_or_else(
+                || self.actor_placement().origin,
+                |pose| {
+                    (self.actor_placement() * to_transform3d(&Affine::from_qs(pose).to_godot()))
+                        .origin
+                },
+            )
     }
 
     pub(crate) fn node_identity(&self) -> i64 {
@@ -1849,6 +1918,7 @@ impl SkinnedActorNode {
             self.surfaces = surfaces;
             self.cache_camera_offset();
         }
+        self.cache_footstep_tags(&source);
         let assets = self
             .assets
             .as_deref()

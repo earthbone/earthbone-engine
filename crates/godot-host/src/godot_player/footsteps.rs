@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Controller-distance fallback for player footsteps, pending animation events.
+//! Authored actor foot events select FSTS impacts on the contacted material.
 
 use godot::prelude::*;
 use soe_game::footsteps::{Footsteps, Gait};
@@ -171,6 +171,9 @@ impl PlayerNode {
         if self.game.is_none() || self.sound_bank.is_none() {
             return;
         }
+        if self.player_appearance.is_some() {
+            return;
+        }
         let feet = self.feet();
         let grounded = was_grounded && self.character().is_some_and(|c| c.on_ground);
         let distance = (feet.x - before.x).hypot(feet.y - before.y);
@@ -193,31 +196,95 @@ impl PlayerNode {
             .world
             .as_ref()
             .and_then(|world| world.raycast(feet + Vec3::Z * 8.0, feet - Vec3::Z * 40.0));
-        let material_hash = i64::from(hit.and_then(|hit| hit.material).unwrap_or_default());
-        self.signals()
-            .footstep_requested()
-            .emit(material_hash, right);
         let Some(hit) = hit.filter(|hit| hit.normal.z > 0.5) else {
             return;
         };
-        let Some(source) = &self.data_source else {
-            return;
-        };
-        let order = source.shared_order();
-        let steps = Footsteps::new(&order);
         let event = match (gait, right) {
             (Gait::Sprint, false) => "FootSprintLeft",
             (Gait::Sprint, true) => "FootSprintRight",
             (_, false) => "FootLeft",
             (_, true) => "FootRight",
         };
+        let Some(player) = self.game.as_mut().map(soe_game::Game::player) else {
+            return;
+        };
+        self.play_footstep_event(player, gait, event, hit.point, hit.material);
+    }
+
+    pub(super) fn play_animation_footsteps(&mut self) {
+        let Some(player) = self.game.as_mut().map(soe_game::Game::player) else {
+            return;
+        };
+        let mut events = Vec::new();
+        if let Some(visual) = &mut self.player_appearance {
+            events.extend(
+                visual
+                    .bind_mut()
+                    .take_footstep_events()
+                    .into_iter()
+                    .map(|(tag, point)| (player, tag, point)),
+            );
+        }
+        events.extend(self.npc_actors.take_footsteps());
+        for (actor, event, point) in events {
+            let Some(game) = &self.game else { return };
+            let gait = game.world().actor_ref(actor).map_or(Gait::Walk, |state| {
+                if state.swimming {
+                    Gait::Swim
+                } else if state.sneaking {
+                    Gait::Sneak
+                } else if state.sprinting {
+                    Gait::Sprint
+                } else if state.running {
+                    Gait::Run
+                } else {
+                    Gait::Walk
+                }
+            });
+            let point = crate::units::GodotPos::new(point.x, point.y, point.z).to_skyrim();
+            let point = Vec3::new(point.x, point.y, point.z);
+            let hit = self
+                .world
+                .as_ref()
+                .and_then(|world| world.raycast(point + Vec3::Z * 32.0, point - Vec3::Z * 64.0));
+            if let Some(hit) = hit.filter(|hit| hit.normal.z > 0.5) {
+                self.play_footstep_event(actor, gait, &event, hit.point, hit.material);
+            }
+        }
+    }
+
+    fn play_footstep_event(
+        &mut self,
+        actor: soe_esm::GlobalFormId,
+        gait: Gait,
+        event: &str,
+        point: Vec3,
+        material: Option<u32>,
+    ) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
+        let Some(source) = &self.data_source else {
+            return;
+        };
+        let order = source.shared_order();
+        let steps = Footsteps::new(&order);
+        let material = self
+            .game
+            .as_ref()
+            .and_then(|game| {
+                game.world()
+                    .reference_ref(actor)
+                    .and_then(|reference| reference.cell)
+            })
+            .and_then(|cell| source.water_material_at(cell, [point.x, point.y, point.z]))
+            .or(material);
+        let material_hash = i64::from(material.unwrap_or_default());
+        let right = event.to_ascii_lowercase().contains("right");
         let selected = (|| -> soe_esm::Result<_> {
             let Some(game) = &mut self.game else {
                 return Ok(Vec::new());
             };
-            let player = game.player();
-            let sets = game.world_mut().footstep_sets(player)?;
-            let material = match hit.material {
+            let sets = game.world_mut().footstep_sets(actor)?;
+            let material = match material {
                 Some(hash) => steps.material(hash)?,
                 None => steps.default_object(*b"DLMT")?,
             };
@@ -238,13 +305,24 @@ impl PlayerNode {
                 return;
             }
         };
+        let is_player = self
+            .game
+            .as_mut()
+            .is_some_and(|game| game.player() == actor);
+        if is_player && !impacts.is_empty() {
+            self.signals()
+                .footstep_requested()
+                .emit(material_hash, right);
+        }
         for impact in impacts {
-            // Shipped footstep IPCTs pair NPC sound 1 with player sound 2.
-            let Some(sound) = impact.sounds[1].or(impact.sounds[0]) else {
+            let Some(sound) = (if is_player {
+                impact.sounds[1].or(impact.sounds[0])
+            } else {
+                impact.sounds[0]
+            }) else {
                 continue;
             };
             let Some(game) = &mut self.game else { return };
-            let player = game.player();
             let draws = {
                 let mut world = game.world_mut();
                 [
@@ -259,7 +337,7 @@ impl PlayerNode {
                 &mut world,
                 &game.vm,
                 sound,
-                player,
+                actor,
                 None,
                 draws,
                 &soe_game::sound::SoundSettings::default(),
@@ -272,28 +350,52 @@ impl PlayerNode {
                 }
             };
             drop(world);
-            let position =
-                crate::units::SkyrimPos::new(hit.point.x, hit.point.y, hit.point.z).to_godot();
+            let position = crate::units::SkyrimPos::new(point.x, point.y, point.z).to_godot();
             if let Some(bank) = &mut self.sound_bank {
                 let slot = bank
                     .bind_mut()
                     .play_prepared(&plan, Vector3::new(position.x, position.y, position.z));
                 if slot >= 0 {
-                    self.footstep_count += 1;
-                    game.world_mut().create_detection_event(player, player, 20);
-                    self.base_mut().emit_signal(
-                        "footstep_played",
-                        &[
-                            material_hash.to_variant(),
-                            slot.to_variant(),
-                            right.to_variant(),
-                        ],
-                    );
+                    if is_player {
+                        self.footstep_count += 1;
+                    }
+                    game.world_mut().create_detection_event(actor, actor, 20);
+                    if self.footstep_history.len() == 256 {
+                        self.footstep_history.pop_front();
+                    }
+                    self.footstep_history.push_back(vdict! {
+                        "actor" => actor.to_string().as_str(), "event" => event,
+                        "gait" => format!("{gait:?}").as_str(),
+                        "material_hash" => material_hash, "descriptor" => sound.to_string().as_str(),
+                        "impact" => impact.impact.to_string().as_str(), "slot" => slot,
+                        "position" => Vector3::new(position.x, position.y, position.z),
+                    });
+                    soe_trace::info!(target: "host::footsteps", system = "host::footsteps",
+                        "FOOTSTEP actor={actor} event={event} gait={gait:?} material={material_hash} descriptor={sound} slot={slot}");
+                    if is_player {
+                        self.base_mut().emit_signal(
+                            "footstep_played",
+                            &[
+                                material_hash.to_variant(),
+                                slot.to_variant(),
+                                right.to_variant(),
+                            ],
+                        );
+                    }
                 } else {
                     self.footstep_errors += 1;
                     soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep playback failed");
                 }
             }
         }
+    }
+}
+
+#[godot_api(secondary)]
+impl PlayerNode {
+    /// Most recent accepted actor footsteps, with their authored descriptor and material.
+    #[func]
+    fn footstep_selections(&self) -> Array<VarDictionary> {
+        self.footstep_history.iter().cloned().collect()
     }
 }

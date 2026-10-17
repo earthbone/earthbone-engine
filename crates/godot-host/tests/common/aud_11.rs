@@ -5,7 +5,7 @@
 //! Project registration follows the shared isolated Godot check helper.
 
 #[path = "prepared_extension.rs"]
-mod prepared_extension;
+pub mod prepared_extension;
 
 #[path = "isolated_project.rs"]
 mod isolated_project;

@@ -84,6 +84,8 @@ mod render_pick;
 mod runtime_clock;
 pub mod save_recovery;
 pub mod skinned;
+#[cfg(feature = "godot")]
+mod sound_decode;
 pub mod streaming;
 mod swimming;
 pub mod terrain;
