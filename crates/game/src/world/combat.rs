@@ -268,13 +268,53 @@ impl World {
         incoming_perks: Vec<crate::perks::EntryPointInvocation>,
         alloc: Alloc<'_>,
     ) -> Result<HitResult, Error> {
+        self.contact_hit(hit, None, outgoing_perks, incoming_perks, alloc)
+    }
+
+    /// Execute one arrow or bolt contact with an actor after host collision
+    /// detection. The bow or crossbow damage and the AMMO damage add, the
+    /// marksman skill scales the sum and the shared hit path handles armor,
+    /// block, difficulty, stagger, OnHit and the hit event. The target
+    /// receives the PROJ form as `akProjectile`.
+    ///
+    /// # Errors
+    /// The attacker no longer holds the weapon, the target is invalid or a
+    /// combat setting is missing.
+    pub fn projectile_hit(
+        &mut self,
+        request: &crate::combat::FlightRequest,
+        target: GlobalFormId,
+        outgoing_perks: Vec<crate::perks::EntryPointInvocation>,
+        incoming_perks: Vec<crate::perks::EntryPointInvocation>,
+        alloc: Alloc<'_>,
+    ) -> Result<HitResult, Error> {
+        let hit = MeleeHit {
+            attacker: request.attacker,
+            target,
+            weapon: request.weapon,
+            is_bash: false,
+            is_power_attack: false,
+        };
+        self.contact_hit(hit, Some(request), outgoing_perks, incoming_perks, alloc)
+    }
+
+    fn contact_hit(
+        &mut self,
+        hit: MeleeHit,
+        ranged: Option<&crate::combat::FlightRequest>,
+        outgoing_perks: Vec<crate::perks::EntryPointInvocation>,
+        incoming_perks: Vec<crate::perks::EntryPointInvocation>,
+        alloc: Alloc<'_>,
+    ) -> Result<HitResult, Error> {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Combat);
         if hit.attacker == hit.target {
             return Err(Error::Actor(hit.target));
         }
         self.validate_combat_actor(hit.attacker)?;
         self.validate_combat_actor(hit.target)?;
-        let sneak_attacked = !hit.is_bash && self.sneak_attack_qualifies(hit.attacker, hit.target);
+        let sneak_attacked = !hit.is_bash
+            && ranged.is_none()
+            && self.sneak_attack_qualifies(hit.attacker, hit.target);
         if self.is_ethereal(hit.attacker) {
             return Err(Error::Unsupported("ethereal action"));
         }
@@ -433,7 +473,12 @@ impl World {
             (damage, 0.0_f32, 1.0_f32, None, resist, ignores_resistance)
         } else {
             let (weapon, base_enchantment, maximum_charge) = self.combat_weapon(hit.weapon)?;
-            if !matches!(weapon.animation, 1..=6) || !matches!(weapon.skill, 6..=8 | -1) {
+            let animation_ok = if ranged.is_some() {
+                matches!(weapon.animation, 7 | 9)
+            } else {
+                matches!(weapon.animation, 1..=6)
+            };
+            if !animation_ok || !matches!(weapon.skill, 6..=8 | -1) {
                 return Err(Error::Unsupported("non-melee weapon or governing skill"));
             }
             if weapon.flags2 & 0x1000 != 0 {
@@ -487,7 +532,10 @@ impl World {
                 self.combat_skill_scale(hit.attacker, skill, min, max)?
             };
             let mut weapon_damage = finite(
-                f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?,
+                (f64::from(weapon.damage)
+                    + f64::from(ranged.map_or(0.0, |request| request.damage)))
+                    * scale
+                    * self.combat_setting("fDamageWeaponMult")?,
             )?;
             let mut power_stamina_cost = None;
             if hit.is_power_attack {
@@ -681,10 +729,11 @@ impl World {
         }
         let aggressor = self.form_value(Some(hit.attacker), alloc);
         let source = self.form_value(Some(hit.weapon), alloc);
+        let projectile = ranged.map(|request| self.form_value(Some(request.projectile), alloc));
         let args = vec![
             aggressor,
             source,
-            Value::None,
+            projectile.unwrap_or(Value::None),
             Value::Bool(hit.is_power_attack),
             Value::Bool(sneak_attacked),
             Value::Bool(hit.is_bash),
@@ -777,7 +826,9 @@ impl World {
             target: soe_commonlib_shim::refr::ObjectRefHandle(self.runtime_id(hit.target)),
             cause: soe_commonlib_shim::refr::ObjectRefHandle(self.runtime_id(hit.attacker)),
             source: soe_commonlib_shim::form::FormId(self.runtime_id(hit.weapon)),
-            projectile: soe_commonlib_shim::form::FormId(0),
+            projectile: soe_commonlib_shim::form::FormId(
+                ranged.map_or(0, |request| self.runtime_id(request.projectile)),
+            ),
             flags: event_flags,
         });
         Ok(HitResult {
