@@ -9,6 +9,7 @@ use soe_game::{combat::Hand, Game};
 const SHIELD: u32 = 0x800;
 const SWORD: u32 = 0x801;
 const GREATSWORD: u32 = 0x802;
+const TORCH: u32 = 0x803;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -35,6 +36,9 @@ fn game() -> Game {
             .sub(Tag(*b"DNAM"), 100_u32.to_le_bytes())
             .sub(Tag(*b"BOD2"), [(1_u32 << 9).to_le_bytes(), 2_u32.to_le_bytes()].concat()),
     );
+    let mut light = vec![0; 32];
+    light[12..16].copy_from_slice(&2_u32.to_le_bytes());
+    plugin.push_top(Record::new(Tag(*b"LIGH"), TORCH).sub(Tag(*b"DATA"), light));
     plugin.push_top(weapon(SWORD, 1));
     plugin.push_top(weapon(GREATSWORD, 5));
     let mut order = LoadOrder::new();
@@ -42,7 +46,7 @@ fn game() -> Game {
     let mut game = Game::new(order);
     let player = game.player();
     let mut world = game.world_mut();
-    for item in [SHIELD, SWORD, GREATSWORD] {
+    for item in [SHIELD, SWORD, GREATSWORD, TORCH] {
         world.add_item(player, id(item), 1);
     }
     drop(world);
@@ -81,4 +85,21 @@ fn inv_09_a_one_handed_weapon_keeps_the_shield() {
     world.equip_hand_weapon(player, Hand::Right, id(SWORD)).unwrap();
     assert_eq!(world.equipped_shield(player).unwrap(), Some(id(SHIELD)));
     assert_eq!(world.actor(player).unwrap().right_weapon, Some(id(SWORD)));
+}
+
+fn with_torch() -> Game {
+    game()
+}
+
+#[test]
+fn inv_09_a_torch_and_a_shield_take_the_left_hand_from_each_other() {
+    let mut game = with_torch();
+    let player = game.player();
+    let mut world = game.world_mut();
+    world.equip_item(player, id(SHIELD)).unwrap();
+    world.equip_item(player, id(TORCH)).unwrap();
+    assert_eq!(world.equipped_shield(player).unwrap(), None);
+    assert!(world.actor(player).unwrap().equipped.contains(&id(TORCH)));
+    world.equip_item(player, id(SHIELD)).unwrap();
+    assert!(!world.actor(player).unwrap().equipped.contains(&id(TORCH)));
 }

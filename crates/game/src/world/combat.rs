@@ -159,6 +159,10 @@ impl World {
         }
         if armor.is_some_and(|armor| armor.slots & (1 << 9) != 0) {
             self.release_two_handed_weapon(actor)?;
+            self.release_torch(actor);
+        }
+        if self.is_torch(item) {
+            self.release_left_hand(actor)?;
         }
         let reference = self.reference(actor).ok_or(Error::Actor(actor))?;
         if reference.inventory.count(item) == 0 {

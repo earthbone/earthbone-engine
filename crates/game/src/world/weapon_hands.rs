@@ -134,6 +134,7 @@ impl World {
             if let Some(shield) = self.equipped_shield(actor)? {
                 self.unequip_item(actor, shield)?;
             }
+            self.release_torch(actor);
         }
         let state = self.actor(actor).ok_or(Error::Actor(actor))?;
         for old in [state.left_weapon, state.right_weapon]
@@ -166,6 +167,49 @@ impl World {
             state.right_weapon = None;
             state.left_weapon = None;
         }
+        Ok(())
+    }
+
+    /// Whether a form is a carried light (LIGH with the carryable flag), which
+    /// occupies the left hand like a shield.
+    pub(super) fn is_torch(&self, item: GlobalFormId) -> bool {
+        self.record(item)
+            .filter(|record| record.tag == Tag(*b"LIGH"))
+            .and_then(|record| record.find(Tag(*b"DATA")))
+            .and_then(|data| data.get(12..16))
+            .and_then(|data| data.try_into().ok())
+            .map(u32::from_le_bytes)
+            .is_some_and(|flags| flags & 2 != 0)
+    }
+
+    /// Put away any equipped torch.
+    pub(super) fn release_torch(&mut self, actor: GlobalFormId) {
+        let torches: Vec<GlobalFormId> = self
+            .actor_ref(actor)
+            .map(|state| {
+                state
+                    .equipped
+                    .iter()
+                    .copied()
+                    .filter(|item| self.is_torch(*item))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for torch in torches {
+            let _ = self.force_unequip_item(actor, torch);
+        }
+    }
+
+    /// Free the left hand for a torch: the shield, left weapon and left spell go.
+    pub(super) fn release_left_hand(&mut self, actor: GlobalFormId) -> Result<(), Error> {
+        if let Some(shield) = self.equipped_shield(actor)? {
+            self.unequip_item(actor, shield)?;
+        }
+        let state = self.actor(actor).ok_or(Error::Actor(actor))?;
+        if let Some(weapon) = state.left_weapon.take() {
+            state.equipped.remove(&weapon);
+        }
+        state.left_spell = None;
         Ok(())
     }
 
