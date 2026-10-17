@@ -1208,7 +1208,7 @@ impl PlayerNode {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.location_preparing = false;
         self.location_install = None;
-        match DataSource::open(Path::new(&path.to_string())) {
+        match DataSource::open_for_play(Path::new(&path.to_string())) {
             Ok(source) => {
                 self.load_control_map(&source);
                 if self.base().is_node_ready() {

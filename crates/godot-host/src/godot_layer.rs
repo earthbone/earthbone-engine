@@ -2845,8 +2845,7 @@ impl CellStreamerNode {
         }
     }
 
-    /// Opens `path` as a Skyrim SE `Data` folder: the five base masters and
-    /// their archives, plus `path` itself as a loose overlay. Returns
+    /// Opens base Data plus SOE_DATA_PATHS plugins, archives and loose files. Returns
     /// whether it opened, the reason goes to Godot's error log. Call this
     /// once before `stream_cell`.
     // gdext's `#[func]` marshals a GDScript argument into an owned value, so
@@ -2858,7 +2857,7 @@ impl CellStreamerNode {
             soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::load_data: a background load is pending");
             return false;
         }
-        match DataSource::open(Path::new(&path.to_string())) {
+        match DataSource::open_for_play(Path::new(&path.to_string())) {
             Ok(source) => {
                 self.data_source = Some(Arc::new(source));
                 true
@@ -2907,7 +2906,7 @@ impl CellStreamerNode {
         let path = std::path::PathBuf::from(path.to_string());
         match std::thread::Builder::new()
             .name("soe-data-load".into())
-            .spawn(move || DataSource::open(&path))
+            .spawn(move || DataSource::open_for_play(&path))
         {
             Ok(worker) => {
                 self.data_source = None;

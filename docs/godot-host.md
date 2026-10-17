@@ -10120,3 +10120,41 @@ reference cycle. The UI-20 import fixture fails before the fix when its
 manifest is removed between presentation and refresh, and passes afterward,
 including generation replacement. See [performance.md](performance.md) for
 trace capture and installed-route measurements.
+
+## Player Data overlays, round 4
+
+`SOE_DATA_PATHS` adds installed Data folders to the free walk host. It uses
+`:` between paths on Linux and `;` on Windows. Set the base install with
+`SKYRIM_DATA` as before. Each extra path must be the folder containing the
+mod's `Interface`, plugin and archive files. Paths are read in the given
+order, lowest priority first. Nothing is copied into the install.
+
+The host enables every plugin in these extra folders. Plugin names sort
+alphabetically within each folder. The profile crate then puts masters
+before ordinary plugins and checks master dependencies. Winning plugin
+files come from the last root containing that name. Archives in each extra
+folder load in alphabetical order after the base archives. Loose files
+beat archives, and a later loose root beats an earlier loose root. This is
+an explicit-folder loadout, without MO2 profile selection or disabled mods.
+Use only the extra folders and plugin order intended for play.
+
+For the supplied SkyUI and NORDIC installs, add this line to the launcher:
+
+```sh
+export SOE_DATA_PATHS="/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/mods/SkyUI-5.2SE-6.11:/run/media/pengolodh/linux-data-games/fixtures/NORDIC-UI-2.4.1/Data"
+```
+
+For SkyUI alone, omit the second path. The reference conventions are
+`soe-profile`, `soe-bsa` and local LMO `src/plugins/loadorder.rs`. No parser,
+dependency, saved state or world-reference nodes are added.
+
+The before-fix free walk exits 1 with only the five base plugins despite the
+extra root setting. The overlay build loads eleven plugins, including
+`SkyUI_SE.esp` and the installed Creation Club files. Both fixture loadouts
+resolve installed inventory-list, item and item-card movies in all five
+menus. Captures are under `target/r4-ui/skyui` and `target/r4-ui/nordic`.
+The host library passes 593 checks with installed inputs unset. Package
+formatting, all-target Clippy and the release build pass. No full lint gate
+was run, following the round 4 task. These source-selection checks do not
+establish authored layout fidelity. The live captures also expose a separate
+configured-icon selection failure, tracked by UI-41.
