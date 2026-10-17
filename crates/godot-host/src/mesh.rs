@@ -357,6 +357,13 @@ impl WaterMaterial {
 }
 
 impl MaterialDesc {
+    /// Lighting buffers retain the enabled RGB and alpha channels, neutralizing others.
+    pub fn uses_vertex_colors(&self) -> bool {
+        self.shader_flags_2 & soe_nif::blocks::flags2::TREE_ANIM == 0
+            && (self.shader_flags_1 & soe_nif::blocks::flags1::VERTEX_ALPHA != 0
+                || self.shader_flags_2 & soe_nif::blocks::flags2::VERTEX_COLORS != 0)
+    }
+
     /// Landscape LOD stores model-space normals with RGB encoding X, Z, Y.
     pub fn landscape_lod_normals(&self) -> bool {
         self.shader_flags_1 & soe_nif::blocks::flags1::MODEL_SPACE_NORMALS != 0
@@ -415,6 +422,7 @@ pub enum AlphaMode {
 /// Texture upload identity is separate from alpha and culling state.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MaterialKey {
+    vertex_colors: bool,
     pub environment: Option<String>,
     pub environment_mask: Option<String>,
     pub environment_scale: u32,
@@ -439,6 +447,7 @@ pub struct MaterialKey {
 impl From<&MaterialDesc> for MaterialKey {
     fn from(material: &MaterialDesc) -> Self {
         Self {
+            vertex_colors: material.uses_vertex_colors(),
             environment: material.environment_texture().map(str::to_lowercase),
             environment_mask: material.environment_mask.as_deref().map(str::to_lowercase),
             environment_scale: material.environment_scale.to_bits(),

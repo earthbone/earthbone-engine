@@ -38,14 +38,36 @@ func _run() -> void:
     camera.global_position = center + Vector3(0, 2, 9)
     camera.look_at(center)
     var rids: Array[RID] = []
+    var paint_rids: Array[RID] = []
+    var pine_rids: Array[RID] = []
+    var uploaded: Dictionary = {}
+    for surface: Dictionary in streamer.call("play_path_surfaces"):
+        uploaded[surface.rid] = surface.mesh
     var alternate := 0
     for surface: Dictionary in streamer.call("nif_surfaces"):
+        if str(surface.models).to_lower().contains("treepine"):
+            pine_rids.append(surface.rid)
         if not surface.references.has("0:0C8E8B"):
             continue
         rids.append(surface.rid)
         print("R4 OBELISK LIVE source=", surface.source, " models=", surface.models, " refs=", surface.references, " bounds=", surface.bounds)
         if str(surface.source).to_lower().replace("\\", "/").ends_with("landscape/mountains/mountainslab02.dds"):
             alternate += 1
+        if str(surface.source).to_lower().contains("giantpaint"):
+            paint_rids.append(surface.rid)
+            var arrays: Array = uploaded[surface.rid].surface_get_arrays(0)
+            var colors = arrays[Mesh.ARRAY_COLOR]
+            _check(colors != null and colors.size() == arrays[Mesh.ARRAY_VERTEX].size(), "lighting paint retains authored vertex masks")
+            if colors != null and not colors.is_empty():
+                var low := 1.0
+                var high := 0.0
+                for color: Color in colors:
+                    low = minf(low, color.a)
+                    high = maxf(high, color.a)
+                print("R4 OBELISK PAINT vertices=", colors.size(), " alpha=", [low, high])
+            var material: Material = surface.material
+            if material is StandardMaterial3D:
+                _check(material.vertex_color_use_as_albedo, "paint material reads vertex masks")
     _check(not rids.is_empty(), "placed obelisk is resident")
     _check(alternate >= 1, "authored mountain slab TXST is uploaded")
     for frame in 3:
@@ -53,6 +75,33 @@ func _run() -> void:
     await RenderingServer.frame_post_draw
     var shown := root.get_texture().get_image()
     shown.save_png(OS.get_environment("SOE_CHARACTER_OUTPUT").path_join("obelisk.png"))
+    for rid in pine_rids:
+        RenderingServer.instance_set_visible(rid, false)
+    for frame in 3:
+        await process_frame
+    await RenderingServer.frame_post_draw
+    var no_pines := root.get_texture().get_image()
+    no_pines.save_png(OS.get_environment("SOE_CHARACTER_OUTPUT").path_join("obelisk_no_pines.png"))
+    var canopy := 0
+    for y in range(20,100):
+        for x in range(80,130):
+            if absi(x-105) <= 3:
+                continue
+            var a := shown.get_pixel(x,y)
+            var b := no_pines.get_pixel(x,y)
+            canopy += int(absf(a.r-b.r)+absf(a.g-b.g)+absf(a.b-b.b) > 0.03)
+    print("R4 OBELISK CANOPY pixels=", canopy)
+    _check(canopy >= 700, "lighting masks preserve the nearby pine canopy")
+    for rid in pine_rids:
+        RenderingServer.instance_set_visible(rid, true)
+    for rid in paint_rids:
+        RenderingServer.instance_set_visible(rid, false)
+    for frame in 3:
+        await process_frame
+    await RenderingServer.frame_post_draw
+    root.get_texture().get_image().save_png(OS.get_environment("SOE_CHARACTER_OUTPUT").path_join("obelisk_no_paint.png"))
+    for rid in paint_rids:
+        RenderingServer.instance_set_visible(rid, true)
     for rid in rids:
         RenderingServer.instance_set_visible(rid, false)
     for frame in 3:

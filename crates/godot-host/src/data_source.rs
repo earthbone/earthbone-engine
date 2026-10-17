@@ -1977,13 +1977,27 @@ pub(crate) fn mesh_data_from(shape: &NifMesh, combined: &NifTransform) -> MeshDa
         normals,
         tangents,
         uvs,
-        colors: shape.material.effect.as_ref().map(|_| {
-            if shape.colors.is_empty() {
-                vec![[1.0; 4]; shape.positions.len()]
-            } else {
-                shape.colors.clone()
-            }
-        }),
+        colors: (shape.material.effect.is_some()
+            || (shape.material.flags2 & soe_nif::blocks::flags2::TREE_ANIM == 0
+                && (shape.material.vertex_colors || shape.material.vertex_alpha)))
+            .then(|| {
+                let mut colors = if shape.colors.is_empty() {
+                    vec![[1.0; 4]; shape.positions.len()]
+                } else {
+                    shape.colors.clone()
+                };
+                if shape.material.effect.is_none() {
+                    for color in &mut colors {
+                        if !shape.material.vertex_colors {
+                            color[..3].fill(1.0);
+                        }
+                        if !shape.material.vertex_alpha {
+                            color[3] = 1.0;
+                        }
+                    }
+                }
+                colors
+            }),
         indices: shape.indices.clone(),
         bone_indices,
         bone_weights,

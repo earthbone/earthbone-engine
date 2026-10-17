@@ -1,5 +1,47 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Lighting paint vertex masks, RND-55, 2026-10-17
+
+The MODS correction selects the obelisk's mountain texture, but two paint
+overlays still cover it with brown. Hiding only `giantpaint.dds` in the live
+camp scene exposes the expected mountain surface. The stronger live test
+fails because both uploaded lighting meshes lack colour arrays and the
+ordinary paint material does not read vertex colour. The installed source
+check finds 189 authored colours on `AlphaPaint03`, with alpha 0.129412,
+and zero uploaded colours.
+
+The mesh adapter formerly retained colours only for effect shaders. It now
+also retains the enabled RGB and alpha channels on lighting geometry. A
+disabled channel becomes white or opaque, preventing unused alpha from
+hiding a surface that uses RGB tint. Missing enabled colours use white, following
+OpenMW's NIF loader fallback. Standard materials enable vertex albedo, and
+the existing lighting/decal shader reads the same prepared RGBA data without
+requiring a UV controller. The material cache distinguishes coloured and
+uncoloured materials that share textures. Existing batch keys already include
+colour-array presence. No additional passes, scene nodes, dependencies or
+saved fields were added. Existing mesh byte counts include the colour data.
+`TREE_ANIM` is excluded from this ordinary lighting path. Community Shaders
+`package/Shaders/Lighting.hlsl` uses tree alpha for wind and excludes it from
+opacity. The first live capture exposed that distinction by losing nearby
+canopies. A paired tree-hide capture guards 700 canopy pixels in a fixed sky
+region. The existing tree upload and wind shader remain a separate scope,
+tracked as RND-56. The corrected pine region is 50 by 80 pixels at image
+position (80, 20), with the seven central trunk columns excluded. It retains
+the original 700-pixel budget. The earlier region missed the dense canopy
+even in the old correct capture. The corrected control measures 2484 pixels
+before this change and 288 in the intermediate regression.
+The final embedded capture passes with 2450 canopy pixels. Both paint batches
+retain alpha masks and the selected mountain material stays resident. The
+scene exits with status zero. The installed colour comparison and host
+library cases pass, with package Clippy over all targets.
+
+Nifly `src/Shaders.cpp::HasVertexColors` and `HasVertexAlpha`, with the matching
+flags in `include/Shaders.hpp`, establish the separate channel switches.
+OpenMW `components/nifosg/nifloader.cpp` supplies the missing-colour fallback.
+No external implementation was copied. The installed assertion compares all
+three obelisk colour streams with the NIF, and the small fixture checks RGB,
+alpha, both channels and an absent colour stream against material identity.
+
 ## Giant camp texture swap, RND-53, 2026-10-17
 
 Reference `0:0C8E8B` uses base `GiantObeliskBlue02_MountainSlab` and model

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use godot::classes::base_material_3d::{
-    CullMode, EmissionOperator, Feature, TextureParam, Transparency,
+    CullMode, EmissionOperator, Feature, Flags, TextureParam, Transparency,
 };
 use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, BlendShapeMode, PrimitiveType};
@@ -6315,16 +6315,12 @@ pub(crate) fn decal_shader(desc: &MaterialDesc) -> String {
         .map_or(&[][..], |t| t.controllers.as_slice());
     let functions = crate::nif_effect_animation::functions(tracks);
     let animation = crate::nif_effect_animation::assignments(tracks, false);
-    let vertex_color = if desc.texture_transform.is_some()
-        && desc.shader_flags_2 & soe_nif::blocks::flags2::VERTEX_COLORS != 0
-    {
+    let vertex_color = if desc.uses_vertex_colors() {
         "COLOR.rgb"
     } else {
         "vec3(1.0)"
     };
-    let vertex_alpha = if desc.texture_transform.is_some()
-        && desc.shader_flags_1 & soe_nif::blocks::flags1::VERTEX_ALPHA != 0
-    {
+    let vertex_alpha = if desc.uses_vertex_colors() {
         "COLOR.a"
     } else {
         "1.0"
@@ -6538,6 +6534,10 @@ fn material_with_textures(
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
 ) -> Gd<StandardMaterial3D> {
     let mut mat = StandardMaterial3D::new_gd();
+    mat.set_flag(
+        Flags::ALBEDO_FROM_VERTEX_COLOR,
+        material.uses_vertex_colors(),
+    );
 
     if let Some(tex) = albedo_texture(cache, material, textures) {
         mat.set_texture(TextureParam::ALBEDO, &tex);
