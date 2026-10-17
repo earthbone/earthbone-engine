@@ -322,12 +322,38 @@ fn shield_back_anchor(skeleton: &mut Skeleton) {
     else {
         return;
     };
+    let mut pose = soe_hkx::QsTransform::IDENTITY;
+    if let (Some(torso), Ok(model)) = (
+        skeleton.bone_index("NPC Spine2 [Spn2]"),
+        skeleton.to_model_space(&skeleton.reference_pose),
+    ) {
+        let anchor = crate::skinned::Affine::from_qs(&model[back as usize]);
+        let offset = [
+            model[torso].translation[0] - anchor.origin[0],
+            0.0,
+            model[torso].translation[2] - anchor.origin[2],
+        ];
+        // Fit the shield center to the torso while keeping authored back depth
+        // and orientation. The orthogonal Qs basis maps this offset to local space.
+        for axis in 0..3 {
+            let length: f32 = anchor.basis.iter().map(|row| row[axis].powi(2)).sum();
+            if length > f32::EPSILON {
+                pose.translation[axis] = anchor
+                    .basis
+                    .iter()
+                    .zip(offset)
+                    .map(|(row, delta)| row[axis] * delta)
+                    .sum::<f32>()
+                    / length;
+            }
+        }
+    }
     skeleton.bones.push(HkxBone {
         name: "ShieldBack".into(),
         lock_translation: false,
     });
     skeleton.parent_indices.push(back);
-    skeleton.reference_pose.push(soe_hkx::QsTransform::IDENTITY);
+    skeleton.reference_pose.push(pose);
 }
 
 fn first_person_appearance(
@@ -1837,6 +1863,54 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn hst_25_installed_shield_back_sits_at_the_upper_torso() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
+        let source = crate::data_source::DataSource::open(Path::new(&data)).unwrap();
+        let mut world = soe_game::World::from_shared_order(source.shared_order());
+        let player = world.player();
+        let assets = ActorAssets::load_for_actor(&mut world, player, source.vfs()).unwrap();
+        let skeleton = &assets.skeleton;
+        let model = skeleton.to_model_space(&skeleton.reference_pose).unwrap();
+        for name in [
+            "WeaponBack",
+            "NPC Spine2 [Spn2]",
+            "NPC Head [Head]",
+            "ShieldBack",
+        ] {
+            println!(
+                "HST-25 back anchor {name}: {:?}",
+                model[skeleton.bone_index(name).unwrap()]
+            );
+        }
+        let mut low = [f32::INFINITY; 3];
+        let mut high = [f32::NEG_INFINITY; 3];
+        for (arrays, _) in source
+            .item_preview_surfaces("Armor/Iron/Shield.nif")
+            .unwrap()
+        {
+            for position in arrays.positions {
+                for axis in 0..3 {
+                    low[axis] = low[axis].min(position[axis]);
+                    high[axis] = high[axis].max(position[axis]);
+                }
+            }
+        }
+        println!("HST-25 shield bounds {low:?} to {high:?}");
+        let shield = model[skeleton.bone_index("ShieldBack").unwrap()].translation;
+        let torso = model[skeleton.bone_index("NPC Spine2 [Spn2]").unwrap()].translation;
+        assert!(
+            (shield[2] - torso[2]).abs() <= 5.0,
+            "shield anchor above torso: {shield:?} versus {torso:?}"
+        );
+        assert!(
+            (shield[0] - torso[0]).abs() <= 5.0,
+            "shield anchor off center: {shield:?} versus {torso:?}"
+        );
     }
 
     #[test]

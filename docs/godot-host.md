@@ -45,9 +45,15 @@ server-resource paths are reused instead of linking either renderer.
 The vanilla skeleton contains WeaponBack and SHIELD but no ShieldBack. The
 local hdtSMP64 force-update list names ShieldBack among custom rig nodes. The
 host preserves a supplied ShieldBack. Without one, it adds a presentation child
-of the authored WeaponBack with an identity local pose. The synthetic anchor
-check verifies the resulting model transform and preservation of custom nodes.
-This fallback is host policy, not an authored vanilla shield attachment.
+of the authored WeaponBack. The fallback keeps that node's orientation and
+depth, but fits its center and height to NPC Spine2 through the reference pose.
+The initial identity local pose put the shield behind the head in the free walk
+capture. Its height was 29.24 Skyrim units above Spine2. The installed torso
+regression fails against the five-unit limit before correction and measures
+zero height difference afterward. The synthetic anchor check still verifies
+preservation of custom nodes. OpenMW's actoranimation.cpp uses a dedicated
+shield attachment and supports authored sheath transforms. This fallback is
+host policy, not an authored vanilla shield attachment.
 
 The first installed equipment run failed on the missing back anchor. It
 confirmed the draw and sheathe clips and their attachment markers in both rigs,
@@ -78,7 +84,7 @@ from 992.3 to 984.6. Before the contact-source correction, the first-person hit
 left health at 992.3.
 
 The complete Bannered Mare sequence passes headless and windowed on the private
-software-rendered display. Windowed armor changes 6,783 pixels against the
+software-rendered display. Windowed armor changes 6,823 pixels against the
 100-pixel minimum and unequip restores both rigs' previous models. Both rigs
 play shield and two-handed block clips, dagger and warhammer power attacks,
 and Bow_DrawNock and Bow_DrawLight followed by arrowRelease. The fixture first
@@ -89,11 +95,16 @@ under `target/hst25-final-mare`.
 
 Projectile flight currently ends at its first actor without applying damage
 or OnHit. CMB-40 records that separate core gap. Projectile rendering and full
-hand spell presentation are also not established by these checks. No new
+hand spell presentation are also not established by these checks. The fixture
+unequips the shield before selecting two-handed weapons. The shared equipment
+paths do not resolve conflicts between shield armor and weapon hand slots.
+INV-09 records that transition gap. No new
 production scene nodes, dependency or saved field is added. The first-person
 shadow rendering, rig turning, NPC movement, hair and faces remain with their
-round 4 owners. Visual review found the fallback sheathed shield at head height.
-Its torso placement correction and the corrected exterior capture are pending.
+round 4 owners. The torso placement regression and final Bannered Mare captures
+pass. The exterior headless sequence passes. Its windowed software fixture
+reaches the existing 300-second limit while rendering every animation tick.
+Confirmation with batched render waits is pending.
 
 ## Player view corrections, 2026-10-14
 
