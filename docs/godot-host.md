@@ -1,5 +1,16 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Tree pipeline warmup, PRF-49, 2026-10-17
+
+PRF-49 prepares the load order's winning TREE material and vertex layouts on a
+worker. The loading screen draws small representatives using production NIF
+and BTT builders and keeps their materials and shaders alive across cell
+retirement. Private placeholder textures avoid filling the real texture cache
+with warmup pixels. No scene node per tree is added. The first pine and aspen
+probe previously added three surface pipelines each. The installed probe now reports zero mesh, surface and draw compilations
+for both models and exits zero. Retained representatives cost 25,668 mesh
+bytes across 155 meshes for 261 winning TREE models.
+
 ## Player view corrections, 2026-10-14
 
 The five reported symptoms have four causes. Camera height, body pitch and

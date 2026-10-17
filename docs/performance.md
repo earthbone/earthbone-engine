@@ -2841,3 +2841,28 @@ and zero foreground draw compilations. Surface and specialization counts
 remain eight and 36, then six and 34. These shared-machine observations keep
 PRF-47 below 33 ms and leave PRF-46 open. They do not establish hardware FPS.
 The current reports and load traces remain in `target/prf40-after`.
+
+## Tree pipeline warmup, PRF-49, 2026-10-17
+
+The free-walk full-tree probe loads a pine and an aspen through the production
+model mesh API after entering Whiterun. Before warmup, each creates three
+surface pipelines. Pine preparation and upload takes 43.505 ms for 3,734
+vertices, and aspen takes 29.942 ms for 2,758 vertices. Godot's local pipeline
+compilation guide identifies mesh, surface and draw compilation as possible
+frame stalls. Background specialization is recorded separately.
+
+Startup now prepares representative surfaces from winning TREE models and
+the existing BTT billboard builder. It retains their authored material
+cutoffs, texture-slot presence and vertex layout. A private texture cache
+uses small placeholders. Production shaders are shared and remain alive with
+the representative meshes. Temporary server instances are drawn under the
+loading cover and freed after the existing rendering-settle check. The fixed
+acceptance is zero mesh, surface and draw compilations for a newly loaded
+tree after startup. The installed probe passes and exits zero. Both trees create zero mesh,
+surface and draw pipelines. Pine preparation and upload takes 43.388 ms,
+and aspen takes 29.057 ms. This isolates compilation from the remaining
+upload cost. Startup prepares 261 models into 155 representatives using
+25,668 mesh bytes. CPU preparation takes 1,441 ms and publication 46 ms,
+both under the loading cover. All 595 host library cases, all-target Clippy
+and package formatting pass. No dependency, saved
+state or per-reference scene node is added.

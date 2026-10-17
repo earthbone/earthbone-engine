@@ -47,6 +47,7 @@ mod object_animation;
 
 mod console_render;
 mod distant_upload;
+mod pipeline_warmup;
 mod play_path;
 pub(crate) mod upload;
 
@@ -209,6 +210,7 @@ pub struct CellStreamerNode {
     /// `StandardMaterial3D` per texture set, kept across stream calls so a
     /// texture uploaded for one cell serves every later cell that names it.
     materials: MaterialMap,
+    pipeline_warmup: pipeline_warmup::State,
     /// Merged bounds of everything streamed so far, in Godot metres, for a
     /// camera to frame the scene without walking mesh nodes.
     bounds: Option<crate::mesh::Aabb>,
@@ -852,6 +854,7 @@ impl INode3D for CellStreamerNode {
             exterior_cells: std::collections::HashMap::new(),
             rendered_cells: std::collections::BTreeSet::new(),
             materials: MaterialMap::new(),
+            pipeline_warmup: pipeline_warmup::State::default(),
             bounds: None,
             last_stats: VarDictionary::new(),
             location_totals: None,

@@ -82,6 +82,8 @@ pub mod terrain_lod_generate;
 pub mod terrain_lod_join;
 pub mod training_menu;
 pub mod tree_lod;
+#[cfg(any(feature = "godot", test))]
+mod tree_warmup;
 pub mod ui;
 pub mod units;
 

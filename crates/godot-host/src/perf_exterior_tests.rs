@@ -90,7 +90,38 @@ fn root() -> PathBuf {
 }
 
 #[test]
+fn installed_tree_pipeline_material_survey() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = crate::data_source::DataSource::open_with_threads(Path::new(&data), 1).unwrap();
+    for model in [
+        "landscape/trees/treepineforest01.nif",
+        "landscape/trees/treeaspen01.nif",
+    ] {
+        let surfaces = source.item_preview_surfaces(model).unwrap();
+        assert!(!surfaces.is_empty());
+        for (arrays, _) in surfaces {
+            eprintln!(
+                "R4_TREE_MATERIAL model={model} vertices={} material={:?}",
+                arrays.positions.len(),
+                arrays.material
+            );
+        }
+    }
+}
+
+#[test]
 fn r4_installed_game_time_tracks_wall_time_through_the_inn_exit() {
+    r4_installed_route("r4_runtime_test.gd");
+}
+
+#[test]
+fn r4_installed_full_tree_pipelines_are_warm() {
+    r4_installed_route("r4_tree_pipeline_test.gd");
+}
+
+fn r4_installed_route(script: &str) {
     let (Some(data), Some(godot)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_GODOT_BIN"),
@@ -98,7 +129,9 @@ fn r4_installed_game_time_tracks_wall_time_through_the_inn_exit() {
         return;
     };
     let root = root();
-    let directory = root.join("target/r4-runtime");
+    let directory = root
+        .join("target/r4-runtime")
+        .join(script.trim_end_matches(".gd"));
     std::fs::create_dir_all(&directory).unwrap();
     let report = directory.join("clock.json");
     let output = std::fs::File::create(directory.join("clock.log")).unwrap();
@@ -106,7 +139,7 @@ fn r4_installed_game_time_tracks_wall_time_through_the_inn_exit() {
     let status = Command::new(godot)
         .arg("--path")
         .arg(root.join("godot"))
-        .args(["--resolution", "640x360", "--script", "r4_runtime_test.gd"])
+        .args(["--resolution", "640x360", "--script", script])
         .env("SKYRIM_DATA", data)
         .env("SOE_R4_REPORT", &report)
         .env("SOE_GODOT_TIMEOUT", "600")
@@ -129,7 +162,10 @@ fn r4_installed_game_time_tracks_wall_time_through_the_inn_exit() {
         let ratio = row[phase]["ratio"].as_f64().unwrap();
         assert!((ratio - 1.0).abs() < 0.05, "{phase}: {ratio}");
         assert!(row[phase]["distance"].as_f64().unwrap() > 100.0);
-        println!("R4_CLOCK {phase} ratio={ratio} wall={} game={}", row[phase]["wall"], row[phase]["game"]);
+        println!(
+            "R4_CLOCK {phase} ratio={ratio} wall={} game={}",
+            row[phase]["wall"], row[phase]["game"]
+        );
     }
     let trace: serde_json::Value =
         serde_json::from_slice(&std::fs::read(report.with_extension("trace.json")).unwrap())
