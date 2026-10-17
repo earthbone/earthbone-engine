@@ -184,7 +184,7 @@ pub struct PlayerNode {
     first_person_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     weapon_holds: [Option<f32>; 2],
     ranged_release: crate::combat::RangedRelease,
-    ranged_flights: Vec<crate::combat::ProjectileFlight>,
+    ranged_flights: Vec<melee::ArrowFlight>,
     npc_grounding: crate::npc_grounding::NpcGrounding,
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     debug_ref_markers: BTreeMap<GlobalFormId, Rid>,
@@ -1212,7 +1212,7 @@ impl PlayerNode {
     #[func]
     pub fn load_data(&mut self, path: GString) -> bool {
         self.clear_player_input();
-        self.ranged_flights.clear();
+        self.clear_ranged_flights();
         self.interface_cache_job = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.location_preparing = false;
@@ -1266,7 +1266,7 @@ impl PlayerNode {
         self.interface_cache_job = None;
         self.data_source = Some(source);
         self.game = None;
-        self.ranged_flights.clear();
+        self.clear_ranged_flights();
         self.clear_player_input();
         self.image_space = crate::image_space::ImageSpaceStack::default();
         self.refresh_image_space();

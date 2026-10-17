@@ -196,6 +196,18 @@ impl ProjectileFlight {
         }
     }
 
+    /// The release request that started this flight.
+    #[must_use]
+    pub const fn request(&self) -> &FlightRequest {
+        &self.request
+    }
+
+    /// Current position in Skyrim units.
+    #[must_use]
+    pub const fn position(&self) -> [f32; 3] {
+        self.motion.position()
+    }
+
     /// Place a recoverable arrow after a world obstruction stops this flight.
     ///
     /// The impact is consumed on the first call, even when its AMMO record is

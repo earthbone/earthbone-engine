@@ -10,6 +10,42 @@ use soe_game::combat::Hand;
 
 use super::PlayerNode;
 
+/// Seconds a stopped arrow stays visible where it hit.
+const ARROW_STUCK_SECONDS: f32 = 30.0;
+
+/// One arrow or bolt in the air or stuck where it landed.
+pub(super) struct ArrowFlight {
+    pub(super) flight: crate::combat::ProjectileFlight,
+    pub(super) node: Option<Gd<Node3D>>,
+    pub(super) stuck_for: Option<f32>,
+}
+
+impl ArrowFlight {
+    /// Move the rendered model to `to`, with its tip along the travel from `from`.
+    fn place(&mut self, from: [f32; 3], to: [f32; 3]) {
+        let Some(node) = &mut self.node else {
+            return;
+        };
+        let at = |p: [f32; 3]| {
+            let g = crate::units::SkyrimPos::new(p[0], p[1], p[2]).to_godot();
+            Vector3::new(g.x, g.y, g.z)
+        };
+        let (from, to) = (at(from), at(to));
+        node.set_global_position(to);
+        let heading = to - from;
+        if heading.length_squared() > 1e-8 {
+            let up = if heading.normalized().y.abs() > 0.99 {
+                Vector3::RIGHT
+            } else {
+                Vector3::UP
+            };
+            node.look_at_from_position_ex(to, to + heading)
+                .up(up)
+                .done();
+        }
+    }
+}
+
 #[godot_api(secondary)]
 impl PlayerNode {
     pub(super) fn send_weapon_event(&mut self, event: &str) {
@@ -139,23 +175,147 @@ impl PlayerNode {
             return;
         };
         let Some(game) = &mut self.game else {
-            self.ranged_flights.clear();
+            self.clear_ranged_flights();
             return;
         };
         let owners = [&self.melee_bodies, self.actor_bodies.owners()];
-        self.ranged_flights.retain_mut(|flight| {
-            match flight.advance(space, &owners, delta) {
-                Ok(crate::combat::ProjectileUpdate::Flying { .. }) => true,
+        let mut flights = std::mem::take(&mut self.ranged_flights);
+        flights.retain_mut(|arrow| {
+            if let Some(remaining) = &mut arrow.stuck_for {
+                *remaining -= delta;
+                if *remaining > 0.0 {
+                    return true;
+                }
+                if let Some(mut node) = arrow.node.take() {
+                    node.queue_free();
+                }
+                return false;
+            }
+            let before = arrow.flight.position();
+            match arrow.flight.advance(space, &owners, delta) {
+                Ok(crate::combat::ProjectileUpdate::Flying { position }) => {
+                    arrow.place(before, position);
+                    true
+                }
+                Ok(crate::combat::ProjectileUpdate::Contact(contact)) => {
+                    arrow.place(before, contact.position);
+                    if let crate::godot_combat::ContactHit::Actor(target) = contact.hit {
+                        let request = *arrow.flight.request();
+                        if let Err(error) = game.projectile_hit(&request, target) {
+                            soe_trace::error!(target: "host::combat", system = "host::combat", "arrow hit: {error}");
+                        }
+                    } else {
+                        let _ = arrow.flight.recover_missed_arrow(game);
+                    }
+                    arrow.stuck_for = Some(ARROW_STUCK_SECONDS);
+                    true
+                }
                 Ok(_) => {
-                    let _ = flight.recover_missed_arrow(game);
+                    if let Some(mut node) = arrow.node.take() {
+                        node.queue_free();
+                    }
                     false
                 }
                 Err(error) => {
                     soe_trace::error!(target: "host::combat", system = "host::combat", "arrow flight: {error}");
+                    if let Some(mut node) = arrow.node.take() {
+                        node.queue_free();
+                    }
                     false
                 }
             }
         });
+        self.ranged_flights = flights;
+    }
+
+    pub(super) fn clear_ranged_flights(&mut self) {
+        for mut arrow in self.ranged_flights.drain(..) {
+            if let Some(mut node) = arrow.node.take() {
+                node.queue_free();
+            }
+        }
+    }
+
+    /// Start the rendered flight for a released request. The PROJ model, when
+    /// the game data has one, is a child node that follows the arc.
+    fn start_arrow_flight(&mut self, request: soe_game::combat::FlightRequest) {
+        let node = self.build_arrow_node(&request);
+        let mut arrow = ArrowFlight {
+            flight: crate::combat::ProjectileFlight::new(request),
+            node,
+            stuck_for: None,
+        };
+        arrow.place(request.origin, request.origin);
+        self.ranged_flights.push(arrow);
+    }
+
+    fn build_arrow_node(
+        &mut self,
+        request: &soe_game::combat::FlightRequest,
+    ) -> Option<Gd<Node3D>> {
+        let model = {
+            let game = self.game.as_ref()?;
+            let world = game.world();
+            let record = world.record(request.projectile)?;
+            let raw = record.find(soe_esm::Tag::new(b"MODL"))?;
+            let raw = raw.strip_suffix(&[0]).unwrap_or(raw);
+            String::from_utf8(raw.to_vec())
+                .ok()
+                .filter(|m| !m.is_empty())?
+        };
+        let streamer = self.game_streamer.as_mut()?;
+        let meshes = streamer.bind_mut().model_meshes(model.as_str().into());
+        let mut root = Node3D::new_alloc();
+        root.set_name("ArrowFlight");
+        for mesh in meshes.iter_shared() {
+            let mut instance = godot::classes::MeshInstance3D::new_alloc();
+            instance.set_mesh(&mesh);
+            root.add_child(&instance);
+        }
+        self.base_mut().add_child(&root);
+        Some(root)
+    }
+
+    /// Rendered arrow nodes currently in flight or stuck, for host checks.
+    #[func]
+    pub fn ranged_flight_nodes(&self) -> Array<Gd<Node3D>> {
+        self.ranged_flights
+            .iter()
+            .filter_map(|arrow| arrow.node.clone())
+            .collect()
+    }
+
+    /// Release an arrow from any actor holding a bow and ammunition, the path
+    /// an NPC archer's shot takes. Directions and origins are in Godot metres.
+    #[func]
+    pub fn fire_actor_arrow(
+        &mut self,
+        file: i32,
+        object: i64,
+        origin: Vector3,
+        direction: Vector3,
+    ) -> bool {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let attacker = GlobalFormId { file, object };
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let units = 1.0 / crate::units::METRES_PER_UNIT;
+        let origin = [origin.x * units, -origin.z * units, origin.y * units];
+        let direction = [direction.x, -direction.z, direction.y];
+        let mut release = crate::combat::RangedRelease::default();
+        if release.begin(game, attacker).is_err() {
+            return false;
+        }
+        match release.event(game, "bowRelease", origin, direction) {
+            Ok(Some(request)) => {
+                self.start_arrow_flight(request);
+                true
+            }
+            _ => false,
+        }
     }
 
     fn active_weapon_contact(&mut self, name: &str, hand: Hand, pose: Transform3D) -> bool {
@@ -179,8 +339,7 @@ impl PlayerNode {
                 .event(game, "bowRelease", origin, direction)
             {
                 Ok(Some(request)) => {
-                    self.ranged_flights
-                        .push(crate::combat::ProjectileFlight::new(request));
+                    self.start_arrow_flight(request);
                     true
                 }
                 Ok(None) => false,
