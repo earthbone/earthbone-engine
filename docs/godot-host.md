@@ -5970,10 +5970,17 @@ counters, page and VM errors. `ui_05_windowed_unmodified_scripts_render_and_sele
 loads external compiled SkyUI scripts through `SOE_TEST_SKYUI`, then runs
 `godot/ui_05_mcm_lifecycle_test.gd` through `SOE_GODOT_BIN`. It checks visible
 buttons in script order, clicks their production signals, verifies callbacks,
-captures the drawn 640 by 360 viewport and quits. Its plugin, scripts, capture
-and process output are generated under `target/ui_05_host`. The check skips
+captures the drawn 640 by 360 viewport and quits. Its plugin and original
+SkyUI scripts live in a temporary directory outside the checkout. Only the
+generated capture and process output are retained under `target/ui_05_host`.
+The check skips
 when either environment input is unset. Build the release extension and import
 the Godot project before running it. This adds no per-reference scene nodes.
+
+On 2026-10-17, all 19 focused game lifecycle checks pass with the installed
+SkyUI PEX files. Host library checks report 531 passes and host clippy passes.
+The windowed page-list check is queued behind the shared installed-test slot.
+UI-05 remains in progress until that check completes.
 
 ### MCM text and toggle rows, UI-11
 
