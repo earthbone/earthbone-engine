@@ -575,11 +575,21 @@ impl<'f> Walker<'f> {
             // already, and remapping those would corrupt them.
             let from_partition = partition.filter(|_| t.vertices.is_empty());
             if let Some(p) = from_partition {
+                // A vertex may sit in several partitions (7131 of them in
+                // 240 vanilla actor skins). The remap is not idempotent, so
+                // each vertex takes the first partition that lists it.
+                let mut remapped = vec![false; mesh.bone_indices.len()];
                 for part in &p.partitions {
                     if part.bones.is_empty() {
                         continue;
                     }
                     for &global in &part.vertex_map {
+                        let Some(done) = remapped.get_mut(global as usize) else {
+                            continue;
+                        };
+                        if std::mem::replace(done, true) {
+                            continue;
+                        }
                         let Some(slot) = mesh.bone_indices.get_mut(global as usize) else {
                             continue;
                         };
