@@ -9334,11 +9334,47 @@ bundled by this change. Existing sort, search, category, tab and card checks
 exercise the native behavior, including missing values and accent folding.
 
 UI-20 remains unfinished. The presenter allocates native container bounds and
-uses its own control theme. It does not resolve imported font aliases from
-fontconfig or place controls from the converted display lists. The retained
+uses its own control theme. It does not place controls from the converted
+display lists. The retained
 capture therefore cannot establish SkyUI chrome or authored element positions.
-A loaded icon source is evidence of asset resolution only. Imported movie and
-font binding plus passing layout and chrome comparisons are still required.
+A loaded icon source is evidence of asset resolution only. Passing layout and
+chrome comparisons are still required.
+
+The follow-up `ui/interface_cache.gd` resolves imported linkage names across
+published movies. Relative URLs use the importing movie's directory and
+case-insensitive data paths. Character IDs remain local to their defining
+movie. Cycles, missing links and paths outside the cache return no definition.
+The icon presenter uses that resolver for nested sprites and named children
+of imported symbols. Mesh and bitmap definitions are found through their
+resource files, since the writer omits their dictionaries from `movie.json`.
+The local references are SkyUI Community's `inventorymenu.xml` and
+`skyui/inventorylists.xml` ImportAssets2 tags. This is new host code and adds
+no copied source or art, dependency, saved state or per-reference nodes.
+
+`ui_20_imported_sprite_uses_its_own_dictionary_and_rejects_cycles` draws an
+imported shape through the production icon presenter. It checks dictionary
+identity, composed transforms, named-child selection, missing symbols, cycles,
+path rejection and a rendered pixel. Its synthetic resources stay under
+`/tmp`. The standalone 640 by 360 Xvfb :99 scene passes on 2026-10-17.
+The same cache reader handles fontlib and map declarations from the winning
+fontconfig file, matching family, bold and italic style against converted
+FontFile resources. The native item menu uses the configured
+`$EverywhereMediumFont` as its theme font. Missing declarations or resources
+retain Godot's fallback. The standalone scene checks regular, bold and italic
+selection without installed art. Cache generation now hashes fontconfig, a
+small change in swf-convert needed to invalidate stale font mappings. The
+reference is local SkyUI `build/fontconfig.txt`. No font or alias mapping is
+hard-coded into the native presenter.
+
+These checks do not establish authored control placement or chrome fidelity.
+Those remain UI-20's blockers, along with installed font binding validation.
+
+The follow-up checks pass 532 host library tests, three converter library
+tests and seven focused converter integration checks, including Godot loading
+all four converted font styles. Both crates pass formatting and all-target
+clippy. The standalone built-in menu behavior scene and import/font selection
+scene pass on Xvfb :99. The installed scene retry is still waiting for the
+shared installed-test slot. No installed-font or chrome pass is claimed.
 
 ## Interface tools and visual acceptance, UI-30, 2026-10-17
 

@@ -204,6 +204,36 @@ fn ui_20_godot_scene_checks_columns_sort_search_tabs_card_and_capture() {
 }
 
 #[test]
+fn ui_20_imported_sprite_uses_its_own_dictionary_and_rejects_cycles(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN") else {
+        return Ok(());
+    };
+    let project = isolated_project::project(&["ui_20_cache_import_test.gd"], None);
+    let fixture = tempfile::tempdir_in("/tmp")?;
+    let output = Command::new(godot)
+        .arg("--path")
+        .arg(project.path())
+        .args([
+            "--resolution",
+            "640x360",
+            "--script",
+            "ui_20_cache_import_test.gd",
+        ])
+        .env("SOE_UI_20_IMPORT_FIXTURE", fixture.path())
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success()
+            && stdout.contains("UI-20 IMPORT PASS")
+            && !stderr.contains("SCRIPT ERROR"),
+        "{stdout}\n{stderr}"
+    );
+    Ok(())
+}
+
+#[test]
 fn ui_20_skyui_install_supplies_external_converted_art() {
     let Some(root) = std::env::var_os("SOE_TEST_SKYUI") else {
         eprintln!("SOE_TEST_SKYUI unset, skipped");
@@ -216,6 +246,11 @@ fn ui_20_skyui_install_supplies_external_converted_art() {
     let root = PathBuf::from(root);
     assert!(root.join("SkyUI_SE.esp").is_file());
     let mut vfs = soe_bsa::Vfs::new();
+    if let Some(data) = std::env::var_os("SKYRIM_DATA") {
+        vfs.add_archive(
+            soe_bsa::Archive::open(&PathBuf::from(data).join("Skyrim - Interface.bsa")).unwrap(),
+        );
+    }
     vfs.add_archive(soe_bsa::Archive::open(&root.join("SkyUI_SE.bsa")).unwrap());
     let external = tempfile::Builder::new()
         .prefix("soe-ui20-")

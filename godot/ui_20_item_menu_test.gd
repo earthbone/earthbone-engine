@@ -2,6 +2,7 @@
 extends SceneTree
 
 const Menu = preload("res://ui/item_menu.gd")
+const Cache = preload("res://ui/interface_cache.gd")
 var failures: Array[String] = []
 var actions: Array = []
 
@@ -25,6 +26,10 @@ func run() -> void:
 	menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var data := [item("1", "Ébony blade", "Weapons", 5.0, 100), item("2", "apple", "Food", 1.0, 2), item("3", "Arrow", "Weapons", 0.0, 4), item("4", "Unknown", "Misc", null, 5)]
 	menu.configure("inventory", data, OS.get_environment("SOE_INTERFACE_CACHE"))
+	var cache := Cache.new(OS.get_environment("SOE_INTERFACE_CACHE"))
+	if cache.font_aliases.has("$EverywhereMediumFont"):
+		var font := cache.font("$EverywhereMediumFont")
+		check(font != null and menu.theme.default_font == font, "configured converted font reaches the native menu theme")
 	menu.activate_item.connect(func(row, amount, side): actions.append([row.id, amount, side]))
 	await process_frame
 	await process_frame

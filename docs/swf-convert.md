@@ -11,7 +11,7 @@ character codes, advances, offsets and outline meshes. The FontFile writer
 assigns each page to its Godot texture index and each glyph to its page's
 UV rectangle. Fonts exceeding 256 MiB of atlas storage return an invalid-art
 error before allocating the pages. The content-addressed cache format is
-`soe-interface-2`, so generations from the single-atlas writer are rebuilt.
+`soe-interface-3`, so older generations are rebuilt.
 
 The atlas resource layout follows the local `godot-docs` FontFile
 `set_texture_image`, `set_glyph_texture_idx` and `set_glyph_uv_rect` contracts.
@@ -72,3 +72,16 @@ UI-30 adds Java executable discovery for the existing JPEXS process. It reads
 SOE_JAVA, JAVA_HOME, PATH and conventional Linux install paths, following the
 local FFDec launcher. A selected JAR uses that absolute executable instead of
 requiring java on PATH. No parser or native cache format changes.
+
+UI-20 retains the winning `interface/fontconfig.txt` beside the generated
+resources and includes its bytes in the generation key. A changed alias or
+font library therefore rebuilds the cache even when the SWFs stay unchanged.
+The file remains external user data. The native host reads its fontlib and map
+declarations using the local SkyUI `build/fontconfig.txt` as the reference.
+The converter does not parse these declarations.
+
+FontFile style uses numeric Godot FontStyle flags, bold bit 0 and italic bit 1.
+Godot 4.4.1's ResourceSaver and `get_font_style` confirm that representation.
+The earlier string `font_style` and unsupported `font_italic` property did not
+preserve those flags. The writer now emits the numeric field with the existing
+family, weight, metrics and glyph atlas data. No dependency was added.

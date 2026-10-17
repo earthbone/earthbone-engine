@@ -47,8 +47,8 @@ fn font(font: &Font, path: &Path) -> Result<(), Error> {
     for (index, atlas) in font.atlases.iter().enumerate() {
         result.push_str(&image_body(atlas, &format!("atlas_{index}")));
     }
-    let _ = write!(result, "[resource]\nfont_name = {}\nfont_style = {}\nfixed_size = {}\nfixed_size_scale_mode = 1\nfont_weight = {}\nfont_italic = {}\n",
-        quoted(&font.name), quoted(if font.bold { "Bold" } else { "Regular" }), font.size, if font.bold { 700 } else { 400 }, font.italic);
+    let _ = write!(result, "[resource]\nfont_name = {}\nfont_style = {}\nfixed_size = {}\nfixed_size_scale_mode = 1\nfont_weight = {}\n",
+        quoted(&font.name), u8::from(font.bold) | (u8::from(font.italic) << 1), font.size, if font.bold { 700 } else { 400 });
     let prefix = format!("cache/0/{}/0", font.size);
     let _ = writeln!(
         result,
