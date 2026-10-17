@@ -9386,3 +9386,10 @@ and JPEXS can render this input, while the native converter still rejects it.
 The exporter promotes the existing tempfile dependency from test scope to
 runtime scope. Cargo tree shows no newly resolved package. It remains the
 small temporary-directory utility already used by the converter.
+
+The Java discovery unit checks pass, along with three converter library tests,
+532 host library tests and both crates' clippy checks. The release extension
+and project import pass. `ui_30_missing_java_notice_uses_the_live_menu_fallback`
+has not started because another job holds the shared installed-test slot.
+Its implementation and generated reference exports do not establish that
+runtime notice result or the missing theme acceptance checks.
