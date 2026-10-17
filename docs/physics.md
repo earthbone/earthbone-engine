@@ -872,8 +872,9 @@ Controller, contact and material tests retain their existing expectations.
 
 OpenMW `apps/openmw/mwphysics/physicssystem.cpp`, `updateScale`, updates the
 changed collision object's broad-phase AABB with `updateSingleAabb`. That
-per-object update contract informed this change. The host's existing Rust
-uniform grid remains in use. No OpenMW code is ported.
+per-object update contract informed this change. OpenMW's collision-object
+API cannot index the host's Rust primitives, so the existing uniform grid
+remains in use. No OpenMW code is ported.
 
 The focused debug check after the change measured 2.256 ms for insertion and
 1.749 ms for removal, below the unchanged 33 ms limit. All physics unit and

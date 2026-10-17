@@ -2792,3 +2792,19 @@ for physics and godot-host, comment lint, prose lint and Markdown lint passed.
 The 1.486 and 1.999 ms physics captures were subsequently archived under
 `target/prf40-after/after-grid-before-surface-handoff-2026-10-17` before
 confirming the per-surface Full LOD handoff on the shared upload path.
+
+The combined library with per-unit Full LOD masking passed the same installed
+acceptance in 290.71 seconds. Both Godot processes exited zero. This repeat
+checks the changed shared upload loop without changing any limit.
+
+| Combined per-unit handoff, maximum ms | WhiterunExterior04 | WhiterunExterior01 |
+|---|---|---|
+| Physics | 4.040 | 1.401 |
+| Upload | 20.848 | 23.796 |
+| Streaming | 77.071 | 222.030 |
+
+Both traversals retained 360 frames, a CELL crossing, one physics step at most
+and zero foreground draw compilations. Surface and specialization counts
+remain eight and 36, then six and 34. These shared-machine observations keep
+PRF-42 below 33 ms and leave PRF-41 open. They do not establish hardware FPS.
+The current reports and load traces remain in `target/prf40-after`.

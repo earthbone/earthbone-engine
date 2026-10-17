@@ -3380,8 +3380,8 @@ exterior move all had zero BTR intersections, zero above-LAND samples, zero
 nominal BTO overlap and no duplicate resident Full LOD references. The three
 city probes retained 113 LAND resources. Both exterior probes retained 25.
 The walking probe had 633,198 BTR triangles and 758 BTO triangle centroids
-inside near cells despite disjoint nominal blocks. RND-44 tracks mapping
-those overhangs to source references before changing object LOD geometry.
+inside near cells despite disjoint nominal blocks. The RND-44 survey below
+maps those overhangs to source references before changing object LOD geometry.
 The original coarse wall or rock overlay remains unreproduced. Pixel controls
 include animation noise, including 2,793 changed pixels outside the walls
 where zero LAND triangles were restored. Acceptance uses geometry and
@@ -3439,6 +3439,29 @@ triangle-owner query. It checks every walking frame and excludes only
 new distant RIDs that the renderer explicitly keeps hidden during staging.
 That diagnostic exited one and is retained in
 `target/whiterun-lod/attempt-3-sliced-publication`.
+
+The final installed continuation passed in 419.26 seconds and exited zero
+with the normal walkthrough shutdown marker. All six probes reported zero
+BTR intersections, zero above-LAND samples and zero duplicate object blocks.
+The three city probes retained 113 LAND resources and the three exterior
+probes retained 25. The added automatic probe brought reference `0:10D281`
+into the near grid and verified 69 hidden-member observations, including
+repeated frame checks. Only verified zero bases or zero-area triangles count.
+No resident Full LOD reference remained drawable during publication.
+
+The completed shared-upload library also passed both 360-frame PRF-40
+crossings in 290.71 seconds. Physics maxima were 4.040 and 1.401 ms and upload
+maxima were 20.848 and 23.796 ms, below the unchanged 33 ms bounds.
+Both had one physics step at most and zero draw compilations. Streaming
+maxima remained 77.071 and 222.030 ms, tracked separately by PRF-41.
+The reports remain in `target/whiterun-lod` and `target/prf40-after`.
+
+Focused host checks, the physics suite, all-target package Clippy, formatting,
+comment lint, prose lint, Markdown lint and GDScript parsing passed. Unset-data
+harness returns are recorded as skips, including seven of the nine persistent
+Full LOD filter cases. The two pure residency cases passed. The full workspace
+gate remains assigned to the lead. No hardware GPU FPS is claimed, and the
+older unchanged six-GiB Full LOD memory failure below was not rerun.
 
 The BTO attribution survey separately matches overhanging baked triangles to
 authored STAT MNAM triangles after winning REFR transforms. It requires all
