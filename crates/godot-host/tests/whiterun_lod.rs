@@ -372,11 +372,24 @@ fn whiterun_lod_installed_plains_and_walls_have_no_resident_overlap() {
         }
     }
     let manifest = directory.join("references.json");
+    let full_lod_references: std::collections::BTreeMap<_, _> = source
+        .distant_candidates(parent)
+        .iter()
+        .map(|candidate| {
+            let record = order.winner(candidate.id).unwrap();
+            let reference = Refr::from_record(record).unwrap();
+            (
+                candidate.id.to_string(),
+                reference.transform.unwrap().position,
+            )
+        })
+        .collect();
     std::fs::write(
         &manifest,
         serde_json::to_vec(&serde_json::json!({
             "references": references,
             "cells": exterior_cells,
+            "full_lod_references": full_lod_references,
         }))
         .unwrap(),
     )
@@ -414,7 +427,7 @@ fn whiterun_lod_installed_plains_and_walls_have_no_resident_overlap() {
         .arg(directory.join("godot.log"))
         .env("SOE_WHITERUN_LOD_REFERENCES", manifest)
         .env("SOE_GODOT_TIMEOUT", "900")
-        .env("SOE_LOG", "off")
+        .env("SOE_LOG", "error")
         .stdout(log.try_clone().unwrap())
         .stderr(log)
         .status()
@@ -429,9 +442,16 @@ fn whiterun_lod_installed_plains_and_walls_have_no_resident_overlap() {
     assert!(
         status.success()
             && !output.contains("SCRIPT ERROR")
-            && ["plains", "pond", "walls", "outside-walls", "walking"]
-                .iter()
-                .all(|label| output.contains(&format!("WHITERUN_LOD_COVERAGE {label} position=")))
+            && [
+                "plains",
+                "pond",
+                "walls",
+                "outside-walls",
+                "full-lod-handoff",
+                "walking"
+            ]
+            .iter()
+            .all(|label| output.contains(&format!("WHITERUN_LOD_COVERAGE {label} position=")))
             && output.contains("WHITERUN_LOD_RESULT PASS"),
         "Godot {status}, see target/whiterun-lod/process.log"
     );

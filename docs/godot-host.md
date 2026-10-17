@@ -3388,15 +3388,95 @@ where zero LAND triangles were restored. Acceptance uses geometry and
 residency, not those pixel differences. The full workspace gate is assigned
 to the lead by the consolidated task.
 
-The unchanged persistent Full LOD test passed its scene checks, including
+### Full LOD publication handoff, RND-45
+
+An admitted persistent Full LOD model can remain in its old world-cell batch
+while walking installs its full-detail grid cell. Waiting for the asynchronous
+distant replacement leaves both copies drawable. Each near upload unit now masks
+its old distant batch member before drawing its first surface. Waiting for
+cell registration was too late because sliced near uploads draw before the
+whole cell finishes. MultiMesh members get a zero basis, and
+triangle members use the existing visibility patch. Reference updates retain
+that mask until the near cell retires. Partially published near references
+are also excluded from distant selection. Near retirement permits selection
+again and rebuilds a retained masked batch when needed. Other members of a shared batch stay visible.
+Occluders containing a masked source are retired at the same boundary.
+
+Distant worker responses and sliced publications carry their residency
+revision. A changed cell set discards a stale response or its still-hidden
+partial uploads before they can become visible. The old drawable resources
+remain until a current replacement completes. Direct cell installs and
+releases also invalidate distant selection. No saved field, dependency or
+per-reference scene node is added.
+
+The installed walkthrough regression additionally moves until an admitted
+Full LOD reference's physical cell enters the near grid. Each handoff inspects
+the old MultiMesh transforms and array-batch triangles as well as the
+selected-reference list. This
+extends the existing Plains District, pond, wall and six-cell walking probes.
+It chooses the nearest admitted reference outside the loaded grid, then moves
+relative to the player one cell at a time through resident LAND. Each step
+waits for the new five by five grid before the next move. Targeting the
+persistent reference itself would change the logical cell and replace the
+location instead of testing walking publication. The original six-cell probe
+runs before this additional automatic movement.
+
+The first additional-probe diagnostic reached the four original city and gate
+checks with zero BTR intersections and zero above-LAND samples. It was stopped
+after its new observer mistook the shared Tamriel water-owner form `0:000018`
+for a Full LOD reference and its new move omitted the required
+`match_rotation` input field. The observer now uses record-qualified persistent
+Full LOD REFRs. These were fixture failures. The log and captures remain in
+`target/whiterun-lod/attempt-1-oracle-and-input`.
+
+The stronger automatic probe initially failed during sliced publication even
+though all six terrain coverage checks passed. It performed 73 mask observations,
+but other near batches began drawing before cell registration masked their
+old Full LOD members. Each upload unit now masks its own references before
+creating visible RIDs. The mask counter counts only verified zero-area members. The observer checks
+both MultiMesh bases and collapsed array-batch triangles through the existing
+triangle-owner query. It checks every walking frame and excludes only
+new distant RIDs that the renderer explicitly keeps hidden during staging.
+That diagnostic exited one and is retained in
+`target/whiterun-lod/attempt-3-sliced-publication`.
+
+The BTO attribution survey separately matches overhanging baked triangles to
+authored STAT MNAM triangles after winning REFR transforms. It requires all
+three vertices within eight Skyrim units, with a one-to-one vertex mapping.
+Every sampled overhang must have a source, and none may have resident full
+detail. xEdit `Core/wbLOD.pas` assigns the baked block by REFR position.
+OpenMW's `mwrender/objectpaging.cpp` also collects source references by cells,
+so geometry crossing a cell edge alone does not identify a duplicate.
+The host keeps its own archive and server resource paths. No source is ported.
+
+The installed RND-44 survey matched all 758 walking-probe overhangs to nine
+references, with zero unmatched triangles and zero resident sources. The
+unchanged eight-unit tolerance applies to each of the triangle's vertices.
+The loaded grid spans x 8 to 12 and y -4 to 0. Every source origin is outside
+that grid. These are valid extensions of nonresident objects, so the host
+retains their geometry.
+
+| Reference | Base | Source cell | Overhanging triangles |
+|---|---|---|---|
+| `0:03AC58` | FXWaterfallBodySlope_static | (8, -5) | 36 |
+| `0:05D6BB` | MountainPeak01 | (7, 0) | 213 |
+| `0:06E06F` | MountainRidge03_Light_SN | (11, -5) | 65 |
+| `0:06E089` | MountainCliff04_SparseSN | (10, -5) | 121 |
+| `0:06E098` | MountainPeak01 | (9, -5) | 2 |
+| `0:06E9E5` | WRWallRuinsFree01Entance01 | (7, -1) | 3 |
+| `0:0803F3` | MountainCliff02_LightSN | (10, -5) | 182 |
+| `0:080B1B` | MountainCliff02 | (9, -5) | 135 |
+| `0:0C878D` | MountainTrim01Tundra01 | (13, -5) | 1 |
+
+An earlier installed persistent Full LOD run passed its scene checks, including
 1,203 mountain silhouette pixels against the threshold of 500, 325 eligible
 drawn models and zero retained parent-world models on city return. Its Rust
 test failed the unchanged six-GiB peak RSS limit at 17.736 GiB. The previous
 residency verification also failed that limit, as recorded in
-`docs/full-lod-residency.md`. This run does not establish whether the mask
+`docs/full-lod-residency.md`. That capture does not establish whether the mask
 change increased peak memory. RND-40 and RND-41 remain unfinished.
 
-One full lint run exited zero with 9,836 Rust tests passed, 14 ignored and
+At an earlier checkpoint, one full lint run exited zero with 9,836 Rust tests passed, 14 ignored and
 55 performance-runner contracts passed. Cargo-deny and cargo-audit were
 absent. Summed Rust harness time was 432.39 seconds, above the 300-second
 Tier 1 target. A repeat exited 101 with 9,823 passed and one failure in the

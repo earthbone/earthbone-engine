@@ -225,18 +225,28 @@ impl CellStreamerNode {
             };
             match unit {
                 Unit::Door(id, surfaces) => {
+                    self.hide_resident_distant_references(cell, [id]);
                     self.add_door(cell, id, &surfaces, scenario);
                     totals.instances += surfaces.len();
                 }
                 Unit::Animated(surface) => {
+                    self.hide_resident_distant_references(cell, [surface.reference]);
                     self.add_animated_surface(cell, &surface, scenario);
                     totals.instances += 1;
                 }
                 Unit::Multi(group) => {
+                    self.hide_resident_distant_references(
+                        cell,
+                        group.members.iter().map(|member| member.reference),
+                    );
                     self.add_multimesh(cell, &group, scenario);
                     totals.instances += 1;
                 }
                 Unit::Mesh(mesh) => {
+                    self.hide_resident_distant_references(
+                        cell,
+                        mesh.members.iter().map(|member| member.reference),
+                    );
                     let material = super::material_for(
                         &mut self.materials,
                         &mesh.arrays.material,

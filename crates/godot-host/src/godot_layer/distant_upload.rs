@@ -11,6 +11,7 @@ use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
 pub(super) struct Prepared {
+    revision: u64,
     loaded: LoadedCell,
     plan: upload::Plan,
     surfaces: BTreeMap<GlobalFormId, Vec<LoadedSurface>>,
@@ -46,6 +47,92 @@ fn owns_batch(table: &BatchTable, surfaces: &BTreeMap<GlobalFormId, Vec<LoadedSu
 pub(super) type Worker = JoinHandle<Result<Prepared, String>>;
 
 impl CellStreamerNode {
+    pub(super) fn hide_resident_distant_references(
+        &mut self,
+        cell: GlobalFormId,
+        references: impl IntoIterator<Item = GlobalFormId>,
+    ) {
+        let Some(source) = &self.data_source else {
+            return;
+        };
+        let Some(grid) = source.cell_index().grid_of(cell) else {
+            return;
+        };
+        if self.distant.world != Some(grid.world) {
+            return;
+        }
+        let Some(owner) = source.cell_index().world_persistent_cell(grid.world) else {
+            return;
+        };
+        let before = self.distant.near_hidden.len();
+        let full_models = source.presentation_references(owner);
+        self.distant.near_hidden.extend(
+            references
+                .into_iter()
+                .filter(|id| full_models.binary_search(id).is_ok()),
+        );
+        if before == self.distant.near_hidden.len() {
+            return;
+        }
+        self.distant.revision = self.distant.revision.wrapping_add(1);
+        let hidden = &self.distant.near_hidden;
+        let mut server = super::RenderingServer::singleton();
+        for instance in self
+            .instances
+            .iter_mut()
+            .filter(|instance| instance.cell == owner)
+        {
+            match (&instance.table, &mut instance.mesh) {
+                (BatchTable::Instances(members), super::InstanceMesh::Multi(multi)) => {
+                    for (index, _) in members
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, id)| hidden.contains(id))
+                    {
+                        let mut transform = multi.get_instance_transform(index as i32);
+                        transform.basis =
+                            Basis::from_cols(Vector3::ZERO, Vector3::ZERO, Vector3::ZERO);
+                        multi.set_instance_transform(index as i32, transform);
+                    }
+                }
+                (BatchTable::Triangles(members), super::InstanceMesh::Array(mesh))
+                    if members
+                        .iter()
+                        .any(|member| hidden.contains(&member.reference)) =>
+                {
+                    let mut patched = instance.arrays.clone();
+                    for member in members {
+                        let (visible, pose) = self
+                            .ref_cache
+                            .get(&member.reference)
+                            .map_or((true, member.origin), |(visible, pose, _)| {
+                                (*visible, *pose)
+                            });
+                        super::apply_member_patch(
+                            &mut patched,
+                            member,
+                            visible && !hidden.contains(&member.reference),
+                            &pose,
+                        );
+                    }
+                    let mut replacement = super::array_mesh_from(&patched);
+                    if let Some(material) = mesh.surface_get_material(0) {
+                        replacement.surface_set_material(0, &material);
+                    }
+                    server.instance_set_base(instance.rid, replacement.get_rid());
+                    *mesh = replacement;
+                    if instance.animation.is_some() {
+                        server.instance_set_visible(instance.rid, false);
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.occluders.retain(|occluder| {
+            occluder.cell != owner || !occluder.sources.keys().any(|id| hidden.contains(id))
+        });
+    }
+
     pub(super) fn request_distant_upload(
         &mut self,
         owner: GlobalFormId,
@@ -58,6 +145,7 @@ impl CellStreamerNode {
         let mut surfaces = self.distant.surfaces.clone();
         surfaces.retain(|id, _| selected.contains(id));
         let batch = self.batch_surfaces;
+        let revision = self.distant.revision;
         match std::thread::Builder::new()
             .name("distant-prepare".into())
             .spawn(move || {
@@ -80,6 +168,7 @@ impl CellStreamerNode {
                     .sum();
                 let plan = upload::Plan::new(Some(&source), owner, &loaded.surfaces, batch);
                 Ok(Prepared {
+                    revision,
                     loaded,
                     plan,
                     surfaces,
@@ -115,6 +204,9 @@ impl CellStreamerNode {
                 }
                 Err(_) => return Err(()),
             };
+            if prepared.revision != self.distant.revision {
+                return Ok(false);
+            }
             let old_rids = self
                 .instances
                 .iter()
@@ -131,6 +223,20 @@ impl CellStreamerNode {
             });
         }
         if let Some(mut publishing) = self.distant.publishing.take() {
+            if publishing.prepared.revision != self.distant.revision {
+                let mut server = super::RenderingServer::singleton();
+                self.instances.retain(|instance| {
+                    if publishing.contains_rid(instance.rid) {
+                        server.free_rid(instance.rid);
+                        false
+                    } else {
+                        true
+                    }
+                });
+                self.reference_index_dirty = true;
+                self.materials.prune_unused();
+                return Ok(false);
+            }
             let _capture = publishing.prepared.loaded.stats.profile.enter();
             let first = self.instances.len();
             if !self.upload_plan_step(
@@ -193,6 +299,7 @@ impl CellStreamerNode {
                 self.ref_cache.remove(&id);
             }
             self.distant.surfaces = publishing.prepared.surfaces;
+            self.distant.restore_near = false;
             self.reference_index_dirty = true;
             self.materials.prune_unused();
         }

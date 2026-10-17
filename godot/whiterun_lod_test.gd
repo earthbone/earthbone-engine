@@ -6,8 +6,10 @@ const CELL_METRES := 4096.0 * 0.0142875
 var failures := 0
 var reference_cells: Dictionary
 var exterior_cells: Dictionary
+var full_lod_references := {}
 var placed_lod_rids: Array[RID] = []
 var last_checked_coverage := ""
+var masked_full_lod_members := 0
 
 
 func _configure_player() -> void:
@@ -41,23 +43,64 @@ func _settle_location() -> void:
 		await process_frame
 
 
-func _check_handoff() -> void:
+func _array_member_is_hidden(surface: Dictionary, instance: int, reference: String) -> bool:
+	var mesh: ArrayMesh = surface.mesh
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var single_reference := true
+	for member: String in surface.get("references", PackedStringArray()):
+		single_reference = single_reference and member == reference
+	var checked := 0
+	for triangle in range(indices.size() / 3):
+		if not single_reference and streamer.call("reference_at", instance, triangle) != reference:
+			continue
+		checked += 1
+		var a := vertices[indices[triangle * 3]]
+		var b := vertices[indices[triangle * 3 + 1]]
+		var c := vertices[indices[triangle * 3 + 2]]
+		if (b - a).cross(c - a) != Vector3.ZERO:
+			return false
+	return checked > 0
+
+
+func _check_handoff(force: bool = false) -> void:
 	var covered: String = streamer.call("terrain_lod_stats").get("covered_cells", "")
-	if covered == last_checked_coverage:
+	if covered == last_checked_coverage and not force:
 		return
 	last_checked_coverage = covered
 	var full := {}
 	var distant := {}
+	var near_references := {}
 	for reference: String in streamer.call("distant_references"):
 		distant[reference] = true
 	for surface: Dictionary in streamer.call("play_path_surfaces"):
+		if surface.get("pending_distant", false):
+			continue
 		var owner: String = surface.get("cell", "")
 		if not exterior_cells.has(owner):
 			continue
 		var coordinate: Array = exterior_cells[owner]
 		full[Vector2i(int(coordinate[0]), int(coordinate[1]))] = true
 		for reference: String in surface.get("references", PackedStringArray()):
+			near_references[reference] = true
 			_check(not distant.has(reference), "handoff duplicates Full LOD reference " + reference)
+	var surfaces: Array = streamer.call("play_path_surfaces")
+	for instance in range(surfaces.size()):
+		var surface: Dictionary = surfaces[instance]
+		if surface.get("pending_distant", false):
+			continue
+		if exterior_cells.has(surface.get("cell", "")):
+			continue
+		var references: PackedStringArray = surface.get("references", PackedStringArray())
+		for index in range(references.size()):
+			if not full_lod_references.has(references[index]) or not near_references.has(references[index]):
+				continue
+			var multi: MultiMesh = surface.get("multimesh")
+			var masked := is_zero_approx(multi.get_instance_transform(index).basis.determinant()) if multi != null else _array_member_is_hidden(surface, instance, references[index])
+			_check(masked, "old Full LOD member remains drawable " + references[index] + " multimesh=" + str(multi != null))
+			if masked:
+				masked_full_lod_members += 1
 	var duplicates := 0
 	for kind in ["object_lod_stats", "tree_lod_stats"]:
 		var stats: Dictionary = streamer.call(kind)
@@ -145,9 +188,13 @@ func _coverage(label: String) -> void:
 	for reference: String in streamer.call("distant_references"):
 		distant[reference] = true
 	for surface: Dictionary in streamer.call("play_path_surfaces"):
+		if surface.get("pending_distant", false):
+			continue
 		if surface.kind == "lod":
 			continue
 		for reference: String in surface.get("references", PackedStringArray()):
+			if full_lod_references.has(reference) and not exterior_cells.has(surface.get("cell", "")):
+				continue
 			if exterior_cells.has(surface.get("cell", "")) and distant.has(reference):
 				duplicate_references[reference] = true
 			if reference_cells.has(reference) and not distant.has(reference):
@@ -166,6 +213,8 @@ func _coverage(label: String) -> void:
 	var object_intrusions := 0
 	var intrusive_cells := {}
 	for surface: Dictionary in streamer.call("play_path_surfaces"):
+		if surface.get("pending_distant", false):
+			continue
 		if surface.kind != "lod":
 			continue
 		var mesh: ArrayMesh = surface.mesh
@@ -267,6 +316,7 @@ func _start() -> void:
 	var manifest: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(OS.get_environment("SOE_WHITERUN_LOD_REFERENCES")))
 	reference_cells = manifest.references
 	exterior_cells = manifest.cells
+	full_lod_references = manifest.full_lod_references
 	var exited := false
 	for door: Dictionary in player.call("gameplay_doors"):
 		if not door.locked:
@@ -306,5 +356,70 @@ func _start() -> void:
 		_check_handoff()
 		await _settle_location()
 		_coverage("walking")
+		var current: Vector3 = player.call("position")
+		var focus := Vector2i(floori(current.x / 4096.0), floori(current.y / 4096.0))
+		var handoff_reference := ""
+		var target_cell := Vector2i.ZERO
+		var nearest := 9
+		for reference: String in streamer.call("distant_references"):
+			if not full_lod_references.has(reference) or not reference_cells.has(reference):
+				continue
+			var coordinate: Array = reference_cells[reference]
+			var candidate := Vector2i(int(coordinate[0]), int(coordinate[1]))
+			var distance := maxi(absi(candidate.x - focus.x), absi(candidate.y - focus.y))
+			if distance > 2 and distance < nearest:
+				nearest = distance
+				target_cell = candidate
+				handoff_reference = reference
+		_check(not handoff_reference.is_empty(), "nearby admitted Full LOD reference for handoff")
+		if not handoff_reference.is_empty():
+			var masked_before := masked_full_lod_members
+			player.set("auto_step", true)
+			var near_resident := false
+			var pending_focus := focus
+			var can_move := true
+			for frame in range(1800):
+				if not player.get("auto_step"):
+					_check(false, "automatic exterior streaming stopped during handoff")
+					break
+				if can_move and maxi(absi(target_cell.x - focus.x), absi(target_cell.y - focus.y)) > 2:
+					pending_focus = focus + Vector2i(signi(target_cell.x - focus.x), signi(target_cell.y - focus.y))
+					var destination := Vector3((pending_focus.x + 0.5) * 4096.0, (pending_focus.y + 0.5) * 4096.0, current.z)
+					var height: Variant = streamer.call("play_path_terrain_height", Vector3(destination.x * 0.0142875, 0, -destination.y * 0.0142875))
+					_check(height != null, "walking destination has resident LAND")
+					if height == null:
+						break
+					destination.z = float(height) + 160.0
+					current = player.call("position")
+					var queued: bool = player.call("queue_player_input", {"action": "move_to", "file": 0, "object": 0x14, "offset": destination - current, "match_rotation": true})
+					var applied: bool = queued and player.call("step_player_input")
+					_check(applied, "one-cell Full LOD handoff move applied")
+					if not applied:
+						break
+					can_move = false
+				await process_frame
+				_check_handoff(true)
+				var covered: String = streamer.call("terrain_lod_stats").get("covered_cells", "")
+				var grid_ready := true
+				var coordinates := covered.split(" ", false)
+				for x in range(pending_focus.x - 2, pending_focus.x + 3):
+					for y in range(pending_focus.y - 2, pending_focus.y + 3):
+						grid_ready = grid_ready and coordinates.has(str(x) + ":" + str(y))
+				if grid_ready:
+					focus = pending_focus
+					can_move = true
+				for surface: Dictionary in streamer.call("play_path_surfaces"):
+					if surface.get("pending_distant", false):
+						continue
+					if exterior_cells.has(surface.get("cell", "")) and surface.get("references", PackedStringArray()).has(handoff_reference):
+						near_resident = true
+				if frame >= 90 and near_resident and not player.call("is_location_preparing"):
+					break
+			player.set("auto_step", false)
+			_check(near_resident, "Full LOD reference acquired near geometry")
+			_check(masked_full_lod_members > masked_before, "observed immediate masking before distant replacement")
+			print("WHITERUN_FULL_LOD_HANDOFF reference=", handoff_reference, " masked_members=", masked_full_lod_members - masked_before)
+			_check(not streamer.call("distant_references").has(handoff_reference), "resident reference left Full LOD")
+			_coverage("full-lod-handoff")
 	print("WHITERUN_LOD_RESULT ", "PASS" if failures == 0 else "FAIL")
 	quit(0 if failures == 0 else 1)

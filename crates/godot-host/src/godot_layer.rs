@@ -278,6 +278,8 @@ struct DistantState {
     world: Option<GlobalFormId>,
     selector: crate::distant_visibility::Selector,
     surfaces: std::collections::BTreeMap<GlobalFormId, Vec<LoadedSurface>>,
+    near_hidden: std::collections::BTreeSet<GlobalFormId>,
+    restore_near: bool,
     heights: crate::distant_visibility::TerrainHeights,
     terrain_revision: u64,
     revision: u64,
@@ -1610,6 +1612,16 @@ impl CellStreamerNode {
             self.free_doors(departed);
         }
         self.free_departed_occluders(departed);
+        if let Some(source) = &self.data_source {
+            for &cell in departed {
+                if source.cell_index().grid_of(cell).is_some() {
+                    for id in source.presentation_references(cell) {
+                        self.distant.restore_near |= self.distant.near_hidden.remove(id)
+                            && self.distant.surfaces.contains_key(id);
+                    }
+                }
+            }
+        }
         self.exterior_cells
             .retain(|_, cell| !departed.contains(cell));
         self.deferred_references
@@ -1929,7 +1941,16 @@ impl CellStreamerNode {
             }
         }
         let pending = self.distant.publishing.as_ref();
+        let distant_owner = self.distant.world.and_then(|world| {
+            self.data_source
+                .as_ref()?
+                .cell_index()
+                .world_persistent_cell(world)
+        });
         for (index, instance) in self.instances.iter_mut().enumerate() {
+            let distant_hidden = |id: &GlobalFormId| {
+                Some(instance.cell) == distant_owner && self.distant.near_hidden.contains(id)
+            };
             if let Some(animation) = &mut instance.animation {
                 if let BatchTable::Triangles(members) = &instance.table {
                     if let Some(member) = members.first() {
@@ -1953,6 +1974,7 @@ impl CellStreamerNode {
                             server.instance_set_visible(
                                 instance.rid,
                                 placement.visible
+                                    && !distant_hidden(&member.reference)
                                     && !pending.is_some_and(|publishing| {
                                         publishing.contains_rid(instance.rid)
                                     })
@@ -1984,7 +2006,11 @@ impl CellStreamerNode {
                         let Some((visible, target, _)) = self.ref_cache.get(reference) else {
                             continue;
                         };
-                        let scale = if *visible { target.scale } else { 0.0 };
+                        let scale = if *visible && !distant_hidden(reference) {
+                            target.scale
+                        } else {
+                            0.0
+                        };
                         let transform = placement_to_godot(
                             target.rotation.rows,
                             [
@@ -2011,7 +2037,11 @@ impl CellStreamerNode {
                 if changed.contains(&member.reference) {
                     touched = true;
                 }
-                targets.push((index, visible, target_iso));
+                targets.push((
+                    index,
+                    visible && !distant_hidden(&member.reference),
+                    target_iso,
+                ));
             }
             if !touched {
                 continue;
@@ -3689,6 +3719,14 @@ impl CellStreamerNode {
         let Some(owner) = self.exterior_cells.remove(&coord) else {
             return 0;
         };
+        self.distant.revision = self.distant.revision.wrapping_add(1);
+        self.reference_index_dirty = true;
+        if let Some(source) = &self.data_source {
+            for id in source.presentation_references(owner) {
+                self.distant.restore_near |=
+                    self.distant.near_hidden.remove(id) && self.distant.surfaces.contains_key(id);
+            }
+        }
         self.rendered_cells.remove(&owner);
         self.free_doors(&[owner]);
         self.deferred_references.retain(|_, cell| *cell != owner);
@@ -4498,8 +4536,13 @@ impl CellStreamerNode {
         self.rendered_cells.insert(cell);
         if let Some(source) = &self.data_source {
             if let Some(grid) = source.cell_index().grid_of(cell) {
-                self.exterior_cells
-                    .insert(CellCoord::new(grid.x, grid.y), cell);
+                if self
+                    .exterior_cells
+                    .insert(CellCoord::new(grid.x, grid.y), cell)
+                    != Some(cell)
+                {
+                    self.distant.revision = self.distant.revision.wrapping_add(1);
+                }
             }
             let drawn: std::collections::HashSet<_> = loaded
                 .surfaces
@@ -4541,6 +4584,10 @@ impl CellStreamerNode {
             }
         }
         self.exclude_loaded_object_lod();
+        self.hide_resident_distant_references(
+            cell,
+            loaded.surfaces.iter().map(|surface| surface.reference),
+        );
     }
 
     fn exclude_loaded_object_lod(&mut self) {
@@ -5328,7 +5375,9 @@ impl CellStreamerNode {
             .distant_candidates(world_id)
             .into_iter()
             .filter(|candidate| {
-                if !world.reference_enabled(candidate.id) {
+                if self.distant.near_hidden.contains(&candidate.id)
+                    || !world.reference_enabled(candidate.id)
+                {
                     return false;
                 }
                 let Some(record) = source.order().winner(candidate.id) else {
@@ -5366,7 +5415,7 @@ impl CellStreamerNode {
             .surfaces
             .keys()
             .any(|id| !selected.contains(id));
-        if additions.is_empty() && !releases {
+        if additions.is_empty() && !releases && !self.distant.restore_near {
             return true;
         }
         if progressive {
@@ -5411,6 +5460,7 @@ impl CellStreamerNode {
             scenario,
             &mut StreamTotals::default(),
         );
+        self.distant.restore_near = false;
         self.reference_index_dirty = true;
         self.materials.prune_unused();
         true
@@ -5459,7 +5509,7 @@ impl CellStreamerNode {
         self.distant
             .surfaces
             .iter()
-            .filter(|(_, surfaces)| !surfaces.is_empty())
+            .filter(|(id, surfaces)| !surfaces.is_empty() && !self.distant.near_hidden.contains(id))
             .map(|(id, _)| GString::from(id.to_string().as_str()))
             .collect()
     }
