@@ -2093,6 +2093,8 @@ mod rnd_17_tests;
 mod rnd_22_tests;
 
 #[cfg(test)]
+mod record_light_tests;
+#[cfg(test)]
 mod rnd_24_tests;
 
 #[cfg(test)]

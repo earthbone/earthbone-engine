@@ -65,7 +65,58 @@ Shaders `package/Shaders/Effect.hlsl` for the vertex and palette equation,
 and the installed `Campfire01Burning.nif`. NIF and BSA readers were reused
 for the archive inspection. Game assets remain outside tracked files.
 
-# godot-host: streaming, mesh and terrain for the Godot 4 host
+## Placed record lights, RND-50, 2026-10-17
+
+Preview3 renders summoned magic lights but omits ordinary placed LIGH
+references. The Bannered Mare central hearth has `WRFireLightShadow01`,
+reference `0:0C8FBD`, with RGB 216, 170, 101, radius 768, FNAM fade 3,
+and flicker plus shadow-omnidirectional flags. The wall hearth has a second
+reference to the same light. Window fill lights also carry XEMI links.
+
+The host now reads the shared world's light index for rendered cells,
+current placement and enabled state, and winning LIGH fields. Preview
+streaming reads the same authored records through a temporary World.
+Gameplay synchronization reads the live shared World. Omni lights use omni
+RIDs. Spot and hemisphere types use spot RIDs with full cone angles
+converted to half angles. Only authored shadow types enable Godot shadows.
+Color, radius, negative lights, FNAM fade, falloff and distance fade reach
+the host. Destroyed and off-by-default lights are excluded. Reference
+changes, retirement and clearing update or free light and instance RIDs.
+Unchanged static transforms are not resubmitted.
+
+Flicker and pulse retain period, intensity and movement amplitudes.
+Per-reference deterministic noise follows OpenMW's smooth target approach.
+It does not reproduce a measured Bethesda noise sequence. This is render
+presentation state. No reference nodes, saved sections or dependencies
+are added. XEMI weather emittance is still covered by RND-51.
+
+`r4_record_light_test.gd` loads an independently written record-only cell.
+Preview3 renders zero lights and fails the required count of three. The
+release correction renders three, leaving the off-by-default light absent.
+An omni shadow changes 4,104 receiver pixels and a spotlight shadow changes
+1,205, each above the threshold of 20 written before the run. Their warm
+light reaches 65,536 and 14,247 pixels, respectively, above the threshold
+of 100. Flicker produces 57 distinct energy values within authored bounds.
+Clearing releases all light resources. Unit tests check type flags, field
+conversion, malformed records, finite timing and deterministic bounds.
+The host library passes 598 tests with installed data unset. Package
+formatting and all-target Clippy with warnings denied pass.
+
+The full preview3 walkthrough baseline exits one with zero placed lights,
+zero warm hearth pixels, and the explicit missing-particle failure. The
+installed material survey passes separately. Its central glow is distinct
+from the older wall-fireplace capture. The Forward+ frame report records
+58.0 ms p99 on llvmpipe, above 16.7 ms. Full corrected-cell timing is a
+separate required check, RND-54. A source correction or an isolated shadow
+fixture cannot certify that frame budget.
+
+Sources read are local xEdit `Core/wbDefinitionsTES5.pas` LIGH DATA and FNAM,
+UESP `LIGH.wikitext`, and OpenMW
+`components/sceneutil/lightcontroller.cpp`. The ESM crate has no typed LIGH
+view. The existing host light reader supplies common fields and the remaining
+render fields are decoded within the host crate. The installed Skyrim.esm
+record survey uses the existing plugin reader, without reading the game
+executable.
 
 ## Player view corrections, 2026-10-14
 
