@@ -417,6 +417,7 @@ func _build_chrome() -> void:
 			button.custom_minimum_size.x = 55
 
 func _append_row(row: Dictionary) -> void:
+	var _span = UiTrace.begin("ui.items.row")
 	var button := _button("", rows, _activate.bind(row))
 	button.name = "Item_" + str(row.id).replace(":", "_")
 	button.custom_minimum_size.y = 24
@@ -513,6 +514,10 @@ func _choose_hand(hand: int) -> void:
 	set_meta("hand", hand)
 
 func _select(row: Dictionary) -> void:
+	var stages := {}
+	var stamp := Time.get_ticks_usec()
+	set_meta("selection_name", str(row.name))
+	set_meta("selection_description_chars", str(row.get("description", "")).length())
 	selected_id = str(row.id)
 	_clear(card)
 	var title := Label.new()
@@ -521,6 +526,8 @@ func _select(row: Dictionary) -> void:
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.add_theme_font_size_override("font_size", 16)
 	card.add_child(title)
+	stages["title"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
 	var details := Label.new()
 	details.name = "Details"
 	details.text = str(row.category)
@@ -530,6 +537,8 @@ func _select(row: Dictionary) -> void:
 	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	details.add_theme_font_size_override("font_size", 12)
 	card.add_child(details)
+	stages["details"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
 	var description := Label.new()
 	description.name = "Description"
 	description.text = str(row.get("description", ""))
@@ -537,6 +546,8 @@ func _select(row: Dictionary) -> void:
 	description.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	description.add_theme_font_size_override("font_size", 12)
 	card.add_child(description)
+	stages["description"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
 	quantity = SpinBox.new()
 	quantity.name = "Quantity"
 	quantity.min_value = 1
@@ -544,6 +555,8 @@ func _select(row: Dictionary) -> void:
 	quantity.value = 1
 	quantity.visible = mode in ["container", "barter"]
 	card.add_child(quantity)
+	stages["quantity"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
 	var action := "Equip"
 	if mode == "container":
 		action = "Take" if side == 0 else "Store"
@@ -555,6 +568,10 @@ func _select(row: Dictionary) -> void:
 	favorite = _button("Unfavorite" if row.get("favorite", false) else "Favorite", card, favorite_item.emit.bind(row))
 	favorite.name = "Favorite"
 	favorite.visible = mode in ["inventory", "magic", "favorites"]
+	stages["actions"] = (Time.get_ticks_usec() - stamp) / 1000.0
+	stamp = Time.get_ticks_usec()
+
+	set_meta("card_stages_ms", stages)
 
 func _confirm(row: Dictionary) -> void:
 	activate_item.emit(row, int(quantity.value), side)

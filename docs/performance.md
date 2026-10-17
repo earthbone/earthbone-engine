@@ -3218,7 +3218,7 @@ without instantiating a movie resource on that worker.
 The final free-walk confirmation passes all 43 opening checks. The 40 ordinary
 containers take 1.272 to 2.000 ms. The 272-row chest takes 6.610 ms and the
 280-row inventory takes 4.262 ms. Barter requests in 0.990 ms and presents in
-4.008 ms. The largest chrome phase is 7.565 ms, sorting is 2.786 ms and
+4.008 ms. Its full deferred outer scope takes 5.689 ms. The largest chrome phase is 7.565 ms, sorting is 2.786 ms and
 row work is 26.608 ms. The same run captures inventory, container, barter,
 magic and favorites for both SkyUI and NORDIC, with no script errors.
 The final import fixture opens twice in 2.580 and 2.637 ms and retains all
