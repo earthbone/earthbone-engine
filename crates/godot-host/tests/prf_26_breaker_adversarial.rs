@@ -6,6 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "common/isolated_project.rs"]
+mod isolated_project;
+
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -31,26 +34,7 @@ fn prf_26_menu_transition_timing_is_exposed_after_the_presented_frame() {
     };
     let library = target.join("debug/deps/libsoe_godot_host.so");
     assert!(library.is_file(), "missing {}", library.display());
-    let project = tempfile::tempdir_in(&root).unwrap();
-    std::fs::write(
-        project.path().join("project.godot"),
-        "config_version=5\n[application]\nconfig/name=\"PRF-26 breaker\"\n",
-    )
-    .unwrap();
-    std::fs::write(project.path().join("soe.gdextension"), format!("[configuration]\nentry_symbol=\"gdext_rust_init\"\ncompatibility_minimum=\"4.4\"\n[libraries]\nlinux.debug.x86_64=\"{}\"\n", library.display())).unwrap();
-    std::fs::create_dir(project.path().join(".godot")).unwrap();
-    std::fs::write(
-        project.path().join(".godot/extension_list.cfg"),
-        "res://soe.gdextension\n",
-    )
-    .unwrap();
-    let transition_metrics =
-        std::fs::read_to_string(root.join("godot/transition_metrics.gd")).unwrap();
-    std::fs::write(
-        project.path().join("transition_metrics.gd"),
-        transition_metrics,
-    )
-    .unwrap();
+    let project = isolated_project::project(&["transition_metrics.gd"], Some(&library));
     std::fs::write(
         project.path().join("check.gd"),
         r#"extends SceneTree

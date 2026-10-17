@@ -16,6 +16,10 @@ pub fn project(scripts: &[&str], library: Option<&Path>) -> tempfile::TempDir {
     )
     .expect("project settings");
     let mut pending: Vec<String> = scripts.iter().map(|script| (*script).to_owned()).collect();
+    // CONTEXT: PlayerNode loads this HUD script from Rust rather than GDScript.
+    if library.is_some() {
+        pending.push("ui/compass.gd".to_owned());
+    }
     let mut copied = std::collections::BTreeSet::new();
     while let Some(script) = pending.pop() {
         if !copied.insert(script.clone()) {

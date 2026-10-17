@@ -10058,3 +10058,17 @@ project on the private display. With installed inputs unset, the debug library
 suite passed 435 tests and both debug runner checks passed. Package Clippy
 with all targets and warnings denied and package formatting passed.
 The full lint script was excluded by the integration repair task.
+
+## Native resources in isolated fixtures
+
+PlayerNode loads `ui/compass.gd` from Rust during ready. The isolated-project
+helper previously followed only resource strings in the requested GDScripts.
+The viewport-layout fixture therefore missed the native HUD dependency,
+panicked before creating its menu controls and reached its unchanged
+30-second watchdog. Extension-backed projects now seed that compass script
+and follow its resource dependencies through the existing helper. All eight
+viewport cases and their lower-screen, size and restoration checks remain.
+Both PRF-26 transition fixtures now use the same helper. Their separate
+projects also omitted the compass and failed ready before menu requests
+could emit.
+No production layout or control behavior changes.

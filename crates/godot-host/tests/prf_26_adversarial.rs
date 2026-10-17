@@ -6,6 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "common/isolated_project.rs"]
+mod isolated_project;
+
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -38,26 +41,7 @@ fn prf_26_failed_and_repeated_requests_are_not_reported_as_transitions() {
         library.display()
     );
 
-    let project = tempfile::tempdir_in(&root).unwrap();
-    std::fs::write(
-        project.path().join("project.godot"),
-        "config_version=5\n[application]\nconfig/name=\"PRF-26 adversarial\"\n",
-    )
-    .unwrap();
-    std::fs::write(
-        project.path().join("soe.gdextension"),
-        format!(
-            "[configuration]\nentry_symbol=\"gdext_rust_init\"\ncompatibility_minimum=\"4.4\"\n[libraries]\nlinux.debug.x86_64=\"{}\"\n",
-            library.display()
-        ),
-    )
-    .unwrap();
-    std::fs::create_dir(project.path().join(".godot")).unwrap();
-    std::fs::write(
-        project.path().join(".godot/extension_list.cfg"),
-        "res://soe.gdextension\n",
-    )
-    .unwrap();
+    let project = isolated_project::project(&[], Some(&library));
     std::fs::write(
         project.path().join("prf_26_adversarial.gd"),
         r#"extends SceneTree
