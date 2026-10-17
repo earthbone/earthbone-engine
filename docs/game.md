@@ -715,7 +715,8 @@ each tick and moves toward its next waypoint. It retains waypoint cell ownership
 delivers cell and trigger events, checks surface samples within 0.25 units,
 and fails on missing paths, interrupted movement or timeout. Load-door crossings
 use activation steps. Navigation adds no collision host or reference nodes.
-The runner does not consume host obstacle shapes or simulate a physics capsule.
+The runner does not consume host obstacle shapes or simulate capsule movement.
+Trigger queries use the shared generated actor capsule at the NAVM footpoint.
 
 Actions use the shared PLY-01 executor and advance 1/60 second, including gameplay
 rejections. Unresolved form names fail before execution. `talk` activates an
@@ -10101,10 +10102,10 @@ The 2026-10-17 diagnostic replay repeats those 1900 samples and both zero
 crossing counts. The two triggers and their enable parent are disabled both
 at checkpoint load and after the route. The replay still reaches stage 192.
 Patrol now has a valid procedure, but Alduin emits neither Open nor
-End_Tower_Smash, and the wall receives no graph request. Trigger membership
-uses the actor's footpoint and point sweep, not its controller body. No
-trigger volume change is part of this patch. Controller-body overlap and
-the parent's saved enable state need separate verification.
+End_Tower_Smash, and the wall receives no graph request. That driver validation
+used the actor's footpoint and point sweep. The capsule follow-up below changes
+the Game movement path's overlap query. The parent's saved enable state still
+needs separate verification.
 
 The existing ESS reader finds parent 0:0F7E82 with saved form-flag words
 `0x040B, 0x0040` in checkpoint 01 and `0x0409, 0x0040` in checkpoint 02.
@@ -10131,3 +10132,42 @@ Quest flags and player inventory match. The second pair matches its successor
 without a field difference. The tower entry, fallback timer and stairs
 regressions pass. No assertion, route or replay event was changed.
 PLY-03 remains open. The lead's workspace gate was not run, as requested.
+
+### Capsule trigger follow-up
+
+Game movement now uses `World::update_trigger_actor_body`. This query places
+the existing generated contact capsule at the actor's feet, with race, NPC
+and reference scale resolved through `actor_controller_scale`. Box contacts
+use the distance from the capsule axis to the rotated box, so a rounded
+corner cannot enter merely because the capsule's bounding box touches it.
+Sphere contacts use the combined radii and the nearest point on the capsule
+axis. A bounded convex distance minimum detects complete crossings between
+outside endpoints. Existing membership bookkeeping delivers enter and leave
+once per crossing and continues to reject disabled triggers and dead actors.
+
+`World::update_trigger_actor_position` retains its point-query contract for
+callers without body geometry. The NPC package driver still calls that API.
+The Game movement bridge, including headless player navigation, uses the body
+query. No host node, saved field, asset dependency or second physics engine
+is added. This path uses the generated contact capsule rather than loading
+an authored skeleton collision phantom. Host controller dimensions and
+crouching are not passed into this query.
+
+The local sources read were CK `OnTriggerEnter` for collision-volume event
+semantics, Jolt `Geometry/AABox.h` for clamped point distance and
+`Physics/Collision/Shape/CapsuleShape.cpp` for the cap-and-axis model. The
+existing `soe-physics::generated_controller_shape` and game contact-scale
+resolver supply dimensions. Jolt's code is C++, and the existing Rust physics
+crate has no public capsule-volume distance query. The small distance query
+here leaves collision response in the existing physics implementations.
+
+The installed IDLE hierarchy was also checked against its decoded records.
+IDLE 0:0680F6 tests the interaction target's base against 0:06CF46, and its
+child 0:0680F7 tests IsEnteringInteractionQuick before sending
+EnterPerchTowerAttackInstant. Package 0:06CF55 inherits template 0:0E1E97,
+whose procedure is Sit. In the dragon graph, PerchTowerAttackSmashBite has
+transition flags 0x0100, not a global wildcard. Sending it from the ground
+state cannot substitute for entering the perch. The step-by-step replay
+keeps Alduin's phase-4 Patrol package until after stage 40, and he remains
+thousands of units from the wall. The follow-up does not inject an entry
+event or change scene completion conditions.

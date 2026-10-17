@@ -1471,7 +1471,7 @@ impl Game {
         threads
     }
 
-    /// Updates trigger membership after an actor movement step and runs the
+    /// Updates capsule trigger membership after an actor movement step and runs the
     /// resulting `OnTriggerEnter` or `OnTriggerLeave` handlers.
     pub fn update_trigger_actor_position(
         &mut self,
@@ -1481,7 +1481,7 @@ impl Game {
         to: [f32; 3],
     ) {
         let vm = &mut self.vm;
-        self.world.borrow_mut().update_trigger_actor_position(
+        self.world.borrow_mut().update_trigger_actor_body(
             actor,
             cell,
             from,

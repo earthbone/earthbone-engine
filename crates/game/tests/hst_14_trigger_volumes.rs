@@ -115,6 +115,44 @@ fn hst_14_box_enter_leave_and_count_change_once_per_crossing() {
 }
 
 #[test]
+fn ply_03_body_overlap_delivers_enter_once_and_leaves_after_the_capsule_clears() {
+    let mut world = make_world(xprm([10.0; 3], 1));
+    let mut next_object = 0;
+    let mut movement = |world: &mut World, from, to| {
+        world.update_trigger_actor_body(id(ACTOR), Some(id(CELL)), from, to, &mut |_, _| {
+            next_object += 1;
+            soe_papyrus::ObjectId(next_object)
+        });
+    };
+    movement(&mut world, [-100.0, 0.0, -50.0], [30.0, 0.0, -50.0]);
+    assert_eq!(world.trigger_object_count(id(TRIGGER)), Some(1));
+    assert_eq!(event_names(&world), ["OnTriggerEnter"]);
+    movement(&mut world, [30.0, 0.0, -50.0], [31.0, 0.0, -50.0]);
+    assert_eq!(event_names(&world), ["OnTriggerEnter"]);
+    movement(&mut world, [31.0, 0.0, -50.0], [100.0, 0.0, -50.0]);
+    assert_eq!(world.trigger_object_count(id(TRIGGER)), Some(0));
+    assert_eq!(event_names(&world), ["OnTriggerEnter", "OnTriggerLeave"]);
+}
+
+#[test]
+fn ply_03_body_sweep_delivers_a_complete_crossing_between_outside_endpoints() {
+    let mut world = make_world(xprm([1.0; 3], 1));
+    let mut next_object = 0;
+    world.update_trigger_actor_body(
+        id(ACTOR),
+        Some(id(CELL)),
+        [-100.0, 20.0, -50.0],
+        [100.0, 20.0, -50.0],
+        &mut |_, _| {
+            next_object += 1;
+            soe_papyrus::ObjectId(next_object)
+        },
+    );
+    assert_eq!(event_names(&world), ["OnTriggerEnter", "OnTriggerLeave"]);
+    assert_eq!(world.trigger_object_count(id(TRIGGER)), Some(0));
+}
+
+#[test]
 fn hst_14_persistent_trigger_crosses_grid_cells_and_binds_before_script_delivery() {
     use soe_esm::GroupKind;
     use soe_game::vmad::{ScriptEntry, Vmad};
