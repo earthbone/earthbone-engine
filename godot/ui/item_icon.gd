@@ -15,6 +15,8 @@ var cache_symbol := ""
 var cache_instance := ""
 var stretch_art := false
 var art_color := Color.WHITE
+## Mirrors installed art on the y axis, used by the descending sort arrow.
+var flipped := false
 var meshes: Array = []
 var art_bounds := Rect2()
 var art_source := "builtin"
@@ -53,6 +55,9 @@ func _load_art() -> void:
 		movie_paths = [selected_movie]
 	else:
 		movie_paths = cache.movies.keys()
+		# A same-named SkyUI movie wins over the vanilla inventory component,
+		# and NORDIC replaces that same path, so installed art decides the look.
+		movie_paths.sort_custom(func(a, b): return str(a).begins_with("interface/skyui/") and not str(b).begins_with("interface/skyui/"))
 	for movie_path in movie_paths:
 		if not selected_movie.is_empty() and not str(movie_path).ends_with(selected_movie):
 			continue
@@ -109,6 +114,8 @@ func use_cache(prepared) -> void:
 	queue_redraw()
 
 func _load_theme() -> void:
+	if icon_name == "sort_arrow":
+		return
 	var _span = UiTrace.begin("ui.icon.theme." + icon_name)
 	var path := ""
 	var value: Resource
@@ -172,10 +179,21 @@ func _draw() -> void:
 		var scale_xy := (size - Vector2.ONE * 4) / art_bounds.size
 		if not stretch_art:
 			scale_xy = Vector2.ONE * minf(scale_xy.x, scale_xy.y)
+		if flipped:
+			scale_xy.y = -scale_xy.y
 		var fit := Transform2D.IDENTITY.scaled(scale_xy)
 		fit.origin = size * 0.5 - art_bounds.get_center() * scale_xy
+		# Installed SWF art keeps the colours its author drew. The tint only
+		# darkens the bundled fallback shapes.
+		var tint := Color.WHITE if art_source.begins_with("interface/") else art_color
 		for part in meshes:
-			draw_mesh(part.mesh, null, fit * part.transform, art_color)
+			draw_mesh(part.mesh, null, fit * part.transform, tint)
+		return
+	if icon_name == "sort_arrow":
+		var half := minf(size.x, size.y) * 0.5
+		var mid := size * 0.5
+		var tip := -half if not flipped else half
+		draw_colored_polygon(PackedVector2Array([mid + Vector2(0, tip * 0.6), mid + Vector2(half, -tip * 0.6), mid + Vector2(-half, -tip * 0.6)]), Color(0.9, 0.92, 0.93))
 		return
 	var color := Color(0.78, 0.82, 0.83)
 	var center := size * 0.5

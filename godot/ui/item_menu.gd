@@ -11,6 +11,7 @@ const DefaultTheme = preload("res://ui/theme/theme.gd")
 const InterfaceCache = preload("res://ui/interface_cache.gd")
 const ArtLibrary = preload("res://ui/item_art_library.gd")
 const ROW_BUILD_US := 2000
+const SORT_ARROW_SIZE := 8.0
 const INVENTORY_CATEGORIES = ["All", "Weapons", "Apparel", "Potions", "Scrolls", "Food", "Ingredients", "Books", "Keys", "Misc"]
 const FAVORITE_CATEGORIES = ["All", "Gear", "Aid", "Magic"]
 const MAGIC_CATEGORIES = ["All", "Spells"]
@@ -37,6 +38,11 @@ var sort_pending := false
 var selection_pending := false
 var row_spacer: Control
 var art_updates: Array = []
+var base_fill: ColorRect
+var list_panel: Control
+var card_panel: Control
+var select_indicator: Control
+var installed_style := false
 var art_cache = InterfaceCache.new()
 var categories: VBoxContainer
 var header: HBoxContainer
@@ -63,24 +69,17 @@ func _ready() -> void:
 	add_theme_font_size_override("font_size", 12)
 	theme = DefaultTheme.controls()
 	_apply_cache_font()
-	var background := ColorRect.new()
-	background.color = Color(0.025, 0.03, 0.035, 0.94)
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(background)
-	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for decoration_name in ["background", "frame"]:
-		var decoration := Icon.new()
-		decoration.name = decoration_name.capitalize()
-		decoration.icon_name = decoration_name
-		decoration.stretch_art = true
-		decoration.art_color = Color(0.035, 0.045, 0.05, 0.96) if decoration_name == "background" else Color(0.10, 0.13, 0.15, 0.85)
-		decoration.cache_directory = cache_directory
-		decoration.cache = art_cache
-		decoration.cache_movie = "itemcard.swf"
-		decoration.cache_symbol = "ItemCard"
-		decoration.cache_instance = "background"
-		add_child(decoration)
-		decoration.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	base_fill = ColorRect.new()
+	base_fill.color = Color(0.025, 0.03, 0.035, 0.0 if installed_style else 0.94)
+	base_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(base_fill)
+	base_fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# SkyUI draws the list side from InventoryLists (ListBackground) and the
+	# card side from ItemCard (background). Both come from the winning SWF, so
+	# NORDIC replaces them through the same virtual path. The node names stay
+	# Background and Frame for the earlier tests.
+	list_panel = _panel("Background", "background", "inventorylists.swf", "InventoryListsTweener", "ListBackground", Color(0.035, 0.045, 0.05, 0.96))
+	card_panel = _panel("Frame", "frame", "itemcard.swf", "ItemCard", "background", Color(0.10, 0.13, 0.15, 0.85))
 	var body := HBoxContainer.new()
 	body.name = "Body"
 	add_child(body)
@@ -132,7 +131,49 @@ func _ready() -> void:
 	card.size_flags_horizontal = Control.SIZE_SHRINK_END
 	body.add_child(card)
 	resized.connect(_resize_card)
+	card.resized.connect(_layout_panels)
+	_layout_panels()
 	refresh()
+
+func _panel(node_name: String, art_name: String, movie: String, symbol: String, instance: String, tint: Color) -> Control:
+	var panel := Icon.new()
+	panel.name = node_name
+	panel.icon_name = art_name
+	panel.stretch_art = true
+	panel.art_color = tint
+	panel.cache_directory = cache_directory
+	panel.cache = art_cache
+	panel.cache_movie = movie
+	panel.cache_symbol = symbol
+	panel.cache_instance = instance
+	add_child(panel)
+	return panel
+
+## The list panel spans categories and columns, the card panel spans the card.
+func _layout_panels() -> void:
+	if list_panel == null or card_panel == null:
+		return
+	var card_width := maxf(card.size.x, card.custom_minimum_size.x)
+	var split := maxf(0.0, size.x - card_width - 5.0)
+	list_panel.position = Vector2.ZERO
+	list_panel.size = Vector2(split, size.y)
+	card_panel.position = Vector2(split + 2.0, 0.0)
+	card_panel.size = Vector2(maxf(0.0, size.x - split - 2.0), size.y)
+
+## True when the winning interface files carry SkyUI's list and card movies.
+func installed_chrome() -> bool:
+	return not art_cache.movie("interface/skyui/inventorylists.swf").is_empty() and not art_cache.movie("interface/skyui/itemcard.swf").is_empty()
+
+func _apply_installed_style() -> void:
+	var installed := installed_chrome()
+	if installed == installed_style:
+		return
+	installed_style = installed
+	var font = theme.default_font
+	theme = DefaultTheme.controls(installed)
+	theme.default_font = font
+	if base_fill != null:
+		base_fill.color.a = 0.0 if installed else 0.94
 
 func configure(menu_mode: String, data: Array, cache: String = "", sources: Dictionary = {}, library: Node = null) -> void:
 	var _span = UiTrace.begin("ui.items.configure")
@@ -164,12 +205,15 @@ func set_art_cache(cache: String, prepared = null) -> void:
 		else:
 			for decoration_name in ["Background", "Frame"]:
 				get_node(decoration_name).use_cache(art_cache)
+			if select_indicator != null and is_instance_valid(select_indicator):
+				select_indicator.use_cache(art_cache)
 			refresh()
 
 func _apply_cache_font() -> void:
 	if art_cache.directory != cache_directory:
 		art_cache = InterfaceCache.new(cache_directory)
 	theme.default_font = art_cache.font("$EverywhereMediumFont")
+	_apply_installed_style()
 
 func replace_rows(data: Array) -> void:
 	source_rows = data
@@ -182,6 +226,7 @@ func set_gold(player_amount: int, merchant_amount: int) -> void:
 
 func _resize_card() -> void:
 	card.custom_minimum_size.x = maxf(112.0, size.x * 0.24)
+	_layout_panels()
 
 func _clear(parent: Node) -> void:
 	for child in parent.get_children():
@@ -317,6 +362,7 @@ func refresh() -> void:
 	if not is_node_ready():
 		return
 	gold_label.visible = mode == "barter"
+	_release_indicator()
 	_clear(categories)
 	_clear(header)
 	_clear(rows)
@@ -406,15 +452,40 @@ func _build_chrome() -> void:
 	columns = column_order()
 	for key in columns:
 		var title: String = LABELS[key]
-		if key == sort_key:
-			title += " ▼" if descending else " ▲"
 		var button := _button(title, header, sort_by.bind(str(key)))
 		button.name = str(key)
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		if key == sort_key:
+			_add_sort_arrow(button, title)
 		button.tooltip_text = "Equipped" if key == "equipped" else str(LABELS[key])
 		button.custom_minimum_size.x = _cell_width(key)
 		if key == "name":
 			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			button.custom_minimum_size.x = 55
+
+## SkyUI draws a small sortIcon beside the sorted column title. A text glyph
+## in the converted font rendered as a header sized triangle, so the arrow is
+## its own control of a fixed size, mirrored for descending order.
+func _add_sort_arrow(button: Button, title: String) -> void:
+	var arrow := Icon.new()
+	arrow.name = "SortArrow"
+	arrow.icon_name = "sort_arrow"
+	arrow.cache_directory = cache_directory
+	arrow.cache = art_cache
+	arrow.cache_movie = "inventorylists.swf"
+	arrow.cache_symbol = "ItemsListHeader"
+	arrow.cache_instance = "sortIcon"
+	arrow.flipped = descending
+	var font := button.get_theme_font("font")
+	var text_width := font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x if font != null else 28.0
+	var left := 3.0 + text_width + 4.0
+	button.add_child(arrow)
+	arrow.anchor_top = 0.5
+	arrow.anchor_bottom = 0.5
+	arrow.offset_left = left
+	arrow.offset_right = left + SORT_ARROW_SIZE
+	arrow.offset_top = -SORT_ARROW_SIZE * 0.5
+	arrow.offset_bottom = SORT_ARROW_SIZE * 0.5
 
 func _append_row(row: Dictionary) -> void:
 	var _span = UiTrace.begin("ui.items.row")
@@ -513,12 +584,42 @@ func _display(row: Dictionary, key: String) -> String:
 func _choose_hand(hand: int) -> void:
 	set_meta("hand", hand)
 
+func _release_indicator() -> void:
+	if select_indicator != null and is_instance_valid(select_indicator) and select_indicator.get_parent() != null:
+		select_indicator.get_parent().remove_child(select_indicator)
+
+## The selected row shows SkyUI's selectIndicator art when it is installed.
+func _move_indicator(row: Dictionary) -> void:
+	if not installed_style:
+		return
+	var button := rows.get_node_or_null("Item_" + str(row.id).replace(":", "_")) as Control
+	if button == null:
+		return
+	if select_indicator == null or not is_instance_valid(select_indicator):
+		var indicator := Icon.new()
+		indicator.name = "SelectIndicator"
+		indicator.icon_name = "select_indicator"
+		indicator.stretch_art = true
+		indicator.cache_directory = cache_directory
+		indicator.cache = art_cache
+		indicator.cache_movie = "inventorylists.swf"
+		indicator.cache_symbol = "ItemsListEntry"
+		indicator.cache_instance = "selectIndicator"
+		select_indicator = indicator
+	if select_indicator.get_parent() == button:
+		return
+	_release_indicator()
+	button.add_child(select_indicator)
+	button.move_child(select_indicator, 0)
+	select_indicator.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
 func _select(row: Dictionary) -> void:
 	var stages := {}
 	var stamp := Time.get_ticks_usec()
 	set_meta("selection_name", str(row.name))
 	set_meta("selection_description_chars", str(row.get("description", "")).length())
 	selected_id = str(row.id)
+	_move_indicator(row)
 	_clear(card)
 	var title := Label.new()
 	title.name = "Name"

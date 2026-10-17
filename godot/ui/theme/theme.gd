@@ -18,7 +18,9 @@ static func category_icon(category: String) -> String:
 static func installed_category(category: String) -> String:
 	return INSTALLED_CATEGORIES.get(category, "")
 
-static func controls() -> Theme:
+## With installed SWF panels the buttons stay transparent so the author's panel,
+## borders and list art show through. Hover and pressed keep a faint wash.
+static func controls(installed_art: bool = false) -> Theme:
 	var result := Theme.new()
 	result.default_font_size = 12
 	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
@@ -31,4 +33,14 @@ static func controls() -> Theme:
 			style.set_border_width_all(1)
 		result.set_stylebox(state, "Button", style)
 	result.set_color("font_color", "Button", Color(0.82, 0.86, 0.88))
+	if installed_art:
+		for state in ["normal", "disabled", "focus"]:
+			var empty := StyleBoxEmpty.new()
+			empty.set_content_margin_all(3)
+			result.set_stylebox(state, "Button", empty)
+		for state in ["hover", "pressed"]:
+			var wash := StyleBoxFlat.new()
+			wash.bg_color = Color(1, 1, 1, 0.10)
+			wash.set_content_margin_all(3)
+			result.set_stylebox(state, "Button", wash)
 	return result
