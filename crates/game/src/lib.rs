@@ -46,6 +46,7 @@ pub mod determinism;
 pub mod dialogue;
 pub mod footsteps;
 mod game_settings;
+pub mod gameplay_sweeps;
 pub mod harness;
 pub mod inventory;
 pub mod lockpicking;

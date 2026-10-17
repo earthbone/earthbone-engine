@@ -67,6 +67,59 @@ Launching Skyrim per test is not an option, so the oracle is captured once
 from the real game and replayed as often as needed. The harness lives in
 `crates/game/src/harness.rs`.
 
+## Gameplay sweeps (consumables, magic, combat)
+
+Three more sweeps use the activation sweep's row format and counts. Each
+checks every record of its kind in a fresh headless game, and each row is
+`pass`, `wrong outcome`, `no outcome` or `error` with a cause and a reason.
+The code is `crates/game/src/gameplay_sweeps/` and the binary is
+`soe-gameplay-sweep`. One command runs all three:
+
+```sh
+rtk cargo build -p soe-game --release --bin soe-gameplay-sweep
+rtk proxy env SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" \
+  python3 tools/gameplay_sweep.py
+```
+
+It writes `docs/consumable-sweep.json`, `docs/magic-sweep.json` and
+`docs/combat-sweep.json`, each with a Markdown summary of counts per base
+type and per failure cause. Name one kind to run only that sweep. `--only
+<editor id prefix>` and `--limit <n>` narrow a run to a focused
+reproduction. Exit 0 means every row and every visual check passed, exit 1
+means the reports contain failures, exit 2 means setup failed.
+
+- Consumables drink every ALCH on the player. The checks are the item
+  consumed, each timed effect in the active effects list with its record
+  magnitude, the actor value change of Value Modifier and Peak Value Modifier
+  effects (instant restore capped by the missing amount, per second change
+  for timed vitals, constant change for other values), the end of the effect
+  and the return of the value, and the same potion drunk twice refreshing
+  instead of stacking. Other archetypes pass the universal checks and are
+  then reported as `no outcome` with the archetype named, never as a pass.
+  Poisons and ingredients have no public world call yet and report as such.
+- Magic casts every tome spell at an NPC, a creature and an object (contact,
+  aimed, target actor), at the caster (self) and at empty space (target
+  location), as fire and forget or concentration. The checks are the magicka
+  charge, the timed effects on the target, instant vital changes, an area
+  reaching a bystander inside the radius and not one outside it, a hostile
+  value modifier cut by 50 points of resistance, and no actor effect on an
+  object. It also covers scrolls, enchanted weapons (a melee hit), enchanted
+  armor (worn), shouts (recovery starts) and the unique items found by name.
+- Combat swings every melee weapon at a target NPC as a normal, power and
+  sneak attack, against a shield block, as a lethal blow, and as the NPC
+  attacking the player. The checks are health lost equal to the reported
+  damage, armor reduction within 0 to 0.8, a power attack stronger than a
+  normal one, the sneak damage equal to the normal damage times the
+  `fCombatSneak*Mult` setting of the weapon type, a shield block that cuts
+  damage, a bash reported as a bash, death on a lethal hit, and one arrow or
+  bolt spent per shot.
+
+What needs animation, visuals or sound is listed under `visual` in each
+report. The installed Godot pass writes `<kind>-host.json` under
+`target/gameplay-sweep` with one entry per check name. Until a check has a
+passing entry it stays `not run`, so a missing host pass fails the sweep.
+The Godot scripts for these checks are not written yet.
+
 ## The shape of a check
 
 A scenario is a text file that drives the engine and states what vanilla
