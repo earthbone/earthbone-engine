@@ -511,6 +511,10 @@ impl PlayerNode {
     }
 
     fn mcm_content(&mut self) -> bool {
+        if let Some(mut dialog) = self.base().get_node_or_null("McmDialog") {
+            self.base_mut().remove_child(&dialog);
+            dialog.queue_free();
+        }
         if self.menu.title() != Some("Mod Configuration") {
             return false;
         }
@@ -607,8 +611,109 @@ impl PlayerNode {
         }
     }
 
+    fn finish_mcm_dialog(&mut self) {
+        if let Some(mut dialog) = self.base().get_node_or_null("McmDialog") {
+            self.base_mut().remove_child(&dialog);
+            dialog.queue_free();
+        }
+        self.mcm_content();
+    }
+
+    pub(super) fn mcm_dialog_input(&mut self, event: &Gd<godot::classes::InputEvent>) -> bool {
+        let Some(page) = &self.mcm_page else {
+            return false;
+        };
+        let Some(id) = page.dialog_option() else {
+            return false;
+        };
+        let keymap = page.is_keymap_dialog();
+        if let Ok(key) = event.clone().try_cast::<godot::classes::InputEventKey>() {
+            if !key.is_pressed() || key.is_echo() {
+                return keymap;
+            }
+            if key.get_keycode() == godot::global::Key::ESCAPE {
+                self.mcm_dialog_cancel(i64::from(id));
+                return true;
+            }
+            if keymap {
+                let keycode = if key.get_physical_keycode().ord() == 0 {
+                    key.get_keycode()
+                } else {
+                    key.get_physical_keycode()
+                };
+                if let Some(code) = (1..256).find(|code| {
+                    crate::input::godot_key_for(*code) == Some(i64::from(keycode.ord()))
+                }) {
+                    self.mcm_dialog_accept(i64::from(id), code as i32);
+                }
+            }
+        } else if keymap {
+            use crate::input::devices::{
+                gamepad_macro, godot_mouse_for, godot_pad_for, PadControl,
+            };
+            let code = if let Ok(button) = event
+                .clone()
+                .try_cast::<godot::classes::InputEventMouseButton>()
+            {
+                button
+                    .is_pressed()
+                    .then(|| {
+                        (0..10)
+                            .find(|code| {
+                                godot_mouse_for(*code) == Some(button.get_button_index().ord())
+                            })
+                            .map(|code| 256 + code)
+                    })
+                    .flatten()
+            } else if let Ok(button) = event
+                .clone()
+                .try_cast::<godot::classes::InputEventJoypadButton>()
+            {
+                button
+                    .is_pressed()
+                    .then(|| {
+                        (0..=0x8000)
+                            .find(|code| {
+                                godot_pad_for(*code)
+                                    == Some(PadControl::Button(button.get_button_index().ord()))
+                            })
+                            .and_then(gamepad_macro)
+                    })
+                    .flatten()
+            } else if let Ok(axis) = event
+                .clone()
+                .try_cast::<godot::classes::InputEventJoypadMotion>()
+            {
+                (axis.get_axis_value() > crate::input::devices::TRIGGER_THRESHOLD)
+                    .then(|| {
+                        [9, 10]
+                            .into_iter()
+                            .find(|code| {
+                                godot_pad_for(*code)
+                                    == Some(PadControl::Trigger(axis.get_axis().ord()))
+                            })
+                            .and_then(gamepad_macro)
+                    })
+                    .flatten()
+            } else {
+                None
+            };
+            if let Some(code) = code {
+                self.mcm_dialog_accept(i64::from(id), code as i32);
+            }
+        }
+        keymap
+    }
+
     pub(super) fn refresh_mcm_options(&mut self) {
         if self.menu.title() != Some("Mod Configuration") || self.mcm_config.is_none() {
+            return;
+        }
+        if self
+            .mcm_page
+            .as_ref()
+            .is_some_and(|page| page.dialog_option().is_some())
+        {
             return;
         }
         let page = self
@@ -883,6 +988,10 @@ impl PlayerNode {
         }
         self.mcm_config = None;
         self.mcm_page = None;
+        if let Some(mut dialog) = self.base().get_node_or_null("McmDialog") {
+            self.base_mut().remove_child(&dialog);
+            dialog.queue_free();
+        }
         if closing_dialogue {
             self.stop_dialogue_voice();
             if let Some(game) = self.game.as_mut() {
@@ -1158,6 +1267,12 @@ impl PlayerNode {
             "last_page",
             "selection_count",
             "selected_option",
+            "color_open_count",
+            "color_accept_count",
+            "key_count",
+            "last_key",
+            "conflict_control",
+            "conflict_name",
         ] {
             match game.vm.get_var(object, "Ui05ExecutableChild", name) {
                 Some(soe_papyrus::Value::Int(value)) => {
@@ -1220,6 +1335,13 @@ impl PlayerNode {
         if self.menu.title() != Some("Mod Configuration") {
             return false;
         }
+        if self
+            .mcm_page
+            .as_ref()
+            .is_some_and(|page| page.dialog_option().is_some())
+        {
+            return false;
+        }
         let (Some(form), Ok(id)) = (self.mcm_config, u32::try_from(id)) else {
             return false;
         };
@@ -1229,11 +1351,119 @@ impl PlayerNode {
         let Some(mut page) = crate::mcm_menu::ConfigPage::from_game(game) else {
             return false;
         };
-        let selected = page.select(game, form, id);
-        if selected {
-            self.mcm_content();
+        let Some(row) = page.rows().iter().find(|row| row.id == id).cloned() else {
+            return false;
+        };
+        let (keymap, start_color, default_color) = match row.kind {
+            crate::mcm_menu::OptionKind::Color { value } => {
+                if !page.open_color_dialog(game, form, id) {
+                    return false;
+                }
+                let Some(dialog) = page.color_dialog() else {
+                    return false;
+                };
+                (
+                    false,
+                    if dialog.start_color < 0 {
+                        value
+                    } else {
+                        dialog.start_color
+                    },
+                    dialog.default_color,
+                )
+            }
+            crate::mcm_menu::OptionKind::KeyMap { .. } => {
+                if !page.open_keymap_dialog(game, form, id) {
+                    return false;
+                }
+                (true, 0, 0)
+            }
+            _ => {
+                let selected = page.select(game, form, id);
+                if selected {
+                    self.mcm_content();
+                }
+                return selected;
+            }
+        };
+        let Ok(script) =
+            godot::tools::try_load::<godot::classes::GDScript>("res://ui/mcm_dialog.gd")
+        else {
+            return false;
+        };
+        self.mcm_page = Some(page);
+        let mut dialog = godot::classes::ConfirmationDialog::new_alloc();
+        dialog.set_name("McmDialog");
+        dialog.set_script(&script);
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        base.clone().add_child(&dialog);
+        dialog.call(
+            "configure",
+            &[
+                base.to_variant(),
+                i64::from(id).to_variant(),
+                row.label.to_variant(),
+                keymap.to_variant(),
+                start_color.to_variant(),
+                default_color.to_variant(),
+            ],
+        );
+        true
+    }
+
+    /// Route input from the native dialog's embedded or platform window.
+    #[func]
+    pub fn mcm_dialog_event(&mut self, event: Gd<godot::classes::InputEvent>) -> bool {
+        let handled = self.mcm_dialog_input(&event);
+        drop(event);
+        handled
+    }
+
+    /// Complete an active dialog once, leaving the config script to write its value.
+    #[func]
+    pub fn mcm_dialog_accept(&mut self, id: i64, value: i32) -> bool {
+        let (Some(form), Ok(id), Some(game), Some(page)) = (
+            self.mcm_config,
+            u32::try_from(id),
+            self.game.as_mut(),
+            self.mcm_page.as_mut(),
+        ) else {
+            return false;
+        };
+        if self.menu.title() != Some("Mod Configuration") || page.dialog_option() != Some(id) {
+            return false;
         }
-        selected
+        let accepted = if page.is_keymap_dialog() {
+            let accepted = page.remap_key_live(game, form, id, value, &self.bindings);
+            if accepted {
+                page.cancel_active_dialog(id);
+            }
+            accepted
+        } else {
+            page.accept_color(game, form, id, value)
+        };
+        if accepted {
+            self.finish_mcm_dialog();
+        }
+        accepted
+    }
+
+    /// Cancel a dialog without dispatching an acceptance event.
+    #[func]
+    pub fn mcm_dialog_cancel(&mut self, id: i64) -> bool {
+        let Ok(id) = u32::try_from(id) else {
+            return false;
+        };
+        if !self
+            .mcm_page
+            .as_mut()
+            .is_some_and(|page| page.cancel_active_dialog(id))
+        {
+            return false;
+        }
+        self.finish_mcm_dialog();
+        true
     }
 
     /// Open a conversation with a reference through the shared Game and show its choices.

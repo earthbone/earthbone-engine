@@ -503,6 +503,12 @@ impl INode3D for PlayerNode {
         if !self.input_focused {
             return;
         }
+        if self.mcm_dialog_input(&event) {
+            if let Some(mut viewport) = self.base().get_viewport() {
+                viewport.set_input_as_handled();
+            }
+            return;
+        }
         if self.console_input(&event) {
             if let Some(mut viewport) = self.base().get_viewport() {
                 viewport.set_input_as_handled();

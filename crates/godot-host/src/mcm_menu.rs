@@ -24,6 +24,7 @@ const PAGE_CAPACITY: usize = 128;
 enum ActiveDialog {
     Slider(u32),
     Menu(u32),
+    KeyMap(u32),
     Color {
         id: u32,
         start_color: i32,
@@ -269,7 +270,7 @@ impl ConfigPage {
         }
     }
 
-    /// Project text and toggle options transmitted by the active config.
+    /// Project supported options transmitted by the active config.
     /// Empty slots keep their original indices, including sparse cursor fills.
     pub fn from_game(game: &mut Game) -> Option<Self> {
         let page = game.mcm_page_number()?;
@@ -281,6 +282,12 @@ impl ConfigPage {
                 },
                 3 => OptionKind::Toggle {
                     checked: option.number_value != 0.0,
+                },
+                6 => OptionKind::Color {
+                    value: option.number_value as i32,
+                },
+                7 => OptionKind::KeyMap {
+                    key_code: option.number_value as i32,
                 },
                 _ => continue,
             };
@@ -643,6 +650,33 @@ impl ConfigPage {
         let Ok(option_id) = i32::try_from(id) else {
             return false;
         };
+        let object = game.object_of_form(script);
+        if game
+            .vm
+            .has_script_method(object, "SKI_ConfigBase", "RemapKey")
+        {
+            if !self.live_option(game, script, id, 7) {
+                return false;
+            }
+            if game
+                .vm
+                .call(
+                    object,
+                    "RemapKey",
+                    &[
+                        Value::Int((id % PAGE_STRIDE) as i32),
+                        Value::Int(key_code),
+                        Value::string(conflict_control),
+                        Value::string(conflict_name),
+                    ],
+                )
+                .is_err()
+            {
+                return false;
+            }
+            game.run_until_idle(64);
+            return true;
+        }
         game.send_event(
             script,
             "OnOptionKeyMapChange",
@@ -686,7 +720,37 @@ impl ConfigPage {
         key_code: i32,
         bindings: &Bindings,
     ) -> bool {
-        let scanner = KeyConflictScanner::from_bindings(bindings);
+        let mut scanner = KeyConflictScanner::default();
+        for (code, control) in bindings.macro_controls() {
+            if let Ok(code) = i32::try_from(*code) {
+                scanner.add_vanilla_control(code, control);
+            }
+        }
+        for action in Action::all() {
+            for (device, binding) in [
+                bindings.get(action),
+                bindings.mouse(action),
+                bindings.gamepad(action),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                for code in binding
+                    .into_iter()
+                    .flat_map(|binding| &binding.0)
+                    .flat_map(|chord| &chord.0)
+                {
+                    let mapped = match device {
+                        1 => Some(256 + *code),
+                        2 => crate::input::devices::gamepad_macro(*code),
+                        _ => Some(*code),
+                    };
+                    if let Some(code) = mapped.and_then(|code| i32::try_from(code).ok()) {
+                        scanner.add_vanilla_control(code, action.event_name());
+                    }
+                }
+            }
+        }
         let mut conflict = scanner.conflict(key_code);
         if conflict.control.is_empty() {
             for (config, control) in game.mcm_custom_controls(key_code) {
@@ -725,7 +789,25 @@ impl ConfigPage {
             default_color: -1,
         });
         let object = game.object_of_form(script);
-        if let Some(Value::Array(params)) =
+        let original =
+            game.vm
+                .has_script_method(object, "SKI_ConfigBase", "RequestColorDialogData");
+        if original {
+            if !self.live_option(game, script, id, 6)
+                || game
+                    .vm
+                    .call(
+                        object,
+                        "RequestColorDialogData",
+                        &[Value::Int((id % PAGE_STRIDE) as i32)],
+                    )
+                    .is_err()
+            {
+                self.active_dialog = None;
+                return false;
+            }
+            game.run_until_idle(64);
+        } else if let Some(Value::Array(params)) =
             game.vm.get_var(object, "SKI_ConfigBase", "_colorParams")
         {
             let mut items = params.items.borrow_mut();
@@ -733,7 +815,9 @@ impl ConfigPage {
                 *color = Value::Int(-1);
             }
         }
-        game.send_event(script, "OnOptionColorOpen", &[Value::Int(option_id)]);
+        if !original {
+            game.send_event(script, "OnOptionColorOpen", &[Value::Int(option_id)]);
+        }
         if let Some(Value::Array(params)) =
             game.vm.get_var(object, "SKI_ConfigBase", "_colorParams")
         {
@@ -799,11 +883,27 @@ impl ConfigPage {
         let Ok(option_id) = i32::try_from(id) else {
             return false;
         };
-        game.send_event(
-            script,
-            "OnOptionColorAccept",
-            &[Value::Int(option_id), Value::Int(color)],
-        );
+        let object = game.object_of_form(script);
+        if game
+            .vm
+            .has_script_method(object, "SKI_ConfigBase", "SetColorValue")
+        {
+            if !self.live_option(game, script, id, 6)
+                || game
+                    .vm
+                    .call(object, "SetColorValue", &[Value::Int(color)])
+                    .is_err()
+            {
+                return false;
+            }
+            game.run_until_idle(64);
+        } else {
+            game.send_event(
+                script,
+                "OnOptionColorAccept",
+                &[Value::Int(option_id), Value::Int(color)],
+            );
+        }
         self.active_dialog = None;
         true
     }
@@ -839,6 +939,61 @@ impl ConfigPage {
             return false;
         };
         *current = key_code;
+        true
+    }
+
+    fn live_option(&self, game: &mut Game, script: GlobalFormId, id: u32, option_type: u8) -> bool {
+        game.mcm_active_config() == Some(script)
+            && game.mcm_page_number() == Some(id / PAGE_STRIDE)
+            && game.mcm_options().iter().any(|option| {
+                option.index == id % PAGE_STRIDE
+                    && option.option_type == option_type
+                    && option.flags.trailing_zeros() >= 2
+            })
+    }
+
+    /// Option whose dialog currently owns input.
+    #[must_use]
+    pub fn dialog_option(&self) -> Option<u32> {
+        self.active_dialog.map(|dialog| match dialog {
+            ActiveDialog::Slider(id)
+            | ActiveDialog::Menu(id)
+            | ActiveDialog::KeyMap(id)
+            | ActiveDialog::Color { id, .. } => id,
+        })
+    }
+
+    /// Open a key capture without changing the script's option value.
+    pub fn open_keymap_dialog(&mut self, game: &mut Game, script: GlobalFormId, id: u32) -> bool {
+        if self.active_dialog.is_some()
+            || !self.accepts_callback(id, |kind| matches!(kind, OptionKind::KeyMap { .. }))
+        {
+            return false;
+        }
+        let object = game.object_of_form(script);
+        if game
+            .vm
+            .has_script_method(object, "SKI_ConfigBase", "RemapKey")
+            && !self.live_option(game, script, id, 7)
+        {
+            return false;
+        }
+        self.active_dialog = Some(ActiveDialog::KeyMap(id));
+        true
+    }
+
+    /// Whether the open dialog is waiting for an input binding.
+    #[must_use]
+    pub fn is_keymap_dialog(&self) -> bool {
+        matches!(self.active_dialog, Some(ActiveDialog::KeyMap(_)))
+    }
+
+    /// Cancel any active dialog without sending an acceptance callback.
+    pub fn cancel_active_dialog(&mut self, id: u32) -> bool {
+        if self.dialog_option() != Some(id) {
+            return false;
+        }
+        self.active_dialog = None;
         true
     }
 

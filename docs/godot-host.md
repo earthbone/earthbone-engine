@@ -6070,34 +6070,42 @@ routes slider and menu selection and acceptance to those callbacks. The
 
 ### MCM color and key-map options, UI-13
 
-`ConfigPage` adds integer color and key-map rows. A key remap sends
-`OnOptionKeyMapChange(option, keyCode, conflictControl, conflictName)` to the
-configured script, including empty conflict strings when no conflict exists.
-The callback does not change the row value. The config script can apply its
-decision with `set_keymap_value`. Opening a color dialog sends
-`OnOptionColorOpen(option)`, and accepting the active dialog sends
-`OnOptionColorAccept(option, color)`. The config script applies an accepted
-value with `set_color_value`. A color dialog starts with SkyUI's `-1` start and
-default colors. Its active dialog setters model `SetColorDialogStartColor` and
-`SetColorDialogDefaultColor`. Cancel clears the active dialog without sending
-an accept callback or changing the row. Disabled and hidden options reject
-these callbacks. The callback names and argument order follow the local
-SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
-`SKI_ConfigManager.psc`. `KeyConflictScanner::from_bindings` derives vanilla
-conflicts from the active gameplay `Bindings`, including every key in a chord
-and the keyboard, mouse and gamepad columns. `remap_key_live` checks those
-bindings first, then asks each registered MCM config to run its
-`GetCustomControl(keyCode)` method in registration order. It reports the first
-nonempty custom control with that config's `ModName`. The older scanner
-constructor and `remap_key_scanned` remain available for focused callers and
-fixtures. After `OnOptionColorOpen` settles, the host reads the attached
-`SKI_ConfigBase` script's `_colorParams` array. Its first two integer entries
-set the dialog's start and default colors, matching calls to
-`SetColorDialogStartColor` and `SetColorDialogDefaultColor`. Missing or
-non-integer entries leave the corresponding `-1` default in place. Synthetic
-tests cover active binding discovery, registered script calls, callback
-eligibility, conflict precedence, Papyrus color setters, acceptance and
-cancellation without Skyrim data.
+The live `ConfigPage` projects color and key-map rows from the original
+framework's UI calls, preserving sparse page IDs and flags. Selecting a color
+calls `RequestColorDialogData`, which initializes SkyUI's dialog state and
+routes ordinary or state-option callbacks. The host reads the settled
+`_colorParams` array, including the `-1` sentinel for unspecified values.
+Acceptance calls `SetColorValue`, preserving the original framework's
+`OnOptionColorAccept` and `OnColorAcceptST` dispatch and state restoration.
+
+`godot/ui/mcm_dialog.gd` uses Godot's ColorPicker inside a ConfirmationDialog.
+Default changes the pending picker value. Cancel and Escape close the dialog
+without an acceptance callback. Key-map dialogs capture keyboard, mouse and
+gamepad inputs and pass SKSE macro codes to the original `RemapKey` method.
+Live conflicts use the active control map first, then registered configs'
+`GetCustomControl` results in registration order. The numbering comes from
+local CommonLibSSE-NG `SKSE/InputMap.h` and `InputMap.cpp`. Existing device
+translation tables provide Godot indices. The separate older scanner API
+continues to serve callers that supply raw control-map codes.
+
+The script retains authority over accepted values. Hidden, disabled,
+closed-config and stale-page callbacks are rejected. Only the active dialog
+can accept once. Closing or switching the page removes its native window.
+The fixed menu control tree gains one temporary dialog, not a node for any
+placed reference. It adds no saved state or dependency.
+
+SkyUI's `SKI_ConfigBase.psc`, `SKI_ConfigManager.psc` and
+`ModConfigPanel/ColorDialog.as` supplied the protocol. The native layout and
+controls are independently authored. Tests load the installed unmodified
+framework PEX outside the checkout with a small authored child config.
+They cover ordinary and state-based callbacks, start/default setters,
+cancellation, conflict precedence, script-authored updates and stale input.
+Generated window captures and logs are retained under `target/ui-13`.
+
+On 2026-10-17, 29 protocol checks pass, including the installed original
+SkyUI framework and state callbacks. Game and host library runs report 1334
+and 531 passes. The native-window check and the final clippy rerun remain
+queued on shared resources. UI-13 remains in progress until they complete.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
@@ -6110,9 +6118,8 @@ Native presenters use PlayerNode::game and game_mut to read and mutate the
 shared form-backed runtime. menu_content exposes a Control container owned by
 the framework. menu_opened and menu_closed signals run after their state change
 through gdext's reentrant base guard, allowing callbacks to inspect PlayerNode.
-Dialogue and MCM presenters remain unimplemented and can use this shell with
-Crafting and MCM are not implemented here. Their menus can use this shell and
-their existing gameplay APIs.
+The dialogue, crafting and MCM presenters use this shell and their shared
+Game APIs.
 
 The inventory presenter now uses this shell. It renders the SkyUI categories
 All, Weapons, Apparel, Potions, Scrolls, Food, Ingredients, Books, Keys and
