@@ -1,3 +1,33 @@
+## Surface emission, RND-49, 2026-10-17
+
+Preview3 adds constant radiance after diffuse texture modulation. Local
+Community Shaders `Lighting.hlsl` instead adds `emitColor` to `diffuseColor`
+before multiplying by `material.BaseColor`. The host now uses that same
+multiplication for emitting lighting materials, including the private
+animated shader path. Emitting ordinary surfaces select the existing
+lighting shader so both paths preserve diffuse detail and glow map masks.
+Authored emissive color, multiple and texture resolution retain their values.
+
+`r4_emission_fixture_preserves_diffuse_modulation` writes two independent
+NIFs and a diffuse map with 128 and 32 grey texels. `r4_emission_test.gd`
+requires linear red values 0.1079 and 0.0072 at emission strength 0.5, with
+errors below 0.02 and 0.01. Preview3 fails both material paths with 0.5029 at
+both samples. The corrected debug extension passes both paths with 0.1095
+and 0.0070. The host library passes 597 tests with installed data unset.
+Package formatting and all-target Clippy with warnings denied pass.
+Godot uses Forward+ on Xvfb :99 with llvmpipe. The unchanged refraction
+shader also preserves a flat background across nine exposure combinations,
+with zero measured channel difference, rejecting double exposure as the
+central halo's cause.
+
+The extracted installed candle sconce and chandelier render without clipped
+white pixels under the fixture's fixed lighting. Gameplay exposure, flame
+presentation and the full window appearance still need cell acceptance.
+The shared installed-data lock blocks the free-walk baseline and full survey.
+The release build waits on its own shared lock. These results establish the
+surface equation correction, without certifying the complete Round 4 scene.
+The existing shader path adds no reference nodes, dependency or saved state.
+
 ## Central campfire glow, RND-52, 2026-10-17
 
 The central Bannered Mare fire is `Campfire01Burning`, reference `0:05D691`

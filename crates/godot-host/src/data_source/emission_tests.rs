@@ -200,3 +200,121 @@ fn emission_fixture_preserves_authored_material_and_gates_shared_texture_slot() 
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn r4_installed_light_material_survey() {
+    let Some(directory) = std::env::var_os("SKYRIM_DATA") else {
+        return;
+    };
+    let source = DataSource::open(Path::new(&directory)).unwrap();
+    let cell = source.resolve_cell("WhiterunBanneredMare").unwrap();
+    let mut models = std::collections::BTreeSet::new();
+    for id in source.cell_index().references(cell) {
+        let Some(reference) = source.order.winner_ref(*id) else {
+            continue;
+        };
+        let record = source.order.record(reference);
+        if record.tag != tag::REFR {
+            continue;
+        }
+        let refr = soe_esm::records::refr::Refr::from_record(record).unwrap();
+        let Some(base) = source
+            .order
+            .winner(source.order.resolve(reference.file, refr.base))
+        else {
+            continue;
+        };
+        let model = super::model_for(base).or_else(|| {
+            base.find(soe_esm::Tag::new(b"MODL"))
+                .map(soe_esm::cursor::zstring)
+        });
+        if base.tag == soe_esm::Tag::new(b"LIGH") {
+            eprintln!(
+                "R4 LIGH {:?} {:?} {:?}",
+                base.editor_id(),
+                refr.transform,
+                base.find(soe_esm::Tag::new(b"DATA"))
+            );
+        }
+        if let Some(model) = model {
+            if ["fire", "candle", "brazier", "torch", "wrinterior"]
+                .iter()
+                .any(|s| model.to_ascii_lowercase().contains(s))
+            {
+                eprintln!("R4 placement {model} {:?}", refr.transform);
+                models.insert(model);
+            }
+        }
+    }
+    for model in models {
+        let bytes = source.vfs.read(&format!("meshes/{model}")).unwrap();
+        let file = soe_nif::parse(&bytes).unwrap();
+        for mesh in file.meshes().unwrap() {
+            eprintln!("R4 shape {model} {} {:?}", mesh.name, mesh.material);
+        }
+        for (arrays, textures) in source.item_preview_surfaces(&model).unwrap() {
+            eprintln!(
+                "R4 texture {model} {:?} diffuse={} glow={}",
+                arrays.material.diffuse,
+                textures.diffuse.is_some(),
+                textures.glow.is_some()
+            );
+        }
+    }
+}
+
+#[test]
+fn r4_emission_fixture_preserves_diffuse_modulation() {
+    let temporary = tempfile::tempdir().unwrap();
+    let exported = std::env::var_os("SOE_R4_EMISSION_FIXTURE");
+    let directory = exported
+        .as_deref()
+        .map(Path::new)
+        .unwrap_or(temporary.path());
+    fixture(directory);
+    let mut albedo = glow_dds();
+    let start = albedo.len() - 32;
+    albedo[start..start + 16].copy_from_slice(&[128_u8, 128, 128, 255].repeat(4));
+    albedo[start + 16..].copy_from_slice(&[32_u8, 32, 32, 255].repeat(4));
+    std::fs::write(directory.join("textures/albedo.dds"), albedo).unwrap();
+    for decal in [false, true] {
+        let mut writer = fixture::NifWriter::new(100);
+        let textures = writer.texture_set(&["textures/albedo.dds"]);
+        let textures = writer.add("BSShaderTextureSet", textures);
+        let shader = writer.lighting_shader_emission(
+            0,
+            flags1::ZBUFFER_TEST | flags1::OWN_EMIT | if decal { flags1::DECAL } else { 0 },
+            flags2::DOUBLE_SIDED,
+            textures,
+            [1.0, 0.0, 0.0, 0.5],
+            &[],
+        );
+        let shader = writer.add("BSLightingShaderProperty", shader);
+        let (mut vertices, triangles) = fixture::quad();
+        for vertex in &mut vertices {
+            for axis in &mut vertex.position {
+                *axis *= 70.0;
+            }
+        }
+        let bytes = writer.bs_tri_shape(
+            "EmittingSurface",
+            [0.0; 3],
+            -1,
+            shader,
+            -1,
+            attr::VERTEX | attr::UVS | attr::NORMALS,
+            &vertices,
+            &triangles,
+            true,
+        );
+        let shape = writer.add("BSTriShape", bytes);
+        writer.roots = vec![shape];
+        let name = format!("r4-emission-{}.nif", u8::from(decal));
+        std::fs::write(directory.join("meshes").join(&name), writer.finish()).unwrap();
+        let source = DataSource::open(directory).unwrap();
+        let surfaces = source.item_preview_surfaces(&name).unwrap();
+        assert_eq!(surfaces.len(), 1);
+        assert!(surfaces[0].0.material.emits_light());
+        assert!(surfaces[0].1.diffuse.is_some());
+    }
+}

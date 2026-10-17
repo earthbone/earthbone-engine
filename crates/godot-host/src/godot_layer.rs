@@ -5836,6 +5836,7 @@ fn material_for(
     } else if desc.landscape_lod_normals() {
         landscape_lod_material(desc, textures, &mut cache.textures, &cache.shaders).upcast()
     } else if desc.decal_depth().is_some()
+        || desc.emits_light()
         || desc.environment_texture().is_some()
         || desc.texture_transform.is_some()
     {
@@ -6227,7 +6228,7 @@ pub(crate) fn decal_shader(desc: &MaterialDesc) -> String {
         ""
     };
     let emission = if desc.emits_light() {
-        "EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, uv).rgb;"
+        "EMISSION = color.rgb * emission_color.rgb * emission_strength * texture(glow_texture, uv).rgb;"
     } else {
         ""
     };
