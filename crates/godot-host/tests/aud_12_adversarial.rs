@@ -145,6 +145,12 @@ func run() -> void:
 	if warm_voice < 0:
 		failures.append("small voice decode stopped working")
 	else:
+		# The decode runs on a worker (f2fd5bac0). Let it install before the
+		# cached path baselines are taken, then stop the warm-up voice.
+		for _frame in range(600):
+			if (bank.get_child(warm_voice) as AudioStreamPlayer3D).stream != null:
+				break
+			await process_frame
 		bank.call("stop_voice", warm_voice)
 	var effects_before := int(bank.call("effect_start_count"))
 	var voices_before := int(bank.call("voice_start_count"))
