@@ -42,7 +42,7 @@ use crate::sound_decode::{OneShotDecoder, PreparedSound};
 /// Vanilla's own limit is far higher, but nothing here yet drives enough
 /// emitters to need it, and a small pool makes the stealing rule observable
 /// rather than theoretical.
-const SLOTS: usize = 16;
+const SLOTS: usize = 32;
 const CACHE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
