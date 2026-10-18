@@ -56,6 +56,7 @@ pub fn contact_annotation_triggers(graph: &mut BehaviorGraph, clips: &ClipLibrar
                     | "bowDrawn"
                     | "bowEnd"
             ) && !annotation.text.starts_with("SoundPlay.")
+                && !annotation.text.starts_with("Foot")
             {
                 continue;
             }
