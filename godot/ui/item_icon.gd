@@ -188,8 +188,12 @@ static func painted_mesh(source: Mesh) -> Mesh:
 	for surface in range(source.get_surface_count()):
 		var arrays := source.surface_get_arrays(surface)
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-		var paint := Color(1, 1, 1, 0)
 		var material := source.surface_get_material(surface) as ShaderMaterial
+		# A surface with no shader material carries no SWF paint and keeps the
+		# plain white a mesh draws with. A bitmap paint has no flat colour.
+		var paint := Color.WHITE
+		if material != null and material.shader != null:
+			paint = Color(1, 1, 1, 0)
 		if material != null and material.shader != null and not "texture(bitmap" in material.shader.code:
 			var sum := Vector4.ZERO
 			var count := 0
