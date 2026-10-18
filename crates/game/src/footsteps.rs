@@ -117,6 +117,31 @@ impl<'a> Footsteps<'a> {
         Ok(found)
     }
 
+    /// Every material hash with the one MATT record that names it, read in a
+    /// single pass, plus the hashes two records share. A shared hash is left
+    /// out of the table so `material` still reports the ambiguity when asked.
+    #[must_use]
+    pub fn material_table(&self) -> (std::collections::HashMap<u32, GlobalFormId>, BTreeSet<u32>) {
+        let mut table = std::collections::HashMap::new();
+        let mut shared = BTreeSet::new();
+        for (id, record) in self.order.winners_of(T(b"MATT")) {
+            if record.is_deleted() {
+                continue;
+            }
+            let Some(name) = record.find(T(b"MNAM")) else {
+                continue;
+            };
+            let hash = material_name_hash(name);
+            if table.insert(hash, id).is_some() {
+                shared.insert(hash);
+            }
+        }
+        for hash in &shared {
+            table.remove(hash);
+        }
+        (table, shared)
+    }
+
     /// Match only the requested animation tag in the requested movement group.
     /// Empty groups and null impact links are silent, not random substitutes.
     pub fn impacts(

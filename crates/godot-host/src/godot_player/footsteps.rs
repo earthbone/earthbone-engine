@@ -113,6 +113,16 @@ impl PlayerNode {
         let Some(source) = self.data_source.clone() else {
             return;
         };
+        if !self.footstep_materials_loaded {
+            let order = source.shared_order();
+            let (table, shared) = Footsteps::new(&order).material_table();
+            self.footstep_materials = table
+                .into_iter()
+                .map(|(hash, id)| (hash, Some(id)))
+                .collect();
+            self.footstep_shared_materials = shared;
+            self.footstep_materials_loaded = true;
+        }
         if self.sound_bank.is_none() {
             let mut bank = crate::godot_audio::SoundBank::new_alloc();
             bank.set_name("SoundBank");
@@ -373,7 +383,19 @@ impl PlayerNode {
             };
             let sets = game.world_mut().footstep_sets(actor)?;
             let material = match material {
-                Some(hash) => steps.material(hash)?,
+                Some(hash) => match self.footstep_materials.get(&hash) {
+                    Some(found) => *found,
+                    None if self.footstep_materials_loaded
+                        && !self.footstep_shared_materials.contains(&hash) =>
+                    {
+                        None
+                    }
+                    None => {
+                        let found = steps.material(hash)?;
+                        self.footstep_materials.insert(hash, found);
+                        found
+                    }
+                },
                 None => steps.default_object(*b"DLMT")?,
             };
             let Some(material) = material else {

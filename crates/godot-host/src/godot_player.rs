@@ -218,6 +218,13 @@ pub struct PlayerNode {
     footstep_cadence: crate::audio::FootstepCadence,
     footstep_count: u64,
     footstep_errors: u64,
+    /// Material hash to its MATT record. The lookup scans the load order, so
+    /// resolving it once per material keeps a footstep off a 17 ms path.
+    footstep_materials: std::collections::HashMap<u32, Option<soe_esm::GlobalFormId>>,
+    /// Hashes two MATT records share. Only these still take the slow lookup
+    /// that reports the ambiguity.
+    footstep_shared_materials: std::collections::BTreeSet<u32>,
+    footstep_materials_loaded: bool,
     footstep_history: std::collections::VecDeque<VarDictionary>,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
     door_collision_revisions: std::collections::BTreeMap<GlobalFormId, u64>,
@@ -390,6 +397,9 @@ impl INode3D for PlayerNode {
             footstep_cadence: crate::audio::FootstepCadence::default(),
             footstep_count: 0,
             footstep_errors: 0,
+            footstep_materials: std::collections::HashMap::new(),
+            footstep_shared_materials: std::collections::BTreeSet::new(),
+            footstep_materials_loaded: false,
             footstep_history: std::collections::VecDeque::new(),
             game_streamer: None,
             door_collision_revisions: std::collections::BTreeMap::new(),
