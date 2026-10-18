@@ -34,6 +34,15 @@ func _check(ok: bool, message: String) -> void:
         failures += 1
         printerr("FAIL round4_harvest_take: ", message)
 
+func _rows_pending(node: Node) -> bool:
+    if node.get("next_row") != null and node.get("visible_rows") != null:
+        if int(node.get("next_row")) < (node.get("visible_rows") as Array).size() or bool(node.get("sort_pending")) or bool(node.get("selection_pending")):
+            return true
+    for child in node.get_children():
+        if _rows_pending(child):
+            return true
+    return false
+
 func _labels(node: Node) -> String:
     var result := ""
     if node is Label:
@@ -99,6 +108,10 @@ func _check_items() -> void:
             _check(not pose.is_empty() and not pose.visible, "normal plant geometry replaced: " + row.name)
         _check(player.call("open_inventory_menu"), "inventory opens")
         await process_frame
+        for _frame in 900:
+            if not _rows_pending(player):
+                break
+            await process_frame
         _check(_labels(player).contains(row.produce_name), "inventory menu shows " + row.produce_name)
         player.call("close_menu")
         print("round4_harvest_take ", row.name, " count ", before, " -> ", after)
