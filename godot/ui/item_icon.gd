@@ -171,6 +171,43 @@ func _collect(source: Dictionary, instances: Array, transform: Transform2D, dept
 			if not timeline.get("frames", []).is_empty():
 				_collect(target, timeline.frames[0].display_list, local, depth + 1)
 
+static var painted_meshes: Dictionary = {}
+static var paint_pattern: RegEx
+
+## draw_mesh ignores surface materials, so a converted shape would draw solid
+## white. This copy bakes each surface's SWF paint into vertex colours: the
+## solid colour, or the mean of the stops for a gradient. A bitmap paint has no
+## flat colour and stays transparent.
+static func painted_mesh(source: Mesh) -> Mesh:
+	var id := source.get_instance_id()
+	if painted_meshes.has(id):
+		return painted_meshes[id]
+	if paint_pattern == null:
+		paint_pattern = RegEx.create_from_string("vec4\\(([-0-9.e]+),([-0-9.e]+),([-0-9.e]+),([-0-9.e]+)\\)")
+	var result := ArrayMesh.new()
+	for surface in range(source.get_surface_count()):
+		var arrays := source.surface_get_arrays(surface)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var paint := Color(1, 1, 1, 0)
+		var material := source.surface_get_material(surface) as ShaderMaterial
+		if material != null and material.shader != null and not "texture(bitmap" in material.shader.code:
+			var sum := Vector4.ZERO
+			var count := 0
+			for found in paint_pattern.search_all(material.shader.code):
+				sum += Vector4(float(found.get_string(1)), float(found.get_string(2)), float(found.get_string(3)), float(found.get_string(4)))
+				count += 1
+			if count > 0:
+				sum /= count
+				paint = Color(sum.x, sum.y, sum.z, sum.w)
+		var colors := PackedColorArray()
+		colors.resize(vertices.size())
+		colors.fill(paint)
+		arrays[Mesh.ARRAY_COLOR] = colors
+		result.add_surface_from_arrays(source.surface_get_primitive_type(surface), arrays)
+	result.set_meta("swf_bounds", source.get_meta("swf_bounds", Rect2()))
+	painted_meshes[id] = result
+	return result
+
 func _draw() -> void:
 	if texture != null:
 		draw_texture_rect(texture, Rect2(Vector2.ONE * 2, size - Vector2.ONE * 4), false)
@@ -185,9 +222,10 @@ func _draw() -> void:
 		fit.origin = size * 0.5 - art_bounds.get_center() * scale_xy
 		# Installed SWF art keeps the colours its author drew. The tint only
 		# darkens the bundled fallback shapes.
-		var tint := Color.WHITE if art_source.begins_with("interface/") else art_color
+		var installed := art_source.begins_with("interface/")
+		var tint := Color.WHITE if installed else art_color
 		for part in meshes:
-			draw_mesh(part.mesh, null, fit * part.transform, tint)
+			draw_mesh(painted_mesh(part.mesh) if installed else part.mesh, null, fit * part.transform, tint)
 		return
 	if icon_name == "sort_arrow":
 		var half := minf(size.x, size.y) * 0.5
