@@ -31,6 +31,13 @@ fn placed(kind: [u8; 4], id: u32, base: u32, position: [f32; 3]) -> Record {
         .sub(T(b"DATA"), data)
 }
 
+/// AIDT with confidence 4. Combat acquisition skips cowardly actors (confidence 0).
+fn steady_ai_data() -> Vec<u8> {
+    let mut data = vec![0, 4, 70, 1, 3, 2, 0, 0];
+    data.extend_from_slice(&[0; 12]);
+    data
+}
+
 pub(crate) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> {
     let mut plugin = Plugin::new(FileHeader::default());
     let template = package::build_template(TEMPLATE, "StressTravelTemplate");
@@ -61,7 +68,8 @@ pub(crate) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> 
             npc::Config::default(),
             npc::Stats::default(),
         )
-        .sub(T(b"PKID"), PACKAGE.to_le_bytes()),
+        .sub(T(b"PKID"), PACKAGE.to_le_bytes())
+        .sub(T(b"AIDT"), steady_ai_data()),
     );
     plugin.push_top(
         npc::build_record(

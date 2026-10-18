@@ -68,7 +68,10 @@ fn prf_27_permanent_phases_cover_packages_schedules_sandbox_and_steering() {
 fn reaction_game() -> soe_game::Game {
     use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+    // Confidence 4: combat acquisition skips cowardly actors (confidence 0).
+    let mut ai_data = vec![0, 4, 70, 1, 3, 2, 0, 0];
+    ai_data.extend_from_slice(&[0; 12]);
+    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800).sub(Tag(*b"AIDT"), ai_data));
     for actor in [0x14u32, 0x801] {
         plugin
             .push_top(Record::new(Tag(*b"ACHR"), actor).sub(Tag(*b"NAME"), 0x800u32.to_le_bytes()));
