@@ -1237,7 +1237,7 @@ impl World {
                 }
                 Some([b'B', b'O', b'O', b'K'])
                     if base.is_some_and(|book| !self.book_can_be_taken(book)) => {}
-                _ if base.is_some_and(|base| self.is_inventory_base(base)) => {
+                _ if base.is_some_and(|base| self.is_takeable_base(base)) => {
                     process = self.pickup_reference_notified(activator, target, alloc);
                 }
                 _ => {}

@@ -334,6 +334,20 @@ impl World {
         Stack::new(count, extras).ok()
     }
 
+    /// Whether activating a placed reference of this base takes it. A light
+    /// is taken only when its DATA flags mark it carryable.
+    pub(crate) fn is_takeable_base(&self, item: GlobalFormId) -> bool {
+        self.is_inventory_base(item)
+            && self.record(item).is_some_and(|record| {
+                record.tag.as_bytes() != b"LIGH"
+                    || record
+                        .find(T(b"DATA"))
+                        .and_then(|data| data.get(12..16))
+                        .and_then(super::le_u32)
+                        .is_some_and(|flags| flags & 2 != 0)
+            })
+    }
+
     /// Base forms supported by inventory stacks, from xEdit's item lists.
     pub(crate) fn is_inventory_base(&self, item: GlobalFormId) -> bool {
         if self.brewed_potions.contains_key(&item) {
@@ -341,12 +355,6 @@ impl World {
         }
         self.record(item).is_some_and(|record| {
             !record.is_deleted()
-                && (record.tag.as_bytes() != b"LIGH"
-                    || record
-                        .find(T(b"DATA"))
-                        .and_then(|data| data.get(12..16))
-                        .and_then(super::le_u32)
-                        .is_some_and(|flags| flags & 2 != 0))
                 && matches!(
                     record.tag.as_bytes(),
                     b"ALCH"
