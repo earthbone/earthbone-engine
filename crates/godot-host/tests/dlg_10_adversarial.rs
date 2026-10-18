@@ -94,17 +94,17 @@ fn game() -> Game {
 }
 
 #[test]
-fn dlg_10_choices_are_stably_sorted_and_use_topic_name_when_prompt_is_missing() {
+fn dlg_10_choices_are_stable_and_unnamed_topics_are_omitted() {
     let mut game = game();
     let first = entries(&mut game).unwrap();
     let second = entries(&mut game).unwrap();
     assert_eq!(first, second);
+    // A topic without a prompt or name is not offered (bb1bd6b37).
     assert_eq!(
         first.iter().map(|entry| entry.topic).collect::<Vec<_>>(),
-        vec![id(TOPIC_A), id(TOPIC_B)]
+        vec![id(TOPIC_B)]
     );
-    assert_eq!(first[0].label, "0:000900");
-    assert_eq!(first[1].label, "Second topic");
+    assert_eq!(first[0].label, "Second topic");
 }
 
 #[test]
