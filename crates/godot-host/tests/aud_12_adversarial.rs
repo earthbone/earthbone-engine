@@ -161,6 +161,12 @@ func run() -> void:
 		failures.append("cached short effect or voice request blocked %.2f/%.2f ms" % [effect_ms, voice_ms])
 	if int(bank.call("decoded_count")) != decoded_before_short:
 		failures.append("cached effect or voice path decoded again")
+	# The request returns at once and the worker result is installed on a later
+	# frame (f2fd5bac0), so the start counters advance after a few frames.
+	for _frame in range(600):
+		if int(bank.call("effect_start_count")) >= effects_before + 1 and int(bank.call("voice_start_count")) >= voices_before + 1:
+			break
+		await process_frame
 	if int(bank.call("effect_start_count")) != effects_before + 1 or int(bank.call("voice_start_count")) != voices_before + 1:
 		failures.append("effect and voice start counters did not advance")
 	for path in ["music/aud12_cap_a.wav", "music/aud12_cap_b.wav"]:
