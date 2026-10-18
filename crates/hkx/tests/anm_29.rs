@@ -47,6 +47,7 @@ fn graph(
     b.ptr(wrapper, 80, machine);
     b.string(machine, 56, "StateMachine");
     b.set_i32(machine, 104, current_state);
+    b.set_i32(machine, 124, -1);
     b.set_i8(machine, 133, 32);
     let state = b.object("hkbStateMachineStateInfo", 120);
     b.string(state, 96, "Current");
