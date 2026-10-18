@@ -7,6 +7,11 @@ use soe_game::footsteps::{Footsteps, Gait};
 use soe_physics::{PhysicsWorld, Vec3};
 
 use super::PlayerNode;
+
+/// Skyrim units beyond which an NPC footstep is not played. Without a cut the
+/// sound pool fills with steps nobody can hear and the player's own step is
+/// refused.
+const NPC_FOOTSTEP_RANGE: f32 = 1024.0;
 use crate::input::InputState;
 
 impl PlayerNode {
@@ -323,6 +328,9 @@ impl PlayerNode {
             });
             let point = crate::units::GodotPos::new(point.x, point.y, point.z).to_skyrim();
             let point = Vec3::new(point.x, point.y, point.z);
+            if actor != player && (self.feet() - point).length() > NPC_FOOTSTEP_RANGE {
+                continue;
+            }
             let hit = self
                 .world
                 .as_ref()
@@ -464,7 +472,12 @@ impl PlayerNode {
                     }
                 } else {
                     self.footstep_errors += 1;
-                    soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep playback failed");
+                    let reason = self
+                        .sound_bank
+                        .as_ref()
+                        .map(|bank| bank.bind().last_error().to_string())
+                        .unwrap_or_default();
+                    soe_trace::error!(target: "host::footsteps", system = "host::footsteps", "footstep playback failed for {sound}: {reason}");
                 }
             }
         }
