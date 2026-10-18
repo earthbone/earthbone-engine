@@ -51,6 +51,12 @@ func _run() -> void:
 		quit(1)
 		return
 	var player := bank.get_child(slot) as AudioStreamPlayer3D
+	# One-shots are prepared on a worker thread (f2fd5bac0), so the player
+	# starts a few frames after play_voice returns.
+	var waited := 0
+	while not player.playing and waited < 600:
+		await process_frame
+		waited += 1
 	_check(player.playing, "SoundBank voice player is not playing")
 	player.play(0.55)
 	var sampled := false
