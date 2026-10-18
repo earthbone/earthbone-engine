@@ -3784,6 +3784,9 @@ fn step_procedure(
             }
             if matches!(ai.procedure, Procedure::Travel | Procedure::Flee) {
                 tree::succeeded(world, &mut ai);
+            } else if ai.procedure == Procedure::Sit {
+                world.leave_furniture(actor);
+                tree::succeeded(world, &mut ai);
             }
             if ai.procedure == Procedure::ForceGreet {
                 ai.arrived = true;
