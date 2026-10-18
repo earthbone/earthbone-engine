@@ -53,6 +53,14 @@ func _captured_peak(capture: AudioEffectCapture) -> float:
 		peak = maxf(peak, maxf(absf(sample.x), absf(sample.y)))
 	return peak
 
+## One-shots are prepared on a worker thread (f2fd5bac0), so a player starts a
+## few frames after play_voice returns.
+func _wait_until_playing(player: AudioStreamPlayer3D) -> void:
+	var waited := 0
+	while not player.playing and waited < 600:
+		await process_frame
+		waited += 1
+
 func _wait_for_peak(capture: AudioEffectCapture, player: AudioStreamPlayer3D) -> float:
 	var deadline := Time.get_ticks_msec() + ceili((player.stream.get_length() + 1.0) * 1000.0)
 	var peak := 0.0
@@ -110,6 +118,7 @@ func _run() -> void:
 		_finish(1)
 		return
 	var first_player := _bank.get_child(first_slot) as AudioStreamPlayer3D
+	await _wait_until_playing(first_player)
 	_check(first_player.playing, "first AudioStreamPlayer3D is not playing")
 	_check(first_player.position.is_equal_approx(first_position), "first voice is not at the speaker position")
 	var first_peak: float = await _wait_for_peak(_capture, first_player)
@@ -127,6 +136,7 @@ func _run() -> void:
 		_finish(1)
 		return
 	var second_player := _bank.get_child(second_slot) as AudioStreamPlayer3D
+	await _wait_until_playing(second_player)
 	_check(second_player.playing, "replacement AudioStreamPlayer3D is not playing")
 	_check(second_player.position.is_equal_approx(second_position), "replacement voice is not at the speaker position")
 	var second_peak: float = await _wait_for_peak(_capture, second_player)
