@@ -236,7 +236,11 @@ impl ResidentDoor {
             server.free_rid(surface.rid);
             drop(surface.mesh);
         }
-        self.node.free();
+        // Freeing a child sends the streamer a child-order notification that
+        // godot-rust dispatches through a bind of the streamer. Every caller
+        // already holds that bind, so free after the call returns.
+        let mut node = self.node;
+        node.queue_free();
     }
 }
 
