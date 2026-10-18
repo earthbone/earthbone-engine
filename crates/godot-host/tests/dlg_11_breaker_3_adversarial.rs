@@ -217,6 +217,16 @@ func _run() -> void:
 		quit(1)
 		return
 	var player := bank.get_child(slot) as AudioStreamPlayer3D
+	# The one-shot is prepared on a worker thread (f2fd5bac0), so the player
+	# starts a few frames after play_voice returns. Wait for it to play.
+	var waited := 0
+	while not player.playing and waited < 600:
+		await process_frame
+		waited += 1
+	if not player.playing:
+		printerr("voice never started playing")
+		quit(1)
+		return
 	if not player.global_position.is_equal_approx(expected):
 		printerr("voice moved from speaker: expected ", expected, " got ", player.global_position)
 		quit(1)
