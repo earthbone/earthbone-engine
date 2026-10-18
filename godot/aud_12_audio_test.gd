@@ -28,6 +28,11 @@ func _run() -> void:
 	var effect := int(bank.call("play_effect", "music/first.wav", Vector3.ZERO))
 	var voice := int(bank.call("play_voice", "music/first.wav", Vector3.ZERO))
 	check(effect >= 0 and voice >= 0, "effects and voices keep synchronous playback")
+	# The slot is reserved at once and the worker prepared stream is installed
+	# on a later frame (f2fd5bac0).
+	var stream_deadline := Time.get_ticks_msec() + 5_000
+	while ((bank.get_child(effect) as AudioStreamPlayer3D).stream == null or (bank.get_child(voice) as AudioStreamPlayer3D).stream == null) and Time.get_ticks_msec() < stream_deadline:
+		await process_frame
 	check((bank.get_child(effect) as AudioStreamPlayer3D).stream is AudioStreamWAV, "effect keeps WAV path")
 	check((bank.get_child(voice) as AudioStreamPlayer3D).stream is AudioStreamWAV, "voice keeps WAV path")
 	check(int(bank.call("decoded_count")) == 1, "effects and voices share their existing cache")
