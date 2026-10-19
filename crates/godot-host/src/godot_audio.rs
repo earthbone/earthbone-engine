@@ -1575,6 +1575,11 @@ struct PendingMusic {
     abrupt: bool,
 }
 
+/// Frames pushed when a feed starts. The full 16384 frame chunk cost about
+/// 1.7 ms inside the starting frame, so the first push is small and the
+/// per-frame pump fills the rest of the buffer before the mixer drains it.
+const FIRST_PUMP_FRAMES: usize = 2048;
+
 struct GeneratorFeed {
     pcm: Arc<Pcm>,
     cursor: usize,
@@ -1623,7 +1628,7 @@ impl GeneratorFeed {
                 capacity,
                 playback,
             };
-            feed.pump();
+            feed.pump_frames(FIRST_PUMP_FRAMES);
             Ok(feed)
         })();
         server.unlock();
@@ -1631,12 +1636,16 @@ impl GeneratorFeed {
     }
 
     fn pump(&mut self) -> bool {
+        self.pump_frames(16_384)
+    }
+
+    fn pump_frames(&mut self, limit: usize) -> bool {
         let available = self.playback.get_frames_available().max(0) as usize;
         let remaining = self.pcm.frames().saturating_sub(self.cursor);
         if remaining == 0 {
             return available < self.capacity;
         }
-        let frames = remaining.min(available).min(16_384);
+        let frames = remaining.min(available).min(limit);
         let channels = usize::from(self.pcm.channels);
         let samples = &self.pcm.samples[self.cursor * channels..(self.cursor + frames) * channels];
         let buffer: Vec<Vector2> = samples
