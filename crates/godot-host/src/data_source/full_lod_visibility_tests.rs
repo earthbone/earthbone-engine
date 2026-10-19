@@ -1219,3 +1219,61 @@ fn installed_tree_placement_walkthrough() {
         "{log}"
     );
 }
+
+/// Mods and Creation Club plugins make the host rebuild object LOD from the
+/// winning records instead of reading the shipped BTO. The rebuilt block over
+/// the Whiterun mountains must hold geometry like the baked one does.
+#[test]
+fn generated_object_lod_covers_installed_whiterun_mountains() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+        eprintln!(
+            "SKIP generated_object_lod_covers_installed_whiterun_mountains: SKYRIM_DATA unset"
+        );
+        return;
+    };
+    let source = DataSource::open(Path::new(&data)).unwrap();
+    let (world, _, _) = gate_landing(&source);
+    let block = crate::terrain_lod::LodBlockCoord {
+        level: crate::terrain_lod::LodLevel::L16,
+        x: 0,
+        y: -16,
+    };
+    let baked = source
+        .load_object_lod_block(world, "Tamriel", block)
+        .unwrap()
+        .unwrap();
+    let generated = source
+        .generate_object_lod_block(world, "Tamriel", block)
+        .unwrap()
+        .expect("generated mountain block has geometry");
+    let height = |block: &LoadedLodBlock| {
+        block
+            .surfaces
+            .iter()
+            .flat_map(|surface| &surface.arrays.positions)
+            .map(|position| position[1])
+            .fold(f32::MIN, f32::max)
+    };
+    eprintln!(
+        "GENERATED_LOD triangles={} baked_triangles={} peak={} baked_peak={}",
+        generated.triangles,
+        baked.triangles,
+        height(&generated),
+        height(&baked)
+    );
+    // Both blocks hold positions in the same world space, so the rebuilt
+    // block must reach as far across the block as the baked one does.
+    let reach = |block: &LoadedLodBlock, axis: usize| {
+        block
+            .surfaces
+            .iter()
+            .flat_map(|surface| &surface.arrays.positions)
+            .map(|position| position[axis])
+            .fold(f32::MIN, f32::max)
+    };
+    assert!(generated.triangles * 4 >= baked.triangles);
+    assert!(height(&generated) >= height(&baked) * 0.5);
+    for axis in [0, 2] {
+        assert!(reach(&generated, axis) >= reach(&baked, axis) * 0.5);
+    }
+}

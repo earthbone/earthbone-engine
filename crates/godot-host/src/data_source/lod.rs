@@ -553,7 +553,6 @@ impl DataSource {
         let anchor = self
             .lod_settings(world_editor_id)?
             .map_or(crate::streaming::CellCoord::new(0, 0), |s| s.sw_cell);
-        let origin = block.origin_cell();
         let mut surfaces = Vec::new();
         let mut approx_bytes = 0u64;
         let mut authored_references = 0usize;
@@ -635,20 +634,20 @@ impl DataSource {
             let Some(full_model_path) = base.model.as_deref() else {
                 continue;
             };
-            let mut model_path = lod_path.unwrap_or(full_model_path);
+            let mut model_path = meshes_path(lod_path.unwrap_or(full_model_path));
             let mut use_simplified_model = lod_path.is_none();
             let mut key = model_path.to_ascii_lowercase();
             if !parsed.contains_key(&key) {
-                match self.vfs.read(model_path) {
+                match self.vfs.read(&model_path) {
                     Ok(bytes) => {
                         parsed.insert(key.clone(), (soe_nif::parse(&bytes)?, use_simplified_model));
                     }
                     Err(soe_bsa::Error::NotFound { .. }) if !use_simplified_model => {
-                        model_path = full_model_path;
+                        model_path = meshes_path(full_model_path);
                         use_simplified_model = true;
                         key = model_path.to_ascii_lowercase();
                         if !parsed.contains_key(&key) {
-                            let bytes = match self.vfs.read(model_path) {
+                            let bytes = match self.vfs.read(&model_path) {
                                 Ok(bytes) => bytes,
                                 Err(soe_bsa::Error::NotFound { .. }) => continue,
                                 Err(error) => return Err(error.into()),
@@ -667,12 +666,8 @@ impl DataSource {
             if meshes.is_empty() {
                 continue;
             }
-            let reference_transform = reference_transform(
-                transform.position,
-                transform.rotation,
-                reference.scale,
-                origin,
-            );
+            let reference_transform =
+                reference_transform(transform.position, transform.rotation, reference.scale);
             authored_references += 1;
             let simplify = *path_requires_simplification || use_simplified_model;
             if simplify {
@@ -696,7 +691,19 @@ impl DataSource {
                 triangles += reduced.triangle_count();
                 let data =
                     super::mesh_data_from(&reduced, &reference_transform.then(&reduced.transform));
-                let arrays = build_surface(&data, MeshOptions::default())?;
+                let mut arrays = build_surface(&data, MeshOptions::default())?;
+                if arrays.material.diffuse.is_none() {
+                    // Shipped *_LOD models carry no texture slots. They are UV
+                    // mapped onto the baked object atlas of the worldspace, the
+                    // same pair the BTO files name.
+                    let world = world_editor_id.to_ascii_lowercase();
+                    arrays.material.diffuse = Some(format!(
+                        "textures/terrain/{world}/objects/{world}.objects.dds"
+                    ));
+                    arrays.material.normal = Some(format!(
+                        "textures/terrain/{world}/objects/{world}.objects_n.dds"
+                    ));
+                }
                 let textures = self.textures.resolve(&self.vfs, &arrays.material);
                 surfaces.push(LoadedSurface {
                     animation: None,
@@ -723,6 +730,21 @@ impl DataSource {
             source_approx_bytes,
             simplified_references,
         }))
+    }
+}
+
+/// The archive path of a model named by a STAT record. MODL and MNAM paths
+/// are relative to `meshes`, so reading one without the prefix finds nothing.
+/// A path that already carries the prefix is kept.
+fn meshes_path(model: &str) -> String {
+    let normal = model.replace('\\', "/");
+    if normal
+        .get(..7)
+        .is_some_and(|head| head.eq_ignore_ascii_case("meshes/"))
+    {
+        normal
+    } else {
+        format!("meshes/{normal}")
     }
 }
 
@@ -765,12 +787,7 @@ fn remap_vertices<T: Clone>(source: &[T], indices: &[usize]) -> Vec<T> {
     indices.iter().map(|&index| source[index].clone()).collect()
 }
 
-fn reference_transform(
-    position: [f32; 3],
-    rotation: [f32; 3],
-    scale: f32,
-    origin: crate::streaming::CellCoord,
-) -> NifTransform {
+fn reference_transform(position: [f32; 3], rotation: [f32; 3], scale: f32) -> NifTransform {
     let (sx, cx) = rotation[0].sin_cos();
     let (sy, cy) = rotation[1].sin_cos();
     let (sz, cz) = rotation[2].sin_cos();
@@ -785,11 +802,7 @@ fn reference_transform(
     };
     NifTransform {
         rotation: rz.mul(&ry).mul(&rx),
-        translation: NifVec3::new(
-            position[0] - origin.x as f32 * CELL_UNITS,
-            position[1] - origin.y as f32 * CELL_UNITS,
-            position[2],
-        ),
+        translation: NifVec3::new(position[0], position[1], position[2]),
         scale,
     }
 }
@@ -846,11 +859,11 @@ mod edt_25_tests {
         let base = plugin.push_record(
             Record::new(tag::STAT, STATIC_ID)
                 .with_flags(soe_esm::records::stat::flags::HAS_DISTANT_LOD)
-                .zsub(b"MODL", "meshes/source.nif"),
+                .zsub(b"MODL", "source.nif"),
         );
         statics.entries.push(Entry::Record(base));
-        let ordinary_base = plugin
-            .push_record(Record::new(tag::STAT, STATIC_ID + 1).zsub(b"MODL", "meshes/source.nif"));
+        let ordinary_base =
+            plugin.push_record(Record::new(tag::STAT, STATIC_ID + 1).zsub(b"MODL", "source.nif"));
         statics.entries.push(Entry::Record(ordinary_base));
 
         let world =
@@ -998,11 +1011,24 @@ mod edt_25_tests {
         assert_eq!(loaded.surfaces[0].reference, world);
         let positions = &loaded.surfaces[0].arrays.positions;
         let unit = crate::units::METRES_PER_UNIT;
-        assert!((positions[1][0] - positions[0][0]).abs() < 1e-5);
-        assert!((positions[1][2] - positions[0][2] + 2.0 * unit).abs() < 1e-5);
-        assert!((positions[2][0] - positions[0][0] + 2.0 * unit).abs() < 1e-5);
-        assert!((positions[2][2] - positions[1][2]).abs() < 1e-5);
+        // Positions are world space like the baked BTO path, so f32 spacing
+        // at a few hundred metres is about 3e-5.
+        let tolerance = 1e-4;
+        assert!((positions[1][0] - positions[0][0]).abs() < tolerance);
+        assert!((positions[1][2] - positions[0][2] + 2.0 * unit).abs() < tolerance);
+        assert!((positions[2][0] - positions[0][0] + 2.0 * unit).abs() < tolerance);
+        assert!((positions[2][2] - positions[1][2]).abs() < tolerance);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn edt_25_model_paths_are_read_below_meshes() {
+        assert_eq!(
+            super::meshes_path("LOD\\Mountains\\MountainPeak02_LOD_2.nif"),
+            "meshes/LOD/Mountains/MountainPeak02_LOD_2.nif"
+        );
+        assert_eq!(super::meshes_path("Meshes\\a.nif"), "Meshes/a.nif");
+        assert_eq!(super::meshes_path("meshes/a.nif"), "meshes/a.nif");
     }
 
     #[test]
