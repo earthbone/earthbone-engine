@@ -1,0 +1,2373 @@
+{
+  "counts": {
+    "by_base_type": {
+      "ARMO": {
+        "pass": 1
+      },
+      "WEAP": {
+        "error": 9,
+        "no outcome": 18,
+        "pass": 84,
+        "wrong outcome": 17
+      }
+    },
+    "by_failure_cause": {
+      "hit_unsupported_combat_behavior_non_melee_weapon_or": 6,
+      "hit_unsupported_combat_behavior_unarmed_power_attack": 1,
+      "kill_lethal_hit_survived": 17,
+      "release_weapon_is_not_equipped_or_present_in_the_attacke": 2,
+      "weapon_block_not_evaluated": 18
+    }
+  },
+  "oracle": "WEAP records, fCombatSneak settings and CK wiki combat rules, no captured vanilla runtime oracle",
+  "rows": [
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "hand_to_hand",
+        "normal_damage": 3.421600103378296,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Unarmed",
+        "file": 0,
+        "id": "0:0001F4",
+        "object": 500
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "hit_unsupported_combat_behavior_unarmed_power_attack",
+      "observed": {},
+      "reason": "unsupported combat behavior: unarmed power attack",
+      "reference": {
+        "editor_id": "Unarmed",
+        "file": 0,
+        "id": "0:0001F4",
+        "object": 500
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "hand_to_hand",
+        "normal_damage": 3.421600103378296,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Unarmed",
+        "file": 0,
+        "id": "0:0001F4",
+        "object": 500
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "hand_to_hand",
+        "normal_damage": 3.421600103378296,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Unarmed",
+        "file": 0,
+        "id": "0:0001F4",
+        "object": 500
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "hand_to_hand",
+        "normal_damage": 3.421600103378296,
+        "staggered": false
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "Unarmed",
+        "file": 0,
+        "id": "0:0001F4",
+        "object": 500
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "hand_to_hand",
+        "normal_damage": 4.0,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Unarmed",
+        "file": 0,
+        "id": "0:0001F4",
+        "object": 500
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "Unarmed",
+        "file": 0,
+        "id": "0:0001F4",
+        "object": 500
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "hit_unsupported_combat_behavior_non_melee_weapon_or",
+      "observed": {},
+      "reason": "unsupported combat behavior: non-melee weapon or governing skill",
+      "reference": {
+        "editor_id": "GasTrapDummy",
+        "file": 0,
+        "id": "0:0001F6",
+        "object": 502
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "hit_unsupported_combat_behavior_non_melee_weapon_or",
+      "observed": {},
+      "reason": "unsupported combat behavior: non-melee weapon or governing skill",
+      "reference": {
+        "editor_id": "GasTrapDummy",
+        "file": 0,
+        "id": "0:0001F6",
+        "object": 502
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "hit_unsupported_combat_behavior_non_melee_weapon_or",
+      "observed": {},
+      "reason": "unsupported combat behavior: non-melee weapon or governing skill",
+      "reference": {
+        "editor_id": "GasTrapDummy",
+        "file": 0,
+        "id": "0:0001F6",
+        "object": 502
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "hit_unsupported_combat_behavior_non_melee_weapon_or",
+      "observed": {},
+      "reason": "unsupported combat behavior: non-melee weapon or governing skill",
+      "reference": {
+        "editor_id": "GasTrapDummy",
+        "file": 0,
+        "id": "0:0001F6",
+        "object": 502
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "hit_unsupported_combat_behavior_non_melee_weapon_or",
+      "observed": {},
+      "reason": "unsupported combat behavior: non-melee weapon or governing skill",
+      "reference": {
+        "editor_id": "GasTrapDummy",
+        "file": 0,
+        "id": "0:0001F6",
+        "object": 502
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "hit_unsupported_combat_behavior_non_melee_weapon_or",
+      "observed": {},
+      "reason": "unsupported combat behavior: non-melee weapon or governing skill",
+      "reference": {
+        "editor_id": "GasTrapDummy",
+        "file": 0,
+        "id": "0:0001F6",
+        "object": 502
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "GasTrapDummy",
+        "file": 0,
+        "id": "0:0001F6",
+        "object": 502
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 6.5865797996521,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronSword",
+        "file": 0,
+        "id": "0:012EB7",
+        "object": 77495
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 6.5865797996521,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronSword",
+        "file": 0,
+        "id": "0:012EB7",
+        "object": 77495
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 6.5865797996521,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronSword",
+        "file": 0,
+        "id": "0:012EB7",
+        "object": 77495
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 6.5865797996521,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronSword",
+        "file": 0,
+        "id": "0:012EB7",
+        "object": 77495
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 6.5865797996521,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "IronSword",
+        "file": 0,
+        "id": "0:012EB7",
+        "object": 77495
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "one_handed_sword",
+        "normal_damage": 10.920000076293945,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronSword",
+        "file": 0,
+        "id": "0:012EB7",
+        "object": 77495
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "IronSword",
+        "file": 0,
+        "id": "0:012EB7",
+        "object": 77495
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "DemoQuestSword1",
+        "file": 0,
+        "id": "0:013135",
+        "object": 78133
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "DemoQuestSword1",
+        "file": 0,
+        "id": "0:013135",
+        "object": 78133
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "DemoQuestSword1",
+        "file": 0,
+        "id": "0:013135",
+        "object": 78133
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "DemoQuestSword1",
+        "file": 0,
+        "id": "0:013135",
+        "object": 78133
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "DemoQuestSword1",
+        "file": 0,
+        "id": "0:013135",
+        "object": 78133
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "one_handed_sword",
+        "normal_damage": 15.600000381469727,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "DemoQuestSword1",
+        "file": 0,
+        "id": "0:013135",
+        "object": 78133
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "DemoQuestSword1",
+        "file": 0,
+        "id": "0:013135",
+        "object": 78133
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 14.43487548828125,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronGreatsword",
+        "file": 0,
+        "id": "0:01359D",
+        "object": 79261
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 14.43487548828125,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronGreatsword",
+        "file": 0,
+        "id": "0:01359D",
+        "object": 79261
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 14.43487548828125,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronGreatsword",
+        "file": 0,
+        "id": "0:01359D",
+        "object": 79261
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 14.43487548828125,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronGreatsword",
+        "file": 0,
+        "id": "0:01359D",
+        "object": 79261
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 14.43487548828125,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "IronGreatsword",
+        "file": 0,
+        "id": "0:01359D",
+        "object": 79261
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "two_handed_sword",
+        "normal_damage": 23.399999618530273,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronGreatsword",
+        "file": 0,
+        "id": "0:01359D",
+        "object": 79261
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "IronGreatsword",
+        "file": 0,
+        "id": "0:01359D",
+        "object": 79261
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Imperialsword",
+        "file": 0,
+        "id": "0:0135B8",
+        "object": 79288
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Imperialsword",
+        "file": 0,
+        "id": "0:0135B8",
+        "object": 79288
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Imperialsword",
+        "file": 0,
+        "id": "0:0135B8",
+        "object": 79288
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Imperialsword",
+        "file": 0,
+        "id": "0:0135B8",
+        "object": 79288
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "Imperialsword",
+        "file": 0,
+        "id": "0:0135B8",
+        "object": 79288
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "one_handed_sword",
+        "normal_damage": 12.479999542236328,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Imperialsword",
+        "file": 0,
+        "id": "0:0135B8",
+        "object": 79288
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "Imperialsword",
+        "file": 0,
+        "id": "0:0135B8",
+        "object": 79288
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarAxe",
+        "file": 0,
+        "id": "0:013790",
+        "object": 79760
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarAxe",
+        "file": 0,
+        "id": "0:013790",
+        "object": 79760
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarAxe",
+        "file": 0,
+        "id": "0:013790",
+        "object": 79760
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarAxe",
+        "file": 0,
+        "id": "0:013790",
+        "object": 79760
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "IronWarAxe",
+        "file": 0,
+        "id": "0:013790",
+        "object": 79760
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "one_handed_axe",
+        "normal_damage": 12.479999542236328,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarAxe",
+        "file": 0,
+        "id": "0:013790",
+        "object": 79760
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "IronWarAxe",
+        "file": 0,
+        "id": "0:013790",
+        "object": 79760
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "ranged",
+      "cause": "release_weapon_is_not_equipped_or_present_in_the_attacke",
+      "observed": {},
+      "reason": "weapon is not equipped or present in the attacker's inventory",
+      "reference": {
+        "editor_id": "ImperialBow",
+        "file": 0,
+        "id": "0:013841",
+        "object": 79937
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 3.7637600898742676,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronDagger",
+        "file": 0,
+        "id": "0:01397E",
+        "object": 80254
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 3.7637600898742676,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronDagger",
+        "file": 0,
+        "id": "0:01397E",
+        "object": 80254
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 3.7637600898742676,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronDagger",
+        "file": 0,
+        "id": "0:01397E",
+        "object": 80254
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 3.7637600898742676,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronDagger",
+        "file": 0,
+        "id": "0:01397E",
+        "object": 80254
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 3.7637600898742676,
+        "staggered": false
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "IronDagger",
+        "file": 0,
+        "id": "0:01397E",
+        "object": 80254
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "dagger",
+        "normal_damage": 6.239999771118164,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronDagger",
+        "file": 0,
+        "id": "0:01397E",
+        "object": 80254
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "IronDagger",
+        "file": 0,
+        "id": "0:01397E",
+        "object": 80254
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 15.397199630737305,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronBattleaxe",
+        "file": 0,
+        "id": "0:013980",
+        "object": 80256
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 15.397199630737305,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronBattleaxe",
+        "file": 0,
+        "id": "0:013980",
+        "object": 80256
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 15.397199630737305,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronBattleaxe",
+        "file": 0,
+        "id": "0:013980",
+        "object": 80256
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 15.397199630737305,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronBattleaxe",
+        "file": 0,
+        "id": "0:013980",
+        "object": 80256
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 15.397199630737305,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "IronBattleaxe",
+        "file": 0,
+        "id": "0:013980",
+        "object": 80256
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "two_handed_axe",
+        "normal_damage": 24.959999084472656,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronBattleaxe",
+        "file": 0,
+        "id": "0:013980",
+        "object": 80256
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "IronBattleaxe",
+        "file": 0,
+        "id": "0:013980",
+        "object": 80256
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarhammer",
+        "file": 0,
+        "id": "0:013981",
+        "object": 80257
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarhammer",
+        "file": 0,
+        "id": "0:013981",
+        "object": 80257
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarhammer",
+        "file": 0,
+        "id": "0:013981",
+        "object": 80257
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarhammer",
+        "file": 0,
+        "id": "0:013981",
+        "object": 80257
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "IronWarhammer",
+        "file": 0,
+        "id": "0:013981",
+        "object": 80257
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "two_handed_axe",
+        "normal_damage": 28.079999923706055,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronWarhammer",
+        "file": 0,
+        "id": "0:013981",
+        "object": 80257
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "IronWarhammer",
+        "file": 0,
+        "id": "0:013981",
+        "object": 80257
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronMace",
+        "file": 0,
+        "id": "0:013982",
+        "object": 80258
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronMace",
+        "file": 0,
+        "id": "0:013982",
+        "object": 80258
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronMace",
+        "file": 0,
+        "id": "0:013982",
+        "object": 80258
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronMace",
+        "file": 0,
+        "id": "0:013982",
+        "object": 80258
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "IronMace",
+        "file": 0,
+        "id": "0:013982",
+        "object": 80258
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "mace",
+        "normal_damage": 14.039999961853027,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "IronMace",
+        "file": 0,
+        "id": "0:013982",
+        "object": 80258
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "IronMace",
+        "file": 0,
+        "id": "0:013982",
+        "object": 80258
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarAxe",
+        "file": 0,
+        "id": "0:013983",
+        "object": 80259
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarAxe",
+        "file": 0,
+        "id": "0:013983",
+        "object": 80259
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarAxe",
+        "file": 0,
+        "id": "0:013983",
+        "object": 80259
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarAxe",
+        "file": 0,
+        "id": "0:013983",
+        "object": 80259
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_axe",
+        "normal_damage": 8.468460083007812,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "SteelWarAxe",
+        "file": 0,
+        "id": "0:013983",
+        "object": 80259
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "one_handed_axe",
+        "normal_damage": 14.039999961853027,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarAxe",
+        "file": 0,
+        "id": "0:013983",
+        "object": 80259
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "SteelWarAxe",
+        "file": 0,
+        "id": "0:013983",
+        "object": 80259
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelBattleaxe",
+        "file": 0,
+        "id": "0:013984",
+        "object": 80260
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelBattleaxe",
+        "file": 0,
+        "id": "0:013984",
+        "object": 80260
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelBattleaxe",
+        "file": 0,
+        "id": "0:013984",
+        "object": 80260
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelBattleaxe",
+        "file": 0,
+        "id": "0:013984",
+        "object": 80260
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 17.321849822998047,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "SteelBattleaxe",
+        "file": 0,
+        "id": "0:013984",
+        "object": 80260
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "two_handed_axe",
+        "normal_damage": 28.079999923706055,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelBattleaxe",
+        "file": 0,
+        "id": "0:013984",
+        "object": 80260
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "SteelBattleaxe",
+        "file": 0,
+        "id": "0:013984",
+        "object": 80260
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "ranged",
+      "cause": "release_weapon_is_not_equipped_or_present_in_the_attacke",
+      "observed": {},
+      "reason": "weapon is not equipped or present in the attacker's inventory",
+      "reference": {
+        "editor_id": "HuntingBow",
+        "file": 0,
+        "id": "0:013985",
+        "object": 80261
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 4.704699993133545,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelDagger",
+        "file": 0,
+        "id": "0:013986",
+        "object": 80262
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 4.704699993133545,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelDagger",
+        "file": 0,
+        "id": "0:013986",
+        "object": 80262
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 4.704699993133545,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelDagger",
+        "file": 0,
+        "id": "0:013986",
+        "object": 80262
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 4.704699993133545,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelDagger",
+        "file": 0,
+        "id": "0:013986",
+        "object": 80262
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "dagger",
+        "normal_damage": 4.704699993133545,
+        "staggered": false
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "SteelDagger",
+        "file": 0,
+        "id": "0:013986",
+        "object": 80262
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "dagger",
+        "normal_damage": 7.800000190734863,
+        "staggered": false
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelDagger",
+        "file": 0,
+        "id": "0:013986",
+        "object": 80262
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "SteelDagger",
+        "file": 0,
+        "id": "0:013986",
+        "object": 80262
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 16.359525680541992,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelGreatsword",
+        "file": 0,
+        "id": "0:013987",
+        "object": 80263
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 16.359525680541992,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelGreatsword",
+        "file": 0,
+        "id": "0:013987",
+        "object": 80263
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 16.359525680541992,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelGreatsword",
+        "file": 0,
+        "id": "0:013987",
+        "object": 80263
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 16.359525680541992,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelGreatsword",
+        "file": 0,
+        "id": "0:013987",
+        "object": 80263
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_sword",
+        "normal_damage": 16.359525680541992,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "SteelGreatsword",
+        "file": 0,
+        "id": "0:013987",
+        "object": 80263
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "two_handed_sword",
+        "normal_damage": 26.520000457763672,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelGreatsword",
+        "file": 0,
+        "id": "0:013987",
+        "object": 80263
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "SteelGreatsword",
+        "file": 0,
+        "id": "0:013987",
+        "object": 80263
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelMace",
+        "file": 0,
+        "id": "0:013988",
+        "object": 80264
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelMace",
+        "file": 0,
+        "id": "0:013988",
+        "object": 80264
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelMace",
+        "file": 0,
+        "id": "0:013988",
+        "object": 80264
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelMace",
+        "file": 0,
+        "id": "0:013988",
+        "object": 80264
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "mace",
+        "normal_damage": 9.40939998626709,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "SteelMace",
+        "file": 0,
+        "id": "0:013988",
+        "object": 80264
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "mace",
+        "normal_damage": 15.600000381469727,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelMace",
+        "file": 0,
+        "id": "0:013988",
+        "object": 80264
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "SteelMace",
+        "file": 0,
+        "id": "0:013988",
+        "object": 80264
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelSword",
+        "file": 0,
+        "id": "0:013989",
+        "object": 80265
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelSword",
+        "file": 0,
+        "id": "0:013989",
+        "object": 80265
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelSword",
+        "file": 0,
+        "id": "0:013989",
+        "object": 80265
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelSword",
+        "file": 0,
+        "id": "0:013989",
+        "object": 80265
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "one_handed_sword",
+        "normal_damage": 7.527520179748535,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "SteelSword",
+        "file": 0,
+        "id": "0:013989",
+        "object": 80265
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "one_handed_sword",
+        "normal_damage": 12.479999542236328,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelSword",
+        "file": 0,
+        "id": "0:013989",
+        "object": 80265
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "SteelSword",
+        "file": 0,
+        "id": "0:013989",
+        "object": 80265
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "normal",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 19.24650001525879,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarhammer",
+        "file": 0,
+        "id": "0:01398A",
+        "object": 80266
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "power",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 19.24650001525879,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarhammer",
+        "file": 0,
+        "id": "0:01398A",
+        "object": 80266
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "sneak",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 19.24650001525879,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarhammer",
+        "file": 0,
+        "id": "0:01398A",
+        "object": 80266
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "shield_block",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 19.24650001525879,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarhammer",
+        "file": 0,
+        "id": "0:01398A",
+        "object": 80266
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "kill",
+      "cause": "kill_lethal_hit_survived",
+      "observed": {
+        "armor_reduction": 0.1446000039577484,
+        "class": "two_handed_axe",
+        "normal_damage": 19.24650001525879,
+        "staggered": true
+      },
+      "reason": "a lethal hit did not kill",
+      "reference": {
+        "editor_id": "SteelWarhammer",
+        "file": 0,
+        "id": "0:01398A",
+        "object": 80266
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "npc_attacks_player",
+      "cause": "",
+      "observed": {
+        "armor_reduction": 0.0,
+        "class": "two_handed_axe",
+        "normal_damage": 31.200000762939453,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SteelWarhammer",
+        "file": 0,
+        "id": "0:01398A",
+        "object": 80266
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "WEAP",
+      "case": "weapon_block",
+      "cause": "weapon_block_not_evaluated",
+      "observed": {},
+      "reason": "blocking with a weapon and no shield is not evaluated by melee_hit",
+      "reference": {
+        "editor_id": "SteelWarhammer",
+        "file": 0,
+        "id": "0:01398A",
+        "object": 80266
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "ARMO",
+      "case": "bash",
+      "cause": "",
+      "observed": {
+        "damage": 17.107999801635742,
+        "staggered": true
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "ArmorIronShield",
+        "file": 0,
+        "id": "0:012EB6",
+        "object": 77494
+      },
+      "status": "pass"
+    }
+  ],
+  "schema": 1,
+  "sweep": "combat",
+  "visual": [
+    {
+      "cause": "godot_pass_not_run",
+      "check": "hit reaction animation on the target",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "death animation and ragdoll",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "power attack and bash animations",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "arrow flight, impact and recovered arrow",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "blocking with a weapon",
+      "records": [],
+      "status": "not run"
+    }
+  ]
+}

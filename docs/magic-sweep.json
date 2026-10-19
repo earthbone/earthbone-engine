@@ -1,0 +1,1224 @@
+{
+  "counts": {
+    "by_base_type": {
+      "SCRL": {
+        "error": 20
+      },
+      "SHOU": {
+        "error": 13,
+        "pass": 7
+      },
+      "SPEL": {
+        "error": 17,
+        "pass": 10,
+        "wrong outcome": 3
+      }
+    },
+    "by_failure_cause": {
+      "cast_magic_effect_condition_missing_or_wrong_type_con": 1,
+      "cast_unsupported_magic_behavior_aimed_cast_requires_p": 12,
+      "cast_unsupported_magic_behavior_peak_value_keyword": 3,
+      "cast_unsupported_magic_behavior_summon_actor_not_summ": 1,
+      "effect_missing_from_active_list": 3,
+      "scroll_unsupported_magic_behavior_not_a_scroll_cast": 20,
+      "shout_unsupported_magic_behavior_aimed_cast_requires_p": 7,
+      "shout_unsupported_magic_behavior_concentration_require": 3,
+      "shout_unsupported_magic_behavior_location_delivery": 2,
+      "shout_unsupported_magic_behavior_shout_has_no_spell": 1
+    }
+  },
+  "oracle": "SPEL, MGEF, ENCH and SHOU records, CK wiki cast semantics and UESP resistance, no captured vanilla runtime oracle",
+  "rows": [
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "",
+      "observed": {
+        "applied": 0,
+        "cast_type": 2,
+        "cost": 12.589254379272461,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Healing",
+        "file": 0,
+        "id": "0:012FCC",
+        "object": 77772
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "npc",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 2,
+        "cost": 24.622888565063477,
+        "delivery": 2,
+        "target": "npc"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Flames",
+        "file": 0,
+        "id": "0:012FCD",
+        "object": 77773
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "creature",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 2,
+        "cost": 24.622888565063477,
+        "delivery": 2,
+        "target": "creature"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Flames",
+        "file": 0,
+        "id": "0:012FCD",
+        "object": 77773
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "object",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 2,
+        "cost": 24.622888565063477,
+        "delivery": 2,
+        "target": "object"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Flames",
+        "file": 0,
+        "id": "0:012FCD",
+        "object": 77773
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "npc",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 1,
+        "cost": 41.39289093017578,
+        "delivery": 2,
+        "target": "npc"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Firebolt",
+        "file": 0,
+        "id": "0:012FD0",
+        "object": 77776
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "creature",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 1,
+        "cost": 41.39289093017578,
+        "delivery": 2,
+        "target": "creature"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Firebolt",
+        "file": 0,
+        "id": "0:012FD0",
+        "object": 77776
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "object",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 1,
+        "cost": 41.39289093017578,
+        "delivery": 2,
+        "target": "object"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Firebolt",
+        "file": 0,
+        "id": "0:012FD0",
+        "object": 77776
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "npc",
+      "cause": "",
+      "observed": {
+        "applied": 1,
+        "cast_type": 1,
+        "cost": 80.84728240966797,
+        "delivery": 3,
+        "target": "npc"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "HealOther",
+        "file": 0,
+        "id": "0:012FD2",
+        "object": 77778
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "creature",
+      "cause": "",
+      "observed": {
+        "applied": 1,
+        "cast_type": 1,
+        "cost": 80.84728240966797,
+        "delivery": 3,
+        "target": "creature"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "HealOther",
+        "file": 0,
+        "id": "0:012FD2",
+        "object": 77778
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "object",
+      "cause": "cast_magic_effect_condition_missing_or_wrong_type_con",
+      "observed": {
+        "cast_type": 1,
+        "cost": 80.84728240966797,
+        "delivery": 3,
+        "target": "object"
+      },
+      "reason": "magic effect condition: missing or wrong-type condition form 65535:001003",
+      "reference": {
+        "editor_id": "HealOther",
+        "file": 0,
+        "id": "0:012FD2",
+        "object": 77778
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "cast_unsupported_magic_behavior_peak_value_keyword",
+      "observed": {
+        "cast_type": 2,
+        "cost": 34.70701599121094,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "unsupported magic behavior: peak value keyword",
+      "reference": {
+        "editor_id": "WardLesser",
+        "file": 0,
+        "id": "0:013018",
+        "object": 77848
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "",
+      "observed": {
+        "applied": 0,
+        "cast_type": 2,
+        "cost": 170.0,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Telekinesis",
+        "file": 0,
+        "id": "0:01A4CC",
+        "object": 107724
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "npc",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 1,
+        "cost": 133.04454040527344,
+        "delivery": 2,
+        "target": "npc"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Fireball",
+        "file": 0,
+        "id": "0:01C789",
+        "object": 116617
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "creature",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 1,
+        "cost": 133.04454040527344,
+        "delivery": 2,
+        "target": "creature"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Fireball",
+        "file": 0,
+        "id": "0:01C789",
+        "object": 116617
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "object",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 1,
+        "cost": 133.04454040527344,
+        "delivery": 2,
+        "target": "object"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Fireball",
+        "file": 0,
+        "id": "0:01C789",
+        "object": 116617
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "space",
+      "cause": "cast_unsupported_magic_behavior_summon_actor_not_summ",
+      "observed": {
+        "cast_type": 1,
+        "cost": 150.72512817382812,
+        "delivery": 4,
+        "target": "space"
+      },
+      "reason": "unsupported magic behavior: summon actor not summonable",
+      "reference": {
+        "editor_id": "ConjureFlameAtronach",
+        "file": 0,
+        "id": "0:0204C3",
+        "object": 132291
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "space",
+      "cause": "",
+      "observed": {
+        "applied": 0,
+        "cast_type": 1,
+        "cost": 215.3216094970703,
+        "delivery": 4,
+        "target": "space"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "ConjureFrostAtronach",
+        "file": 0,
+        "id": "0:0204C4",
+        "object": 132292
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "space",
+      "cause": "",
+      "observed": {
+        "applied": 0,
+        "cast_type": 1,
+        "cost": 322.982421875,
+        "delivery": 4,
+        "target": "space"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "ConjureStormAtronach",
+        "file": 0,
+        "id": "0:0204C5",
+        "object": 132293
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "",
+      "observed": {
+        "applied": 0,
+        "cast_type": 2,
+        "cost": 25.0,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Clairvoyance",
+        "file": 0,
+        "id": "0:021143",
+        "object": 135491
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "effect_missing_from_active_list",
+      "observed": {
+        "applied": 1,
+        "cast_type": 1,
+        "cost": 93.8488998413086,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "BoundSwordMysticFFSelf is not active on the self",
+      "reference": {
+        "editor_id": "BoundSword",
+        "file": 0,
+        "id": "0:0211EB",
+        "object": 135659
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "effect_missing_from_active_list",
+      "observed": {
+        "applied": 1,
+        "cast_type": 1,
+        "cost": 169.23573303222656,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "BoundBattleAxeMysticFFSelf is not active on the self",
+      "reference": {
+        "editor_id": "BoundBattleAxe",
+        "file": 0,
+        "id": "0:0211EC",
+        "object": 135660
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "effect_missing_from_active_list",
+      "observed": {
+        "applied": 1,
+        "cast_type": 1,
+        "cost": 207.69839477539062,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "BoundBowMysticFFSelf is not active on the self",
+      "reference": {
+        "editor_id": "BoundBow",
+        "file": 0,
+        "id": "0:0211ED",
+        "object": 135661
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "",
+      "observed": {
+        "applied": 0,
+        "cast_type": 2,
+        "cost": 100.0,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "DetectLife",
+        "file": 0,
+        "id": "0:0211EE",
+        "object": 135662
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "",
+      "observed": {
+        "applied": 0,
+        "cast_type": 2,
+        "cost": 148.0,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "DetectDead",
+        "file": 0,
+        "id": "0:0211EF",
+        "object": 135663
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "cast_unsupported_magic_behavior_peak_value_keyword",
+      "observed": {
+        "cast_type": 2,
+        "cost": 86.79546356201172,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "unsupported magic behavior: peak value keyword",
+      "reference": {
+        "editor_id": "WardGreater",
+        "file": 0,
+        "id": "0:0211F0",
+        "object": 135664
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "cast_unsupported_magic_behavior_peak_value_keyword",
+      "observed": {
+        "cast_type": 2,
+        "cost": 58.732666015625,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "unsupported magic behavior: peak value keyword",
+      "reference": {
+        "editor_id": "WardSteadfast",
+        "file": 0,
+        "id": "0:0211F1",
+        "object": 135665
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "self",
+      "cause": "",
+      "observed": {
+        "applied": 1,
+        "cast_type": 1,
+        "cost": 334.8369445800781,
+        "delivery": 0,
+        "target": "self"
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "Invisibility",
+        "file": 0,
+        "id": "0:027EB6",
+        "object": 163510
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "npc",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 2,
+        "cost": 16.74356460571289,
+        "delivery": 2,
+        "target": "npc"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Frostbite",
+        "file": 0,
+        "id": "0:02B96B",
+        "object": 178539
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "creature",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 2,
+        "cost": 16.74356460571289,
+        "delivery": 2,
+        "target": "creature"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Frostbite",
+        "file": 0,
+        "id": "0:02B96B",
+        "object": 178539
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SPEL",
+      "case": "object",
+      "cause": "cast_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {
+        "cast_type": 2,
+        "cost": 16.74356460571289,
+        "delivery": 2,
+        "target": "object"
+      },
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Frostbite",
+        "file": 0,
+        "id": "0:02B96B",
+        "object": 178539
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "MassParalysisScroll",
+        "file": 0,
+        "id": "0:021876",
+        "object": 137334
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "BaneOfTheUndeadScroll",
+        "file": 0,
+        "id": "0:0218F2",
+        "object": 137458
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "FireboltScroll",
+        "file": 0,
+        "id": "0:096598",
+        "object": 615832
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "IceSpikeScroll",
+        "file": 0,
+        "id": "0:096599",
+        "object": 615833
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "LightningBoltScroll",
+        "file": 0,
+        "id": "0:09659A",
+        "object": 615834
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "CandlelightScroll",
+        "file": 0,
+        "id": "0:09659B",
+        "object": 615835
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "OakfleshScroll",
+        "file": 0,
+        "id": "0:09659C",
+        "object": 615836
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "RaiseZombieScroll",
+        "file": 0,
+        "id": "0:09659E",
+        "object": 615838
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "ConjureFamiliarScroll",
+        "file": 0,
+        "id": "0:09659F",
+        "object": 615839
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "CourageScroll",
+        "file": 0,
+        "id": "0:0965A0",
+        "object": 615840
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "FuryScroll",
+        "file": 0,
+        "id": "0:0965A1",
+        "object": 615841
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "MagelightScroll",
+        "file": 0,
+        "id": "0:0965A2",
+        "object": 615842
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "StonefleshScroll",
+        "file": 0,
+        "id": "0:0965A3",
+        "object": 615843
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "ReanimateCorpseScroll",
+        "file": 0,
+        "id": "0:0965A4",
+        "object": 615844
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "ConjureFlameAtronachScroll",
+        "file": 0,
+        "id": "0:0965A5",
+        "object": 615845
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "SoulTrapScroll",
+        "file": 0,
+        "id": "0:0965A7",
+        "object": 615847
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "FireRuneScroll",
+        "file": 0,
+        "id": "0:0965A8",
+        "object": 615848
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "FrostRuneScroll",
+        "file": 0,
+        "id": "0:0965A9",
+        "object": 615849
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "ShockRuneScroll",
+        "file": 0,
+        "id": "0:0965AA",
+        "object": 615850
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SCRL",
+      "case": "npc",
+      "cause": "scroll_unsupported_magic_behavior_not_a_scroll_cast",
+      "observed": {},
+      "reason": "unsupported magic behavior: not a scroll cast",
+      "reference": {
+        "editor_id": "MuffleScroll",
+        "file": 0,
+        "id": "0:0965AB",
+        "object": 615851
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {},
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "UnrelentingForceShout",
+        "file": 0,
+        "id": "0:013E07",
+        "object": 81415
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {},
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "DragonDisarmShout",
+        "file": 0,
+        "id": "0:016C40",
+        "object": 93248
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {},
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "DragonUnrelentingForceShout",
+        "file": 0,
+        "id": "0:016CF0",
+        "object": 93424
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {},
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "Dismay",
+        "file": 0,
+        "id": "0:02395A",
+        "object": 145754
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_concentration_require",
+      "observed": {},
+      "reason": "unsupported magic behavior: concentration requires a held cast",
+      "reference": {
+        "editor_id": "DragonFireBreathShout01",
+        "file": 0,
+        "id": "0:0252C0",
+        "object": 152256
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_location_delivery",
+      "observed": {},
+      "reason": "unsupported magic behavior: location delivery",
+      "reference": {
+        "editor_id": "MQ105PhantomFormShout",
+        "file": 0,
+        "id": "0:02F2DF",
+        "object": 193247
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "",
+      "observed": {
+        "recovery_seconds": 35.0
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "WhirlwindSprintShout",
+        "file": 0,
+        "id": "0:02F7BA",
+        "object": 194490
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "",
+      "observed": {
+        "recovery_seconds": 40.0
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "BecomeEtherealShout",
+        "file": 0,
+        "id": "0:032920",
+        "object": 207136
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "",
+      "observed": {
+        "recovery_seconds": 50.0
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "ElementalFuryShout",
+        "file": 0,
+        "id": "0:032921",
+        "object": 207137
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "",
+      "observed": {
+        "recovery_seconds": 15.0
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "ClearSkiesShout",
+        "file": 0,
+        "id": "0:03CD34",
+        "object": 249140
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {},
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "FireBreathShout",
+        "file": 0,
+        "id": "0:03F9EA",
+        "object": 260586
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {},
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "DragonrendShout",
+        "file": 0,
+        "id": "0:044250",
+        "object": 279120
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "",
+      "observed": {
+        "recovery_seconds": 300.0
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "CallDragonShout",
+        "file": 0,
+        "id": "0:046B8C",
+        "object": 289676
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "",
+      "observed": {
+        "recovery_seconds": 60.0
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "SlowTimeShout",
+        "file": 0,
+        "id": "0:048AC9",
+        "object": 297673
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "",
+      "observed": {
+        "recovery_seconds": 1.0
+      },
+      "reason": "",
+      "reference": {
+        "editor_id": "AlduinFirestormShout",
+        "file": 0,
+        "id": "0:04C40B",
+        "object": 312331
+      },
+      "status": "pass"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_aimed_cast_requires_p",
+      "observed": {},
+      "reason": "unsupported magic behavior: aimed cast requires projectile contact",
+      "reference": {
+        "editor_id": "DragonFireBallShout01",
+        "file": 0,
+        "id": "0:04DBA5",
+        "object": 318373
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_location_delivery",
+      "observed": {},
+      "reason": "unsupported magic behavior: location delivery",
+      "reference": {
+        "editor_id": "CallofValorShout",
+        "file": 0,
+        "id": "0:05196A",
+        "object": 334186
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_shout_has_no_spell",
+      "observed": {},
+      "reason": "unsupported magic behavior: shout has no spell",
+      "reference": {
+        "editor_id": "MQDragonIceSpikeVolleyShout",
+        "file": 0,
+        "id": "0:0549B1",
+        "object": 346545
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_concentration_require",
+      "observed": {},
+      "reason": "unsupported magic behavior: concentration requires a held cast",
+      "reference": {
+        "editor_id": "DragonFrostBreathShout02",
+        "file": 0,
+        "id": "0:0549B2",
+        "object": 346546
+      },
+      "status": "error"
+    },
+    {
+      "base_type": "SHOU",
+      "case": "npc",
+      "cause": "shout_unsupported_magic_behavior_concentration_require",
+      "observed": {},
+      "reason": "unsupported magic behavior: concentration requires a held cast",
+      "reference": {
+        "editor_id": "DA13AfflictedBreathShout",
+        "file": 0,
+        "id": "0:059327",
+        "object": 365351
+      },
+      "status": "error"
+    }
+  ],
+  "schema": 1,
+  "sweep": "magic",
+  "visual": [
+    {
+      "cause": "godot_pass_not_run",
+      "check": "aimed projectile or beam reaches the target",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "enchanted weapon shader glow",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "fire, frost and shock effect shaders on the weapon and the hit target",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "absorb and soul trap visuals",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "Dawnbreaker explosion, Bloodskal Blade beam, Mehrunes' Razor, Wabbajack transformation",
+      "records": [],
+      "status": "not run"
+    }
+  ]
+}
