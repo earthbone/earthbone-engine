@@ -84,3 +84,12 @@ class ActivationReportTests(unittest.TestCase):
         self.assertTrue(SWEEP.report_failed(report))
         self.assertEqual(row["status"], "pass")
         self.assertEqual(SWEEP.cell_failures(report)[0]["cause"], "startup_papyrus_error")
+
+    def test_retry_incomplete_leaves_completed_cells_alone(self):
+        cell = {"cell": {"id": "0:000010"}, "references": [{"status": "pass"}], "host": {"complete": True, "required": True}}
+        report = {"complete": True, "cells": [cell]}
+        args = type("Args", (), {"retry_incomplete": True, "report": None})()
+        with tempfile.TemporaryDirectory() as work:
+            SWEEP.host_pass(report, args, Path(work))
+            self.assertEqual(list(Path(work).iterdir()), [])
+        self.assertTrue(cell["host"]["complete"])
