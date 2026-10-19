@@ -272,6 +272,18 @@ pub(super) fn texture_path(path: &str) -> String {
     path
 }
 
+/// The VFS path of a texture named by a record, such as TXST `TX00`. Records
+/// store paths relative to `textures/` (vanilla `Landscape\Dirt01.dds`), while
+/// NIF texture sets usually carry the root themselves.
+pub(super) fn record_texture_path(path: &str) -> String {
+    let path = texture_path(path);
+    if path.starts_with("textures/") {
+        path
+    } else {
+        format!("textures/{path}")
+    }
+}
+
 /// Shared opaque magenta/black albedo for a named texture that failed to load.
 pub(crate) fn checker_albedo() -> Arc<TextureData> {
     static CHECKER: OnceLock<Arc<TextureData>> = OnceLock::new();
@@ -521,6 +533,20 @@ mod tests {
             "textures/a/textures/b.dds"
         );
         assert_eq!(super::texture_path("mytextures/a.dds"), "mytextures/a.dds");
+    }
+
+    #[test]
+    fn record_texture_paths_resolve_below_the_textures_root() {
+        for path in [
+            r"Landscape\Dirt01.dds",
+            r"Textures\Landscape\Dirt01.dds",
+            r"C:\Bethesda\Data\Textures\Landscape\Dirt01.dds",
+        ] {
+            assert_eq!(
+                super::record_texture_path(path),
+                "textures/landscape/dirt01.dds"
+            );
+        }
     }
 
     #[test]

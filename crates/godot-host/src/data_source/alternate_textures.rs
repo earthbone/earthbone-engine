@@ -63,12 +63,7 @@ pub(super) fn apply(
             if let Some(path) = record.find(tag) {
                 let path = soe_esm::cursor::zstring(path);
                 if !path.is_empty() {
-                    let path = textures::texture_path(&path);
-                    textures[slot] = if path.starts_with("textures/") {
-                        path
-                    } else {
-                        format!("textures/{path}")
-                    };
+                    textures[slot] = textures::record_texture_path(&path);
                 }
             }
         }

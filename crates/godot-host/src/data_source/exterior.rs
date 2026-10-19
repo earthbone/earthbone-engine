@@ -421,7 +421,7 @@ impl DataSource {
                 }
                 diffuse
             };
-            let path = super::textures::texture_path(&path);
+            let path = super::textures::record_texture_path(&path);
             self.textures
                 .get_or_decode(&self.vfs, &path)
                 .map(|image| (path, image))
@@ -632,5 +632,43 @@ mod tests {
         assert!(within_radius((i32::MIN, i32::MAX), (i32::MIN, i32::MAX), 0));
         assert!(within_radius((4, -4), (2, -2), 2));
         assert!(!within_radius((5, -4), (2, -2), 2));
+    }
+
+    /// Vanilla TXST `TX00` paths are relative to `textures/`. When the root
+    /// was not added, every painted layer missed the VFS and the terrain fell
+    /// back to the default dirt.
+    #[test]
+    fn installed_whiterun_terrain_layers_load_their_ltex_textures() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            eprintln!("SKYRIM_DATA unset, installed terrain texture check skipped");
+            return;
+        };
+        let source = super::DataSource::open(std::path::Path::new(&data)).unwrap();
+        let cell = source.resolve_cell("WhiterunOrigin").unwrap();
+        let location = source.load_location(cell, [0.0; 3], 0).unwrap();
+        let mut layers = std::collections::BTreeSet::new();
+        for surface in location.cells.iter().flat_map(|(_, cell)| &cell.surfaces) {
+            let Some(terrain) = &surface.textures.terrain else {
+                continue;
+            };
+            for quadrant in &terrain.quadrants {
+                layers.extend(quadrant.layers.iter().map(|(path, _)| path.clone()));
+            }
+        }
+        let missing: Vec<String> = source
+            .textures
+            .missing_since(0)
+            .into_iter()
+            .filter(|path| path.starts_with("landscape/"))
+            .collect();
+        eprintln!("TERRAIN LAYERS {layers:?} missing {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "LTEX textures missed the VFS: {missing:?}"
+        );
+        assert!(
+            layers.len() >= 3,
+            "Whiterun terrain must draw several painted textures: {layers:?}"
+        );
     }
 }
