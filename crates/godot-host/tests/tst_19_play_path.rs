@@ -400,6 +400,62 @@ fn heartbeat(path: &Path) -> Option<(u64, bool, String)> {
     ))
 }
 
+/// The process the stack capture must attach to. `bin/godot` execs through a
+/// `timeout` wrapper, so the tracked pid is not the engine. Walk the descendants
+/// of `root` and return the one whose comm names the Godot binary, falling back
+/// to the deepest descendant and then to `root` itself.
+fn engine_pid(root: u32) -> u32 {
+    let mut parents = Vec::new();
+    if let Ok(entries) = fs::read_dir("/proc") {
+        for entry in entries.filter_map(Result::ok) {
+            let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
+                continue;
+            };
+            let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else {
+                continue;
+            };
+            // The comm field may contain spaces, so split after the last paren.
+            let Some(rest) = stat.rsplit_once(')').map(|(_, rest)| rest) else {
+                continue;
+            };
+            let Some(parent) = rest
+                .split_whitespace()
+                .nth(1)
+                .and_then(|p| p.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            let comm = fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+            parents.push((pid, parent, comm.trim().to_owned()));
+        }
+    }
+    let mut found = vec![root];
+    let mut index = 0;
+    while index < found.len() {
+        let current = found[index];
+        found.extend(
+            parents
+                .iter()
+                .filter(|(_, parent, _)| *parent == current)
+                .map(|(pid, _, _)| *pid),
+        );
+        index += 1;
+    }
+    let comm_of = |pid: u32| {
+        parents
+            .iter()
+            .find(|(candidate, _, _)| *candidate == pid)
+            .map(|(_, _, comm)| comm.to_ascii_lowercase())
+            .unwrap_or_default()
+    };
+    found
+        .iter()
+        .copied()
+        .find(|pid| comm_of(*pid).contains("godot"))
+        .or_else(|| found.last().copied())
+        .unwrap_or(root)
+}
+
 fn proc_task_stacks(pid: u32) -> String {
     let tasks = PathBuf::from(format!("/proc/{pid}/task"));
     let Ok(entries) = fs::read_dir(tasks) else {
@@ -480,16 +536,17 @@ fn watch(
                     .append(true)
                     .open(output)
                     .unwrap();
+                let target = engine_pid(child.id());
                 writeln!(
                     file,
-                    "PLAY_PATH_BACKTRACE pid={} stop={stage} stale_ms={}",
+                    "PLAY_PATH_BACKTRACE pid={target} tracked={} stop={stage} stale_ms={}",
                     child.id(),
                     elapsed.as_millis()
                 )
                 .unwrap();
                 let trace = Command::new("timeout")
                     .args([
-                        "1s",
+                        "20s",
                         "gdb",
                         "--batch",
                         "-ex",
@@ -498,24 +555,26 @@ fn watch(
                         "thread apply all bt",
                         "-p",
                     ])
-                    .arg(child.id().to_string())
+                    .arg(target.to_string())
                     .output();
                 match trace {
                     Ok(trace) => {
                         file.write_all(&trace.stdout).unwrap();
                         file.write_all(&trace.stderr).unwrap();
                         if !trace.status.success() {
-                            file.write_all(proc_task_stacks(child.id()).as_bytes())
-                                .unwrap();
+                            file.write_all(proc_task_stacks(target).as_bytes()).unwrap();
                         }
                     }
                     Err(error) => {
                         writeln!(file, "PLAY_PATH_BACKTRACE debugger: {error}").unwrap();
-                        file.write_all(proc_task_stacks(child.id()).as_bytes())
-                            .unwrap();
+                        file.write_all(proc_task_stacks(target).as_bytes()).unwrap();
                     }
                 }
                 writeln!(file, "PLAY_PATH {}", json!({"check": "watchdog.max_ms", "status": "FAIL", "pass": false, "owner": "PRF-38", "stop": stage, "value": {"stale_ms": elapsed.as_millis(), "limit_ms": 2000}})).unwrap();
+                if std::env::var_os("SOE_TST19_TRACE").is_some() {
+                    // The script exports its trace when the long frame ends.
+                    std::thread::sleep(Duration::from_secs(10));
+                }
                 terminate(child);
                 break (child.wait().expect("collect killed Godot exit"), true);
             }
