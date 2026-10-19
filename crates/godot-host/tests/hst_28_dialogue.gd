@@ -229,8 +229,14 @@ func _run_hst_28() -> void:
         var slot := int(state.get("voice_slot", -1))
         var response_voice: AudioStreamPlayer3D = slots[slot] if slot >= 0 and slot < slots.size() else null
         var starts: int = bank.call("voice_start_count")
+        var voice_deadline := Time.get_ticks_msec() + 5000
+        while starts <= voice_starts_before and Time.get_ticks_msec() < voice_deadline:
+            await process_frame
+            starts = bank.call("voice_start_count")
+            if response_voice == null and slot >= 0 and slot < slots.size():
+                response_voice = slots[slot]
         _check(starts > voice_starts_before and response_voice != null and response_voice.is_playing(), "response starts a playing Godot voice")
-        print("hst_28 response audio: ", {"slot": slot, "starts_before": voice_starts_before, "starts_after": starts, "playing": response_voice != null and response_voice.is_playing()})
+        print("hst_28 response audio: ", {"slot": slot, "starts_before": voice_starts_before, "starts_after": starts, "playing": response_voice != null and response_voice.is_playing(), "last_error": bank.call("last_error")})
         var subtitle := player.get_node("MenuLayer/DialogueSubtitle") as Label
         _check(subtitle.visible and subtitle.text == state.get("text", ""), "menu shows the game-selected response line")
     if play_path:
