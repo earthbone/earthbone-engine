@@ -47,8 +47,8 @@ func _run() -> void:
 	check(int(bank.call("music_start_count")) == 0, "music waits for a completion")
 	await wait_path(bank, "music", "music/first.wav")
 	await wait_path(bank, "ambience", "music/first.wav")
-	var first := bank.get_child(16) as AudioStreamPlayer
-	var second := bank.get_child(17) as AudioStreamPlayer
+	var first := bank.get_node("MusicPlayer0") as AudioStreamPlayer
+	var second := bank.get_node("MusicPlayer1") as AudioStreamPlayer
 	var ambience := bank.get_node("AmbiencePlayer") as AudioStreamPlayer
 	check(first.stream is AudioStreamGenerator and ambience.stream is AudioStreamGenerator, "background tracks use chunked generators")
 	await create_timer(0.12).timeout

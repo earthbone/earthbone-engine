@@ -65,8 +65,8 @@ func _run() -> void:
 	_check(bank.call("play_music_track", "music/aud05_first.wav", 2.0, 2.0, false), "first track did not start: " + str(bank.call("last_error")))
 	_check(await _wait_for_music_count(bank, 1), "first track decode did not finish")
 	await _wait_music(bank, "music/aud05_first.wav")
-	var first_player := bank.get_child(16) as AudioStreamPlayer
-	var second_player := bank.get_child(17) as AudioStreamPlayer
+	var first_player := bank.get_node("MusicPlayer0") as AudioStreamPlayer
+	var second_player := bank.get_node("MusicPlayer1") as AudioStreamPlayer
 	_check(first_player.playing, "first track is not playing in Godot")
 	var first_stream := first_player.stream
 

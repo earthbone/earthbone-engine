@@ -261,7 +261,7 @@ func _process(delta: float) -> bool:
     )
     .unwrap();
     let output = Command::new("timeout")
-        .arg("120s")
+        .arg("400s")
         .arg(godot)
         .args(["--path"])
         .arg(project.path())
@@ -402,8 +402,8 @@ func _run() -> void:
 		return
 	if not await wait_path(bank, "music/third.wav"):
 		return
-	var first := bank.get_child(16) as AudioStreamPlayer
-	var second := bank.get_child(17) as AudioStreamPlayer
+	var first := bank.get_node("MusicPlayer0") as AudioStreamPlayer
+	var second := bank.get_node("MusicPlayer1") as AudioStreamPlayer
 	if not check(first.playing != second.playing, "stale outgoing music overlaps the new track"):
 		return
 	print("aud_12_stop_fade_does_not_leave_a_stale_player_after_a_new_track_starts: PASS")

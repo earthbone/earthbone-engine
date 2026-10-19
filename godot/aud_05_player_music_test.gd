@@ -43,8 +43,8 @@ func _run() -> void:
 		quit(1)
 		return
 	var bank := player.get_node("SoundBank")
-	var first_player := bank.get_child(16) as AudioStreamPlayer
-	var second_player := bank.get_child(17) as AudioStreamPlayer
+	var first_player := bank.get_node("MusicPlayer0") as AudioStreamPlayer
+	var second_player := bank.get_node("MusicPlayer1") as AudioStreamPlayer
 	var first_stream_before := first_player.stream
 	var second_stream_before := second_player.stream
 	var capture := AudioEffectCapture.new()

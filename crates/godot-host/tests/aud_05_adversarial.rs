@@ -151,10 +151,10 @@ func run() -> void:
     check(bank.call("play_music_track", "music/end_third.wav", 0.12, 0.12, false), "third track interrupts fade")
     check(await wait_for_music_count(bank, 3), "third track decode finishes")
     await wait_ready(bank, "music/end_third.wav")
-    var latest_stream := (bank.get_child(16) as AudioStreamPlayer).stream
+    var latest_stream := (bank.get_node("MusicPlayer0") as AudioStreamPlayer).stream
     await create_timer(0.3).timeout
-    var first := bank.get_child(16) as AudioStreamPlayer
-    var second := bank.get_child(17) as AudioStreamPlayer
+    var first := bank.get_node("MusicPlayer0") as AudioStreamPlayer
+    var second := bank.get_node("MusicPlayer1") as AudioStreamPlayer
     check(first.playing != second.playing, "completed fade leaves exactly one music slot playing")
     check(first.playing and first.stream == latest_stream, "latest track remains active after fade completion")
     bank.queue_free()
