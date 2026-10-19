@@ -13,8 +13,8 @@ func _initialize() -> void:
 	if not cell.is_empty():
 		startup_cell = cell
 	startup_position = Vector3(-125.0, -800.0, 120.0)
-	if startup_cell == "WhiterunOrigin":
-		startup_radius = 0
+	if _is_exterior():
+		startup_radius = 1
 		startup_position = Vector3(2048.0, 2048.0, 500.0)
 	super._initialize()
 
@@ -53,8 +53,48 @@ func _graph_event(tag: String) -> void:
 		graph_steps += 1
 
 
+func _is_exterior() -> bool:
+	return startup_cell.begins_with("WhiterunOrigin") or startup_cell.begins_with("WhiterunExterior")
+
+
+func _stand_on_exterior_ground() -> void:
+	## The exterior spawn height is a guess. Free fall through missing
+	## collision made the walk record zero steps, so settle on measured ground.
+	var exterior := {}
+	for cell: Dictionary in streamer.call("editor_cell_tree"):
+		if cell.name == startup_cell and not cell.interior:
+			exterior = cell
+			break
+	if exterior.is_empty():
+		failures.append("exterior cell is not in the cell tree")
+		return
+	var point := Vector3(exterior.x * 4096.0 + 2048.0, exterior.y * 4096.0 + 2048.0, 5000.0)
+	var floor_height: Variant = streamer.call("play_path_terrain_height", Vector3(point.x / 70.0, 0, -point.y / 70.0))
+	if floor_height != null:
+		point.z = float(floor_height) + 160.0
+	player.call("enter_cell", startup_cell, point.x, point.y, point.z)
+	await process_frame
+	await process_frame
+	var deadline := Time.get_ticks_msec() + 120_000
+	while player.call("is_location_preparing") and Time.get_ticks_msec() < deadline:
+		await process_frame
+	var support: Dictionary = player.call("play_path_ground", point + Vector3(0, 0, 4096))
+	if not support.is_empty():
+		point.z = float(support.height) + 32.0
+		player.call("enter_cell", startup_cell, point.x, point.y, point.z)
+		await process_frame
+	deadline = Time.get_ticks_msec() + 20_000
+	while not player.call("is_on_ground") and Time.get_ticks_msec() < deadline:
+		await process_frame
+	if not player.call("is_on_ground"):
+		failures.append("player never reached collision ground at " + str(player.call("position")))
+
+
 func _exercise() -> void:
+	if _is_exterior():
+		await _stand_on_exterior_ground()
 	await create_timer(2.0).timeout
+	print("R4 START position=", player.call("position"), " on_ground=", player.call("is_on_ground"))
 	var metrics_before: Dictionary = player.call("performance_metrics")
 	if player_body == null:
 		failures.append("free walk has no player behavior graph")
@@ -67,6 +107,7 @@ func _exercise() -> void:
 			await create_timer(1.5).timeout
 			_key(direction, false)
 		var played := int(player.call("footstep_count")) - before
+		print("R4 AFTER position=", player.call("position"), " on_ground=", player.call("is_on_ground"))
 		print("R4 WALK cell=", startup_cell, " perspective=", perspective, " steps=", played)
 		if played < 2:
 			failures.append("fewer than two player steps in perspective " + str(perspective))
