@@ -96,6 +96,9 @@ func _exercise() -> void:
 	await create_timer(2.0).timeout
 	print("R4 START position=", player.call("position"), " on_ground=", player.call("is_on_ground"))
 	var metrics_before: Dictionary = player.call("performance_metrics")
+	var trace_path := OS.get_environment("R4_TRACE_PATH")
+	if trace_path != "":
+		player.call("set_detailed_tracing", true)
 	if player_body == null:
 		failures.append("free walk has no player behavior graph")
 	else:
@@ -118,6 +121,15 @@ func _exercise() -> void:
 		await process_frame
 		if bool(player.call("is_third_person")) == previous_camera:
 			failures.append("camera mode did not change")
+	if trace_path != "":
+		## Extra free walking so a trace covers about a minute of NPC updates.
+		var extra_end := Time.get_ticks_msec() + int(OS.get_environment("R4_TRACE_SECONDS").to_int()) * 1000
+		while Time.get_ticks_msec() < extra_end:
+			for direction in [KEY_W, KEY_S]:
+				_key(direction, true)
+				await create_timer(2.0).timeout
+				_key(direction, false)
+		streamer.call("write_load_trace", trace_path)
 	await create_timer(1.0).timeout
 	var stopped := int(player.call("footstep_count"))
 	await create_timer(2.0).timeout
