@@ -102,6 +102,9 @@ func _start() -> void:
 		_check("gpu_adapter", not "llvmpipe" in adapter and not "lavapipe" in adapter and not "software" in adapter, {"adapter": adapter})
 	_disconnect_exit_report()
 	_install_audio_probe()
+	if not OS.get_environment("SOE_TST19_TRACE").is_empty():
+		if player.has_method("set_detailed_tracing"):
+			player.call("set_detailed_tracing", true)
 	root.grab_focus()
 	await process_frame
 	route_start = Time.get_ticks_usec()
@@ -129,6 +132,11 @@ func _process(_delta: float) -> bool:
 	var frame_ms := (now - previous_frame) / 1000.0
 	previous_frame = now
 	stalls_ms = maxf(stalls_ms, frame_ms)
+	var trace_path := OS.get_environment("SOE_TST19_TRACE")
+	if not trace_path.is_empty() and frame_ms > 500.0:
+		# A frame this long names its cause in the spans closed during it.
+		print("PLAY_PATH_LONG_FRAME ", JSON.stringify({"ms": frame_ms, "stop": stop_name, "primitives": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME), "draw_calls": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME), "objects": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME), "vram": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_VIDEO_MEM_USED)}))
+		streamer.call("write_load_trace", trace_path)
 	if (now - route_start) / 1_000_000.0 >= Checks.WARMUP_S:
 		measured_frames += 1
 		worst_ms = maxf(worst_ms, frame_ms)
@@ -346,6 +354,12 @@ func _talk_to_hulda() -> bool:
 	var slot := int(state.get("voice_slot", -1))
 	var voice: AudioStreamPlayer3D = bank.get_child(slot) if bank != null and slot >= 0 else null
 	var starts_after: int = bank.call("voice_start_count") if bank != null else 0
+	# The voice decodes on a worker thread and installs on a later frame, so a
+	# started voice is awaited for up to five seconds before the check reads it.
+	var wait_started := Time.get_ticks_msec()
+	while chosen and bank != null and starts_after <= starts_before and Time.get_ticks_msec() - wait_started < 5000:
+		await process_frame
+		starts_after = bank.call("voice_start_count")
 	var playing := voice != null and voice.is_playing()
 	_check("response.audio", chosen and starts_after > starts_before and playing, {"slot": slot, "starts_before": starts_before, "starts_after": starts_after, "playing": playing, "response": state.get("text", "")})
 	await _menu_theme("dialogue")
