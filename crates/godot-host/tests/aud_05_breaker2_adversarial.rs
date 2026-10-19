@@ -142,8 +142,8 @@ func run() -> void:
 	check(player.call("enter_cell", "WhiterunBanneredMare", -125.0, -800.0, 120.0) > 0, "player enters test cell")
 	check(player.call("start_gameplay"), "gameplay starts")
 	var bank := player.get_node("SoundBank")
-	var first_player := bank.get_child(16) as AudioStreamPlayer
-	var second_player := bank.get_child(17) as AudioStreamPlayer
+	var first_player := bank.get_node("MusicPlayer0") as AudioStreamPlayer
+	var second_player := bank.get_node("MusicPlayer1") as AudioStreamPlayer
 	var first_id_file := int(OS.get_environment("AUD_05_FIRST_FILE"))
 	var first_id_object := int(OS.get_environment("AUD_05_FIRST_OBJECT"))
 	var second_id_file := int(OS.get_environment("AUD_05_SECOND_FILE"))
