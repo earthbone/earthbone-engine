@@ -190,6 +190,8 @@ def host_pass(report, args, work):
             cell["host"] = {"required": False, "complete": False, "status": "no eligible references", "exit_status": None, "seconds": 0}
             write_report(args.report, report)
             continue
+        if args.retry_incomplete and cell.get("host", {}).get("complete"):
+            continue
         source = work / f"cell-{index}.json"
         output = work / f"host-{index}.json"
         log = work / f"host-{index}.log"
@@ -231,6 +233,8 @@ def main():
     parser.add_argument("--headless-only", action="store_true")
     parser.add_argument("--reuse", action="store_true", help="reuse the game's existing JSON report")
     parser.add_argument("--cell-timeout", type=int, default=300)
+    parser.add_argument("--retry-incomplete", action="store_true",
+                        help="with --reuse, run the host again only for cells whose host pass did not complete")
     args = parser.parse_args()
     if not os.environ.get("SKYRIM_DATA"):
         parser.error("SKYRIM_DATA is required")

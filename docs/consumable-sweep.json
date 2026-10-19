@@ -1,0 +1,781 @@
+{
+  "counts": {
+    "by_base_type": {
+      "ALCH": {
+        "wrong outcome": 20
+      },
+      "INGR": {
+        "no outcome": 20
+      }
+    },
+    "by_failure_cause": {
+      "ingredient_eat_path_missing": 20,
+      "same_potion_stacks": 20
+    }
+  },
+  "oracle": "CK wiki and UESP archetypes, MGEF flags and ALCH records, no captured vanilla runtime oracle",
+  "rows": [
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "FoodDamageStaminaRate"
+      },
+      "reason": "FoodDamageStaminaRate has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FirebrandWine",
+        "file": 0,
+        "id": "0:01895F",
+        "object": 100703
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "FoodDamageStaminaRate"
+      },
+      "reason": "FoodDamageStaminaRate has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FoodBlackBriarMead",
+        "file": 0,
+        "id": "0:02C35A",
+        "object": 181082
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "FoodDamageStaminaRate"
+      },
+      "reason": "FoodDamageStaminaRate has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FoodWineAlto",
+        "file": 0,
+        "id": "0:03133B",
+        "object": 201531
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "FoodDamageStaminaRate"
+      },
+      "reason": "FoodDamageStaminaRate has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FoodWineBottle02",
+        "file": 0,
+        "id": "0:03133C",
+        "object": 201532
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "FoodDamageStaminaRate"
+      },
+      "reason": "FoodDamageStaminaRate has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FoodMead",
+        "file": 0,
+        "id": "0:034C5D",
+        "object": 216157
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "FoodDamageStaminaRate"
+      },
+      "reason": "FoodDamageStaminaRate has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "Ale",
+        "file": 0,
+        "id": "0:034C5E",
+        "object": 216158
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyBarter"
+      },
+      "reason": "AlchFortifyBarter has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "MQ201Drink",
+        "file": 0,
+        "id": "0:036D53",
+        "object": 224595
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyAlteration"
+      },
+      "reason": "AlchFortifyAlteration has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillAlteration02",
+        "file": 0,
+        "id": "0:03988E",
+        "object": 235662
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyAlteration"
+      },
+      "reason": "AlchFortifyAlteration has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillAlteration03",
+        "file": 0,
+        "id": "0:039899",
+        "object": 235673
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyAlteration"
+      },
+      "reason": "AlchFortifyAlteration has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillAlteration04",
+        "file": 0,
+        "id": "0:03989A",
+        "object": 235674
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyBlock"
+      },
+      "reason": "AlchFortifyBlock has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillBlock02",
+        "file": 0,
+        "id": "0:03989B",
+        "object": 235675
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyBlock"
+      },
+      "reason": "AlchFortifyBlock has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillBlock03",
+        "file": 0,
+        "id": "0:0398AB",
+        "object": 235691
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyBlock"
+      },
+      "reason": "AlchFortifyBlock has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillBlock04",
+        "file": 0,
+        "id": "0:0398AC",
+        "object": 235692
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyConjuration"
+      },
+      "reason": "AlchFortifyConjuration has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillConjuration02",
+        "file": 0,
+        "id": "0:0398AD",
+        "object": 235693
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyConjuration"
+      },
+      "reason": "AlchFortifyConjuration has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillConjuration03",
+        "file": 0,
+        "id": "0:0398EC",
+        "object": 235756
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyConjuration"
+      },
+      "reason": "AlchFortifyConjuration has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillConjuration04",
+        "file": 0,
+        "id": "0:0398ED",
+        "object": 235757
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyDestruction"
+      },
+      "reason": "AlchFortifyDestruction has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillDestruction02",
+        "file": 0,
+        "id": "0:0398EE",
+        "object": 235758
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyDestruction"
+      },
+      "reason": "AlchFortifyDestruction has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillDestruction03",
+        "file": 0,
+        "id": "0:0398F1",
+        "object": 235761
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyDestruction"
+      },
+      "reason": "AlchFortifyDestruction has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillDestruction04",
+        "file": 0,
+        "id": "0:0398F3",
+        "object": 235763
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "ALCH",
+      "case": "drink",
+      "cause": "same_potion_stacks",
+      "observed": {
+        "effect": "AlchFortifyHeavyArmor"
+      },
+      "reason": "AlchFortifyHeavyArmor has 2 active copies after two potions, expected 1",
+      "reference": {
+        "editor_id": "FortifySkillHeavyArmor02",
+        "file": 0,
+        "id": "0:0398F4",
+        "object": 235764
+      },
+      "status": "wrong outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "Thistle01",
+        "file": 0,
+        "id": "0:0134AA",
+        "object": 79018
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "Snowberry",
+        "file": 0,
+        "id": "0:01B3BD",
+        "object": 111549
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "DBJarrinRoot",
+        "file": 0,
+        "id": "0:01BCBC",
+        "object": 113852
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "BirdEgg02",
+        "file": 0,
+        "id": "0:023D6F",
+        "object": 146799
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "BirdEgg03",
+        "file": 0,
+        "id": "0:023D77",
+        "object": 146807
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "Nightshade",
+        "file": 0,
+        "id": "0:02F44C",
+        "object": 193612
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "BoneMeal",
+        "file": 0,
+        "id": "0:034CDD",
+        "object": 216285
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "SaltPile",
+        "file": 0,
+        "id": "0:034CDF",
+        "object": 216287
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "Garlic",
+        "file": 0,
+        "id": "0:034D22",
+        "object": 216354
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "ElvesEar",
+        "file": 0,
+        "id": "0:034D31",
+        "object": 216369
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "FrostMirriam",
+        "file": 0,
+        "id": "0:034D32",
+        "object": 216370
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "ChaurusEggs",
+        "file": 0,
+        "id": "0:03AD56",
+        "object": 240982
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "DaedraHeart",
+        "file": 0,
+        "id": "0:03AD5B",
+        "object": 240987
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "FalmerEar",
+        "file": 0,
+        "id": "0:03AD5D",
+        "object": 240989
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "FireSalts",
+        "file": 0,
+        "id": "0:03AD5E",
+        "object": 240990
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "FrostSalts",
+        "file": 0,
+        "id": "0:03AD5F",
+        "object": 240991
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "VoidSalts",
+        "file": 0,
+        "id": "0:03AD60",
+        "object": 240992
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "BriarHeart",
+        "file": 0,
+        "id": "0:03AD61",
+        "object": 240993
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "Ectoplasm",
+        "file": 0,
+        "id": "0:03AD63",
+        "object": 240995
+      },
+      "status": "no outcome"
+    },
+    {
+      "base_type": "INGR",
+      "case": "eat",
+      "cause": "ingredient_eat_path_missing",
+      "observed": {
+        "effects": 4
+      },
+      "reason": "no public world call eats an INGR, first effect learned and effects applied cannot be observed",
+      "reference": {
+        "editor_id": "GiantToes",
+        "file": 0,
+        "id": "0:03AD64",
+        "object": 240996
+      },
+      "status": "no outcome"
+    }
+  ],
+  "schema": 1,
+  "sweep": "consumables",
+  "visual": [
+    {
+      "cause": "godot_pass_not_run",
+      "check": "drink animation and sound for every potion",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "eat animation and sound for every food",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "book menu opens and turns the page",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "Elder Scroll reading idle, scroll opening, sky and blur",
+      "records": [
+        "0:02D513 DA04ElderScroll",
+        "0:03010B Book4RareEffectsOfTheElderScrolls",
+        "0:032785 DA04RuminationsOnElderScrolls",
+        "0:048782 DA04ElderScrollFurled",
+        "0:0ED03A Book4RareAccountingOfTheElderScrolls",
+        "2:0118F9 DLC1ElderScrollBlood",
+        "2:011A13 DLC1ElderScrollSun",
+        "2:0126DC DLC1ElderScrollDragon"
+      ],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "Elder Scroll reading idle, scroll opening, sky and blur",
+      "records": [],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "torch held",
+      "records": [
+        "0:01950D IceTorch01",
+        "0:01950E IceTorch01_Fast",
+        "0:01950F IceTorch01_FastDesat",
+        "0:019521 IceTorch01_SuperFast",
+        "0:019526 IceTorch01Desat",
+        "0:019527 IceTorch01NS",
+        "0:019528 IceTorch01NS_Fast",
+        "0:019529 IceTorch01NS_FastDesat",
+        "0:01952A IceTorch01NS_NoMove",
+        "0:01952B IceTorch01NS_SuperFast",
+        "0:01952C IceTorch01NSDesat",
+        "0:01D4EC Torch01",
+        "0:02EDFC BleakFallsDraugrTorch01",
+        "0:02EE00 BleakFallsDraugrTorch01NS",
+        "0:02EE07 BleakFallsDraugrTorch01Spot",
+        "0:0346CF DefaultTorch01_FastDesat",
+        "0:03559C DefaultTorch01NS_NoMove",
+        "0:036343 Torch01Shadow",
+        "0:036464 DefaultTorch01_Fast",
+        "0:036B0D DefaultTorch01_SuperFast",
+        "0:038A77 DefaultTorch01NS_FastDesat",
+        "0:05EAD6 DefaultTorch01NS_NotPortalStrict",
+        "0:088242 DefaultTorch01",
+        "0:088243 DefaultTorch01NS",
+        "0:088244 DefaultTorch01Spot",
+        "0:08824E DefaultTorch01HalfOmni",
+        "0:088250 DefaultTorch01Desat",
+        "0:088251 DefaultTorch01HalfOmniDesat",
+        "0:088252 DefaultTorch01NSDesat",
+        "0:088253 DefaultTorch01SpotDesat",
+        "0:0A2697 IceTorch01NS_Saturate",
+        "0:0B33F0 BleakFallsDraugrTorch01NS_MoveLess",
+        "0:0B33F2 BleakFallsDraugrTorch01_HalfOmni",
+        "0:0B9E82 FalmerTorch01",
+        "0:0B9E83 FalmerTorch01NS",
+        "0:0BCC9D DefaultTorch01NS_Fast",
+        "0:0BCC9F DefaultTorch01NS_SuperFast",
+        "0:0C1D01 DefaultTorch01NS_Saturate",
+        "0:0C8126 IceTorch01_Saturate",
+        "0:0C8134 IceTorch01NS_SaturateMoveLess",
+        "0:0CB3B0 DefaultTorch01NS_FastSaturate",
+        "0:0E2018 RannveigsTorch01NS_Fast",
+        "0:0E2019 RannveigsTorch01",
+        "0:0E203D RannveigsTorch01NS",
+        "0:0E2044 RannveigsTorch01NS_NoMove",
+        "4:02B5FD DLC2CZLightTorch01"
+      ],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "Dwemer lexicon use",
+      "records": [
+        "0:03A3D2 DA04DweLexiconCubeBlank01",
+        "0:03A3DD DA04DweLexiconCubeRunes01",
+        "0:03A3E4 MS04DweLexiconCubeCorrupt01"
+      ],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "attunement sphere use",
+      "records": [
+        "0:03532C DA04AttunementSphere"
+      ],
+      "status": "not run"
+    },
+    {
+      "cause": "godot_pass_not_run",
+      "check": "Azura's star use",
+      "records": [
+        "0:063B27 DA01SoulGemAzurasStar"
+      ],
+      "status": "not run"
+    }
+  ]
+}
