@@ -19,3 +19,4 @@ __pycache__/
 /.tst-16/
 /*.log
 *-writer-reply.md
+/.merge-check-target/
